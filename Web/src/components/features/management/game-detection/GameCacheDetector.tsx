@@ -776,28 +776,30 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
               {/* Information Alert */}
               <Alert color="blue" className="about-section">
-                <div>
-                  <p className="text-xs font-medium mb-2">
-                    About Game & Service Cache Detection:
-                  </p>
-                  <ul className="list-disc list-inside text-xs space-y-1 ml-2">
-                    <li>
-                      <strong>Requires processed logs:</strong> Access logs must be processed first
-                      to populate the database
-                    </li>
-                    <li>
-                      Scans database for game and service records and checks if cache files exist
-                    </li>
-                    <li>Shows total cache size and file count per game/service</li>
-                    <li>
-                      Removal deletes ALL cache files, log entries, and database records for the
-                      selected item
-                    </li>
-                    <li>
-                      Service removal cleans up cache for non-game services (riot, blizzard, epic,
-                      wsus, etc.)
-                    </li>
-                  </ul>
+                <div className="space-y-3">
+                  <p className="text-xs font-medium">About Game & Service Cache Detection</p>
+
+                  <div>
+                    <p className="text-xs font-medium text-themed-secondary mb-1">Prerequisite</p>
+                    <p className="text-xs ml-2">Access logs must be processed first to populate the database</p>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-medium text-themed-secondary mb-1">How It Works</p>
+                    <ul className="list-disc list-inside text-xs space-y-0.5 ml-2">
+                      <li>Scans the database for game and service records</li>
+                      <li>Verifies whether corresponding cache files exist on disk</li>
+                      <li>Displays total cache size and file count for each item</li>
+                    </ul>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-medium text-themed-secondary mb-1">Removal Behavior</p>
+                    <ul className="list-disc list-inside text-xs space-y-0.5 ml-2">
+                      <li><strong>Game removal:</strong> Deletes all cache files, log entries, and database records</li>
+                      <li><strong>Service removal:</strong> Cleans up cache for non-game services (Riot, Blizzard, Epic, WSUS, etc.)</li>
+                    </ul>
+                  </div>
                 </div>
               </Alert>
             </>

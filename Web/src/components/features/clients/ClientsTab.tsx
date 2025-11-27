@@ -5,16 +5,18 @@ import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { Card } from '@components/ui/Card';
 import { CacheInfoTooltip } from '@components/ui/Tooltip';
 
+interface ClientData {
+  clientIp: string;
+  totalDownloads: number;
+  totalBytes: number;
+  totalCacheHitBytes: number;
+  totalCacheMissBytes: number;
+  cacheHitPercent: number;
+  lastActivityUtc: string;
+}
+
 interface ClientRowProps {
-  client: {
-    clientIp: string;
-    totalDownloads: number;
-    totalBytes: number;
-    totalCacheHitBytes: number;
-    totalCacheMissBytes: number;
-    cacheHitPercent: number;
-    lastActivityUtc: string;
-  };
+  client: ClientData;
 }
 
 const ClientRow: React.FC<ClientRowProps> = ({ client }) => {
@@ -57,6 +59,62 @@ const ClientRow: React.FC<ClientRowProps> = ({ client }) => {
   );
 };
 
+// Mobile card layout for each client
+const ClientCard: React.FC<ClientRowProps> = ({ client }) => {
+  const formattedLastActivity = useFormattedDateTime(client.lastActivityUtc);
+
+  return (
+    <div
+      className="p-4 rounded-lg border"
+      style={{
+        backgroundColor: 'var(--theme-bg-secondary)',
+        borderColor: 'var(--theme-border-primary)'
+      }}
+    >
+      {/* Header: IP and Hit Rate */}
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-themed-primary font-medium">{client.clientIp}</span>
+        <div className="flex items-center gap-2">
+          <div className="w-16 progress-track rounded-full h-2">
+            <div
+              className="progress-bar-high h-2 rounded-full"
+              style={{ width: `${client.cacheHitPercent}%` }}
+            />
+          </div>
+          <span className="text-xs text-themed-secondary font-medium">
+            {formatPercent(client.cacheHitPercent)}
+          </span>
+        </div>
+      </div>
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 gap-2 text-sm">
+        <div>
+          <span className="text-themed-muted text-xs">Total Data</span>
+          <p className="text-themed-secondary">{formatBytes(client.totalBytes)}</p>
+        </div>
+        <div>
+          <span className="text-themed-muted text-xs">Downloads</span>
+          <p className="text-themed-secondary">{client.totalDownloads}</p>
+        </div>
+        <div>
+          <span className="text-themed-muted text-xs">Cache Hits</span>
+          <p className="cache-hit">{formatBytes(client.totalCacheHitBytes)}</p>
+        </div>
+        <div>
+          <span className="text-themed-muted text-xs">Cache Misses</span>
+          <p className="cache-miss">{formatBytes(client.totalCacheMissBytes)}</p>
+        </div>
+      </div>
+
+      {/* Footer: Last Activity */}
+      <div className="mt-3 pt-2 border-t" style={{ borderColor: 'var(--theme-border-primary)' }}>
+        <span className="text-themed-muted text-xs">Last Activity: {formattedLastActivity}</span>
+      </div>
+    </div>
+  );
+};
+
 const ClientsTab: React.FC = () => {
   const { clientStats } = useStats();
 
@@ -72,16 +130,28 @@ const ClientsTab: React.FC = () => {
           <CacheInfoTooltip />
         </h3>
 
-        <div className="overflow-x-auto -mx-2 px-2">
-          <table className="w-full mobile-table min-w-[600px]">
+        {/* Mobile: Card Layout */}
+        <div className="md:hidden space-y-3">
+          {clientStats.length > 0 ? (
+            clientStats.map((client, idx) => (
+              <ClientCard key={idx} client={client} />
+            ))
+          ) : (
+            <p className="py-8 text-center text-themed-muted">No client data available</p>
+          )}
+        </div>
+
+        {/* Desktop: Table Layout */}
+        <div className="hidden md:block overflow-x-auto -mx-2 px-2">
+          <table className="w-full">
             <thead>
               <tr className="text-left text-xs text-themed-muted uppercase tracking-wider">
-                <th className="pb-3 min-w-[120px]">Client IP</th>
-                <th className="pb-3 hidden sm:table-cell">Total Downloads</th>
-                <th className="pb-3 min-w-[80px]">Total Data</th>
-                <th className="pb-3 hidden md:table-cell">Cache Hits</th>
-                <th className="pb-3 hidden md:table-cell">Cache Misses</th>
-                <th className="pb-3 min-w-[100px]">Hit Rate</th>
+                <th className="pb-3">Client IP</th>
+                <th className="pb-3">Total Downloads</th>
+                <th className="pb-3">Total Data</th>
+                <th className="pb-3">Cache Hits</th>
+                <th className="pb-3">Cache Misses</th>
+                <th className="pb-3">Hit Rate</th>
                 <th className="pb-3 hidden lg:table-cell">Last Activity</th>
               </tr>
             </thead>

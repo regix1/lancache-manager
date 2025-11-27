@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { LayoutDashboard, Download, Laptop, Settings, Menu, X, Users, Key } from 'lucide-react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { LayoutDashboard, Download, Laptop, Settings, Menu, Users, Key, ChevronDown } from 'lucide-react';
 import type { AuthMode } from '@services/auth.service';
 
 interface NavigationProps {
@@ -11,6 +11,15 @@ interface NavigationProps {
 const Navigation: React.FC<NavigationProps> = React.memo(
   ({ activeTab, setActiveTab, authMode = 'unauthenticated' }) => {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const [menuHeight, setMenuHeight] = useState(0);
+    const menuContentRef = useRef<HTMLDivElement>(null);
+
+    // Measure menu content height for smooth animation
+    useEffect(() => {
+      if (menuContentRef.current) {
+        setMenuHeight(menuContentRef.current.scrollHeight);
+      }
+    }, [authMode, mobileMenuOpen]); // Recalculate when tabs change or menu opens
 
     const allTabs = [
       { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, requiresAuth: false, guestOnly: false },
@@ -86,7 +95,7 @@ const Navigation: React.FC<NavigationProps> = React.memo(
 
     return (
       <nav
-        className="border-b"
+        className="border-b sticky top-0 z-50 md:relative"
         style={{
           backgroundColor: 'var(--theme-nav-bg)',
           borderColor: 'var(--theme-nav-border)'
@@ -116,7 +125,7 @@ const Navigation: React.FC<NavigationProps> = React.memo(
               </div>
               <button
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="p-2 rounded-lg transition-colors"
+                className="p-2 rounded-lg transition-colors flex items-center gap-1"
                 style={{
                   color: 'var(--theme-nav-tab-inactive)',
                   backgroundColor: 'transparent'
@@ -128,33 +137,55 @@ const Navigation: React.FC<NavigationProps> = React.memo(
                   e.currentTarget.style.backgroundColor = 'transparent';
                 }}
               >
-                {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+                <Menu className="w-5 h-5" />
+                <ChevronDown
+                  className="w-4 h-4 transition-transform duration-300 ease-out"
+                  style={{
+                    transform: mobileMenuOpen ? 'rotate(180deg)' : 'rotate(0deg)'
+                  }}
+                />
               </button>
             </div>
 
-            {/* Mobile Menu */}
-            {mobileMenuOpen && (
+            {/* Mobile Menu - Animated */}
+            <div
+              className="overflow-hidden transition-all duration-300 ease-out"
+              style={{
+                maxHeight: mobileMenuOpen ? `${menuHeight}px` : '0px',
+                opacity: mobileMenuOpen ? 1 : 0
+              }}
+            >
               <div
+                ref={menuContentRef}
                 className="border-t py-2 space-y-1"
                 style={{
                   backgroundColor: 'var(--theme-nav-mobile-menu-bg)',
                   borderColor: 'var(--theme-nav-border)'
                 }}
               >
-                {tabs.map((tab) => (
-                  <TabButton
+                {tabs.map((tab, index) => (
+                  <div
                     key={tab.id}
-                    tab={tab}
-                    isActive={activeTab === tab.id}
-                    onClick={() => {
-                      setActiveTab(tab.id);
-                      setMobileMenuOpen(false);
+                    className="transition-all duration-300 ease-out"
+                    style={{
+                      opacity: mobileMenuOpen ? 1 : 0,
+                      transform: mobileMenuOpen ? 'translateX(0)' : 'translateX(-10px)',
+                      transitionDelay: mobileMenuOpen ? `${index * 50}ms` : '0ms'
                     }}
-                    className="w-full justify-start"
-                  />
+                  >
+                    <TabButton
+                      tab={tab}
+                      isActive={activeTab === tab.id}
+                      onClick={() => {
+                        setActiveTab(tab.id);
+                        setMobileMenuOpen(false);
+                      }}
+                      className="w-full justify-start"
+                    />
+                  </div>
                 ))}
               </div>
-            )}
+            </div>
           </div>
         </div>
       </nav>

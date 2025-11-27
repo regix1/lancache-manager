@@ -16,6 +16,7 @@ import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
 import { Alert } from '@components/ui/Alert';
+import { HelpPopover } from '@components/ui/HelpPopover';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import ApiService from '@services/api.service';
 import themeService from '@services/theme.service';
@@ -572,9 +573,29 @@ const UserTab: React.FC = () => {
       {/* Users Table */}
       <Card>
         <div className="p-6">
-          <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--theme-text-primary)' }}>
-            All Sessions
-          </h2>
+          <div className="flex items-center gap-2 mb-4">
+            <h2 className="text-lg font-semibold" style={{ color: 'var(--theme-text-primary)' }}>
+              All Sessions
+            </h2>
+            <HelpPopover
+              sections={[
+                {
+                  title: 'Session Types',
+                  items: [
+                    { label: 'Authenticated', description: 'Full access, no expiration', color: 'var(--theme-user-session)' },
+                    { label: 'Guest', description: `Read-only for ${guestDurationHours} hours`, color: 'var(--theme-guest-session)' }
+                  ]
+                },
+                {
+                  title: 'Actions',
+                  items: [
+                    { label: 'Revoke', description: 'End a guest session immediately', color: 'var(--theme-warning)' },
+                    { label: 'Delete', description: 'Remove device from history', color: 'var(--theme-error)' }
+                  ]
+                }
+              ]}
+            />
+          </div>
 
           {loading && (
             <div className="text-center py-8">
@@ -1030,54 +1051,6 @@ const UserTab: React.FC = () => {
               <p className="text-xs mt-2" style={{ color: 'var(--theme-text-muted)' }}>
                 Default theme applied to all guest users (guests cannot change their theme)
               </p>
-            </div>
-          </div>
-        </div>
-      </Card>
-
-      {/* Info Card */}
-      <Card className="about-section">
-        <div
-          className="p-3 sm:p-4 border-l-4"
-          style={{
-            backgroundColor: 'var(--theme-info-bg)',
-            borderLeftColor: 'var(--theme-info)'
-          }}
-        >
-          <div className="flex gap-2 sm:gap-3">
-            <AlertTriangle
-              className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0 mt-0.5"
-              style={{ color: 'var(--theme-info)' }}
-            />
-            <div className="text-xs sm:text-sm min-w-0" style={{ color: 'var(--theme-info-text)' }}>
-              <p className="font-semibold mb-2">About Session Management</p>
-              <ul className="list-disc list-outside ml-4 space-y-1.5">
-                <li className="pl-1">
-                  Only authenticated users (with API key) can access this user management panel
-                </li>
-                <li className="pl-1">
-                  <strong>Authenticated Users</strong> - Multiple users can share the same API key
-                  (up to configured device limit)
-                </li>
-                <li className="pl-1">
-                  <strong>Authenticated</strong> sessions have registered with the API key and
-                  don&apos;t expire
-                </li>
-                <li className="pl-1">
-                  <strong>Guest</strong> devices have temporary {guestDurationHours}-hour access
-                  with read-only permissions
-                </li>
-                <li className="pl-1">
-                  <strong>Revoke</strong> - Immediately kicks out guest users (marks them as
-                  revoked)
-                </li>
-                <li className="pl-1">
-                  <strong>Delete</strong> - Permanently removes the device record from history
-                </li>
-                <li className="pl-1">
-                  Revoked guests will see an &quot;expired&quot; message on their next request
-                </li>
-              </ul>
             </div>
           </div>
         </div>

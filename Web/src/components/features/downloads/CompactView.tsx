@@ -154,50 +154,95 @@ const GroupRow: React.FC<GroupRowProps> = ({
       <button
         type="button"
         onClick={() => onItemClick(group.id)}
-        className="w-full text-left px-3 py-2 flex items-center gap-3 focus:outline-none"
+        className="w-full text-left px-3 py-2 focus:outline-none"
         style={{ WebkitTapHighlightColor: 'transparent' }}
       >
-        <ChevronRight
-          size={14}
-          className={`flex-shrink-0 text-[var(--theme-text-secondary)] transition-transform duration-200 ${
-            isExpanded ? 'rotate-90' : ''
-          }`}
-        />
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <span
-            className="px-2 py-0.5 text-xs font-bold rounded flex-shrink-0"
-            style={getServiceBadgeStyles(group.service)}
-          >
-            {group.service.toUpperCase()}
-          </span>
-          {group.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/)) && (
-            <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
-              {group.name}
-            </span>
-          )}
-          <span className="hidden sm:inline text-xs text-themed-muted flex-shrink-0">
-            {group.count} download{group.count !== 1 ? 's' : ''}
-          </span>
-        </div>
-        <div className="flex items-center gap-3 flex-shrink-0">
-          <span className="text-sm font-semibold text-[var(--theme-text-primary)] font-mono text-right min-w-[70px]">
-            {formatBytes(group.totalBytes)}
-          </span>
-          {group.cacheHitBytes > 0 ? (
-            <span className="cache-hit font-medium text-xs font-mono text-right min-w-[45px]">
-              {formatPercent(hitPercent)}
-            </span>
-          ) : (
+        {/* Mobile Layout */}
+        <div className="sm:hidden">
+          <div className="flex items-center gap-2 mb-1">
+            <ChevronRight
+              size={14}
+              className={`flex-shrink-0 text-[var(--theme-text-secondary)] transition-transform duration-200 ${
+                isExpanded ? 'rotate-90' : ''
+              }`}
+            />
             <span
-              className="font-medium text-xs font-mono text-right min-w-[45px]"
-              style={{ color: 'var(--theme-error-text)' }}
+              className="px-2 py-0.5 text-xs font-bold rounded flex-shrink-0"
+              style={getServiceBadgeStyles(group.service)}
             >
-              0%
+              {group.service.toUpperCase()}
             </span>
-          )}
-          <span className="hidden sm:inline text-xs text-themed-muted font-mono text-right min-w-[60px]">
-            {group.clientsSet.size} client{group.clientsSet.size !== 1 ? 's' : ''}
-          </span>
+            {group.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/)) && (
+              <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate flex-1">
+                {group.name}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center justify-between pl-6 text-xs">
+            <span className="text-themed-muted">
+              {group.count} download{group.count !== 1 ? 's' : ''}
+            </span>
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-[var(--theme-text-primary)] font-mono">
+                {formatBytes(group.totalBytes)}
+              </span>
+              {group.cacheHitBytes > 0 ? (
+                <span className="cache-hit font-medium font-mono">
+                  {formatPercent(hitPercent)}
+                </span>
+              ) : (
+                <span className="font-medium font-mono" style={{ color: 'var(--theme-error-text)' }}>
+                  0%
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Desktop Layout */}
+        <div className="hidden sm:flex items-center gap-3">
+          <ChevronRight
+            size={14}
+            className={`flex-shrink-0 text-[var(--theme-text-secondary)] transition-transform duration-200 ${
+              isExpanded ? 'rotate-90' : ''
+            }`}
+          />
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <span
+              className="px-2 py-0.5 text-xs font-bold rounded flex-shrink-0"
+              style={getServiceBadgeStyles(group.service)}
+            >
+              {group.service.toUpperCase()}
+            </span>
+            {group.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/)) && (
+              <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
+                {group.name}
+              </span>
+            )}
+            <span className="text-xs text-themed-muted flex-shrink-0">
+              {group.count} download{group.count !== 1 ? 's' : ''}
+            </span>
+          </div>
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <span className="text-sm font-semibold text-[var(--theme-text-primary)] font-mono text-right min-w-[70px]">
+              {formatBytes(group.totalBytes)}
+            </span>
+            {group.cacheHitBytes > 0 ? (
+              <span className="cache-hit font-medium text-xs font-mono text-right min-w-[45px]">
+                {formatPercent(hitPercent)}
+              </span>
+            ) : (
+              <span
+                className="font-medium text-xs font-mono text-right min-w-[45px]"
+                style={{ color: 'var(--theme-error-text)' }}
+              >
+                0%
+              </span>
+            )}
+            <span className="text-xs text-themed-muted font-mono text-right min-w-[60px]">
+              {group.clientsSet.size} client{group.clientsSet.size !== 1 ? 's' : ''}
+            </span>
+          </div>
         </div>
       </button>
 
@@ -206,14 +251,14 @@ const GroupRow: React.FC<GroupRowProps> = ({
           className="px-3 pb-3"
           onClick={(event) => event.stopPropagation()}
         >
-          {/* Compact layout: image left, content right */}
-          <div className="flex gap-3">
-            {/* Game image - smaller and on the left */}
+          {/* Compact layout: stacked on mobile, side-by-side on desktop */}
+          <div className="flex flex-col sm:flex-row gap-3">
+            {/* Game image */}
             {showGameImage && primaryDownload?.gameAppId && (
               <div className="flex-shrink-0">
                 {aestheticMode || imageErrors.has(String(primaryDownload.gameAppId)) ? (
                   <div
-                    className="w-[120px] h-[56px] rounded border flex items-center justify-center"
+                    className="w-full sm:w-[120px] h-[80px] sm:h-[56px] rounded border flex items-center justify-center"
                     style={{
                       backgroundColor: 'var(--theme-bg-tertiary)',
                       borderColor: 'var(--theme-border-primary)'
@@ -225,7 +270,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                   <img
                     src={`${API_BASE}/game-images/${primaryDownload.gameAppId}/header/`}
                     alt={primaryDownload.gameName || group.name}
-                    className="w-[120px] h-[56px] rounded object-cover"
+                    className="w-full sm:w-[120px] h-[80px] sm:h-[56px] rounded object-cover"
                     loading="lazy"
                     onError={() => handleImageError(String(primaryDownload.gameAppId))}
                   />
@@ -235,8 +280,8 @@ const GroupRow: React.FC<GroupRowProps> = ({
 
             {/* Stats and info */}
             <div className="flex-1 min-w-0">
-              {/* Stats row */}
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-themed-muted mb-2">
+              {/* Stats - grid on mobile, flex on desktop */}
+              <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-x-4 gap-y-1 text-xs text-themed-muted mb-2">
                 <span>
                   <span className="text-themed-secondary">Hit:</span>{' '}
                   <span className="text-[var(--theme-text-primary)]">
@@ -263,7 +308,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={(event) => event.stopPropagation()}
-                    className="inline-flex items-center gap-1 text-[var(--theme-primary)] hover:text-[var(--theme-primary-hover)] transition-colors"
+                    className="inline-flex items-center gap-1 text-[var(--theme-primary)] hover:text-[var(--theme-primary-hover)] transition-colors col-span-2 sm:col-span-1"
                     title="View in Steam Store"
                   >
                     <ExternalLink size={11} />
@@ -372,34 +417,63 @@ const GroupRow: React.FC<GroupRowProps> = ({
                         return (
                           <div
                             key={download.id}
-                            className={`flex items-center justify-between text-xs px-2 py-1.5 ${
+                            className={`text-xs px-2 py-1.5 ${
                               idx % 2 === 0 ? 'bg-[var(--theme-bg-tertiary)]/30' : ''
                             }`}
                           >
-                            <div className="flex items-center gap-3">
-                              <span className="font-mono text-[var(--theme-text-primary)]">
-                                {download.clientIp}
-                              </span>
-                              <span className="text-themed-muted">
+                            {/* Mobile: Stacked layout */}
+                            <div className="sm:hidden">
+                              <div className="flex items-center justify-between">
+                                <span className="font-mono text-[var(--theme-text-primary)]">
+                                  {download.clientIp}
+                                </span>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium text-[var(--theme-text-primary)] font-mono">
+                                    {formatBytes(totalBytes)}
+                                  </span>
+                                  {download.cacheHitBytes > 0 ? (
+                                    <span className="cache-hit font-medium font-mono">
+                                      {formatPercent(cachePercent)}
+                                    </span>
+                                  ) : (
+                                    <span className="font-medium font-mono" style={{ color: 'var(--theme-error-text)' }}>
+                                      0%
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="text-themed-muted mt-0.5">
                                 {formatRelativeTime(download.startTimeUtc)}
-                              </span>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-3">
-                              <span className="font-medium text-[var(--theme-text-primary)] font-mono text-right min-w-[65px]">
-                                {formatBytes(totalBytes)}
-                              </span>
-                              {download.cacheHitBytes > 0 ? (
-                                <span className="cache-hit font-medium font-mono text-right min-w-[40px]">
-                                  {formatPercent(cachePercent)}
+
+                            {/* Desktop: Single row */}
+                            <div className="hidden sm:flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <span className="font-mono text-[var(--theme-text-primary)]">
+                                  {download.clientIp}
                                 </span>
-                              ) : (
-                                <span
-                                  className="font-medium font-mono text-right min-w-[40px]"
-                                  style={{ color: 'var(--theme-error-text)' }}
-                                >
-                                  0%
+                                <span className="text-themed-muted">
+                                  {formatRelativeTime(download.startTimeUtc)}
                                 </span>
-                              )}
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="font-medium text-[var(--theme-text-primary)] font-mono text-right min-w-[65px]">
+                                  {formatBytes(totalBytes)}
+                                </span>
+                                {download.cacheHitBytes > 0 ? (
+                                  <span className="cache-hit font-medium font-mono text-right min-w-[40px]">
+                                    {formatPercent(cachePercent)}
+                                  </span>
+                                ) : (
+                                  <span
+                                    className="font-medium font-mono text-right min-w-[40px]"
+                                    style={{ color: 'var(--theme-error-text)' }}
+                                  >
+                                    0%
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
                         );

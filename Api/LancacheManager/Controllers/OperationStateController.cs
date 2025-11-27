@@ -29,11 +29,7 @@ public class OperationStateController : ControllerBase
         try
         {
             var state = _stateService.GetState(key);
-            if (state == null)
-            {
-                return NotFound();
-            }
-
+            // Return 200 with null instead of 404 to avoid browser console errors
             return Ok(state);
         }
         catch (Exception ex)

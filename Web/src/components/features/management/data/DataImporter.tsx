@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { Database, HelpCircle, AlertTriangle, ChevronUp, ChevronDown } from 'lucide-react';
+import React, { useState } from 'react';
+import { Database, AlertTriangle, ChevronUp, ChevronDown } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Checkbox } from '@components/ui/Checkbox';
 import { Modal } from '@components/ui/Modal';
+import { HelpPopover, HelpCode, HelpSection } from '@components/ui/HelpPopover';
 import ApiService from '@services/api.service';
 import FileBrowser from '../file-browser/FileBrowser';
 
@@ -45,17 +46,8 @@ const DataImporter: React.FC<DataImporterProps> = ({
   const [importing, setImporting] = useState(false);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
-  const [showHelp, setShowHelp] = useState(() => {
-    const saved = localStorage.getItem('dataImporter.showHelp');
-    return saved !== null ? saved === 'true' : true;
-  });
   const [useBrowser, setUseBrowser] = useState(true);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
-
-  // Save help visibility preference to localStorage
-  useEffect(() => {
-    localStorage.setItem('dataImporter.showHelp', showHelp.toString());
-  }, [showHelp]);
 
   const handleValidate = async () => {
     if (!connectionString.trim()) {
@@ -148,53 +140,45 @@ const DataImporter: React.FC<DataImporterProps> = ({
           <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-cyan">
             <Database className="w-5 h-5 icon-cyan" />
           </div>
-          <h3 className="text-lg font-semibold text-themed-primary">
-            Import Historical Data
-          </h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-semibold text-themed-primary">
+              Import Historical Data
+            </h3>
+            <HelpPopover position="left" width="w-96" maxHeight="400px">
+              <HelpSection title="Compatibility">
+                This importer supports SQLite databases from DeveLanCacheUI_Backend and other compatible lancache management tools.
+              </HelpSection>
+
+              <HelpSection title="For Docker users (recommended)">
+                <p className="mb-2">Mount the external database directory as a volume in your docker-compose.yml:</p>
+                <HelpCode block>
+                  volumes:<br />
+                  &nbsp;&nbsp;- ./data:/data<br />
+                  &nbsp;&nbsp;- /path/to/external/data:/mnt/import:ro
+                </HelpCode>
+                <p className="mt-2">
+                  The <HelpCode>:ro</HelpCode> flag mounts it read-only for safety.
+                  Use the file browser to navigate to <HelpCode>/mnt/import/lancache.db</HelpCode>
+                </p>
+              </HelpSection>
+
+              <HelpSection title="Manual input">
+                You can paste the file path directly (e.g., <HelpCode>/mnt/import/lancache.db</HelpCode>) or use a connection string format.
+              </HelpSection>
+
+              <HelpSection title="Important">
+                <span style={{ color: 'var(--theme-warning)' }}>
+                  Stop the external application before importing to avoid database locks.
+                </span>
+              </HelpSection>
+            </HelpPopover>
+          </div>
         </div>
-        <button
-          onClick={() => setShowHelp(!showHelp)}
-          className="p-1.5 rounded hover:bg-themed-hover transition-colors"
-          title="Help"
-        >
-          <HelpCircle className="w-4 h-4 text-themed-secondary" />
-        </button>
       </div>
 
       <p className="text-themed-muted text-sm mb-4">
         Import download history from external sources to maintain all your historical data in one place
       </p>
-
-      {showHelp && (
-        <div className="mb-4 p-4 bg-themed-tertiary rounded-lg">
-          <div className="text-xs text-themed-muted space-y-3 leading-relaxed">
-            <p>
-              <strong className="text-themed-secondary">Compatibility:</strong> This importer supports SQLite databases from DeveLanCacheUI_Backend and other compatible lancache management tools.
-            </p>
-            <p className="pt-2">
-              <strong className="text-themed-secondary">For Docker users (recommended):</strong>
-            </p>
-            <p>
-              Mount the external database directory as a volume in your docker-compose.yml:
-            </p>
-            <div className="p-2 bg-themed-secondary rounded font-mono text-xs">
-              volumes:<br />
-              &nbsp;&nbsp;- ./data:/data<br />
-              &nbsp;&nbsp;- /path/to/external/data:/mnt/import:ro
-            </div>
-            <p>
-              The <code className="bg-themed-secondary px-1 py-0.5 rounded">:ro</code> flag mounts it read-only for safety.
-              Use the file browser to navigate to <code className="bg-themed-secondary px-1 py-0.5 rounded">/mnt/import/lancache.db</code>
-            </p>
-            <p className="pt-2">
-              <strong className="text-themed-secondary">Manual input:</strong> You can paste the file path directly (e.g., <code className="bg-themed-secondary px-1 py-0.5 rounded">/mnt/import/lancache.db</code>) or use a connection string format.
-            </p>
-            <p className="pt-2">
-              <strong className="text-themed-secondary">Important:</strong> Stop the external application before importing to avoid database locks.
-            </p>
-          </div>
-        </div>
-      )}
 
       {mockMode && (
         <Alert color="yellow" className="mb-4">

@@ -386,20 +386,149 @@ const Dashboard: React.FC = () => {
         }
       }}
     >
-      {/* Time Range Filter */}
+      {/* Dashboard Header */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
         <h2 className="text-2xl font-bold text-themed-primary tracking-tight hidden md:block">
           Dashboard
         </h2>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full sm:w-auto">
-          <Tooltip
-            content="Reset card layout to default order"
-            strategy="overlay"
-            className="order-2 sm:order-1 w-full sm:w-auto"
-          >
+        <div className="flex flex-row items-center gap-2">
+          {/* Hidden Cards Button - only shows when cards are hidden */}
+          {hiddenCardsCount > 0 && (
+            <div className="relative" ref={dropdownRef}>
+              <Tooltip content={`${hiddenCardsCount} hidden card${hiddenCardsCount !== 1 ? 's' : ''} - click to restore`} strategy="overlay">
+                <button
+                  onClick={() => setDropdownOpen(!dropdownOpen)}
+                  className="flex items-center gap-2 px-3 py-2 text-sm transition-colors rounded-lg border"
+                  style={{
+                    color: 'var(--theme-text-secondary)',
+                    backgroundColor: 'var(--theme-bg-secondary)',
+                    borderColor: 'var(--theme-border-primary)'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
+                    e.currentTarget.style.color = 'var(--theme-text-primary)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)';
+                    e.currentTarget.style.color = 'var(--theme-text-secondary)';
+                  }}
+                >
+                  <EyeOff className="w-4 h-4" />
+                  <span className="hidden sm:inline">{hiddenCardsCount} Hidden</span>
+                  <span className="sm:hidden">{hiddenCardsCount}</span>
+                  <ChevronDown
+                    className={`w-3 h-3 transition-transform duration-200 ${dropdownOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
+              </Tooltip>
+
+              {/* Hidden Cards Dropdown */}
+              {dropdownOpen && (
+                <div
+                  className="absolute right-0 mt-2 w-72 sm:w-80 rounded-lg border shadow-xl z-50"
+                  style={{
+                    backgroundColor: 'var(--theme-card-bg)',
+                    borderColor: 'var(--theme-card-border)'
+                  }}
+                >
+                  {/* Search - only show if more than 3 hidden cards */}
+                  {hiddenCardsCount > 3 && (
+                    <div className="p-3 border-b" style={{ borderColor: 'var(--theme-border-primary)' }}>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-themed-muted" />
+                        <input
+                          type="text"
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          placeholder="Search hidden cards..."
+                          className="w-full pl-10 pr-3 py-2 rounded-lg text-sm"
+                          style={{
+                            backgroundColor: 'var(--theme-bg-tertiary)',
+                            color: 'var(--theme-text-primary)',
+                            border: '1px solid var(--theme-border-primary)'
+                          }}
+                          autoFocus
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Show All Button */}
+                  <div className="p-2 border-b" style={{ borderColor: 'var(--theme-border-primary)' }}>
+                    <button
+                      onClick={() => {
+                        setCardVisibility(DEFAULT_CARD_VISIBILITY);
+                        setDropdownOpen(false);
+                        setSearchQuery('');
+                      }}
+                      className="w-full px-3 py-2 text-sm rounded-lg transition-colors text-left flex items-center gap-2"
+                      style={{ color: 'var(--theme-primary)' }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                      }}
+                    >
+                      <Eye className="w-4 h-4" />
+                      Show all cards
+                    </button>
+                  </div>
+
+                  {/* Hidden Cards List */}
+                  <div className="max-h-64 overflow-y-auto p-2">
+                    {filteredHiddenCards.length > 0 ? (
+                      filteredHiddenCards.map((card: StatCardData) => {
+                        const Icon = card.icon;
+                        return (
+                          <button
+                            key={card.key}
+                            onClick={() => {
+                              toggleCardVisibility(card.key);
+                              if (hiddenCardsCount === 1) {
+                                setDropdownOpen(false);
+                                setSearchQuery('');
+                              }
+                            }}
+                            className="w-full p-2.5 rounded-lg transition-colors flex items-center gap-3 group"
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.backgroundColor = 'transparent';
+                            }}
+                          >
+                            <div
+                              className="p-1.5 rounded-lg group-hover:scale-105 transition-transform"
+                              style={getIconStyle(card.color)}
+                            >
+                              <Icon className="w-4 h-4 text-white" />
+                            </div>
+                            <div className="flex-1 text-left min-w-0">
+                              <div className="text-sm text-themed-primary font-medium truncate">
+                                {card.title}
+                              </div>
+                            </div>
+                            <Eye className="w-4 h-4 text-themed-muted group-hover:text-themed-primary transition-colors flex-shrink-0" />
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <div className="px-3 py-4 text-center text-themed-muted text-sm">
+                        No cards match "{searchQuery}"
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Reset Layout Button */}
+          <Tooltip content="Reset card layout to default order" strategy="overlay">
             <button
               onClick={resetCardOrder}
-              className="flex items-center gap-2 px-3 py-2 text-sm transition-colors rounded-lg border w-full justify-center sm:justify-start"
+              className="flex items-center gap-2 px-3 py-2 text-sm transition-colors rounded-lg border"
               style={{
                 color: 'var(--theme-text-secondary)',
                 backgroundColor: 'var(--theme-bg-secondary)',
@@ -416,127 +545,10 @@ const Dashboard: React.FC = () => {
             >
               <LayoutGrid className="w-4 h-4" />
               <span className="hidden sm:inline">Reset Layout</span>
-              <span className="sm:hidden">Reset Card Layout</span>
             </button>
           </Tooltip>
         </div>
       </div>
-
-      {/* Hidden Cards Dropdown */}
-      {hiddenCardsCount > 0 && (
-        <div className="relative" ref={dropdownRef}>
-          <div
-            className="rounded-lg px-4 py-2 border flex items-center justify-between"
-            style={{
-              backgroundColor: 'var(--theme-bg-secondary)',
-              borderColor: 'var(--theme-border-primary)'
-            }}
-          >
-            <span className="text-sm text-themed-muted">
-              {hiddenCardsCount} stat card{hiddenCardsCount !== 1 ? 's' : ''} hidden
-            </span>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setDropdownOpen(!dropdownOpen)}
-                className="flex items-center gap-1 text-xs text-themed-accent transition-colors px-2 py-1 rounded-lg"
-                onMouseEnter={(e) =>
-                  (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
-                }
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-              >
-                Add cards
-                <ChevronDown
-                  className={`w-3 h-3 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`}
-                />
-              </button>
-              <button
-                onClick={() => setCardVisibility(DEFAULT_CARD_VISIBILITY)}
-                className="text-xs text-themed-accent transition-colors px-2 py-1 rounded-lg"
-                onMouseEnter={(e) =>
-                  (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
-                }
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-              >
-                Show all
-              </button>
-            </div>
-          </div>
-
-          {dropdownOpen && (
-            <div
-              className="absolute right-0 mt-2 w-80 rounded-lg border shadow-xl z-50"
-              style={{
-                backgroundColor: 'var(--theme-bg-secondary)',
-                borderColor: 'var(--theme-border-primary)'
-              }}
-            >
-              <div className="p-3 border-b" style={{ borderColor: 'var(--theme-border-primary)' }}>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-themed-muted" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search hidden cards..."
-                    className="w-full pl-10 pr-3 py-2 rounded-lg focus:outline-none text-sm themed-input"
-                    style={{
-                      backgroundColor: 'var(--theme-bg-hover)',
-                      color: 'var(--theme-text-primary)',
-                      border: '2px solid var(--theme-primary)'
-                    }}
-                    autoFocus
-                  />
-                </div>
-              </div>
-
-              <div className="max-h-96 overflow-y-auto p-2">
-                {filteredHiddenCards.length > 0 ? (
-                  filteredHiddenCards.map((card: StatCardData) => {
-                    const Icon = card.icon;
-                    return (
-                      <button
-                        key={card.key}
-                        onClick={() => {
-                          toggleCardVisibility(card.key);
-                          if (hiddenCardsCount === 1) {
-                            setDropdownOpen(false);
-                            setSearchQuery('');
-                          }
-                        }}
-                        className="w-full p-3 rounded-lg transition-colors flex items-center gap-3 group"
-                        onMouseEnter={(e) =>
-                          (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
-                        }
-                        onMouseLeave={(e) =>
-                          (e.currentTarget.style.backgroundColor = 'transparent')
-                        }
-                      >
-                        <div
-                          className="p-2 rounded-lg group-hover:scale-110 transition-transform"
-                          style={getIconStyle(card.color)}
-                        >
-                          <Icon className="w-5 h-5 text-white" />
-                        </div>
-                        <div className="flex-1 text-left">
-                          <div className="text-sm text-themed-secondary font-medium">
-                            {card.title}
-                          </div>
-                          <div className="text-xs text-themed-muted">{card.subtitle}</div>
-                        </div>
-                        <Eye className="w-4 h-4 text-themed-muted group-hover:text-themed-accent transition-colors" />
-                      </button>
-                    );
-                  })
-                ) : (
-                  <div className="px-3 py-6 text-center text-themed-muted text-sm">
-                    No hidden cards match &ldquo;{searchQuery}&rdquo;
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Touch instruction for mobile */}
       {showDragHint && (
@@ -598,7 +610,7 @@ const Dashboard: React.FC = () => {
       ) : (
         <div
           key={`stats-grid-${timeRange}-${customStartDate?.getTime()}-${customEndDate?.getTime()}`}
-          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeIn"
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeIn isolate"
         >
           {visibleCards.map((card: StatCardData) => (
             <div
@@ -642,16 +654,7 @@ const Dashboard: React.FC = () => {
                       e.currentTarget.style.backgroundColor = 'transparent';
                     }}
                   >
-                    <GripVertical
-                      className="w-4 h-4 transition-colors"
-                      style={{ color: 'var(--theme-drag-handle)' }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.color = 'var(--theme-drag-handle-hover)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.color = 'var(--theme-drag-handle)';
-                      }}
-                    />
+                    <GripVertical className="w-4 h-4 text-themed-muted" />
                   </div>
                 </Tooltip>
               }

@@ -242,12 +242,7 @@ public class LogsController : ControllerBase
         try
         {
             var status = await _rustLogRemovalService.GetRemovalStatus();
-
-            if (status == null)
-            {
-                return NotFound(new { error = "No log removal operation found" });
-            }
-
+            // Return 200 with null instead of 404 to avoid browser console errors
             return Ok(status);
         }
         catch (Exception ex)

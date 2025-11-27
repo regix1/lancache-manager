@@ -1110,57 +1110,32 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
         </div>
 
         <div className="mt-4 p-3 bg-themed-tertiary rounded-lg">
-          <p className="text-xs text-themed-muted leading-relaxed">
-            <strong>Automatic Schedule:</strong> Controls scan mode and interval for scheduled
-            background runs
-            <br />
-            <strong>Apply Now Source:</strong> Choose data source when clicking "Apply Now" button
-            <br />
-            <br />
-            <strong>Schedule Modes:</strong>
-            <br />
-            • <strong>Incremental:</strong> Uses Web API V2/V1 to get changed apps, then PICS for
-            depot info (fast, recommended)
-            <br />
-            • <strong>Full:</strong> Uses Web API V2/V1 to get all apps, then PICS for depot info
-            (slower, complete)
-            <br />
+          <div className="text-xs text-themed-muted leading-relaxed space-y-2.5">
+            <div>
+              <strong className="text-themed-secondary">Settings</strong>
+              <ul className="mt-1 ml-3 space-y-0.5">
+                <li>• <strong>Automatic Schedule</strong> — Runs in the background at the set interval</li>
+                <li>• <strong>Apply Now Source</strong> — Data source used when you click "Apply Now"</li>
+              </ul>
+            </div>
+            <div>
+              <strong className="text-themed-secondary">Scan Modes</strong>
+              <ul className="mt-1 ml-3 space-y-0.5">
+                <li>• <strong>Incremental</strong> — Fetch only changed apps (fast)</li>
+                <li>• <strong>Full</strong> — Fetch all ~300k apps (slower, complete)</li>
+                {steamAuthMode !== 'authenticated' && (
+                  <li>• <strong>GitHub</strong> — Download pre-built depot data (290k+ depots, updated hourly)</li>
+                )}
+              </ul>
+            </div>
             {steamAuthMode !== 'authenticated' && (
-              <>
-                • <strong>GitHub:</strong> Automatically downloads fresh depot data from GitHub
-                every 30 minutes
-                <br />
-              </>
+              <div className="pt-0.5">
+                <em>
+                  Note: GitHub mode uses a fixed 30-minute interval to stay in sync with the hourly GitHub updates while minimizing redundant downloads.
+                </em>
+              </div>
             )}
-            <br />
-            <strong>Manual Scan Options:</strong>
-            <br />
-            • <strong>Steam (Incremental):</strong> Web API + PICS for changed apps only
-            <br />
-            • <strong>Steam (Full):</strong> Web API + PICS for all Steam apps (~300k apps)
-            <br />
-            {steamAuthMode !== 'authenticated' && (
-              <>
-                • <strong>GitHub:</strong> Download pre-generated depot mappings (290k+ depots,
-                updated daily)
-                <br />
-              </>
-            )}
-            <br />
-            <em className="text-themed-muted">
-              {steamAuthMode === 'authenticated' ? (
-                <>
-                  💡 Recommended: Use Incremental or Full scans with Web API V2/V1 fallback.
-                  Configure API key in Steam Web API Status above for V1 fallback support.
-                </>
-              ) : (
-                <>
-                  💡 Recommended: Download from GitHub to get started, then enable "GitHub"
-                  schedule mode to automatically download fresh depot data every 30 minutes.
-                </>
-              )}
-            </em>
-          </p>
+          </div>
         </div>
       </Card>
 

@@ -229,24 +229,20 @@ const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Mobile: Grid layout to align icon with polling button */}
-          <div className="md:hidden py-3">
-            <div className="grid items-start justify-center" style={{ gridTemplateColumns: 'auto auto auto', gap: '0.5rem' }}>
-              {/* Row 1 - Icon in middle column */}
-              <div></div>
-              <div style={{ position: 'relative' }}>
+          {/* Mobile: Compact single row layout */}
+          <div className="md:hidden py-2">
+            <div className="flex items-center justify-between gap-2">
+              {/* Left: Icon with status indicator */}
+              <div style={{ position: 'relative' }} className="flex-shrink-0">
                 <div
-                  className="px-3 py-2 rounded-lg flex items-center justify-center"
-                  style={{
-                    backgroundColor: 'var(--theme-bg-tertiary)',
-                    width: pollingButtonWidth ? `${pollingButtonWidth}px` : '64px'
-                  }}
+                  className="p-1.5 rounded-lg flex items-center justify-center"
+                  style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
                 >
                   <div
                     style={{
                       position: 'relative',
-                      width: '48px',
-                      height: '48px',
+                      width: '36px',
+                      height: '36px',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center'
@@ -254,21 +250,20 @@ const Header: React.FC<HeaderProps> = ({
                   >
                     <LancacheIcon
                       className="flex-shrink-0"
-                      size={48}
+                      size={36}
                       style={{
                         animation: 'float-bounce 2.5s ease-in-out infinite',
                         position: 'relative',
                         zIndex: 1
                       }}
                     />
-                    {/* Static shadow below the floating icon */}
                     <div
                       style={{
                         position: 'absolute',
-                        bottom: '2px',
-                        left: '8px',
-                        width: '32px',
-                        height: '8px',
+                        bottom: '0px',
+                        left: '4px',
+                        width: '28px',
+                        height: '6px',
                         background:
                           'radial-gradient(ellipse at center, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.3) 40%, rgba(0, 0, 0, 0) 70%)',
                         borderRadius: '50%',
@@ -279,21 +274,21 @@ const Header: React.FC<HeaderProps> = ({
                     />
                   </div>
                 </div>
-                {/* Status indicator outside bottom right */}
+                {/* Status indicator */}
                 <div
                   style={{
                     position: 'absolute',
-                    bottom: '-4px',
-                    right: '-4px',
-                    width: '12px',
-                    height: '12px',
+                    bottom: '-2px',
+                    right: '-2px',
+                    width: '10px',
+                    height: '10px',
                     borderRadius: '50%',
                     backgroundColor: connectionStatus === 'connected'
                       ? 'var(--theme-success)'
                       : connectionStatus === 'disconnected'
                       ? 'var(--theme-error)'
                       : 'var(--theme-warning)',
-                    border: '2px solid var(--theme-border-primary)',
+                    border: '2px solid var(--theme-nav-bg)',
                     zIndex: 10,
                     ...(connectionStatus === 'reconnecting' && {
                       animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
@@ -301,21 +296,22 @@ const Header: React.FC<HeaderProps> = ({
                   }}
                 />
               </div>
-              <div></div>
 
-              {/* Row 2 - Controls */}
-              <TimezoneSelector />
-              <div ref={pollingButtonRef}>
-                <PollingRateSelector disabled={mockMode} />
+              {/* Right: Controls in a row */}
+              <div className="flex items-center gap-1.5">
+                <TimezoneSelector />
+                <div ref={pollingButtonRef}>
+                  <PollingRateSelector disabled={mockMode} />
+                </div>
+                <TimeFilter disabled={mockMode} />
               </div>
-              <TimeFilter disabled={mockMode} />
             </div>
 
-            {/* Guest Mode Pill - Mobile */}
+            {/* Guest Mode Pill - Mobile (below controls if present) */}
             {isGuestMode && (
-              <div className="flex justify-center mt-2">
+              <div className="flex justify-center mt-1.5">
                 <div
-                  className="px-2.5 py-1 rounded text-xs font-medium flex flex-col items-center gap-0.5"
+                  className="px-2 py-0.5 rounded text-xs font-medium flex items-center gap-1"
                   style={{
                     backgroundColor: isRevoked
                       ? 'var(--theme-error-bg)'
@@ -323,18 +319,20 @@ const Header: React.FC<HeaderProps> = ({
                     color: isRevoked ? 'var(--theme-error-text)' : 'var(--theme-warning-text)',
                     border: isRevoked
                       ? '1px solid var(--theme-error)'
-                      : '1px solid var(--theme-warning)',
-                    maxWidth: '90%'
+                      : '1px solid var(--theme-warning)'
                   }}
                 >
-                  <span className="whitespace-nowrap">{isRevoked ? 'Revoked' : 'Guest Mode'}</span>
+                  <span className="whitespace-nowrap">{isRevoked ? 'Revoked' : 'Guest'}</span>
                   {!isRevoked && (
-                    <span
-                      className="truncate max-w-full text-center"
-                      style={{ fontFamily: 'monospace', fontSize: '0.75em', opacity: 0.85 }}
-                    >
-                      {deviceId}
-                    </span>
+                    <>
+                      <span style={{ opacity: 0.5 }}>•</span>
+                      <span
+                        className="truncate max-w-[120px]"
+                        style={{ fontFamily: 'monospace', fontSize: '0.75em', opacity: 0.85 }}
+                      >
+                        {deviceId}
+                      </span>
+                    </>
                   )}
                 </div>
               </div>
