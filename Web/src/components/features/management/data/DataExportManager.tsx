@@ -14,6 +14,7 @@ import {
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
+import { HelpPopover, HelpSection, HelpNote, HelpKeyword, HelpDefinition } from '@components/ui/HelpPopover';
 import ApiService from '@services/api.service';
 import { formatDateTime } from '@utils/formatters';
 import type { ClientStat, ServiceStat, CacheInfo, DashboardStats } from '../../../../types';
@@ -441,31 +442,37 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
           </div>
         </div>
 
-        <div className="mt-4">
-          <Alert color="blue" className="about-section">
-            <p className="text-sm">
-              <strong>Security Options:</strong> By default, these endpoints are public. To require
-              API key authentication, set <code>RequireAuthForMetrics: true</code> in your config.
-              Then add header <code>X-Api-Key: your-key</code> to Grafana/Prometheus.
-            </p>
-          </Alert>
-        </div>
-
-        <div className="mt-2">
-          <Alert color="green" className="about-section">
-            <p className="text-sm">
-              <strong>Live Updates:</strong> Configure Grafana to poll every 10-30 seconds for
-              real-time monitoring. Works with both Prometheus and JSON datasource plugins.
-            </p>
-          </Alert>
-        </div>
       </Card>
 
       {/* Data Export */}
       <Card>
-        <div className="flex items-center space-x-2 mb-4">
-          <Download className="w-5 h-5 text-themed-accent" />
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-green">
+            <Download className="w-5 h-5 icon-green" />
+          </div>
           <h3 className="text-lg font-semibold text-themed-primary">Data Export</h3>
+          <HelpPopover position="left" width={320}>
+            <HelpSection title="Export Formats">
+              <div className="space-y-1.5">
+                <HelpDefinition term="JSON" termColor="blue">
+                  Structured data for programmatic processing
+                </HelpDefinition>
+                <HelpDefinition term="CSV" termColor="green">
+                  Spreadsheet-compatible for Excel/analysis tools
+                </HelpDefinition>
+                <HelpDefinition term="Prometheus" termColor="purple">
+                  OpenMetrics format for monitoring systems
+                </HelpDefinition>
+                <HelpDefinition term="InfluxDB" termColor="orange">
+                  Line protocol for time-series databases
+                </HelpDefinition>
+              </div>
+            </HelpSection>
+
+            <HelpNote type="info">
+              Download history includes the last <HelpKeyword color="cyan">1000 entries</HelpKeyword>.
+            </HelpNote>
+          </HelpPopover>
         </div>
 
         <p className="text-themed-muted text-sm mb-4">

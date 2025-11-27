@@ -2,7 +2,7 @@ import React, { useState, use } from 'react';
 import { Link, Copy, CheckCircle, Lock, Unlock } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
-import { Alert } from '@components/ui/Alert';
+import { HelpPopover, HelpSection, HelpNote, HelpKeyword, HelpCode } from '@components/ui/HelpPopover';
 
 // Fetch metrics security status
 const fetchMetricsStatus = async (): Promise<boolean> => {
@@ -69,6 +69,23 @@ const GrafanaEndpoints: React.FC = () => {
           <h3 className="text-lg font-semibold text-themed-primary">
             Live API Endpoints for Grafana
           </h3>
+          <HelpPopover position="left" width={320}>
+            <HelpSection title="Available Metrics">
+              <HelpKeyword color="blue">Cache</HelpKeyword> capacity and usage,{' '}
+              <HelpKeyword color="green">hit/miss</HelpKeyword> bytes and ratio,{' '}
+              <HelpKeyword color="cyan">active</HelpKeyword> downloads and clients,{' '}
+              <HelpKeyword color="purple">per-service</HelpKeyword> counters.
+            </HelpSection>
+
+            <HelpSection title="Integration" variant="subtle">
+              Poll every <HelpKeyword color="cyan">10-30 seconds</HelpKeyword> for real-time monitoring.
+              Works with both Prometheus and JSON datasource plugins.
+            </HelpSection>
+
+            <HelpNote type="info">
+              Toggle security via <HelpCode>Security__RequireAuthForMetrics</HelpCode> in docker-compose.
+            </HelpNote>
+          </HelpPopover>
         </div>
         <div
           className={`flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-medium border ${
@@ -121,55 +138,19 @@ const GrafanaEndpoints: React.FC = () => {
         </div>
       </div>
 
-      <div className="mt-4">
-        <Alert color={metricsSecured ? 'yellow' : 'blue'} className="about-section">
-          <div className="space-y-2">
-            <p className="text-sm">
-              <strong>Security:</strong>{' '}
-              {metricsSecured
-                ? 'Metrics endpoint requires API key authentication.'
-                : 'Metrics endpoint is public (no authentication required).'}
-            </p>
-            {metricsSecured && (
-              <div className="text-sm">
-                <p className="font-medium mb-1">Configure Prometheus with API key:</p>
-                <div className="bg-themed-tertiary p-2 rounded font-mono text-xs mt-2">
-                  <div>scrape_configs:</div>
-                  <div className="ml-2">- job_name: 'lancache-manager'</div>
-                  <div className="ml-4">metrics_path: '/metrics'</div>
-                  <div className="ml-4">headers:</div>
-                  <div className="ml-6">X-Api-Key: your-api-key-here</div>
-                </div>
-                <p className="mt-2 text-xs opacity-75">
-                  To make metrics public, set <code>Security__RequireAuthForMetrics=false</code> in
-                  docker-compose.yml
-                </p>
-              </div>
-            )}
-            {!metricsSecured && (
-              <p className="text-xs opacity-75">
-                To require API key, set <code>Security__RequireAuthForMetrics=true</code> in
-                docker-compose.yml
-              </p>
-            )}
+      {/* Security Configuration Info */}
+      {metricsSecured && (
+        <div className="mt-4 p-3 rounded-lg border" style={{ backgroundColor: 'var(--theme-bg-tertiary)', borderColor: 'var(--theme-border-secondary)' }}>
+          <p className="text-xs font-medium text-themed-primary mb-2">Prometheus Configuration</p>
+          <div className="bg-themed-secondary p-2 rounded font-mono text-[10px] text-themed-muted">
+            <div>scrape_configs:</div>
+            <div className="ml-2">- job_name: 'lancache-manager'</div>
+            <div className="ml-4">metrics_path: '/metrics'</div>
+            <div className="ml-4">headers:</div>
+            <div className="ml-6">X-Api-Key: your-api-key-here</div>
           </div>
-        </Alert>
-      </div>
-
-      <div className="mt-2">
-        <Alert color="green" className="about-section">
-          <div className="space-y-2">
-            <p className="text-sm">
-              <strong>Live Updates:</strong> Configure Grafana to poll every 10-30 seconds for
-              real-time monitoring. Works with both Prometheus and JSON datasource plugins.
-            </p>
-            <p className="text-xs opacity-75">
-              All dashboard stat card metrics are available: cache capacity, usage ratio, hit/miss
-              bytes, hit ratio, active downloads, active clients, and per-service counters.
-            </p>
-          </div>
-        </Alert>
-      </div>
+        </div>
+      )}
     </Card>
   );
 };

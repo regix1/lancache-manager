@@ -8,6 +8,7 @@ import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
+import { HelpPopover, HelpSection, HelpNote, HelpKeyword, HelpDefinition } from '@components/ui/HelpPopover';
 import type { ProcessingStatus as ApiProcessingStatus } from '../../../../types';
 import DepotMappingManager from '../depot/DepotMappingManager';
 
@@ -558,6 +559,23 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
             <Zap className="w-5 h-5 icon-purple" />
           </div>
           <h3 className="text-lg font-semibold text-themed-primary">Log Processing</h3>
+          <HelpPopover position="left" width={300}>
+            <HelpSection title="Actions">
+              <div className="space-y-1.5">
+                <HelpDefinition term="Reset Position" termColor="blue">
+                  Choose to start from beginning or end of log file
+                </HelpDefinition>
+                <HelpDefinition term="Process All" termColor="green">
+                  Import entries based on reset position
+                </HelpDefinition>
+              </div>
+            </HelpSection>
+
+            <HelpNote type="info">
+              Rust service always starts from top with{' '}
+              <HelpKeyword color="cyan">duplicate detection</HelpKeyword> to avoid reimporting entries.
+            </HelpNote>
+          </HelpPopover>
         </div>
         <p className="text-themed-muted text-sm mb-4">
           Import historical data or reset to monitor only new downloads
@@ -599,14 +617,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           </div>
         </div>
 
-        <div className="mt-4 p-3 bg-themed-tertiary rounded-lg">
-          <p className="text-xs text-themed-muted leading-relaxed">
-            <strong>Reset Log Position:</strong> Choose to start from beginning or end of log file
-            <br />
-            <strong>Process All Logs:</strong> Process logs based on reset position (rust service
-            always starts from top with duplicate detection)
-          </p>
-        </div>
 
         {logProcessingOp.error && (
           <Alert color="orange">Backend storage error: {logProcessingOp.error}</Alert>

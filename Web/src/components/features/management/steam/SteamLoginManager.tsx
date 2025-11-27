@@ -4,6 +4,7 @@ import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import { HelpPopover, HelpSection, HelpNote, HelpKeyword, HelpDefinition } from '@components/ui/HelpPopover';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { useSteamAuthentication } from '@hooks/useSteamAuthentication';
 import { useSteamAuth } from '@contexts/SteamAuthContext';
@@ -128,6 +129,27 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
             <Key className="w-5 h-5 icon-blue" />
           </div>
           <h3 className="text-lg font-semibold text-themed-primary">Steam PICS Authentication</h3>
+          <HelpPopover position="left" width={320}>
+            <HelpSection title="Authentication Modes">
+              <div className="space-y-1.5">
+                <HelpDefinition term="Anonymous" termColor="blue">
+                  Only public games — no Steam account needed
+                </HelpDefinition>
+                <HelpDefinition term="Account Login" termColor="green">
+                  Access playtest and restricted games via your Steam account
+                </HelpDefinition>
+              </div>
+            </HelpSection>
+
+            <HelpSection title="Depot Mapping" variant="subtle">
+              <HelpKeyword color="cyan">Automatic</HelpKeyword> rebuilds depot mappings after login.{' '}
+              <HelpKeyword color="blue">Manual</HelpKeyword> lets you trigger the rebuild yourself.
+            </HelpSection>
+
+            <HelpNote type="info">
+              V2 API is required for account login. V1 API key alone provides restricted game access.
+            </HelpNote>
+          </HelpPopover>
         </div>
 
         {/* V2 API Required Info Banner */}

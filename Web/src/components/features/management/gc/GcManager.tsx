@@ -4,6 +4,7 @@ import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
+import { HelpPopover, HelpSection, HelpNote, HelpKeyword } from '@components/ui/HelpPopover';
 import { API_BASE } from '@utils/constants';
 import authService from '@services/auth.service';
 
@@ -206,6 +207,22 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
         <div className="flex items-center gap-2">
           <Cpu className="w-6 h-6 icon-emerald" />
           <h3 className="text-lg font-semibold text-themed-primary">Garbage Collection Settings</h3>
+          <HelpPopover position="left" width={320}>
+            <HelpSection title="What is this?">
+              Controls how aggressively the system cleans up memory. If you experience
+              high memory usage, try increasing aggressiveness or lowering the threshold.
+              If performance is slow, decrease aggressiveness.
+            </HelpSection>
+
+            <HelpSection title="Recommended" variant="subtle">
+              <HelpKeyword color="blue">On Page Load</HelpKeyword> mode provides balanced memory
+              management with minimal performance impact for most users.
+            </HelpSection>
+
+            <HelpNote type="success">
+              Changes take effect immediately — no restart required.
+            </HelpNote>
+          </HelpPopover>
         </div>
         <button
           onClick={loadSettings}
@@ -266,20 +283,6 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
           </div>
         </div>
 
-        {/* Info Box */}
-        <Alert color="blue" className="about-section">
-          <div className="text-sm space-y-2">
-            <p className="font-medium">About Garbage Collection</p>
-            <p>
-              These settings control how aggressively the system cleans up memory. If you experience
-              high memory usage, try increasing the aggressiveness or lowering the threshold. If
-              performance is slow, try decreasing the aggressiveness.
-            </p>
-            <p className="text-xs text-themed-muted mt-2">
-              Note: Changes take effect immediately and don't require a restart.
-            </p>
-          </div>
-        </Alert>
 
         {/* Trigger Result */}
         {triggerResult && (

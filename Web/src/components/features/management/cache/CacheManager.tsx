@@ -7,6 +7,7 @@ import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
+import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import type { Config } from '../../../../types';
 
 // Fetch initial cache configuration data
@@ -177,6 +178,26 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                 <Server className="w-5 h-5 icon-green" />
               </div>
               <h3 className="text-lg font-semibold text-themed-primary">Disk Cache Management</h3>
+              <HelpPopover position="left" width={300}>
+                <HelpSection title="Deletion Methods">
+                  <div className="space-y-1.5">
+                    <HelpDefinition term="Safe Mode" termColor="blue">
+                      Individual file deletion — slower but keeps directory structure
+                    </HelpDefinition>
+                    <HelpDefinition term="Fast Mode" termColor="green">
+                      Full directory removal — faster for local storage
+                    </HelpDefinition>
+                    <HelpDefinition term="Rsync" termColor="purple">
+                      Sync with empty directory — best for network storage
+                    </HelpDefinition>
+                  </div>
+                </HelpSection>
+
+                <HelpNote type="warning">
+                  Clearing cache deletes all cached game files.
+                  Games will need to redownload content.
+                </HelpNote>
+              </HelpPopover>
             </div>
 
             {/* Main Cache Path and Clear Button */}

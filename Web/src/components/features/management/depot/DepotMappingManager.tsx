@@ -4,6 +4,7 @@ import ApiService from '@services/api.service';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import { HelpPopover, HelpSection, HelpNote, HelpKeyword, HelpDefinition } from '@components/ui/HelpPopover';
 import { FullScanRequiredModal } from '@components/modals/setup/FullScanRequiredModal';
 import { useNotifications } from '@contexts/NotificationsContext';
 import { usePicsProgress } from '@contexts/PicsProgressContext';
@@ -692,6 +693,31 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
             <Database className="w-5 h-5 icon-indigo" />
           </div>
           <h3 className="text-lg font-semibold text-themed-primary">Depot Mapping</h3>
+          <HelpPopover position="left" width={320}>
+            <HelpSection title="Scan Modes">
+              <div className="space-y-1.5">
+                <HelpDefinition term="Incremental" termColor="blue">
+                  Fetch only changed apps — fast updates
+                </HelpDefinition>
+                <HelpDefinition term="Full" termColor="green">
+                  Fetch all ~300k apps — slower but complete
+                </HelpDefinition>
+                <HelpDefinition term="GitHub" termColor="purple">
+                  Download pre-built depot data (290k+ depots, updated hourly)
+                </HelpDefinition>
+              </div>
+            </HelpSection>
+
+            <HelpSection title="Settings" variant="subtle">
+              <HelpKeyword color="cyan">Automatic Schedule</HelpKeyword> runs in the background at your
+              chosen interval. <HelpKeyword color="blue">Apply Now</HelpKeyword> uses the selected
+              source for immediate updates.
+            </HelpSection>
+
+            <HelpNote type="info">
+              GitHub mode uses a fixed 30-minute interval to stay in sync with hourly updates.
+            </HelpNote>
+          </HelpPopover>
         </div>
 
         <p className="text-themed-secondary mb-4">
@@ -1109,34 +1135,6 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
           </Button>
         </div>
 
-        <div className="mt-4 p-3 bg-themed-tertiary rounded-lg">
-          <div className="text-xs text-themed-muted leading-relaxed space-y-2.5">
-            <div>
-              <strong className="text-themed-secondary">Settings</strong>
-              <ul className="mt-1 ml-3 space-y-0.5">
-                <li>• <strong>Automatic Schedule</strong> — Runs in the background at the set interval</li>
-                <li>• <strong>Apply Now Source</strong> — Data source used when you click "Apply Now"</li>
-              </ul>
-            </div>
-            <div>
-              <strong className="text-themed-secondary">Scan Modes</strong>
-              <ul className="mt-1 ml-3 space-y-0.5">
-                <li>• <strong>Incremental</strong> — Fetch only changed apps (fast)</li>
-                <li>• <strong>Full</strong> — Fetch all ~300k apps (slower, complete)</li>
-                {steamAuthMode !== 'authenticated' && (
-                  <li>• <strong>GitHub</strong> — Download pre-built depot data (290k+ depots, updated hourly)</li>
-                )}
-              </ul>
-            </div>
-            {steamAuthMode !== 'authenticated' && (
-              <div className="pt-0.5">
-                <em>
-                  Note: GitHub mode uses a fixed 30-minute interval to stay in sync with the hourly GitHub updates while minimizing redundant downloads.
-                </em>
-              </div>
-            )}
-          </div>
-        </div>
       </Card>
 
       {/* Data Update Required Modal */}

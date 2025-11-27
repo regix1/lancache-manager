@@ -24,6 +24,7 @@ import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Checkbox } from '@components/ui/Checkbox';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import { HelpPopover, HelpSection, HelpNote, HelpKeyword } from '@components/ui/HelpPopover';
 import { API_BASE } from '@utils/constants';
 import { Tooltip } from '@components/ui/Tooltip';
 import { ThemeCard } from './ThemeCard';
@@ -574,6 +575,22 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
               <h3 className="text-lg font-semibold text-themed-primary">Theme Management</h3>
               <p className="text-xs text-themed-muted">{themes.length} themes available</p>
             </div>
+            <HelpPopover position="left" width={300}>
+              <HelpSection title="Theme Options">
+                <HelpKeyword color="blue">System themes</HelpKeyword> are built-in and cannot be deleted.{' '}
+                <HelpKeyword color="purple">Custom themes</HelpKeyword> can be created, edited, or imported
+                from the community.
+              </HelpSection>
+
+              <HelpSection title="Preview Mode" variant="subtle">
+                Preview themes without committing — click{' '}
+                <HelpKeyword color="cyan">Apply</HelpKeyword> to save your choice permanently.
+              </HelpSection>
+
+              <HelpNote type="info">
+                Theme files use TOML format. Download a sample to see the structure.
+              </HelpNote>
+            </HelpPopover>
           </div>
           <div className="flex items-center gap-2">
             {isAuthenticated ? (

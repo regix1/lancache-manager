@@ -13,6 +13,7 @@ import { type AuthMode } from '@services/auth.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
 import { useSignalR } from '@contexts/SignalRContext';
 import { Card } from '@components/ui/Card';
+import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 
 interface ServiceRemovalOperationData {
   service: string;
@@ -389,6 +390,27 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
               <h3 className="text-lg font-semibold text-themed-primary">Log & Cache Management</h3>
               <p className="text-xs text-themed-muted">Remove log entries and fix corrupted cache files</p>
             </div>
+            <HelpPopover position="left" width={320}>
+              <HelpSection title="Operations">
+                <div className="space-y-1.5">
+                  <HelpDefinition term="Log Removal" termColor="blue">
+                    Removes entries from access.log only — cache files remain intact
+                  </HelpDefinition>
+                  <HelpDefinition term="Corruption Fix" termColor="purple">
+                    Deletes cache files, log entries, and database records for corrupted chunks
+                  </HelpDefinition>
+                </div>
+              </HelpSection>
+
+              <HelpSection title="Corruption Detection" variant="subtle">
+                Identifies chunks with 3+ repeated MISS requests,
+                indicating the cache file is broken and needs redownload.
+              </HelpSection>
+
+              <HelpNote type="warning">
+                Both operations require write permissions and cannot be undone.
+              </HelpNote>
+            </HelpPopover>
           </div>
           <button
             onClick={() => loadAllData(true)}
@@ -752,14 +774,6 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
           )}
         </div>
 
-        {/* Info Section - Hide if both are read-only */}
-        {!(logsReadOnly && cacheReadOnly) && (
-          <div className="mt-6 pt-4 border-t text-xs text-themed-muted space-y-1" style={{ borderColor: 'var(--theme-border-primary)' }}>
-            <p><strong>Log removal</strong> removes entries from access.log only (cache files remain intact)</p>
-            <p><strong>Corruption removal</strong> deletes cache files, log entries, and database records</p>
-            <p className="opacity-75">Both require write permissions and cannot be undone</p>
-          </div>
-        )}
       </Card>
 
       {/* Log Removal Confirmation Modal */}

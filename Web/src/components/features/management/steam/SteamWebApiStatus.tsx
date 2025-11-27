@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Globe, AlertCircle, CheckCircle, Key, Loader2, Info, Trash2, AlertTriangle } from 'lucide-react';
+import { Globe, AlertCircle, CheckCircle, Key, Loader2, Trash2, AlertTriangle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
 import { Alert } from '@components/ui/Alert';
+import { HelpPopover, HelpSection, HelpNote, HelpKeyword, HelpDefinition } from '@components/ui/HelpPopover';
 import SteamWebApiKeyModal from '@components/modals/setup/SteamWebApiKeyModal';
 import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 import { usePicsProgress } from '@contexts/PicsProgressContext';
@@ -14,7 +15,7 @@ interface SteamWebApiStatusProps {
   steamAuthMode?: 'anonymous' | 'authenticated';
 }
 
-const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode }) => {
+const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _steamAuthMode }) => {
   const { status, loading, refresh, updateStatus } = useSteamWebApiStatus();
   const { updateProgress } = usePicsProgress();
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -158,6 +159,42 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode }) 
             <Globe className="w-5 h-5 icon-cyan" />
           </div>
           <h3 className="text-lg font-semibold text-themed-primary">Steam Web API Status</h3>
+          <HelpPopover position="left" width={340}>
+            <HelpSection title="API Versions">
+              <div className="space-y-1.5">
+                <HelpDefinition term="V2" termColor="green">
+                  No API key required — may become unavailable during high load
+                </HelpDefinition>
+                <HelpDefinition term="V1" termColor="blue">
+                  Requires API key — provides reliable fallback when V2 is down
+                </HelpDefinition>
+              </div>
+            </HelpSection>
+
+            <HelpSection title="API Key" variant="subtle">
+              <HelpKeyword color="cyan">Optional</HelpKeyword> — only needed if V2 becomes unavailable.
+              Anonymous users can use the <HelpKeyword color="purple">GitHub download</HelpKeyword> option
+              as an alternative.
+            </HelpSection>
+
+            <HelpNote type="info">
+              Get your free API key at{' '}
+              <a
+                href="https://steamcommunity.com/dev/apikey"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium underline hover:no-underline"
+                style={{ color: 'var(--theme-info-text)' }}
+              >
+                steamcommunity.com/dev/apikey
+              </a>
+            </HelpNote>
+
+            <HelpNote type="tip">
+              After requesting, open the <HelpKeyword color="purple">Steam Mobile App</HelpKeyword> →
+              hamburger menu (bottom right) → Confirmations → approve the request.
+            </HelpNote>
+          </HelpPopover>
         </div>
 
         {/* Status Overview */}
@@ -239,35 +276,6 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode }) 
           </div>
         )}
 
-        {/* Info Box */}
-        <div
-          className="mb-4 p-3 rounded-lg border"
-          style={{
-            backgroundColor: 'var(--theme-info-bg)',
-            borderColor: 'var(--theme-info)'
-          }}
-        >
-          <div className="flex items-start gap-3">
-            <Info className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-info)' }} />
-            <div className="flex-1">
-              <p className="text-xs" style={{ color: 'var(--theme-info-text)', opacity: 0.9 }}>
-                <strong>What is this?</strong> Steam provides two Web API versions. V2 requires no
-                API key but may become unavailable. V1 requires an API key but provides a reliable
-                fallback.
-                <br />
-                <br />
-                <strong>API key is optional</strong> and only needed if V2 becomes unavailable.
-                {steamAuthMode === 'anonymous' && (
-                  <>
-                    {' '}
-                    Anonymous users can alternatively use the GitHub download option for depot
-                    mappings.
-                  </>
-                )}
-              </p>
-            </div>
-          </div>
-        </div>
 
         {/* Configure/Remove Buttons */}
         {(needsApiKey || status?.hasApiKey) && (
