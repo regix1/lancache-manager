@@ -168,7 +168,7 @@ export const useDraggableCards = ({
             navigator.vibrate(50);
           }
         }
-      }, 800); // 800ms hold to activate selection mode (longer to prevent accidental drags)
+      }, 1000); // 1 second hold to activate selection mode (longer to prevent accidental drags)
       setHoldTimeout(timeout);
     },
     [draggedCard]

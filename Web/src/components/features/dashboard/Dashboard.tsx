@@ -558,8 +558,7 @@ const Dashboard: React.FC = () => {
               <div className="flex items-center gap-2">
                 <span>💡</span>
                 <span>
-                  Hold any card for 0.5 seconds to select it, then tap another card to swap
-                  positions
+                  Hold any card for 1 second to select it, then tap another card to swap positions
                 </span>
               </div>
               <button

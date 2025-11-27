@@ -1014,19 +1014,19 @@ const DownloadsTab: React.FC = () => {
             </div>
 
             {/* Desktop: All controls in one row */}
-            <div className="hidden sm:flex gap-2 items-center flex-1 w-full">
+            <div className="hidden sm:flex gap-2 items-center">
               <EnhancedDropdown
                 options={serviceOptions}
                 value={settings.selectedService}
                 onChange={(value) => setSettings({ ...settings, selectedService: value })}
-                className="w-36"
+                className="w-28 md:w-32 lg:w-36"
               />
 
               <EnhancedDropdown
                 options={clientOptions}
                 value={settings.selectedClient}
                 onChange={(value) => setSettings({ ...settings, selectedClient: value })}
-                className="w-36"
+                className="w-28 md:w-32 lg:w-36"
               />
 
               <EnhancedDropdown
@@ -1061,17 +1061,17 @@ const DownloadsTab: React.FC = () => {
                 value={settings.sortOrder}
                 onChange={(value) => setSettings({ ...settings, sortOrder: value as any })}
                 prefix="Sort:"
-                className="w-36"
+                className="w-28 md:w-32 lg:w-36"
               />
             </div>
 
             {/* Desktop view controls */}
-            <div className="hidden sm:flex gap-2 justify-end w-auto">
+            <div className="hidden sm:flex gap-2 justify-end w-auto flex-shrink-0">
               {/* View Mode Toggle */}
               <div className="flex rounded-lg bg-themed-tertiary p-1">
                 <button
                   onClick={() => setSettings({ ...settings, viewMode: 'compact' })}
-                  className={`px-3 py-1.5 rounded-md transition-colors flex items-center gap-1 ${
+                  className={`px-2 lg:px-3 py-1.5 rounded-md transition-colors flex items-center gap-1 ${
                     settings.viewMode === 'compact'
                       ? 'bg-primary'
                       : 'text-themed-secondary hover:text-themed-primary'
@@ -1082,11 +1082,11 @@ const DownloadsTab: React.FC = () => {
                   title="Compact View"
                 >
                   <List size={16} />
-                  <span className="text-xs">Compact</span>
+                  <span className="text-xs hidden lg:inline">Compact</span>
                 </button>
                 <button
                   onClick={() => setSettings({ ...settings, viewMode: 'normal' })}
-                  className={`px-3 py-1.5 rounded-md transition-colors flex items-center gap-1 ${
+                  className={`px-2 lg:px-3 py-1.5 rounded-md transition-colors flex items-center gap-1 ${
                     settings.viewMode === 'normal'
                       ? 'bg-primary'
                       : 'text-themed-secondary hover:text-themed-primary'
@@ -1097,7 +1097,7 @@ const DownloadsTab: React.FC = () => {
                   title="Normal View"
                 >
                   <Grid3x3 size={16} />
-                  <span className="text-xs">Normal</span>
+                  <span className="text-xs hidden lg:inline">Normal</span>
                 </button>
               </div>
 

@@ -29,11 +29,25 @@ export const Tooltip: React.FC<TooltipProps> = ({
   const [show, setShow] = useState(false);
   const [x, setX] = useState(0);
   const [y, setY] = useState(0);
+  const [isMobile, setIsMobile] = useState(false);
   const triggerRef = useRef<HTMLDivElement>(null);
 
-  // Check if tooltips are disabled globally
-  const tooltipsDisabled =
+  // Check if tooltips are disabled globally or on mobile
+  const globallyDisabled =
     document.documentElement.getAttribute('data-disable-tooltips') === 'true';
+
+  // Detect mobile viewport - disable tooltips on mobile
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Disable tooltips on mobile or when globally disabled
+  const tooltipsDisabled = globallyDisabled || isMobile;
 
   // Add scroll listener to hide tooltip on mobile scroll
   useEffect(() => {
@@ -222,8 +236,18 @@ const EdgeTooltip: React.FC<{
 };
 
 export const CacheInfoTooltip: React.FC = () => {
-  const tooltipsDisabled =
+  const [isMobile, setIsMobile] = useState(false);
+  const globallyDisabled =
     document.documentElement.getAttribute('data-disable-tooltips') === 'true';
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  const tooltipsDisabled = globallyDisabled || isMobile;
 
   return (
     <Tooltip
