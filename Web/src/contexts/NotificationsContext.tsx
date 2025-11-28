@@ -1528,10 +1528,12 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               console.log('[NotificationsContext] Clearing stale log processing state - backend is idle');
               localStorage.removeItem('log_processing_notification');
 
-              // Mark any restored notification as completed
+              // Mark any restored notification as completed and capture ID for auto-dismiss
+              let actualNotificationId: string | null = null;
               setNotifications((prev) => {
                 const existing = prev.find((n) => n.type === 'log_processing' && n.status === 'running');
                 if (existing) {
+                  actualNotificationId = existing.id;
                   return prev.map((n) => {
                     if (n.type === 'log_processing' && n.status === 'running') {
                       return {
@@ -1547,7 +1549,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                 return prev;
               });
 
-              scheduleAutoDismiss(notificationId);
+              if (actualNotificationId) {
+                scheduleAutoDismiss(actualNotificationId);
+              }
             }
           }
         }
@@ -1594,7 +1598,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               console.log('[NotificationsContext] Clearing stale log removal state - backend is idle');
               localStorage.removeItem('log_removal_notification');
 
-              // Mark any restored notification as completed
+              // Mark any restored notification as completed and capture ID for auto-dismiss
+              let actualNotificationId: string | null = null;
               setNotifications((prev) => {
                 // Find any log entry removal notification (has service in details but isn't a cache removal)
                 const existing = prev.find((n) =>
@@ -1603,6 +1608,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                   n.details?.linesProcessed !== undefined
                 );
                 if (existing) {
+                  actualNotificationId = existing.id;
                   return prev.map((n) => {
                     if (n.type === 'service_removal' && n.status === 'running' && n.details?.linesProcessed !== undefined) {
                       return {
@@ -1618,7 +1624,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                 return prev;
               });
 
-              scheduleAutoDismiss(notificationId);
+              if (actualNotificationId) {
+                scheduleAutoDismiss(actualNotificationId);
+              }
             }
           }
         }
