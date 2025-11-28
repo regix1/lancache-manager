@@ -131,24 +131,42 @@ const shouldAutoDismiss = (): boolean => {
 
 export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ children }) => {
   const [notifications, setNotifications] = useState<UnifiedNotification[]>(() => {
-    // Restore depot mapping notification from localStorage on mount
-    try {
-      const savedDepotMapping = localStorage.getItem('depot_mapping_notification');
-      if (savedDepotMapping) {
-        const parsed = JSON.parse(savedDepotMapping);
-        // Only restore if it was running (not completed/failed)
-        if (parsed.status === 'running') {
-          // Convert startedAt back to Date object
-          return [{
-            ...parsed,
-            startedAt: new Date(parsed.startedAt)
-          } as UnifiedNotification];
+    // Restore notifications from localStorage on mount
+    const restoredNotifications: UnifiedNotification[] = [];
+
+    // List of localStorage keys for persistent notifications
+    const persistentKeys = [
+      'depot_mapping_notification',
+      'corruption_removal_notification',
+      'game_detection_notification',
+      'log_processing_notification',
+      'log_removal_notification',
+      'game_removal_notification',
+      'service_cache_removal_notification',
+      'cache_clearing_notification',
+      'database_reset_notification'
+    ];
+
+    for (const key of persistentKeys) {
+      try {
+        const saved = localStorage.getItem(key);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          // Only restore if it was running (not completed/failed)
+          if (parsed.status === 'running') {
+            // Convert startedAt back to Date object
+            restoredNotifications.push({
+              ...parsed,
+              startedAt: new Date(parsed.startedAt)
+            } as UnifiedNotification);
+          }
         }
+      } catch (error) {
+        console.error(`[NotificationsContext] Failed to restore ${key}:`, error);
       }
-    } catch (error) {
-      console.error('[NotificationsContext] Failed to restore notification:', error);
     }
-    return [];
+
+    return restoredNotifications;
   });
   const signalR = useSignalR();
 
@@ -237,6 +255,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       const status = payload.status || 'processing';
 
       if (isCompleteStatus(status)) {
+        // Clear from localStorage
+        localStorage.removeItem('log_processing_notification');
+
         // Find existing notification and update it, or create one if it doesn't exist (handles race condition)
         let notificationId: string | null = null;
         setNotifications((prev) => {
@@ -312,23 +333,28 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           } else {
             // Create new notification
             const id = `log_processing-${Date.now()}`;
+            const newNotification: UnifiedNotification = {
+              id,
+              type: 'log_processing' as const,
+              status: 'running' as const,
+              message,
+              detailMessage,
+              progress: Math.min(99.9, currentProgress),
+              startedAt: new Date(),
+              details: {
+                mbProcessed: payload.mbProcessed,
+                mbTotal: payload.mbTotal,
+                entriesProcessed: payload.entriesProcessed,
+                totalLines: payload.totalLines
+              }
+            };
+
+            // Persist to localStorage for recovery on page refresh
+            localStorage.setItem('log_processing_notification', JSON.stringify(newNotification));
+
             return [
               ...prev,
-              {
-                id,
-                type: 'log_processing',
-                status: 'running',
-                message,
-                detailMessage,
-                progress: Math.min(99.9, currentProgress),
-                startedAt: new Date(),
-                details: {
-                  mbProcessed: payload.mbProcessed,
-                  mbTotal: payload.mbTotal,
-                  entriesProcessed: payload.entriesProcessed,
-                  totalLines: payload.totalLines
-                }
-              }
+              newNotification
             ];
           }
         });
@@ -336,6 +362,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     const handleFastProcessingComplete = (result: any) => {
+      // Clear from localStorage
+      localStorage.removeItem('log_processing_notification');
       let notificationId: string | null = null;
       setNotifications((prev) => {
         const existing = prev.find((n) => n.type === 'log_processing');
@@ -418,21 +446,26 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           } else {
             // Create notification with fixed ID based on service, removing any old completed/failed ones first
             const filtered = prev.filter((n) => n.id !== notificationId);
+            const newNotification: UnifiedNotification = {
+              id: notificationId,
+              type: 'service_removal' as const,
+              status: 'running' as const,
+              message,
+              progress: payload.percentComplete || 0,
+              startedAt: new Date(),
+              details: {
+                service: payload.service,
+                linesProcessed: payload.linesProcessed || 0,
+                linesRemoved: payload.linesRemoved || 0
+              }
+            };
+
+            // Persist to localStorage for recovery on page refresh
+            localStorage.setItem('log_removal_notification', JSON.stringify(newNotification));
+
             return [
               ...filtered,
-              {
-                id: notificationId,
-                type: 'service_removal',
-                status: 'running',
-                message,
-                progress: payload.percentComplete || 0,
-                startedAt: new Date(),
-                details: {
-                  service: payload.service,
-                  linesProcessed: payload.linesProcessed || 0,
-                  linesRemoved: payload.linesRemoved || 0
-                }
-              }
+              newNotification
             ];
           }
         });
@@ -441,6 +474,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
     const handleLogRemovalComplete = (payload: any) => {
       const notificationId = `service_removal-${payload.service}`;
+
+      // Clear from localStorage
+      localStorage.removeItem('log_removal_notification');
 
       if (payload.success) {
         updateNotification(notificationId, {
@@ -467,21 +503,26 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         const existing = prev.find((n) => n.id === notificationId);
         if (!existing) {
           // Create new notification if not exists (in case of page refresh during operation)
+          const newNotification: UnifiedNotification = {
+            id: notificationId,
+            type: 'game_removal' as const,
+            status: 'running' as const,
+            message: payload.message || `Removing ${payload.gameName}...`,
+            startedAt: new Date(),
+            details: {
+              gameAppId: payload.gameAppId,
+              gameName: payload.gameName,
+              filesDeleted: payload.filesDeleted,
+              bytesFreed: payload.bytesFreed
+            }
+          };
+
+          // Persist to localStorage for recovery on page refresh
+          localStorage.setItem('game_removal_notification', JSON.stringify(newNotification));
+
           return [
             ...prev,
-            {
-              id: notificationId,
-              type: 'game_removal' as NotificationType,
-              status: 'running' as NotificationStatus,
-              message: payload.message || `Removing ${payload.gameName}...`,
-              startedAt: new Date(),
-              details: {
-                gameAppId: payload.gameAppId,
-                gameName: payload.gameName,
-                filesDeleted: payload.filesDeleted,
-                bytesFreed: payload.bytesFreed
-              }
-            }
+            newNotification
           ];
         }
 
@@ -512,20 +553,25 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         const existing = prev.find((n) => n.id === notificationId);
         if (!existing) {
           // Create new notification if not exists (in case of page refresh during operation)
+          const newNotification: UnifiedNotification = {
+            id: notificationId,
+            type: 'service_removal' as const,
+            status: 'running' as const,
+            message: payload.message || `Removing ${payload.serviceName} service...`,
+            startedAt: new Date(),
+            details: {
+              service: payload.serviceName,
+              filesDeleted: payload.filesDeleted,
+              bytesFreed: payload.bytesFreed
+            }
+          };
+
+          // Persist to localStorage for recovery on page refresh
+          localStorage.setItem('service_cache_removal_notification', JSON.stringify(newNotification));
+
           return [
             ...prev,
-            {
-              id: notificationId,
-              type: 'service_removal' as NotificationType,
-              status: 'running' as NotificationStatus,
-              message: payload.message || `Removing ${payload.serviceName} service...`,
-              startedAt: new Date(),
-              details: {
-                service: payload.serviceName,
-                filesDeleted: payload.filesDeleted,
-                bytesFreed: payload.bytesFreed
-              }
-            }
+            newNotification
           ];
         }
 
@@ -552,6 +598,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       console.log('[NotificationsContext] GameRemovalComplete received:', payload);
       const notificationId = `game_removal-${payload.gameAppId}`;
       console.log('[NotificationsContext] Looking for notification ID:', notificationId);
+
+      // Clear from localStorage
+      localStorage.removeItem('game_removal_notification');
 
       // Use setNotifications to get current state (avoid stale closure)
       setNotifications((prev) => {
@@ -595,6 +644,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       console.log('[NotificationsContext] ServiceRemovalComplete received:', payload);
       const notificationId = `service_removal-${payload.serviceName}`;
       console.log('[NotificationsContext] Looking for notification ID:', notificationId);
+
+      // Clear from localStorage
+      localStorage.removeItem('service_cache_removal_notification');
 
       // Use setNotifications to get current state (avoid stale closure)
       setNotifications((prev) => {
@@ -641,16 +693,24 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       // Remove any existing corruption removal notifications for this service and add new one
       setNotifications((prev) => {
         const filtered = prev.filter((n) => n.id !== notificationId);
+        const newNotification: UnifiedNotification = {
+          id: notificationId,
+          type: 'corruption_removal' as const,
+          status: 'running' as const,
+          message: payload.message || `Removing corrupted chunks for ${payload.service}...`,
+          startedAt: new Date(),
+          progress: 0,
+          details: {
+            operationId: payload.operationId
+          }
+        };
+
+        // Persist to localStorage for recovery on page refresh
+        localStorage.setItem('corruption_removal_notification', JSON.stringify(newNotification));
+
         return [
           ...filtered,
-          {
-            id: notificationId,
-            type: 'corruption_removal',
-            status: 'running',
-            message: payload.message || `Removing corrupted chunks for ${payload.service}...`,
-            startedAt: new Date(),
-            progress: 0
-          }
+          newNotification
         ];
       });
     };
@@ -659,6 +719,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     const handleCorruptionRemovalComplete = (payload: any) => {
       console.log('[NotificationsContext] CorruptionRemovalComplete received:', payload);
       const notificationId = `corruption_removal-${payload.service}`;
+
+      // Clear from localStorage
+      localStorage.removeItem('corruption_removal_notification');
 
       // Use setNotifications to get current state (avoid stale closure)
       setNotifications((prev) => {
@@ -706,20 +769,25 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       // Remove any existing game detection notifications and add new one
       setNotifications((prev) => {
         const filtered = prev.filter((n) => n.type !== 'game_detection');
+        const newNotification: UnifiedNotification = {
+          id: notificationId,
+          type: 'game_detection' as const,
+          status: 'running' as const,
+          message: payload.message || 'Running game cache detection...',
+          startedAt: new Date(),
+          progress: 0,
+          details: {
+            operationId: payload.operationId,
+            scanType: payload.scanType
+          }
+        };
+
+        // Persist to localStorage for recovery on page refresh
+        localStorage.setItem('game_detection_notification', JSON.stringify(newNotification));
+
         return [
           ...filtered,
-          {
-            id: notificationId,
-            type: 'game_detection',
-            status: 'running',
-            message: payload.message || 'Running game cache detection...',
-            startedAt: new Date(),
-            progress: 0,
-            details: {
-              operationId: payload.operationId,
-              scanType: payload.scanType
-            }
-          }
+          newNotification
         ];
       });
     };
@@ -728,6 +796,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     const handleGameDetectionComplete = (payload: any) => {
       console.log('[NotificationsContext] GameDetectionComplete received:', payload);
       const notificationId = `game_detection-${payload.operationId}`;
+
+      // Clear from localStorage
+      localStorage.removeItem('game_detection_notification');
 
       // Use setNotifications to get current state (avoid stale closure)
       setNotifications((prev) => {
@@ -808,12 +879,18 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       const notificationId = 'database-reset';
 
       if (isCompleteStatus(payload.status)) {
+        // Clear from localStorage
+        localStorage.removeItem('database_reset_notification');
+
         updateNotification(notificationId, {
           status: 'completed',
           message: payload.message || 'Database reset completed',
           progress: 100
         });
       } else if (isErrorStatus(payload.status)) {
+        // Clear from localStorage
+        localStorage.removeItem('database_reset_notification');
+
         updateNotification(notificationId, {
           status: 'failed',
           error: payload.message
@@ -836,16 +913,21 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           } else {
             // Create notification with fixed ID, removing any old completed/failed ones first
             const filtered = prev.filter((n) => n.id !== notificationId);
+            const newNotification: UnifiedNotification = {
+              id: notificationId,
+              type: 'database_reset' as const,
+              status: 'running' as const,
+              message: payload.message || 'Resetting database...',
+              progress: payload.percentComplete || 0,
+              startedAt: new Date()
+            };
+
+            // Persist to localStorage for recovery on page refresh
+            localStorage.setItem('database_reset_notification', JSON.stringify(newNotification));
+
             return [
               ...filtered,
-              {
-                id: notificationId,
-                type: 'database_reset',
-                status: 'running',
-                message: payload.message || 'Resetting database...',
-                progress: payload.percentComplete || 0,
-                startedAt: new Date()
-              }
+              newNotification
             ];
           }
         });
@@ -880,22 +962,27 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         } else {
           // Create notification with fixed ID, removing any old completed/failed ones first
           const filtered = prev.filter((n) => n.id !== notificationId);
+          const newNotification: UnifiedNotification = {
+            id: notificationId,
+            type: 'cache_clearing' as const,
+            status: 'running' as const,
+            message: payload.statusMessage || 'Clearing cache...',
+            progress: payload.percentComplete || 0,
+            startedAt: new Date(),
+            details: {
+              filesDeleted: payload.filesDeleted || 0,
+              directoriesProcessed: payload.directoriesProcessed || 0,
+              bytesDeleted: payload.bytesDeleted || 0,
+              operationId: payload.operationId
+            }
+          };
+
+          // Persist to localStorage for recovery on page refresh
+          localStorage.setItem('cache_clearing_notification', JSON.stringify(newNotification));
+
           return [
             ...filtered,
-            {
-              id: notificationId,
-              type: 'cache_clearing',
-              status: 'running',
-              message: payload.statusMessage || 'Clearing cache...',
-              progress: payload.percentComplete || 0,
-              startedAt: new Date(),
-              details: {
-                filesDeleted: payload.filesDeleted || 0,
-                directoriesProcessed: payload.directoriesProcessed || 0,
-                bytesDeleted: payload.bytesDeleted || 0,
-                operationId: payload.operationId
-              }
-            }
+            newNotification
           ];
         }
       });
@@ -905,6 +992,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     const handleCacheClearComplete = (payload: any) => {
       console.log('[NotificationsContext] CacheClearComplete received:', payload);
       const notificationId = 'cache_clearing';
+
+      // Clear from localStorage
+      localStorage.removeItem('cache_clearing_notification');
 
       // Use setNotifications to get current state (avoid stale closure)
       setNotifications((prev) => {
@@ -1400,19 +1490,18 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         const response = await fetch('/api/logs/process/status');
         if (response.ok) {
           const data = await response.json();
+          const notificationId = 'log_processing';
 
           if (data.isProcessing) {
-            const notificationId = 'log_processing';
-
             setNotifications((prev) => {
-              const existing = prev.find((n) => n.id === notificationId);
-              if (existing) return prev;
+              // Remove any existing and add fresh one from backend
+              const filtered = prev.filter((n) => n.type !== 'log_processing');
 
               const message = `Processing: ${data.mbProcessed?.toFixed(1) || 0} MB of ${data.mbTotal?.toFixed(1) || 0} MB`;
               const detailMessage = `${data.entriesProcessed?.toLocaleString() || 0} of ${data.totalLines?.toLocaleString() || 0} entries`;
 
               return [
-                ...prev,
+                ...filtered,
                 {
                   id: notificationId,
                   type: 'log_processing' as NotificationType,
@@ -1432,6 +1521,34 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             });
 
             console.log('[NotificationsContext] Recovered log processing notification');
+          } else {
+            // Backend says NOT running - clear any stale state from localStorage
+            const savedNotification = localStorage.getItem('log_processing_notification');
+            if (savedNotification) {
+              console.log('[NotificationsContext] Clearing stale log processing state - backend is idle');
+              localStorage.removeItem('log_processing_notification');
+
+              // Mark any restored notification as completed
+              setNotifications((prev) => {
+                const existing = prev.find((n) => n.type === 'log_processing' && n.status === 'running');
+                if (existing) {
+                  return prev.map((n) => {
+                    if (n.type === 'log_processing' && n.status === 'running') {
+                      return {
+                        ...n,
+                        status: 'completed' as NotificationStatus,
+                        message: 'Processing Complete!',
+                        progress: 100
+                      };
+                    }
+                    return n;
+                  });
+                }
+                return prev;
+              });
+
+              scheduleAutoDismiss(notificationId);
+            }
           }
         }
       } catch (err) {
@@ -1444,16 +1561,15 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         const response = await fetch('/api/logs/remove/status');
         if (response.ok) {
           const data = await response.json();
+          const notificationId = `service_removal-${data.service || 'unknown'}`;
 
           if (data.isProcessing && data.service) {
-            const notificationId = 'service_removal';
-
             setNotifications((prev) => {
-              const existing = prev.find((n) => n.id === notificationId);
-              if (existing) return prev;
+              // Remove any existing log removal notification and add fresh one from backend
+              const filtered = prev.filter((n) => !(n.type === 'service_removal' && n.details?.service === data.service));
 
               return [
-                ...prev,
+                ...filtered,
                 {
                   id: notificationId,
                   type: 'service_removal' as NotificationType,
@@ -1471,6 +1587,39 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             });
 
             console.log('[NotificationsContext] Recovered service removal notification');
+          } else {
+            // Backend says NOT running - clear any stale state from localStorage
+            const savedNotification = localStorage.getItem('log_removal_notification');
+            if (savedNotification) {
+              console.log('[NotificationsContext] Clearing stale log removal state - backend is idle');
+              localStorage.removeItem('log_removal_notification');
+
+              // Mark any restored notification as completed
+              setNotifications((prev) => {
+                // Find any log entry removal notification (has service in details but isn't a cache removal)
+                const existing = prev.find((n) =>
+                  n.type === 'service_removal' &&
+                  n.status === 'running' &&
+                  n.details?.linesProcessed !== undefined
+                );
+                if (existing) {
+                  return prev.map((n) => {
+                    if (n.type === 'service_removal' && n.status === 'running' && n.details?.linesProcessed !== undefined) {
+                      return {
+                        ...n,
+                        status: 'completed' as NotificationStatus,
+                        message: 'Log entry removal completed',
+                        progress: 100
+                      };
+                    }
+                    return n;
+                  });
+                }
+                return prev;
+              });
+
+              scheduleAutoDismiss(notificationId);
+            }
           }
         }
       } catch (err) {
@@ -1592,19 +1741,18 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         const response = await fetch('/api/cache/operations');
         if (response.ok) {
           const data = await response.json();
+          const notificationId = 'cache_clearing';
 
           // Check if there are any active operations
           if (data.hasActive && data.operations && data.operations.length > 0) {
             // Get the first running operation
             const activeOp = data.operations[0];
-            const notificationId = 'cache_clearing';
 
             setNotifications((prev) => {
-              const existing = prev.find((n) => n.id === notificationId);
-              if (existing) return prev;
-
+              // Remove any existing and add fresh one from backend
+              const filtered = prev.filter((n) => n.id !== notificationId);
               return [
-                ...prev,
+                ...filtered,
                 {
                   id: notificationId,
                   type: 'cache_clearing' as NotificationType,
@@ -1622,6 +1770,34 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             });
 
             console.log('[NotificationsContext] Recovered cache clearing notification');
+          } else {
+            // Backend says NOT running - clear any stale state from localStorage
+            const savedNotification = localStorage.getItem('cache_clearing_notification');
+            if (savedNotification) {
+              console.log('[NotificationsContext] Clearing stale cache clearing state - backend is idle');
+              localStorage.removeItem('cache_clearing_notification');
+
+              // Mark any restored notification as completed
+              setNotifications((prev) => {
+                const existing = prev.find((n) => n.id === notificationId && n.status === 'running');
+                if (existing) {
+                  return prev.map((n) => {
+                    if (n.id === notificationId && n.status === 'running') {
+                      return {
+                        ...n,
+                        status: 'completed' as NotificationStatus,
+                        message: 'Cache clearing completed',
+                        progress: 100
+                      };
+                    }
+                    return n;
+                  });
+                }
+                return prev;
+              });
+
+              scheduleAutoDismiss(notificationId);
+            }
           }
         }
       } catch (err) {
@@ -1634,16 +1810,14 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         const response = await fetch('/api/database/reset-status');
         if (response.ok) {
           const data = await response.json();
+          const notificationId = 'database-reset';
 
           if (data.isProcessing) {
-            const notificationId = 'database-reset';
-
             setNotifications((prev) => {
-              const existing = prev.find((n) => n.id === notificationId);
-              if (existing) return prev;
-
+              // Remove any existing and add fresh one from backend
+              const filtered = prev.filter((n) => n.id !== notificationId);
               return [
-                ...prev,
+                ...filtered,
                 {
                   id: notificationId,
                   type: 'database_reset' as NotificationType,
@@ -1656,6 +1830,34 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             });
 
             console.log('[NotificationsContext] Recovered database reset notification');
+          } else {
+            // Backend says NOT running - clear any stale state from localStorage
+            const savedNotification = localStorage.getItem('database_reset_notification');
+            if (savedNotification) {
+              console.log('[NotificationsContext] Clearing stale database reset state - backend is idle');
+              localStorage.removeItem('database_reset_notification');
+
+              // Mark any restored notification as completed
+              setNotifications((prev) => {
+                const existing = prev.find((n) => n.id === notificationId && n.status === 'running');
+                if (existing) {
+                  return prev.map((n) => {
+                    if (n.id === notificationId && n.status === 'running') {
+                      return {
+                        ...n,
+                        status: 'completed' as NotificationStatus,
+                        message: 'Database reset completed',
+                        progress: 100
+                      };
+                    }
+                    return n;
+                  });
+                }
+                return prev;
+              });
+
+              scheduleAutoDismiss(notificationId);
+            }
           }
         }
       } catch (err) {
@@ -1671,29 +1873,61 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
           if (data.hasActiveOperation && data.operation) {
             const op = data.operation;
-            const notificationId = 'game_detection';
+            const notificationId = `game_detection-${op.operationId}`;
 
             setNotifications((prev) => {
-              const existing = prev.find((n) => n.id === notificationId);
-              if (existing) return prev;
-
+              // Remove any existing game_detection notifications (from localStorage) and add fresh one from backend
+              const filtered = prev.filter((n) => n.type !== 'game_detection');
               return [
-                ...prev,
+                ...filtered,
                 {
                   id: notificationId,
-                  type: 'generic' as NotificationType,
+                  type: 'game_detection' as NotificationType,
                   status: 'running' as NotificationStatus,
                   message: op.statusMessage || 'Detecting games and services in cache...',
                   progress: op.percentComplete || 0,
                   startedAt: new Date(),
                   details: {
-                    notificationType: 'info' as const
+                    operationId: op.operationId,
+                    scanType: op.scanType
                   }
                 }
               ];
             });
 
             console.log('[NotificationsContext] Recovered game detection notification');
+          } else {
+            // Backend says NOT running - clear any stale state from localStorage
+            const savedNotification = localStorage.getItem('game_detection_notification');
+            if (savedNotification) {
+              console.log('[NotificationsContext] Clearing stale game detection state - backend is idle');
+              localStorage.removeItem('game_detection_notification');
+
+              // Mark any restored notification as completed
+              setNotifications((prev) => {
+                const existing = prev.find((n) => n.type === 'game_detection' && n.status === 'running');
+                if (existing) {
+                  return prev.map((n) => {
+                    if (n.type === 'game_detection' && n.status === 'running') {
+                      return {
+                        ...n,
+                        status: 'completed' as NotificationStatus,
+                        message: 'Game detection completed',
+                        progress: 100
+                      };
+                    }
+                    return n;
+                  });
+                }
+                return prev;
+              });
+
+              // Schedule auto-dismiss for the completed notification
+              const existing = notifications.find((n) => n.type === 'game_detection');
+              if (existing) {
+                scheduleAutoDismiss(existing.id);
+              }
+            }
           }
         }
       } catch (err) {
@@ -1714,11 +1948,10 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               for (const op of data.gameRemovals) {
                 const notificationId = `game_removal-${op.gameAppId}`;
                 setNotifications((prev) => {
-                  const existing = prev.find((n) => n.id === notificationId);
-                  if (existing) return prev;
-
+                  // Remove any existing and add fresh one from backend
+                  const filtered = prev.filter((n) => n.id !== notificationId);
                   return [
-                    ...prev,
+                    ...filtered,
                     {
                       id: notificationId,
                       type: 'game_removal' as NotificationType,
@@ -1736,6 +1969,25 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                 });
                 console.log('[NotificationsContext] Recovered game removal notification for:', op.gameName);
               }
+            } else {
+              // No active game removals - clear stale localStorage
+              const savedGameRemoval = localStorage.getItem('game_removal_notification');
+              if (savedGameRemoval) {
+                console.log('[NotificationsContext] Clearing stale game removal state - backend is idle');
+                localStorage.removeItem('game_removal_notification');
+                setNotifications((prev) => {
+                  const existing = prev.find((n) => n.type === 'game_removal' && n.status === 'running');
+                  if (existing) {
+                    return prev.map((n) => {
+                      if (n.type === 'game_removal' && n.status === 'running') {
+                        return { ...n, status: 'completed' as NotificationStatus, message: 'Game removal completed' };
+                      }
+                      return n;
+                    });
+                  }
+                  return prev;
+                });
+              }
             }
 
             // Recover service removals
@@ -1743,11 +1995,10 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               for (const op of data.serviceRemovals) {
                 const notificationId = `service_removal-${op.serviceName}`;
                 setNotifications((prev) => {
-                  const existing = prev.find((n) => n.id === notificationId);
-                  if (existing) return prev;
-
+                  // Remove any existing and add fresh one from backend
+                  const filtered = prev.filter((n) => n.id !== notificationId);
                   return [
-                    ...prev,
+                    ...filtered,
                     {
                       id: notificationId,
                       type: 'service_removal' as NotificationType,
@@ -1764,6 +2015,25 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                 });
                 console.log('[NotificationsContext] Recovered service removal notification for:', op.serviceName);
               }
+            } else {
+              // No active service removals - clear stale localStorage
+              const savedServiceRemoval = localStorage.getItem('service_cache_removal_notification');
+              if (savedServiceRemoval) {
+                console.log('[NotificationsContext] Clearing stale service cache removal state - backend is idle');
+                localStorage.removeItem('service_cache_removal_notification');
+                setNotifications((prev) => {
+                  const existing = prev.find((n) => n.type === 'service_removal' && n.id.startsWith('service_removal-') && n.status === 'running');
+                  if (existing) {
+                    return prev.map((n) => {
+                      if (n.type === 'service_removal' && n.id.startsWith('service_removal-') && n.status === 'running') {
+                        return { ...n, status: 'completed' as NotificationStatus, message: 'Service removal completed' };
+                      }
+                      return n;
+                    });
+                  }
+                  return prev;
+                });
+              }
             }
 
             // Recover corruption removals
@@ -1771,11 +2041,10 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               for (const op of data.corruptionRemovals) {
                 const notificationId = `corruption_removal-${op.service}`;
                 setNotifications((prev) => {
-                  const existing = prev.find((n) => n.id === notificationId);
-                  if (existing) return prev;
-
+                  // Remove any existing corruption_removal notification for this service and add fresh one from backend
+                  const filtered = prev.filter((n) => n.id !== notificationId);
                   return [
-                    ...prev,
+                    ...filtered,
                     {
                       id: notificationId,
                       type: 'corruption_removal' as NotificationType,
@@ -1789,6 +2058,72 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                   ];
                 });
                 console.log('[NotificationsContext] Recovered corruption removal notification for:', op.service);
+              }
+            } else {
+              // No active corruption removals from backend - check if we have stale localStorage
+              const savedNotification = localStorage.getItem('corruption_removal_notification');
+              if (savedNotification) {
+                console.log('[NotificationsContext] Clearing stale corruption removal state - backend is idle');
+                localStorage.removeItem('corruption_removal_notification');
+
+                // Mark any restored notification as completed
+                setNotifications((prev) => {
+                  const existing = prev.find((n) => n.type === 'corruption_removal' && n.status === 'running');
+                  if (existing) {
+                    return prev.map((n) => {
+                      if (n.type === 'corruption_removal' && n.status === 'running') {
+                        return {
+                          ...n,
+                          status: 'completed' as NotificationStatus,
+                          message: 'Corruption removal completed',
+                          progress: 100
+                        };
+                      }
+                      return n;
+                    });
+                  }
+                  return prev;
+                });
+
+                // Schedule auto-dismiss
+                const existing = notifications.find((n) => n.type === 'corruption_removal');
+                if (existing) {
+                  scheduleAutoDismiss(existing.id);
+                }
+              }
+            }
+          } else {
+            // No active operations at all - clear any stale localStorage
+            const staleKeys = [
+              { key: 'game_removal_notification', type: 'game_removal', message: 'Game removal completed' },
+              { key: 'service_cache_removal_notification', type: 'service_removal', message: 'Service removal completed' },
+              { key: 'corruption_removal_notification', type: 'corruption_removal', message: 'Corruption removal completed' }
+            ];
+
+            for (const { key, type, message } of staleKeys) {
+              const savedNotification = localStorage.getItem(key);
+              if (savedNotification) {
+                console.log(`[NotificationsContext] Clearing stale ${type} state - no active operations`);
+                localStorage.removeItem(key);
+
+                // Mark any restored notification as completed
+                setNotifications((prev) => {
+                  const existing = prev.find((n) => n.type === type && n.status === 'running');
+                  if (existing) {
+                    return prev.map((n) => {
+                      if (n.type === type && n.status === 'running') {
+                        return {
+                          ...n,
+                          status: 'completed' as NotificationStatus,
+                          message,
+                          progress: 100
+                        };
+                      }
+                      return n;
+                    });
+                  }
+                  return prev;
+                });
               }
             }
           }
