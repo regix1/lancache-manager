@@ -5,6 +5,7 @@ services:
     image: ghcr.io/regix1/lancache-manager:latest
     container_name: lancache-manager
     restart: unless-stopped
+    # Container starts as root for entrypoint setup, then drops to PUID/PGID user
     user: root
     ports:
       - "8080:80"
@@ -13,6 +14,8 @@ services:
       - ./data:/data
 
       # Your actual paths from CACHE_ROOT
+      # NOTE: For cache deletion features (corruption removal, game removal, cache clearing),
+      # remove :ro from /cache to allow write access. Keep :ro for read-only monitoring.
       - /mnt/logs:/logs:ro
       - /mnt/cache/cache:/cache:ro
 
@@ -23,6 +26,8 @@ services:
       # To disable this feature, set NginxLogRotation__Enabled=false and remove this line.
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
+      # User/Group ID for file ownership - the application runs as this user
+      # Set these to match your NFS/host filesystem permissions
       - PUID=1000
       - PGID=1000
       - TZ=America/Chicago

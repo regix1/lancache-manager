@@ -85,6 +85,7 @@ ENV LANCACHE_MANAGER_VERSION=${VERSION}
 
 # Install runtime dependencies including tools for fast cache clearing and Docker CLI
 # Docker CLI is needed to send signals to nginx container via 'docker kill' command
+# gosu is needed for PUID/PGID support (running as non-root user)
 RUN apt-get update && \
     apt-get install -y \
     curl \
@@ -98,6 +99,7 @@ RUN apt-get update && \
     ca-certificates \
     gnupg \
     lsb-release \
+    gosu \
     && install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
     && chmod a+r /etc/apt/keyrings/docker.gpg \
@@ -108,6 +110,10 @@ RUN apt-get update && \
 
 # Copy published application
 COPY --from=backend-builder /app/publish ./
+
+# Copy entrypoint script
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # Create required directories with proper permissions
 RUN mkdir -p /data /logs /cache /tmp && \
@@ -133,5 +139,5 @@ VOLUME ["/data", "/logs", "/cache"]
 # Port
 EXPOSE 80
 
-# Run the application directly
-ENTRYPOINT ["dotnet", "LancacheManager.dll"]
+# Run via entrypoint script for PUID/PGID support
+ENTRYPOINT ["/entrypoint.sh"]
