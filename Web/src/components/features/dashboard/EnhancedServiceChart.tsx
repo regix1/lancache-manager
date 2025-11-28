@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Info } from 'lucide-react';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+import { VictoryPie, VictoryTooltip } from 'victory';
 import { formatBytes } from '@utils/formatters';
 import { Card } from '@components/ui/Card';
 
@@ -67,53 +67,15 @@ function getColorsFromCSS() {
   };
 }
 
-// Custom tooltip component for better styling
-const CustomTooltip = ({
-  active,
-  payload,
-  colors,
-  tabId
-}: {
-  active?: boolean;
-  payload?: any[];
-  colors: ReturnType<typeof getColorsFromCSS>;
-  tabId: string;
-}) => {
-  if (!active || !payload || payload.length === 0) return null;
+// Custom tooltip label function for Victory
+const getTooltipLabel = (datum: any, tabId: string) => {
+  const value = datum.y;
+  const percentage = datum.percentage?.toFixed(1) || '0';
 
-  const data = payload[0].payload;
-  const value = data.value;
-  const percentage = data.percentage?.toFixed(1) || '0';
-
-  let label = '';
   if (tabId === 'bandwidth') {
-    label = `${formatBytes(value)} saved (${percentage}%)`;
-  } else {
-    label = `${formatBytes(value)} (${percentage}%)`;
+    return `${datum.x}\n${formatBytes(value)} saved\n${percentage}%`;
   }
-
-  return (
-    <div
-      className="rounded-lg shadow-lg px-3 py-2 border"
-      style={{
-        backgroundColor: 'rgba(0, 0, 0, 0.9)',
-        borderColor: colors.border
-      }}
-    >
-      <div className="flex items-center gap-2">
-        <div
-          className="w-3 h-3 rounded-sm"
-          style={{ backgroundColor: data.color }}
-        />
-        <span className="text-sm font-medium" style={{ color: colors.textPrimary }}>
-          {data.name}
-        </span>
-      </div>
-      <div className="text-xs mt-1" style={{ color: colors.textMuted }}>
-        {label}
-      </div>
-    </div>
-  );
+  return `${datum.x}\n${formatBytes(value)}\n${percentage}%`;
 };
 
 const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
@@ -315,9 +277,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
       touchEndX.current = 0;
     }, [tabs.length]);
 
-    const chartContainerHeight = 200 + (chartSize - 100) * 2;
-    const innerRadius = Math.min(chartContainerHeight, 400) * 0.25;
-    const outerRadius = Math.min(chartContainerHeight, 400) * 0.45;
+    const chartContainerHeight = 250 + (chartSize - 100) * 2;
 
     return (
       <Card padding="none">
@@ -415,45 +375,66 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
                   style={{
                     height: `${chartContainerHeight}px`,
                     width: '100%',
-                    touchAction: 'pan-y'
+                    touchAction: 'pan-y',
+                    overflow: 'visible',
+                    position: 'relative',
+                    zIndex: 1
                   }}
                   onTouchStart={handleTouchStart}
                   onTouchMove={handleTouchMove}
                   onTouchEnd={handleTouchEnd}
                 >
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={chartData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={innerRadius}
-                        outerRadius={outerRadius}
-                        paddingAngle={2}
-                        dataKey="value"
-                        animationBegin={0}
-                        animationDuration={800}
-                        animationEasing="ease-out"
-                      >
-                        {chartData.map((entry, index) => (
-                          <Cell
-                            key={`cell-${index}`}
-                            fill={entry.color}
-                            stroke={colors.border}
-                            strokeWidth={2}
-                          />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        content={
-                          <CustomTooltip
-                            colors={colors}
-                            tabId={tabs[activeTab]?.id || 'service'}
-                          />
+                  <svg
+                    viewBox="0 0 400 400"
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      maxWidth: 400,
+                      overflow: 'visible'
+                    }}
+                  >
+                    <VictoryPie
+                      standalone={false}
+                      data={chartData.map((d) => ({
+                        x: d.name,
+                        y: d.value,
+                        percentage: d.percentage
+                      }))}
+                      colorScale={chartData.map((d) => d.color)}
+                      innerRadius={70}
+                      padAngle={2}
+                      animate={{ duration: 800, easing: 'cubicOut' }}
+                      style={{
+                        data: {
+                          stroke: colors.border,
+                          strokeWidth: 2
                         }
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
+                      }}
+                      labelComponent={
+                        <VictoryTooltip
+                          constrainToVisibleArea={false}
+                          flyoutStyle={{
+                            fill: 'rgba(0, 0, 0, 0.9)',
+                            stroke: colors.border,
+                            strokeWidth: 1
+                          }}
+                          style={{
+                            fill: colors.textPrimary,
+                            fontSize: 20
+                          }}
+                          cornerRadius={8}
+                          flyoutPadding={16}
+                          pointerLength={10}
+                          pointerWidth={14}
+                        />
+                      }
+                      labels={({ datum }) =>
+                        getTooltipLabel(datum, tabs[activeTab]?.id || 'service')
+                      }
+                      width={400}
+                      height={400}
+                    />
+                  </svg>
                 </div>
 
                 {chartData.length > 0 && (

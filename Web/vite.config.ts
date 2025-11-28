@@ -50,7 +50,7 @@ export default defineConfig({
         assetFileNames: 'assets/[name]-[hash].[ext]',
         manualChunks: (id) => {
           if (id.includes('node_modules')) {
-            if (id.includes('recharts') || id.includes('chart.js')) return 'charts';
+            if (id.includes('victory') || id.includes('d3-')) return 'charts';
             if (id.includes('react')) return 'react-vendor';
             if (id.includes('@tanstack')) return 'tanstack';
             if (id.includes('lucide-react')) return 'icons';
