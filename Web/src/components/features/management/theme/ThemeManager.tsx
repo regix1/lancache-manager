@@ -566,12 +566,12 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     <>
       <Card>
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple flex-shrink-0">
               <Palette className="w-5 h-5 icon-purple" />
             </div>
-            <div>
+            <div className="min-w-0">
               <h3 className="text-lg font-semibold text-themed-primary">Theme Management</h3>
               <p className="text-xs text-themed-muted">{themes.length} themes available</p>
             </div>
@@ -592,7 +592,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
               </HelpNote>
             </HelpPopover>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0">
             {isAuthenticated ? (
               <>
                 <Tooltip content="Create new theme" position="bottom">
@@ -701,8 +701,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                 <span className="text-sm font-medium text-themed-primary">Active Theme</span>
               </div>
 
-              <div className="flex items-center gap-4">
-                <div className="flex-1">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+                <div className="flex-1 min-w-0">
                   <EnhancedDropdown
                     options={themes.map((theme) => ({
                       value: theme.meta.id,
@@ -716,7 +716,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                   />
                 </div>
                 {currentThemeData && (
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-shrink-0">
                     {currentThemeData.meta.isDark ? (
                       <Moon className="w-4 h-4 text-themed-muted" />
                     ) : (
@@ -838,7 +838,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
             {/* Installed Themes */}
             <div>
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                 <h4 className="text-sm font-medium text-themed-secondary">Installed Themes</h4>
                 <span className="text-xs text-themed-muted">
                   {systemThemes.length} system, {customThemes.length} custom
@@ -877,13 +877,14 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
             {/* Upload Section */}
             {isAuthenticated && (
               <div>
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
                   <h4 className="text-sm font-medium text-themed-secondary">Upload Custom Theme</h4>
                   <Button
                     variant="subtle"
                     size="xs"
                     leftSection={<Download className="w-3 h-3" />}
                     onClick={downloadSampleTheme}
+                    className="self-start sm:self-auto"
                   >
                     Download Sample
                   </Button>
@@ -955,13 +956,14 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
               }}
             >
               <h4 className="text-sm font-semibold text-themed-primary mb-3">Quick Actions</h4>
-              <div className="flex gap-2 flex-wrap">
+              <div className="flex flex-col sm:flex-row gap-2 sm:flex-wrap">
                 <Button
                   variant="default"
                   size="sm"
                   leftSection={<Plus className="w-4 h-4" />}
                   onClick={openCreateModal}
                   disabled={!isAuthenticated}
+                  className="w-full sm:w-auto"
                 >
                   Create New Theme
                 </Button>
@@ -970,6 +972,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                   size="sm"
                   leftSection={<Download className="w-4 h-4" />}
                   onClick={downloadSampleTheme}
+                  className="w-full sm:w-auto"
                 >
                   Download Sample
                 </Button>
@@ -980,6 +983,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                     leftSection={<Edit className="w-4 h-4" />}
                     onClick={() => handleEditTheme(themes.find((t) => t.meta.id === currentTheme)!)}
                     disabled={!isAuthenticated}
+                    className="w-full sm:w-auto"
                   >
                     Edit Current Theme
                   </Button>

@@ -1,27 +1,131 @@
-import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Info } from 'lucide-react';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { formatBytes } from '@utils/formatters';
 import { Card } from '@components/ui/Card';
-import Chart from 'chart.js/auto';
 
 interface EnhancedServiceChartProps {
   serviceStats: any[];
   timeRange?: string;
 }
 
+// Custom hook to get theme colors reliably
+const useThemeColors = () => {
+  const [colors, setColors] = useState(() => getColorsFromCSS());
+
+  useEffect(() => {
+    const updateColors = () => {
+      // Small delay to ensure CSS variables are updated
+      requestAnimationFrame(() => {
+        setColors(getColorsFromCSS());
+      });
+    };
+
+    // Listen for theme changes
+    window.addEventListener('themechange', updateColors);
+
+    // Also observe for class changes on html element (theme toggle)
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.attributeName === 'class' || mutation.attributeName === 'data-theme') {
+          updateColors();
+        }
+      });
+    });
+
+    observer.observe(document.documentElement, { attributes: true });
+
+    return () => {
+      window.removeEventListener('themechange', updateColors);
+      observer.disconnect();
+    };
+  }, []);
+
+  return colors;
+};
+
+function getColorsFromCSS() {
+  const computedStyle = getComputedStyle(document.documentElement);
+
+  return {
+    steam: computedStyle.getPropertyValue('--theme-steam').trim() || '#10b981',
+    epic: computedStyle.getPropertyValue('--theme-epic').trim() || '#8b5cf6',
+    origin: computedStyle.getPropertyValue('--theme-origin').trim() || '#fb923c',
+    blizzard: computedStyle.getPropertyValue('--theme-blizzard').trim() || '#3b82f6',
+    wsus: computedStyle.getPropertyValue('--theme-wsus').trim() || '#06b6d4',
+    riot: computedStyle.getPropertyValue('--theme-riot').trim() || '#ef4444',
+    xboxlive: computedStyle.getPropertyValue('--theme-xboxlive').trim() || '#107c10',
+    nintendo: computedStyle.getPropertyValue('--theme-nintendo').trim() || '#e60012',
+    uplay: computedStyle.getPropertyValue('--theme-uplay').trim() || '#0070ff',
+    default: computedStyle.getPropertyValue('--theme-text-secondary').trim() || '#6b7280',
+    cacheHit: computedStyle.getPropertyValue('--theme-chart-cache-hit').trim() || '#10b981',
+    cacheMiss: computedStyle.getPropertyValue('--theme-chart-cache-miss').trim() || '#f59e0b',
+    textPrimary: computedStyle.getPropertyValue('--theme-text-primary').trim() || '#ffffff',
+    textMuted: computedStyle.getPropertyValue('--theme-chart-text').trim() || '#9ca3af',
+    bgCard: computedStyle.getPropertyValue('--theme-bg-card').trim() || '#1f2937',
+    border: computedStyle.getPropertyValue('--theme-chart-border').trim() || '#374151'
+  };
+}
+
+// Custom tooltip component for better styling
+const CustomTooltip = ({
+  active,
+  payload,
+  colors,
+  tabId
+}: {
+  active?: boolean;
+  payload?: any[];
+  colors: ReturnType<typeof getColorsFromCSS>;
+  tabId: string;
+}) => {
+  if (!active || !payload || payload.length === 0) return null;
+
+  const data = payload[0].payload;
+  const value = data.value;
+  const percentage = data.percentage?.toFixed(1) || '0';
+
+  let label = '';
+  if (tabId === 'bandwidth') {
+    label = `${formatBytes(value)} saved (${percentage}%)`;
+  } else {
+    label = `${formatBytes(value)} (${percentage}%)`;
+  }
+
+  return (
+    <div
+      className="rounded-lg shadow-lg px-3 py-2 border"
+      style={{
+        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+        borderColor: colors.border
+      }}
+    >
+      <div className="flex items-center gap-2">
+        <div
+          className="w-3 h-3 rounded-sm"
+          style={{ backgroundColor: data.color }}
+        />
+        <span className="text-sm font-medium" style={{ color: colors.textPrimary }}>
+          {data.name}
+        </span>
+      </div>
+      <div className="text-xs mt-1" style={{ color: colors.textMuted }}>
+        {label}
+      </div>
+    </div>
+  );
+};
+
 const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
   ({ serviceStats }) => {
     const [activeTab, setActiveTab] = useState(0);
     const [chartSize, setChartSize] = useState(100);
-    const [chartKey, setChartKey] = useState(0); // Force re-render key
-    const chartRef = useRef<HTMLCanvasElement>(null);
-    const chartInstance = useRef<Chart | null>(null);
-    const prevDataRef = useRef<string>('');
+    const colors = useThemeColors();
 
     // Touch/swipe handling
-    const touchStartX = useRef<number>(0);
-    const touchEndX = useRef<number>(0);
-    const containerRef = useRef<HTMLDivElement>(null);
+    const touchStartX = React.useRef<number>(0);
+    const touchEndX = React.useRef<number>(0);
+    const containerRef = React.useRef<HTMLDivElement>(null);
 
     const tabs = [
       { name: 'Service Distribution', id: 'service' },
@@ -29,138 +133,94 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
       { name: 'Bandwidth Saved', id: 'bandwidth' }
     ];
 
+    const getServiceColor = useCallback((serviceName: string) => {
+      const serviceLower = serviceName.toLowerCase();
+      switch (serviceLower) {
+        case 'steam': return colors.steam;
+        case 'epic':
+        case 'epicgames': return colors.epic;
+        case 'origin':
+        case 'ea': return colors.origin;
+        case 'blizzard':
+        case 'battle.net':
+        case 'battlenet': return colors.blizzard;
+        case 'wsus':
+        case 'windows': return colors.wsus;
+        case 'riot':
+        case 'riotgames': return colors.riot;
+        case 'xboxlive':
+        case 'xbox': return colors.xboxlive;
+        case 'nintendo': return colors.nintendo;
+        case 'uplay':
+        case 'ubisoft': return colors.uplay;
+        default: return colors.default;
+      }
+    }, [colors]);
+
     const getServiceDistributionData = useMemo(() => {
       if (!serviceStats || serviceStats.length === 0) {
-        // Keep previous data if we had it before
-        return { labels: [], data: [], colors: [] };
+        return [];
       }
 
       const totalBytes = serviceStats.reduce((sum, s) => sum + (s.totalBytes || 0), 0);
-      if (totalBytes === 0) return { labels: [], data: [], colors: [] };
+      if (totalBytes === 0) return [];
 
-      // Map service names to their theme colors
-      const getServiceColor = (serviceName: string) => {
-        const computedStyle = getComputedStyle(document.documentElement);
-        const serviceLower = serviceName.toLowerCase();
-
-        switch (serviceLower) {
-          case 'steam':
-            return computedStyle.getPropertyValue('--theme-steam').trim() || '#10b981';
-          case 'epic':
-          case 'epicgames':
-            return computedStyle.getPropertyValue('--theme-epic').trim() || '#8b5cf6';
-          case 'origin':
-          case 'ea':
-            return computedStyle.getPropertyValue('--theme-origin').trim() || '#fb923c';
-          case 'blizzard':
-          case 'battle.net':
-          case 'battlenet':
-            return computedStyle.getPropertyValue('--theme-blizzard').trim() || '#3b82f6';
-          case 'wsus':
-          case 'windows':
-            return computedStyle.getPropertyValue('--theme-wsus').trim() || '#06b6d4';
-          case 'riot':
-          case 'riotgames':
-            return computedStyle.getPropertyValue('--theme-riot').trim() || '#ef4444';
-          default:
-            return computedStyle.getPropertyValue('--theme-text-secondary').trim() || '#6b7280';
-        }
-      };
-
-      const sorted = serviceStats
+      return serviceStats
         .map((s) => ({
           name: s.service,
           value: s.totalBytes,
-          percentage: (s.totalBytes / totalBytes) * 100
+          percentage: (s.totalBytes / totalBytes) * 100,
+          color: getServiceColor(s.service)
         }))
         .sort((a, b) => b.value - a.value);
-
-      return {
-        labels: sorted.map((s) => s.name),
-        data: sorted.map((s) => s.value),
-        colors: sorted.map((s) => getServiceColor(s.name))
-      };
-    }, [serviceStats]);
+    }, [serviceStats, getServiceColor]);
 
     const getCacheHitRatioData = useMemo(() => {
-      if (!serviceStats || serviceStats.length === 0) return { labels: [], data: [], colors: [] };
+      if (!serviceStats || serviceStats.length === 0) return [];
 
       const totalHits = serviceStats.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);
       const totalMisses = serviceStats.reduce((sum, s) => sum + (s.totalCacheMissBytes || 0), 0);
       const total = totalHits + totalMisses;
 
-      if (total === 0) return { labels: [], data: [], colors: [] };
+      if (total === 0) return [];
 
-      const computedStyle = getComputedStyle(document.documentElement);
-      const hitColor =
-        computedStyle.getPropertyValue('--theme-chart-cache-hit').trim() || '#10b981';
-      const missColor =
-        computedStyle.getPropertyValue('--theme-chart-cache-miss').trim() || '#f59e0b';
-
-      return {
-        labels: ['Cache Hits', 'Cache Misses'],
-        data: [totalHits, totalMisses],
-        colors: [hitColor, missColor]
-      };
-    }, [serviceStats]);
+      return [
+        {
+          name: 'Cache Hits',
+          value: totalHits,
+          percentage: (totalHits / total) * 100,
+          color: colors.cacheHit
+        },
+        {
+          name: 'Cache Misses',
+          value: totalMisses,
+          percentage: (totalMisses / total) * 100,
+          color: colors.cacheMiss
+        }
+      ];
+    }, [serviceStats, colors]);
 
     const getBandwidthSavedData = useMemo(() => {
-      if (!serviceStats || serviceStats.length === 0) return { labels: [], data: [], colors: [] };
+      if (!serviceStats || serviceStats.length === 0) return [];
 
-      // Map service names to their theme colors
-      const getServiceColor = (serviceName: string) => {
-        const computedStyle = getComputedStyle(document.documentElement);
-        const serviceLower = serviceName.toLowerCase();
-
-        switch (serviceLower) {
-          case 'steam':
-            return computedStyle.getPropertyValue('--theme-steam').trim() || '#10b981';
-          case 'epic':
-          case 'epicgames':
-            return computedStyle.getPropertyValue('--theme-epic').trim() || '#8b5cf6';
-          case 'origin':
-          case 'ea':
-            return computedStyle.getPropertyValue('--theme-origin').trim() || '#fb923c';
-          case 'blizzard':
-          case 'battle.net':
-          case 'battlenet':
-            return computedStyle.getPropertyValue('--theme-blizzard').trim() || '#3b82f6';
-          case 'wsus':
-          case 'windows':
-            return computedStyle.getPropertyValue('--theme-wsus').trim() || '#06b6d4';
-          case 'riot':
-          case 'riotgames':
-            return computedStyle.getPropertyValue('--theme-riot').trim() || '#ef4444';
-          default:
-            return computedStyle.getPropertyValue('--theme-text-secondary').trim() || '#6b7280';
-        }
-      };
-
-      // Calculate bandwidth saved per service (cache hits only)
       const servicesWithSavings = serviceStats
         .map((s) => ({
           name: s.service,
           value: s.totalCacheHitBytes || 0,
-          percentage: 0
+          percentage: 0,
+          color: getServiceColor(s.service)
         }))
         .filter((s) => s.value > 0)
         .sort((a, b) => b.value - a.value);
 
       const totalSaved = servicesWithSavings.reduce((sum, s) => sum + s.value, 0);
+      if (totalSaved === 0) return [];
 
-      if (totalSaved === 0) return { labels: [], data: [], colors: [] };
-
-      // Update percentages
-      servicesWithSavings.forEach((s) => {
-        s.percentage = (s.value / totalSaved) * 100;
-      });
-
-      return {
-        labels: servicesWithSavings.map((s) => s.name),
-        data: servicesWithSavings.map((s) => s.value),
-        colors: servicesWithSavings.map((s) => getServiceColor(s.name))
-      };
-    }, [serviceStats]);
+      return servicesWithSavings.map((s) => ({
+        ...s,
+        percentage: (s.value / totalSaved) * 100
+      }));
+    }, [serviceStats, getServiceColor]);
 
     const chartData = useMemo(() => {
       switch (tabs[activeTab]?.id) {
@@ -175,7 +235,6 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
       }
     }, [activeTab, getServiceDistributionData, getCacheHitRatioData, getBandwidthSavedData]);
 
-    // Get chart description and stats based on active tab
     const getChartInfo = useMemo(() => {
       const tabId = tabs[activeTab]?.id;
       const totalBytes = serviceStats.reduce((sum, s) => sum + (s.totalBytes || 0), 0);
@@ -215,7 +274,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
               {
                 label: 'Downloads Avoided',
                 value: Math.round(totalHits / (50 * 1024 * 1024 * 1024)) || '0'
-              }, // Rough estimate assuming 50GB average game size
+              },
               { label: 'Cache Efficiency', value: `${hitRatio}%` }
             ]
           };
@@ -228,182 +287,9 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
       }
     }, [activeTab, serviceStats]);
 
-    // Listen for theme changes
-    useEffect(() => {
-      const handleThemeChange = () => {
-        // Delay chart recreation to ensure CSS variables are updated
-        setTimeout(() => {
-          if (chartInstance.current) {
-            chartInstance.current.destroy();
-            chartInstance.current = null;
-            // Force re-render by updating key
-            setChartKey((prev) => prev + 1);
-          }
-        }, 50);
-      };
-
-      window.addEventListener('themechange', handleThemeChange);
-      return () => window.removeEventListener('themechange', handleThemeChange);
-    }, []);
-
-    // Force initial render after mount
-    useEffect(() => {
-      // Small delay to ensure DOM is ready and CSS variables are available
-      const timer = setTimeout(() => {
-        setChartKey((prev) => prev + 1);
-      }, 100);
-      return () => clearTimeout(timer);
-    }, []);
-
-    useEffect(() => {
-      if (!chartRef.current || chartData.labels.length === 0) return;
-
-      // Check if data actually changed to prevent unnecessary animations
-      const currentDataString = JSON.stringify({
-        labels: chartData.labels,
-        data: chartData.data
-      });
-
-      const dataChanged = currentDataString !== prevDataRef.current;
-      prevDataRef.current = currentDataString;
-
-      // Destroy existing chart
-      if (chartInstance.current) {
-        chartInstance.current.destroy();
-      }
-
-      // Get colors from CSS variables
-      const computedStyle = getComputedStyle(document.documentElement);
-      const borderColor =
-        computedStyle.getPropertyValue('--theme-chart-border').trim() || '#1f2937';
-      const textColor = computedStyle.getPropertyValue('--theme-chart-text').trim() || '#9ca3af';
-      const titleColor = computedStyle.getPropertyValue('--theme-text-primary').trim() || '#ffffff';
-
-      // Create new chart
-      const ctx = chartRef.current.getContext('2d');
-      if (!ctx) return;
-
-      chartInstance.current = new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-          labels: chartData.labels,
-          datasets: [
-            {
-              data: chartData.data,
-              backgroundColor: chartData.colors,
-              borderColor: borderColor,
-              borderWidth: 2,
-              borderRadius: 0,
-              spacing: 0
-            }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: true,
-          aspectRatio: 1,
-          layout: {
-            padding: 0
-          },
-          animation: {
-            // Smooth animations for all transitions
-            animateRotate: true,
-            animateScale: dataChanged,
-            duration: 1200,
-            easing: 'easeInOutQuart',
-            delay: (context) => {
-              // Stagger animation for each segment
-              return context.dataIndex * 50;
-            }
-          },
-          transitions: {
-            active: {
-              animation: {
-                duration: 400,
-                easing: 'easeOutQuart'
-              }
-            },
-            resize: {
-              animation: {
-                duration: 400,
-                easing: 'easeInOutQuart'
-              }
-            },
-            show: {
-              animations: {
-                colors: {
-                  from: 'transparent'
-                },
-                visible: {
-                  duration: 400
-                }
-              }
-            },
-            hide: {
-              animations: {
-                colors: {
-                  to: 'transparent'
-                },
-                visible: {
-                  duration: 200
-                }
-              }
-            }
-          },
-          plugins: {
-            legend: {
-              display: false
-            },
-            tooltip: {
-              backgroundColor: 'rgba(0, 0, 0, 0.9)',
-              titleColor: titleColor,
-              bodyColor: textColor,
-              borderColor: borderColor,
-              borderWidth: 1,
-              cornerRadius: 8,
-              padding: 12,
-              displayColors: true,
-              animation: {
-                duration: 200,
-                easing: 'easeOutQuart'
-              },
-              callbacks: {
-                label: (context) => {
-                  const value = context.raw as number;
-                  const total = context.dataset.data.reduce(
-                    (a, b) => (a as number) + (b as number),
-                    0
-                  ) as number;
-                  const percentage = ((value / total) * 100).toFixed(1);
-
-                  // Different labels based on the chart type
-                  const tabId = tabs[activeTab]?.id;
-                  if (tabId === 'bandwidth') {
-                    return `${context.label}: ${formatBytes(value)} saved (${percentage}%)`;
-                  } else if (tabId === 'hit-ratio') {
-                    return `${context.label}: ${formatBytes(value)} (${percentage}%)`;
-                  } else {
-                    return `${context.label}: ${formatBytes(value)} (${percentage}%)`;
-                  }
-                }
-              }
-            }
-          },
-          cutout: '50%', // Makes the donut hole consistent
-          radius: '90%' // Ensures the chart uses most of the available space
-        }
-      });
-
-      return () => {
-        if (chartInstance.current) {
-          chartInstance.current.destroy();
-        }
-      };
-    }, [chartData, chartSize, activeTab, chartKey]);
-
     // Swipe handlers
     const handleTouchStart = useCallback((e: React.TouchEvent) => {
-      touchEndX.current = 0; // Reset touchEnd to detect if movement occurred
+      touchEndX.current = 0;
       touchStartX.current = e.touches[0].clientX;
     }, []);
 
@@ -412,7 +298,6 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
     }, []);
 
     const handleTouchEnd = useCallback(() => {
-      // Only trigger swipe if there was actual movement (touchEnd was set by touchMove)
       if (!touchStartX.current || !touchEndX.current) return;
 
       const minSwipeDistance = 50;
@@ -420,21 +305,19 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
 
       if (Math.abs(swipeDistance) > minSwipeDistance) {
         if (swipeDistance > 0) {
-          // Swiped left - go to next tab
           setActiveTab((prev) => (prev + 1) % tabs.length);
         } else {
-          // Swiped right - go to previous tab
           setActiveTab((prev) => (prev - 1 + tabs.length) % tabs.length);
         }
       }
 
-      // Reset
       touchStartX.current = 0;
       touchEndX.current = 0;
     }, [tabs.length]);
 
-    // Calculate the actual chart container height
     const chartContainerHeight = 200 + (chartSize - 100) * 2;
+    const innerRadius = Math.min(chartContainerHeight, 400) * 0.25;
+    const outerRadius = Math.min(chartContainerHeight, 400) * 0.45;
 
     return (
       <Card padding="none">
@@ -525,72 +408,79 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
           </div>
 
           <div className="px-6 pb-6">
-            {chartData.labels.length > 0 ? (
+            {chartData.length > 0 ? (
               <>
                 <div
                   className="flex justify-center items-center transition-all duration-500 ease-in-out"
                   style={{
                     height: `${chartContainerHeight}px`,
                     width: '100%',
-                    touchAction: 'pan-y' // Allow vertical scrolling but capture horizontal swipes
+                    touchAction: 'pan-y'
                   }}
                   onTouchStart={handleTouchStart}
                   onTouchMove={handleTouchMove}
                   onTouchEnd={handleTouchEnd}
                 >
-                  <div
-                    className="transition-all duration-500 ease-in-out"
-                    style={{
-                      width: `${Math.min(chartContainerHeight, 400)}px`,
-                      height: `${Math.min(chartContainerHeight, 400)}px`,
-                      transform: 'scale(1)',
-                      opacity: 1
-                    }}
-                  >
-                    <canvas
-                      key={chartKey}
-                      ref={chartRef}
-                      className="transition-opacity duration-300"
-                      style={{
-                        maxHeight: '100%',
-                        maxWidth: '100%',
-                        opacity: 1
-                      }}
-                    />
-                  </div>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={chartData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={innerRadius}
+                        outerRadius={outerRadius}
+                        paddingAngle={2}
+                        dataKey="value"
+                        animationBegin={0}
+                        animationDuration={800}
+                        animationEasing="ease-out"
+                      >
+                        {chartData.map((entry, index) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={entry.color}
+                            stroke={colors.border}
+                            strokeWidth={2}
+                          />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        content={
+                          <CustomTooltip
+                            colors={colors}
+                            tabId={tabs[activeTab]?.id || 'service'}
+                          />
+                        }
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
                 </div>
 
-                {chartData.labels.length > 0 && (
+                {chartData.length > 0 && (
                   <div
                     className="mt-4 flex flex-wrap justify-center gap-3"
                     onTouchStart={handleTouchStart}
                     onTouchMove={handleTouchMove}
                     onTouchEnd={handleTouchEnd}
                   >
-                    {chartData.labels.map((label, index) => {
-                      const value = chartData.data[index];
-                      const total = chartData.data.reduce((a, b) => a + b, 0);
-                      const percentage = ((value / total) * 100).toFixed(1);
-
-                      return (
+                    {chartData.map((item, index) => (
+                      <div
+                        key={item.name}
+                        className="flex items-center space-x-1 transition-all duration-300 hover:scale-105"
+                        style={{
+                          animation: `fadeInUp 0.5s ease-out ${index * 0.1}s both`
+                        }}
+                      >
                         <div
-                          key={label}
-                          className="flex items-center space-x-1 transition-all duration-300 hover:scale-105"
-                          style={{
-                            animation: `fadeInUp 0.5s ease-out ${index * 0.1}s both`
-                          }}
-                        >
-                          <div
-                            className="w-3 h-3 rounded transition-transform duration-300 hover:scale-125"
-                            style={{ backgroundColor: chartData.colors[index] }}
-                          />
-                          <span className="text-xs text-themed-muted">{label}:</span>
-                          <span className="text-xs text-themed-primary font-medium">
-                            {percentage}%
-                          </span>
-                        </div>
-                      );
-                    })}
+                          className="w-3 h-3 rounded transition-transform duration-300 hover:scale-125"
+                          style={{ backgroundColor: item.color }}
+                        />
+                        <span className="text-xs text-themed-muted">{item.name}:</span>
+                        <span className="text-xs text-themed-primary font-medium">
+                          {item.percentage.toFixed(1)}%
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 )}
 
@@ -645,7 +535,6 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
     );
   },
   (prevProps, nextProps) => {
-    // Re-render if timeRange changed or serviceStats data changed
     return (
       prevProps.timeRange === nextProps.timeRange &&
       JSON.stringify(prevProps.serviceStats) === JSON.stringify(nextProps.serviceStats)

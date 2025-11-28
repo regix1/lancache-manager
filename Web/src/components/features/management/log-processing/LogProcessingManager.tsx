@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Zap, RefreshCw, PlayCircle, AlertTriangle } from 'lucide-react';
 import ApiService from '@services/api.service';
-import { useBackendOperation } from '@hooks/useBackendOperation';
 import { useSignalR } from '@contexts/SignalRContext';
+import { useNotifications } from '@contexts/NotificationsContext';
 import { useSteamAuth } from '@contexts/SteamAuthContext';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
@@ -36,7 +36,19 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   onDataRefresh
 }) => {
   const { steamAuthMode } = useSteamAuth();
-  const [isProcessingLogs, setIsProcessingLogs] = useState(false);
+  const { notifications } = useNotifications();
+
+  // Derive isProcessingLogs from notifications (standardized pattern)
+  const activeProcessingNotification = notifications.find(
+    n => n.type === 'log_processing' && n.status === 'running'
+  );
+  const isProcessingLogsFromNotification = !!activeProcessingNotification;
+
+  // Local state for tracking processing UI when starting (before SignalR notification arrives)
+  const [isStartingProcessing, setIsStartingProcessing] = useState(false);
+  // Combined processing state
+  const isProcessingLogs = isProcessingLogsFromNotification || isStartingProcessing;
+
   // Local state for tracking processing UI (notifications handled by NotificationsContext)
   // @ts-ignore - processingStatus is set but notifications are handled by NotificationsContext
   const [processingStatus, setProcessingStatus] = useState<ProcessingUIStatus | null>(null);
@@ -48,7 +60,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     onConfirm: () => Promise<void> | void;
   } | null>(null);
 
-  const logProcessingOp = useBackendOperation('activeLogProcessing', 'logProcessing', 120);
   const signalR = useSignalR();
   const pollingInterval = useRef<NodeJS.Timeout | null>(null);
   const onDataRefreshRef = useRef(onDataRefresh);
@@ -96,7 +107,8 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       return;
     }
 
-    restoreLogProcessing();
+    // Note: Recovery is now handled by NotificationsContext's recoverLogProcessing
+    // which queries the backend and creates the notification on page load
 
     return () => {
       if (pollingInterval.current) {
@@ -106,59 +118,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     };
   }, [mockMode]);
 
-  const restoreLogProcessing = async () => {
-    const logOp = await logProcessingOp.load();
-    if (logOp?.data) {
-      const status = await ApiService.getProcessingStatus().catch(() => null);
-      if (status?.isProcessing) {
-        setIsProcessingLogs(true);
-        const processedEntries = parseMetric(status.entriesProcessed);
-        const totalLines = parseMetric(status.totalLines);
-        const detailSegments = [
-          formatProgressDetail(processedEntries, totalLines),
-          status.processingRate ? `Speed: ${status.processingRate.toFixed(1)} MB/s` : ''
-        ].filter(Boolean);
-
-        // Cap progress at 99.9% if still processing
-        const progressValue = Math.min(99.9, status.percentComplete || status.progress || 0);
-
-        setProcessingStatus({
-          message: `Processing: ${status.mbProcessed?.toFixed(1) || 0} MB of ${status.mbTotal?.toFixed(1) || 0} MB`,
-          detailMessage: detailSegments.join(' • '),
-          progress: progressValue,
-          estimatedTime: status.estimatedTime,
-          status: status.status || 'processing'
-        });
-        startProcessingPolling();
-      } else {
-        await logProcessingOp.clear();
-        if (status) {
-          const processedEntries = parseMetric(status.entriesProcessed);
-          const totalLines = parseMetric(status.totalLines);
-          const detailSegments = [
-            `Processed ${status.mbTotal?.toFixed(1) || 0} MB`,
-            formatProgressDetail(processedEntries, totalLines)
-          ].filter(Boolean);
-
-          setProcessingStatus({
-            message: 'Processing Complete!',
-            detailMessage: detailSegments.join(' • '),
-            progress: 100,
-            status: 'complete'
-          });
-          setTimeout(() => {
-            setIsProcessingLogs(false);
-            setProcessingStatus(null);
-            onDataRefresh?.();
-          }, 3000);
-        } else {
-          setProcessingStatus(null);
-          setIsProcessingLogs(false);
-        }
-      }
-    }
-  };
-
   // Subscribe to SignalR events for log processing
   // Note: signalR.on/off are stable functions, so we only need to subscribe once
   useEffect(() => {
@@ -167,17 +126,15 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     }
 
     // Handler for ProcessingProgress event
-    const handleProcessingProgress = async (progress: any) => {
+    const handleProcessingProgress = (progress: any) => {
       const currentProgress = progress.percentComplete || progress.progress || 0;
       const status = progress.status || 'processing';
 
       const processedEntries = parseMetric(progress.entriesProcessed);
       const totalLines = parseMetric(progress.totalLines);
 
-      // Always set isProcessingLogs to true when we receive progress updates (unless complete)
-      if (status !== 'complete') {
-        setIsProcessingLogs(true);
-      }
+      // Clear starting state since we received SignalR progress
+      setIsStartingProcessing(false);
 
       setProcessingStatus(() => {
         // Only mark as complete when status is explicitly 'complete', not just based on percentage
@@ -210,15 +167,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           status: 'processing'
         };
       });
-
-      await logProcessingOp.update({
-        lastProgress: progress.percentComplete || progress.progress || 0,
-        mbProcessed: progress.mbProcessed,
-        mbTotal: progress.mbTotal,
-        entriesProcessed: processedEntries,
-        linesProcessed: totalLines,
-        status
-      });
+      // Note: NotificationsContext handles the notification state automatically via SignalR
     };
 
     // Handler for FastProcessingComplete event
@@ -230,6 +179,9 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         pollingInterval.current = null;
       }
 
+      // Clear starting state
+      setIsStartingProcessing(false);
+
       setProcessingStatus({
         message: 'Processing Complete!',
         detailMessage: `Successfully processed ${result.entriesProcessed?.toLocaleString()} entries from ${result.linesProcessed?.toLocaleString()} lines in ${result.elapsed?.toFixed(1)} minutes.`,
@@ -237,9 +189,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         status: 'complete'
       });
 
-      // Don't set isProcessingLogs to false here - keep modal visible
-      // The timeout below will handle clearing everything after 3 seconds
-      await logProcessingOp.clear();
+      // Note: NotificationsContext handles the notification state automatically via SignalR
 
       // Mark setup as completed (persistent flag for guest mode eligibility)
       try {
@@ -252,10 +202,9 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         console.warn('Failed to mark setup as completed:', error);
       }
 
-      // Show completion for 3 seconds, then stop completely
-      setTimeout(async () => {
+      // Show completion for 3 seconds, then clear local status
+      setTimeout(() => {
         setProcessingStatus(null);
-        setIsProcessingLogs(false); // Now set to false to hide modal and re-enable buttons
         onDataRefreshRef.current?.();
       }, 3000);
     };
@@ -322,7 +271,8 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       try {
         const status: ApiProcessingStatus = await ApiService.getProcessingStatus();
         if (status?.isProcessing) {
-          setIsProcessingLogs(true);
+          // Clear starting state since we confirmed processing is running
+          setIsStartingProcessing(false);
           // Cap progress at 99.9% while still processing
           const progressValue = Math.min(99.9, status.percentComplete || status.progress || 0);
 
@@ -335,11 +285,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
             estimatedTime: status.estimatedTime,
             status: status.status || 'processing'
           });
-          await logProcessingOp.update({
-            lastProgress: progressValue,
-            mbProcessed: status.mbProcessed,
-            mbTotal: status.mbTotal
-          });
+          // Note: NotificationsContext handles the notification state automatically
         } else {
           // Processing is complete - stop polling immediately
           if (pollingInterval.current) {
@@ -364,6 +310,9 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
             isProcessing: status?.isProcessing
           });
 
+          // Clear starting state
+          setIsStartingProcessing(false);
+
           if (isComplete || isAlmostComplete) {
             console.log('Forcing completion via polling fallback');
             setProcessingStatus({
@@ -373,20 +322,14 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
               status: 'complete'
             });
 
-            setIsProcessingLogs(false); // Set to false when complete
-            await logProcessingOp.clear();
-
             // Show completion for 3 seconds, then stop
             setTimeout(() => {
               setProcessingStatus(null);
-              setIsProcessingLogs(false); // Ensure buttons are re-enabled
               onDataRefresh?.();
             }, 3000);
           } else {
             // Not processing and not complete - just stop
-            setIsProcessingLogs(false);
             setProcessingStatus(null);
-            await logProcessingOp.clear();
           }
         }
       } catch (err) {
@@ -461,6 +404,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     }
 
     setActionLoading(true);
+    setIsStartingProcessing(true);
     try {
       const result = await ApiService.processAllLogs();
 
@@ -477,16 +421,16 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
             onError?.(result.message);
           }
           setActionLoading(false);
+          setIsStartingProcessing(false);
           return;
         }
 
         if (result.logSizeMB !== undefined && result.logSizeMB > 0) {
-          await logProcessingOp.save({ type: 'processAll', resume: result.resume });
           const remainingMBRaw =
             typeof result.remainingMB === 'number' ? result.remainingMB : result.logSizeMB || 0;
           const initialProgress = 0;
 
-          setIsProcessingLogs(true);
+          // Set local status for immediate UI feedback
           setProcessingStatus({
             message: result.resume ? 'Resuming log processing...' : 'Starting log processing...',
             detailMessage: result.resume
@@ -503,28 +447,27 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
             onSuccess?.(result.message);
           }
 
+          // SignalR will send ProcessingProgress which creates the notification
+          // If SignalR not connected, fall back to polling
           if (!signalR.isConnected) {
-            // Start polling immediately when SignalR is not connected
             startProcessingPolling();
           }
         } else if (result.logSizeMB === 0) {
           // Log file exists but no new data to process (already at end of file)
           onSuccess?.('No new log entries to process. All logs are up to date.');
-          await logProcessingOp.clear();
+          setIsStartingProcessing(false);
         } else {
           // Processing started without size info (backend will handle it)
-          await logProcessingOp.save({ type: 'processAll', resume: false });
-          setIsProcessingLogs(true);
-
+          // SignalR will create notification when progress events arrive
           if (!signalR.isConnected) {
             startProcessingPolling();
           }
         }
       } else {
-        await logProcessingOp.clear();
+        setIsStartingProcessing(false);
       }
     } catch (err: any) {
-      await logProcessingOp.clear();
+      setIsStartingProcessing(false);
       onError?.(err.message || 'Failed to process logs');
     } finally {
       setActionLoading(false);
@@ -590,7 +533,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
                 actionLoading ||
                 isProcessingLogs ||
                 mockMode ||
-                logProcessingOp.loading ||
                 !isAuthenticated
               }
               fullWidth
@@ -606,21 +548,15 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
                 actionLoading ||
                 isProcessingLogs ||
                 mockMode ||
-                logProcessingOp.loading ||
                 !isAuthenticated
               }
-              loading={logProcessingOp.loading}
+              loading={actionLoading || isStartingProcessing}
               fullWidth
             >
               Process All Logs
             </Button>
           </div>
         </div>
-
-
-        {logProcessingOp.error && (
-          <Alert color="orange">Backend storage error: {logProcessingOp.error}</Alert>
-        )}
       </Card>
 
       {/* Depot Mapping Section */}

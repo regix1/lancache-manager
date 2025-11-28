@@ -348,14 +348,14 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
     >
       {/* Header */}
       <div
-        className="flex items-center justify-between p-4 border-b"
+        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border-b"
         style={{ borderColor: 'var(--theme-border-secondary)' }}
       >
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center icon-bg-purple">
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center icon-bg-purple flex-shrink-0">
             <Globe className="w-4 h-4 icon-purple" />
           </div>
-          <div>
+          <div className="min-w-0">
             <h4 className="text-sm font-semibold text-themed-primary">Community Themes</h4>
             <p className="text-xs text-themed-muted">
               {communityThemes.length} available
@@ -365,7 +365,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0">
           {communityThemes.length > 0 && (
             <Tooltip content={showImported ? 'Hide imported themes' : 'Show imported themes'} position="bottom">
               <Button

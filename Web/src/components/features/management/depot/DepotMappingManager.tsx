@@ -8,7 +8,6 @@ import { HelpPopover, HelpSection, HelpNote, HelpKeyword, HelpDefinition } from 
 import { FullScanRequiredModal } from '@components/modals/setup/FullScanRequiredModal';
 import { useNotifications } from '@contexts/NotificationsContext';
 import { usePicsProgress } from '@contexts/PicsProgressContext';
-import { useBackendOperation } from '@hooks/useBackendOperation';
 import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 import { formatNextCrawlTime, toTotalSeconds } from '@utils/timeFormatters';
 import { storage } from '@utils/storage';
@@ -39,10 +38,15 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
   onSuccess,
   onDataRefresh
 }) => {
-  const { notifications, updateNotification } = useNotifications();
+  const { notifications } = useNotifications();
   const { progress: picsProgress, isLoading: picsLoading, refreshProgress } = usePicsProgress();
   const { status: webApiStatus, loading: webApiLoading } = useSteamWebApiStatus();
-  const depotMappingOp = useBackendOperation('activeDepotMapping', 'depotMapping', 120);
+
+  // Derive depot mapping operation state from notifications (standardized pattern)
+  const activeDepotNotification = notifications.find(
+    n => n.type === 'depot_mapping' && n.status === 'running'
+  );
+  const isDepotMappingFromNotification = !!activeDepotNotification;
   const [localNextCrawlIn, setLocalNextCrawlIn] = useState<{
     hours: number;
     minutes: number;
@@ -95,45 +99,23 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
   // Format last crawl time with timezone awareness
   const formattedLastCrawlTime = useFormattedDateTime(depotConfig?.lastCrawlTime || null);
 
-  // Restore depot mapping operation on mount
+  // Restore depot mapping operation state from notifications on mount
+  // Note: NotificationsContext handles the actual recovery via recoverDepotMapping
   useEffect(() => {
-    const restoreDepotMapping = async () => {
-      try {
-        const operation = await depotMappingOp.load();
-        if (operation?.data) {
-          const data = operation.data as any;
-          if (data.operationType) {
-            // console.log('[DepotMapping] Restoring interrupted depot mapping operation');
-
-            // Clear any old stuck depot_mapping notifications from before page refresh
-            const oldNotifications = notifications.filter((n) => n.type === 'depot_mapping');
-            oldNotifications.forEach((n) => {
-              // console.log('[DepotMapping] Clearing old notification:', n.id);
-              updateNotification(n.id, { status: 'completed', message: 'Loading...' });
-            });
-
-            // Restore loading state
-            setActionLoading(true);
-            setOperationType(data.operationType);
-            // Sync depotSource from backend if available
-            if (data.depotSource) {
-              setDepotSource(data.depotSource);
-              storage.setItem('depotSource', data.depotSource);
-            } else if (data.crawlIncrementalMode === 'github') {
-              // If backend is in GitHub mode but depotSource isn't set, sync it
-              setDepotSource('github');
-              storage.setItem('depotSource', 'github');
-            }
-            // SignalR will handle the completion when it arrives
-          }
-        }
-      } catch (err) {
-        console.error('[DepotMapping] Failed to restore depot mapping operation:', err);
+    // If there's an active depot mapping notification, restore local UI state
+    if (isDepotMappingFromNotification && activeDepotNotification) {
+      // Restore loading state based on notification
+      const notificationDetails = activeDepotNotification.details as any;
+      if (notificationDetails?.operationType) {
+        setOperationType(notificationDetails.operationType);
+        setActionLoading(true);
+      } else {
+        // Default to scanning if no specific operation type
+        setOperationType('scanning');
+        setActionLoading(true);
       }
-    };
-
-    restoreDepotMapping();
-  }, []); // Only run on mount
+    }
+  }, [isDepotMappingFromNotification]); // Only trigger on notification state changes
 
   // Update local countdown when depotConfig changes
   useEffect(() => {
@@ -436,8 +418,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       );
 
       if (picsNotifications.length > 0) {
-        // Clear operation state - depot mapping is complete/failed
-        depotMappingOp.clear().catch((err) => console.error('Failed to clear operation state:', err));
+        // Note: Operation state now handled by NotificationsContext
 
         // Refresh progress data when scan completes
         setTimeout(() => {
@@ -491,7 +472,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
             console.warn('[DepotMapping] Forcing clear of stuck loading state');
             setOperationType(null);
             setActionLoading(false);
-            depotMappingOp.clear();
+            // Note: Operation state now handled by NotificationsContext
             onError?.('Depot scan may have stalled. Please check the status and try again.');
           }
         });
@@ -545,11 +526,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     storage.setItem('githubDownloading', 'true');
     storage.removeItem('githubDownloadComplete');
 
-    // Save operation state for restoration on page refresh
-    await depotMappingOp.save({
-      operationType: 'downloading',
-      depotSource: 'github'
-    });
+    // Note: NotificationsContext will create a notification via SignalR when the download starts
 
     try {
       await ApiService.downloadPrecreatedDepotData();
@@ -562,9 +539,6 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       storage.setItem('githubDownloadComplete', 'true');
       storage.setItem('githubDownloadTime', new Date().toISOString());
 
-      // Clear operation state - download complete
-      await depotMappingOp.clear();
-
       // Refresh the depot config after download
       await refreshProgress();
 
@@ -576,9 +550,6 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
       // Clear downloading flag on error
       storage.removeItem('githubDownloading');
-
-      // Clear operation state - download failed
-      await depotMappingOp.clear();
     } finally {
       setActionLoading(false);
       setOperationType(null);
@@ -657,12 +628,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       onSuccess?.(`${scanType} depot scan started - mappings will be applied when complete`);
       setTimeout(() => onDataRefresh?.(), 2000);
 
-      // Save operation state for restoration on page refresh
-      await depotMappingOp.save({
-        operationType: 'scanning',
-        depotSource,
-        scanType
-      });
+      // Note: NotificationsContext will create a notification via SignalR (DepotMappingStarted event)
+      // and recovery is handled by recoverDepotMapping
 
       // Keep operation type active - it will be cleared when scan completes
     } catch (err: any) {
@@ -1161,11 +1128,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
               }
               onSuccess?.('Full depot scan started - mappings will be applied when complete');
               setTimeout(() => onDataRefresh?.(), 2000);
-              await depotMappingOp.save({
-                operationType: 'scanning',
-                depotSource: 'full',
-                scanType: 'Full'
-              });
+              // Note: NotificationsContext will create a notification via SignalR (DepotMappingStarted event)
             } catch (err: any) {
               onError?.(err.message || 'Failed to start full scan');
               setOperationType(null);

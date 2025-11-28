@@ -10,14 +10,10 @@ import {
 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
-import { useBackendOperation } from '@hooks/useBackendOperation';
 import { useSignalR } from '@contexts/SignalRContext';
+import { useNotifications } from '@contexts/NotificationsContext';
 import { Card } from '@components/ui/Card';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
-
-interface ServiceRemovalOperationData {
-  service: string;
-}
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
@@ -87,19 +83,20 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
   onReloadRef,
   onClearOperationRef
 }) => {
+  // Get notifications to check for running operations
+  const { notifications } = useNotifications();
+
   // Log File Management State
   const [serviceCounts, setServiceCounts] = useState<Record<string, number>>({});
   const [config, setConfig] = useState({
     logPath: 'Loading...',
     services: [] as string[]
   });
-  const [activeServiceRemoval, setActiveServiceRemoval] = useState<string | null>(null);
   const [pendingServiceRemoval, setPendingServiceRemoval] = useState<string | null>(null);
   const [showMoreServices, setShowMoreServices] = useState(false);
 
   // Corruption Detection State
   const [corruptionSummary, setCorruptionSummary] = useState<Record<string, number>>({});
-  const [removingCorruption, setRemovingCorruption] = useState<string | null>(null);
   const [pendingCorruptionRemoval, setPendingCorruptionRemoval] = useState<string | null>(null);
   const [expandedCorruptionService, setExpandedCorruptionService] = useState<string | null>(null);
   const [corruptionDetails, setCorruptionDetails] = useState<
@@ -115,18 +112,30 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
   const [cacheReadOnly, setCacheReadOnly] = useState(false);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
 
-  const serviceRemovalOp = useBackendOperation<ServiceRemovalOperationData>(
-    'activeServiceRemoval',
-    'serviceRemoval',
-    30
-  );
-
   const signalR = useSignalR();
 
+  // Derive active operations from notifications (standardized pattern)
+  // Log entry removal: notification ID is 'service_removal-{service}', details.service contains the service name
+  const activeServiceRemovalNotification = notifications.find(
+    n => n.type === 'service_removal' && n.id.startsWith('service_removal-') && n.status === 'running'
+  );
+  const activeServiceRemoval = activeServiceRemovalNotification?.details?.service as string | null ?? null;
+
+  // Corruption removal: notification ID is 'corruption_removal-{service}'
+  const activeCorruptionRemovalNotification = notifications.find(
+    n => n.type === 'corruption_removal' && n.status === 'running'
+  );
+  const removingCorruption = activeCorruptionRemovalNotification
+    ? (activeCorruptionRemovalNotification.id.replace('corruption_removal-', '') as string)
+    : null;
+
+  // Track local loading states for button feedback before SignalR events arrive
+  const [startingServiceRemoval, setStartingServiceRemoval] = useState<string | null>(null);
+  const [startingCorruptionRemoval, setStartingCorruptionRemoval] = useState<string | null>(null);
+
+  // Clear operation state is now a no-op since state is derived from notifications
   const clearOperationState = async () => {
-    await serviceRemovalOp.clear();
-    setActiveServiceRemoval(null);
-    // Note: Background service removal is cleared by ManagementTab via SignalR events
+    // State is derived from notifications, nothing to clear locally
   };
 
   // Listen for CorruptionRemovalComplete event and refresh data
@@ -136,10 +145,8 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
     const handleCorruptionRemovalComplete = async (payload: any) => {
       console.log('[LogAndCorruptionManager] CorruptionRemovalComplete received, refreshing data');
 
-      // Always clear the removing state, whether success or failure
-      setRemovingCorruption(null);
-
-      // Only refresh data if successful
+      // State is derived from notifications - NotificationsContext handles the notification update
+      // We just need to refresh the data if successful
       if (payload.success) {
         try {
           const [configData, counts, corruption] = await Promise.all([
@@ -167,7 +174,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
     return () => {
       signalR.off('CorruptionRemovalComplete', handleCorruptionRemovalComplete);
     };
-  }, [signalR]);
+  }, [signalR, onError]);
 
   useEffect(() => {
     // Only load on initial mount
@@ -178,9 +185,11 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
         loadAllData();
       }, 100);
 
-      // These are fast, can run immediately
-      restoreServiceRemoval();
+      // Load directory permissions
       loadDirectoryPermissions();
+
+      // Note: Operation state is now derived from notifications
+      // NotificationsContext handles recovery via backend status endpoints
     }
 
     // Expose reload function to parent via ref
@@ -223,31 +232,6 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
     }
   };
 
-  const restoreServiceRemoval = async () => {
-    const serviceOp = await serviceRemovalOp.load();
-    if (serviceOp?.data?.service) {
-      // Check if operation is actually still running on backend
-      try {
-        const response = await ApiService.getLogRemovalStatus();
-        if (response && response.isProcessing) {
-          setActiveServiceRemoval(serviceOp.data.service);
-          onSuccess?.(
-            `Removing ${serviceOp.data.service} entries from logs (operation resumed)...`
-          );
-        } else {
-          // Operation completed while we were away, clear persisted state
-          await serviceRemovalOp.clear();
-          setActiveServiceRemoval(null);
-        }
-      } catch (err) {
-        console.error('Failed to check log removal status:', err);
-        // On error, assume it's not running and clear state
-        await serviceRemovalOp.clear();
-        setActiveServiceRemoval(null);
-      }
-    }
-  };
-
   const loadDirectoryPermissions = async () => {
     try {
       setCheckingPermissions(true);
@@ -270,28 +254,25 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
     }
 
     setPendingServiceRemoval(null);
+    setStartingServiceRemoval(serviceName);
 
     try {
-      setActiveServiceRemoval(serviceName);
-      await serviceRemovalOp.save({ service: serviceName });
-
       const result = await ApiService.removeServiceFromLogs(serviceName);
 
       if (result && result.status === 'started') {
+        // SignalR will send LogRemovalProgress which creates the notification
+        // The UI will update automatically when the notification is added
         onSuccess?.(`Removing ${serviceName} entries from logs...`);
       } else {
-        setActiveServiceRemoval(null);
-        await serviceRemovalOp.clear();
         onError?.(`Unexpected response when starting log removal for ${serviceName}`);
       }
     } catch (err: any) {
-      await serviceRemovalOp.clear();
-      setActiveServiceRemoval(null);
-
       const errorMessage = err.message?.includes('read-only')
         ? 'Logs directory is read-only. Remove :ro from docker-compose volume mount.'
         : err.message || 'Action failed';
       onError?.(errorMessage);
+    } finally {
+      setStartingServiceRemoval(null);
     }
   };
 
@@ -319,17 +300,18 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
 
     const service = pendingCorruptionRemoval;
     setPendingCorruptionRemoval(null);
-    setRemovingCorruption(service);
+    setStartingCorruptionRemoval(service);
 
     try {
       await ApiService.removeCorruptedChunks(service);
-      // Success notification and state clearing handled by SignalR (CorruptionRemovalComplete event)
-      // Don't clear removingCorruption here - it will be cleared when SignalR confirms completion
+      // Backend will send CorruptionRemovalStarted via SignalR which creates the notification
+      // Then CorruptionRemovalComplete when done
+      // The UI will update automatically via derived state from notifications
     } catch (err: any) {
       console.error('[CorruptionDetection] Removal failed:', err);
       onError?.(err.message || `Failed to remove corrupted chunks for ${service}`);
-      // Only clear on error since SignalR won't fire
-      setRemovingCorruption(null);
+    } finally {
+      setStartingCorruptionRemoval(null);
     }
   };
 
@@ -528,12 +510,13 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                           key={service}
                           service={service}
                           count={serviceCounts[service] || 0}
-                          isRemoving={activeServiceRemoval === service}
+                          isRemoving={activeServiceRemoval === service || startingServiceRemoval === service}
                           isDisabled={
                             mockMode ||
                             !!activeServiceRemoval ||
                             !!removingCorruption ||
-                            serviceRemovalOp.loading ||
+                            !!startingServiceRemoval ||
+                            !!startingCorruptionRemoval ||
                             authMode !== 'authenticated' ||
                             logsReadOnly ||
                             checkingPermissions
@@ -672,6 +655,8 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                                 mockMode ||
                                 !!removingCorruption ||
                                 !!activeServiceRemoval ||
+                                !!startingCorruptionRemoval ||
+                                !!startingServiceRemoval ||
                                 authMode !== 'authenticated' ||
                                 logsReadOnly ||
                                 cacheReadOnly ||
@@ -680,14 +665,14 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                               variant="filled"
                               color="red"
                               size="sm"
-                              loading={removingCorruption === service}
+                              loading={removingCorruption === service || startingCorruptionRemoval === service}
                               title={
                                 logsReadOnly || cacheReadOnly
                                   ? 'Directories are read-only'
                                   : undefined
                               }
                             >
-                              {removingCorruption !== service ? 'Remove All' : 'Removing...'}
+                              {removingCorruption !== service && startingCorruptionRemoval !== service ? 'Remove All' : 'Removing...'}
                             </Button>
                           </Tooltip>
                         </div>
@@ -780,7 +765,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
       <Modal
         opened={pendingServiceRemoval !== null}
         onClose={() => {
-          if (!serviceRemovalOp.loading) {
+          if (!startingServiceRemoval) {
             setPendingServiceRemoval(null);
           }
         }}
@@ -812,7 +797,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
             <Button
               variant="default"
               onClick={() => setPendingServiceRemoval(null)}
-              disabled={serviceRemovalOp.loading}
+              disabled={!!startingServiceRemoval}
             >
               Cancel
             </Button>
@@ -822,7 +807,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
               onClick={() =>
                 pendingServiceRemoval && executeRemoveServiceLogs(pendingServiceRemoval)
               }
-              loading={serviceRemovalOp.loading}
+              loading={!!startingServiceRemoval}
             >
               Remove Logs
             </Button>

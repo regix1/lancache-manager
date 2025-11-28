@@ -7,7 +7,6 @@ import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
 import { HelpPopover, HelpSection, HelpNote, HelpKeyword, HelpDefinition } from '@components/ui/HelpPopover';
 import { useNotifications } from '@contexts/NotificationsContext';
-import { useBackendOperation } from '@hooks/useBackendOperation';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import GamesList from './GamesList';
 import ServicesList from './ServicesList';
@@ -29,8 +28,19 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   refreshKey = 0
 }) => {
   const { addNotification, updateNotification, notifications } = useNotifications();
-  const gameDetectionOp = useBackendOperation('activeGameDetection', 'gameDetection', 120);
-  const [loading, setLoading] = useState(false);
+
+  // Derive game detection state from notifications (standardized pattern)
+  const activeGameDetectionNotification = notifications.find(
+    n => n.type === 'game_detection' && n.status === 'running'
+  );
+  const isDetectionFromNotification = !!activeGameDetectionNotification;
+
+  // Track local starting state for immediate UI feedback before SignalR events arrive
+  const [isStartingDetection, setIsStartingDetection] = useState(false);
+  // Track local loading state for loading cached data (quick synchronous operation)
+  const [isLoadingData, setIsLoadingData] = useState(false);
+  // Combined loading state: either notification says running OR we're in starting phase OR loading cached data
+  const loading = isDetectionFromNotification || isStartingDetection || isLoadingData;
   const [games, setGames] = useState<GameCacheInfo[]>([]);
   const [services, setServices] = useState<ServiceCacheInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -120,68 +130,10 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       // Only check permissions and logs on initial mount
       loadDirectoryPermissions();
       checkIfLogsProcessed(); // Check database for LogEntries
-      restoreGameDetection(); // Restore interrupted operation if any
+      // Note: Recovery is now handled by NotificationsContext's recoverGameDetection
+      // which queries the backend and creates the notification on page load
     }
   }, [mockMode, refreshKey]); // Re-run when mockMode or refreshKey changes
-
-  const restoreGameDetection = async () => {
-    try {
-      const operation = await gameDetectionOp.load();
-      if (operation?.data) {
-        const data = operation.data as any;
-        if (data.operationId && data.scanType) {
-          console.log('[GameCacheDetector] Restoring interrupted game detection operation');
-
-          // Check if detection is actually still running on backend FIRST
-          try {
-            const status = await ApiService.getGameDetectionStatus(data.operationId);
-            if (status.status === 'complete' || status.status === 'failed') {
-              // Operation already completed, clear state and load results
-              console.log('[GameCacheDetector] Restored operation already completed');
-
-              // Clear any old game_detection notifications since scan is done
-              const oldNotifications = notifications.filter((n) => n.type === 'game_detection');
-              oldNotifications.forEach((n) => {
-                console.log('[GameCacheDetector] Clearing completed game_detection notification:', n.id);
-                updateNotification(n.id, { status: 'completed', message: 'Detection complete' });
-              });
-
-              await gameDetectionOp.clear();
-              setLoading(false);
-              setScanType(null);
-
-              if (status.status === 'complete') {
-                // Load results from database
-                const result = await ApiService.getCachedGameDetection();
-                if (result.hasCachedResults) {
-                  if (result.games) setGames(result.games);
-                  if (result.totalGamesDetected) setTotalGames(result.totalGamesDetected);
-                  if (result.services) setServices(result.services);
-                  if (result.totalServicesDetected) setTotalServices(result.totalServicesDetected);
-                  if (result.lastDetectionTime) setLastDetectionTime(result.lastDetectionTime);
-                }
-              }
-            } else {
-              // Still running, restore loading state
-              console.log('[GameCacheDetector] Restored operation still running, keeping loading state');
-              setLoading(true);
-              setScanType(data.scanType);
-              // Leave notifications as-is - they should show 'running' status
-              // SignalR will handle the completion when it arrives
-            }
-          } catch (err) {
-            // If we can't check status, assume it's still running
-            console.warn('[GameCacheDetector] Could not check operation status, assuming still running');
-            setLoading(true);
-            setScanType(data.scanType);
-            // Leave notifications as-is
-          }
-        }
-      }
-    } catch (err) {
-      console.error('[GameCacheDetector] Failed to restore game detection operation:', err);
-    }
-  };
 
   const loadDirectoryPermissions = async () => {
     try {
@@ -269,18 +221,17 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       checkIfLogsProcessed();
     }
 
-    // Handle game detection completion - ONLY if we're expecting one (loading is true)
-    if (loading) {
+    // Handle game detection completion - ONLY if we were starting detection
+    if (isStartingDetection) {
       const gameDetectionNotifs = notifications.filter(
         (n) => n.type === 'game_detection' && n.status === 'completed'
       );
       if (gameDetectionNotifs.length > 0) {
         console.log('[GameCacheDetector] Game detection completed, loading results from database');
-        setLoading(false);
+        setIsStartingDetection(false);
         setScanType(null);
 
-        // Clear operation state - detection is complete
-        gameDetectionOp.clear().catch((err) => console.error('Failed to clear operation state:', err));
+        // Note: Operation state now handled by NotificationsContext
 
         // Load fresh results from the database (backend already saved them)
         const loadResults = async () => {
@@ -306,20 +257,18 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         loadResults();
       }
 
-      // Handle game detection failure - ONLY if we're expecting one (loading is true)
+      // Handle game detection failure - ONLY if we were starting detection
       const gameDetectionFailedNotifs = notifications.filter(
         (n) => n.type === 'game_detection' && n.status === 'failed'
       );
       if (gameDetectionFailedNotifs.length > 0) {
         console.error('[GameCacheDetector] Game detection failed');
-        setLoading(false);
+        setIsStartingDetection(false);
         setScanType(null);
-
-        // Clear operation state - detection failed
-        gameDetectionOp.clear().catch((err) => console.error('Failed to clear operation state:', err));
+        // Note: Operation state now handled by NotificationsContext
       }
     }
-  }, [notifications, loading]);
+  }, [notifications, isStartingDetection]);
 
   const startDetection = async (forceRefresh: boolean, scanTypeLabel: 'full' | 'incremental') => {
     if (mockMode) {
@@ -334,7 +283,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       return;
     }
 
-    setLoading(true);
+    setIsStartingDetection(true);
     setError(null);
     setScanType(scanTypeLabel);
     setGames([]);
@@ -345,11 +294,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
     try {
       // Start background detection - SignalR will send GameDetectionStarted event
-      const result = await ApiService.startGameCacheDetection(forceRefresh);
-
-      // Save operation state for restoration on page refresh
-      await gameDetectionOp.save({ operationId: result.operationId, scanType: scanTypeLabel });
-      // Success! SignalR notifications will handle the rest
+      await ApiService.startGameCacheDetection(forceRefresh);
+      // Note: NotificationsContext will create a notification via SignalR (GameDetectionStarted event)
+      // and recovery is handled by recoverGameDetection
     } catch (err: any) {
       const errorMsg = err.message || 'Failed to start detection';
       setError(errorMsg);
@@ -360,7 +307,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         details: { notificationType: 'error' }
       });
       console.error('Detection error:', err);
-      setLoading(false);
+      setIsStartingDetection(false);
       setScanType(null);
     }
   };
@@ -372,7 +319,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     if (mockMode) return;
 
     setScanType('load');
-    setLoading(true);
+    setIsLoadingData(true);
     setError(null);
 
     try {
@@ -448,7 +395,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         details: { notificationType: 'error' }
       });
     } finally {
-      setLoading(false);
+      setIsLoadingData(false);
       setScanType(null);
     }
   };

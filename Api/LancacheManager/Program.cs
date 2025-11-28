@@ -277,6 +277,7 @@ builder.Services.AddSingleton<SteamWebApiService>();
 
 // Register services (repositories already registered above)
 builder.Services.AddSingleton<CacheManagementService>();
+builder.Services.AddSingleton<RemovalOperationTracker>();
 builder.Services.AddSingleton<PicsDataService>();
 
 // Depot data initialization service disabled - user must manually download depot data

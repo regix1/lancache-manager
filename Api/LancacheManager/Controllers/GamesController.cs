@@ -17,6 +17,7 @@ public class GamesController : ControllerBase
 {
     private readonly GameCacheDetectionService _gameCacheDetectionService;
     private readonly CacheManagementService _cacheManagementService;
+    private readonly RemovalOperationTracker _removalTracker;
     private readonly IHubContext<DownloadHub> _hubContext;
     private readonly ILogger<GamesController> _logger;
     private readonly IPathResolver _pathResolver;
@@ -24,12 +25,14 @@ public class GamesController : ControllerBase
     public GamesController(
         GameCacheDetectionService gameCacheDetectionService,
         CacheManagementService cacheManagementService,
+        RemovalOperationTracker removalTracker,
         IHubContext<DownloadHub> hubContext,
         ILogger<GamesController> logger,
         IPathResolver pathResolver)
     {
         _gameCacheDetectionService = gameCacheDetectionService;
         _cacheManagementService = cacheManagementService;
+        _removalTracker = removalTracker;
         _hubContext = hubContext;
         _logger = logger;
         _pathResolver = pathResolver;
@@ -97,13 +100,42 @@ public class GamesController : ControllerBase
         {
             _logger.LogInformation("Starting background game removal for AppId: {AppId}", appId);
 
+            // Get game name for tracking
+            var cachedResults = _gameCacheDetectionService.GetCachedDetectionAsync().GetAwaiter().GetResult();
+            var gameName = cachedResults?.Games?.FirstOrDefault(g => g.GameAppId == appId)?.GameName ?? $"Game {appId}";
+
+            // Start tracking this removal operation
+            _removalTracker.StartGameRemoval(appId, gameName);
+
             // Fire-and-forget background removal with SignalR notification
             _ = Task.Run(async () =>
             {
                 try
                 {
+                    // Send progress update
+                    await _hubContext.Clients.All.SendAsync("GameRemovalProgress", new
+                    {
+                        gameAppId = appId,
+                        gameName,
+                        status = "removing_cache",
+                        message = $"Deleting cache files for {gameName}..."
+                    });
+                    _removalTracker.UpdateGameRemoval(appId, "removing_cache", $"Deleting cache files for {gameName}...");
+
                     // Use CacheManagementService which actually deletes files via Rust binary
                     var report = await _cacheManagementService.RemoveGameFromCache((uint)appId);
+
+                    // Send progress update
+                    await _hubContext.Clients.All.SendAsync("GameRemovalProgress", new
+                    {
+                        gameAppId = appId,
+                        gameName,
+                        status = "removing_database",
+                        message = $"Updating database...",
+                        filesDeleted = report.CacheFilesDeleted,
+                        bytesFreed = report.TotalBytesFreed
+                    });
+                    _removalTracker.UpdateGameRemoval(appId, "removing_database", "Updating database...", report.CacheFilesDeleted, (long)report.TotalBytesFreed);
 
                     // Also remove from detection cache so it doesn't show in UI
                     await _gameCacheDetectionService.RemoveGameFromCacheAsync((uint)appId);
@@ -111,20 +143,27 @@ public class GamesController : ControllerBase
                     _logger.LogInformation("Game removal completed for AppId: {AppId} - Deleted {Files} files, freed {Bytes} bytes",
                         appId, report.CacheFilesDeleted, report.TotalBytesFreed);
 
+                    // Complete tracking
+                    _removalTracker.CompleteGameRemoval(appId, true, report.CacheFilesDeleted, (long)report.TotalBytesFreed);
+
                     // Send SignalR notification on success
                     await _hubContext.Clients.All.SendAsync("GameRemovalComplete", new
                     {
                         success = true,
                         gameAppId = appId,
+                        gameName,
                         filesDeleted = report.CacheFilesDeleted,
                         bytesFreed = report.TotalBytesFreed,
                         logEntriesRemoved = report.LogEntriesRemoved,
-                        message = $"Successfully removed game {appId} from cache"
+                        message = $"Successfully removed {gameName} from cache"
                     });
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error during game removal for AppId: {AppId}", appId);
+
+                    // Complete tracking with error
+                    _removalTracker.CompleteGameRemoval(appId, false, error: ex.Message);
 
                     // Send SignalR notification on failure
                     await _hubContext.Clients.All.SendAsync("GameRemovalComplete", new
@@ -140,6 +179,7 @@ public class GamesController : ControllerBase
             {
                 message = $"Started removal of game {appId} from cache",
                 appId,
+                gameName,
                 status = "running"
             });
         }
@@ -152,6 +192,56 @@ public class GamesController : ControllerBase
                 details = ex.Message
             });
         }
+    }
+
+    /// <summary>
+    /// GET /api/games/{appId}/removal-status - Get status of game removal operation
+    /// Used for restoring progress on page refresh
+    /// </summary>
+    [HttpGet("{appId}/removal-status")]
+    public IActionResult GetGameRemovalStatus(int appId)
+    {
+        var operation = _removalTracker.GetGameRemovalStatus(appId);
+        if (operation == null)
+        {
+            return Ok(new { isProcessing = false });
+        }
+
+        return Ok(new
+        {
+            isProcessing = operation.Status == "running",
+            status = operation.Status,
+            message = operation.Message,
+            gameName = operation.Name,
+            filesDeleted = operation.FilesDeleted,
+            bytesFreed = operation.BytesFreed,
+            startedAt = operation.StartedAt,
+            error = operation.Error
+        });
+    }
+
+    /// <summary>
+    /// GET /api/games/removals/active - Get all active game removal operations
+    /// Used for universal recovery on page refresh
+    /// </summary>
+    [HttpGet("removals/active")]
+    public IActionResult GetActiveGameRemovals()
+    {
+        var operations = _removalTracker.GetActiveGameRemovals();
+        return Ok(new
+        {
+            hasActiveOperations = operations.Any(),
+            operations = operations.Select(o => new
+            {
+                gameAppId = int.Parse(o.Id),
+                gameName = o.Name,
+                status = o.Status,
+                message = o.Message,
+                filesDeleted = o.FilesDeleted,
+                bytesFreed = o.BytesFreed,
+                startedAt = o.StartedAt
+            })
+        });
     }
 
     /// <summary>

@@ -31,8 +31,11 @@ const UnifiedNotificationItem = ({
 }) => {
   const { status: webApiStatus } = useSteamWebApiStatus();
 
+  // Simplified color palette:
+  // Blue (info) = Running/Processing
+  // Green (success) = Completed
+  // Red (error) = Failed/Cancelled
   const getStatusColor = () => {
-    // Check for cancellation first
     if (notification.details?.cancelled) {
       return 'var(--theme-error)';
     }
@@ -43,13 +46,7 @@ const UnifiedNotificationItem = ({
       case 'failed':
         return 'var(--theme-error)';
       case 'running':
-        switch (notification.type) {
-          case 'service_removal':
-          case 'depot_mapping':
-            return 'var(--theme-warning)';
-          default:
-            return 'var(--theme-info)';
-        }
+        return 'var(--theme-info)';
       default:
         return 'var(--theme-info)';
     }
@@ -192,7 +189,10 @@ const UnifiedNotificationItem = ({
             </div>
           )}
 
-        {notification.type === 'service_removal' && notification.status === 'running' && (
+        {/* Log entry removal (ID is 'service_removal' without suffix) - has progress bar */}
+        {notification.type === 'service_removal' &&
+         notification.id === 'service_removal' &&
+         notification.status === 'running' && (
           <>
             {notification.progress !== undefined && (
               <div className="mt-1">
@@ -209,13 +209,32 @@ const UnifiedNotificationItem = ({
                     className="h-1.5 rounded-full transition-all duration-300"
                     style={{
                       width: `${notification.progress}%`,
-                      backgroundColor: 'var(--theme-warning)'
+                      backgroundColor: 'var(--theme-info)'
                     }}
                   />
                 </div>
               </div>
             )}
           </>
+        )}
+
+        {/* Service cache removal (ID is 'service_removal-{serviceName}') - show details when complete */}
+        {notification.type === 'service_removal' &&
+         notification.id.startsWith('service_removal-') &&
+         notification.status === 'completed' && (
+          <div className="text-xs text-themed-muted mt-0.5">
+            {notification.details?.filesDeleted?.toLocaleString() || 0} cache files deleted
+            {notification.details?.bytesFreed !== undefined &&
+              ` • ${formatBytes(notification.details.bytesFreed)}`}
+          </div>
+        )}
+
+        {/* Corruption removal - show message when complete */}
+        {notification.type === 'corruption_removal' &&
+         notification.status === 'completed' && (
+          <div className="text-xs text-themed-muted mt-0.5">
+            Corrupted chunks successfully removed
+          </div>
         )}
 
         {notification.type === 'depot_mapping' && notification.status === 'running' && (
@@ -238,7 +257,7 @@ const UnifiedNotificationItem = ({
                     className="h-2 rounded-full transition-all duration-300"
                     style={{
                       width: `${notification.progress}%`,
-                      backgroundColor: 'var(--theme-warning)'
+                      backgroundColor: 'var(--theme-info)'
                     }}
                   />
                 </div>
@@ -297,7 +316,12 @@ const UnifiedNotificationItem = ({
 
       {/* Action buttons */}
       <div className="flex items-center gap-2 flex-shrink-0">
-        {(notification.type === 'cache_clearing' || notification.type === 'service_removal' || notification.type === 'depot_mapping') &&
+        {/* Cancel button for operations that support cancellation */}
+        {/* Note: service_removal with ID 'service_removal' is log entry removal (cancellable) */}
+        {/* service_removal with ID 'service_removal-{name}' is cache removal (not cancellable) */}
+        {(notification.type === 'cache_clearing' ||
+          (notification.type === 'service_removal' && notification.id === 'service_removal') ||
+          notification.type === 'depot_mapping') &&
           notification.status === 'running' &&
           onCancel && (
             notification.details?.cancelling ? (

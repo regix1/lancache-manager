@@ -458,6 +458,95 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       }
     };
 
+    // Game Removal Progress - updates existing notification with progress details
+    const handleGameRemovalProgress = (payload: any) => {
+      console.log('[NotificationsContext] GameRemovalProgress received:', payload);
+      const notificationId = `game_removal-${payload.gameAppId}`;
+
+      setNotifications((prev) => {
+        const existing = prev.find((n) => n.id === notificationId);
+        if (!existing) {
+          // Create new notification if not exists (in case of page refresh during operation)
+          return [
+            ...prev,
+            {
+              id: notificationId,
+              type: 'game_removal' as NotificationType,
+              status: 'running' as NotificationStatus,
+              message: payload.message || `Removing ${payload.gameName}...`,
+              startedAt: new Date(),
+              details: {
+                gameAppId: payload.gameAppId,
+                gameName: payload.gameName,
+                filesDeleted: payload.filesDeleted,
+                bytesFreed: payload.bytesFreed
+              }
+            }
+          ];
+        }
+
+        // Update existing notification with progress details
+        return prev.map((n) => {
+          if (n.id === notificationId) {
+            return {
+              ...n,
+              message: payload.message || n.message,
+              details: {
+                ...n.details,
+                filesDeleted: payload.filesDeleted ?? n.details?.filesDeleted,
+                bytesFreed: payload.bytesFreed ?? n.details?.bytesFreed
+              }
+            };
+          }
+          return n;
+        });
+      });
+    };
+
+    // Service Removal Progress - updates existing notification with progress details
+    const handleServiceRemovalProgress = (payload: any) => {
+      console.log('[NotificationsContext] ServiceRemovalProgress received:', payload);
+      const notificationId = `service_removal-${payload.serviceName}`;
+
+      setNotifications((prev) => {
+        const existing = prev.find((n) => n.id === notificationId);
+        if (!existing) {
+          // Create new notification if not exists (in case of page refresh during operation)
+          return [
+            ...prev,
+            {
+              id: notificationId,
+              type: 'service_removal' as NotificationType,
+              status: 'running' as NotificationStatus,
+              message: payload.message || `Removing ${payload.serviceName} service...`,
+              startedAt: new Date(),
+              details: {
+                service: payload.serviceName,
+                filesDeleted: payload.filesDeleted,
+                bytesFreed: payload.bytesFreed
+              }
+            }
+          ];
+        }
+
+        // Update existing notification with progress details
+        return prev.map((n) => {
+          if (n.id === notificationId) {
+            return {
+              ...n,
+              message: payload.message || n.message,
+              details: {
+                ...n.details,
+                filesDeleted: payload.filesDeleted ?? n.details?.filesDeleted,
+                bytesFreed: payload.bytesFreed ?? n.details?.bytesFreed
+              }
+            };
+          }
+          return n;
+        });
+      });
+    };
+
     // Game Removal Complete
     const handleGameRemovalComplete = (payload: any) => {
       console.log('[NotificationsContext] GameRemovalComplete received:', payload);
@@ -1189,7 +1278,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     signalR.on('FastProcessingComplete', handleFastProcessingComplete);
     signalR.on('LogRemovalProgress', handleLogRemovalProgress);
     signalR.on('LogRemovalComplete', handleLogRemovalComplete);
+    signalR.on('GameRemovalProgress', handleGameRemovalProgress);
     signalR.on('GameRemovalComplete', handleGameRemovalComplete);
+    signalR.on('ServiceRemovalProgress', handleServiceRemovalProgress);
     signalR.on('ServiceRemovalComplete', handleServiceRemovalComplete);
     signalR.on('CorruptionRemovalStarted', handleCorruptionRemovalStarted);
     signalR.on('CorruptionRemovalComplete', handleCorruptionRemovalComplete);
@@ -1209,7 +1300,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       signalR.off('FastProcessingComplete', handleFastProcessingComplete);
       signalR.off('LogRemovalProgress', handleLogRemovalProgress);
       signalR.off('LogRemovalComplete', handleLogRemovalComplete);
+      signalR.off('GameRemovalProgress', handleGameRemovalProgress);
       signalR.off('GameRemovalComplete', handleGameRemovalComplete);
+      signalR.off('ServiceRemovalProgress', handleServiceRemovalProgress);
       signalR.off('ServiceRemovalComplete', handleServiceRemovalComplete);
       signalR.off('CorruptionRemovalStarted', handleCorruptionRemovalStarted);
       signalR.off('CorruptionRemovalComplete', handleCorruptionRemovalComplete);
@@ -1294,7 +1387,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           recoverDepotMapping(),
           recoverCacheClearing(),
           recoverDatabaseReset(),
-          recoverGameDetection()
+          recoverGameDetection(),
+          recoverCacheRemovals()
         ]);
       } catch (err) {
         console.error('[NotificationsContext] Failed to recover operations:', err);
@@ -1600,6 +1694,103 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             });
 
             console.log('[NotificationsContext] Recovered game detection notification');
+          }
+        }
+      } catch (err) {
+        // Silently fail - operation not running
+      }
+    };
+
+    // Recover active cache removal operations (games, services, corruption)
+    const recoverCacheRemovals = async () => {
+      try {
+        const response = await fetch('/api/cache/removals/active');
+        if (response.ok) {
+          const data = await response.json();
+
+          if (data.hasActiveOperations) {
+            // Recover game removals
+            if (data.gameRemovals && data.gameRemovals.length > 0) {
+              for (const op of data.gameRemovals) {
+                const notificationId = `game_removal-${op.gameAppId}`;
+                setNotifications((prev) => {
+                  const existing = prev.find((n) => n.id === notificationId);
+                  if (existing) return prev;
+
+                  return [
+                    ...prev,
+                    {
+                      id: notificationId,
+                      type: 'game_removal' as NotificationType,
+                      status: 'running' as NotificationStatus,
+                      message: op.message || `Removing ${op.gameName}...`,
+                      startedAt: new Date(op.startedAt),
+                      details: {
+                        gameAppId: op.gameAppId,
+                        gameName: op.gameName,
+                        filesDeleted: op.filesDeleted,
+                        bytesFreed: op.bytesFreed
+                      }
+                    }
+                  ];
+                });
+                console.log('[NotificationsContext] Recovered game removal notification for:', op.gameName);
+              }
+            }
+
+            // Recover service removals
+            if (data.serviceRemovals && data.serviceRemovals.length > 0) {
+              for (const op of data.serviceRemovals) {
+                const notificationId = `service_removal-${op.serviceName}`;
+                setNotifications((prev) => {
+                  const existing = prev.find((n) => n.id === notificationId);
+                  if (existing) return prev;
+
+                  return [
+                    ...prev,
+                    {
+                      id: notificationId,
+                      type: 'service_removal' as NotificationType,
+                      status: 'running' as NotificationStatus,
+                      message: op.message || `Removing ${op.serviceName} service...`,
+                      startedAt: new Date(op.startedAt),
+                      details: {
+                        service: op.serviceName,
+                        filesDeleted: op.filesDeleted,
+                        bytesFreed: op.bytesFreed
+                      }
+                    }
+                  ];
+                });
+                console.log('[NotificationsContext] Recovered service removal notification for:', op.serviceName);
+              }
+            }
+
+            // Recover corruption removals
+            if (data.corruptionRemovals && data.corruptionRemovals.length > 0) {
+              for (const op of data.corruptionRemovals) {
+                const notificationId = `corruption_removal-${op.service}`;
+                setNotifications((prev) => {
+                  const existing = prev.find((n) => n.id === notificationId);
+                  if (existing) return prev;
+
+                  return [
+                    ...prev,
+                    {
+                      id: notificationId,
+                      type: 'corruption_removal' as NotificationType,
+                      status: 'running' as NotificationStatus,
+                      message: op.message || `Removing corrupted chunks for ${op.service}...`,
+                      startedAt: new Date(op.startedAt),
+                      details: {
+                        operationId: op.operationId
+                      }
+                    }
+                  ];
+                });
+                console.log('[NotificationsContext] Recovered corruption removal notification for:', op.service);
+              }
+            }
           }
         }
       } catch (err) {

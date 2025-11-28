@@ -749,6 +749,80 @@ class ApiService {
     }
   }
 
+  // Get all active removal operations (games, services, corruption)
+  // Used for universal recovery on page refresh
+  static async getActiveRemovals(): Promise<{
+    hasActiveOperations: boolean;
+    gameRemovals: Array<{ gameAppId: number; gameName: string; status: string; message: string; filesDeleted: number; bytesFreed: number; startedAt: string }>;
+    serviceRemovals: Array<{ serviceName: string; status: string; message: string; filesDeleted: number; bytesFreed: number; startedAt: string }>;
+    corruptionRemovals: Array<{ service: string; operationId: string; status: string; message: string; startedAt: string }>;
+  }> {
+    try {
+      const res = await fetch(`${API_BASE}/cache/removals/active`, this.getFetchOptions());
+      return await this.handleResponse(res);
+    } catch (error) {
+      console.error('getActiveRemovals error:', error);
+      throw error;
+    }
+  }
+
+  // Get game removal status (for restoring progress on page refresh)
+  static async getGameRemovalStatus(appId: number): Promise<{
+    isProcessing: boolean;
+    status?: string;
+    message?: string;
+    gameName?: string;
+    filesDeleted?: number;
+    bytesFreed?: number;
+    startedAt?: string;
+    error?: string;
+  }> {
+    try {
+      const res = await fetch(`${API_BASE}/games/${appId}/removal-status`, this.getFetchOptions());
+      return await this.handleResponse(res);
+    } catch (error) {
+      console.error('getGameRemovalStatus error:', error);
+      throw error;
+    }
+  }
+
+  // Get service removal status (for restoring progress on page refresh)
+  static async getServiceRemovalStatus(serviceName: string): Promise<{
+    isProcessing: boolean;
+    status?: string;
+    message?: string;
+    filesDeleted?: number;
+    bytesFreed?: number;
+    startedAt?: string;
+    error?: string;
+  }> {
+    try {
+      const res = await fetch(`${API_BASE}/cache/services/${encodeURIComponent(serviceName)}/removal-status`, this.getFetchOptions());
+      return await this.handleResponse(res);
+    } catch (error) {
+      console.error('getServiceRemovalStatus error:', error);
+      throw error;
+    }
+  }
+
+  // Get corruption removal status (for restoring progress on page refresh)
+  static async getCorruptionRemovalStatus(serviceName: string): Promise<{
+    isProcessing: boolean;
+    status?: string;
+    message?: string;
+    operationId?: string;
+    startedAt?: string;
+    error?: string;
+  }> {
+    try {
+      const res = await fetch(`${API_BASE}/cache/services/${encodeURIComponent(serviceName)}/corruption/status`, this.getFetchOptions());
+      return await this.handleResponse(res);
+    } catch (error) {
+      console.error('getCorruptionRemovalStatus error:', error);
+      throw error;
+    }
+  }
+
   // Get guest session duration configuration
   static async getGuestSessionDuration(): Promise<{ durationHours: number }> {
     try {

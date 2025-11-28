@@ -21,6 +21,7 @@ public class CacheController : ControllerBase
     private readonly CacheManagementService _cacheService;
     private readonly CacheClearingService _cacheClearingService;
     private readonly GameCacheDetectionService _gameCacheDetectionService;
+    private readonly RemovalOperationTracker _removalTracker;
     private readonly IConfiguration _configuration;
     private readonly ILogger<CacheController> _logger;
     private readonly IPathResolver _pathResolver;
@@ -32,6 +33,7 @@ public class CacheController : ControllerBase
         CacheManagementService cacheService,
         CacheClearingService cacheClearingService,
         GameCacheDetectionService gameCacheDetectionService,
+        RemovalOperationTracker removalTracker,
         IConfiguration configuration,
         ILogger<CacheController> logger,
         IPathResolver pathResolver,
@@ -42,6 +44,7 @@ public class CacheController : ControllerBase
         _cacheService = cacheService;
         _cacheClearingService = cacheClearingService;
         _gameCacheDetectionService = gameCacheDetectionService;
+        _removalTracker = removalTracker;
         _configuration = configuration;
         _logger = logger;
         _pathResolver = pathResolver;
@@ -272,6 +275,9 @@ public class CacheController : ControllerBase
 
             var operationId = Guid.NewGuid().ToString();
 
+            // Start tracking this removal operation
+            _removalTracker.StartCorruptionRemoval(service, operationId);
+
             // Send start notification via SignalR
             _ = _hubContext.Clients.All.SendAsync("CorruptionRemovalStarted", new
             {
@@ -289,6 +295,9 @@ public class CacheController : ControllerBase
                     await LiveLogMonitorService.PauseAsync();
                     _logger.LogInformation("Paused LiveLogMonitorService for corruption removal");
 
+                    // Update tracking
+                    _removalTracker.UpdateCorruptionRemoval(service, "removing", $"Removing corrupted chunks for {service}...");
+
                     try
                     {
                         var result = await _rustProcessHelper.RunCorruptionManagerAsync(
@@ -303,16 +312,19 @@ public class CacheController : ControllerBase
                         if (result.Success)
                         {
                             _logger.LogInformation("Corruption removal completed for service: {Service}", service);
+                            _removalTracker.CompleteCorruptionRemoval(service, true);
                             await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
                             {
                                 service,
                                 operationId,
-                                success = true
+                                success = true,
+                                message = $"Successfully removed corrupted chunks for {service}"
                             });
                         }
                         else
                         {
                             _logger.LogError("Corruption removal failed for service {Service}: {Error}", service, result.Error);
+                            _removalTracker.CompleteCorruptionRemoval(service, false, result.Error);
                             await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
                             {
                                 service,
@@ -332,6 +344,7 @@ public class CacheController : ControllerBase
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error during corruption removal for service: {Service}", service);
+                    _removalTracker.CompleteCorruptionRemoval(service, false, ex.Message);
                     await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
                     {
                         service,
@@ -362,6 +375,51 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
+    /// GET /api/cache/services/{service}/corruption/status - Get corruption removal status
+    /// Used for restoring progress on page refresh
+    /// </summary>
+    [HttpGet("services/{service}/corruption/status")]
+    public IActionResult GetCorruptionRemovalStatus(string service)
+    {
+        var operation = _removalTracker.GetCorruptionRemovalStatus(service);
+        if (operation == null)
+        {
+            return Ok(new { isProcessing = false });
+        }
+
+        return Ok(new
+        {
+            isProcessing = operation.Status == "running",
+            status = operation.Status,
+            message = operation.Message,
+            operationId = operation.Id,
+            startedAt = operation.StartedAt,
+            error = operation.Error
+        });
+    }
+
+    /// <summary>
+    /// GET /api/cache/corruption/removals/active - Get all active corruption removal operations
+    /// </summary>
+    [HttpGet("corruption/removals/active")]
+    public IActionResult GetActiveCorruptionRemovals()
+    {
+        var operations = _removalTracker.GetActiveCorruptionRemovals();
+        return Ok(new
+        {
+            hasActiveOperations = operations.Any(),
+            operations = operations.Select(o => new
+            {
+                service = o.Name,
+                operationId = o.Id,
+                status = o.Status,
+                message = o.Message,
+                startedAt = o.StartedAt
+            })
+        });
+    }
+
+    /// <summary>
     /// DELETE /api/cache/services/{name} - Remove specific service from cache
     /// RESTful: DELETE is proper method for removing resources
     /// </summary>
@@ -373,19 +431,45 @@ public class CacheController : ControllerBase
         {
             _logger.LogInformation("Starting background service removal for: {Service}", name);
 
+            // Start tracking this removal operation
+            _removalTracker.StartServiceRemoval(name);
+
             // Fire-and-forget background removal with SignalR notification
             _ = Task.Run(async () =>
             {
                 try
                 {
+                    // Send progress update
+                    await _hubContext.Clients.All.SendAsync("ServiceRemovalProgress", new
+                    {
+                        serviceName = name,
+                        status = "removing_cache",
+                        message = $"Deleting cache files for {name}..."
+                    });
+                    _removalTracker.UpdateServiceRemoval(name, "removing_cache", $"Deleting cache files for {name}...");
+
                     // Use CacheManagementService which actually deletes files via Rust binary
                     var report = await _cacheService.RemoveServiceFromCache(name);
+
+                    // Send progress update
+                    await _hubContext.Clients.All.SendAsync("ServiceRemovalProgress", new
+                    {
+                        serviceName = name,
+                        status = "removing_database",
+                        message = $"Updating database...",
+                        filesDeleted = report.CacheFilesDeleted,
+                        bytesFreed = report.TotalBytesFreed
+                    });
+                    _removalTracker.UpdateServiceRemoval(name, "removing_database", "Updating database...", report.CacheFilesDeleted, (long)report.TotalBytesFreed);
 
                     // Also remove from detection cache so it doesn't show in UI
                     await _gameCacheDetectionService.RemoveServiceFromCacheAsync(name);
 
                     _logger.LogInformation("Service removal completed for: {Service} - Deleted {Files} files, freed {Bytes} bytes",
                         name, report.CacheFilesDeleted, report.TotalBytesFreed);
+
+                    // Complete tracking
+                    _removalTracker.CompleteServiceRemoval(name, true, report.CacheFilesDeleted, (long)report.TotalBytesFreed);
 
                     // Send SignalR notification on success
                     await _hubContext.Clients.All.SendAsync("ServiceRemovalComplete", new
@@ -401,6 +485,9 @@ public class CacheController : ControllerBase
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error during service removal for: {Service}", name);
+
+                    // Complete tracking with error
+                    _removalTracker.CompleteServiceRemoval(name, false, error: ex.Message);
 
                     // Send SignalR notification on failure
                     await _hubContext.Clients.All.SendAsync("ServiceRemovalComplete", new
@@ -428,5 +515,93 @@ public class CacheController : ControllerBase
                 details = ex.Message
             });
         }
+    }
+
+    /// <summary>
+    /// GET /api/cache/services/{name}/removal-status - Get service removal status
+    /// Used for restoring progress on page refresh
+    /// </summary>
+    [HttpGet("services/{name}/removal-status")]
+    public IActionResult GetServiceRemovalStatus(string name)
+    {
+        var operation = _removalTracker.GetServiceRemovalStatus(name);
+        if (operation == null)
+        {
+            return Ok(new { isProcessing = false });
+        }
+
+        return Ok(new
+        {
+            isProcessing = operation.Status == "running",
+            status = operation.Status,
+            message = operation.Message,
+            filesDeleted = operation.FilesDeleted,
+            bytesFreed = operation.BytesFreed,
+            startedAt = operation.StartedAt,
+            error = operation.Error
+        });
+    }
+
+    /// <summary>
+    /// GET /api/cache/services/removals/active - Get all active service removal operations
+    /// </summary>
+    [HttpGet("services/removals/active")]
+    public IActionResult GetActiveServiceRemovals()
+    {
+        var operations = _removalTracker.GetActiveServiceRemovals();
+        return Ok(new
+        {
+            hasActiveOperations = operations.Any(),
+            operations = operations.Select(o => new
+            {
+                serviceName = o.Name,
+                status = o.Status,
+                message = o.Message,
+                filesDeleted = o.FilesDeleted,
+                bytesFreed = o.BytesFreed,
+                startedAt = o.StartedAt
+            })
+        });
+    }
+
+    /// <summary>
+    /// GET /api/cache/removals/active - Get all active removal operations (games, services, corruption)
+    /// Used for universal recovery on page refresh
+    /// </summary>
+    [HttpGet("removals/active")]
+    public IActionResult GetAllActiveRemovals()
+    {
+        var status = _removalTracker.GetAllActiveRemovals();
+        return Ok(new
+        {
+            hasActiveOperations = status.HasActiveOperations,
+            gameRemovals = status.GameRemovals.Select(o => new
+            {
+                gameAppId = int.Parse(o.Id),
+                gameName = o.Name,
+                status = o.Status,
+                message = o.Message,
+                filesDeleted = o.FilesDeleted,
+                bytesFreed = o.BytesFreed,
+                startedAt = o.StartedAt
+            }),
+            serviceRemovals = status.ServiceRemovals.Select(o => new
+            {
+                serviceName = o.Name,
+                status = o.Status,
+                message = o.Message,
+                filesDeleted = o.FilesDeleted,
+                bytesFreed = o.BytesFreed,
+                startedAt = o.StartedAt
+            }),
+            corruptionRemovals = status.CorruptionRemovals.Select(o => new
+            {
+                service = o.Name,
+                operationId = o.Id,
+                status = o.Status,
+                message = o.Message,
+                startedAt = o.StartedAt
+            })
+        });
     }
 }
