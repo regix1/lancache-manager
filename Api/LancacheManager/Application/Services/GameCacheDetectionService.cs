@@ -33,6 +33,9 @@ public class GameCacheDetectionService
         public DateTime StartTime { get; set; }
         public string Status { get; set; } = "running"; // running, complete, failed
         public string? Message { get; set; }
+        public string? StatusMessage => Message; // Alias for frontend compatibility
+        public double PercentComplete { get; set; }
+        public string ScanType { get; set; } = "incremental"; // "full" or "incremental"
         public List<GameCacheInfo>? Games { get; set; }
         public List<ServiceCacheInfo>? Services { get; set; }
         public int TotalGamesDetected { get; set; }
@@ -76,7 +79,9 @@ public class GameCacheDetectionService
             OperationId = operationId,
             StartTime = DateTime.UtcNow,
             Status = "running",
-            Message = message
+            Message = message,
+            ScanType = scanType,
+            PercentComplete = 0
         };
 
         _operations[operationId] = operation;

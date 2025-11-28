@@ -77,14 +77,56 @@ public class RustDatabaseResetService
     }
 
     /// <summary>
-    /// Gets the current database reset status
+    /// Gets the current database reset status including progress data from Rust
     /// </summary>
     public object GetDatabaseResetStatus()
     {
+        if (!IsProcessing)
+        {
+            return new
+            {
+                isProcessing = false,
+                status = "idle"
+            };
+        }
+
+        // Read progress from Rust progress file
+        var dataDirectory = _pathResolver.GetDataDirectory();
+        var progressPath = Path.Combine(dataDirectory, "reset_progress.json");
+
+        ProgressData? progress = null;
+        try
+        {
+            if (File.Exists(progressPath))
+            {
+                var json = File.ReadAllText(progressPath);
+                progress = JsonSerializer.Deserialize<ProgressData>(json);
+            }
+        }
+        catch
+        {
+            // Ignore read errors - file may be being written
+        }
+
+        if (progress == null)
+        {
+            return new
+            {
+                isProcessing = true,
+                status = "starting",
+                message = "Starting database reset..."
+            };
+        }
+
         return new
         {
-            isProcessing = IsProcessing,
-            status = IsProcessing ? "running" : "idle"
+            isProcessing = true,
+            status = progress.Status,
+            percentComplete = progress.PercentComplete,
+            message = progress.Message,
+            tablesCleared = progress.TablesCleared,
+            totalTables = progress.TotalTables,
+            filesDeleted = progress.FilesDeleted
         };
     }
 

@@ -94,14 +94,14 @@ public class GamesController : ControllerBase
     /// </summary>
     [HttpDelete("{appId}")]
     [RequireAuth]
-    public IActionResult RemoveGameFromCache(int appId)
+    public async Task<IActionResult> RemoveGameFromCache(int appId)
     {
         try
         {
             _logger.LogInformation("Starting background game removal for AppId: {AppId}", appId);
 
             // Get game name for tracking
-            var cachedResults = _gameCacheDetectionService.GetCachedDetectionAsync().GetAwaiter().GetResult();
+            var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync();
             var gameName = cachedResults?.Games?.FirstOrDefault(g => g.GameAppId == appId)?.GameName ?? $"Game {appId}";
 
             // Start tracking this removal operation
@@ -209,7 +209,8 @@ public class GamesController : ControllerBase
 
         return Ok(new
         {
-            isProcessing = operation.Status == "running",
+            // Include all non-terminal statuses (running, removing_cache, removing_database, etc.)
+            isProcessing = operation.Status != "complete" && operation.Status != "failed",
             status = operation.Status,
             message = operation.Message,
             gameName = operation.Name,
@@ -230,7 +231,7 @@ public class GamesController : ControllerBase
         var operations = _removalTracker.GetActiveGameRemovals();
         return Ok(new
         {
-            hasActiveOperations = operations.Any(),
+            isProcessing = operations.Any(),
             operations = operations.Select(o => new
             {
                 gameAppId = int.Parse(o.Id),
@@ -291,10 +292,10 @@ public class GamesController : ControllerBase
 
             if (activeOperation == null)
             {
-                return Ok(new { hasActiveOperation = false, operation = (object?)null });
+                return Ok(new { isProcessing = false, operation = (object?)null });
             }
 
-            return Ok(new { hasActiveOperation = true, operation = activeOperation });
+            return Ok(new { isProcessing = true, operation = activeOperation });
         }
         catch (Exception ex)
         {

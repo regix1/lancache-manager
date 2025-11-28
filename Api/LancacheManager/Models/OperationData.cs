@@ -124,8 +124,8 @@ public class GenericOperationData : OperationDataBase
 /// </summary>
 public class SteamPicsProgress
 {
-    [JsonPropertyName("isRunning")]
-    public bool IsRunning { get; set; }
+    [JsonPropertyName("isProcessing")]
+    public bool IsProcessing { get; set; }
 
     [JsonPropertyName("status")]
     public string Status { get; set; } = string.Empty;

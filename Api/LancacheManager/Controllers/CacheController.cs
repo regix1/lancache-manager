@@ -128,7 +128,8 @@ public class CacheController : ControllerBase
         try
         {
             var operations = _cacheClearingService.GetActiveOperations();
-            return Ok(new { operations });
+            var isProcessing = operations.Any(op => op.Status != "completed" && op.Status != "failed" && op.Status != "cancelled");
+            return Ok(new { isProcessing, operations });
         }
         catch (Exception ex)
         {
@@ -389,7 +390,8 @@ public class CacheController : ControllerBase
 
         return Ok(new
         {
-            isProcessing = operation.Status == "running",
+            // Include all non-terminal statuses (running, removing, etc.)
+            isProcessing = operation.Status != "complete" && operation.Status != "failed",
             status = operation.Status,
             message = operation.Message,
             operationId = operation.Id,
@@ -407,7 +409,7 @@ public class CacheController : ControllerBase
         var operations = _removalTracker.GetActiveCorruptionRemovals();
         return Ok(new
         {
-            hasActiveOperations = operations.Any(),
+            isProcessing = operations.Any(),
             operations = operations.Select(o => new
             {
                 service = o.Name,
@@ -532,7 +534,8 @@ public class CacheController : ControllerBase
 
         return Ok(new
         {
-            isProcessing = operation.Status == "running",
+            // Include all non-terminal statuses (running, removing_cache, removing_database, etc.)
+            isProcessing = operation.Status != "complete" && operation.Status != "failed",
             status = operation.Status,
             message = operation.Message,
             filesDeleted = operation.FilesDeleted,
@@ -551,7 +554,7 @@ public class CacheController : ControllerBase
         var operations = _removalTracker.GetActiveServiceRemovals();
         return Ok(new
         {
-            hasActiveOperations = operations.Any(),
+            isProcessing = operations.Any(),
             operations = operations.Select(o => new
             {
                 serviceName = o.Name,
@@ -574,7 +577,7 @@ public class CacheController : ControllerBase
         var status = _removalTracker.GetAllActiveRemovals();
         return Ok(new
         {
-            hasActiveOperations = status.HasActiveOperations,
+            isProcessing = status.HasActiveOperations,
             gameRemovals = status.GameRemovals.Select(o => new
             {
                 gameAppId = int.Parse(o.Id),

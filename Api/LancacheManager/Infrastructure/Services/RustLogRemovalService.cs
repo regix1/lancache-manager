@@ -36,11 +36,38 @@ public class RustLogRemovalService
     }
 
     /// <summary>
-    /// Gets the removal status (wrapper for GetProgressAsync)
+    /// Gets the removal status including isProcessing and service fields
     /// </summary>
-    public Task<ProgressData?> GetRemovalStatus()
+    public object GetRemovalStatus()
     {
-        return GetProgressAsync();
+        ProgressData? progress = null;
+        try
+        {
+            var dataDirectory = _pathResolver.GetDataDirectory();
+            var progressPath = Path.Combine(dataDirectory, "log_remove_progress.json");
+            if (File.Exists(progressPath))
+            {
+                var json = File.ReadAllText(progressPath);
+                progress = System.Text.Json.JsonSerializer.Deserialize<ProgressData>(json);
+            }
+        }
+        catch
+        {
+            // Ignore read errors - file may be being written
+        }
+
+        // Return object with isProcessing and service fields that frontend expects
+        return new
+        {
+            isProcessing = IsProcessing,
+            service = CurrentService,
+            filesProcessed = progress?.FilesProcessed ?? 0,
+            linesProcessed = progress?.LinesProcessed ?? 0,
+            linesRemoved = progress?.LinesRemoved ?? 0,
+            percentComplete = progress?.PercentComplete ?? 0,
+            status = progress?.Status ?? (IsProcessing ? "starting" : "idle"),
+            message = progress?.Message ?? ""
+        };
     }
 
     public RustLogRemovalService(

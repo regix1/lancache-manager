@@ -33,13 +33,13 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
   };
 
   useEffect(() => {
-    const isProcessing = progress?.isRunning || false;
+    const isProcessing = progress?.isProcessing || false;
     onProcessingStateChange?.(isProcessing);
-  }, [progress?.isRunning, onProcessingStateChange]);
+  }, [progress?.isProcessing, onProcessingStateChange]);
 
   const isInitializing = () => {
     if (!progress) return true;
-    if (progress.isRunning && (progress.progressPercent === 0 || !progress.progressPercent)) {
+    if (progress.isProcessing && (progress.progressPercent === 0 || !progress.progressPercent)) {
       return true;
     }
     return false;
@@ -47,7 +47,7 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
 
   const getStatusMessage = () => {
     if (!progress) return 'Initializing...';
-    if (progress.status === 'Idle' && progress.isRunning) {
+    if (progress.status === 'Idle' && progress.isProcessing) {
       return 'Connecting to Steam...';
     }
     return progress.status || 'Processing...';
@@ -58,7 +58,7 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
     const status = progress?.status?.toLowerCase() || '';
     const isFinished = status === 'complete' || status === 'completed' || status === 'done';
 
-    if (progress && !progress.isRunning && (isFinished || progress.progressPercent >= 100)) {
+    if (progress && !progress.isProcessing && (isFinished || progress.progressPercent >= 100)) {
       if (!isComplete) {
         setIsComplete(true);
         // Auto-advance after showing success

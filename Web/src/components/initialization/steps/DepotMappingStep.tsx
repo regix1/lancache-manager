@@ -27,10 +27,10 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
 
   const progress = picsProgress?.progressPercent || 0;
   const statusMessage = picsProgress?.status || '';
-  const isRunning = picsProgress?.isRunning || false;
+  const isRunning = picsProgress?.isProcessing || false;
 
   useEffect(() => {
-    if (picsProgress?.isRunning && picsProgress.progressPercent < 100) {
+    if (picsProgress?.isProcessing && picsProgress.progressPercent < 100) {
       setMapping(true);
       setPhase('scanning');
     }

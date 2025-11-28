@@ -442,7 +442,7 @@ public partial class SteamKit2Service : IHostedService, IDisposable
 
         return new SteamPicsProgress
         {
-            IsRunning = IsRebuildRunning,
+            IsProcessing = IsRebuildRunning,
             Status = _currentStatus,
             TotalApps = _totalAppsToProcess,
             ProcessedApps = _processedApps,

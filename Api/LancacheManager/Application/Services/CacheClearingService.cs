@@ -475,7 +475,7 @@ public class CacheClearingService : IHostedService
             var progress = new CacheClearProgress
             {
                 OperationId = operation.Id,
-                Status = operation.Status.ToString(),
+                Status = operation.Status.ToString().ToLowerInvariant(),
                 StatusMessage = operation.StatusMessage,
                 StartTime = operation.StartTime,
                 EndTime = operation.EndTime,
@@ -558,7 +558,7 @@ public class CacheClearingService : IHostedService
             var stateOp = new StateRepository.CacheClearOperation
             {
                 Id = operation.Id,
-                Status = operation.Status.ToString(),
+                Status = operation.Status.ToString().ToLowerInvariant(),
                 Message = operation.StatusMessage,
                 Progress = (int)operation.PercentComplete,
                 StartTime = operation.StartTime,
@@ -589,7 +589,7 @@ public class CacheClearingService : IHostedService
             var operations = _operations.Values.Select(op => new StateRepository.CacheClearOperation
             {
                 Id = op.Id,
-                Status = op.Status.ToString(),
+                Status = op.Status.ToString().ToLowerInvariant(),
                 Message = op.StatusMessage,
                 Progress = (int)op.PercentComplete,
                 StartTime = op.StartTime,
@@ -615,7 +615,7 @@ public class CacheClearingService : IHostedService
             return new CacheClearProgress
             {
                 OperationId = operation.Id,
-                Status = operation.Status.ToString(),
+                Status = operation.Status.ToString().ToLowerInvariant(),
                 StatusMessage = operation.StatusMessage,
                 StartTime = operation.StartTime,
                 EndTime = operation.EndTime,
@@ -660,7 +660,7 @@ public class CacheClearingService : IHostedService
         return _operations.Values.Select(op => new CacheClearProgress
         {
             OperationId = op.Id,
-            Status = op.Status.ToString(),
+            Status = op.Status.ToString().ToLowerInvariant(),
             StatusMessage = op.StatusMessage,
             StartTime = op.StartTime,
             EndTime = op.EndTime,

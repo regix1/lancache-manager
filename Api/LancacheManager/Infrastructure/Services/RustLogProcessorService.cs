@@ -57,14 +57,62 @@ public class RustLogProcessorService
     }
 
     /// <summary>
-    /// Gets the current processing status
+    /// Gets the current processing status including progress data from Rust
     /// </summary>
     public object GetStatus()
     {
+        if (!IsProcessing)
+        {
+            return new
+            {
+                isProcessing = false,
+                status = "idle"
+            };
+        }
+
+        // Read progress from Rust progress file
+        var dataDirectory = _pathResolver.GetDataDirectory();
+        var progressPath = Path.Combine(dataDirectory, "rust_progress.json");
+
+        ProgressData? progress = null;
+        try
+        {
+            if (File.Exists(progressPath))
+            {
+                var json = File.ReadAllText(progressPath);
+                progress = System.Text.Json.JsonSerializer.Deserialize<ProgressData>(json);
+            }
+        }
+        catch
+        {
+            // Ignore read errors - file may be being written
+        }
+
+        if (progress == null)
+        {
+            return new
+            {
+                isProcessing = true,
+                status = "starting"
+            };
+        }
+
+        // Get log file size for MB calculations
+        var logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
+        var logFileInfo = new FileInfo(logPath);
+        var mbTotal = logFileInfo.Exists ? logFileInfo.Length / (1024.0 * 1024.0) : 0;
+        var mbProcessed = mbTotal * (progress.PercentComplete / 100.0);
+
         return new
         {
-            isProcessing = IsProcessing,
-            status = IsProcessing ? "running" : "idle"
+            isProcessing = true,
+            status = progress.Status,
+            percentComplete = progress.PercentComplete,
+            mbProcessed = Math.Round(mbProcessed, 1),
+            mbTotal = Math.Round(mbTotal, 1),
+            entriesProcessed = progress.EntriesSaved,
+            totalLines = progress.TotalLines,
+            message = progress.Message
         };
     }
 

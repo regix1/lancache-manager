@@ -98,12 +98,6 @@ public class DatabaseController : ControllerBase
         try
         {
             var status = _rustDatabaseResetService.GetDatabaseResetStatus();
-
-            if (status == null)
-            {
-                return NotFound(new { error = "No database reset operation found" });
-            }
-
             return Ok(status);
         }
         catch (Exception ex)

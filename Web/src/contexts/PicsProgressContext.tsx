@@ -7,7 +7,7 @@ import { useSignalR } from '@contexts/SignalRContext';
  */
 export interface PicsProgress {
   // Core status
-  isRunning: boolean;
+  isProcessing: boolean;
   status: string;
 
   // Progress metrics
@@ -158,7 +158,7 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
         prev
           ? {
               ...prev,
-              isRunning: true,
+              isProcessing: true,
               status: payload.status || 'Running',
               totalApps: payload.totalApps || prev.totalApps,
               processedApps: payload.processedApps || 0,
@@ -176,7 +176,7 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
         prev
           ? {
               ...prev,
-              isRunning: true,
+              isProcessing: true,
               status: payload.status || prev.status,
               totalApps: payload.totalApps || prev.totalApps,
               processedApps: payload.processedApps || prev.processedApps,
@@ -199,7 +199,7 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
         prev
           ? {
               ...prev,
-              isRunning: false,
+              isProcessing: false,
               status: 'Completed',
               progressPercent: 100,
               processedApps: payload.totalApps || prev.totalApps,

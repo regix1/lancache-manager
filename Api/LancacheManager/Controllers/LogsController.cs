@@ -237,12 +237,11 @@ public class LogsController : ControllerBase
     /// GET /api/logs/remove/status - Get status of log removal operation
     /// </summary>
     [HttpGet("remove/status")]
-    public async Task<IActionResult> GetRemovalStatus()
+    public IActionResult GetRemovalStatus()
     {
         try
         {
-            var status = await _rustLogRemovalService.GetRemovalStatus();
-            // Return 200 with null instead of 404 to avoid browser console errors
+            var status = _rustLogRemovalService.GetRemovalStatus();
             return Ok(status);
         }
         catch (Exception ex)

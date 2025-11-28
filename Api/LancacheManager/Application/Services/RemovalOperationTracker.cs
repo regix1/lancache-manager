@@ -75,7 +75,8 @@ public class RemovalOperationTracker
 
     public IEnumerable<RemovalOperation> GetActiveGameRemovals()
     {
-        return _gameRemovals.Values.Where(o => o.Status == "running");
+        // Include all non-completed statuses (running, removing_cache, removing_database, etc.)
+        return _gameRemovals.Values.Where(o => o.Status != "complete" && o.Status != "failed");
     }
 
     // Service Removal Operations
@@ -135,7 +136,8 @@ public class RemovalOperationTracker
 
     public IEnumerable<RemovalOperation> GetActiveServiceRemovals()
     {
-        return _serviceRemovals.Values.Where(o => o.Status == "running");
+        // Include all non-completed statuses (running, removing_cache, removing_database, etc.)
+        return _serviceRemovals.Values.Where(o => o.Status != "complete" && o.Status != "failed");
     }
 
     // Corruption Removal Operations
@@ -191,7 +193,8 @@ public class RemovalOperationTracker
 
     public IEnumerable<RemovalOperation> GetActiveCorruptionRemovals()
     {
-        return _corruptionRemovals.Values.Where(o => o.Status == "running");
+        // Include all non-completed statuses (running, removing, etc.)
+        return _corruptionRemovals.Values.Where(o => o.Status != "complete" && o.Status != "failed");
     }
 
     // Get all active removals (for universal recovery)

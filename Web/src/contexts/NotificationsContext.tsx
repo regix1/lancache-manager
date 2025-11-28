@@ -1634,7 +1634,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           const data = await response.json();
           const notificationId = 'depot_mapping';
 
-          if (data.isRunning) {
+          if (data.isProcessing) {
             // Build the detail message from backend data
             const detailMessage = (() => {
               if (data.processedBatches !== undefined && data.totalBatches !== undefined) {
@@ -1744,7 +1744,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           const notificationId = 'cache_clearing';
 
           // Check if there are any active operations
-          if (data.hasActive && data.operations && data.operations.length > 0) {
+          if (data.isProcessing && data.operations && data.operations.length > 0) {
             // Get the first running operation
             const activeOp = data.operations[0];
 
@@ -1871,7 +1871,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         if (response.ok) {
           const data = await response.json();
 
-          if (data.hasActiveOperation && data.operation) {
+          if (data.isProcessing && data.operation) {
             const op = data.operation;
             const notificationId = `game_detection-${op.operationId}`;
 
@@ -1942,7 +1942,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         if (response.ok) {
           const data = await response.json();
 
-          if (data.hasActiveOperations) {
+          if (data.isProcessing) {
             // Recover game removals
             if (data.gameRemovals && data.gameRemovals.length > 0) {
               for (const op of data.gameRemovals) {

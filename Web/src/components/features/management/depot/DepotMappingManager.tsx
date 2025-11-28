@@ -77,7 +77,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     if (!picsProgress) return null;
 
     return {
-      isRunning: picsProgress.isRunning || false,
+      isProcessing: picsProgress.isProcessing || false,
       crawlIntervalHours: picsProgress.crawlIntervalHours || 0,
       crawlIncrementalMode:
         picsProgress.crawlIncrementalMode !== undefined ? picsProgress.crawlIncrementalMode : true,
@@ -128,7 +128,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
   // Countdown timer - decrements localNextCrawlIn every second
   useEffect(() => {
-    if (!localNextCrawlIn || depotConfig?.isRunning || depotConfig?.crawlIntervalHours === 0) {
+    if (!localNextCrawlIn || depotConfig?.isProcessing || depotConfig?.crawlIntervalHours === 0) {
       return;
     }
 
@@ -161,7 +161,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [localNextCrawlIn, depotConfig?.isRunning, depotConfig?.crawlIntervalHours]);
+  }, [localNextCrawlIn, depotConfig?.isProcessing, depotConfig?.crawlIntervalHours]);
 
   // Auto-select GitHub when Web API is not available (for Apply Now Source) - only on first load
   const hasAutoSwitched = useRef(false);
@@ -305,14 +305,14 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
   // Clear GitHub download complete flag when a scan finishes
   useEffect(() => {
-    if (depotConfig && !depotConfig.isRunning && githubDownloadComplete) {
+    if (depotConfig && !depotConfig.isProcessing && githubDownloadComplete) {
       // Clear the flag after scan completes
       setGithubDownloadComplete(false);
       storage.removeItem('githubDownloadComplete');
       storage.removeItem('githubDownloadTime');
       storage.removeItem('githubDownloading'); // Make sure this is also cleared
     }
-  }, [depotConfig?.isRunning, githubDownloadComplete]);
+  }, [depotConfig?.isProcessing, githubDownloadComplete]);
 
   // NOTE: "Apply Now Source" is intentionally NOT synced with the automatic schedule mode.
   // These are independent controls - users may want to run a different source manually
@@ -375,7 +375,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       return;
     }
 
-    const { isRunning, crawlIntervalHours, crawlIncrementalMode } = depotConfig;
+    const { isProcessing, crawlIntervalHours, crawlIncrementalMode } = depotConfig;
 
     // Skip if scheduling is disabled, not incremental mode, or GitHub mode (GitHub doesn't need viability checks)
     if (crawlIntervalHours === 0 || !crawlIncrementalMode || crawlIncrementalMode === 'github') {
@@ -388,7 +388,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     const isDue = totalSeconds <= 0;
 
     // Only check viability when due and not running (for UI display)
-    if (isDue && !isRunning && !actionLoading) {
+    if (isDue && !isProcessing && !actionLoading) {
       // Throttle checks to once per minute
       const now = Date.now();
       if (now - lastViabilityCheck.current > 60000) {
@@ -431,7 +431,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
   // Clear operation type when scan completes
   useEffect(() => {
-    if (!depotConfig?.isRunning && operationType === 'scanning') {
+    if (!depotConfig?.isProcessing && operationType === 'scanning') {
       setOperationType(null);
       setActionLoading(false);
       // Clear timeout when scan completes
@@ -440,13 +440,13 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
         scanTimeoutRef.current = null;
       }
     }
-  }, [depotConfig?.isRunning, operationType]);
+  }, [depotConfig?.isProcessing, operationType]);
 
   // Safety timeout: Auto-clear stuck loading state if no progress for 5 minutes
   // This handles cases where SignalR messages are lost during concurrent operations
   useEffect(() => {
     // Only monitor when we're actively scanning
-    if (operationType === 'scanning' && depotConfig?.isRunning) {
+    if (operationType === 'scanning' && depotConfig?.isProcessing) {
       // Update last progress time when scan is running
       lastProgressUpdateRef.current = Date.now();
 
@@ -468,7 +468,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
         refreshProgress().then(() => {
           // If still showing as running after refresh, something is wrong
           // Clear the stuck state
-          if (depotConfig?.isRunning) {
+          if (depotConfig?.isProcessing) {
             console.warn('[DepotMapping] Forcing clear of stuck loading state');
             setOperationType(null);
             setActionLoading(false);
@@ -491,7 +491,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
         scanTimeoutRef.current = null;
       }
     }
-  }, [operationType, depotConfig?.isRunning, depotConfig?.progressPercent]);
+  }, [operationType, depotConfig?.isProcessing, depotConfig?.progressPercent]);
 
   // Listen for "change gap too large" errors from automatic scans
   useEffect(() => {
@@ -646,7 +646,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     if (!localNextCrawlIn) return 'Calculating...';
     return formatNextCrawlTime(
       localNextCrawlIn,
-      depotConfig.isRunning,
+      depotConfig.isProcessing,
       fullScanRequired,
       depotConfig.crawlIncrementalMode
     );
@@ -718,7 +718,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
         )}
 
         {/* GitHub Download Complete - Incremental Scan Required */}
-        {githubDownloadComplete && !depotConfig?.isRunning && !githubDownloading && (
+        {githubDownloadComplete && !depotConfig?.isProcessing && !githubDownloading && (
           <div
             className="mb-4 p-3 rounded-lg border"
             style={{
@@ -1081,24 +1081,24 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
             disabled={
               actionLoading ||
               isProcessingLogs ||
-              depotConfig?.isRunning ||
+              depotConfig?.isProcessing ||
               mockMode ||
               !isAuthenticated ||
               githubDownloading
             }
-            loading={actionLoading || depotConfig?.isRunning}
+            loading={actionLoading || depotConfig?.isProcessing}
             fullWidth
           >
             {actionLoading && operationType === 'downloading' && 'Downloading from GitHub...'}
             {actionLoading && operationType === 'scanning' && 'Starting Scan...'}
             {!actionLoading &&
-              depotConfig?.isRunning &&
+              depotConfig?.isProcessing &&
               `Scanning (${Math.round(depotConfig.progressPercent)}%)`}
             {!actionLoading &&
-              !depotConfig?.isRunning &&
+              !depotConfig?.isProcessing &&
               githubDownloadComplete &&
               'Applying Mappings...'}
-            {!actionLoading && !depotConfig?.isRunning && !githubDownloadComplete && 'Apply Now'}
+            {!actionLoading && !depotConfig?.isProcessing && !githubDownloadComplete && 'Apply Now'}
           </Button>
         </div>
 
