@@ -6,14 +6,9 @@
 PUID=${PUID:-1000}
 PGID=${PGID:-1000}
 
-echo "
-───────────────────────────────────────
-LanCache Manager
-───────────────────────────────────────
-User UID: $PUID
-User GID: $PGID
-───────────────────────────────────────
-"
+# Export PUID/PGID for the .NET application to display
+export LANCACHE_PUID=$PUID
+export LANCACHE_PGID=$PGID
 
 # Create group if GID doesn't exist
 if ! getent group "$PGID" > /dev/null 2>&1; then
@@ -30,8 +25,6 @@ fi
 
 # Get username for the UID
 USER_NAME=$(getent passwd "$PUID" | cut -d: -f1)
-
-echo "Running as user: $USER_NAME ($PUID) / group: $GROUP_NAME ($PGID)"
 
 # Change ownership of application directories
 # /data needs write access for database and progress files

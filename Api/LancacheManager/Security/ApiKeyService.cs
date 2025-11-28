@@ -165,10 +165,16 @@ public class ApiKeyService
         var apiKey = GetOrCreateApiKey();
         var maxDevices = configuration.GetValue<int>("Security:MaxAdminDevices", 3);
 
+        // Get PUID/PGID from environment (set by entrypoint.sh)
+        var puid = Environment.GetEnvironmentVariable("LANCACHE_PUID") ?? "N/A";
+        var pgid = Environment.GetEnvironmentVariable("LANCACHE_PGID") ?? "N/A";
+
         Console.WriteLine("");
         Console.WriteLine("┌────────────────────────────────────────────────────────────────────────────┐");
-        Console.WriteLine("│                       LANCACHE MANAGER - API KEY                           │");
+        Console.WriteLine("│                            LANCACHE MANAGER                                │");
         Console.WriteLine("└────────────────────────────────────────────────────────────────────────────┘");
+        Console.WriteLine("");
+        Console.WriteLine($"  Running as UID: {puid} / GID: {pgid}");
         Console.WriteLine("");
         Console.WriteLine("  API KEY (Full Access)");
         Console.WriteLine($"  {apiKey}");
