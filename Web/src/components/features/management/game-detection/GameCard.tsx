@@ -18,6 +18,7 @@ interface GameCardProps {
   isRemoving: boolean;
   isAuthenticated: boolean;
   cacheReadOnly: boolean;
+  dockerSocketAvailable: boolean;
   checkingPermissions: boolean;
   onToggleDetails: (gameId: number) => void;
   onRemove: (game: GameCacheInfo) => void;
@@ -33,6 +34,7 @@ const GameCard: React.FC<GameCardProps> = ({
   isRemoving,
   isAuthenticated,
   cacheReadOnly,
+  dockerSocketAvailable,
   checkingPermissions,
   onToggleDetails,
   onRemove
@@ -101,12 +103,18 @@ const GameCard: React.FC<GameCardProps> = ({
         <Tooltip content="Remove all cache files for this game">
           <Button
             onClick={() => onRemove(game)}
-            disabled={isRemoving || !isAuthenticated || cacheReadOnly || checkingPermissions}
+            disabled={isRemoving || !isAuthenticated || cacheReadOnly || !dockerSocketAvailable || checkingPermissions}
             variant="filled"
             color="red"
             size="sm"
             loading={isRemoving}
-            title={cacheReadOnly ? 'Cache directory is mounted read-only' : undefined}
+            title={
+              cacheReadOnly
+                ? 'Cache directory is mounted read-only'
+                : !dockerSocketAvailable
+                  ? 'Docker socket required for log cleanup'
+                  : undefined
+            }
           >
             {isRemoving ? 'Removing...' : 'Remove'}
           </Button>

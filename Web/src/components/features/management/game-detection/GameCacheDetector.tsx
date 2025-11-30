@@ -49,6 +49,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [gameToRemove, setGameToRemove] = useState<GameCacheInfo | null>(null);
   const [serviceToRemove, setServiceToRemove] = useState<ServiceCacheInfo | null>(null);
   const [cacheReadOnly, setCacheReadOnly] = useState(false);
+  const [dockerSocketAvailable, setDockerSocketAvailable] = useState(true);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [hasProcessedLogs, setHasProcessedLogs] = useState(false);
   const [checkingLogs, setCheckingLogs] = useState(true);
@@ -140,9 +141,11 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       setCheckingPermissions(true);
       const data = await ApiService.getDirectoryPermissions();
       setCacheReadOnly(data.cache.readOnly);
+      setDockerSocketAvailable(data.dockerSocket?.available ?? true);
     } catch (err) {
       console.error('Failed to check directory permissions:', err);
       setCacheReadOnly(false); // Assume writable on error
+      setDockerSocketAvailable(true); // Assume available on error
     } finally {
       setCheckingPermissions(false);
     }
@@ -523,7 +526,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       <Card>
         <div className="space-y-4">
           {/* Header Section */}
-          {cacheReadOnly ? (
+          {(cacheReadOnly || !dockerSocketAvailable) ? (
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
                 <HardDrive className="w-5 h-5 icon-purple" />
@@ -562,7 +565,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                 }}
               >
                 <Lock className="w-3 h-3" />
-                Read-only
+                {cacheReadOnly ? 'Read-only' : 'Docker socket required'}
               </span>
             </div>
           ) : (
@@ -724,6 +727,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   notifications={notifications}
                   isAuthenticated={isAuthenticated}
                   cacheReadOnly={cacheReadOnly}
+                  dockerSocketAvailable={dockerSocketAvailable}
                   checkingPermissions={checkingPermissions}
                   onRemoveService={handleServiceRemoveClick}
                 />
@@ -737,6 +741,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   notifications={notifications}
                   isAuthenticated={isAuthenticated}
                   cacheReadOnly={cacheReadOnly}
+                  dockerSocketAvailable={dockerSocketAvailable}
                   checkingPermissions={checkingPermissions}
                   onRemoveGame={handleRemoveClick}
                 />

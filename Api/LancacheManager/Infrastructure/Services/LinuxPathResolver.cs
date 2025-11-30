@@ -232,6 +232,31 @@ public class LinuxPathResolver : IPathResolver
     public bool IsLogsDirectoryWritable() => IsDirectoryWritable(GetLogsDirectory());
 
     /// <summary>
+    /// Checks if the Docker socket is available for container communication.
+    /// Required for nginx log rotation after log/cache manipulation operations.
+    /// </summary>
+    public bool IsDockerSocketAvailable()
+    {
+        try
+        {
+            // Check if docker socket exists at the standard location
+            if (File.Exists("/var/run/docker.sock"))
+            {
+                _logger.LogDebug("Docker socket found at /var/run/docker.sock");
+                return true;
+            }
+
+            _logger.LogDebug("Docker socket not found at /var/run/docker.sock");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error checking Docker socket availability");
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Checks if directory is mounted read-only by reading /proc/mounts
     /// </summary>
     private bool? CheckLinuxReadOnlyMount(string directoryPath)

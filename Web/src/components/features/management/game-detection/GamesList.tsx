@@ -11,6 +11,7 @@ interface GamesListProps {
   notifications: UnifiedNotification[];
   isAuthenticated: boolean;
   cacheReadOnly: boolean;
+  dockerSocketAvailable: boolean;
   checkingPermissions: boolean;
   onRemoveGame: (game: GameCacheInfo) => void;
 }
@@ -23,6 +24,7 @@ const GamesList: React.FC<GamesListProps> = ({
   notifications,
   isAuthenticated,
   cacheReadOnly,
+  dockerSocketAvailable,
   checkingPermissions,
   onRemoveGame
 }) => {
@@ -157,6 +159,7 @@ const GamesList: React.FC<GamesListProps> = ({
                 )}
                 isAuthenticated={isAuthenticated}
                 cacheReadOnly={cacheReadOnly}
+                dockerSocketAvailable={dockerSocketAvailable}
                 checkingPermissions={checkingPermissions}
                 onToggleDetails={toggleGameDetails}
                 onRemove={onRemoveGame}

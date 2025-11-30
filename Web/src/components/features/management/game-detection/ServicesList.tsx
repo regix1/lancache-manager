@@ -10,6 +10,7 @@ interface ServicesListProps {
   notifications: UnifiedNotification[];
   isAuthenticated: boolean;
   cacheReadOnly: boolean;
+  dockerSocketAvailable: boolean;
   checkingPermissions: boolean;
   onRemoveService: (service: ServiceCacheInfo) => void;
 }
@@ -20,6 +21,7 @@ const ServicesList: React.FC<ServicesListProps> = ({
   notifications,
   isAuthenticated,
   cacheReadOnly,
+  dockerSocketAvailable,
   checkingPermissions,
   onRemoveService
 }) => {
@@ -77,6 +79,7 @@ const ServicesList: React.FC<ServicesListProps> = ({
             )}
             isAuthenticated={isAuthenticated}
             cacheReadOnly={cacheReadOnly}
+            dockerSocketAvailable={dockerSocketAvailable}
             checkingPermissions={checkingPermissions}
             onToggleDetails={toggleServiceDetails}
             onRemove={onRemoveService}

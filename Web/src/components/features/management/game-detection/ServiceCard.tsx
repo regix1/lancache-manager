@@ -11,6 +11,7 @@ interface ServiceCardProps {
   isRemoving: boolean;
   isAuthenticated: boolean;
   cacheReadOnly: boolean;
+  dockerSocketAvailable: boolean;
   checkingPermissions: boolean;
   onToggleDetails: (serviceName: string) => void;
   onRemove: (service: ServiceCacheInfo) => void;
@@ -26,6 +27,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
   isRemoving,
   isAuthenticated,
   cacheReadOnly,
+  dockerSocketAvailable,
   checkingPermissions,
   onToggleDetails,
   onRemove
@@ -90,12 +92,18 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
         <Tooltip content="Remove all cache files for this service">
           <Button
             onClick={() => onRemove(service)}
-            disabled={isRemoving || !isAuthenticated || cacheReadOnly || checkingPermissions}
+            disabled={isRemoving || !isAuthenticated || cacheReadOnly || !dockerSocketAvailable || checkingPermissions}
             variant="filled"
             color="red"
             size="sm"
             loading={isRemoving}
-            title={cacheReadOnly ? 'Cache directory is mounted read-only' : undefined}
+            title={
+              cacheReadOnly
+                ? 'Cache directory is mounted read-only'
+                : !dockerSocketAvailable
+                  ? 'Docker socket required for log cleanup'
+                  : undefined
+            }
           >
             {isRemoving ? 'Removing...' : 'Remove'}
           </Button>

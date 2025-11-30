@@ -227,4 +227,17 @@ public class WindowsPathResolver : IPathResolver
     /// Checks if the logs directory is writable
     /// </summary>
     public bool IsLogsDirectoryWritable() => IsDirectoryWritable(GetLogsDirectory());
+
+    /// <summary>
+    /// Checks if the Docker socket is available for container communication.
+    /// On Windows (development only), always returns true since nginx log rotation
+    /// is only relevant in Docker/Linux production environments.
+    /// </summary>
+    public bool IsDockerSocketAvailable()
+    {
+        // Windows is development-only, Docker socket is a Linux/Docker concept
+        // Return true to allow testing of features that would require docker socket in production
+        _logger.LogDebug("Docker socket check skipped on Windows (development environment)");
+        return true;
+    }
 }

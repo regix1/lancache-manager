@@ -116,4 +116,10 @@ public interface IPathResolver
     /// Checks if the logs directory is writable
     /// </summary>
     bool IsLogsDirectoryWritable();
+
+    /// <summary>
+    /// Checks if the Docker socket is available for container communication
+    /// Required for nginx log rotation after log/cache manipulation operations
+    /// </summary>
+    bool IsDockerSocketAvailable();
 }

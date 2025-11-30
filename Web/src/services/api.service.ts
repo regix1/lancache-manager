@@ -455,10 +455,11 @@ class ApiService {
     return await this.handleResponse<Config>(res);
   }
 
-  // Get directory write permissions
+  // Get directory write permissions and docker socket availability
   static async getDirectoryPermissions(): Promise<{
     cache: { path: string; writable: boolean; readOnly: boolean };
     logs: { path: string; writable: boolean; readOnly: boolean };
+    dockerSocket: { available: boolean };
   }> {
     const res = await fetch(`${API_BASE}/system/permissions`, this.getFetchOptions());
     return await this.handleResponse(res);

@@ -101,7 +101,7 @@ public class SystemController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/system/permissions - Check directory permissions
+    /// GET /api/system/permissions - Check directory permissions and docker socket availability
     /// </summary>
     [HttpGet("permissions")]
     public IActionResult GetPermissions()
@@ -113,6 +113,7 @@ public class SystemController : ControllerBase
 
             var cacheWritable = _pathResolver.IsCacheDirectoryWritable();
             var logsWritable = _pathResolver.IsLogsDirectoryWritable();
+            var dockerSocketAvailable = _pathResolver.IsDockerSocketAvailable();
 
             return Ok(new
             {
@@ -127,6 +128,10 @@ public class SystemController : ControllerBase
                     path = logPath,
                     writable = logsWritable,
                     readOnly = !logsWritable
+                },
+                dockerSocket = new
+                {
+                    available = dockerSocketAvailable
                 }
             });
         }

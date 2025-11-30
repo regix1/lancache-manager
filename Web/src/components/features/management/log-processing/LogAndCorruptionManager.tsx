@@ -110,6 +110,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
   const [hasInitiallyLoaded, setHasInitiallyLoaded] = useState(false);
   const [logsReadOnly, setLogsReadOnly] = useState(false);
   const [cacheReadOnly, setCacheReadOnly] = useState(false);
+  const [dockerSocketAvailable, setDockerSocketAvailable] = useState(true);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
 
   const signalR = useSignalR();
@@ -238,10 +239,12 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
       const data = await ApiService.getDirectoryPermissions();
       setLogsReadOnly(data.logs.readOnly);
       setCacheReadOnly(data.cache.readOnly);
+      setDockerSocketAvailable(data.dockerSocket?.available ?? true);
     } catch (err) {
       console.error('Failed to check directory permissions:', err);
       setLogsReadOnly(false); // Assume writable on error
       setCacheReadOnly(false);
+      setDockerSocketAvailable(true); // Assume available on error
     } finally {
       setCheckingPermissions(false);
     }
@@ -443,11 +446,31 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
           </Alert>
         )}
 
+        {/* Docker Socket Warning */}
+        {!dockerSocketAvailable && !logsReadOnly && !cacheReadOnly && (
+          <Alert color="orange" className="mb-6">
+            <div>
+              <p className="font-medium">Docker socket not available</p>
+              <p className="text-sm mt-1">
+                Log removal and corruption management features are disabled because the Docker socket
+                is not mounted. These operations modify the access.log file and require signaling nginx
+                to reopen logs afterward.
+              </p>
+              <p className="text-sm mt-2">
+                Add the following to your docker-compose.yml volumes:
+              </p>
+              <code className="block bg-themed-tertiary px-2 py-1 rounded text-xs mt-1">
+                - /var/run/docker.sock:/var/run/docker.sock:ro
+              </code>
+            </div>
+          </Alert>
+        )}
+
         {/* Log File Management Section */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-3">
             <h4 className="text-sm font-semibold text-themed-primary uppercase tracking-wide">Log Entries</h4>
-            {logsReadOnly && (
+            {(logsReadOnly || !dockerSocketAvailable) && (
               <span
                 className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 border"
                 style={{
@@ -457,11 +480,11 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                 }}
               >
                 <Lock className="w-3 h-3" />
-                Read-only
+                {logsReadOnly ? 'Read-only' : 'Docker socket required'}
               </span>
             )}
           </div>
-          {!logsReadOnly && (
+          {!logsReadOnly && dockerSocketAvailable && (
             <p className="text-themed-muted text-sm mb-4 break-words">
               Remove service entries from{' '}
               <code className="bg-themed-tertiary px-1.5 py-0.5 rounded text-xs">
@@ -470,7 +493,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
             </p>
           )}
 
-          {!logsReadOnly && (
+          {!logsReadOnly && dockerSocketAvailable && (
             <>
               {loadError && (
                 <Alert color="red" className="mb-4">
@@ -519,6 +542,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                             !!startingCorruptionRemoval ||
                             authMode !== 'authenticated' ||
                             logsReadOnly ||
+                            !dockerSocketAvailable ||
                             checkingPermissions
                           }
                           onClick={handleClick}
@@ -562,7 +586,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
         <div className="mb-6">
           <div className="flex items-center justify-between mb-3">
             <h4 className="text-sm font-semibold text-themed-primary uppercase tracking-wide">Corrupted Cache</h4>
-            {(logsReadOnly || cacheReadOnly) && (
+            {(logsReadOnly || cacheReadOnly || !dockerSocketAvailable) && (
               <span
                 className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 border"
                 style={{
@@ -572,17 +596,17 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                 }}
               >
                 <Lock className="w-3 h-3" />
-                Read-only
+                {logsReadOnly || cacheReadOnly ? 'Read-only' : 'Docker socket required'}
               </span>
             )}
           </div>
-          {!(logsReadOnly || cacheReadOnly) && (
+          {!(logsReadOnly || cacheReadOnly) && dockerSocketAvailable && (
             <p className="text-themed-muted text-sm mb-4">
               Detects chunks with 3+ repeated MISS requests. Removal deletes cache files, log entries, and database records.
             </p>
           )}
 
-          {!(logsReadOnly || cacheReadOnly) && (
+          {!(logsReadOnly || cacheReadOnly) && dockerSocketAvailable && (
             <>
               {loadError && (
                 <Alert color="red" className="mb-4">
@@ -660,6 +684,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                                 authMode !== 'authenticated' ||
                                 logsReadOnly ||
                                 cacheReadOnly ||
+                                !dockerSocketAvailable ||
                                 checkingPermissions
                               }
                               variant="filled"
@@ -669,7 +694,9 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                               title={
                                 logsReadOnly || cacheReadOnly
                                   ? 'Directories are read-only'
-                                  : undefined
+                                  : !dockerSocketAvailable
+                                    ? 'Docker socket required'
+                                    : undefined
                               }
                             >
                               {removingCorruption !== service && startingCorruptionRemoval !== service ? 'Remove All' : 'Removing...'}
