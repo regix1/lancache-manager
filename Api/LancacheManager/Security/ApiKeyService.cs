@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using System.Text.Json;
 using LancacheManager.Infrastructure.Services.Interfaces;
 
 namespace LancacheManager.Security;
@@ -140,64 +141,153 @@ public class ApiKeyService
         return $"lm_{key}"; // Prefix to identify as LancacheManager key
     }
 
-    private string GetConnectionUrl(IConfiguration configuration)
+    private (string? url, bool dockerSocketAvailable) GetConnectionUrl()
     {
-        // Check for explicit external URL first
-        var externalUrl = configuration["Server:ExternalUrl"];
-        if (!string.IsNullOrEmpty(externalUrl))
+        // Try to auto-detect from Docker socket
+        var (hostIp, hostPort, socketAvailable) = GetDockerHostInfo();
+
+        if (!string.IsNullOrEmpty(hostIp) && !string.IsNullOrEmpty(hostPort))
         {
-            return externalUrl.TrimEnd('/');
+            return ($"http://{hostIp}:{hostPort}", socketAvailable);
         }
 
-        // Get host and port from configuration or environment
-        var host = configuration["Server:ExternalHost"]
-            ?? Environment.GetEnvironmentVariable("HOST_IP")
-            ?? GetLocalIpAddress();
-
-        var port = configuration["Server:ExternalPort"]
-            ?? Environment.GetEnvironmentVariable("HOST_PORT")
-            ?? "80";
-
-        return $"http://{host}:{port}";
+        // If we got the IP but not the port (socket not available), we can't show full URL
+        return (null, socketAvailable);
     }
 
-    private string GetLocalIpAddress()
+    private (string? hostIp, string? hostPort, bool socketAvailable) GetDockerHostInfo()
+    {
+        var dockerSocket = "/var/run/docker.sock";
+        var socketAvailable = File.Exists(dockerSocket);
+
+        if (!socketAvailable)
+        {
+            return (null, null, false);
+        }
+
+        try
+        {
+            // Get container ID from hostname (Docker sets hostname to container ID by default)
+            var containerId = Environment.GetEnvironmentVariable("HOSTNAME") ?? GetContainerIdFromCgroup();
+            if (string.IsNullOrEmpty(containerId))
+            {
+                return (null, null, true);
+            }
+
+            // Query Docker API for container info
+            using var handler = new SocketsHttpHandler
+            {
+                ConnectCallback = async (context, cancellationToken) =>
+                {
+                    var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+                    var endpoint = new UnixDomainSocketEndPoint(dockerSocket);
+                    await socket.ConnectAsync(endpoint, cancellationToken);
+                    return new NetworkStream(socket, ownsSocket: true);
+                }
+            };
+
+            using var client = new HttpClient(handler);
+            client.BaseAddress = new Uri("http://localhost");
+            client.Timeout = TimeSpan.FromSeconds(5);
+
+            // Get container info
+            var response = client.GetAsync($"/containers/{containerId}/json").Result;
+            if (!response.IsSuccessStatusCode)
+            {
+                return (null, null, true);
+            }
+
+            var json = response.Content.ReadAsStringAsync().Result;
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            // Get host port from port bindings (look for port 80 mapping)
+            string? hostPort = null;
+            if (root.TryGetProperty("NetworkSettings", out var networkSettings) &&
+                networkSettings.TryGetProperty("Ports", out var ports) &&
+                ports.TryGetProperty("80/tcp", out var portBindings) &&
+                portBindings.ValueKind == JsonValueKind.Array &&
+                portBindings.GetArrayLength() > 0)
+            {
+                var binding = portBindings[0];
+                if (binding.TryGetProperty("HostPort", out var hostPortElement))
+                {
+                    hostPort = hostPortElement.GetString();
+                }
+            }
+
+            // Get host IP from gateway
+            string? hostIp = null;
+            if (networkSettings.TryGetProperty("Networks", out var networks))
+            {
+                foreach (var network in networks.EnumerateObject())
+                {
+                    if (network.Value.TryGetProperty("Gateway", out var gateway))
+                    {
+                        var gatewayIp = gateway.GetString();
+                        if (!string.IsNullOrEmpty(gatewayIp) && gatewayIp != "")
+                        {
+                            hostIp = gatewayIp;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            return (hostIp, hostPort, true);
+        }
+        catch
+        {
+            return (null, null, true);
+        }
+    }
+
+    private string? GetContainerIdFromCgroup()
     {
         try
         {
-            // Try to get the first non-loopback IPv4 address
-            foreach (var netInterface in NetworkInterface.GetAllNetworkInterfaces())
+            // Try to read container ID from cgroup (Linux)
+            var cgroupPath = "/proc/self/cgroup";
+            if (!File.Exists(cgroupPath))
             {
-                if (netInterface.OperationalStatus != OperationalStatus.Up)
-                    continue;
+                return null;
+            }
 
-                if (netInterface.NetworkInterfaceType == NetworkInterfaceType.Loopback)
-                    continue;
-
-                var ipProps = netInterface.GetIPProperties();
-                foreach (var addr in ipProps.UnicastAddresses)
+            var lines = File.ReadAllLines(cgroupPath);
+            foreach (var line in lines)
+            {
+                // Format: hierarchy-ID:controller-list:cgroup-path
+                // Docker container IDs appear in the cgroup path
+                var parts = line.Split(':');
+                if (parts.Length >= 3)
                 {
-                    if (addr.Address.AddressFamily == AddressFamily.InterNetwork &&
-                        !IPAddress.IsLoopback(addr.Address))
+                    var cgroupPathPart = parts[2];
+                    // Look for docker container ID pattern (64 hex chars)
+                    var dockerIndex = cgroupPathPart.IndexOf("/docker/", StringComparison.OrdinalIgnoreCase);
+                    if (dockerIndex >= 0)
                     {
-                        return addr.Address.ToString();
+                        var idStart = dockerIndex + 8;
+                        if (cgroupPathPart.Length >= idStart + 12)
+                        {
+                            return cgroupPathPart.Substring(idStart, Math.Min(64, cgroupPathPart.Length - idStart));
+                        }
                     }
                 }
             }
         }
         catch
         {
-            // Fall through to default
+            // Ignore errors
         }
 
-        return "localhost";
+        return null;
     }
 
     public void DisplayApiKey(IConfiguration configuration, DeviceAuthService? deviceAuthService = null)
     {
         var authEnabled = configuration.GetValue<bool>("Security:EnableAuthentication", true);
 
-        var connectionUrl = GetConnectionUrl(configuration);
+        var (connectionUrl, dockerSocketAvailable) = GetConnectionUrl();
 
         // If authentication is disabled, don't display the API key
         if (!authEnabled)
@@ -207,7 +297,18 @@ public class ApiKeyService
             Console.WriteLine("│                          LANCACHE MANAGER                                  │");
             Console.WriteLine("└────────────────────────────────────────────────────────────────────────────┘");
             Console.WriteLine("");
-            Console.WriteLine($"  Web Interface: {connectionUrl}");
+            if (!string.IsNullOrEmpty(connectionUrl))
+            {
+                Console.WriteLine($"  Web Interface: {connectionUrl}");
+            }
+            else if (!dockerSocketAvailable)
+            {
+                Console.WriteLine("  Web Interface: Mount docker.sock to auto-detect URL");
+            }
+            else
+            {
+                Console.WriteLine("  Web Interface: Unable to detect (check docker.sock permissions)");
+            }
             Console.WriteLine("");
             Console.WriteLine("  [!] AUTHENTICATION: DISABLED");
             Console.WriteLine("      Full access available without API key");
@@ -234,7 +335,18 @@ public class ApiKeyService
         Console.WriteLine("│                            LANCACHE MANAGER                                │");
         Console.WriteLine("└────────────────────────────────────────────────────────────────────────────┘");
         Console.WriteLine("");
-        Console.WriteLine($"  Web Interface: {connectionUrl}");
+        if (!string.IsNullOrEmpty(connectionUrl))
+        {
+            Console.WriteLine($"  Web Interface: {connectionUrl}");
+        }
+        else if (!dockerSocketAvailable)
+        {
+            Console.WriteLine("  Web Interface: Mount docker.sock to auto-detect URL");
+        }
+        else
+        {
+            Console.WriteLine("  Web Interface: Unable to detect (check docker.sock permissions)");
+        }
         Console.WriteLine("");
         Console.WriteLine($"  Running as UID: {puid} / GID: {pgid}");
         Console.WriteLine("");
