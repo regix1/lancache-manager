@@ -167,9 +167,10 @@ public class ApiKeyService
 
         try
         {
-            // Get container ID from hostname (Docker sets hostname to container ID by default)
-            var containerId = Environment.GetEnvironmentVariable("HOSTNAME") ?? GetContainerIdFromCgroup();
-            if (string.IsNullOrEmpty(containerId))
+            // Get container identifier - could be container ID or container name
+            var containerIdentifier = Environment.GetEnvironmentVariable("HOSTNAME")
+                ?? GetContainerIdFromCgroup();
+            if (string.IsNullOrEmpty(containerIdentifier))
             {
                 return (null, null, true);
             }
@@ -190,8 +191,8 @@ public class ApiKeyService
             client.BaseAddress = new Uri("http://localhost");
             client.Timeout = TimeSpan.FromSeconds(5);
 
-            // Get container info
-            var response = client.GetAsync($"/containers/{containerId}/json").Result;
+            // Docker API accepts both container ID and container name
+            var response = client.GetAsync($"/containers/{containerIdentifier}/json").Result;
             if (!response.IsSuccessStatusCode)
             {
                 return (null, null, true);
@@ -236,8 +237,9 @@ public class ApiKeyService
 
             return (hostIp, hostPort, true);
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogDebug(ex, "Failed to get Docker host info");
             return (null, null, true);
         }
     }
