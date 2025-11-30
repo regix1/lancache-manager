@@ -8,7 +8,6 @@ import {
   Sparkles,
   Layers,
   Brush,
-  Info,
   Edit,
   Loader2,
   Bell,
@@ -64,7 +63,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   const [sharpCornersEnabled, setSharpCornersEnabled] = useState(false);
   const [tooltipsDisabled, setTooltipsDisabled] = useState(false);
   const [picsAlwaysVisible, setPicsAlwaysVisible] = useState(false);
-  const [hideAboutSections, setHideAboutSections] = useState(false);
   const [disableStickyNotifications, setDisableStickyNotifications] = useState(false);
 
   const [editedTheme, setEditedTheme] = useState<any>({});
@@ -100,7 +98,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     setSharpCornersEnabled(themeService.getSharpCornersSync());
     setTooltipsDisabled(themeService.getDisableTooltipsSync());
     setPicsAlwaysVisible(themeService.getPicsAlwaysVisibleSync());
-    setHideAboutSections(themeService.getHideAboutSectionsSync());
     setDisableStickyNotifications(themeService.getDisableStickyNotificationsSync());
 
     // Listen for live preference changes from admin
@@ -125,9 +122,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           break;
         case 'picsAlwaysVisible':
           setPicsAlwaysVisible(value);
-          break;
-        case 'hideAboutSections':
-          setHideAboutSections(value);
           break;
         case 'disableStickyNotifications':
           setDisableStickyNotifications(value);
@@ -513,11 +507,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     themeService.setPicsAlwaysVisible(enabled);
   };
 
-  const handleHideAboutSectionsToggle = (enabled: boolean) => {
-    setHideAboutSections(enabled);
-    themeService.setHideAboutSections(enabled);
-  };
-
   const handleDisableStickyNotificationsToggle = (enabled: boolean) => {
     setDisableStickyNotifications(enabled);
     themeService.setDisableStickyNotifications(enabled);
@@ -783,17 +772,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                       <p className="text-xs text-themed-muted">Show helpful hints on hover</p>
                     </div>
                   </label>
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <Checkbox
-                      checked={!hideAboutSections}
-                      onChange={(e) => handleHideAboutSectionsToggle(!e.target.checked)}
-                      variant="rounded"
-                    />
-                    <div>
-                      <span className="text-sm text-themed-primary">Info Sections</span>
-                      <p className="text-xs text-themed-muted">Display informational panels</p>
-                    </div>
-                  </label>
                 </div>
               </div>
 
@@ -941,10 +919,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           /* Customize Tab */
           <div className="space-y-4">
             <Alert color="blue">
-              <div className="flex items-center gap-2">
-                <Info className="w-4 h-4" />
-                <span>Select a theme above and click Edit to customize its colors</span>
-              </div>
+              Select a theme above and click Edit to customize its colors
             </Alert>
 
             {/* Quick Actions */}

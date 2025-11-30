@@ -57,7 +57,6 @@ public class UserPreferencesController : ControllerBase
                     DisableFocusOutlines = false,
                     DisableTooltips = false,
                     PicsAlwaysVisible = false,
-                    HideAboutSections = false,
                     DisableStickyNotifications = false,
                     UseLocalTimezone = false
                 });
@@ -75,7 +74,6 @@ public class UserPreferencesController : ControllerBase
                     DisableFocusOutlines = false,
                     DisableTooltips = false,
                     PicsAlwaysVisible = false,
-                    HideAboutSections = false,
                     DisableStickyNotifications = false,
                     UseLocalTimezone = false
                 });
@@ -202,7 +200,6 @@ public class UserPreferencesController : ControllerBase
                     DisableFocusOutlines = false,
                     DisableTooltips = false,
                     PicsAlwaysVisible = false,
-                    HideAboutSections = false,
                     DisableStickyNotifications = false,
                     UseLocalTimezone = false
                 });

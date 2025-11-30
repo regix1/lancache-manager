@@ -374,6 +374,23 @@ public partial class SteamKit2Service : IHostedService, IDisposable
             return b ? "Incremental" : "Full";
         }
 
+        // Handle JsonElement (from JSON deserialization when target type is object)
+        if (mode is JsonElement jsonElement)
+        {
+            if (jsonElement.ValueKind == JsonValueKind.True)
+            {
+                return "Incremental";
+            }
+            if (jsonElement.ValueKind == JsonValueKind.False)
+            {
+                return "Full";
+            }
+            if (jsonElement.ValueKind == JsonValueKind.String && jsonElement.GetString() == "github")
+            {
+                return "GitHub";
+            }
+        }
+
         if (mode?.ToString() == "github")
         {
             return "GitHub";
@@ -389,7 +406,29 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     /// </summary>
     private bool IsIncrementalMode(object mode)
     {
-        return mode is bool b ? b : mode?.ToString() != "github";
+        if (mode is bool b)
+        {
+            return b;
+        }
+
+        // Handle JsonElement (from JSON deserialization when target type is object)
+        if (mode is JsonElement jsonElement)
+        {
+            if (jsonElement.ValueKind == JsonValueKind.True)
+            {
+                return true;
+            }
+            if (jsonElement.ValueKind == JsonValueKind.False)
+            {
+                return false;
+            }
+            if (jsonElement.ValueKind == JsonValueKind.String)
+            {
+                return jsonElement.GetString() != "github";
+            }
+        }
+
+        return mode?.ToString() != "github";
     }
 
     /// <summary>
@@ -397,6 +436,16 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     /// </summary>
     private bool IsGithubMode(object mode)
     {
+        // Handle JsonElement (from JSON deserialization when target type is object)
+        if (mode is JsonElement jsonElement)
+        {
+            if (jsonElement.ValueKind == JsonValueKind.String)
+            {
+                return jsonElement.GetString() == "github";
+            }
+            return false;
+        }
+
         return mode?.ToString() == "github";
     }
 

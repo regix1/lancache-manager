@@ -7,7 +7,6 @@ export interface UserPreferences {
   disableFocusOutlines: boolean;
   disableTooltips: boolean;
   picsAlwaysVisible: boolean;
-  hideAboutSections: boolean;
   disableStickyNotifications: boolean;
   useLocalTimezone: boolean;
 }
@@ -56,7 +55,6 @@ class PreferencesService {
           disableFocusOutlines: data.disableFocusOutlines || false,
           disableTooltips: data.disableTooltips || false,
           picsAlwaysVisible: data.picsAlwaysVisible || false,
-          hideAboutSections: data.hideAboutSections || false,
           disableStickyNotifications: data.disableStickyNotifications || false,
           useLocalTimezone: data.useLocalTimezone || false
         };
@@ -280,7 +278,6 @@ class PreferencesService {
           disableFocusOutlines: newPreferences.disableFocusOutlines || false,
           disableTooltips: newPreferences.disableTooltips || false,
           picsAlwaysVisible: newPreferences.picsAlwaysVisible || false,
-          hideAboutSections: newPreferences.hideAboutSections || false,
           disableStickyNotifications: newPreferences.disableStickyNotifications || false,
           useLocalTimezone: newPreferences.useLocalTimezone || false
         };
@@ -437,7 +434,6 @@ class PreferencesService {
       disableFocusOutlines: true, // Default to disabled (no blue borders)
       disableTooltips: false,
       picsAlwaysVisible: false,
-      hideAboutSections: false,
       disableStickyNotifications: false,
       useLocalTimezone: false // Default to server timezone
     };
@@ -461,7 +457,6 @@ class PreferencesService {
           disableFocusOutlines: data.disableFocusOutlines || false,
           disableTooltips: data.disableTooltips || false,
           picsAlwaysVisible: data.picsAlwaysVisible || false,
-          hideAboutSections: data.hideAboutSections || false,
           disableStickyNotifications: data.disableStickyNotifications || false,
           useLocalTimezone: data.useLocalTimezone || false
         };

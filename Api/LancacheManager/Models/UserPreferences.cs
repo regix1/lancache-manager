@@ -19,7 +19,6 @@ public class UserPreferences
     public bool DisableFocusOutlines { get; set; }
     public bool DisableTooltips { get; set; }
     public bool PicsAlwaysVisible { get; set; }
-    public bool HideAboutSections { get; set; }
     public bool DisableStickyNotifications { get; set; }
     public bool UseLocalTimezone { get; set; }
 

@@ -24,7 +24,6 @@ public class UserPreferencesService
         public bool DisableFocusOutlines { get; set; }
         public bool DisableTooltips { get; set; }
         public bool PicsAlwaysVisible { get; set; }
-        public bool HideAboutSections { get; set; }
         public bool DisableStickyNotifications { get; set; }
         public bool UseLocalTimezone { get; set; }
     }
@@ -49,7 +48,6 @@ public class UserPreferencesService
                     DisableFocusOutlines = preferences.DisableFocusOutlines,
                     DisableTooltips = preferences.DisableTooltips,
                     PicsAlwaysVisible = preferences.PicsAlwaysVisible,
-                    HideAboutSections = preferences.HideAboutSections,
                     DisableStickyNotifications = preferences.DisableStickyNotifications,
                     UseLocalTimezone = preferences.UseLocalTimezone
                 };
@@ -92,7 +90,6 @@ public class UserPreferencesService
                 existingPreferences.DisableFocusOutlines = preferencesDto.DisableFocusOutlines;
                 existingPreferences.DisableTooltips = preferencesDto.DisableTooltips;
                 existingPreferences.PicsAlwaysVisible = preferencesDto.PicsAlwaysVisible;
-                existingPreferences.HideAboutSections = preferencesDto.HideAboutSections;
                 existingPreferences.DisableStickyNotifications = preferencesDto.DisableStickyNotifications;
                 existingPreferences.UseLocalTimezone = preferencesDto.UseLocalTimezone;
                 existingPreferences.UpdatedAtUtc = DateTime.UtcNow;
@@ -108,7 +105,6 @@ public class UserPreferencesService
                     DisableFocusOutlines = preferencesDto.DisableFocusOutlines,
                     DisableTooltips = preferencesDto.DisableTooltips,
                     PicsAlwaysVisible = preferencesDto.PicsAlwaysVisible,
-                    HideAboutSections = preferencesDto.HideAboutSections,
                     DisableStickyNotifications = preferencesDto.DisableStickyNotifications,
                     UseLocalTimezone = preferencesDto.UseLocalTimezone,
                     UpdatedAtUtc = DateTime.UtcNow
@@ -175,9 +171,6 @@ public class UserPreferencesService
                     break;
                 case "picsalwaysvisible":
                     preferences.PicsAlwaysVisible = GetValueAsBoolean(value);
-                    break;
-                case "hideaboutsections":
-                    preferences.HideAboutSections = GetValueAsBoolean(value);
                     break;
                 case "disablestickynotifications":
                     preferences.DisableStickyNotifications = GetValueAsBoolean(value);
@@ -252,9 +245,6 @@ public class UserPreferencesService
                 case "picsalwaysvisible":
                     preferences.PicsAlwaysVisible = GetValueAsBoolean(value);
                     break;
-                case "hideaboutsections":
-                    preferences.HideAboutSections = GetValueAsBoolean(value);
-                    break;
                 case "disablestickynotifications":
                     preferences.DisableStickyNotifications = GetValueAsBoolean(value);
                     break;
@@ -277,7 +267,6 @@ public class UserPreferencesService
                 DisableFocusOutlines = preferences.DisableFocusOutlines,
                 DisableTooltips = preferences.DisableTooltips,
                 PicsAlwaysVisible = preferences.PicsAlwaysVisible,
-                HideAboutSections = preferences.HideAboutSections,
                 DisableStickyNotifications = preferences.DisableStickyNotifications,
                 UseLocalTimezone = preferences.UseLocalTimezone
             };

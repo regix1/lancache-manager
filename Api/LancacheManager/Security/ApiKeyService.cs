@@ -1,3 +1,6 @@
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using LancacheManager.Infrastructure.Services.Interfaces;
 
@@ -137,9 +140,64 @@ public class ApiKeyService
         return $"lm_{key}"; // Prefix to identify as LancacheManager key
     }
 
+    private string GetConnectionUrl(IConfiguration configuration)
+    {
+        // Check for explicit external URL first
+        var externalUrl = configuration["Server:ExternalUrl"];
+        if (!string.IsNullOrEmpty(externalUrl))
+        {
+            return externalUrl.TrimEnd('/');
+        }
+
+        // Get host and port from configuration or environment
+        var host = configuration["Server:ExternalHost"]
+            ?? Environment.GetEnvironmentVariable("HOST_IP")
+            ?? GetLocalIpAddress();
+
+        var port = configuration["Server:ExternalPort"]
+            ?? Environment.GetEnvironmentVariable("HOST_PORT")
+            ?? "80";
+
+        return $"http://{host}:{port}";
+    }
+
+    private string GetLocalIpAddress()
+    {
+        try
+        {
+            // Try to get the first non-loopback IPv4 address
+            foreach (var netInterface in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (netInterface.OperationalStatus != OperationalStatus.Up)
+                    continue;
+
+                if (netInterface.NetworkInterfaceType == NetworkInterfaceType.Loopback)
+                    continue;
+
+                var ipProps = netInterface.GetIPProperties();
+                foreach (var addr in ipProps.UnicastAddresses)
+                {
+                    if (addr.Address.AddressFamily == AddressFamily.InterNetwork &&
+                        !IPAddress.IsLoopback(addr.Address))
+                    {
+                        return addr.Address.ToString();
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Fall through to default
+        }
+
+        return "localhost";
+    }
+
     public void DisplayApiKey(IConfiguration configuration, DeviceAuthService? deviceAuthService = null)
     {
         var authEnabled = configuration.GetValue<bool>("Security:EnableAuthentication", true);
+
+        var connectionUrl = GetConnectionUrl(configuration);
 
         // If authentication is disabled, don't display the API key
         if (!authEnabled)
@@ -148,6 +206,8 @@ public class ApiKeyService
             Console.WriteLine("┌────────────────────────────────────────────────────────────────────────────┐");
             Console.WriteLine("│                          LANCACHE MANAGER                                  │");
             Console.WriteLine("└────────────────────────────────────────────────────────────────────────────┘");
+            Console.WriteLine("");
+            Console.WriteLine($"  Web Interface: {connectionUrl}");
             Console.WriteLine("");
             Console.WriteLine("  [!] AUTHENTICATION: DISABLED");
             Console.WriteLine("      Full access available without API key");
@@ -173,6 +233,8 @@ public class ApiKeyService
         Console.WriteLine("┌────────────────────────────────────────────────────────────────────────────┐");
         Console.WriteLine("│                            LANCACHE MANAGER                                │");
         Console.WriteLine("└────────────────────────────────────────────────────────────────────────────┘");
+        Console.WriteLine("");
+        Console.WriteLine($"  Web Interface: {connectionUrl}");
         Console.WriteLine("");
         Console.WriteLine($"  Running as UID: {puid} / GID: {pgid}");
         Console.WriteLine("");

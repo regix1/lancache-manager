@@ -267,13 +267,6 @@ class ThemeService {
             window.dispatchEvent(new Event('picsvisibilitychange'));
             break;
 
-          case 'hideAboutSections':
-            if (value !== null && value !== undefined) {
-              document.documentElement.setAttribute('data-hide-about-sections', value.toString());
-              window.dispatchEvent(new Event('aboutsectionsvisibilitychange'));
-            }
-            break;
-
           case 'disableStickyNotifications':
             window.dispatchEvent(new Event('stickynotificationschange'));
             break;
@@ -1304,7 +1297,6 @@ class ThemeService {
     // Initialize with default settings (no API calls at startup)
     document.documentElement.setAttribute('data-disable-focus-outlines', 'false');
     document.documentElement.setAttribute('data-disable-tooltips', 'false');
-    document.documentElement.setAttribute('data-hide-about-sections', 'false');
 
     // Check if we have a preloaded theme from the HTML
     const preloadStyle = document.getElementById('lancache-theme-preload');
@@ -1511,26 +1503,6 @@ class ThemeService {
   getPicsAlwaysVisibleSync(): boolean {
     const prefs = preferencesService.getPreferencesSync();
     return prefs?.picsAlwaysVisible || false;
-  }
-
-  async setHideAboutSections(enabled: boolean): Promise<void> {
-    // Save to API
-    await preferencesService.setPreference('hideAboutSections', enabled);
-
-    // Update data attribute for CSS styling
-    document.documentElement.setAttribute('data-hide-about-sections', enabled.toString());
-
-    // Dispatch event for any components that need to react
-    window.dispatchEvent(new Event('aboutsectionsvisibilitychange'));
-  }
-
-  async getHideAboutSections(): Promise<boolean> {
-    return await preferencesService.getPreference('hideAboutSections');
-  }
-
-  getHideAboutSectionsSync(): boolean {
-    const prefs = preferencesService.getPreferencesSync();
-    return prefs?.hideAboutSections || false;
   }
 
   async setDisableStickyNotifications(enabled: boolean): Promise<void> {

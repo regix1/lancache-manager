@@ -23,8 +23,12 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
 
   React.useEffect(() => {
     if (opened) {
-      // Prevent scrolling - scrollbar-gutter: stable in CSS prevents layout shift
+      // Calculate scrollbar width before hiding it
+      const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+
+      // Prevent scrolling and compensate for scrollbar width to prevent layout shift
       document.body.style.overflow = 'hidden';
+      document.body.style.paddingRight = `${scrollbarWidth}px`;
 
       // Start animation with slight delay for smoother appearance
       setIsVisible(true);
@@ -36,14 +40,16 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
       setIsAnimating(false);
       setTimeout(() => {
         setIsVisible(false);
-        // Restore scrolling
+        // Restore scrolling and remove padding compensation
         document.body.style.overflow = '';
+        document.body.style.paddingRight = '';
       }, 250); // Match transition duration
     }
 
     return () => {
       // Cleanup: restore scrolling if component unmounts while modal is open
       document.body.style.overflow = '';
+      document.body.style.paddingRight = '';
     };
   }, [opened]);
 

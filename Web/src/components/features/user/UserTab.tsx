@@ -371,7 +371,6 @@ const UserTab: React.FC = () => {
           disableFocusOutlines: prefs.disableFocusOutlines ?? true,
           disableTooltips: prefs.disableTooltips ?? false,
           picsAlwaysVisible: prefs.picsAlwaysVisible ?? false,
-          hideAboutSections: prefs.hideAboutSections ?? false,
           disableStickyNotifications: prefs.disableStickyNotifications ?? false
         });
       } else {
@@ -382,7 +381,6 @@ const UserTab: React.FC = () => {
           disableFocusOutlines: true,
           disableTooltips: false,
           picsAlwaysVisible: false,
-          hideAboutSections: false,
           disableStickyNotifications: false
         });
       }
@@ -426,7 +424,6 @@ const UserTab: React.FC = () => {
           }
           await themeService.setSharpCorners(editingPreferences.sharpCorners);
           await themeService.setDisableTooltips(editingPreferences.disableTooltips);
-          await themeService.setHideAboutSections(editingPreferences.hideAboutSections);
           await themeService.setDisableStickyNotifications(
             editingPreferences.disableStickyNotifications
           );
@@ -1296,22 +1293,6 @@ const UserTab: React.FC = () => {
                     style={{ accentColor: 'var(--theme-primary)' }}
                   />
                   <span className="text-sm text-themed-secondary">Tooltips</span>
-                </label>
-
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={!editingPreferences.hideAboutSections}
-                    onChange={(e) =>
-                      setEditingPreferences({
-                        ...editingPreferences,
-                        hideAboutSections: !e.target.checked
-                      })
-                    }
-                    className="w-4 h-4 rounded"
-                    style={{ accentColor: 'var(--theme-primary)' }}
-                  />
-                  <span className="text-sm text-themed-secondary">Info Sections</span>
                 </label>
 
                 {/* Only show notification preferences for authenticated users */}
