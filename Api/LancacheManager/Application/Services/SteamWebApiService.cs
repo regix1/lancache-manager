@@ -307,21 +307,32 @@ public class SteamWebApiService
         {
             if (status.Version == SteamApiVersion.V2Active)
             {
-                // V2 returns all apps in a single request
-                using var client = _httpClientFactory.CreateClient();
-                client.Timeout = TimeSpan.FromSeconds(30);
-
-                var url = "https://api.steampowered.com/ISteamApps/GetAppList/v2/";
-                var response = await client.GetAsync(url);
-
-                if (!response.IsSuccessStatusCode)
+                var v2Apps = await FetchV2AppListAsync();
+                if (v2Apps != null && v2Apps.Count > 0)
                 {
-                    _logger.LogError("Failed to get app list from V2: HTTP {StatusCode}", response.StatusCode);
+                    return v2Apps;
+                }
+
+                _logger.LogWarning("Steam Web API V2 reported as available but returned no app data - attempting V1 fallback if possible");
+
+                // Force status refresh so future calls re-test availability
+                InvalidateCachedStatus();
+
+                if (!status.HasApiKey)
+                {
+                    _logger.LogWarning("V2 app list fetch failed and no API key is configured for V1 fallback");
                     return null;
                 }
 
-                var content = await response.Content.ReadAsStringAsync();
-                return ParseV2AppList(content);
+                await GetApiStatusAsync(forceRefresh: true);
+
+                var fallbackApps = await GetV1AppListWithPagination();
+                if (fallbackApps == null || fallbackApps.Count == 0)
+                {
+                    _logger.LogError("Steam Web API V1 fallback failed to return any apps");
+                }
+
+                return fallbackApps;
             }
             else if (status.Version == SteamApiVersion.V1WithKey)
             {
@@ -400,6 +411,38 @@ public class SteamWebApiService
 
         _logger.LogInformation("V1 pagination complete: {Total} apps fetched across {Pages} pages", allApps.Count, pageCount);
         return allApps;
+    }
+
+    private async Task<List<SteamApp>?> FetchV2AppListAsync()
+    {
+        try
+        {
+            using var client = _httpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(30);
+
+            var url = "https://api.steampowered.com/ISteamApps/GetAppList/v2/";
+            var response = await client.GetAsync(url);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Failed to get app list from V2: HTTP {StatusCode}", response.StatusCode);
+                return null;
+            }
+
+            var content = await response.Content.ReadAsStringAsync();
+            return ParseV2AppList(content);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Steam Web API V2 app list fetch failed");
+            return null;
+        }
+    }
+
+    private void InvalidateCachedStatus()
+    {
+        _cachedVersion = SteamApiVersion.Unknown;
+        _lastStatusCheck = DateTime.MinValue;
     }
 
     private List<SteamApp>? ParseV2AppList(string json)
