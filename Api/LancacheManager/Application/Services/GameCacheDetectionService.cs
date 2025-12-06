@@ -356,6 +356,18 @@ public class GameCacheDetectionService
             await SaveGamesToDatabaseAsync(finalGames, incremental);
             _logger.LogInformation("[GameDetection] Results saved to database - {Count} games total", totalGamesDetected);
 
+            // For incremental scans, resolve any unknown games that now have depot mappings
+            // Full scans already query fresh mappings, so this is only needed for incremental
+            if (incremental)
+            {
+                var resolvedCount = await ResolveUnknownGamesInCacheAsync();
+                if (resolvedCount > 0)
+                {
+                    _logger.LogInformation("[GameDetection] Resolved {Count} unknown games after incremental scan", resolvedCount);
+                    operation.Message += $" (resolved {resolvedCount} previously unknown)";
+                }
+            }
+
             // Save services to database
             if (detectionResult.Services.Count > 0)
             {
