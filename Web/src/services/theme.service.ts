@@ -63,6 +63,7 @@ interface ThemeColors {
   blizzardColor?: string;
   wsusColor?: string;
   riotColor?: string;
+  xboxColor?: string;
 
   // Component colors
   cardBg?: string;
@@ -459,6 +460,7 @@ class ThemeService {
           blizzardColor: '#3b82f6', // Blue
           wsusColor: '#06b6d4', // Cyan
           riotColor: '#ef4444', // Red
+          xboxColor: '#107C10', // Xbox Green
 
           // Components
           cardBg: '#1e2938',
@@ -623,6 +625,7 @@ class ThemeService {
           blizzardColor: '#2563eb',
           wsusColor: '#0891b2',
           riotColor: '#dc2626',
+          xboxColor: '#107C10', // Xbox Green
 
           // Components - Clean styling with emphasis on shadows
           cardBg: '#ffffff',
@@ -883,6 +886,7 @@ class ThemeService {
         --theme-blizzard: #3b82f6;
         --theme-wsus: #06b6d4;
         --theme-riot: #ef4444;
+        --theme-xbox: #107C10;
 
         /* Card & Components */
         --theme-card-bg: #1e2938;
@@ -1150,6 +1154,7 @@ class ThemeService {
       --theme-blizzard: ${colors.blizzardColor};
       --theme-wsus: ${colors.wsusColor};
       --theme-riot: ${colors.riotColor};
+      --theme-xbox: ${colors.xboxColor || '#107C10'};
 
       /* Card & Component Colors */
       --theme-card-bg: ${colors.cardBg};

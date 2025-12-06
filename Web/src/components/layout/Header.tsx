@@ -293,7 +293,6 @@ const Header: React.FC<HeaderProps> = ({
                     <>
                       <span style={{ opacity: 0.5 }}>•</span>
                       <span
-                        className="truncate max-w-[120px]"
                         style={{ fontFamily: 'monospace', fontSize: '0.75em', opacity: 0.85 }}
                       >
                         {deviceId}

@@ -152,8 +152,8 @@ const UnifiedNotificationItem = ({
                     </>
                   )}
                 </span>
-                {/* Show Web API Key pill when using V1 API key in anonymous mode */}
-                {!notification.details.isLoggedOn && webApiStatus?.hasApiKey && !webApiStatus.isV2Available && (
+                {/* Show Web API Key pill when API key is configured */}
+                {webApiStatus?.hasApiKey && (
                   <span
                     className="flex items-center gap-1 text-xs px-2 py-0.5 rounded flex-shrink-0"
                     style={{
