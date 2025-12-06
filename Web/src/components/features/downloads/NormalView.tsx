@@ -14,6 +14,7 @@ import { RiotIcon } from '@components/ui/RiotIcon';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import { EAIcon } from '@components/ui/EAIcon';
 import { BlizzardIcon } from '@components/ui/BlizzardIcon';
+import { XboxIcon } from '@components/ui/XboxIcon';
 import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
 import { Tooltip } from '@components/ui/Tooltip';
 import type { Download, DownloadGroup } from '../../../types';
@@ -58,6 +59,12 @@ const getServiceBadgeStyles = (service: string): { backgroundColor: string; colo
       return {
         backgroundColor: 'var(--theme-bg-tertiary)',
         color: 'var(--theme-riot)'
+      };
+    case 'xbox':
+    case 'xboxlive':
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-xbox)'
       };
     default:
       return {
@@ -134,7 +141,8 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const isEA = serviceLower === 'origin' || serviceLower === 'ea';
   const isBlizzard =
     serviceLower === 'blizzard' || serviceLower === 'battle.net' || serviceLower === 'battlenet';
-  const isOtherService = !isSteam && !isWsus && !isRiot && !isEpic && !isEA && !isBlizzard;
+  const isXbox = serviceLower === 'xbox' || serviceLower === 'xboxlive';
+  const isOtherService = !isSteam && !isWsus && !isRiot && !isEpic && !isEA && !isBlizzard && !isXbox;
   const steamAppId = primaryDownload?.gameAppId ? String(primaryDownload.gameAppId) : null;
   const primaryName = primaryDownload?.gameName ?? '';
   const isGenericSteamTitle =
@@ -150,7 +158,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
     : null;
   const shouldRenderBanner =
     !aestheticMode &&
-    (isSteam || isWsus || isRiot || isEpic || isEA || isBlizzard || isOtherService);
+    (isSteam || isWsus || isRiot || isEpic || isEA || isBlizzard || isXbox || isOtherService);
   const hasSteamArtwork = showGameImage && steamAppId !== null && !imageErrors.has(steamAppId);
   const placeholderBaseClasses = 'min-h-[130px] sm:min-h-[130px]';
   const placeholderIconColor = isSteam
@@ -165,7 +173,9 @@ const GroupCard: React.FC<GroupCardProps> = ({
             ? 'var(--theme-origin)'
             : isBlizzard
               ? 'var(--theme-blizzard)'
-              : 'var(--theme-text-secondary)';
+              : isXbox
+                ? 'var(--theme-xbox)'
+                : 'var(--theme-text-secondary)';
   const placeholderIconSize = fullHeightBanners ? 80 : 72;
   const bannerWrapperClasses = fullHeightBanners
     ? 'w-full h-[130px] sm:w-[280px] sm:h-[130px]'
@@ -227,6 +237,11 @@ const GroupCard: React.FC<GroupCardProps> = ({
             />
           ) : isBlizzard ? (
             <BlizzardIcon
+              size={placeholderIconSize}
+              style={{ color: placeholderIconColor, opacity: 0.75 }}
+            />
+          ) : isXbox ? (
+            <XboxIcon
               size={placeholderIconSize}
               style={{ color: placeholderIconColor, opacity: 0.75 }}
             />
