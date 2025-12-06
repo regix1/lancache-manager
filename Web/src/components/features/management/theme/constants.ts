@@ -835,7 +835,7 @@ export const colorGroups: ColorGroup[] = [
     name: 'platforms',
     icon: Gamepad2,
     description:
-      'Steam, Epic, Origin, Blizzard, WSUS, Riot - Platform-specific colors for badges and charts',
+      'Steam, Epic, Origin, Blizzard, WSUS, Riot, Xbox - Platform-specific colors for badges and charts',
     colors: [
       {
         key: 'steamColor',
@@ -882,6 +882,14 @@ export const colorGroups: ColorGroup[] = [
         label: 'Riot Games',
         description: 'Riot Games platform color',
         affects: ['Riot badges', 'Riot charts'],
+        supportsAlpha: true,
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+      },
+      {
+        key: 'xboxColor',
+        label: 'Xbox Live',
+        description: 'Xbox Live platform color',
+        affects: ['Xbox badges', 'Xbox charts'],
         supportsAlpha: true,
         pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
       }

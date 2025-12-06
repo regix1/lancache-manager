@@ -364,4 +364,31 @@ public class GamesController : ControllerBase
             return StatusCode(500, new { error = "Failed to get cached detection results" });
         }
     }
+
+    /// <summary>
+    /// POST /api/games/detect/resolve-unknown - Resolve unknown games in cache using available depot mappings
+    /// Updates cached "Unknown Game (Depot X)" entries when mappings become available
+    /// </summary>
+    [HttpPost("detect/resolve-unknown")]
+    public async Task<IActionResult> ResolveUnknownGames()
+    {
+        try
+        {
+            var resolvedCount = await _gameCacheDetectionService.ResolveUnknownGamesInCacheAsync();
+
+            return Ok(new
+            {
+                success = true,
+                resolvedCount,
+                message = resolvedCount > 0
+                    ? $"Resolved {resolvedCount} unknown game(s) using depot mappings"
+                    : "No unknown games could be resolved (no matching depot mappings found)"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error resolving unknown games");
+            return StatusCode(500, new { error = "Failed to resolve unknown games", details = ex.Message });
+        }
+    }
 }

@@ -454,6 +454,13 @@ public class GameCacheDetectionService
 
     public async Task<DetectionOperation?> GetCachedDetectionAsync()
     {
+        // First, try to resolve any unknown games in the cache using available mappings
+        var resolvedCount = await ResolveUnknownGamesInCacheAsync();
+        if (resolvedCount > 0)
+        {
+            _logger.LogInformation("[GameDetection] Auto-resolved {Count} unknown games when loading cache", resolvedCount);
+        }
+
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
         var cachedGames = await dbContext.CachedGameDetections.ToListAsync();
         var cachedServices = await dbContext.CachedServiceDetections.ToListAsync();
@@ -533,6 +540,75 @@ public class GameCacheDetectionService
             dbContext.CachedServiceDetections.Remove(service);
             await dbContext.SaveChangesAsync();
             _logger.LogInformation("[GameDetection] Removed service '{ServiceName}' from cache", serviceName);
+        }
+    }
+
+    /// <summary>
+    /// Resolve unknown games in the cache by looking up their depot IDs in SteamDepotMappings.
+    /// This updates cached "Unknown Game (Depot X)" entries when mappings become available.
+    /// Returns the number of games that were resolved.
+    /// </summary>
+    public async Task<int> ResolveUnknownGamesInCacheAsync()
+    {
+        try
+        {
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+
+            // Get unknown games from cache
+            var unknownGames = await dbContext.CachedGameDetections
+                .Where(g => g.GameName.StartsWith("Unknown Game (Depot"))
+                .ToListAsync();
+
+            if (unknownGames.Count == 0)
+            {
+                return 0;
+            }
+
+            _logger.LogInformation("[GameDetection] Found {Count} unknown games in cache, attempting to resolve", unknownGames.Count);
+
+            int resolvedCount = 0;
+
+            foreach (var unknownGame in unknownGames)
+            {
+                // For unknown games, the depot ID is stored as GameAppId
+                var depotId = unknownGame.GameAppId;
+
+                // Look up the depot in SteamDepotMappings
+                var mapping = await dbContext.SteamDepotMappings
+                    .Where(m => m.DepotId == depotId && m.IsOwner)
+                    .FirstOrDefaultAsync();
+
+                if (mapping != null)
+                {
+                    // Found a mapping! Determine the best name to use
+                    var resolvedName = !string.IsNullOrEmpty(mapping.AppName)
+                        ? mapping.AppName
+                        : !string.IsNullOrEmpty(mapping.DepotName)
+                            ? mapping.DepotName
+                            : $"App {mapping.AppId}";
+
+                    _logger.LogInformation("[GameDetection] Resolved depot {DepotId} -> {AppId} ({Name})",
+                        depotId, mapping.AppId, resolvedName);
+
+                    // Update the cached game with resolved info
+                    unknownGame.GameName = resolvedName;
+                    unknownGame.GameAppId = mapping.AppId; // Update to actual AppId
+                    resolvedCount++;
+                }
+            }
+
+            if (resolvedCount > 0)
+            {
+                await dbContext.SaveChangesAsync();
+                _logger.LogInformation("[GameDetection] Resolved {Count} unknown games in cache", resolvedCount);
+            }
+
+            return resolvedCount;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[GameDetection] Failed to resolve unknown games in cache");
+            return 0;
         }
     }
 

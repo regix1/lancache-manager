@@ -206,7 +206,7 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
             createPortal(
               <div
                 ref={popupRef}
-                className="fixed p-3 rounded-lg shadow-2xl"
+                className="fixed p-3 rounded-lg shadow-2xl overflow-hidden"
                 style={{
                   backgroundColor: 'var(--theme-bg-primary)',
                   border: '1px solid var(--theme-border-primary)',

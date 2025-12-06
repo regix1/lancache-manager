@@ -393,12 +393,14 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
             return (
               <div
                 key={group.name}
-                className="themed-card rounded-lg"
+                className="themed-card rounded-lg overflow-hidden"
                 style={{ border: '1px solid var(--theme-border)' }}
               >
                 <button
                   onClick={() => toggleGroup(group.name)}
-                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-opacity-50 transition-all duration-200"
+                  className={`w-full px-4 py-3 flex items-center justify-between hover:bg-opacity-50 transition-all duration-200 ${
+                    isExpanded ? 'rounded-t-lg' : 'rounded-lg'
+                  }`}
                   style={{
                     backgroundColor: isExpanded ? 'var(--theme-bg-tertiary)' : 'transparent'
                   }}
@@ -421,8 +423,9 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
 
                 {isExpanded && (
                   <div
-                    className="p-4 themed-card space-y-4 animate-expandDown"
+                    className="p-4 space-y-4 animate-expandDown rounded-b-lg"
                     style={{
+                      backgroundColor: 'var(--theme-card-bg)',
                       borderTop: '1px solid var(--theme-border)',
                       animation: 'expandDown 0.3s ease-out'
                     }}
