@@ -121,18 +121,28 @@ public partial class SteamKit2Service
                     {
                         download.GameAppId = appId.Value;
 
+                        // First check if we have a PICS name (works for all apps including redistributables/launchers)
+                        var picsName = _appNames.TryGetValue(appId.Value, out var name) ? name : null;
+
                         // Get game info from Steam API
                         var gameInfo = await _steamService.GetGameInfoAsync(appId.Value);
-                        if (gameInfo != null)
+                        if (gameInfo != null && !gameInfo.Name.StartsWith("Steam App ") && !gameInfo.Name.StartsWith("App "))
                         {
                             download.GameName = gameInfo.Name;
                             download.GameImageUrl = gameInfo.HeaderImage;
                             updated++;
-
+                        }
+                        else if (!string.IsNullOrEmpty(picsName) && !picsName.StartsWith("App "))
+                        {
+                            // Use PICS name if Steam Store API failed (e.g., redistributables/launchers)
+                            download.GameName = picsName;
+                            download.GameImageUrl = gameInfo?.HeaderImage ?? $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg";
+                            updated++;
                         }
                         else
                         {
                             download.GameName = $"Steam App {appId}";
+                            download.GameImageUrl = $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg";
                             updated++;
                         }
                     }

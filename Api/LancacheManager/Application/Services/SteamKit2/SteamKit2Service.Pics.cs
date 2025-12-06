@@ -586,10 +586,12 @@ public partial class SteamKit2Service
                 // Store the owner app for this depot
                 _depotOwners.TryAdd(depotId, ownerAppId);
 
-                // Store owner app name
-                if (ownerFromPics.HasValue && !_appNames.ContainsKey(ownerAppId))
+                // Queue owner app for scanning if we don't have its name yet
+                // This handles redistributables/launchers (e.g., Ubisoft Connect, Rockstar Launcher)
+                if (ownerFromPics.HasValue && !_appNames.ContainsKey(ownerAppId) && !_scannedApps.Contains(ownerAppId))
                 {
-                    _appNames[ownerAppId] = $"App {ownerAppId}";
+                    dlcAppIdsToScan.Add(ownerAppId);
+                    _appNames[ownerAppId] = $"App {ownerAppId}"; // Temporary placeholder until scanned
                 }
             }
 
