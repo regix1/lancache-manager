@@ -90,11 +90,13 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             setLastDetectionTime(result.lastDetectionTime);
           }
 
-          // Only show "Loaded previous results" notification if we're NOT actively running a scan
-          // Don't show it during full scan or quick scan - only when loading existing data
+          // Only show "Loaded previous results" notification once per session
+          // This avoids the annoying repeated notification every time user visits the tab
+          const sessionKey = 'gameCacheDetector_loadedNotificationShown';
+          const alreadyShownThisSession = sessionStorage.getItem(sessionKey) === 'true';
           const isActivelyScanning = loading || scanType === 'full' || scanType === 'incremental';
 
-          if (!isActivelyScanning) {
+          if (!isActivelyScanning && !alreadyShownThisSession) {
             const parts = [];
             if (result.totalGamesDetected && result.totalGamesDetected > 0) {
               parts.push(`${result.totalGamesDetected} game${result.totalGamesDetected !== 1 ? 's' : ''}`);
@@ -110,6 +112,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                 message: `Loaded previous results: ${parts.join(' and ')}`,
                 details: { notificationType: 'info' }
               });
+              sessionStorage.setItem(sessionKey, 'true');
             }
           }
         } else {
