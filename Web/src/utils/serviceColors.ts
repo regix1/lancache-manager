@@ -26,6 +26,9 @@ export function getServiceColorClass(service: string): string {
     case 'riot':
     case 'riotgames':
       return 'service-riot';
+    case 'xbox':
+    case 'xboxlive':
+      return 'service-xbox';
     default:
       return 'text-[var(--theme-text-secondary)]';
   }

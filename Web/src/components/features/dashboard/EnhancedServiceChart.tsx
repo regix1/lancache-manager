@@ -62,6 +62,9 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
           case 'riot':
           case 'riotgames':
             return computedStyle.getPropertyValue('--theme-riot').trim() || '#ef4444';
+          case 'xbox':
+          case 'xboxlive':
+            return computedStyle.getPropertyValue('--theme-xbox').trim() || '#107C10';
           default:
             return computedStyle.getPropertyValue('--theme-text-secondary').trim() || '#6b7280';
         }
@@ -131,6 +134,9 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
           case 'riot':
           case 'riotgames':
             return computedStyle.getPropertyValue('--theme-riot').trim() || '#ef4444';
+          case 'xbox':
+          case 'xboxlive':
+            return computedStyle.getPropertyValue('--theme-xbox').trim() || '#107C10';
           default:
             return computedStyle.getPropertyValue('--theme-text-secondary').trim() || '#6b7280';
         }

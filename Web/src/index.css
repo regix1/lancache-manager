@@ -543,6 +543,10 @@
     color: var(--theme-riot);
   }
 
+  .service-xbox {
+    color: var(--theme-xbox);
+  }
+
   /* Icon Colors - for component icons */
   .icon-blue {
     color: var(--theme-icon-blue);

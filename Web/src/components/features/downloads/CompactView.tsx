@@ -46,6 +46,12 @@ const getServiceBadgeStyles = (service: string): { backgroundColor: string; colo
         backgroundColor: 'var(--theme-bg-tertiary)',
         color: 'var(--theme-riot)'
       };
+    case 'xbox':
+    case 'xboxlive':
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-xbox)'
+      };
     default:
       return {
         backgroundColor: 'var(--theme-bg-tertiary)',
