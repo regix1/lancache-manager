@@ -579,9 +579,12 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       const hasDatabaseMappings = (picsStatus?.database?.totalMappings || 0) > 1000;
 
       // Import JSON to database if needed (JSON exists but database is empty)
-      if (hasJsonFile && !hasDatabaseMappings) {
-        // console.log('[DepotMapping] Importing JSON file to database before scan');
-        await fetch('/api/depots/import?source=github', {
+      // Only do this for INCREMENTAL scans - they need a baseline to build upon
+      // Full scans create fresh data from scratch, so they don't need this
+      const useIncrementalScan = depotSource === 'incremental';
+      if (hasJsonFile && !hasDatabaseMappings && useIncrementalScan) {
+        // console.log('[DepotMapping] Importing JSON file to database before incremental scan');
+        await fetch('/api/depots/import?source=local', {
           method: 'POST',
           headers: ApiService.getHeaders()
         });
@@ -592,7 +595,6 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       }
 
       // Use incremental or full scan based on user selection
-      const useIncrementalScan = depotSource === 'incremental';
       console.log(
         '[DepotMapping] Calling triggerSteamKitRebuild with incremental:',
         useIncrementalScan,
