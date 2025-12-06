@@ -32,7 +32,7 @@ public class PicsDataService
     /// <summary>
     /// Save PICS depot mappings to JSON file
     /// </summary>
-    public Task SavePicsDataToJsonAsync(Dictionary<uint, HashSet<uint>> depotMappings, Dictionary<uint, string> appNames, uint lastChangeNumber = 0, Dictionary<uint, uint>? depotOwners = null)
+    public Task SavePicsDataToJsonAsync(Dictionary<uint, HashSet<uint>> depotMappings, Dictionary<uint, string> appNames, uint lastChangeNumber = 0, Dictionary<uint, uint>? depotOwners = null, Dictionary<uint, string>? depotNames = null)
     {
         try
         {
@@ -73,9 +73,14 @@ public class PicsDataService
                     appNames.TryGetValue(appId, out var name) ? name : $"App {appId}"
                 ).ToList();
 
+                // Get depot name if available
+                string? depotName = null;
+                depotNames?.TryGetValue(depotId, out depotName);
+
                 picsData.DepotMappings[depotId.ToString()] = new PicsDepotMapping
                 {
                     OwnerId = ownerId,
+                    DepotName = depotName,
                     AppIds = appIdsList,
                     AppNames = appNamesList,
                     Source = "SteamKit2-PICS",
@@ -123,7 +128,7 @@ public class PicsDataService
     /// <summary>
     /// Merge incremental PICS depot mappings into existing JSON file with validation
     /// </summary>
-    public async Task MergePicsDataToJsonAsync(Dictionary<uint, HashSet<uint>> newDepotMappings, Dictionary<uint, string> appNames, uint lastChangeNumber = 0, bool validateExisting = true, Dictionary<uint, uint>? depotOwners = null)
+    public async Task MergePicsDataToJsonAsync(Dictionary<uint, HashSet<uint>> newDepotMappings, Dictionary<uint, string> appNames, uint lastChangeNumber = 0, bool validateExisting = true, Dictionary<uint, uint>? depotOwners = null, Dictionary<uint, string>? depotNames = null)
     {
         try
         {
@@ -196,9 +201,14 @@ public class PicsDataService
                     appNames.TryGetValue(appId, out var name) ? name : $"App {appId}"
                 ).ToList();
 
+                // Get depot name if available
+                string? depotName = null;
+                depotNames?.TryGetValue(depotId, out depotName);
+
                 var newMapping = new PicsDepotMapping
                 {
                     OwnerId = ownerId,
+                    DepotName = depotName,
                     AppIds = appIdsList,
                     AppNames = appNamesList,
                     Source = "SteamKit2-PICS",
@@ -460,6 +470,7 @@ public class PicsDataService
                         mappingsToImport.Add(new SteamDepotMapping
                         {
                             DepotId = depotId,
+                            DepotName = mapping.DepotName, // Include depot name from PICS
                             AppId = appId,
                             AppName = appName,
                             Source = mapping.Source ?? "JSON-Import",
@@ -498,6 +509,7 @@ public class PicsDataService
                     if (mapping.DiscoveredAt > existing.DiscoveredAt || (existing.Source == "SteamKit2-PICS" && mapping.Source == "SteamKit2-PICS"))
                     {
                         existing.AppName = mapping.AppName;
+                        existing.DepotName = mapping.DepotName; // Update depot name
                         existing.Source = GetCombinedSource(existing.Source, mapping.Source);
                         existing.DiscoveredAt = mapping.DiscoveredAt;
                         existing.IsOwner = mapping.IsOwner; // Update owner flag
@@ -675,6 +687,7 @@ public class PicsMetadata
 public class PicsDepotMapping
 {
     public uint? OwnerId { get; set; }  // The app that owns this depot (from depotfromapp PICS field)
+    public string? DepotName { get; set; }  // Name of the depot from PICS (e.g., "Ubisoft Connect PC Client Content")
     public List<uint>? AppIds { get; set; }
     public List<string>? AppNames { get; set; }
     public string Source { get; set; } = "SteamKit2-PICS";

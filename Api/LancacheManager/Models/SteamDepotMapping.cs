@@ -9,6 +9,12 @@ public class SteamDepotMapping
 
     public uint DepotId { get; set; }
 
+    /// <summary>
+    /// The name of the depot from PICS data (e.g., "Ubisoft Connect PC Client Content")
+    /// Used as fallback display name for redistributable depots
+    /// </summary>
+    public string? DepotName { get; set; }
+
     public uint AppId { get; set; }
 
     public string? AppName { get; set; }

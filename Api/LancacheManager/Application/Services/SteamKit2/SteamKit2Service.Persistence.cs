@@ -12,20 +12,20 @@ public partial class SteamKit2Service
         try
         {
             // Convert ConcurrentDictionary to Dictionary for the service call
-            var (depotMappingsDict, appNamesDict, depotOwnersDict) = SteamKit2Helpers.ConvertMappingsDictionaries(
-                _depotToAppMappings, _appNames, _depotOwners);
+            var (depotMappingsDict, appNamesDict, depotOwnersDict, depotNamesDict) = SteamKit2Helpers.ConvertMappingsDictionaries(
+                _depotToAppMappings, _appNames, _depotOwners, _depotNames);
 
             if (incrementalOnly)
             {
                 // Pass validateExisting=true to clean up corrupted entries during incremental updates
-                await _picsDataService.MergePicsDataToJsonAsync(depotMappingsDict, appNamesDict, _lastChangeNumberSeen, validateExisting: true, depotOwners: depotOwnersDict);
+                await _picsDataService.MergePicsDataToJsonAsync(depotMappingsDict, appNamesDict, _lastChangeNumberSeen, validateExisting: true, depotOwners: depotOwnersDict, depotNames: depotNamesDict);
                 _logger.LogInformation(
                     "Merged {DepotCount} unique depot mappings to JSON (incremental); JSON metadata totals will list depot/app pairs when depots are shared",
                     depotMappingsDict.Count);
             }
             else
             {
-                await _picsDataService.SavePicsDataToJsonAsync(depotMappingsDict, appNamesDict, _lastChangeNumberSeen, depotOwners: depotOwnersDict);
+                await _picsDataService.SavePicsDataToJsonAsync(depotMappingsDict, appNamesDict, _lastChangeNumberSeen, depotOwners: depotOwnersDict, depotNames: depotNamesDict);
                 _logger.LogInformation(
                     "Saved {DepotCount} unique depot mappings to JSON file (full); JSON metadata totals will list depot/app pairs when depots are shared",
                     _depotToAppMappings.Count);
@@ -143,6 +143,12 @@ public partial class SteamKit2Service
                 if (!string.IsNullOrEmpty(mapping.AppName) && mapping.AppName != $"App {mapping.AppId}")
                 {
                     _appNames[mapping.AppId] = mapping.AppName;
+                }
+
+                // Load depot names from database
+                if (!string.IsNullOrEmpty(mapping.DepotName))
+                {
+                    _depotNames.TryAdd(mapping.DepotId, mapping.DepotName);
                 }
             }
 

@@ -124,6 +124,13 @@ public partial class SteamKit2Service
                         // First check if we have a PICS name (works for all apps including redistributables/launchers)
                         var picsName = _appNames.TryGetValue(appId.Value, out var name) ? name : null;
 
+                        // Check for depot name (for redistributables like "Ubisoft Connect PC Client Content")
+                        string? depotName = null;
+                        if (download.DepotId.HasValue)
+                        {
+                            _depotNames.TryGetValue(download.DepotId.Value, out depotName);
+                        }
+
                         // Get game info from Steam API
                         var gameInfo = await _steamService.GetGameInfoAsync(appId.Value);
                         if (gameInfo != null && !gameInfo.Name.StartsWith("Steam App ") && !gameInfo.Name.StartsWith("App "))
@@ -137,6 +144,15 @@ public partial class SteamKit2Service
                             // Use PICS name if Steam Store API failed (e.g., redistributables/launchers)
                             download.GameName = picsName;
                             download.GameImageUrl = gameInfo?.HeaderImage ?? $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg";
+                            updated++;
+                        }
+                        else if (!string.IsNullOrEmpty(depotName))
+                        {
+                            // Use depot name as fallback for shared redistributables
+                            // e.g., "Ubisoft Connect PC Client Content", "RGL/SC Content"
+                            download.GameName = depotName;
+                            download.GameImageUrl = $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg";
+                            _logger.LogInformation("Using depot name for depot {DepotId}: {DepotName}", download.DepotId, depotName);
                             updated++;
                         }
                         else

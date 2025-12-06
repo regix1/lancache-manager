@@ -586,6 +586,13 @@ public partial class SteamKit2Service
                 // Store the owner app for this depot
                 _depotOwners.TryAdd(depotId, ownerAppId);
 
+                // Extract and store depot name from PICS (e.g., "Ubisoft Connect PC Client Content")
+                var depotName = child["name"]?.AsString();
+                if (!string.IsNullOrEmpty(depotName))
+                {
+                    _depotNames.TryAdd(depotId, depotName);
+                }
+
                 // Queue owner app for scanning if we don't have its name yet
                 // This handles redistributables/launchers (e.g., Ubisoft Connect, Rockstar Launcher)
                 if (ownerFromPics.HasValue && !_appNames.ContainsKey(ownerAppId) && !_scannedApps.Contains(ownerAppId))

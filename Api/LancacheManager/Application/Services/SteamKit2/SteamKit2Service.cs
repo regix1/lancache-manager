@@ -65,6 +65,9 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     // Cache for app names
     private readonly ConcurrentDictionary<uint, string> _appNames = new();
 
+    // Cache for depot names (from PICS depot "name" field)
+    private readonly ConcurrentDictionary<uint, string> _depotNames = new();
+
     // Tune batch sizes to stay friendly
     private const int AppBatchSize = 200; // was 400 - Above 200, token/product calls time out more frequently
 
