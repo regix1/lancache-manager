@@ -38,10 +38,8 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
   const [loading, setLoading] = useState(false);
   const [autoStartPics, setAutoStartPics] = useState<boolean>(false);
 
-  // Steam account login - V2 API check removed to allow login regardless of Web API status
-  const _isV2Available = webApiStatus?.isV2Available ?? false; // Kept for potential future use
   const hasV1ApiKey = webApiStatus?.hasApiKey ?? false;
-  const steamAuthDisabled = false; // Allow Steam login regardless of V2 API status
+  const steamAuthDisabled = false;
 
   const { state, actions } = useSteamAuthentication({
     autoStartPics,
