@@ -19,8 +19,10 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
   const [error, setError] = useState<string | null>(null);
   const { status: webApiStatus, loading: webApiLoading } = useSteamWebApiStatus();
 
-  // Steam account login is optional - V1 API key provides sufficient access for most use cases
+  // Steam account login requires V2 API. V1 API key acts as authentication itself.
+  const isV2Available = webApiStatus?.isV2Available ?? false;
   const hasV1ApiKey = webApiStatus?.hasApiKey ?? false;
+  const steamAuthDisabled = !isV2Available;
 
   const { state, actions } = useSteamAuthentication({
     autoStartPics: false,
@@ -36,6 +38,11 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
   });
 
   const handleModeSelect = (mode: AuthMode) => {
+    // Block account login if V2 API is not available
+    if (mode === 'account' && steamAuthDisabled) {
+      setError('Steam account login requires V2 API which is currently unavailable');
+      return;
+    }
     setSelectedMode(mode);
     setError(null);
     if (mode === 'account') {
@@ -139,36 +146,39 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
           {/* Account Login Mode */}
           <button
             onClick={() => handleModeSelect('account')}
-            className="w-full p-4 rounded-lg border-2 text-left transition-all"
+            className={`w-full p-4 rounded-lg border-2 text-left transition-all ${steamAuthDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
             style={{
               borderColor: selectedMode === 'account' ? 'var(--theme-primary)' : 'var(--theme-border-primary)',
               backgroundColor: selectedMode === 'account' ? 'var(--theme-primary-bg, rgba(var(--theme-primary-rgb), 0.1))' : 'transparent'
             }}
+            disabled={steamAuthDisabled}
           >
             <div className="flex items-center gap-3">
               <div
                 className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
                 style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
               >
-                <User className="w-5 h-5" style={{ color: 'var(--theme-success)' }} />
+                <User className="w-5 h-5" style={{ color: steamAuthDisabled ? 'var(--theme-muted)' : 'var(--theme-success)' }} />
               </div>
               <div className="flex-1 min-w-0">
-                <h4 className="font-semibold text-themed-primary">
-                  Account Login (Playtest/Restricted)
+                <h4 className={`font-semibold ${steamAuthDisabled ? 'text-themed-muted' : 'text-themed-primary'}`}>
+                  {steamAuthDisabled ? 'Account Login (Requires V2 API)' : 'Account Login (Playtest/Restricted)'}
                 </h4>
                 <p className="text-sm text-themed-secondary">
-                  Access playtest and restricted games
+                  {steamAuthDisabled
+                    ? 'V2 API unavailable - use V1 API key instead'
+                    : 'Access playtest and restricted games via V2'}
                 </p>
               </div>
-              {selectedMode === 'account' && (
+              {selectedMode === 'account' && !steamAuthDisabled && (
                 <CheckCircle className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--theme-primary)' }} />
               )}
             </div>
           </button>
         </div>
 
-        {/* Steam Login Info Banner */}
-        {!webApiLoading && (
+        {/* V2 API Required Info Banner */}
+        {steamAuthDisabled && !webApiLoading && (
           <div
             className="p-3 rounded-lg border"
             style={{
@@ -180,10 +190,10 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
               <Info className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-info)' }} />
               <div className="flex-1">
                 <p className="text-xs" style={{ color: 'var(--theme-info-text)', opacity: 0.9 }}>
-                  <strong>Steam account login is usually not needed.</strong>{' '}
+                  <strong>Steam account login requires V2 API</strong> which is currently unavailable.
                   {hasV1ApiKey
-                    ? 'Your Steam Web API key already provides access to playtest and restricted games. Account login is only needed in rare cases.'
-                    : 'A Steam Web API key is recommended for most use cases. Account login is only needed for specific restricted content.'}
+                    ? ' Your V1 API key already provides access to playtest/restricted games since it\'s tied to your Steam account.'
+                    : ' You can configure a V1 API key later in Settings to access playtest/restricted games.'}
                 </p>
               </div>
             </div>

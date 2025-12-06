@@ -38,8 +38,10 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
   const [loading, setLoading] = useState(false);
   const [autoStartPics, setAutoStartPics] = useState<boolean>(false);
 
-  // Steam account login is optional - V1 API key provides sufficient access for most use cases
+  // Steam account login requires V2 API. V1 API key acts as authentication itself.
+  const isV2Available = webApiStatus?.isV2Available ?? false;
   const hasV1ApiKey = webApiStatus?.hasApiKey ?? false;
+  const steamAuthDisabled = !isV2Available;
 
   const { state, actions } = useSteamAuthentication({
     autoStartPics,
@@ -66,6 +68,11 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
 
   const handleModeChange = (newMode: string) => {
     if (newMode === 'authenticated' && steamAuthMode === 'anonymous') {
+      // Block if V2 API is not available
+      if (steamAuthDisabled) {
+        onError?.('Steam account login requires V2 API which is currently unavailable');
+        return;
+      }
       // Show auth modal when switching to authenticated
       setShowAuthModal(true);
     } else if (newMode === 'anonymous' && steamAuthMode === 'authenticated') {
@@ -145,8 +152,8 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
           </HelpPopover>
         </div>
 
-        {/* Steam Login Info Banner */}
-        {steamAuthMode === 'anonymous' && !webApiLoading && (
+        {/* V2 API Required Info Banner */}
+        {steamAuthDisabled && !webApiLoading && (
           <div
             className="mb-4 p-3 rounded-lg border"
             style={{
@@ -158,12 +165,13 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
               <Info className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-info)' }} />
               <div className="flex-1">
                 <p className="font-medium text-sm mb-1" style={{ color: 'var(--theme-info-text)' }}>
-                  Steam Account Login Usually Not Needed
+                  Steam Account Login Unavailable
                 </p>
                 <p className="text-xs" style={{ color: 'var(--theme-info-text)', opacity: 0.9 }}>
+                  Steam account login requires V2 API which is currently unavailable.
                   {hasV1ApiKey
-                    ? 'Your Steam Web API key already provides access to playtest and restricted games. Account login is only needed in rare cases where the API key isn\'t sufficient.'
-                    : 'A Steam Web API key is recommended for most use cases. Account login is only needed in rare cases for specific restricted content.'}
+                    ? ' Your V1 API key already provides access to playtest/restricted games since it\'s tied to your Steam account.'
+                    : ' Configure a V1 API key above to access playtest/restricted games.'}
                 </p>
               </div>
             </div>
@@ -171,7 +179,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
         )}
 
         {/* Main auth mode selector */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 ${steamAuthDisabled ? 'opacity-50' : ''}`}>
           <div className="flex-1">
             <p className="text-themed-secondary">
               {steamAuthMode === 'authenticated'
@@ -179,9 +187,11 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                 : 'Using anonymous mode - only public games available'}
             </p>
             <p className="text-xs text-themed-muted mt-1">
-              {authMode === 'authenticated' && !mockMode
-                ? 'Change login mode to access different depot mappings'
-                : 'Login with your API key to change Steam authentication mode'}
+              {steamAuthDisabled
+                ? 'Steam account login requires V2 API'
+                : authMode === 'authenticated' && !mockMode
+                  ? 'Change login mode to access different depot mappings'
+                  : 'Login with your API key to change Steam authentication mode'}
             </p>
           </div>
 
@@ -191,7 +201,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                 options={dropdownOptions}
                 value={steamAuthMode}
                 onChange={handleModeChange}
-                disabled={loading}
+                disabled={loading || steamAuthDisabled}
               />
             </div>
           ) : (
@@ -204,18 +214,20 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
         </div>
 
         {/* Configuration section with unified background */}
-        <div className={`p-4 rounded-lg bg-themed-tertiary/30 ${steamAuthMode === 'anonymous' ? 'opacity-50' : ''}`}>
+        <div className={`p-4 rounded-lg bg-themed-tertiary/30 ${steamAuthMode === 'anonymous' || steamAuthDisabled ? 'opacity-50' : ''}`}>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="flex-1">
               <p className="text-themed-primary font-medium text-sm mb-1">
                 Depot Mapping After Login
               </p>
               <p className="text-xs text-themed-muted">
-                {steamAuthMode === 'anonymous'
-                  ? 'Only available when logged in with Steam account'
-                  : autoStartPics
-                    ? 'Automatically rebuild depot mappings after login'
-                    : 'Manually trigger depot mapping rebuild after login'}
+                {steamAuthDisabled
+                  ? 'Only available when V2 API is available'
+                  : steamAuthMode === 'anonymous'
+                    ? 'Only available when logged in with Steam account'
+                    : autoStartPics
+                      ? 'Automatically rebuild depot mappings after login'
+                      : 'Manually trigger depot mapping rebuild after login'}
               </p>
             </div>
             <div className="flex gap-2">
@@ -224,7 +236,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                 variant={autoStartPics ? 'filled' : 'default'}
                 color={autoStartPics ? 'blue' : undefined}
                 onClick={() => handleAutoStartPicsChange(true)}
-                disabled={loading || mockMode || steamAuthMode === 'anonymous'}
+                disabled={loading || mockMode || steamAuthMode === 'anonymous' || steamAuthDisabled}
               >
                 Automatic
               </Button>
@@ -233,7 +245,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                 variant={!autoStartPics ? 'filled' : 'default'}
                 color={!autoStartPics ? 'blue' : undefined}
                 onClick={() => handleAutoStartPicsChange(false)}
-                disabled={loading || mockMode || steamAuthMode === 'anonymous'}
+                disabled={loading || mockMode || steamAuthMode === 'anonymous' || steamAuthDisabled}
               >
                 Manual
               </Button>
