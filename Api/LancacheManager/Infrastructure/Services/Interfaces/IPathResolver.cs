@@ -51,6 +51,24 @@ public interface IPathResolver
     string GetCachedImagesDirectory();
 
     /// <summary>
+    /// Gets the operations directory path for temporary operation progress files
+    /// </summary>
+    string GetOperationsDirectory();
+
+    /// <summary>
+    /// Cleans up old operation progress files (completed operations older than the specified age)
+    /// </summary>
+    /// <param name="maxAgeHours">Maximum age in hours before files are deleted (default 24)</param>
+    /// <returns>Number of files deleted</returns>
+    int CleanupOldOperationFiles(int maxAgeHours = 24);
+
+    /// <summary>
+    /// Migrates operation files from the old data directory location to the new operations directory
+    /// </summary>
+    /// <returns>Number of files migrated</returns>
+    int MigrateOperationFilesToNewLocation();
+
+    /// <summary>
     /// Gets the path to the Rust log processor executable
     /// </summary>
     string GetRustLogProcessorPath();

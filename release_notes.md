@@ -1,27 +1,30 @@
 ## What's New
 
-### Unknown Games Auto-Resolution
-The game detection system now automatically resolves "Unknown Game (Depot X)" entries when depot mappings become available. Previously, if a game was detected before its depot mapping existed, it would stay unknown forever until you ran another full scan.
+### Double-Click Prevention
+Added synchronous double-click prevention to all action buttons on the Management tab. Previously, clicking buttons like "Apply Now" or "Clear Selected" multiple times quickly could trigger duplicate API requests before the loading state kicked in. Now all async operations use refs to block duplicate calls immediately.
 
-Now when you load cached detection results or run an incremental scan, the system checks if any unknown depots can be matched to actual games using your current mappings. If you ran a PICS sync after the initial detection, those unknown entries get updated automatically.
+Affected buttons:
+- Depot Mapping "Apply Now"
+- Database Management "Clear Selected Tables"
+- Cache Management "Clear All Cache" and delete mode buttons
+- Theme Importer "Refresh" and "Import" buttons
 
-### Xbox Live Theme Support
-Added proper Xbox Live platform color support to the theme system. You can now customize the Xbox color alongside Steam, Epic, Origin, Blizzard, WSUS, and Riot in the theme editor. The default Xbox green matches the official branding.
+### Steam Connection Exponential Backoff
+Steam reconnection attempts now use exponential backoff instead of a fixed 5-second delay. When disconnected during a PICS scan, the service waits progressively longer between attempts: 5s, 10s, 20s, 40s, up to 60s max. This is gentler on Steam's servers and reduces the chance of rate limiting.
 
-Also added a dedicated Xbox icon component that renders consistently across different views.
-
-### Depot Name Storage
-Steam depot mappings now store the depot name from PICS data (like "Ubisoft Connect PC Client Content"). This is used as a fallback display name for redistributable depots that don't have a clear app name - gives you something more useful than just a depot ID.
+### Game Cache Detection Improvements
+Clearing "Game Cache Detection" in Database Management now properly clears both detected games AND services (like wsus, steam, epic). Previously it only cleared games, leaving stale service entries in the cache.
 
 ## Bug Fixes
 
-- Fixed GitHub depot mapping imports running unnecessarily before full scans (only needed for incremental)
-- Fixed notification spam when loading game detection results
-- Fixed guest device ID generation on mobile browsers
-- Various theme color consistency fixes
+- Fixed duplicate key errors when saving Steam depot mappings by adding proper handling for UNIQUE constraint violations
+- Fixed race condition where multiple depot mapping requests could be sent simultaneously
+- Updated Database Management UI wording to reflect that it clears "game and service detection scans"
 
 ## Under the Hood
 
-Cleaned up the depot mapping flow so full scans and incremental scans handle the JSON-to-database import correctly. Full scans create fresh data from scratch, so they don't need to import existing JSON first - that was causing duplicate work.
+- Added `Microsoft.Data.Sqlite` error handling to `SteamService.cs` for concurrent depot mapping saves
+- Refactored try/catch blocks to use `finally` for consistent cleanup in async operations
+- All button action handlers now follow the ref-guard pattern for double-click prevention
 
 Thanks for using Lancache Manager!

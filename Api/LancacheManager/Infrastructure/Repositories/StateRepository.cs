@@ -17,8 +17,11 @@ public class StateRepository : IStateRepository
     private readonly SecureStateEncryptionService _encryption;
     private readonly SteamAuthRepository _steamAuthStorage;
     private readonly string _stateFilePath;
+    private readonly string _operationHistoryFilePath;
     private readonly object _lock = new object();
+    private readonly object _operationLock = new object();
     private AppState? _cachedState;
+    private List<OperationState>? _cachedOperationStates;
     private int _consecutiveFailures = 0;
     private bool _migrationAttempted = false;
 
@@ -33,6 +36,7 @@ public class StateRepository : IStateRepository
         _encryption = encryption;
         _steamAuthStorage = steamAuthStorage;
         _stateFilePath = Path.Combine(_pathResolver.GetDataDirectory(), "state.json");
+        _operationHistoryFilePath = Path.Combine(_pathResolver.GetOperationsDirectory(), "operation_history.json");
     }
 
     public class AppState
@@ -40,6 +44,9 @@ public class StateRepository : IStateRepository
         public LogProcessingState LogProcessing { get; set; } = new();
         public DepotProcessingState DepotProcessing { get; set; } = new();
         public List<CacheClearOperation> CacheClearOperations { get; set; } = new();
+        // LEGACY: OperationStates has been migrated to separate file (data/operations/operation_history.json)
+        // This property is kept temporarily for backward compatibility during migration
+        [JsonIgnore]
         public List<OperationState> OperationStates { get; set; } = new();
         public bool SetupCompleted { get; set; } = false;
         public DateTime? LastPicsCrawl { get; set; }
@@ -80,7 +87,10 @@ public class StateRepository : IStateRepository
         public LogProcessingState LogProcessing { get; set; } = new();
         public DepotProcessingState DepotProcessing { get; set; } = new();
         public List<CacheClearOperation> CacheClearOperations { get; set; } = new();
-        public List<OperationState> OperationStates { get; set; } = new();
+        // LEGACY: OperationStates migrated to separate file - kept for reading old state.json during migration
+        // JsonIgnore(Condition = WhenWritingNull) excludes it when saving (always null after migration)
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public List<OperationState>? OperationStates { get; set; }
         public bool SetupCompleted { get; set; } = false;
         public DateTime? LastPicsCrawl { get; set; }
         public double CrawlIntervalHours { get; set; } = 1.0;
@@ -193,6 +203,7 @@ public class StateRepository : IStateRepository
                         _cachedState.SteamAuth = null;
                         SaveState(_cachedState);
                     }
+
                 }
                 else
                 {
@@ -306,15 +317,113 @@ public class StateRepository : IStateRepository
         UpdateState(state => state.CacheClearOperations.RemoveAll(o => o.Id == id));
     }
 
-    // Operation States Methods
+    // Operation States Methods - now use separate file (data/operations/operation_history.json)
     public List<OperationState> GetOperationStates()
     {
-        return GetState().OperationStates;
+        lock (_operationLock)
+        {
+            if (_cachedOperationStates != null)
+            {
+                return _cachedOperationStates;
+            }
+
+            try
+            {
+                if (File.Exists(_operationHistoryFilePath))
+                {
+                    var json = File.ReadAllText(_operationHistoryFilePath);
+                    _cachedOperationStates = JsonSerializer.Deserialize<List<OperationState>>(json) ?? new List<OperationState>();
+                }
+                else
+                {
+                    _cachedOperationStates = new List<OperationState>();
+                }
+
+                // Clean up old completed operations (older than 48 hours)
+                CleanupOldOperationStates();
+
+                return _cachedOperationStates;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to load operation states from {Path}", _operationHistoryFilePath);
+                _cachedOperationStates = new List<OperationState>();
+                return _cachedOperationStates;
+            }
+        }
     }
 
     public void RemoveOperationState(string id)
     {
-        UpdateState(state => state.OperationStates.RemoveAll(o => o.Id == id));
+        lock (_operationLock)
+        {
+            var states = GetOperationStates();
+            var removed = states.RemoveAll(o => o.Id == id);
+            if (removed > 0)
+            {
+                SaveOperationStates();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Updates the operation states list with the provided updater action
+    /// </summary>
+    public void UpdateOperationStates(Action<List<OperationState>> updater)
+    {
+        lock (_operationLock)
+        {
+            var states = GetOperationStates();
+            updater(states);
+            SaveOperationStates();
+        }
+    }
+
+    private void SaveOperationStates()
+    {
+        try
+        {
+            if (_cachedOperationStates == null)
+            {
+                return;
+            }
+
+            var json = JsonSerializer.Serialize(_cachedOperationStates, new JsonSerializerOptions { WriteIndented = true });
+            var tempFile = _operationHistoryFilePath + ".tmp";
+            File.WriteAllText(tempFile, json);
+            File.Move(tempFile, _operationHistoryFilePath, true);
+            _logger.LogTrace("Operation states saved to {Path}", _operationHistoryFilePath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to save operation states to {Path}", _operationHistoryFilePath);
+        }
+    }
+
+    /// <summary>
+    /// Cleans up old completed operation states (older than 48 hours)
+    /// </summary>
+    private void CleanupOldOperationStates()
+    {
+        if (_cachedOperationStates == null || _cachedOperationStates.Count == 0)
+        {
+            return;
+        }
+
+        var cutoff = DateTime.UtcNow.AddHours(-48);
+        var oldStates = _cachedOperationStates
+            .Where(s => s.Status == "complete" && s.UpdatedAt < cutoff)
+            .ToList();
+
+        if (oldStates.Count > 0)
+        {
+            foreach (var state in oldStates)
+            {
+                _cachedOperationStates.Remove(state);
+            }
+            SaveOperationStates();
+            _logger.LogInformation("Cleaned up {Count} old completed operation states", oldStates.Count);
+        }
     }
 
     // Setup Completed Methods
@@ -429,21 +538,7 @@ public class StateRepository : IStateRepository
                 _logger.LogInformation("Migrated cache clear operations: {Count}", state.CacheClearOperations.Count);
             }
 
-            // Migrate operation_states.json
-            var operationStatesFile = Path.Combine(_pathResolver.GetDataDirectory(), "operation_states.json");
-            if (File.Exists(operationStatesFile))
-            {
-                var operationStatesJson = File.ReadAllText(operationStatesFile);
-                if (!string.IsNullOrWhiteSpace(operationStatesJson) && operationStatesJson != "[]")
-                {
-                    var operations = JsonSerializer.Deserialize<List<OperationState>>(operationStatesJson);
-                    if (operations != null)
-                    {
-                        state.OperationStates = operations;
-                    }
-                }
-                _logger.LogInformation("Migrated operation states: {Count}", state.OperationStates.Count);
-            }
+            // Note: operation_states.json migration removed - states are temporary and don't need migration
 
             // Migrate setup_completed.txt
             var setupCompletedFile = Path.Combine(_pathResolver.GetDataDirectory(), "setup_completed.txt");
@@ -486,7 +581,7 @@ public class StateRepository : IStateRepository
             LogProcessing = persisted.LogProcessing,
             DepotProcessing = persisted.DepotProcessing,
             CacheClearOperations = persisted.CacheClearOperations,
-            OperationStates = persisted.OperationStates,
+            // OperationStates now loaded from separate file via GetOperationStates()
             SetupCompleted = persisted.SetupCompleted,
             LastPicsCrawl = persisted.LastPicsCrawl,
             CrawlIntervalHours = persisted.CrawlIntervalHours,

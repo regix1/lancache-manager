@@ -209,13 +209,8 @@ public class CacheClearingService : IHostedService
             }
 
             // Use Rust binary for fast cache clearing
-            var dataDir = _pathResolver.GetDataDirectory();
-            if (!Directory.Exists(dataDir))
-            {
-                Directory.CreateDirectory(dataDir);
-            }
-
-            var progressFile = Path.Combine(dataDir, $"cache_clear_progress_{operation.Id}.json");
+            var operationsDir = _pathResolver.GetOperationsDirectory();
+            var progressFile = Path.Combine(operationsDir, $"cache_clear_progress_{operation.Id}.json");
             var rustBinaryPath = _pathResolver.GetRustCacheCleanerPath();
 
             if (!File.Exists(rustBinaryPath))

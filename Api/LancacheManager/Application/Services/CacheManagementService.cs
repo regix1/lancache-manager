@@ -217,14 +217,8 @@ public class CacheManagementService
             // Use Rust binary for fast log filtering
             var dataDir = _pathResolver.GetDataDirectory();
 
-            // Ensure data directory exists
-            if (!Directory.Exists(dataDir))
-            {
-                Directory.CreateDirectory(dataDir);
-                _logger.LogInformation($"Created data directory: {dataDir}");
-            }
-
-            var progressFile = Path.Combine(dataDir, "log_remove_progress.json");
+            var operationsDir = _pathResolver.GetOperationsDirectory();
+            var progressFile = Path.Combine(operationsDir, "log_remove_progress.json");
             var rustBinaryPath = _pathResolver.GetRustLogManagerPath();
 
             // Check if Rust binary exists
@@ -581,8 +575,8 @@ public class CacheManagementService
             }
 
             var dbPath = _pathResolver.GetDatabasePath();
-            var dataDir = _pathResolver.GetDataDirectory();
-            var progressPath = Path.Combine(dataDir, "corruption_removal_progress.json");
+            var operationsDir = _pathResolver.GetOperationsDirectory();
+            var progressPath = Path.Combine(operationsDir, "corruption_removal_progress.json");
 
             _logger.LogInformation("[CorruptionDetection] Removal params - db: {DbPath}, logDir: {LogDir}, cacheDir: {CacheDir}, progress: {Progress}",
                 dbPath, logDir, cacheDir, progressPath);

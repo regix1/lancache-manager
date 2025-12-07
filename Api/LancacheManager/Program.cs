@@ -403,6 +403,21 @@ using (var scope = app.Services.CreateScope())
         logger.LogError(ex, "Database initialization failed");
         throw; // Fail fast if database init fails
     }
+
+    // Migrate operation files from old data directory to new operations subdirectory
+    var pathResolver = scope.ServiceProvider.GetRequiredService<IPathResolver>();
+    var migratedCount = pathResolver.MigrateOperationFilesToNewLocation();
+    if (migratedCount > 0)
+    {
+        logger.LogInformation("Migrated {Count} operation files to operations directory", migratedCount);
+    }
+
+    // Clean up old operation progress files (cache_clear, corruption_removal, etc.)
+    var cleanedCount = pathResolver.CleanupOldOperationFiles(maxAgeHours: 24);
+    if (cleanedCount > 0)
+    {
+        logger.LogInformation("Cleaned up {Count} old operation files on startup", cleanedCount);
+    }
 }
 
 // NOW it's safe to initialize services that depend on the database

@@ -43,8 +43,8 @@ public class RustLogRemovalService
         ProgressData? progress = null;
         try
         {
-            var dataDirectory = _pathResolver.GetDataDirectory();
-            var progressPath = Path.Combine(dataDirectory, "log_remove_progress.json");
+            var operationsDir = _pathResolver.GetOperationsDirectory();
+            var progressPath = Path.Combine(operationsDir, "log_remove_progress.json");
             if (File.Exists(progressPath))
             {
                 var json = File.ReadAllText(progressPath);
@@ -123,9 +123,9 @@ public class RustLogRemovalService
             CurrentService = service;
             _cancellationTokenSource = new CancellationTokenSource();
 
-            var dataDirectory = _pathResolver.GetDataDirectory();
+            var operationsDir = _pathResolver.GetOperationsDirectory();
             var logDir = _pathResolver.GetLogsDirectory();
-            var progressPath = Path.Combine(dataDirectory, "log_remove_progress.json");
+            var progressPath = Path.Combine(operationsDir, "log_remove_progress.json");
             var rustExecutablePath = _pathResolver.GetRustLogManagerPath();
 
             // Delete old progress file
@@ -322,8 +322,8 @@ public class RustLogRemovalService
 
     public async Task<ProgressData?> GetProgressAsync()
     {
-        var dataDirectory = _pathResolver.GetDataDirectory();
-        var progressPath = Path.Combine(dataDirectory, "log_remove_progress.json");
+        var operationsDir = _pathResolver.GetOperationsDirectory();
+        var progressPath = Path.Combine(operationsDir, "log_remove_progress.json");
         return await ReadProgressFileAsync(progressPath);
     }
 

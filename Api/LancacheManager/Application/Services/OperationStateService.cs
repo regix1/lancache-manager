@@ -288,14 +288,14 @@ public class OperationStateService : IHostedService
                 UpdatedAt = state.UpdatedAt
             };
 
-            _stateService.UpdateState(appState =>
+            _stateService.UpdateOperationStates(states =>
             {
-                var existing = appState.OperationStates.FirstOrDefault(o => o.Id == state.Key);
+                var existing = states.FirstOrDefault(o => o.Id == state.Key);
                 if (existing != null)
                 {
-                    appState.OperationStates.Remove(existing);
+                    states.Remove(existing);
                 }
-                appState.OperationStates.Add(stateOp);
+                states.Add(stateOp);
             });
         }
         catch (Exception ex)
@@ -318,9 +318,10 @@ public class OperationStateService : IHostedService
                 UpdatedAt = state.UpdatedAt
             }).ToList();
 
-            _stateService.UpdateState(appState =>
+            _stateService.UpdateOperationStates(states =>
             {
-                appState.OperationStates = operations;
+                states.Clear();
+                states.AddRange(operations);
             });
         }
         catch (Exception ex)

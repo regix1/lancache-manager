@@ -306,7 +306,7 @@ public class CacheController : ControllerBase
                             logsPath,
                             cachePath,
                             service: service,
-                            progressFile: Path.Combine(_pathResolver.GetDataDirectory(), $"corruption_removal_{operationId}.json"),
+                            progressFile: Path.Combine(_pathResolver.GetOperationsDirectory(), $"corruption_removal_{operationId}.json"),
                             databasePath: dbPath
                         );
 

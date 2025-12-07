@@ -30,6 +30,103 @@ public class WindowsPathResolver : IPathResolver
 
     public string GetCachedImagesDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "cached-img"));
 
+    public string GetOperationsDirectory()
+    {
+        var path = Path.GetFullPath(Path.Combine(GetDataDirectory(), "operations"));
+        Directory.CreateDirectory(path); // Ensure directory exists
+        return path;
+    }
+
+    public int CleanupOldOperationFiles(int maxAgeHours = 24)
+    {
+        var operationsDir = GetOperationsDirectory();
+        var deletedCount = 0;
+        var cutoffTime = DateTime.UtcNow.AddHours(-maxAgeHours);
+
+        try
+        {
+            foreach (var file in Directory.GetFiles(operationsDir, "*.json"))
+            {
+                try
+                {
+                    var fileInfo = new FileInfo(file);
+                    if (fileInfo.LastWriteTimeUtc < cutoffTime)
+                    {
+                        File.Delete(file);
+                        deletedCount++;
+                        _logger.LogDebug("Deleted old operation file: {File}", file);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to delete operation file: {File}", file);
+                }
+            }
+
+            if (deletedCount > 0)
+            {
+                _logger.LogInformation("Cleaned up {Count} old operation files from {Dir}", deletedCount, operationsDir);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error cleaning up operations directory: {Dir}", operationsDir);
+        }
+
+        return deletedCount;
+    }
+
+    public int MigrateOperationFilesToNewLocation()
+    {
+        var dataDir = GetDataDirectory();
+        var operationsDir = GetOperationsDirectory();
+        var migratedCount = 0;
+
+        // Patterns for operation files that should be moved
+        var patterns = new[]
+        {
+            "cache_clear_progress_*.json",
+            "corruption_removal_*.json",
+            "log_remove_progress.json",
+            "corruption_removal_progress.json"
+        };
+
+        try
+        {
+            foreach (var pattern in patterns)
+            {
+                foreach (var file in Directory.GetFiles(dataDir, pattern))
+                {
+                    try
+                    {
+                        var fileName = Path.GetFileName(file);
+                        var destPath = Path.Combine(operationsDir, fileName);
+
+                        // Move the file
+                        File.Move(file, destPath, overwrite: true);
+                        migratedCount++;
+                        _logger.LogDebug("Migrated operation file: {File} -> {Dest}", file, destPath);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to migrate operation file: {File}", file);
+                    }
+                }
+            }
+
+            if (migratedCount > 0)
+            {
+                _logger.LogInformation("Migrated {Count} operation files to {Dir}", migratedCount, operationsDir);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error migrating operation files to {Dir}", operationsDir);
+        }
+
+        return migratedCount;
+    }
+
     public string GetRustLogProcessorPath() =>
         Path.Combine(AppContext.BaseDirectory, "rust-processor", "lancache_processor.exe");
 
