@@ -32,7 +32,7 @@ import EditThemeModal from '@components/modals/theme/EditThemeModal';
 import { DeleteConfirmModal } from '@components/modals/theme/DeleteConfirmModal';
 import { CommunityThemeImporter } from './CommunityThemeImporter';
 import { colorGroups } from './constants';
-import { type Theme, type ThemeManagerProps } from './types';
+import { type Theme, type ThemeManagerProps, type EditableTheme, type ThemeColors } from './types';
 import { useNotifications } from '@contexts/NotificationsContext';
 
 const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
@@ -65,8 +65,15 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   const [picsAlwaysVisible, setPicsAlwaysVisible] = useState(false);
   const [disableStickyNotifications, setDisableStickyNotifications] = useState(false);
 
-  const [editedTheme, setEditedTheme] = useState<any>({});
-  const [newTheme, setNewTheme] = useState<any>({
+  const [editedTheme, setEditedTheme] = useState<EditableTheme>({
+    name: '',
+    description: '',
+    author: '',
+    version: '1.0.0',
+    isDark: true,
+    customCSS: ''
+  });
+  const [newTheme, setNewTheme] = useState<EditableTheme>({
     name: '',
     description: '',
     author: '',
@@ -101,30 +108,31 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     setDisableStickyNotifications(themeService.getDisableStickyNotificationsSync());
 
     // Listen for live preference changes from admin
-    const handlePreferenceChange = (event: any) => {
-      const { key, value } = event.detail;
+    const handlePreferenceChange = (event: Event) => {
+      const customEvent = event as CustomEvent<{ key: string; value: unknown }>;
+      const { key, value } = customEvent.detail;
 
       switch (key) {
         case 'selectedTheme':
           if (value) {
-            setCurrentTheme(value);
+            setCurrentTheme(value as string);
             setPreviewTheme(null);
           }
           break;
         case 'sharpCorners':
-          setSharpCornersEnabled(value);
+          setSharpCornersEnabled(value as boolean);
           break;
         case 'disableFocusOutlines':
           // This is handled by theme service, no UI state to update
           break;
         case 'disableTooltips':
-          setTooltipsDisabled(value);
+          setTooltipsDisabled(value as boolean);
           break;
         case 'picsAlwaysVisible':
-          setPicsAlwaysVisible(value);
+          setPicsAlwaysVisible(value as boolean);
           break;
         case 'disableStickyNotifications':
-          setDisableStickyNotifications(value);
+          setDisableStickyNotifications(value as boolean);
           break;
       }
     };
@@ -207,7 +215,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       const newThemeId = isCommunityTheme ? `${editingTheme.meta.id}-custom` : editingTheme.meta.id;
       const newThemeName = isCommunityTheme ? `${name} (Custom)` : name;
 
-      const themeData = {
+      const themeData: Theme = {
         meta: {
           id: newThemeId,
           name: newThemeName,
@@ -222,12 +230,12 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
               }
             : {})
         },
-        colors,
+        colors: colors as ThemeColors,
         css: customCSS ? { content: customCSS } : undefined
       };
 
       // Convert to TOML and upload
-      const toml = themeService.exportTheme(themeData as any);
+      const toml = themeService.exportTheme(themeData);
       const blob = new Blob([toml], { type: 'application/toml' });
       const file = new File([blob], `${newThemeId}.toml`, { type: 'application/toml' });
 
@@ -276,7 +284,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       // Generate a safe ID from the theme name
       const themeId = name.toLowerCase().replace(/[^a-z0-9-_]/g, '-');
 
-      const themeData = {
+      const themeData: Theme = {
         meta: {
           id: themeId,
           name,
@@ -285,12 +293,12 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           version,
           isDark
         },
-        colors,
+        colors: colors as ThemeColors,
         css: customCSS ? { content: customCSS } : undefined
       };
 
       // Convert to TOML and upload
-      const toml = themeService.exportTheme(themeData as any);
+      const toml = themeService.exportTheme(themeData);
       const blob = new Blob([toml], { type: 'application/toml' });
       const file = new File([blob], `${themeId}.toml`, { type: 'application/toml' });
 
@@ -461,11 +469,11 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         details: { notificationType: 'success' }
       });
       await loadThemes();
-    } catch (error: any) {
+    } catch (error: unknown) {
       addNotification({
         type: 'generic',
         status: 'failed',
-        message: error.message || 'Failed to upload theme',
+        message: (error instanceof Error ? error.message : String(error)) || 'Failed to upload theme',
         details: { notificationType: 'error' }
       });
     } finally {

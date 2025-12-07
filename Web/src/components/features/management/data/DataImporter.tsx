@@ -74,11 +74,12 @@ const DataImporter: React.FC<DataImporterProps> = ({
       } else {
         onError?.(result.message);
       }
-    } catch (error: any) {
-      onError?.('Failed to validate connection: ' + error.message);
+    } catch (error: unknown) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      onError?.('Failed to validate connection: ' + errorMsg);
       setValidationResult({
         valid: false,
-        message: error.message
+        message: errorMsg
       });
     } finally {
       setValidating(false);
@@ -118,8 +119,8 @@ const DataImporter: React.FC<DataImporterProps> = ({
       if (onDataRefresh) {
         setTimeout(() => onDataRefresh(), 1000);
       }
-    } catch (error: any) {
-      onError?.('Import failed: ' + error.message);
+    } catch (error: unknown) {
+      onError?.('Import failed: ' + (error instanceof Error ? error.message : String(error)));
     } finally {
       setImporting(false);
     }

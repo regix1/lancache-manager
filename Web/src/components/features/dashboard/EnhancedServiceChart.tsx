@@ -3,9 +3,10 @@ import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Info } from 'lucide-re
 import { formatBytes } from '@utils/formatters';
 import { Card } from '@components/ui/Card';
 import Chart from 'chart.js/auto';
+import type { ServiceStat } from '@/types';
 
 interface EnhancedServiceChartProps {
-  serviceStats: any[];
+  serviceStats: ServiceStat[];
   timeRange?: string;
 }
 

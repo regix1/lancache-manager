@@ -105,7 +105,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     // If there's an active depot mapping notification, restore local UI state
     if (isDepotMappingFromNotification && activeDepotNotification) {
       // Restore loading state based on notification
-      const notificationDetails = activeDepotNotification.details as any;
+      // Note: operationType may be set dynamically, use type assertion for extensible details
+      const notificationDetails = activeDepotNotification.details as { operationType?: 'downloading' | 'scanning' } | undefined;
       if (notificationDetails?.operationType) {
         setOperationType(notificationDetails.operationType);
         setActionLoading(true);
@@ -543,8 +544,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       await refreshProgress();
 
       setTimeout(() => onDataRefresh?.(), 2000);
-    } catch (err: any) {
-      onError?.(err.message || 'Failed to download from GitHub');
+    } catch (err: unknown) {
+      onError?.((err instanceof Error ? err.message : String(err)) || 'Failed to download from GitHub');
       setGithubDownloadComplete(false);
       setGithubDownloading(false);
 
@@ -634,8 +635,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       // and recovery is handled by recoverDepotMapping
 
       // Keep operation type active - it will be cleared when scan completes
-    } catch (err: any) {
-      onError?.(err.message || 'Failed to process depot mappings');
+    } catch (err: unknown) {
+      onError?.((err instanceof Error ? err.message : String(err)) || 'Failed to process depot mappings');
       setOperationType(null);
     } finally {
       setActionLoading(false);
@@ -1131,8 +1132,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
               onSuccess?.('Full depot scan started - mappings will be applied when complete');
               setTimeout(() => onDataRefresh?.(), 2000);
               // Note: NotificationsContext will create a notification via SignalR (DepotMappingStarted event)
-            } catch (err: any) {
-              onError?.(err.message || 'Failed to start full scan');
+            } catch (err: unknown) {
+              onError?.((err instanceof Error ? err.message : String(err)) || 'Failed to start full scan');
               setOperationType(null);
             } finally {
               setActionLoading(false);

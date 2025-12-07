@@ -5,7 +5,7 @@ import { Button } from '../../ui/Button';
 import { Checkbox } from '../../ui/Checkbox';
 import { ImprovedColorPicker } from '../../features/management/theme/ImprovedColorPicker';
 import { colorGroups, pageDefinitions } from '../../features/management/theme/constants';
-import { type ColorGroup, type Theme } from '../../features/management/theme/types';
+import { type ColorGroup, type Theme, type EditableTheme } from '../../features/management/theme/types';
 import { storage } from '@utils/storage';
 
 interface EditThemeModalProps {
@@ -14,8 +14,8 @@ interface EditThemeModalProps {
   onSave: () => void;
   isAuthenticated: boolean;
   editingTheme: Theme | null;
-  editedTheme: any;
-  setEditedTheme: React.Dispatch<React.SetStateAction<any>>;
+  editedTheme: EditableTheme;
+  setEditedTheme: React.Dispatch<React.SetStateAction<EditableTheme>>;
   editOrganizationMode: 'category' | 'page';
   setEditOrganizationMode: React.Dispatch<React.SetStateAction<'category' | 'page'>>;
   editSelectedPage: string;
@@ -84,7 +84,7 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
 
   const handleEditColorChange = (key: string, value: string) => {
     // Just update the value, don't save to history on every change
-    setEditedTheme((prev: any) => ({ ...prev, [key]: value }));
+    setEditedTheme((prev) => ({ ...prev, [key]: value }));
   };
 
   const restorePreviousColor = (key: string) => {
@@ -119,14 +119,14 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
 
         // Apply the previous color immediately
         if (previousColor) {
-          setEditedTheme((prev: any) => ({ ...prev, [key]: previousColor }));
+          setEditedTheme((prev) => ({ ...prev, [key]: previousColor }));
         }
       }
     } else {
       // No recent history, restore to original color and remove it (final undo)
       const originalColor = storage.getItem(originalKey);
       if (originalColor) {
-        setEditedTheme((prev: any) => ({ ...prev, [key]: originalColor }));
+        setEditedTheme((prev) => ({ ...prev, [key]: originalColor }));
         // Remove original after restoring to it (no more undos available)
         storage.removeItem(originalKey);
       }
@@ -436,7 +436,7 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
                         label={color.label}
                         description={color.description}
                         affects={color.affects}
-                        value={editedTheme[color.key] || '#000000'}
+                        value={(editedTheme[color.key] as string) || '#000000'}
                         onChange={(value) => handleEditColorChange(color.key, value)}
                         onColorCommit={(previousColor) =>
                           handleEditColorCommit(color.key, previousColor)

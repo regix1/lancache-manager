@@ -156,9 +156,9 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
       } else {
         setAuthError(result.message || 'Authentication failed');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Authentication error:', error);
-      setAuthError(error.message || 'Authentication failed');
+      setAuthError((error instanceof Error ? error.message : String(error)) || 'Authentication failed');
     } finally {
       setAuthLoading(false);
     }
@@ -219,9 +219,9 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
       } else {
         onError?.(result.message || 'Failed to regenerate API key');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error regenerating key:', error);
-      onError?.('Failed to regenerate API key: ' + error.message);
+      onError?.('Failed to regenerate API key: ' + (error instanceof Error ? error.message : String(error)));
     } finally {
       setAuthLoading(false);
       setShowRegenerateModal(false);
@@ -240,9 +240,9 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
       } else {
         onError?.(result.message || 'Failed to logout');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error logging out:', error);
-      onError?.('Failed to logout: ' + error.message);
+      onError?.('Failed to logout: ' + (error instanceof Error ? error.message : String(error)));
     } finally {
       setAuthLoading(false);
     }

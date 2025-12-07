@@ -1,6 +1,28 @@
 import React, { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
 import { useSignalR } from './SignalRContext';
 import themeService from '@services/theme.service';
+import type {
+  ProcessingProgressPayload,
+  FastProcessingCompletePayload,
+  LogRemovalProgressPayload,
+  LogRemovalCompletePayload,
+  GameRemovalProgressPayload,
+  GameRemovalCompletePayload,
+  ServiceRemovalProgressPayload,
+  ServiceRemovalCompletePayload,
+  CorruptionRemovalStartedPayload,
+  CorruptionRemovalCompletePayload,
+  GameDetectionStartedPayload,
+  GameDetectionCompletePayload,
+  DatabaseResetProgressPayload,
+  CacheClearProgressPayload,
+  CacheClearCompletePayload,
+  DepotMappingStartedPayload,
+  DepotMappingProgressPayload,
+  DepotMappingCompletePayload,
+  SteamSessionErrorPayload,
+  ShowToastPayload
+} from './SignalRContext/types';
 
 // Notification timing constants
 const AUTO_DISMISS_DELAY_MS = 5000; // Standard auto-dismiss delay for completed/failed notifications
@@ -250,7 +272,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
   // SignalR Event Handlers - centralized notification management
   React.useEffect(() => {
     // Log Processing Progress
-    const handleProcessingProgress = (payload: any) => {
+    const handleProcessingProgress = (payload: ProcessingProgressPayload) => {
       const currentProgress = payload.percentComplete || payload.progress || 0;
       const status = payload.status || 'processing';
 
@@ -361,7 +383,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       }
     };
 
-    const handleFastProcessingComplete = (result: any) => {
+    const handleFastProcessingComplete = (result: FastProcessingCompletePayload) => {
       // Clear from localStorage
       localStorage.removeItem('log_processing_notification');
       let notificationId: string | null = null;
@@ -412,7 +434,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Service Log Removal
-    const handleLogRemovalProgress = (payload: any) => {
+    const handleLogRemovalProgress = (payload: LogRemovalProgressPayload) => {
       const notificationId = `service_removal-${payload.service}`;
 
       if (payload.status === 'starting' || payload.status === 'removing') {
@@ -472,7 +494,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       }
     };
 
-    const handleLogRemovalComplete = (payload: any) => {
+    const handleLogRemovalComplete = (payload: LogRemovalCompletePayload) => {
       const notificationId = `service_removal-${payload.service}`;
 
       // Clear from localStorage
@@ -495,7 +517,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Game Removal Progress - updates existing notification with progress details
-    const handleGameRemovalProgress = (payload: any) => {
+    const handleGameRemovalProgress = (payload: GameRemovalProgressPayload) => {
       console.log('[NotificationsContext] GameRemovalProgress received:', payload);
       const notificationId = `game_removal-${payload.gameAppId}`;
 
@@ -545,7 +567,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Service Removal Progress - updates existing notification with progress details
-    const handleServiceRemovalProgress = (payload: any) => {
+    const handleServiceRemovalProgress = (payload: ServiceRemovalProgressPayload) => {
       console.log('[NotificationsContext] ServiceRemovalProgress received:', payload);
       const notificationId = `service_removal-${payload.serviceName}`;
 
@@ -594,7 +616,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Game Removal Complete
-    const handleGameRemovalComplete = (payload: any) => {
+    const handleGameRemovalComplete = (payload: GameRemovalCompletePayload) => {
       console.log('[NotificationsContext] GameRemovalComplete received:', payload);
       const notificationId = `game_removal-${payload.gameAppId}`;
       console.log('[NotificationsContext] Looking for notification ID:', notificationId);
@@ -640,7 +662,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Service Removal Complete
-    const handleServiceRemovalComplete = (payload: any) => {
+    const handleServiceRemovalComplete = (payload: ServiceRemovalCompletePayload) => {
       console.log('[NotificationsContext] ServiceRemovalComplete received:', payload);
       const notificationId = `service_removal-${payload.serviceName}`;
       console.log('[NotificationsContext] Looking for notification ID:', notificationId);
@@ -686,7 +708,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Corruption Removal Started
-    const handleCorruptionRemovalStarted = (payload: any) => {
+    const handleCorruptionRemovalStarted = (payload: CorruptionRemovalStartedPayload) => {
       console.log('[NotificationsContext] CorruptionRemovalStarted received:', payload);
       const notificationId = `corruption_removal-${payload.service}`;
 
@@ -716,7 +738,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Corruption Removal Complete
-    const handleCorruptionRemovalComplete = (payload: any) => {
+    const handleCorruptionRemovalComplete = (payload: CorruptionRemovalCompletePayload) => {
       console.log('[NotificationsContext] CorruptionRemovalComplete received:', payload);
       const notificationId = `corruption_removal-${payload.service}`;
 
@@ -762,7 +784,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Game Detection Started
-    const handleGameDetectionStarted = (payload: any) => {
+    const handleGameDetectionStarted = (payload: GameDetectionStartedPayload) => {
       console.log('[NotificationsContext] GameDetectionStarted received:', payload);
       const notificationId = `game_detection-${payload.operationId}`;
 
@@ -793,7 +815,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Game Detection Complete
-    const handleGameDetectionComplete = (payload: any) => {
+    const handleGameDetectionComplete = (payload: GameDetectionCompletePayload) => {
       console.log('[NotificationsContext] GameDetectionComplete received:', payload);
       const notificationId = `game_detection-${payload.operationId}`;
 
@@ -875,7 +897,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Database Reset
-    const handleDatabaseResetProgress = (payload: any) => {
+    const handleDatabaseResetProgress = (payload: DatabaseResetProgressPayload) => {
       const notificationId = 'database-reset';
 
       if (isCompleteStatus(payload.status)) {
@@ -935,7 +957,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Cache Clear Progress
-    const handleCacheClearProgress = (payload: any) => {
+    const handleCacheClearProgress = (payload: CacheClearProgressPayload) => {
       const notificationId = 'cache_clearing';
 
       // Use setNotifications to get current state (avoid stale closure)
@@ -989,7 +1011,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Cache Clear Complete
-    const handleCacheClearComplete = (payload: any) => {
+    const handleCacheClearComplete = (payload: CacheClearCompletePayload) => {
       console.log('[NotificationsContext] CacheClearComplete received:', payload);
       const notificationId = 'cache_clearing';
 
@@ -1034,7 +1056,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Depot Mapping Started
-    const handleDepotMappingStarted = (payload: any) => {
+    const handleDepotMappingStarted = (payload: DepotMappingStartedPayload) => {
       console.log('[NotificationsContext] DepotMappingStarted received:', payload);
       const notificationId = 'depot_mapping';
 
@@ -1064,7 +1086,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Depot Mapping Progress
-    const handleDepotMappingProgress = (payload: any) => {
+    const handleDepotMappingProgress = (payload: DepotMappingProgressPayload) => {
       console.log('[NotificationsContext] DepotMappingProgress received:', payload);
       const notificationId = 'depot_mapping';
 
@@ -1153,7 +1175,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Depot Mapping Complete (added as new handler)
-    const handleDepotMappingComplete = (payload: any) => {
+    const handleDepotMappingComplete = (payload: DepotMappingCompletePayload) => {
       console.log('[NotificationsContext] DepotMappingComplete received:', payload);
       const notificationId = 'depot_mapping';
 
@@ -1325,7 +1347,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Steam Session Error - handles session replacement, auth failures, etc.
-    const handleSteamSessionError = (payload: any) => {
+    const handleSteamSessionError = (payload: SteamSessionErrorPayload) => {
       console.log('[NotificationsContext] SteamSessionError received:', payload);
 
       // Determine title based on error type
@@ -1442,8 +1464,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
   // Listen for custom toast notifications (e.g., preference changes)
   React.useEffect(() => {
-    const handleShowToast = (event: any) => {
-      const { type, message, duration } = event.detail;
+    const handleShowToast = (event: Event) => {
+      const customEvent = event as CustomEvent<ShowToastPayload>;
+      const { type, message, duration } = customEvent.detail;
 
       const notificationId = addNotification({
         type: 'generic',

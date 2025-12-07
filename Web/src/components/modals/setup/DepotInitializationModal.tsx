@@ -20,6 +20,21 @@ interface DepotInitializationModalProps {
   onAuthChanged?: () => void;
 }
 
+/** PICS data status from the API */
+interface PicsStatus {
+  jsonFile?: {
+    exists: boolean;
+    totalMappings?: number;
+  };
+  database?: {
+    totalMappings?: number;
+  };
+  steamKit2?: {
+    isReady: boolean;
+    isRebuildRunning?: boolean;
+  };
+}
+
 type InitStep =
   | 'api-key'
   | 'import-historical-data'
@@ -57,7 +72,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   const [authError, setAuthError] = useState<string | null>(null);
   const [dataAvailable, setDataAvailable] = useState(false);
   const [checkingDataAvailability, setCheckingDataAvailability] = useState(false);
-  const [picsData, setPicsData] = useState<any>(null);
+  const [picsData, setPicsData] = useState<PicsStatus | null>(null);
   const [usingSteamAuth, setUsingSteamAuth] = useState<boolean>(false);
   const [dataSourceChoice, setDataSourceChoice] = useState<'github' | 'steam' | null>(() => {
     const stored = storage.getItem('dataSourceChoice');
@@ -226,8 +241,8 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       } else {
         setAuthError(result.message);
       }
-    } catch (error: any) {
-      setAuthError(error.message || 'Authentication failed');
+    } catch (error: unknown) {
+      setAuthError((error instanceof Error ? error.message : String(error)) || 'Authentication failed');
     } finally {
       setAuthenticating(false);
     }

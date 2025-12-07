@@ -12,6 +12,7 @@ import {
   Key
 } from 'lucide-react';
 import ApiService from '@services/api.service';
+import { getErrorMessage } from '@utils/error';
 import { useNotifications, type UnifiedNotification } from '@contexts/NotificationsContext';
 import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 import themeService from '@services/theme.service';
@@ -459,11 +460,12 @@ const UniversalNotificationBar: React.FC = () => {
       // First attempt: Try graceful cancellation
       await ApiService.cancelCacheClear(operationId);
       removeNotification(notificationId);
-    } catch (err: any) {
+    } catch (err: unknown) {
       // If operation is already completed/not found, just dismiss the notification silently
+      const errorMsg = getErrorMessage(err);
       if (
-        err?.message?.includes('Operation not found') ||
-        err?.message?.includes('already completed')
+        errorMsg.includes('Operation not found') ||
+        errorMsg.includes('already completed')
       ) {
         console.log(
           '[UniversalNotificationBar] Operation already completed, dismissing notification'
@@ -500,11 +502,12 @@ const UniversalNotificationBar: React.FC = () => {
       // First attempt: Try graceful cancellation
       await ApiService.cancelServiceRemoval();
       removeNotification(notificationId);
-    } catch (err: any) {
+    } catch (err: unknown) {
       // If operation is already completed/not found, just dismiss the notification silently
+      const errorMsg = getErrorMessage(err);
       if (
-        err?.message?.includes('not found') ||
-        err?.message?.includes('No service removal')
+        errorMsg.includes('not found') ||
+        errorMsg.includes('No service removal')
       ) {
         console.log(
           '[UniversalNotificationBar] Service removal already completed, dismissing notification'
@@ -540,7 +543,7 @@ const UniversalNotificationBar: React.FC = () => {
     try {
       await ApiService.cancelSteamKitRebuild();
       removeNotification(notificationId);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to cancel depot mapping:', err);
       // Still remove notification to prevent stuck UI
       removeNotification(notificationId);

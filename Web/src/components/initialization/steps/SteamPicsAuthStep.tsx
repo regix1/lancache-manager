@@ -69,8 +69,8 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
         const data = await response.json();
         setError(data.error || 'Failed to save authentication mode');
       }
-    } catch (err: any) {
-      setError(err.message || 'Network error - failed to save authentication mode');
+    } catch (err: unknown) {
+      setError((err instanceof Error ? err.message : String(err)) || 'Network error - failed to save authentication mode');
     } finally {
       setSaving(false);
     }

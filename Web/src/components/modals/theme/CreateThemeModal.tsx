@@ -16,7 +16,7 @@ import { Button } from '../../ui/Button';
 import { Checkbox } from '../../ui/Checkbox';
 import { ImprovedColorPicker } from '../../features/management/theme/ImprovedColorPicker';
 import { colorGroups, pageDefinitions } from '../../features/management/theme/constants';
-import { type ColorGroup } from '../../features/management/theme/types';
+import { type ColorGroup, type EditableTheme } from '../../features/management/theme/types';
 import { storage } from '@utils/storage';
 
 interface CreateThemeModalProps {
@@ -24,8 +24,8 @@ interface CreateThemeModalProps {
   onClose: () => void;
   onSave: () => void;
   isAuthenticated: boolean;
-  newTheme: any;
-  setNewTheme: React.Dispatch<React.SetStateAction<any>>;
+  newTheme: EditableTheme;
+  setNewTheme: React.Dispatch<React.SetStateAction<EditableTheme>>;
   organizationMode: 'category' | 'page';
   setOrganizationMode: React.Dispatch<React.SetStateAction<'category' | 'page'>>;
   selectedPage: string;
@@ -93,7 +93,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
 
   const handleColorChange = (key: string, value: string) => {
     // Just update the value, don't save to history on every change
-    setNewTheme((prev: any) => ({ ...prev, [key]: value }));
+    setNewTheme((prev) => ({ ...prev, [key]: value }));
   };
 
   const restoreCreatePreviousColor = (key: string) => {
@@ -128,14 +128,14 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
 
         // Apply the previous color immediately
         if (previousColor) {
-          setNewTheme((prev: any) => ({ ...prev, [key]: previousColor }));
+          setNewTheme((prev) => ({ ...prev, [key]: previousColor }));
         }
       }
     } else {
       // No recent history, restore to original color and remove it (final undo)
       const originalColor = storage.getItem(originalKey);
       if (originalColor) {
-        setNewTheme((prev: any) => ({ ...prev, [key]: originalColor }));
+        setNewTheme((prev) => ({ ...prev, [key]: originalColor }));
         // Remove original after restoring to it (no more undos available)
         storage.removeItem(originalKey);
       }
@@ -170,7 +170,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
 
   const loadPresetColors = (preset: 'dark' | 'light') => {
     if (preset === 'dark') {
-      setNewTheme((prev: any) => ({
+      setNewTheme((prev) => ({
         ...prev,
         isDark: true,
         bgPrimary: '#111827',
@@ -214,7 +214,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
         scrollbarHover: '#9CA3AF'
       }));
     } else {
-      setNewTheme((prev: any) => ({
+      setNewTheme((prev) => ({
         ...prev,
         isDark: false,
         bgPrimary: '#ffffff',
@@ -542,7 +542,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
                         label={color.label}
                         description={color.description}
                         affects={color.affects}
-                        value={newTheme[color.key] || '#ffffff'}
+                        value={(newTheme[color.key] as string) || '#ffffff'}
                         onChange={(value) => handleColorChange(color.key, value)}
                         onColorCommit={(previousColor) =>
                           handleColorCommit(color.key, previousColor)

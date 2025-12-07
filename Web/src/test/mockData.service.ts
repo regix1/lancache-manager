@@ -1,18 +1,27 @@
 import { SERVICES } from '../utils/constants';
+import type { Download, CacheInfo, ClientStat, ServiceStat, DashboardStats } from '../types';
 
 interface MockData {
-  cacheInfo: any;
-  activeDownloads: any[];
-  latestDownloads: any[];
-  clientStats: any[];
-  serviceStats: any[];
-  dashboardStats: any;
+  cacheInfo: CacheInfo;
+  activeDownloads: Download[];
+  latestDownloads: Download[];
+  clientStats: ClientStat[];
+  serviceStats: ServiceStat[];
+  dashboardStats: DashboardStats;
 }
 
 interface GameInfo {
   appId: number;
   name: string;
   size: number;
+}
+
+// Type for tracking client activity during mock data generation
+interface ClientActivityTracker {
+  totalCacheHitBytes: number;
+  totalCacheMissBytes: number;
+  totalDownloads: number;
+  lastSeen: Date;
 }
 
 // Real Steam games with actual app IDs for proper banner/image display
@@ -98,14 +107,14 @@ class MockDataService {
     };
 
     // Generate downloads with realistic patterns
-    const downloads: any[] = [];
+    const downloads: Download[] = [];
     const now = new Date();
 
     // Calculate the actual count - if "unlimited", generate a large dataset
     const actualCount = downloadCount === 'unlimited' ? 500 : downloadCount;
 
     // Track client activity for accurate stats
-    const clientActivity: Record<string, any> = {};
+    const clientActivity: Record<string, ClientActivityTracker> = {};
 
     for (let i = 0; i < actualCount; i++) {
       const service = SERVICES[Math.floor(Math.random() * SERVICES.length)];
@@ -121,7 +130,7 @@ class MockDataService {
         now.getTime() - hoursAgo * 60 * 60 * 1000 - Math.random() * 3600000
       );
 
-      let download: any;
+      let download: Download;
 
       if (isMetadata) {
         // Metadata download
@@ -139,12 +148,12 @@ class MockDataService {
           totalBytes: 0,
           cacheHitPercent: 0,
           isActive: false,
-          gameName: null
+          gameName: undefined
         };
       } else {
         // Regular download
-        let gameName = null;
-        let gameAppId = null;
+        let gameName: string | undefined;
+        let gameAppId: number | undefined;
         let totalBytes: number;
 
         if (service === 'steam' && Math.random() < 0.85) {
@@ -234,20 +243,11 @@ class MockDataService {
             lastActivityLocal: lastSeenIso
           };
         } else {
-          // Client had no downloads - return zeros
-          return {
-            clientIp: ip,
-            totalCacheHitBytes: 0,
-            totalCacheMissBytes: 0,
-            totalBytes: 0,
-            cacheHitPercent: 0,
-            totalDownloads: 0,
-            lastActivityUtc: null,
-            lastActivityLocal: null
-          };
+          // Client had no downloads - return null to filter out
+          return null;
         }
       })
-      .filter((client) => client.totalBytes > 0); // Only include clients with activity
+      .filter((client): client is ClientStat => client !== null && client.totalBytes > 0);
 
     // Generate service stats
     const serviceStats = SERVICES.map((service) => {
@@ -317,7 +317,7 @@ class MockDataService {
     };
   }
 
-  static generateRealtimeUpdate(): any {
+  static generateRealtimeUpdate(): Download {
     const isMetadata = Math.random() < 0.15;
     const nowIso = new Date().toISOString();
 

@@ -2,10 +2,30 @@ import React, { useEffect, useState } from 'react';
 import { Cloud, Database, Loader2, AlertTriangle, ArrowLeft, CheckCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { useSignalR } from '@contexts/SignalRContext';
+import type {
+  DepotMappingStartedPayload,
+  DepotMappingProgressPayload,
+  DepotMappingCompletePayload
+} from '@contexts/SignalRContext/types';
 import ApiService from '@services/api.service';
 
+/** PICS data status from the API */
+interface PicsStatus {
+  jsonFile?: {
+    exists: boolean;
+    totalMappings?: number;
+  };
+  database?: {
+    totalMappings?: number;
+  };
+  steamKit2?: {
+    isReady: boolean;
+    isRebuildRunning?: boolean;
+  };
+}
+
 interface DepotInitStepProps {
-  picsData: any;
+  picsData: PicsStatus | null;
   usingSteamAuth?: boolean;
   hideOptions?: boolean;
   onDownloadPrecreated: () => void;
@@ -33,7 +53,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
-    const handleDepotMappingStarted = (payload: any) => {
+    const handleDepotMappingStarted = (payload: DepotMappingStartedPayload) => {
       if (payload.scanMode === 'github') {
         setInitializing(true);
         setSelectedMethod('cloud');
@@ -42,14 +62,14 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
       }
     };
 
-    const handleDepotMappingProgress = (payload: any) => {
+    const handleDepotMappingProgress = (payload: DepotMappingProgressPayload) => {
       if (selectedMethod === 'cloud') {
         setProgress(payload.percentComplete || 0);
         setDownloadStatus(payload.message || 'Processing depot mappings...');
       }
     };
 
-    const handleDepotMappingComplete = (payload: any) => {
+    const handleDepotMappingComplete = (payload: DepotMappingCompletePayload) => {
       if (payload.scanMode === 'github') {
         if (payload.success) {
           setDownloadStatus('Success! Depot mappings imported.');
@@ -114,8 +134,8 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
 
     try {
       await ApiService.downloadPrecreatedDepotData();
-    } catch (err: any) {
-      setError(err.message || 'Failed to download pre-created depot data from GitHub');
+    } catch (err: unknown) {
+      setError((err instanceof Error ? err.message : String(err)) || 'Failed to download pre-created depot data from GitHub');
       setInitializing(false);
       setSelectedMethod(null);
       setDownloadStatus(null);
@@ -136,8 +156,8 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
         return;
       }
       onGenerateOwn();
-    } catch (err: any) {
-      setError(err.message || 'Failed to start depot generation');
+    } catch (err: unknown) {
+      setError((err instanceof Error ? err.message : String(err)) || 'Failed to start depot generation');
       setInitializing(false);
       setSelectedMethod(null);
     }
@@ -164,8 +184,8 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
         }
       }
       onContinue();
-    } catch (err: any) {
-      setError(err.message || 'Failed to run incremental update');
+    } catch (err: unknown) {
+      setError((err instanceof Error ? err.message : String(err)) || 'Failed to run incremental update');
       setInitializing(false);
       setSelectedMethod(null);
       setDownloadStatus(null);

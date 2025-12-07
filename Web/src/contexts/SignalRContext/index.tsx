@@ -186,6 +186,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
       // Set up event dispatchers - these dispatch to our handlers map
       const setupEventDispatchers = () => {
         SIGNALR_EVENTS.forEach((eventName) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           connection.on(eventName, (...args: any[]) => {
             // console.log(`[SignalR] Received event: ${eventName}`, args);
 

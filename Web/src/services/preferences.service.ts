@@ -1,6 +1,27 @@
 import { API_BASE } from '../utils/constants';
 import authService from './auth.service';
 
+// SignalR payload types for preference updates
+interface PreferencesUpdatedPayload {
+  sessionId: string;
+  preferences: UserPreferences;
+}
+
+interface SessionRevokedPayload {
+  deviceId: string;
+  sessionType: 'authenticated' | 'guest';
+}
+
+interface DefaultGuestThemeChangedPayload {
+  newThemeId: string;
+}
+
+// SignalR connection interface - handler needs to accept any args for compatibility
+interface SignalRConnection {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  on: (eventName: string, handler: (...args: any[]) => void) => void;
+}
+
 export interface UserPreferences {
   selectedTheme: string | null;
   sharpCorners: boolean;
@@ -235,7 +256,7 @@ class PreferencesService {
    * Setup SignalR listener for preference updates
    * Handles UserPreferencesUpdated, UserPreferencesReset, and UserSessionsCleared
    */
-  setupSignalRListener(signalR: { on: (eventName: string, handler: (...args: any[]) => void) => void }): void {
+  setupSignalRListener(signalR: SignalRConnection): void {
     // console.log('[PreferencesService] Setting up SignalR listeners');
 
     // Track if we're processing to prevent race conditions
@@ -246,7 +267,7 @@ class PreferencesService {
     const recentRevocations = new Set<string>();
 
     // Handle preference updates
-    const handlePreferencesUpdated = (payload: any) => {
+    const handlePreferencesUpdated = (payload: PreferencesUpdatedPayload) => {
       if (isProcessingUpdate) {
         // console.log('[PreferencesService] Already processing update, skipping duplicate');
         return;
@@ -347,7 +368,7 @@ class PreferencesService {
     };
 
     // Handle session revoked - check if it's our session and logout immediately
-    const handleSessionRevoked = (payload: any) => {
+    const handleSessionRevoked = (payload: SessionRevokedPayload) => {
       const { deviceId, sessionType } = payload;
       const revocationKey = `${deviceId}-${sessionType}`;
 
@@ -387,7 +408,7 @@ class PreferencesService {
     };
 
     // Handle default guest theme changed - auto-update guests using default theme
-    const handleDefaultGuestThemeChanged = (payload: any) => {
+    const handleDefaultGuestThemeChanged = (payload: DefaultGuestThemeChangedPayload) => {
       // console.log('[PreferencesService] DefaultGuestThemeChanged event received:', payload);
 
       const { newThemeId } = payload;

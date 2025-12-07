@@ -9,6 +9,11 @@
  * are tracked via HttpOnly cookies to prevent XSS attacks.
  */
 
+// Extension for Navigator to include Chrome's deviceMemory API
+interface NavigatorWithDeviceMemory extends Navigator {
+  deviceMemory?: number;
+}
+
 export class BrowserFingerprint {
   /**
    * Generate a stable browser fingerprint hash (synchronous)
@@ -37,8 +42,8 @@ export class BrowserFingerprint {
     // Hardware concurrency (CPU cores)
     components.push(String(navigator.hardwareConcurrency || 'unknown'));
 
-    // Device memory (if available)
-    const nav = navigator as any;
+    // Device memory (if available - Chrome's Device Memory API)
+    const nav = navigator as NavigatorWithDeviceMemory;
     if (nav.deviceMemory) {
       components.push(String(nav.deviceMemory));
     }

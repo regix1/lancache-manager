@@ -17,6 +17,24 @@ import themeService from '@services/theme.service';
 import authService from '@services/auth.service';
 import { API_BASE } from '@utils/constants';
 
+interface ColorPreview {
+  primaryColor?: string;
+  secondaryColor?: string;
+  accentColor?: string;
+  bgPrimary?: string;
+  textPrimary?: string;
+  [key: string]: string | undefined;
+}
+
+interface GitHubFile {
+  name: string;
+  type: 'file' | 'dir';
+  path: string;
+  sha: string;
+  size: number;
+  download_url: string;
+}
+
 interface CommunityTheme {
   name: string;
   fileName: string;
@@ -29,7 +47,7 @@ interface CommunityTheme {
     version?: string;
     isDark?: boolean;
   };
-  colors?: any;
+  colors?: ColorPreview;
 }
 
 interface CommunityThemeImporterProps {
@@ -99,7 +117,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
 
       // Filter for .toml files
       const tomlFiles = files.filter(
-        (file: any) => file.name.endsWith('.toml') && file.type === 'file'
+        (file: GitHubFile) => file.name.endsWith('.toml') && file.type === 'file'
       );
 
       // Fetch content for each theme file
@@ -117,7 +135,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
                 fileName: file.name,
                 content,
                 meta: parsedTheme.meta,
-                colors: parsedTheme.colors
+                colors: parsedTheme.colors as ColorPreview
               });
             }
           }
@@ -132,8 +150,8 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       if (autoCheckUpdates && isAuthenticated) {
         await checkAndUpdateThemes(themes);
       }
-    } catch (err: any) {
-      showToast('error', err.message || 'Failed to load community themes');
+    } catch (err: unknown) {
+      showToast('error', (err instanceof Error ? err.message : String(err)) || 'Failed to load community themes');
       console.error('Error loading community themes:', err);
     } finally {
       setLoading(false);
@@ -196,8 +214,8 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       if (onThemeImported) {
         onThemeImported();
       }
-    } catch (err: any) {
-      showToast('error', err.message || 'Failed to import theme');
+    } catch (err: unknown) {
+      showToast('error', (err instanceof Error ? err.message : String(err)) || 'Failed to import theme');
     } finally {
       setImporting(null);
     }
@@ -303,7 +321,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       }
 
       return true;
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(`Failed to auto-update theme ${theme.meta?.name || theme.name}:`, err);
       return false;
     } finally {
@@ -319,7 +337,8 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
     await loadCommunityThemes();
   };
 
-  const getColorPreview = (colors: any) => {
+  const getColorPreview = (colors: ColorPreview | undefined) => {
+    if (!colors) return ['#3b82f6', '#8b5cf6', '#06b6d4', '#111827', '#ffffff'];
     return [
       colors.primaryColor || '#3b82f6',
       colors.secondaryColor || '#8b5cf6',

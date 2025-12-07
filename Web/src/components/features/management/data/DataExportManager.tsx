@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Download,
+  Download as DownloadIcon,
   Activity,
   Database,
   Clock,
@@ -17,7 +17,7 @@ import { Alert } from '@components/ui/Alert';
 import { HelpPopover, HelpSection, HelpNote, HelpKeyword, HelpDefinition } from '@components/ui/HelpPopover';
 import ApiService from '@services/api.service';
 import { formatDateTime } from '@utils/formatters';
-import type { ClientStat, ServiceStat, CacheInfo, DashboardStats } from '../../../../types';
+import type { ClientStat, ServiceStat, CacheInfo, DashboardStats, Download } from '../../../../types';
 
 interface DataExportManagerProps {
   isAuthenticated: boolean;
@@ -28,13 +28,20 @@ interface DataExportManagerProps {
 
 type ExportFormat = 'json' | 'csv' | 'prometheus' | 'influxdb';
 type DataType = 'clients' | 'services' | 'cache' | 'dashboard' | 'downloads';
+type ExportData = ClientStat[] | ServiceStat[] | CacheInfo | DashboardStats | Download[];
+
+/** Props interface for icon components */
+interface IconComponentProps {
+  className?: string;
+  style?: React.CSSProperties;
+}
 
 interface ExportOption {
   type: DataType;
   label: string;
   description: string;
   formats: ExportFormat[];
-  icon: React.ComponentType<any>;
+  icon: React.ComponentType<IconComponentProps>;
 }
 
 const exportOptions: ExportOption[] = [
@@ -96,7 +103,7 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
       .catch(() => setMetricsSecured(false));
   }, []);
 
-  const convertToCSV = (data: any[]): string => {
+  const convertToCSV = (data: object[]): string => {
     if (!data || data.length === 0) return '';
 
     // UTF-8 BOM for proper special character encoding (™, ®, etc.)
@@ -106,7 +113,7 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
     const csvHeaders = headers.join(',');
 
     // Helper to escape CSV values
-    const escapeCSV = (value: any): string => {
+    const escapeCSV = (value: unknown): string => {
       if (value === null || value === undefined) return '';
       const str = String(value);
       // Escape if contains comma, quote, or newline
@@ -117,7 +124,7 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
     };
 
     // Helper to format value for CSV
-    const formatValue = (header: string, value: any): string => {
+    const formatValue = (header: string, value: unknown): string => {
       if (value === null || value === undefined) return '';
 
       // Format timestamps (UTC or Local variants)
@@ -130,9 +137,9 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
         header.toLowerCase().includes('date')
       ) {
         // Check if it's a valid date string or Date object
-        const date = new Date(value);
-        if (!isNaN(date.getTime())) {
-          return formatDateTime(value);
+        const dateValue = value instanceof Date ? value : typeof value === 'string' || typeof value === 'number' ? new Date(value) : null;
+        if (dateValue && !isNaN(dateValue.getTime())) {
+          return formatDateTime(value as string | Date | null);
         }
       }
 
@@ -154,9 +161,10 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
     };
 
     const csvRows = data.map((row) => {
+      const rowRecord = row as Record<string, unknown>;
       return headers
         .map((header) => {
-          const formattedValue = formatValue(header, row[header]);
+          const formattedValue = formatValue(header, rowRecord[header]);
           return escapeCSV(formattedValue);
         })
         .join(',');
@@ -165,7 +173,7 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
     return BOM + [csvHeaders, ...csvRows].join('\n');
   };
 
-  const convertToPrometheus = (data: any, type: DataType): string => {
+  const convertToPrometheus = (data: ExportData, type: DataType): string => {
     const timestamp = Date.now();
     const metrics: string[] = [];
 
@@ -234,7 +242,7 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
     return metrics.join('\n');
   };
 
-  const convertToInfluxDB = (data: any, type: DataType): string => {
+  const convertToInfluxDB = (data: ExportData, type: DataType): string => {
     const timestamp = Date.now() * 1000000; // InfluxDB uses nanoseconds
     const lines: string[] = [];
 
@@ -293,7 +301,7 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
     const progressInterval = simulateProgress(selectedType);
 
     try {
-      let data: any;
+      let data: ExportData;
       let filename: string;
       let mimeType: string;
       let content: string;
@@ -361,10 +369,10 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
       setTimeout(() => setLoadingProgress({}), 500);
 
       onSuccess?.(`Exported ${selectedType} data as ${selectedFormat.toUpperCase()}`);
-    } catch (error: any) {
+    } catch (error: unknown) {
       clearInterval(progressInterval);
       setLoadingProgress({});
-      onError?.(error.message || 'Failed to export data');
+      onError?.((error instanceof Error ? error.message : String(error)) || 'Failed to export data');
     } finally {
       setLoading(false);
     }
@@ -448,7 +456,7 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
       <Card>
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-green">
-            <Download className="w-5 h-5 icon-green" />
+            <DownloadIcon className="w-5 h-5 icon-green" />
           </div>
           <h3 className="text-lg font-semibold text-themed-primary">Data Export</h3>
           <HelpPopover position="left" width={320}>
@@ -588,7 +596,7 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
             loading={loading}
             variant="filled"
             color="green"
-            leftSection={<Download className="w-4 h-4" />}
+            leftSection={<DownloadIcon className="w-4 h-4" />}
             fullWidth
           >
             Export Data

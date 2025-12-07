@@ -83,8 +83,8 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
       } else {
         setAuthError(result.message);
       }
-    } catch (error: any) {
-      setAuthError(error.message || 'Authentication failed');
+    } catch (error: unknown) {
+      setAuthError((error instanceof Error ? error.message : String(error)) || 'Authentication failed');
     } finally {
       setAuthenticating(false);
     }

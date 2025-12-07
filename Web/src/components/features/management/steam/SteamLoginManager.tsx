@@ -100,8 +100,8 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
         const error = await response.json();
         onError?.(error.message || 'Failed to switch to anonymous mode');
       }
-    } catch (err: any) {
-      onError?.(err.message || 'Failed to switch to anonymous mode');
+    } catch (err: unknown) {
+      onError?.((err instanceof Error ? err.message : String(err)) || 'Failed to switch to anonymous mode');
     } finally {
       setLoading(false);
     }

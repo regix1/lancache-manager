@@ -21,6 +21,7 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import ApiService from '@services/api.service';
 import themeService from '@services/theme.service';
 import authService from '@services/auth.service';
+import { getErrorMessage } from '@utils/error';
 import { useAuth } from '@contexts/AuthContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 
@@ -41,6 +42,16 @@ interface Session {
   revokedAt?: string | null;
   revokedBy?: string | null;
   type: 'authenticated' | 'guest';
+}
+
+/** User preferences for theme and UI settings */
+interface UserPreferences {
+  selectedTheme: string | null;
+  sharpCorners: boolean;
+  disableFocusOutlines: boolean;
+  disableTooltips: boolean;
+  picsAlwaysVisible: boolean;
+  disableStickyNotifications: boolean;
 }
 
 // Helper component for session timestamps with timezone awareness
@@ -81,7 +92,7 @@ const UserTab: React.FC = () => {
   const [updatingGuestTheme, setUpdatingGuestTheme] = useState(false);
   const [availableThemes, setAvailableThemes] = useState<{ id: string; name: string }[]>([]);
   const [editingSession, setEditingSession] = useState<Session | null>(null);
-  const [editingPreferences, setEditingPreferences] = useState<any>(null);
+  const [editingPreferences, setEditingPreferences] = useState<UserPreferences | null>(null);
   const [loadingPreferences, setLoadingPreferences] = useState(false);
   const [savingPreferences, setSavingPreferences] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -118,8 +129,8 @@ const UserTab: React.FC = () => {
         const errorData = await response.json();
         showToast('error', errorData.error || 'Failed to load sessions');
       }
-    } catch (err: any) {
-      showToast('error', err.message || 'Failed to load sessions');
+    } catch (err: unknown) {
+      showToast('error', getErrorMessage(err) || 'Failed to load sessions');
     } finally {
       if (showLoading) {
         setLoading(false);
@@ -151,8 +162,8 @@ const UserTab: React.FC = () => {
       setUpdatingDuration(true);
       await ApiService.setGuestSessionDuration(newDuration);
       setGuestDurationHours(newDuration);
-    } catch (err: any) {
-      showToast('error', err.message || 'Failed to update guest session duration');
+    } catch (err: unknown) {
+      showToast('error', getErrorMessage(err) || 'Failed to update guest session duration');
     } finally {
       setUpdatingDuration(false);
     }
@@ -204,8 +215,8 @@ const UserTab: React.FC = () => {
         const errorData = await response.json();
         showToast('error', errorData.error || 'Failed to update default guest theme');
       }
-    } catch (err: any) {
-      showToast('error', err.message || 'Failed to update default guest theme');
+    } catch (err: unknown) {
+      showToast('error', getErrorMessage(err) || 'Failed to update default guest theme');
     } finally {
       setUpdatingGuestTheme(false);
     }
@@ -288,8 +299,8 @@ const UserTab: React.FC = () => {
         const errorData = await response.json();
         showToast('error', errorData.message || errorData.error || 'Failed to revoke session');
       }
-    } catch (err: any) {
-      showToast('error', err.message || 'Failed to revoke session');
+    } catch (err: unknown) {
+      showToast('error', getErrorMessage(err) || 'Failed to revoke session');
     } finally {
       setRevokingSession(null);
     }
@@ -341,8 +352,8 @@ const UserTab: React.FC = () => {
         const errorData = await response.json();
         showToast('error', errorData.message || errorData.error || 'Failed to delete session');
       }
-    } catch (err: any) {
-      showToast('error', err.message || 'Failed to delete session');
+    } catch (err: unknown) {
+      showToast('error', getErrorMessage(err) || 'Failed to delete session');
     } finally {
       setDeletingSession(null);
     }
@@ -384,8 +395,8 @@ const UserTab: React.FC = () => {
           disableStickyNotifications: false
         });
       }
-    } catch (err: any) {
-      showToast('error', err.message || 'Failed to load user preferences');
+    } catch (err: unknown) {
+      showToast('error', getErrorMessage(err) || 'Failed to load user preferences');
       setEditingSession(null);
     } finally {
       setLoadingPreferences(false);
@@ -436,8 +447,8 @@ const UserTab: React.FC = () => {
         const errorData = await response.json();
         showToast('error', errorData.error || 'Failed to save preferences');
       }
-    } catch (err: any) {
-      showToast('error', err.message || 'Failed to save preferences');
+    } catch (err: unknown) {
+      showToast('error', getErrorMessage(err) || 'Failed to save preferences');
     } finally {
       setSavingPreferences(false);
     }

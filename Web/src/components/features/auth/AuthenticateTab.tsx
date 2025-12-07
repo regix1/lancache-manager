@@ -43,9 +43,9 @@ const AuthenticateTab: React.FC = () => {
       } else {
         showToast('error', result.message || 'Authentication failed');
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Authentication error:', err);
-      showToast('error', err.message || 'Authentication failed');
+      showToast('error', (err instanceof Error ? err.message : String(err)) || 'Authentication failed');
     } finally {
       setLoading(false);
     }

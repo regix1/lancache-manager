@@ -24,7 +24,7 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
       setIsCancelling(true);
       await ApiService.cancelSteamKitRebuild();
       onCancel?.();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to cancel PICS rebuild:', error);
       onCancel?.();
     } finally {

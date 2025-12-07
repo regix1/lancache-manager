@@ -138,8 +138,8 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
       setCurrentPath(result.currentPath);
       setParentPath(result.parentPath);
       setItems(result.items);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load directory');
+    } catch (err: unknown) {
+      setError((err instanceof Error ? err.message : String(err)) || 'Failed to load directory');
     } finally {
       setLoading(false);
     }
@@ -190,8 +190,8 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
       if (result.results.length === 0) {
         setError('No database files found in this location');
       }
-    } catch (err: any) {
-      setError(err.message || 'Search failed');
+    } catch (err: unknown) {
+      setError((err instanceof Error ? err.message : String(err)) || 'Search failed');
     } finally {
       setSearching(false);
     }

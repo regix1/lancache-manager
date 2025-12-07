@@ -212,12 +212,14 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
         onError?.(errorMsg);
         return false;
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Don't show error if request was aborted intentionally
-      if (err.name !== 'AbortError') {
+      if (err instanceof Error && err.name === 'AbortError') {
+        // Request was aborted intentionally, skip error handling
+      } else {
         setWaitingForMobileConfirmation(false);
         setLoading(false);
-        const errorMessage = err.message || 'Authentication failed';
+        const errorMessage = err instanceof Error ? err.message : 'Authentication failed';
         addNotification({
           type: 'generic',
           status: 'failed',

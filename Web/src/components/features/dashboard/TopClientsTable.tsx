@@ -4,10 +4,10 @@ import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { CacheInfoTooltip } from '@components/ui/Tooltip';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import type { ClientStat } from '@/types';
 
 interface TopClientsTableProps {
-  clientStats?: any[];
-  downloads?: any[];
+  clientStats?: ClientStat[];
   timeRange?: string;
   customStartDate?: Date | null;
   customEndDate?: Date | null;

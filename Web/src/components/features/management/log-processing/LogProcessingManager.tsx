@@ -2,6 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Zap, RefreshCw, PlayCircle, AlertTriangle } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext';
+import type {
+  ProcessingProgressPayload,
+  FastProcessingCompletePayload
+} from '@contexts/SignalRContext/types';
 import { useNotifications } from '@contexts/NotificationsContext';
 import { useSteamAuth } from '@contexts/SteamAuthContext';
 import { Alert } from '@components/ui/Alert';
@@ -50,8 +54,8 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   const isProcessingLogs = isProcessingLogsFromNotification || isStartingProcessing;
 
   // Local state for tracking processing UI (notifications handled by NotificationsContext)
-  // @ts-ignore - processingStatus is set but notifications are handled by NotificationsContext
-  const [processingStatus, setProcessingStatus] = useState<ProcessingUIStatus | null>(null);
+  // Note: _processingStatus is intentionally unused - setProcessingStatus updates are for internal state management
+  const [_processingStatus, setProcessingStatus] = useState<ProcessingUIStatus | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [confirmModal, setConfirmModal] = useState<{
     title: string;
@@ -126,7 +130,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     }
 
     // Handler for ProcessingProgress event
-    const handleProcessingProgress = (progress: any) => {
+    const handleProcessingProgress = (progress: ProcessingProgressPayload) => {
       const currentProgress = progress.percentComplete || progress.progress || 0;
       const status = progress.status || 'processing';
 
@@ -171,7 +175,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     };
 
     // Handler for FastProcessingComplete event
-    const handleFastProcessingComplete = async (result: any) => {
+    const handleFastProcessingComplete = async (result: FastProcessingCompletePayload) => {
       console.log('SignalR FastProcessingComplete received:', result);
       // Stop polling immediately when we receive completion signal
       if (pollingInterval.current) {
@@ -368,8 +372,8 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         onSuccess?.('Log position reset to beginning of file');
         setTimeout(() => onDataRefresh?.(), 2000);
       }
-    } catch (err: any) {
-      onError?.(err.message || 'Failed to reset log position');
+    } catch (err: unknown) {
+      onError?.((err instanceof Error ? err.message : String(err)) || 'Failed to reset log position');
     } finally {
       setActionLoading(false);
       setConfirmModal(null);
@@ -389,8 +393,8 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         onSuccess?.('Log position reset to end of file');
         setTimeout(() => onDataRefresh?.(), 2000);
       }
-    } catch (err: any) {
-      onError?.(err.message || 'Failed to reset log position');
+    } catch (err: unknown) {
+      onError?.((err instanceof Error ? err.message : String(err)) || 'Failed to reset log position');
     } finally {
       setActionLoading(false);
       setConfirmModal(null);
@@ -416,9 +420,9 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           result.status === 'already_processed'
         ) {
           if (result.status === 'already_processed') {
-            onSuccess?.(result.message);
+            onSuccess?.(result.message ?? 'Already processed');
           } else {
-            onError?.(result.message);
+            onError?.(result.message ?? 'Processing failed');
           }
           setActionLoading(false);
           setIsStartingProcessing(false);
@@ -444,7 +448,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           });
 
           if (result.message) {
-            onSuccess?.(result.message);
+            onSuccess?.(result.message ?? 'Already processed');
           }
 
           // SignalR will send ProcessingProgress which creates the notification
@@ -466,9 +470,9 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       } else {
         setIsStartingProcessing(false);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setIsStartingProcessing(false);
-      onError?.(err.message || 'Failed to process logs');
+      onError?.((err instanceof Error ? err.message : String(err)) || 'Failed to process logs');
     } finally {
       setActionLoading(false);
     }

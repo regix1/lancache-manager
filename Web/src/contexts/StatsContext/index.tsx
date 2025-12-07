@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import ApiService from '@services/api.service';
+import { isAbortError } from '@utils/error';
 import MockDataService from '../../test/mockData.service';
 import { useTimeFilter } from '../TimeFilterContext';
 import { usePollingRate } from '../PollingRateContext';
@@ -139,8 +140,8 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
 
       clearTimeout(timeoutId);
       setError(null);
-    } catch (err: any) {
-      if (!hasData.current && err.name !== 'AbortError') {
+    } catch (err: unknown) {
+      if (!hasData.current && !isAbortError(err)) {
         setError('Failed to fetch stats');
       }
     }
@@ -170,8 +171,8 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       if (clients && clients.length >= 0) {
         setClientStats(clients);
       }
-    } catch (err: any) {
-      if (err.name !== 'AbortError') {
+    } catch (err: unknown) {
+      if (!isAbortError(err)) {
         console.error('Failed to fetch client stats:', err);
       }
     }
@@ -201,8 +202,8 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       if (services) {
         setServiceStats(services);
       }
-    } catch (err: any) {
-      if (err.name !== 'AbortError') {
+    } catch (err: unknown) {
+      if (!isAbortError(err)) {
         console.error('Failed to fetch service stats:', err);
       }
     }
@@ -276,9 +277,9 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
 
       clearTimeout(timeoutId);
       setError(null);
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (!hasData.current) {
-        if (err.name === 'AbortError') {
+        if (isAbortError(err)) {
           setError('Request timeout - the server may be busy');
         } else {
           setError('Failed to fetch stats from API');

@@ -1,4 +1,40 @@
 /**
+ * Type guard to check if an object has a totalSeconds property
+ */
+function hasTotalSeconds(obj: object): obj is { totalSeconds: number } {
+  return 'totalSeconds' in obj && typeof (obj as { totalSeconds: unknown }).totalSeconds === 'number';
+}
+
+/**
+ * Type guard to check if an object has a totalHours property
+ */
+function hasTotalHours(obj: object): obj is { totalHours: number } {
+  return 'totalHours' in obj && typeof (obj as { totalHours: unknown }).totalHours === 'number';
+}
+
+/**
+ * Type guard to check if an object has hours/minutes/seconds properties
+ */
+function hasHoursMinutesSeconds(obj: object): obj is { hours: number; minutes: number; seconds: number } {
+  return 'hours' in obj && 'minutes' in obj && 'seconds' in obj;
+}
+
+/**
+ * Represents a time value from the API which can be:
+ * - A number (seconds)
+ * - A TimeSpan string ("HH:MM:SS" or "D.HH:MM:SS")
+ * - A TimeSpan object with totalSeconds, totalHours, or hours/minutes/seconds properties
+ */
+export type TimeValue =
+  | number
+  | string
+  | null
+  | undefined
+  | { totalSeconds: number }
+  | { totalHours: number }
+  | { hours: number; minutes: number; seconds: number };
+
+/**
  * Formats a next crawl time value (which can be a number, string, or object) into a human-readable string
  * @param nextCrawlIn The next crawl time value from the API (can be seconds, TimeSpan string, or TimeSpan object)
  * @param isRunning Whether a crawl is currently running
@@ -7,7 +43,7 @@
  * @returns A formatted time string like "2h 30m", "Due now", "Running now", etc.
  */
 export function formatNextCrawlTime(
-  nextCrawlIn: any,
+  nextCrawlIn: TimeValue,
   isRunning = false,
   fullScanRequired = false,
   crawlIncrementalMode: boolean | string = true
@@ -23,13 +59,13 @@ export function formatNextCrawlTime(
   let totalSeconds: number;
 
   // Handle different formats from the API
-  if (typeof nextCrawlIn === 'object' && nextCrawlIn.totalSeconds !== undefined) {
+  if (typeof nextCrawlIn === 'object' && nextCrawlIn !== null && hasTotalSeconds(nextCrawlIn)) {
     // Object with totalSeconds property
     totalSeconds = nextCrawlIn.totalSeconds;
-  } else if (typeof nextCrawlIn === 'object' && nextCrawlIn.totalHours !== undefined) {
+  } else if (typeof nextCrawlIn === 'object' && nextCrawlIn !== null && hasTotalHours(nextCrawlIn)) {
     // Object with totalHours property
     totalSeconds = nextCrawlIn.totalHours * 3600;
-  } else if (typeof nextCrawlIn === 'object' && nextCrawlIn.hours !== undefined) {
+  } else if (typeof nextCrawlIn === 'object' && nextCrawlIn !== null && hasHoursMinutesSeconds(nextCrawlIn)) {
     // Object with {hours, minutes, seconds} properties
     totalSeconds = nextCrawlIn.hours * 3600 + nextCrawlIn.minutes * 60 + nextCrawlIn.seconds;
   } else if (typeof nextCrawlIn === 'string') {
@@ -94,8 +130,8 @@ export function formatNextCrawlTime(
  * @param timeValue The time value (can be seconds, string, or object)
  * @returns Total hours as a number
  */
-export function toTotalHours(timeValue: any): number {
-  if (typeof timeValue === 'object' && timeValue?.totalHours !== undefined) {
+export function toTotalHours(timeValue: TimeValue): number {
+  if (typeof timeValue === 'object' && timeValue !== null && hasTotalHours(timeValue)) {
     return timeValue.totalHours;
   } else if (typeof timeValue === 'string') {
     const parts = timeValue.split(':');
@@ -116,12 +152,12 @@ export function toTotalHours(timeValue: any): number {
  * @param timeValue The time value (can be seconds, string, or object)
  * @returns Total seconds as a number
  */
-export function toTotalSeconds(timeValue: any): number {
-  if (typeof timeValue === 'object' && timeValue?.totalSeconds !== undefined) {
+export function toTotalSeconds(timeValue: TimeValue): number {
+  if (typeof timeValue === 'object' && timeValue !== null && hasTotalSeconds(timeValue)) {
     return timeValue.totalSeconds;
-  } else if (typeof timeValue === 'object' && timeValue?.totalHours !== undefined) {
+  } else if (typeof timeValue === 'object' && timeValue !== null && hasTotalHours(timeValue)) {
     return timeValue.totalHours * 3600;
-  } else if (typeof timeValue === 'object' && timeValue?.hours !== undefined) {
+  } else if (typeof timeValue === 'object' && timeValue !== null && hasHoursMinutesSeconds(timeValue)) {
     // Object with {hours, minutes, seconds} properties
     return timeValue.hours * 3600 + timeValue.minutes * 60 + timeValue.seconds;
   } else if (typeof timeValue === 'string') {

@@ -11,6 +11,7 @@ import {
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useSignalR } from '@contexts/SignalRContext';
+import type { CorruptionRemovalCompletePayload } from '@contexts/SignalRContext/types';
 import { useNotifications } from '@contexts/NotificationsContext';
 import { Card } from '@components/ui/Card';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
@@ -143,7 +144,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
   useEffect(() => {
     if (!signalR) return;
 
-    const handleCorruptionRemovalComplete = async (payload: any) => {
+    const handleCorruptionRemovalComplete = async (payload: CorruptionRemovalCompletePayload) => {
       console.log('[LogAndCorruptionManager] CorruptionRemovalComplete received, refreshing data');
 
       // State is derived from notifications - NotificationsContext handles the notification update
@@ -225,9 +226,9 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
       setCorruptionSummary(corruption);
       setLoadError(null);
       setHasInitiallyLoaded(true);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load log and corruption data:', err);
-      setLoadError(err.message || 'Failed to load service data');
+      setLoadError((err instanceof Error ? err.message : String(err)) || 'Failed to load service data');
     } finally {
       setIsLoading(false);
     }
@@ -269,10 +270,11 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
       } else {
         onError?.(`Unexpected response when starting log removal for ${serviceName}`);
       }
-    } catch (err: any) {
-      const errorMessage = err.message?.includes('read-only')
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const errorMessage = errMsg?.includes('read-only')
         ? 'Logs directory is read-only. Remove :ro from docker-compose volume mount.'
-        : err.message || 'Action failed';
+        : errMsg || 'Action failed';
       onError?.(errorMessage);
     } finally {
       setStartingServiceRemoval(null);
@@ -310,9 +312,9 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
       // Backend will send CorruptionRemovalStarted via SignalR which creates the notification
       // Then CorruptionRemovalComplete when done
       // The UI will update automatically via derived state from notifications
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('[CorruptionDetection] Removal failed:', err);
-      onError?.(err.message || `Failed to remove corrupted chunks for ${service}`);
+      onError?.((err instanceof Error ? err.message : String(err)) || `Failed to remove corrupted chunks for ${service}`);
     } finally {
       setStartingCorruptionRemoval(null);
     }
@@ -333,8 +335,8 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
       try {
         const details = await ApiService.getCorruptionDetails(service);
         setCorruptionDetails((prev) => ({ ...prev, [service]: details }));
-      } catch (err: any) {
-        onError?.(err.message || `Failed to load corruption details for ${service}`);
+      } catch (err: unknown) {
+        onError?.((err instanceof Error ? err.message : String(err)) || `Failed to load corruption details for ${service}`);
         setExpandedCorruptionService(null);
       } finally {
         setLoadingDetails(null);

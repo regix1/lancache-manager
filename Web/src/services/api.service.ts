@@ -1,5 +1,6 @@
 import { API_BASE } from '../utils/constants';
 import authService from './auth.service';
+import { isAbortError, getErrorMessage } from '../utils/error';
 import type {
   CacheInfo,
   Download,
@@ -17,17 +18,65 @@ import type {
   // GameCacheRemovalReport // No longer used - game removal is fire-and-forget
 } from '../types';
 
+// Response types for API operations
+interface ApiErrorData {
+  code?: string;
+  message?: string;
+  error?: string;
+  details?: string;
+  suggestion?: string;
+}
+
+interface OperationResponse {
+  message?: string;
+  success?: boolean;
+  status?: string;
+  // Log processing specific
+  logSizeMB?: number;
+  remainingMB?: number;
+  resume?: boolean;
+  estimatedTimeMinutes?: number;
+  // Depot rebuild specific
+  rebuildInProgress?: boolean;
+  started?: boolean;
+  requiresFullScan?: boolean;
+  changeGap?: number;
+  estimatedApps?: number;
+}
+
+interface LogRemovalStatus {
+  isActive: boolean;
+  service?: string;
+  progress?: number;
+  linesProcessed?: number;
+  totalLines?: number;
+}
+
+interface PicsStatus {
+  isScanning: boolean;
+  scanProgress?: number;
+  totalDepots?: number;
+  lastScanTime?: string;
+  nextScanIn?: number | string | { totalSeconds?: number; totalHours?: number };
+  // Additional status properties
+  jsonFile?: { exists: boolean; totalMappings?: number };
+  database?: { totalMappings?: number };
+  steamKit2?: { isReady: boolean; isRebuildRunning?: boolean };
+  rebuildInProgress?: boolean;
+}
+
 class ApiService {
   // Helper to check if error is a guest session revoked error (don't log these)
-  private static isGuestSessionError(error: any): boolean {
-    return error?.message?.includes('guest session') || error?.message?.includes('Session revoked');
+  private static isGuestSessionError(error: unknown): boolean {
+    const message = getErrorMessage(error);
+    return message.includes('guest session') || message.includes('Session revoked');
   }
 
   static async handleResponse<T>(response: Response): Promise<T> {
     // Handle 401 Unauthorized
     if (response.status === 401) {
       // Try to parse JSON error response
-      let errorData: any = null;
+      let errorData: ApiErrorData | null = null;
       try {
         const text = await response.text();
         errorData = text ? JSON.parse(text) : null;
@@ -119,8 +168,8 @@ class ApiService {
     try {
       const res = await fetch(`${API_BASE}/cache`, this.getFetchOptions({ signal }));
       return await this.handleResponse<CacheInfo>(res);
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
         // Silently ignore abort errors
       } else if (!this.isGuestSessionError(error)) {
         console.error('getCacheInfo error:', error);
@@ -133,8 +182,9 @@ class ApiService {
     try {
       const res = await fetch(`${API_BASE}/downloads/active`, this.getFetchOptions({ signal }));
       return await this.handleResponse<Download[]>(res);
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
       } else if (!this.isGuestSessionError(error)) {
         console.error('getActiveDownloads error:', error);
       }
@@ -155,8 +205,9 @@ class ApiService {
       if (endTime) url += `&endTime=${endTime}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<Download[]>(res);
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
       } else if (!this.isGuestSessionError(error)) {
         console.error('getLatestDownloads error:', error);
       }
@@ -177,8 +228,9 @@ class ApiService {
       if (params.toString()) url += `?${params}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<ClientStat[]>(res);
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
       } else {
         console.error('getClientStats error:', error);
       }
@@ -201,8 +253,9 @@ class ApiService {
       if (params.toString()) url += `?${params}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<ServiceStat[]>(res);
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
       } else {
         console.error('getServiceStats error:', error);
       }
@@ -215,8 +268,9 @@ class ApiService {
     try {
       const res = await fetch(`${API_BASE}/stats/dashboard?period=${period}`, this.getFetchOptions({ signal }));
       return await this.handleResponse<DashboardStats>(res);
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
       } else if (!this.isGuestSessionError(error)) {
         console.error('getDashboardStats error:', error);
       }
@@ -254,19 +308,20 @@ class ApiService {
   }
 
   // Cancel cache clearing operation (requires auth)
-  static async cancelCacheClear(operationId: string): Promise<any> {
+  static async cancelCacheClear(operationId: string): Promise<OperationResponse> {
     try {
       const res = await fetch(`${API_BASE}/cache/operations/${operationId}`, this.getFetchOptions({
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(5000)
       }));
-      return await this.handleResponse(res);
-    } catch (error: any) {
+      return await this.handleResponse<OperationResponse>(res);
+    } catch (error: unknown) {
       // Suppress logging for "operation not found" errors (expected when operation already completed)
+      const errorMsg = getErrorMessage(error);
       if (
-        !error?.message?.includes('Operation not found') &&
-        !error?.message?.includes('already completed')
+        !errorMsg.includes('Operation not found') &&
+        !errorMsg.includes('already completed')
       ) {
         console.error('cancelCacheClear error:', error);
       }
@@ -275,45 +330,45 @@ class ApiService {
   }
 
   // Force kill cache clearing operation (requires auth) - kills the Rust process
-  static async forceKillCacheClear(operationId: string): Promise<any> {
+  static async forceKillCacheClear(operationId: string): Promise<OperationResponse> {
     try {
       const res = await fetch(`${API_BASE}/cache/operations/${operationId}/kill`, this.getFetchOptions({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(10000)
       }));
-      return await this.handleResponse(res);
-    } catch (error: any) {
+      return await this.handleResponse<OperationResponse>(res);
+    } catch (error: unknown) {
       console.error('forceKillCacheClear error:', error);
       throw error;
     }
   }
 
   // Cancel service removal operation (requires auth)
-  static async cancelServiceRemoval(): Promise<any> {
+  static async cancelServiceRemoval(): Promise<OperationResponse> {
     try {
       const res = await fetch(`${API_BASE}/logs/remove/cancel`, this.getFetchOptions({
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(5000)
       }));
-      return await this.handleResponse(res);
-    } catch (error: any) {
+      return await this.handleResponse<OperationResponse>(res);
+    } catch (error: unknown) {
       console.error('cancelServiceRemoval error:', error);
       throw error;
     }
   }
 
   // Force kill service removal operation (requires auth) - kills the Rust process
-  static async forceKillServiceRemoval(): Promise<any> {
+  static async forceKillServiceRemoval(): Promise<OperationResponse> {
     try {
       const res = await fetch(`${API_BASE}/logs/remove/kill`, this.getFetchOptions({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(10000)
       }));
-      return await this.handleResponse(res);
-    } catch (error: any) {
+      return await this.handleResponse<OperationResponse>(res);
+    } catch (error: unknown) {
       console.error('forceKillServiceRemoval error:', error);
       throw error;
     }
@@ -322,29 +377,29 @@ class ApiService {
   // Reset database (requires auth)
   // Note: Triggered through resetSelectedTables when all tables selected
   // Also monitored via SignalR for progress notifications
-  static async resetDatabase(): Promise<any> {
+  static async resetDatabase(): Promise<OperationResponse> {
     try {
       const res = await fetch(`${API_BASE}/database/tables`, this.getFetchOptions({
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' }
         // No timeout - Rust backend handles efficiently
       }));
-      return await this.handleResponse(res);
-    } catch (error) {
+      return await this.handleResponse<OperationResponse>(res);
+    } catch (error: unknown) {
       console.error('resetDatabase error:', error);
       throw error;
     }
   }
 
   // Reset selected database tables (requires auth)
-  static async resetSelectedTables(tableNames: string[]): Promise<any> {
+  static async resetSelectedTables(tableNames: string[]): Promise<OperationResponse> {
     try {
       const res = await fetch(`${API_BASE}/database/tables`, this.getFetchOptions({
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tables: tableNames })
       }));
-      return await this.handleResponse(res);
+      return await this.handleResponse<OperationResponse>(res);
     } catch (error) {
       console.error('resetSelectedTables error:', error);
       throw error;
@@ -352,7 +407,7 @@ class ApiService {
   }
 
   // Reset log position (requires auth)
-  static async resetLogPosition(position: 'top' | 'bottom' = 'bottom'): Promise<any> {
+  static async resetLogPosition(position: 'top' | 'bottom' = 'bottom'): Promise<OperationResponse> {
     try {
       const res = await fetch(`${API_BASE}/logs/position`, this.getFetchOptions({
         method: 'PATCH',
@@ -360,23 +415,23 @@ class ApiService {
         body: JSON.stringify({ reset: true, position: position === 'top' ? 0 : null })
         // No timeout - may need to read entire log file to count lines
       }));
-      return await this.handleResponse(res);
-    } catch (error) {
+      return await this.handleResponse<OperationResponse>(res);
+    } catch (error: unknown) {
       console.error('resetLogPosition error:', error);
       throw error;
     }
   }
 
   // Process all logs (requires auth)
-  static async processAllLogs(): Promise<any> {
+  static async processAllLogs(): Promise<OperationResponse> {
     try {
       const res = await fetch(`${API_BASE}/logs/process`, this.getFetchOptions({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
         // No timeout - Rust log processor handles large files efficiently
       }));
-      return await this.handleResponse(res);
-    } catch (error) {
+      return await this.handleResponse<OperationResponse>(res);
+    } catch (error: unknown) {
       console.error('processAllLogs error:', error);
       throw error;
     }
@@ -396,26 +451,26 @@ class ApiService {
   }
 
   // Remove specific service entries from log file (requires auth)
-  static async removeServiceFromLogs(service: string): Promise<any> {
+  static async removeServiceFromLogs(service: string): Promise<OperationResponse> {
     try {
       const res = await fetch(`${API_BASE}/logs/services/${encodeURIComponent(service)}`, this.getFetchOptions({
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' }
         // No timeout - Rust log filtering handles large files efficiently
       }));
-      return await this.handleResponse(res);
-    } catch (error) {
+      return await this.handleResponse<OperationResponse>(res);
+    } catch (error: unknown) {
       console.error('removeServiceFromLogs error:', error);
       throw error;
     }
   }
 
   // Get log removal status
-  static async getLogRemovalStatus(): Promise<any> {
+  static async getLogRemovalStatus(): Promise<LogRemovalStatus> {
     try {
       const res = await fetch(`${API_BASE}/logs/remove/status`, this.getFetchOptions());
-      return await this.handleResponse(res);
-    } catch (error) {
+      return await this.handleResponse<LogRemovalStatus>(res);
+    } catch (error: unknown) {
       console.error('getLogRemovalStatus error:', error);
       throw error;
     }
@@ -466,26 +521,26 @@ class ApiService {
   }
 
   // PICS/Depot related endpoints (consolidated from GameInfoController)
-  static async getPicsStatus(signal?: AbortSignal): Promise<any> {
+  static async getPicsStatus(signal?: AbortSignal): Promise<PicsStatus> {
     try {
       const res = await fetch(`${API_BASE}/depots/status`, this.getFetchOptions({ signal }));
-      return await this.handleResponse(res);
-    } catch (error) {
+      return await this.handleResponse<PicsStatus>(res);
+    } catch (error: unknown) {
       console.error('getPicsStatus error:', error);
       throw error;
     }
   }
 
 
-  static async triggerSteamKitRebuild(incremental = false, signal?: AbortSignal): Promise<any> {
+  static async triggerSteamKitRebuild(incremental = false, signal?: AbortSignal): Promise<OperationResponse> {
     try {
       const res = await fetch(`${API_BASE}/depots/rebuild?incremental=${incremental}`, this.getFetchOptions({
         method: 'POST',
         signal,
         headers: { 'Content-Type': 'application/json' }
       }));
-      return await this.handleResponse(res);
-    } catch (error) {
+      return await this.handleResponse<OperationResponse>(res);
+    } catch (error: unknown) {
       console.error('triggerSteamKitRebuild error:', error);
       throw error;
     }
@@ -507,41 +562,41 @@ class ApiService {
     }
   }
 
-  static async checkIncrementalViability(signal?: AbortSignal): Promise<any> {
+  static async checkIncrementalViability(signal?: AbortSignal): Promise<{ viable: boolean; reason?: string; willTriggerFullScan?: boolean }> {
     try {
       const res = await fetch(`${API_BASE}/depots/rebuild/check-incremental`, this.getFetchOptions({
         method: 'GET',
         signal
       }));
-      return await this.handleResponse(res);
-    } catch (error) {
+      return await this.handleResponse<{ viable: boolean; reason?: string }>(res);
+    } catch (error: unknown) {
       console.error('checkIncrementalViability error:', error);
       throw error;
     }
   }
 
-  static async downloadPrecreatedDepotData(signal?: AbortSignal): Promise<any> {
+  static async downloadPrecreatedDepotData(signal?: AbortSignal): Promise<OperationResponse> {
     try {
       const res = await fetch(`${API_BASE}/depots/import?source=github`, this.getFetchOptions({
         method: 'POST',
         signal
       }));
-      return await this.handleResponse(res);
-    } catch (error) {
+      return await this.handleResponse<OperationResponse>(res);
+    } catch (error: unknown) {
       console.error('downloadPrecreatedDepotData error:', error);
       throw error;
     }
   }
 
-  static async applyDepotMappings(signal?: AbortSignal): Promise<any> {
+  static async applyDepotMappings(signal?: AbortSignal): Promise<OperationResponse> {
     try {
       const res = await fetch(`${API_BASE}/depots`, this.getFetchOptions({
         method: 'PATCH',
         signal,
         headers: { 'Content-Type': 'application/json' }
       }));
-      return await this.handleResponse(res);
-    } catch (error) {
+      return await this.handleResponse<OperationResponse>(res);
+    } catch (error: unknown) {
       console.error('applyDepotMappings error:', error);
       throw error;
     }
@@ -728,11 +783,11 @@ class ApiService {
 
   // Get active cache operations (for recovery on page load)
   // Note: Used by NotificationsContext for operation recovery
-  static async getActiveCacheOperations(): Promise<any> {
+  static async getActiveCacheOperations(): Promise<{ operations: CacheClearStatus[] }> {
     try {
       const res = await fetch(`${API_BASE}/cache/operations`, this.getFetchOptions());
-      return await this.handleResponse(res);
-    } catch (error) {
+      return await this.handleResponse<{ operations: CacheClearStatus[] }>(res);
+    } catch (error: unknown) {
       console.error('getActiveCacheOperations error:', error);
       throw error;
     }
@@ -740,11 +795,11 @@ class ApiService {
 
   // Get database reset status (for recovery on page load)
   // Note: Used by NotificationsContext for operation recovery
-  static async getDatabaseResetStatus(): Promise<any> {
+  static async getDatabaseResetStatus(): Promise<{ isResetting: boolean; progress?: number; currentTable?: string }> {
     try {
       const res = await fetch(`${API_BASE}/database/reset-status`, this.getFetchOptions());
-      return await this.handleResponse(res);
-    } catch (error) {
+      return await this.handleResponse<{ isResetting: boolean; progress?: number; currentTable?: string }>(res);
+    } catch (error: unknown) {
       console.error('getDatabaseResetStatus error:', error);
       throw error;
     }

@@ -1,10 +1,13 @@
 import authService from './auth.service';
 import { storage } from '@utils/storage';
 
+// Operation state data can be various shapes depending on the operation type
+type OperationStateData = Record<string, unknown>;
+
 interface OperationState {
   key: string;
   type: string;
-  data: any;
+  data: OperationStateData;
   expirationMinutes?: number;
   createdAt?: string;
   expiresAt?: string;
@@ -15,10 +18,10 @@ interface StateUpdateResponse {
   state?: OperationState;
 }
 
-interface QueuedRequest {
-  execute: () => Promise<any>;
-  resolve: (value: any) => void;
-  reject: (reason?: any) => void;
+interface QueuedRequest<T = unknown> {
+  execute: () => Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason?: unknown) => void;
 }
 
 const getApiUrl = (): string => {
@@ -31,7 +34,7 @@ const getApiUrl = (): string => {
 const API_URL = getApiUrl();
 
 class OperationStateService {
-  private requestQueue: QueuedRequest[] = [];
+  private requestQueue: QueuedRequest<unknown>[] = [];
   private activeRequests = 0;
   private readonly MAX_CONCURRENT_REQUESTS = 3;
   private readonly REQUEST_DELAY_MS = 100;
@@ -48,7 +51,7 @@ class OperationStateService {
       }
 
       return null;
-    } catch (error: any) {
+    } catch {
       // Silently handle errors - operation state checks are non-critical
       return null;
     }
@@ -57,7 +60,7 @@ class OperationStateService {
   async saveState(
     key: string,
     type: string,
-    data: any,
+    data: OperationStateData,
     expirationMinutes = 30
   ): Promise<OperationState> {
     return this.queueRequest(async () => {
@@ -82,14 +85,14 @@ class OperationStateService {
         }
 
         return await response.json();
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('Error saving state:', error);
         throw error;
       }
     });
   }
 
-  async updateState(key: string, updates: any): Promise<StateUpdateResponse | null> {
+  async updateState(key: string, updates: OperationStateData): Promise<StateUpdateResponse | null> {
     return new Promise((resolve) => {
       const existingTimer = this.updateDebounceTimers.get(key);
       if (existingTimer) {
@@ -120,7 +123,7 @@ class OperationStateService {
             }
 
             return await response.json();
-          } catch (error: any) {
+          } catch (error: unknown) {
             console.error('Error updating state:', error);
             return null;
           }
@@ -147,7 +150,7 @@ class OperationStateService {
         }
 
         return await response.json();
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('Error removing state:', error);
         throw error;
       }
@@ -169,7 +172,7 @@ class OperationStateService {
       }
 
       return await response.json();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error getting all states:', error);
       return [];
     }
@@ -213,13 +216,13 @@ class OperationStateService {
 
   private async queueRequest<T>(request: () => Promise<T>): Promise<T> {
     return new Promise((resolve, reject) => {
-      const queuedRequest: QueuedRequest = {
+      const queuedRequest: QueuedRequest<T> = {
         execute: request,
         resolve,
         reject
       };
 
-      this.requestQueue.push(queuedRequest);
+      this.requestQueue.push(queuedRequest as QueuedRequest<unknown>);
       this.processQueue();
     });
   }
@@ -252,7 +255,7 @@ class OperationStateService {
     maxRetries = 3,
     initialDelay = 1000
   ): Promise<Response> {
-    let lastError: any;
+    let lastError: unknown;
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
@@ -263,10 +266,14 @@ class OperationStateService {
         }
 
         lastError = new Error(`HTTP ${response.status}`);
-      } catch (error: any) {
+      } catch (error: unknown) {
         lastError = error;
 
-        if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
+        // Check for network error that should trigger retry
+        if (
+          error instanceof TypeError &&
+          error.message.includes('Failed to fetch')
+        ) {
           console.log(`Retry attempt ${attempt + 1}/${maxRetries} after network error`);
         } else {
           throw error;

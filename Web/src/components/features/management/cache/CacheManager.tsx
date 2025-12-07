@@ -112,9 +112,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       const modeDesc =
         newMode === 'rsync' ? 'Rsync' : newMode === 'full' ? 'Fast Mode' : 'Safe Mode';
       onSuccess?.(`Delete mode set to: ${modeDesc}`);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to update delete mode:', err);
-      onError?.(err?.message || 'Failed to update delete mode');
+      onError?.((err instanceof Error ? err.message : String(err)) || 'Failed to update delete mode');
     } finally {
       setDeleteModeLoading(false);
     }
@@ -141,8 +141,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     try {
       await ApiService.clearAllCache();
       // NotificationsContext handles success/error messages via SignalR
-    } catch (err: any) {
-      onError?.('Failed to start cache clearing: ' + (err?.message || 'Unknown error'));
+    } catch (err: unknown) {
+      onError?.('Failed to start cache clearing: ' + ((err instanceof Error ? err.message : String(err)) || 'Unknown error'));
       setIsCacheClearing(false);
     } finally {
       setActionLoading(false);

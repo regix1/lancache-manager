@@ -33,8 +33,9 @@ export const useSteamWebApiStatus = () => {
 
       const data = await response.json();
       setStatus(data);
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch Steam Web API status');
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch Steam Web API status';
+      setError(errorMessage);
       console.error('[SteamWebApiStatus] Error:', err);
     } finally {
       if (!skipLoading) {

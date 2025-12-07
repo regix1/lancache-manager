@@ -47,6 +47,9 @@ const STORAGE_KEYS = {
 // View modes
 type ViewMode = 'compact' | 'normal';
 
+// Sort order type
+type SortOrder = 'latest' | 'oldest' | 'largest' | 'smallest' | 'service' | 'efficiency' | 'efficiency-low' | 'sessions' | 'alphabetical';
+
 // Preset type
 type PresetType = 'pretty' | 'minimal' | 'showAll' | 'default' | 'custom';
 
@@ -155,7 +158,7 @@ const convertDownloadsToCSV = (downloads: Download[]): string => {
   const csvHeaders = headers.join(',');
 
   // Helper to escape CSV values
-  const escapeCSV = (value: any): string => {
+  const escapeCSV = (value: unknown): string => {
     if (value === null || value === undefined) return '';
     const str = String(value);
     // Escape if contains comma, quote, or newline
@@ -980,7 +983,7 @@ const DownloadsTab: React.FC = () => {
                   { value: 'service', label: 'Service' }
                 ]}
                 value={settings.sortOrder}
-                onChange={(value) => setSettings({ ...settings, sortOrder: value as any })}
+                onChange={(value) => setSettings({ ...settings, sortOrder: value as SortOrder })}
                 prefix="Sort:"
                 className="flex-1 min-w-0"
               />
@@ -1059,7 +1062,7 @@ const DownloadsTab: React.FC = () => {
                   { value: 'service', label: 'Service' }
                 ]}
                 value={settings.sortOrder}
-                onChange={(value) => setSettings({ ...settings, sortOrder: value as any })}
+                onChange={(value) => setSettings({ ...settings, sortOrder: value as SortOrder })}
                 prefix="Sort:"
                 className="w-28 md:w-32 lg:w-36"
               />

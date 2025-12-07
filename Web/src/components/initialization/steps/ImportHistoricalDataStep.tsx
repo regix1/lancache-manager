@@ -78,8 +78,8 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
       );
       const result = await ApiService.handleResponse<ValidationResult>(res);
       setValidationResult(result);
-    } catch (error: any) {
-      setValidationResult({ valid: false, message: error.message || 'Failed to validate connection' });
+    } catch (error: unknown) {
+      setValidationResult({ valid: false, message: (error instanceof Error ? error.message : String(error)) || 'Failed to validate connection' });
     } finally {
       setValidating(false);
     }
@@ -103,8 +103,8 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
       const result = await ApiService.handleResponse<ImportResult>(res);
       setImportResult(result);
       setTimeout(() => onComplete(), 2000);
-    } catch (error: any) {
-      setValidationResult({ valid: false, message: 'Import failed: ' + error.message });
+    } catch (error: unknown) {
+      setValidationResult({ valid: false, message: 'Import failed: ' + (error instanceof Error ? error.message : String(error)) });
     } finally {
       setImporting(false);
     }

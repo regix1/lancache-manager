@@ -42,9 +42,9 @@ const MemoryDiagnostics: React.FC = () => {
 
       const data = await response.json();
       setStats(data);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to fetch memory stats:', err);
-      setError(err.message || 'Failed to load memory statistics');
+      setError((err instanceof Error ? err.message : String(err)) || 'Failed to load memory statistics');
     } finally {
       setLoading(false);
     }

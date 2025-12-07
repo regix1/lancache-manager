@@ -3,6 +3,7 @@ import authService from './auth.service';
 import preferencesService from './preferences.service';
 import * as TOML from 'toml';
 import { storage } from '@utils/storage';
+import { getErrorMessage } from '@utils/error';
 
 interface ThemeColors {
   // Core colors
@@ -152,6 +153,8 @@ interface ThemeColors {
   guestSessionBg?: string;
   activeSessionColor?: string;
   activeSessionBg?: string;
+  // Index signature for dynamic color access
+  [key: string]: string | undefined;
 }
 
 interface ThemeMeta {
@@ -206,8 +209,8 @@ class ThemeService {
 
     // console.log('[ThemeService] Setting up preference change listeners');
 
-    window.addEventListener('preference-changed', (event: any) => {
-      const { key, value } = event.detail;
+    window.addEventListener('preference-changed', (event: Event) => {
+      const { key, value } = (event as CustomEvent<{ key: string; value: unknown }>).detail;
       console.log(`[ThemeService] Preference changed: ${key} = ${value}`);
 
       // Apply preference changes without showing notifications
@@ -235,7 +238,7 @@ class ThemeService {
                 .catch(err => {
                   console.error('[ThemeService] Failed to fetch default guest theme:', err);
                 });
-            } else if (value !== this.getCurrentThemeId()) {
+            } else if (typeof value === 'string' && value !== this.getCurrentThemeId()) {
               console.log(`[ThemeService] Applying new theme: ${value}`);
               this.setTheme(value);
             }
@@ -790,8 +793,9 @@ class ThemeService {
       }
 
       return theme;
-    } catch (error: any) {
-      if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+    } catch (error: unknown) {
+      const errorMsg = getErrorMessage(error);
+      if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
         throw new Error(
           'Cannot save theme: API server is not running. Please start the LANCache Manager API service.'
         );

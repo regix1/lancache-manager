@@ -1,5 +1,10 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import { useSignalR } from '@contexts/SignalRContext';
+import type {
+  DepotMappingStartedPayload,
+  DepotMappingProgressPayload,
+  DepotMappingCompletePayload
+} from '@contexts/SignalRContext/types';
 
 /**
  * PICS Progress Interface
@@ -152,7 +157,7 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
   useEffect(() => {
     if (mockMode) return;
 
-    const handleDepotMappingStarted = (payload: any) => {
+    const handleDepotMappingStarted = (payload: DepotMappingStartedPayload) => {
       console.log('[PicsProgress] Depot mapping started:', payload);
       setProgress((prev) =>
         prev
@@ -170,7 +175,7 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
       );
     };
 
-    const handleDepotMappingProgress = (payload: any) => {
+    const handleDepotMappingProgress = (payload: DepotMappingProgressPayload) => {
       console.log('[PicsProgress] Depot mapping progress:', payload);
       setProgress((prev) =>
         prev
@@ -192,7 +197,7 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
       );
     };
 
-    const handleDepotMappingComplete = (payload: any) => {
+    const handleDepotMappingComplete = (payload: DepotMappingCompletePayload) => {
       console.log('[PicsProgress] Depot mapping complete:', payload);
       const now = new Date().toISOString();
       setProgress((prev) =>

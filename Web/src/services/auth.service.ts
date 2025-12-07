@@ -1,6 +1,16 @@
 import { BrowserFingerprint } from '@utils/browserFingerprint';
+import { getErrorMessage } from '@utils/error';
 
 export type AuthMode = 'authenticated' | 'guest' | 'expired' | 'unauthenticated';
+
+// Session info returned from the sessions API
+interface SessionInfo {
+  id: string;
+  type: 'authenticated' | 'guest';
+  deviceName?: string;
+  createdAt?: string;
+  lastActivity?: string;
+}
 
 interface AuthCheckResponse {
   requiresAuth: boolean;
@@ -109,7 +119,7 @@ class AuthService {
 
         // Check if our device ID exists in the authenticated sessions
         const ourDeviceExists = sessions.some(
-          (session: any) => session.type === 'authenticated' && session.id === this.deviceId
+          (session: SessionInfo) => session.type === 'authenticated' && session.id === this.deviceId
         );
 
         // If our device was deleted, clear local auth state
@@ -324,7 +334,7 @@ class AuthService {
         hasBeenInitialized: false,
         hasDataLoaded: false
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Auth check failed:', error);
       this.isAuthenticated = false;
       this.authChecked = true;
@@ -338,7 +348,7 @@ class AuthService {
         hasEverBeenSetup: false,
         hasBeenInitialized: false,
         hasDataLoaded: false,
-        error: error.message
+        error: getErrorMessage(error)
       };
     }
   }
@@ -385,11 +395,11 @@ class AuthService {
         success: false,
         message: result.message || 'Registration failed'
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Registration failed:', error);
       return {
         success: false,
-        message: error.message || 'Network error during registration'
+        message: getErrorMessage(error) || 'Network error during registration'
       };
     } finally {
       // CRITICAL: Always clear the flag when done
@@ -426,11 +436,11 @@ class AuthService {
         success: false,
         message: result.error || result.message || 'Logout failed'
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Logout failed:', error);
       return {
         success: false,
-        message: error.message || 'Network error during logout'
+        message: getErrorMessage(error) || 'Network error during logout'
       };
     }
   }
@@ -463,11 +473,11 @@ class AuthService {
         success: false,
         message: result.message || 'Failed to regenerate API key'
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to regenerate API key:', error);
       return {
         success: false,
-        message: error.message || 'Network error while regenerating API key'
+        message: getErrorMessage(error) || 'Network error while regenerating API key'
       };
     }
   }

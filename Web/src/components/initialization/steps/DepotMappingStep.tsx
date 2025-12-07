@@ -49,9 +49,9 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
             setApplyingMappings(false);
             setPhase(null);
           }, 1000);
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error('[DepotMapping] Error applying mappings:', err);
-          setError(err.message || 'Failed to apply depot mappings');
+          setError((err instanceof Error ? err.message : String(err)) || 'Failed to apply depot mappings');
           setMapping(false);
           setApplyingMappings(false);
           setPhase(null);
@@ -83,9 +83,9 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
         setMapping(false);
         return;
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('[DepotMapping] Error:', err);
-      setError(err.message || 'Failed to start depot scan');
+      setError((err instanceof Error ? err.message : String(err)) || 'Failed to start depot scan');
       setMapping(false);
       setPhase(null);
     }
@@ -101,9 +101,9 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
         setComplete(true);
         setMapping(false);
       }, 2000);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('[DepotMapping] Error downloading from GitHub:', err);
-      setError(err.message || 'Failed to download from GitHub');
+      setError((err instanceof Error ? err.message : String(err)) || 'Failed to download from GitHub');
       setMapping(false);
     }
   };

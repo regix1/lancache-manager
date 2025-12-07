@@ -52,10 +52,10 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
           message: data.error || 'Failed to test API key'
         });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       setTestResult({
         valid: false,
-        message: error.message || 'Network error - failed to test API key'
+        message: (error instanceof Error ? error.message : String(error)) || 'Network error - failed to test API key'
       });
     } finally {
       setTesting(false);
@@ -91,10 +91,10 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
           message: data.error || data.message || 'Failed to save API key'
         });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       setTestResult({
         valid: false,
-        message: error.message || 'Network error - failed to save API key'
+        message: (error instanceof Error ? error.message : String(error)) || 'Network error - failed to save API key'
       });
     } finally {
       setSaving(false);

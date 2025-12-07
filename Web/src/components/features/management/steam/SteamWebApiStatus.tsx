@@ -65,8 +65,8 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
       } else {
         alert(data.error || 'Failed to remove API key');
       }
-    } catch (error: any) {
-      alert(error.message || 'Network error - failed to remove API key');
+    } catch (error: unknown) {
+      alert((error instanceof Error ? error.message : String(error)) || 'Network error - failed to remove API key');
     } finally {
       setRemoving(false);
     }

@@ -2,6 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { FileText, Loader2, CheckCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { useSignalR } from '@contexts/SignalRContext';
+import type {
+  ProcessingProgressPayload,
+  FastProcessingCompletePayload
+} from '@contexts/SignalRContext/types';
 import ApiService from '@services/api.service';
 
 interface LogProcessingStepProps {
@@ -63,7 +67,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
   };
 
   useEffect(() => {
-    const handleProcessingProgress = (payload: any) => {
+    const handleProcessingProgress = (payload: ProcessingProgressPayload) => {
       const currentProgress = payload.percentComplete || payload.progress || 0;
       const status = payload.status || 'processing';
 
@@ -95,7 +99,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       });
     };
 
-    const handleFastProcessingComplete = (payload: any) => {
+    const handleFastProcessingComplete = (payload: FastProcessingCompletePayload) => {
       setProgress({
         isProcessing: false,
         progress: 100,
@@ -125,8 +129,8 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
     try {
       await ApiService.resetLogPosition('top');
       await ApiService.processAllLogs();
-    } catch (err: any) {
-      setError(err.message || 'Failed to start log processing');
+    } catch (err: unknown) {
+      setError((err instanceof Error ? err.message : String(err)) || 'Failed to start log processing');
       setProcessing(false);
     }
   };

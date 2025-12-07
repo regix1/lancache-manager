@@ -5,13 +5,14 @@ import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { useDownloads } from '@contexts/DownloadsContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
+import type { Download } from '@/types';
 
 interface DownloadGroup {
   id: string;
   name: string;
   type: 'game' | 'metadata' | 'content';
   service: string;
-  downloads: any[];
+  downloads: Download[];
   totalBytes: number; // Size of the game/content (largest single download)
   totalDownloaded: number; // Total bytes downloaded across all sessions
   cacheHitBytes: number;
@@ -23,12 +24,12 @@ interface DownloadGroup {
 }
 
 interface RecentDownloadsPanelProps {
-  downloads?: any[]; // Keep for backward compatibility but won't be used
+  downloads?: Download[]; // Keep for backward compatibility but won't be used
   timeRange?: string;
 }
 
 interface ActiveDownloadRowProps {
-  download: any;
+  download: Download;
 }
 
 const ActiveDownloadRow: React.FC<ActiveDownloadRowProps> = ({ download }) => {
@@ -105,7 +106,7 @@ const ActiveDownloadRow: React.FC<ActiveDownloadRowProps> = ({ download }) => {
 };
 
 interface RecentDownloadRowProps {
-  item: DownloadGroup | any;
+  item: DownloadGroup | Download;
 }
 
 const RecentDownloadRow: React.FC<RecentDownloadRowProps> = ({ item }) => {
@@ -126,7 +127,7 @@ const RecentDownloadRow: React.FC<RecentDownloadRowProps> = ({ item }) => {
         clientIp: `${item.clientsSet.size} client${item.clientsSet.size !== 1 ? 's' : ''}`,
         count: item.count,
         type: item.type,
-        hasGameName: item.downloads.some((d: any) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/))
+        hasGameName: item.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/))
       }
     : {
         service: item.service,
@@ -240,9 +241,9 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
 
     // Grouping logic adapted from DownloadsTab
     const createGroups = useCallback(
-      (downloads: any[]): { groups: DownloadGroup[]; individuals: any[] } => {
+      (downloads: Download[]): { groups: DownloadGroup[]; individuals: Download[] } => {
         const groups: Record<string, DownloadGroup> = {};
-        const individuals: any[] = [];
+        const individuals: Download[] = [];
 
         downloads.forEach((download) => {
           let groupKey: string;
@@ -403,16 +404,16 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
         return false;
       });
 
-      const allItems: (DownloadGroup | any)[] = [...groups, ...filteredIndividuals];
+      const allItems: (DownloadGroup | Download)[] = [...groups, ...filteredIndividuals];
 
       allItems.sort((a, b) => {
         const aTime =
           'downloads' in a
-            ? Math.max(...a.downloads.map((d: any) => new Date(d.startTimeUtc).getTime()))
+            ? Math.max(...a.downloads.map((d: Download) => new Date(d.startTimeUtc).getTime()))
             : new Date(a.startTimeUtc).getTime();
         const bTime =
           'downloads' in b
-            ? Math.max(...b.downloads.map((d: any) => new Date(d.startTimeUtc).getTime()))
+            ? Math.max(...b.downloads.map((d: Download) => new Date(d.startTimeUtc).getTime()))
             : new Date(b.startTimeUtc).getTime();
         return bTime - aTime;
       });

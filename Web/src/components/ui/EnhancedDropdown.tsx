@@ -1,12 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChevronDown, Check } from 'lucide-react';
 
+/** Props interface for icon components used in dropdowns */
+interface IconComponentProps {
+  size?: number;
+  className?: string;
+  style?: React.CSSProperties;
+}
+
 export interface DropdownOption {
   value: string;
   label: string;
   shortLabel?: string; // Compact label for button display
   description?: string;
-  icon?: React.ComponentType<any>;
+  icon?: React.ComponentType<IconComponentProps>;
   disabled?: boolean;
   rightLabel?: string; // Right-aligned badge/label (e.g., "10s", "1m")
 }
@@ -25,7 +32,7 @@ interface EnhancedDropdownProps {
   alignRight?: boolean; // When true, dropdown aligns to the right of the button
   dropdownTitle?: string; // Optional title/subtitle at the top of the dropdown
   footerNote?: string; // Optional footer note/warning at the bottom
-  footerIcon?: React.ComponentType<any>; // Optional icon for footer note
+  footerIcon?: React.ComponentType<IconComponentProps>; // Optional icon for footer note
   cleanStyle?: boolean; // When true, uses the clean style without icons in options
 }
 

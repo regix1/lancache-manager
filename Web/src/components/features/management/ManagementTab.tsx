@@ -13,6 +13,10 @@ import { useStats } from '@contexts/StatsContext';
 import { useNotifications } from '@contexts/NotificationsContext';
 import { useMockMode } from '@contexts/MockModeContext';
 import { useSignalR } from '@contexts/SignalRContext';
+import type {
+  LogRemovalCompletePayload,
+  CorruptionRemovalCompletePayload
+} from '@contexts/SignalRContext/types';
 import { useAuth } from '@contexts/AuthContext';
 import { useSteamAuth } from '@contexts/SteamAuthContext';
 import ApiService from '@services/api.service';
@@ -208,8 +212,8 @@ const DatabaseManager: React.FC<{
 
         setLoading(false);
       }
-    } catch (err: any) {
-      onError?.(err.message || 'Failed to clear selected tables');
+    } catch (err: unknown) {
+      onError?.((err instanceof Error ? err.message : String(err)) || 'Failed to clear selected tables');
       setLoading(false);
     }
   };
@@ -501,7 +505,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
 
     // Note: Depot mapping events are now handled by NotificationsContext via SignalR
 
-    const handleLogRemovalComplete = async (payload: any) => {
+    const handleLogRemovalComplete = async (payload: LogRemovalCompletePayload) => {
       // Management-specific: Refresh LogAndCorruptionManager component
       if (payload.success) {
         // Clear LogAndCorruptionManager operation state
@@ -519,7 +523,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
       }
     };
 
-    const handleCorruptionRemovalComplete = async (payload: any) => {
+    const handleCorruptionRemovalComplete = async (payload: CorruptionRemovalCompletePayload) => {
       // Management-specific: Refresh LogAndCorruptionManager component after corruption removal
       if (payload.success) {
         // Refresh LogAndCorruptionManager to show updated corruption summary

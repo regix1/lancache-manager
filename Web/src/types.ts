@@ -1,4 +1,6 @@
 // types.ts
+import type { LucideIcon } from 'lucide-react';
+
 export interface CacheInfo {
   totalCacheSize: number;
   usedCacheSize: number;
@@ -26,6 +28,7 @@ export interface Download {
   gameImageUrl?: string;
   depotId?: number;
   lastUrl?: string;
+  displayName?: string;
 }
 
 export interface DownloadSettings {
@@ -157,7 +160,7 @@ export interface StatCardData {
   title: string;
   value: string | number;
   subtitle?: string;
-  icon: any;
+  icon: LucideIcon;
   color: 'blue' | 'green' | 'emerald' | 'purple' | 'indigo' | 'orange' | 'yellow' | 'cyan';
   visible: boolean;
   tooltip?: string;

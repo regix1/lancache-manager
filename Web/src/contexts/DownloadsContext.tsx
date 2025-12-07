@@ -8,6 +8,7 @@ import React, {
   type ReactNode
 } from 'react';
 import ApiService from '@services/api.service';
+import { isAbortError } from '@utils/error';
 import MockDataService from '../test/mockData.service';
 import { useTimeFilter } from './TimeFilterContext';
 import { usePollingRate } from './PollingRateContext';
@@ -121,8 +122,8 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
 
       clearTimeout(timeoutId);
       setError(null);
-    } catch (err: any) {
-      if (!hasData.current && err.name !== 'AbortError') {
+    } catch (err: unknown) {
+      if (!hasData.current && !isAbortError(err)) {
         setError('Failed to fetch downloads');
       }
     }
@@ -173,9 +174,9 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
 
       clearTimeout(timeoutId);
       setError(null);
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (!hasData.current) {
-        if (err.name === 'AbortError') {
+        if (isAbortError(err)) {
           setError('Request timeout - the server may be busy');
         } else {
           setError('Failed to fetch downloads from API');

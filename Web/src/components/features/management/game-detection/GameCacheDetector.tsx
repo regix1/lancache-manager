@@ -303,8 +303,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       await ApiService.startGameCacheDetection(forceRefresh);
       // Note: NotificationsContext will create a notification via SignalR (GameDetectionStarted event)
       // and recovery is handled by recoverGameDetection
-    } catch (err: any) {
-      const errorMsg = err.message || 'Failed to start detection';
+    } catch (err: unknown) {
+      const errorMsg = (err instanceof Error ? err.message : String(err)) || 'Failed to start detection';
       setError(errorMsg);
       addNotification({
         type: 'generic',
@@ -452,8 +452,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       setTimeout(() => {
         onDataRefresh?.();
       }, 30000); // Refresh after 30 seconds
-    } catch (err: any) {
-      const errorMsg = err.message || 'Failed to remove game from cache';
+    } catch (err: unknown) {
+      const errorMsg = (err instanceof Error ? err.message : String(err)) || 'Failed to remove game from cache';
 
       // Update notification to failed (ID is "game_removal-{gameAppId}")
       const notifId = `game_removal-${gameAppId}`;
@@ -510,8 +510,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       setTimeout(() => {
         onDataRefresh?.();
       }, 30000); // Refresh after 30 seconds
-    } catch (err: any) {
-      const errorMsg = err.message || 'Failed to remove service from cache';
+    } catch (err: unknown) {
+      const errorMsg = (err instanceof Error ? err.message : String(err)) || 'Failed to remove service from cache';
 
       // Update notification to failed (ID is "service_removal-{serviceName}")
       const notifId = `service_removal-${serviceName}`;

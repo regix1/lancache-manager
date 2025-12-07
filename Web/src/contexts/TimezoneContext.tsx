@@ -28,8 +28,9 @@ export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     loadPreference();
 
     // Listen for timezone preference changes
-    const handlePreferenceChange = (event: any) => {
-      const { key, value } = event.detail;
+    const handlePreferenceChange = (event: Event) => {
+      const customEvent = event as CustomEvent<{ key: string; value: boolean }>;
+      const { key, value } = customEvent.detail;
       if (key === 'useLocalTimezone') {
         // Only update if value actually changed
         setUseLocalTimezone((prev) => {

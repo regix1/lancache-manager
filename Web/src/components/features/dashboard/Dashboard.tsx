@@ -792,7 +792,6 @@ const Dashboard: React.FC = () => {
         >
           <TopClientsTable
             clientStats={filteredClientStats || []}
-            downloads={filteredLatestDownloads || []}
             timeRange={timeRange}
             customStartDate={customStartDate}
             customEndDate={customEndDate}
