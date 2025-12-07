@@ -166,9 +166,9 @@ public class RustProcessHelper
     }
 
     /// <summary>
-    /// Reads an output JSON file, deserializes it, and cleans it up
+    /// Reads an output JSON file and deserializes it (keeps the file for history)
     /// </summary>
-    public async Task<T> ReadAndCleanupOutputJsonAsync<T>(string outputJsonPath, string operationName) where T : class
+    public async Task<T> ReadOutputJsonAsync<T>(string outputJsonPath, string operationName) where T : class
     {
         if (!File.Exists(outputJsonPath))
         {
@@ -187,6 +187,16 @@ public class RustProcessHelper
             _logger.LogError("[{Operation}] Failed to parse output JSON", operationName);
             throw new Exception($"Failed to parse {operationName} output JSON");
         }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Reads an output JSON file, deserializes it, and cleans it up
+    /// </summary>
+    public async Task<T> ReadAndCleanupOutputJsonAsync<T>(string outputJsonPath, string operationName) where T : class
+    {
+        var result = await ReadOutputJsonAsync<T>(outputJsonPath, operationName);
 
         // Clean up temporary JSON file
         await DeleteTemporaryFileAsync(outputJsonPath);

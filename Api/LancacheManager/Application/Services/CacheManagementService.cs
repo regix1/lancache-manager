@@ -706,8 +706,8 @@ public class CacheManagementService
                         throw new Exception($"corruption_manager detect failed with exit code {process.ExitCode}: {error}");
                     }
 
-                    // Read the generated JSON file
-                    var report = await _rustProcessHelper.ReadAndCleanupOutputJsonAsync<CorruptionReport>(outputJson, "CorruptionDetection");
+                    // Read the generated JSON file (keep for operation history)
+                    var report = await _rustProcessHelper.ReadOutputJsonAsync<CorruptionReport>(outputJson, "CorruptionDetection");
 
                     if (report?.CorruptedChunks == null)
                     {
@@ -865,8 +865,8 @@ public class CacheManagementService
                     throw new Exception($"game_cache_remover failed with exit code {process.ExitCode}: {error}");
                 }
 
-                // Read the generated JSON file
-                var report = await _rustProcessHelper.ReadAndCleanupOutputJsonAsync<GameCacheRemovalReport>(outputJson, "GameRemoval");
+                // Read the generated JSON file (keep for operation history)
+                var report = await _rustProcessHelper.ReadOutputJsonAsync<GameCacheRemovalReport>(outputJson, "GameRemoval");
 
                 _logger.LogInformation("[GameRemoval] Removed {Files} files ({Bytes} bytes) for game {AppId}",
                     report.CacheFilesDeleted, report.TotalBytesFreed, gameAppId);
