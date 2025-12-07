@@ -429,15 +429,16 @@ public class DatabaseRepository : IDatabaseRepository
                     case "CachedGameDetections":
                         // Use ExecuteDeleteAsync for direct deletion (more efficient for this table)
                         var gameDetectionCount = await context.CachedGameDetections.ExecuteDeleteAsync();
-                        _logger.LogInformation($"Cleared {gameDetectionCount:N0} cached game detections");
-                        deletedRows += gameDetectionCount;
+                        var serviceDetectionCount = await context.CachedServiceDetections.ExecuteDeleteAsync();
+                        _logger.LogInformation($"Cleared {gameDetectionCount:N0} cached game detections and {serviceDetectionCount:N0} cached service detections");
+                        deletedRows += gameDetectionCount + serviceDetectionCount;
 
                         await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
                         {
                             isProcessing = true,
                             percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                             status = "deleting",
-                            message = $"Cleared cached game detections ({gameDetectionCount:N0} rows)",
+                            message = $"Cleared cached game detections ({gameDetectionCount:N0} games, {serviceDetectionCount:N0} services)",
                             timestamp = DateTime.UtcNow
                         });
                         break;

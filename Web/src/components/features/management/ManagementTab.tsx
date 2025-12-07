@@ -136,8 +136,8 @@ const DatabaseManager: React.FC<{
     {
       name: 'CachedGameDetections',
       label: 'Game Cache Detection',
-      description: 'Cached results from game cache detection scans',
-      details: 'Pre-computed game detections from cache files to speed up dashboard loading'
+      description: 'Cached results from game and service detection scans',
+      details: 'Pre-computed game and service detections from cache files to speed up dashboard loading'
     },
     {
       name: 'UserSessions',
