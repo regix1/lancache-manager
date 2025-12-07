@@ -234,9 +234,9 @@ public class GameCacheDetectionService
                 await ApplyMappingsPreCheckAsync(operation);
             }
 
-            var dataDir = _pathResolver.GetDataDirectory();
+            var operationsDir = _pathResolver.GetOperationsDirectory();
             var dbPath = _pathResolver.GetDatabasePath();
-            var outputJson = Path.Combine(dataDir, $"game_detection_{operationId}.json");
+            var outputJson = Path.Combine(operationsDir, $"game_detection_{operationId}.json");
 
             var rustBinaryPath = _pathResolver.GetRustGameDetectorPath();
 
@@ -265,7 +265,7 @@ public class GameCacheDetectionService
                         existingGames = cachedGames.Select(ConvertToGameCacheInfo).ToList();
                         var excludedGameIds = existingGames.Select(g => g.GameAppId).ToList();
 
-                        excludedIdsPath = Path.Combine(dataDir, $"excluded_game_ids_{operationId}.json");
+                        excludedIdsPath = Path.Combine(operationsDir, $"excluded_game_ids_{operationId}.json");
                         var excludedIdsJson = JsonSerializer.Serialize(excludedGameIds);
                         File.WriteAllText(excludedIdsPath, excludedIdsJson);
 

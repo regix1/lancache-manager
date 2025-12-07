@@ -162,8 +162,8 @@ public class CacheManagementService
     public async Task InvalidateServiceCountsCache()
     {
         // Delete the Rust cache file to force rescan
-        var dataDir = _pathResolver.GetDataDirectory();
-        var progressFile = Path.Combine(dataDir, "log_count_progress.json");
+        var operationsDir = _pathResolver.GetOperationsDirectory();
+        var progressFile = Path.Combine(operationsDir, "log_count_progress.json");
 
         if (File.Exists(progressFile))
         {
@@ -215,8 +215,6 @@ public class CacheManagementService
             }
 
             // Use Rust binary for fast log filtering
-            var dataDir = _pathResolver.GetDataDirectory();
-
             var operationsDir = _pathResolver.GetOperationsDirectory();
             var progressFile = Path.Combine(operationsDir, "log_remove_progress.json");
             var rustBinaryPath = _pathResolver.GetRustLogManagerPath();
@@ -293,16 +291,8 @@ public class CacheManagementService
             }
 
             // Use Rust binary for fast log counting
-            var dataDir = _pathResolver.GetDataDirectory();
-
-            // Ensure data directory exists
-            if (!Directory.Exists(dataDir))
-            {
-                Directory.CreateDirectory(dataDir);
-                _logger.LogInformation($"Created data directory: {dataDir}");
-            }
-
-            var progressFile = Path.Combine(dataDir, "log_count_progress.json");
+            var operationsDir = _pathResolver.GetOperationsDirectory();
+            var progressFile = Path.Combine(operationsDir, "log_count_progress.json");
             var rustBinaryPath = _pathResolver.GetRustLogManagerPath();
 
             // Check if Rust binary exists
@@ -675,9 +665,9 @@ public class CacheManagementService
 
             var logDir = _pathResolver.GetLogsDirectory();
             var cacheDir = _cachePath;
-            var dataDir = _pathResolver.GetDataDirectory();
+            var operationsDir = _pathResolver.GetOperationsDirectory();
             var timezone = Environment.GetEnvironmentVariable("TZ") ?? "UTC";
-            var outputJson = Path.Combine(dataDir, $"corruption_details_{service}_{DateTime.UtcNow:yyyyMMddHHmmss}.json");
+            var outputJson = Path.Combine(operationsDir, $"corruption_details_{service}_{DateTime.UtcNow:yyyyMMddHHmmss}.json");
 
             var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
 
@@ -811,10 +801,10 @@ public class CacheManagementService
                 throw new UnauthorizedAccessException(errorMsg);
             }
 
-            var dataDir = _pathResolver.GetDataDirectory();
+            var operationsDir = _pathResolver.GetOperationsDirectory();
             var dbPath = _pathResolver.GetDatabasePath();
             var logsDir = _pathResolver.GetLogsDirectory();
-            var outputJson = Path.Combine(dataDir, $"game_removal_{gameAppId}_{DateTime.UtcNow:yyyyMMddHHmmss}.json");
+            var outputJson = Path.Combine(operationsDir, $"game_removal_{gameAppId}_{DateTime.UtcNow:yyyyMMddHHmmss}.json");
 
             var rustBinaryPath = _pathResolver.GetRustGameRemoverPath();
 
@@ -913,7 +903,7 @@ public class CacheManagementService
                 throw new UnauthorizedAccessException(errorMsg);
             }
 
-            var dataDir = _pathResolver.GetDataDirectory();
+            var operationsDir = _pathResolver.GetOperationsDirectory();
             var dbPath = _pathResolver.GetDatabasePath();
             var logsDir = _pathResolver.GetLogsDirectory();
 
@@ -925,7 +915,7 @@ public class CacheManagementService
                 _logger.LogWarning(errorMsg);
                 throw new UnauthorizedAccessException(errorMsg);
             }
-            var progressPath = Path.Combine(dataDir, $"service_removal_{serviceName}_{DateTime.UtcNow:yyyyMMddHHmmss}.json");
+            var progressPath = Path.Combine(operationsDir, $"service_removal_{serviceName}_{DateTime.UtcNow:yyyyMMddHHmmss}.json");
 
             var rustBinaryPath = _pathResolver.GetRustServiceRemoverPath();
 

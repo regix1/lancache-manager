@@ -91,8 +91,8 @@ public class RustDatabaseResetService
         }
 
         // Read progress from Rust progress file
-        var dataDirectory = _pathResolver.GetDataDirectory();
-        var progressPath = Path.Combine(dataDirectory, "reset_progress.json");
+        var operationsDir = _pathResolver.GetOperationsDirectory();
+        var progressPath = Path.Combine(operationsDir, "reset_progress.json");
 
         ProgressData? progress = null;
         try
@@ -143,9 +143,10 @@ public class RustDatabaseResetService
             IsProcessing = true;
             _cancellationTokenSource = new CancellationTokenSource();
 
+            var dbPath = _pathResolver.GetDatabasePath();
             var dataDirectory = _pathResolver.GetDataDirectory();
-            var dbPath = Path.Combine(dataDirectory, "LancacheManager.db");
-            var progressPath = Path.Combine(dataDirectory, "reset_progress.json");
+            var operationsDir = _pathResolver.GetOperationsDirectory();
+            var progressPath = Path.Combine(operationsDir, "reset_progress.json");
             var rustExecutablePath = _pathResolver.GetRustDatabaseResetPath();
 
             // Delete old progress file
@@ -156,7 +157,6 @@ public class RustDatabaseResetService
 
             _logger.LogInformation("Starting rust database reset");
             _logger.LogInformation($"Database: {dbPath}");
-            _logger.LogInformation($"Data directory: {dataDirectory}");
             _logger.LogInformation($"Progress file: {progressPath}");
 
             // Send initial progress

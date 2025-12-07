@@ -1,5 +1,27 @@
 ## What's New
 
+### Data Directory Cleanup
+Reorganized the data directory structure for better organization and automatic cleanup:
+
+**New `data/operations/` directory** - All temporary operation files are now stored in a dedicated subdirectory:
+- `cache_operations.json` - Active cache clear tracking
+- `operation_history.json` - Game detection and other operation history
+- `cache_clear_progress_*.json` - Rust cache cleaner progress files
+- `corruption_removal_*.json` - Rust corruption manager progress files
+- `log_remove_progress.json` - Rust log removal progress
+
+**Cleaner `state.json`** - Removed temporary operation data, now contains only settings and state:
+- Log processing position
+- PICS scan recovery state
+- Theme preferences
+- Crawl settings
+- PICS viability cache
+
+**Automatic cleanup on startup:**
+- Progress files older than 24 hours are deleted
+- Completed cache clear operations older than 24 hours are purged
+- Completed operation history older than 48 hours is purged
+
 ### Double-Click Prevention
 Added synchronous double-click prevention to all action buttons on the Management tab. Previously, clicking buttons like "Apply Now" or "Clear Selected" multiple times quickly could trigger duplicate API requests before the loading state kicked in. Now all async operations use refs to block duplicate calls immediately.
 
