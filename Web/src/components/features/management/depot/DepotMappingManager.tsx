@@ -71,6 +71,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
   const scanTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastProgressUpdateRef = useRef<number>(Date.now());
   const autoSwitchAttemptedRef = useRef<boolean>(false);
+  const applyInProgressRef = useRef<boolean>(false);
 
   // Derive depotConfig from picsProgress with nextCrawlIn conversion
   const depotConfig = useMemo(() => {
@@ -558,8 +559,15 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
   };
 
   const executeApplyDepotMappings = async () => {
+    // Prevent double-clicks (ref check is synchronous, state is async)
+    if (applyInProgressRef.current) {
+      return;
+    }
+    applyInProgressRef.current = true;
+
     if (!isAuthenticated) {
       onError?.('Authentication required');
+      applyInProgressRef.current = false;
       return;
     }
 
@@ -568,6 +576,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       // If GitHub is selected, download from GitHub
       if (depotSource === 'github') {
         await handleDownloadFromGitHub();
+        applyInProgressRef.current = false;
         return;
       }
 
@@ -611,6 +620,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
         onError?.('Depot mapping is already in progress. Please wait for it to complete.');
         setActionLoading(false);
         setOperationType(null);
+        applyInProgressRef.current = false;
         return;
       }
 
@@ -624,6 +634,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
         });
         setActionLoading(false);
         setOperationType(null);
+        applyInProgressRef.current = false;
         return;
       }
 
@@ -640,6 +651,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       setOperationType(null);
     } finally {
       setActionLoading(false);
+      applyInProgressRef.current = false;
     }
   };
 

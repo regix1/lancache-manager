@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Download,
   Globe,
@@ -74,6 +74,8 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
   const [importedThemes, setImportedThemes] = useState<Set<string>>(new Set());
   const [showImported, setShowImported] = useState(false);
   const [updatingThemes, setUpdatingThemes] = useState<Set<string>>(new Set());
+  const loadingInProgressRef = useRef(false);
+  const importingThemeRef = useRef<string | null>(null);
 
   // Helper to show toast notifications
   const showToast = (type: 'success' | 'error' | 'info', message: string) => {
@@ -104,6 +106,12 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
   };
 
   const loadCommunityThemes = async () => {
+    // Prevent double-clicks
+    if (loadingInProgressRef.current) {
+      return;
+    }
+    loadingInProgressRef.current = true;
+
     setLoading(true);
 
     try {
@@ -155,15 +163,22 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       console.error('Error loading community themes:', err);
     } finally {
       setLoading(false);
+      loadingInProgressRef.current = false;
     }
   };
 
   const handleImportTheme = async (theme: CommunityTheme) => {
+    // Prevent double-clicks on the same theme
+    if (importingThemeRef.current === theme.fileName) {
+      return;
+    }
+
     if (!isAuthenticated) {
       showToast('error', 'Authentication required to import themes');
       return;
     }
 
+    importingThemeRef.current = theme.fileName;
     setImporting(theme.fileName);
 
     try {
@@ -218,6 +233,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       showToast('error', (err instanceof Error ? err.message : String(err)) || 'Failed to import theme');
     } finally {
       setImporting(null);
+      importingThemeRef.current = null;
     }
   };
 

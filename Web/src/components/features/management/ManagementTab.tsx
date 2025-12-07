@@ -100,6 +100,7 @@ const DatabaseManager: React.FC<{
   const [loading, setLoading] = useState(false);
   const [showClearModal, setShowClearModal] = useState(false);
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
+  const clearInProgressRef = useRef(false);
 
   // Table definitions with descriptions
   const tables = [
@@ -182,8 +183,15 @@ const DatabaseManager: React.FC<{
   };
 
   const confirmClear = async () => {
+    // Prevent double-clicks
+    if (clearInProgressRef.current) {
+      return;
+    }
+    clearInProgressRef.current = true;
+
     if (authMode !== 'authenticated') {
       onError?.('Full authentication required for management operations');
+      clearInProgressRef.current = false;
       return;
     }
 
@@ -209,12 +217,12 @@ const DatabaseManager: React.FC<{
         if (!selectedTables.includes('UserSessions')) {
           onDataRefresh?.();
         }
-
-        setLoading(false);
       }
     } catch (err: unknown) {
       onError?.((err instanceof Error ? err.message : String(err)) || 'Failed to clear selected tables');
+    } finally {
       setLoading(false);
+      clearInProgressRef.current = false;
     }
   };
 

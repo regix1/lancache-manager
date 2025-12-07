@@ -1,4 +1,4 @@
-import React, { useState, useEffect, use } from 'react';
+import React, { useState, useEffect, use, useRef } from 'react';
 import { Server, Trash2, AlertTriangle, Lock } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
@@ -88,6 +88,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   const [deleteMode, setDeleteMode] = useState<'preserve' | 'full' | 'rsync'>(config.cacheDeleteMode as 'preserve' | 'full' | 'rsync');
   const [deleteModeLoading, setDeleteModeLoading] = useState(false);
   const [isCacheClearing, setIsCacheClearing] = useState(false);
+  const cacheOperationInProgressRef = useRef(false);
+  const deleteModeChangeInProgressRef = useRef(false);
 
   // Listen for cache clear completion (via SignalR for UI state only)
   useEffect(() => {
@@ -105,6 +107,12 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   }, [mockMode, signalR]);
 
   const handleDeleteModeChange = async (newMode: 'preserve' | 'full' | 'rsync') => {
+    // Prevent double-clicks
+    if (deleteModeChangeInProgressRef.current) {
+      return;
+    }
+    deleteModeChangeInProgressRef.current = true;
+
     setDeleteModeLoading(true);
     try {
       await ApiService.setCacheDeleteMode(newMode);
@@ -117,6 +125,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       onError?.((err instanceof Error ? err.message : String(err)) || 'Failed to update delete mode');
     } finally {
       setDeleteModeLoading(false);
+      deleteModeChangeInProgressRef.current = false;
     }
   };
 
@@ -131,6 +140,12 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   };
 
   const startCacheClear = async () => {
+    // Prevent double-clicks
+    if (cacheOperationInProgressRef.current) {
+      return;
+    }
+    cacheOperationInProgressRef.current = true;
+
     setActionLoading(true);
     setShowConfirmModal(false);
 
@@ -146,6 +161,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       setIsCacheClearing(false);
     } finally {
       setActionLoading(false);
+      cacheOperationInProgressRef.current = false;
     }
   };
 
