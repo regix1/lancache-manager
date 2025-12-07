@@ -561,14 +561,14 @@ public class CacheClearingService : IHostedService
                 Error = operation.Error
             };
 
-            _stateService.UpdateState(state =>
+            _stateService.UpdateCacheClearOperations(operations =>
             {
-                var existing = state.CacheClearOperations.FirstOrDefault(o => o.Id == operation.Id);
+                var existing = operations.FirstOrDefault(o => o.Id == operation.Id);
                 if (existing != null)
                 {
-                    state.CacheClearOperations.Remove(existing);
+                    operations.Remove(existing);
                 }
-                state.CacheClearOperations.Add(stateOp);
+                operations.Add(stateOp);
             });
         }
         catch (Exception ex)
@@ -581,7 +581,7 @@ public class CacheClearingService : IHostedService
     {
         try
         {
-            var operations = _operations.Values.Select(op => new StateRepository.CacheClearOperation
+            var newOperations = _operations.Values.Select(op => new StateRepository.CacheClearOperation
             {
                 Id = op.Id,
                 Status = op.Status.ToString().ToLowerInvariant(),
@@ -592,9 +592,10 @@ public class CacheClearingService : IHostedService
                 Error = op.Error
             }).ToList();
 
-            _stateService.UpdateState(state =>
+            _stateService.UpdateCacheClearOperations(operations =>
             {
-                state.CacheClearOperations = operations;
+                operations.Clear();
+                operations.AddRange(newOperations);
             });
         }
         catch (Exception ex)

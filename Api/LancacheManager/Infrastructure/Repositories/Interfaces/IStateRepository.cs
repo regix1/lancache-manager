@@ -12,13 +12,15 @@ public interface IStateRepository
     long GetLogPosition();
     void SetLogPosition(long position);
 
-    // Cache Clear Operations Methods
+    // Cache Clear Operations Methods (stored in data/operations/cache_operations.json)
     List<CacheClearOperation> GetCacheClearOperations();
     void RemoveCacheClearOperation(string id);
+    void UpdateCacheClearOperations(Action<List<CacheClearOperation>> updater);
 
-    // Operation States Methods
+    // Operation States Methods (stored in data/operations/operation_history.json)
     List<OperationState> GetOperationStates();
     void RemoveOperationState(string id);
+    void UpdateOperationStates(Action<List<OperationState>> updater);
 
     // Setup Completed Methods
     bool GetSetupCompleted();

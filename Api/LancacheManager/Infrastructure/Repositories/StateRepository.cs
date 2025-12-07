@@ -18,10 +18,13 @@ public class StateRepository : IStateRepository
     private readonly SteamAuthRepository _steamAuthStorage;
     private readonly string _stateFilePath;
     private readonly string _operationHistoryFilePath;
+    private readonly string _cacheOperationsFilePath;
     private readonly object _lock = new object();
     private readonly object _operationLock = new object();
+    private readonly object _cacheClearLock = new object();
     private AppState? _cachedState;
     private List<OperationState>? _cachedOperationStates;
+    private List<CacheClearOperation>? _cachedCacheClearOperations;
     private int _consecutiveFailures = 0;
     private bool _migrationAttempted = false;
 
@@ -37,15 +40,17 @@ public class StateRepository : IStateRepository
         _steamAuthStorage = steamAuthStorage;
         _stateFilePath = Path.Combine(_pathResolver.GetDataDirectory(), "state.json");
         _operationHistoryFilePath = Path.Combine(_pathResolver.GetOperationsDirectory(), "operation_history.json");
+        _cacheOperationsFilePath = Path.Combine(_pathResolver.GetOperationsDirectory(), "cache_operations.json");
     }
 
     public class AppState
     {
         public LogProcessingState LogProcessing { get; set; } = new();
         public DepotProcessingState DepotProcessing { get; set; } = new();
+        // LEGACY: CacheClearOperations moved to separate file (data/operations/cache_operations.json)
+        [JsonIgnore]
         public List<CacheClearOperation> CacheClearOperations { get; set; } = new();
-        // LEGACY: OperationStates has been migrated to separate file (data/operations/operation_history.json)
-        // This property is kept temporarily for backward compatibility during migration
+        // LEGACY: OperationStates moved to separate file (data/operations/operation_history.json)
         [JsonIgnore]
         public List<OperationState> OperationStates { get; set; } = new();
         public bool SetupCompleted { get; set; } = false;
@@ -86,11 +91,8 @@ public class StateRepository : IStateRepository
     {
         public LogProcessingState LogProcessing { get; set; } = new();
         public DepotProcessingState DepotProcessing { get; set; } = new();
-        public List<CacheClearOperation> CacheClearOperations { get; set; } = new();
-        // LEGACY: OperationStates migrated to separate file - kept for reading old state.json during migration
-        // JsonIgnore(Condition = WhenWritingNull) excludes it when saving (always null after migration)
-        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public List<OperationState>? OperationStates { get; set; }
+        // CacheClearOperations moved to data/operations/cache_operations.json
+        // OperationStates moved to data/operations/operation_history.json
         public bool SetupCompleted { get; set; } = false;
         public DateTime? LastPicsCrawl { get; set; }
         public double CrawlIntervalHours { get; set; } = 1.0;
@@ -306,15 +308,113 @@ public class StateRepository : IStateRepository
         });
     }
 
-    // Cache Clear Operations Methods
+    // Cache Clear Operations Methods - now use separate file (data/operations/cache_operations.json)
     public List<CacheClearOperation> GetCacheClearOperations()
     {
-        return GetState().CacheClearOperations;
+        lock (_cacheClearLock)
+        {
+            if (_cachedCacheClearOperations != null)
+            {
+                return _cachedCacheClearOperations;
+            }
+
+            try
+            {
+                if (File.Exists(_cacheOperationsFilePath))
+                {
+                    var json = File.ReadAllText(_cacheOperationsFilePath);
+                    _cachedCacheClearOperations = JsonSerializer.Deserialize<List<CacheClearOperation>>(json) ?? new List<CacheClearOperation>();
+                }
+                else
+                {
+                    _cachedCacheClearOperations = new List<CacheClearOperation>();
+                }
+
+                // Clean up old completed operations (older than 24 hours)
+                CleanupOldCacheClearOperations();
+
+                return _cachedCacheClearOperations;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to load cache clear operations from {Path}", _cacheOperationsFilePath);
+                _cachedCacheClearOperations = new List<CacheClearOperation>();
+                return _cachedCacheClearOperations;
+            }
+        }
     }
 
     public void RemoveCacheClearOperation(string id)
     {
-        UpdateState(state => state.CacheClearOperations.RemoveAll(o => o.Id == id));
+        lock (_cacheClearLock)
+        {
+            var operations = GetCacheClearOperations();
+            var removed = operations.RemoveAll(o => o.Id == id);
+            if (removed > 0)
+            {
+                SaveCacheClearOperations();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Updates the cache clear operations list with the provided updater action
+    /// </summary>
+    public void UpdateCacheClearOperations(Action<List<CacheClearOperation>> updater)
+    {
+        lock (_cacheClearLock)
+        {
+            var operations = GetCacheClearOperations();
+            updater(operations);
+            SaveCacheClearOperations();
+        }
+    }
+
+    private void SaveCacheClearOperations()
+    {
+        try
+        {
+            if (_cachedCacheClearOperations == null)
+            {
+                return;
+            }
+
+            var json = JsonSerializer.Serialize(_cachedCacheClearOperations, new JsonSerializerOptions { WriteIndented = true });
+            var tempFile = _cacheOperationsFilePath + ".tmp";
+            File.WriteAllText(tempFile, json);
+            File.Move(tempFile, _cacheOperationsFilePath, true);
+            _logger.LogTrace("Cache clear operations saved to {Path}", _cacheOperationsFilePath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to save cache clear operations to {Path}", _cacheOperationsFilePath);
+        }
+    }
+
+    /// <summary>
+    /// Cleans up old completed cache clear operations (older than 24 hours)
+    /// </summary>
+    private void CleanupOldCacheClearOperations()
+    {
+        if (_cachedCacheClearOperations == null || _cachedCacheClearOperations.Count == 0)
+        {
+            return;
+        }
+
+        var cutoff = DateTime.UtcNow.AddHours(-24);
+        var oldOps = _cachedCacheClearOperations
+            .Where(o => (o.Status == "completed" || o.Status == "failed") && o.EndTime.HasValue && o.EndTime.Value < cutoff)
+            .ToList();
+
+        if (oldOps.Count > 0)
+        {
+            foreach (var op in oldOps)
+            {
+                _cachedCacheClearOperations.Remove(op);
+            }
+            SaveCacheClearOperations();
+            _logger.LogInformation("Cleaned up {Count} old cache clear operations", oldOps.Count);
+        }
     }
 
     // Operation States Methods - now use separate file (data/operations/operation_history.json)
@@ -580,8 +680,8 @@ public class StateRepository : IStateRepository
         {
             LogProcessing = persisted.LogProcessing,
             DepotProcessing = persisted.DepotProcessing,
-            CacheClearOperations = persisted.CacheClearOperations,
-            // OperationStates now loaded from separate file via GetOperationStates()
+            // CacheClearOperations loaded from separate file via GetCacheClearOperations()
+            // OperationStates loaded from separate file via GetOperationStates()
             SetupCompleted = persisted.SetupCompleted,
             LastPicsCrawl = persisted.LastPicsCrawl,
             CrawlIntervalHours = persisted.CrawlIntervalHours,
@@ -620,8 +720,8 @@ public class StateRepository : IStateRepository
         {
             LogProcessing = state.LogProcessing,
             DepotProcessing = state.DepotProcessing,
-            CacheClearOperations = state.CacheClearOperations,
-            OperationStates = state.OperationStates,
+            // CacheClearOperations saved to separate file via SaveCacheClearOperations()
+            // OperationStates saved to separate file via SaveOperationStates()
             SetupCompleted = state.SetupCompleted,
             LastPicsCrawl = state.LastPicsCrawl,
             CrawlIntervalHours = state.CrawlIntervalHours,
