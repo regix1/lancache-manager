@@ -46,6 +46,10 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     private DateTime _lastConnectionActivity = DateTime.MinValue;
     private const int ConnectionKeepAliveSeconds = 60; // Keep connection alive for 60 seconds after viability check
 
+    // Exponential backoff for reconnection attempts
+    private int _reconnectAttempt = 0;
+    private const int MaxReconnectDelaySeconds = 60; // Cap at 60 seconds
+
     // Scheduling for periodic PICS crawls
     private Timer? _periodicTimer;
     private DateTime _lastCrawlTime = DateTime.MinValue;

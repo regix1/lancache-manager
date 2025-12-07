@@ -65,6 +65,7 @@ public partial class SteamKit2Service
     private void OnConnected(SteamClient.ConnectedCallback callback)
     {
         _logger.LogInformation("Connected to Steam");
+        _reconnectAttempt = 0; // Reset backoff on successful connection
         _connectedTcs?.TrySetResult();
     }
 
@@ -91,8 +92,13 @@ public partial class SteamKit2Service
         // This prevents endless reconnection loops after PICS crawls complete
         if (_isRunning && IsRebuildRunning)
         {
-            _logger.LogInformation("Unexpected disconnection during active rebuild - attempting to reconnect in 5 seconds...");
-            Task.Delay(5000, _cancellationTokenSource.Token).ContinueWith(_ =>
+            _reconnectAttempt++;
+            // Exponential backoff: 5s, 10s, 20s, 40s, 60s (capped)
+            var delaySeconds = Math.Min(5 * (int)Math.Pow(2, _reconnectAttempt - 1), MaxReconnectDelaySeconds);
+            _logger.LogInformation("Unexpected disconnection during active rebuild - attempting to reconnect in {Delay} seconds (attempt {Attempt})...",
+                delaySeconds, _reconnectAttempt);
+
+            Task.Delay(delaySeconds * 1000, _cancellationTokenSource.Token).ContinueWith(_ =>
             {
                 if (_isRunning && IsRebuildRunning && !_cancellationTokenSource.Token.IsCancellationRequested)
                 {
@@ -102,6 +108,7 @@ public partial class SteamKit2Service
         }
         else
         {
+            _reconnectAttempt = 0; // Reset when not actively rebuilding
         }
     }
 
