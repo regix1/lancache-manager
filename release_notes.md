@@ -10,6 +10,10 @@ Reorganized the data directory structure for better organization and automatic c
 - `corruption_removal_*.json` - Rust corruption manager progress files
 - `log_remove_progress.json` - Rust log removal progress
 
+**Operation report files are now preserved** for history:
+- `game_removal_{appId}_{timestamp}.json` - Game cache removal reports
+- `corruption_details_{service}_{timestamp}.json` - Corruption detection reports
+
 **Cleaner `state.json`** - Removed temporary operation data, now contains only settings and state:
 - Log processing position
 - PICS scan recovery state
@@ -42,11 +46,15 @@ Clearing "Game Cache Detection" in Database Management now properly clears both 
 - Fixed duplicate key errors when saving Steam depot mappings by adding proper handling for UNIQUE constraint violations
 - Fixed race condition where multiple depot mapping requests could be sent simultaneously
 - Updated Database Management UI wording to reflect that it clears "game and service detection scans"
+- Fixed docker socket permission denied error - gosu now properly inherits supplementary groups
+- Fixed operation report files being deleted immediately after creation
 
 ## Under the Hood
 
 - Added `Microsoft.Data.Sqlite` error handling to `SteamService.cs` for concurrent depot mapping saves
 - Refactored try/catch blocks to use `finally` for consistent cleanup in async operations
 - All button action handlers now follow the ref-guard pattern for double-click prevention
+- Added `ReadOutputJsonAsync` method to preserve report files while `ReadAndCleanupOutputJsonAsync` still cleans up temporary files
+- Entrypoint script now uses username with gosu (instead of UID:GID) to properly inherit supplementary groups
 
 Thanks for using Lancache Manager!
