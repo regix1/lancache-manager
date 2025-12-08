@@ -173,7 +173,7 @@ services:
     ports:
       - "8080:80"
     volumes:
-      # Your data directory (database, API key, themes)
+      # Data directory - stores database, API key, themes, and cached images
       - ./data:/data
 
       # LANCache log directory (read-only recommended)
@@ -181,35 +181,84 @@ services:
 
       # LANCache cache directory
       # Use :ro for read-only monitoring
-      # Remove :ro to enable cache clearing and game removal
+      # Remove :ro to enable cache clearing, corruption removal, and game removal
       - /mnt/cache/cache:/cache:ro
 
       # Docker socket for nginx log rotation (optional)
+      # Allows signaling nginx to reopen logs after manipulation
+      # Set NginxLogRotation__Enabled=false and remove this line to disable
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
+      #=== User/Group Settings ===#
+      # PUID/PGID: User and group ID the application runs as after setup
+      # Set these to match your NFS/host filesystem permissions
       - PUID=1000
       - PGID=1000
+
+      # TZ: Timezone for log timestamps and display
       - TZ=America/Chicago
 
-      # Required paths
+      # ASPNETCORE_URLS: Internal port binding (required, do not change)
+      - ASPNETCORE_URLS=http://+:80
+
+      #=== Path Settings ===#
+      # LanCache__LogPath: Path to the LANCache access log file
       - LanCache__LogPath=/logs/access.log
+
+      # LanCache__CachePath: Path to the LANCache cache directory
       - LanCache__CachePath=/cache
 
-      # Log processing
+      #=== Log Processing Settings ===#
+      # LanCache__StartFromEndOfLog: Start processing from end of log file
+      # true = only process new entries (recommended for normal use)
+      # false = process entire log from beginning
       - LanCache__StartFromEndOfLog=true
+
+      # LanCache__ProcessHistoricalLogs: Process rotated/archived log files on startup
+      # true = scan for and process historical log files (access.log.1, etc.)
+      # false = only process the main log file
       - LanCache__ProcessHistoricalLogs=false
 
-      # Security
+      #=== Security Settings ===#
+      # Security__EnableAuthentication: Master switch for authentication
+      # true = require API key for admin features (recommended)
+      # false = disable ALL authentication (dev/testing only)
       - Security__EnableAuthentication=true
+
+      # Security__MaxAdminDevices: Number of devices that can use the same API key
       - Security__MaxAdminDevices=3
+
+      # Security__GuestSessionDurationHours: How long guest (unauthenticated) sessions last
+      # Guests get read-only access without an API key for this duration
+      - Security__GuestSessionDurationHours=6
+
+      # Security__RequireAuthForMetrics: Require API key for /metrics endpoint
+      # true = Prometheus/Grafana must use Bearer token authentication
+      # false = /metrics endpoint is publicly accessible
       - Security__RequireAuthForMetrics=false
 
-      # Nginx log rotation
+      #=== Nginx Log Rotation Settings ===#
+      # NginxLogRotation__Enabled: Auto-signal nginx to reopen logs after manipulation
+      # Prevents monolithic container from losing log file handle
+      # Requires docker.sock volume mount
       - NginxLogRotation__Enabled=true
+
+      # NginxLogRotation__ContainerName: Name of the LANCache container
+      # Leave empty for auto-detection, or specify container name (e.g., "lancache")
       - NginxLogRotation__ContainerName=
 
-      # Memory management (optional)
+      #=== Optimization Settings ===#
+      # Optimizations__EnableGarbageCollectionManagement: Enable GC controls in UI
+      # true = show memory management controls in Management page
+      # false = use default .NET garbage collection (recommended for most users)
+      # Enable this for low-memory systems or if memory usage climbs over time
       - Optimizations__EnableGarbageCollectionManagement=false
+
+      #=== Cache Clearing Settings ===#
+      # CacheClear__DeleteMode: How to delete files when clearing cache
+      # "preserve" = keep directory structure, only delete files (default, safer)
+      # "full" = delete everything including directories (faster, more thorough)
+      - CacheClear__DeleteMode=preserve
 ```
 
 Get your **API key**:
