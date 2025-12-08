@@ -170,7 +170,6 @@ services:
     image: ghcr.io/regix1/lancache-manager:latest
     container_name: lancache-manager
     restart: unless-stopped
-    user: root
     ports:
       - "8080:80"
     volumes:
