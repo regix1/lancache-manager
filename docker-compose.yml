@@ -6,7 +6,6 @@ services:
     container_name: lancache-manager
     restart: unless-stopped
     # Container starts as root for entrypoint setup, then drops to PUID/PGID user
-    user: root
     ports:
       - "8080:80"
     volumes:
