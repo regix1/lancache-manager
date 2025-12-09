@@ -44,144 +44,210 @@
     <Exec Condition="!$([MSBuild]::IsOSPlatform('Windows'))" Command="bash build.sh $(RustTarget)" WorkingDirectory="$(MSBuildProjectDirectory)/../../rust-processor" IgnoreExitCode="false" />
   </Target>
 
-  <!-- Copy Rust executables to output directory -->
+  <!--
+    Copy Rust executables to output directory.
+    Binary naming convention (consistent prefix-based):
+      - log_*           : Log file operations (log_processor, log_service_manager)
+      - cache_*         : Cache file operations (cache_clear, cache_corruption, cache_game_detect, cache_game_remove, cache_service_remove)
+      - db_*            : Database operations (db_reset, db_migrate)
+  -->
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) And '$(RuntimeIdentifier)' == ''">
     <!-- Development build on Windows - copy from target/release -->
-    <None Include="..\..\rust-processor\target\release\lancache_processor.exe">
+    <None Include="..\..\rust-processor\target\release\log_processor.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\lancache_processor.exe</Link>
+      <Link>rust-processor\log_processor.exe</Link>
     </None>
-    <None Include="..\..\rust-processor\target\release\database_reset.exe">
+    <None Include="..\..\rust-processor\target\release\log_service_manager.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\database_reset.exe</Link>
+      <Link>rust-processor\log_service_manager.exe</Link>
     </None>
-    <None Include="..\..\rust-processor\target\release\log_manager.exe">
+    <None Include="..\..\rust-processor\target\release\cache_clear.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\log_manager.exe</Link>
+      <Link>rust-processor\cache_clear.exe</Link>
     </None>
-    <None Include="..\..\rust-processor\target\release\cache_cleaner.exe">
+    <None Include="..\..\rust-processor\target\release\cache_corruption.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\cache_cleaner.exe</Link>
+      <Link>rust-processor\cache_corruption.exe</Link>
     </None>
-    <None Include="..\..\rust-processor\target\release\corruption_manager.exe">
+    <None Include="..\..\rust-processor\target\release\cache_game_detect.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\corruption_manager.exe</Link>
+      <Link>rust-processor\cache_game_detect.exe</Link>
     </None>
-    <None Include="..\..\rust-processor\target\release\data_migrator.exe">
+    <None Include="..\..\rust-processor\target\release\cache_game_remove.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\data_migrator.exe</Link>
+      <Link>rust-processor\cache_game_remove.exe</Link>
+    </None>
+    <None Include="..\..\rust-processor\target\release\cache_service_remove.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\cache_service_remove.exe</Link>
+    </None>
+    <None Include="..\..\rust-processor\target\release\db_reset.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\db_reset.exe</Link>
+    </None>
+    <None Include="..\..\rust-processor\target\release\db_migrate.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\db_migrate.exe</Link>
     </None>
   </ItemGroup>
 
   <ItemGroup Condition="'$(RuntimeIdentifier)' == 'win-x64' And '$(SkipRustBuild)' != 'true'">
     <!-- Production build for Windows x64 -->
-    <None Include="..\..\rust-processor\bin\win-x64\lancache_processor.exe">
+    <None Include="..\..\rust-processor\bin\win-x64\log_processor.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\lancache_processor.exe</Link>
+      <Link>rust-processor\log_processor.exe</Link>
     </None>
-    <None Include="..\..\rust-processor\bin\win-x64\database_reset.exe">
+    <None Include="..\..\rust-processor\bin\win-x64\log_service_manager.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\database_reset.exe</Link>
+      <Link>rust-processor\log_service_manager.exe</Link>
     </None>
-    <None Include="..\..\rust-processor\bin\win-x64\log_manager.exe">
+    <None Include="..\..\rust-processor\bin\win-x64\cache_clear.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\log_manager.exe</Link>
+      <Link>rust-processor\cache_clear.exe</Link>
     </None>
-    <None Include="..\..\rust-processor\bin\win-x64\cache_cleaner.exe">
+    <None Include="..\..\rust-processor\bin\win-x64\cache_corruption.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\cache_cleaner.exe</Link>
+      <Link>rust-processor\cache_corruption.exe</Link>
     </None>
-    <None Include="..\..\rust-processor\bin\win-x64\corruption_manager.exe">
+    <None Include="..\..\rust-processor\bin\win-x64\cache_game_detect.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\corruption_manager.exe</Link>
+      <Link>rust-processor\cache_game_detect.exe</Link>
     </None>
-    <None Include="..\..\rust-processor\bin\win-x64\data_migrator.exe">
+    <None Include="..\..\rust-processor\bin\win-x64\cache_game_remove.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\data_migrator.exe</Link>
+      <Link>rust-processor\cache_game_remove.exe</Link>
+    </None>
+    <None Include="..\..\rust-processor\bin\win-x64\cache_service_remove.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\cache_service_remove.exe</Link>
+    </None>
+    <None Include="..\..\rust-processor\bin\win-x64\db_reset.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\db_reset.exe</Link>
+    </None>
+    <None Include="..\..\rust-processor\bin\win-x64\db_migrate.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\db_migrate.exe</Link>
     </None>
   </ItemGroup>
 
   <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-x64' And '$(SkipRustBuild)' != 'true'">
     <!-- Production build for Linux x64 -->
-    <None Include="..\..\rust-processor\bin\linux-x64\lancache_processor">
+    <None Include="..\..\rust-processor\bin\linux-x64\log_processor">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\lancache_processor</Link>
+      <Link>rust-processor\log_processor</Link>
     </None>
-    <None Include="..\..\rust-processor\bin\linux-x64\database_reset">
+    <None Include="..\..\rust-processor\bin\linux-x64\log_service_manager">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\database_reset</Link>
+      <Link>rust-processor\log_service_manager</Link>
     </None>
-    <None Include="..\..\rust-processor\bin\linux-x64\log_manager">
+    <None Include="..\..\rust-processor\bin\linux-x64\cache_clear">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\log_manager</Link>
+      <Link>rust-processor\cache_clear</Link>
     </None>
-    <None Include="..\..\rust-processor\bin\linux-x64\cache_cleaner">
+    <None Include="..\..\rust-processor\bin\linux-x64\cache_corruption">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\cache_cleaner</Link>
+      <Link>rust-processor\cache_corruption</Link>
     </None>
-    <None Include="..\..\rust-processor\bin\linux-x64\corruption_manager">
+    <None Include="..\..\rust-processor\bin\linux-x64\cache_game_detect">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\corruption_manager</Link>
+      <Link>rust-processor\cache_game_detect</Link>
     </None>
-    <None Include="..\..\rust-processor\bin\linux-x64\data_migrator">
+    <None Include="..\..\rust-processor\bin\linux-x64\cache_game_remove">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\data_migrator</Link>
+      <Link>rust-processor\cache_game_remove</Link>
+    </None>
+    <None Include="..\..\rust-processor\bin\linux-x64\cache_service_remove">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\cache_service_remove</Link>
+    </None>
+    <None Include="..\..\rust-processor\bin\linux-x64\db_reset">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\db_reset</Link>
+    </None>
+    <None Include="..\..\rust-processor\bin\linux-x64\db_migrate">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\db_migrate</Link>
     </None>
   </ItemGroup>
 
   <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-arm64' And '$(SkipRustBuild)' != 'true'">
     <!-- Production build for Linux ARM64 -->
-    <None Include="..\..\rust-processor\bin\linux-arm64\lancache_processor">
+    <None Include="..\..\rust-processor\bin\linux-arm64\log_processor">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\lancache_processor</Link>
+      <Link>rust-processor\log_processor</Link>
     </None>
-    <None Include="..\..\rust-processor\bin\linux-arm64\database_reset">
+    <None Include="..\..\rust-processor\bin\linux-arm64\log_service_manager">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\database_reset</Link>
+      <Link>rust-processor\log_service_manager</Link>
     </None>
-    <None Include="..\..\rust-processor\bin\linux-arm64\log_manager">
+    <None Include="..\..\rust-processor\bin\linux-arm64\cache_clear">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\log_manager</Link>
+      <Link>rust-processor\cache_clear</Link>
     </None>
-    <None Include="..\..\rust-processor\bin\linux-arm64\cache_cleaner">
+    <None Include="..\..\rust-processor\bin\linux-arm64\cache_corruption">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\cache_cleaner</Link>
+      <Link>rust-processor\cache_corruption</Link>
     </None>
-    <None Include="..\..\rust-processor\bin\linux-arm64\corruption_manager">
+    <None Include="..\..\rust-processor\bin\linux-arm64\cache_game_detect">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\corruption_manager</Link>
+      <Link>rust-processor\cache_game_detect</Link>
     </None>
-    <None Include="..\..\rust-processor\bin\linux-arm64\data_migrator">
+    <None Include="..\..\rust-processor\bin\linux-arm64\cache_game_remove">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor\data_migrator</Link>
+      <Link>rust-processor\cache_game_remove</Link>
+    </None>
+    <None Include="..\..\rust-processor\bin\linux-arm64\cache_service_remove">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\cache_service_remove</Link>
+    </None>
+    <None Include="..\..\rust-processor\bin\linux-arm64\db_reset">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\db_reset</Link>
+    </None>
+    <None Include="..\..\rust-processor\bin\linux-arm64\db_migrate">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\db_migrate</Link>
     </None>
   </ItemGroup>
 
   <ItemGroup Condition="!$([MSBuild]::IsOSPlatform('Windows')) And '$(RuntimeIdentifier)' == ''">
     <!-- Development build on Linux/Mac - copy from target/release -->
-    <None Include="../../rust-processor/target/release/lancache_processor">
+    <None Include="../../rust-processor/target/release/log_processor">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor/lancache_processor</Link>
+      <Link>rust-processor/log_processor</Link>
     </None>
-    <None Include="../../rust-processor/target/release/database_reset">
+    <None Include="../../rust-processor/target/release/log_service_manager">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor/database_reset</Link>
+      <Link>rust-processor/log_service_manager</Link>
     </None>
-    <None Include="../../rust-processor/target/release/log_manager">
+    <None Include="../../rust-processor/target/release/cache_clear">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor/log_manager</Link>
+      <Link>rust-processor/cache_clear</Link>
     </None>
-    <None Include="../../rust-processor/target/release/cache_cleaner">
+    <None Include="../../rust-processor/target/release/cache_corruption">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor/cache_cleaner</Link>
+      <Link>rust-processor/cache_corruption</Link>
     </None>
-    <None Include="../../rust-processor/target/release/corruption_manager">
+    <None Include="../../rust-processor/target/release/cache_game_detect">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor/corruption_manager</Link>
+      <Link>rust-processor/cache_game_detect</Link>
     </None>
-    <None Include="../../rust-processor/target/release/data_migrator">
+    <None Include="../../rust-processor/target/release/cache_game_remove">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>rust-processor/data_migrator</Link>
+      <Link>rust-processor/cache_game_remove</Link>
+    </None>
+    <None Include="../../rust-processor/target/release/cache_service_remove">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor/cache_service_remove</Link>
+    </None>
+    <None Include="../../rust-processor/target/release/db_reset">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor/db_reset</Link>
+    </None>
+    <None Include="../../rust-processor/target/release/db_migrate">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor/db_migrate</Link>
     </None>
   </ItemGroup>
 

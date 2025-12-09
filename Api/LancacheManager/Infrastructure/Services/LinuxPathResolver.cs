@@ -139,31 +139,31 @@ public class LinuxPathResolver : IPathResolver
     }
 
     public string GetRustLogProcessorPath() =>
-        Path.Combine(AppContext.BaseDirectory, "rust-processor", "lancache_processor");
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "log_processor");
 
     public string GetRustDatabaseResetPath() =>
-        Path.Combine(AppContext.BaseDirectory, "rust-processor", "database_reset");
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "db_reset");
 
     public string GetRustLogManagerPath() =>
-        Path.Combine(AppContext.BaseDirectory, "rust-processor", "log_manager");
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "log_service_manager");
 
     public string GetRustCacheCleanerPath() =>
-        Path.Combine(AppContext.BaseDirectory, "rust-processor", "cache_cleaner");
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "cache_clear");
 
     public string GetRustCorruptionManagerPath() =>
-        Path.Combine(AppContext.BaseDirectory, "rust-processor", "corruption_manager");
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "cache_corruption");
 
     public string GetRustGameDetectorPath() =>
-        Path.Combine(AppContext.BaseDirectory, "rust-processor", "game_cache_detector");
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "cache_game_detect");
 
     public string GetRustGameRemoverPath() =>
-        Path.Combine(AppContext.BaseDirectory, "rust-processor", "game_cache_remover");
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "cache_game_remove");
 
     public string GetRustServiceRemoverPath() =>
-        Path.Combine(AppContext.BaseDirectory, "rust-processor", "service_remover");
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "cache_service_remove");
 
     public string GetRustDataMigratorPath() =>
-        Path.Combine(AppContext.BaseDirectory, "rust-processor", "data_migrator");
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "db_migrate");
 
     public string GetDatabasePath() =>
         Path.Combine(GetDataDirectory(), "LancacheManager.db");

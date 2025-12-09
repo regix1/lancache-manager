@@ -8,11 +8,16 @@ public class DownloadCleanupService : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<DownloadCleanupService> _logger;
+    private readonly CacheManagementService _cacheManagementService;
 
-    public DownloadCleanupService(IServiceProvider serviceProvider, ILogger<DownloadCleanupService> logger)
+    public DownloadCleanupService(
+        IServiceProvider serviceProvider,
+        ILogger<DownloadCleanupService> logger,
+        CacheManagementService cacheManagementService)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
+        _cacheManagementService = cacheManagementService;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -146,6 +151,13 @@ public class DownloadCleanupService : BackgroundService
             // Note: Image URL backfilling is now handled automatically by PICS during incremental scans
             // No manual cleanup needed - PICS fills in missing GameImageUrl fields when processing downloads
 
+            // Clean up orphaned services (services in DB but not in log files)
+            var orphanedServicesRemoved = await CleanupOrphanedServicesAsync(context, stoppingToken);
+            if (orphanedServicesRemoved > 0)
+            {
+                needsCacheInvalidation = true;
+            }
+
             // Invalidate cache if we made any changes
             if (needsCacheInvalidation)
             {
@@ -160,6 +172,86 @@ public class DownloadCleanupService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during initial cleanup");
+        }
+    }
+
+    /// <summary>
+    /// Removes database records for services that no longer exist in log files.
+    /// This cleans up orphaned data left behind when log entries were removed but database wasn't updated.
+    /// </summary>
+    private async Task<int> CleanupOrphanedServicesAsync(AppDbContext context, CancellationToken stoppingToken)
+    {
+        try
+        {
+            _logger.LogInformation("Checking for orphaned services in database...");
+
+            // Get services that exist in log files (from Rust log_manager)
+            var logServices = await _cacheManagementService.GetServiceLogCounts(forceRefresh: false, stoppingToken);
+            var logServiceNames = logServices.Keys.Select(s => s.ToLowerInvariant()).ToHashSet();
+
+            _logger.LogInformation("Found {Count} services in log files: {Services}",
+                logServiceNames.Count, string.Join(", ", logServiceNames.Take(10)));
+
+            // Get unique services from Downloads table
+            var dbServices = await context.Downloads
+                .Select(d => d.Service.ToLower())
+                .Distinct()
+                .ToListAsync(stoppingToken);
+
+            _logger.LogInformation("Found {Count} services in database: {Services}",
+                dbServices.Count, string.Join(", ", dbServices.Take(10)));
+
+            // Find orphaned services (in DB but not in logs)
+            var orphanedServices = dbServices
+                .Where(s => !logServiceNames.Contains(s.ToLowerInvariant()))
+                .ToList();
+
+            if (!orphanedServices.Any())
+            {
+                _logger.LogInformation("No orphaned services found");
+                return 0;
+            }
+
+            _logger.LogInformation("Found {Count} orphaned services to clean up: {Services}",
+                orphanedServices.Count, string.Join(", ", orphanedServices));
+
+            var totalDeleted = 0;
+
+            foreach (var service in orphanedServices)
+            {
+                var serviceLower = service.ToLowerInvariant();
+
+                // Delete LogEntries first (foreign key constraint)
+                var logEntriesDeleted = await context.LogEntries
+                    .Where(le => le.Service.ToLower() == serviceLower)
+                    .ExecuteDeleteAsync(stoppingToken);
+
+                // Delete Downloads
+                var downloadsDeleted = await context.Downloads
+                    .Where(d => d.Service.ToLower() == serviceLower)
+                    .ExecuteDeleteAsync(stoppingToken);
+
+                // Delete ServiceStats
+                var serviceStatsDeleted = await context.ServiceStats
+                    .Where(s => s.Service.ToLower() == serviceLower)
+                    .ExecuteDeleteAsync(stoppingToken);
+
+                var serviceTotal = logEntriesDeleted + downloadsDeleted + serviceStatsDeleted;
+                totalDeleted += serviceTotal;
+
+                _logger.LogInformation("Cleaned up orphaned service '{Service}': {Downloads} downloads, {LogEntries} log entries, {ServiceStats} service stats",
+                    service, downloadsDeleted, logEntriesDeleted, serviceStatsDeleted);
+            }
+
+            _logger.LogInformation("Orphaned service cleanup complete: removed {Total} total records from {Count} services",
+                totalDeleted, orphanedServices.Count);
+
+            return orphanedServices.Count;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error cleaning up orphaned services");
+            return 0;
         }
     }
 }

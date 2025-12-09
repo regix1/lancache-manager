@@ -3,41 +3,65 @@ name = "lancache_processor"
 version = "1.0.0"
 edition = "2021"
 
-[[bin]]
-name = "lancache_processor"
-path = "src/main.rs"
+# =============================================================================
+# BINARY EXECUTABLES
+# =============================================================================
+# Organized by domain for easier navigation:
+#   - log_*        : Log file operations (parse, manage)
+#   - cache_*      : Cache file operations (clear, detect, remove)
+#   - db_*         : Database operations (reset, migrate)
+# =============================================================================
 
-[[bin]]
-name = "database_reset"
-path = "src/database_reset.rs"
+# --- Log Operations ---
 
+# Primary log processor - parses nginx access logs into database
 [[bin]]
-name = "log_manager"
-path = "src/log_manager.rs"
+name = "log_processor"
+path = "src/log_processor.rs"
 
+# Count services in logs OR remove service entries from log files
 [[bin]]
-name = "cache_cleaner"
-path = "src/cache_cleaner.rs"
+name = "log_service_manager"
+path = "src/log_service_manager.rs"
 
-[[bin]]
-name = "corruption_manager"
-path = "src/corruption_manager.rs"
+# --- Cache Operations ---
 
+# Clear entire cache directory (all hex directories)
 [[bin]]
-name = "game_cache_detector"
-path = "src/game_cache_detector.rs"
+name = "cache_clear"
+path = "src/cache_clear.rs"
 
+# Detect and remove corrupted cache chunks
 [[bin]]
-name = "game_cache_remover"
-path = "src/game_cache_remover.rs"
+name = "cache_corruption"
+path = "src/cache_corruption.rs"
 
+# Detect which games have files in the cache
 [[bin]]
-name = "service_remover"
-path = "src/service_remover.rs"
+name = "cache_game_detect"
+path = "src/cache_game_detect.rs"
 
+# Remove all cache files for a specific game
 [[bin]]
-name = "data_migrator"
-path = "src/data_migrator.rs"
+name = "cache_game_remove"
+path = "src/cache_game_remove.rs"
+
+# Remove all cache files for a specific service (non-Steam)
+[[bin]]
+name = "cache_service_remove"
+path = "src/cache_service_remove.rs"
+
+# --- Database Operations ---
+
+# Reset database tables (clear all data)
+[[bin]]
+name = "db_reset"
+path = "src/db_reset.rs"
+
+# Import data from DeveLanCacheUI database
+[[bin]]
+name = "db_migrate"
+path = "src/db_migrate.rs"
 
 [dependencies]
 rusqlite = { version = "0.37", features = ["bundled"] }

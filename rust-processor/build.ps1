@@ -10,6 +10,19 @@ $ErrorActionPreference = "Stop"
 
 Write-Host "[BUILD] Building Rust executables for multiple platforms..." -ForegroundColor Green
 
+# All binary names (from Cargo.toml [[bin]] sections)
+$Binaries = @(
+    "log_processor",           # Primary log processor (was lancache_processor)
+    "log_service_manager",     # Service counting/removal from logs (was log_manager)
+    "cache_clear",             # Clear entire cache (was cache_cleaner)
+    "cache_corruption",        # Detect/remove corrupted chunks (was corruption_manager)
+    "cache_game_detect",       # Detect games in cache (was game_cache_detector)
+    "cache_game_remove",       # Remove game from cache (was game_cache_remover)
+    "cache_service_remove",    # Remove service from cache (was service_remover)
+    "db_reset",                # Reset database (was database_reset)
+    "db_migrate"               # Import from DeveLanCacheUI (was data_migrator)
+)
+
 function Build-ForTarget {
     param(
         [string]$TargetTriple,
@@ -21,22 +34,25 @@ function Build-ForTarget {
     # Install target if not already installed
     rustup target add $TargetTriple 2>$null
 
-    # Build both binaries
+    # Build all binaries
     cargo build --release --target $TargetTriple
 
     # Create output directory
     New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
-    # Copy binaries to output directory
-    if ($TargetTriple -like "*windows*") {
-        Copy-Item "target\$TargetTriple\release\lancache_processor.exe" "$OutputDir\" -Force
-        Copy-Item "target\$TargetTriple\release\database_reset.exe" "$OutputDir\" -Force
-        Write-Host "[OK] Windows executables copied to $OutputDir" -ForegroundColor Green
-    } else {
-        Copy-Item "target/$TargetTriple/release/lancache_processor" "$OutputDir/" -Force
-        Copy-Item "target/$TargetTriple/release/database_reset" "$OutputDir/" -Force
-        Write-Host "[OK] Linux executables copied to $OutputDir" -ForegroundColor Green
+    # Copy all binaries to output directory
+    $isWindowsTarget = $TargetTriple -like "*windows*"
+    $extension = if ($isWindowsTarget) { ".exe" } else { "" }
+    $separator = if ($isWindowsTarget) { "\" } else { "/" }
+
+    foreach ($binary in $Binaries) {
+        $sourcePath = "target$separator$TargetTriple${separator}release$separator$binary$extension"
+        $destPath = "$OutputDir$separator$binary$extension"
+        Copy-Item $sourcePath $destPath -Force
+        Write-Host "  Copied $binary$extension" -ForegroundColor Gray
     }
+
+    Write-Host "[OK] $($Binaries.Count) executables copied to $OutputDir" -ForegroundColor Green
 }
 
 switch ($Target) {

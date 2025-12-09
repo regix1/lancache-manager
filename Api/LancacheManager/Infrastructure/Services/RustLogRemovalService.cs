@@ -1,9 +1,11 @@
 using System.Diagnostics;
 using LancacheManager.Application.Services;
+using LancacheManager.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Infrastructure.Services;
 
@@ -20,6 +22,8 @@ public class RustLogRemovalService
     private readonly ProcessManager _processManager;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly NginxLogRotationService _nginxLogRotationService;
+    private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
+    private readonly StatsCache _statsCache;
     private Process? _rustProcess;
     private CancellationTokenSource? _cancellationTokenSource;
 
@@ -77,7 +81,9 @@ public class RustLogRemovalService
         CacheManagementService cacheManagementService,
         ProcessManager processManager,
         RustProcessHelper rustProcessHelper,
-        NginxLogRotationService nginxLogRotationService)
+        NginxLogRotationService nginxLogRotationService,
+        IDbContextFactory<AppDbContext> dbContextFactory,
+        StatsCache statsCache)
     {
         _logger = logger;
         _pathResolver = pathResolver;
@@ -86,6 +92,8 @@ public class RustLogRemovalService
         _processManager = processManager;
         _rustProcessHelper = rustProcessHelper;
         _nginxLogRotationService = nginxLogRotationService;
+        _dbContextFactory = dbContextFactory;
+        _statsCache = statsCache;
     }
 
     public class ProgressData
@@ -205,9 +213,15 @@ public class RustLogRemovalService
                     // Signal nginx to reopen log files (prevents monolithic container from losing log access)
                     await _nginxLogRotationService.ReopenNginxLogsAsync();
 
+                    // Clean up database records for this service
+                    var dbCleanupResult = await CleanupDatabaseRecordsAsync(service);
+
                     // Send completion notification
                     var finalProgress = await ReadProgressFileAsync(progressPath);
-                    var message = finalProgress?.Message ?? $"Successfully removed {service} entries from logs";
+                    var logMessage = finalProgress?.Message ?? $"Successfully removed {service} entries from logs";
+                    var message = dbCleanupResult.Success
+                        ? $"{logMessage}. Database: {dbCleanupResult.Message}"
+                        : $"{logMessage}. Database cleanup: {dbCleanupResult.Message}";
 
                     await _hubContext.Clients.All.SendAsync("LogRemovalComplete", new
                     {
@@ -216,11 +230,12 @@ public class RustLogRemovalService
                         filesProcessed = finalProgress?.FilesProcessed ?? 0,
                         linesProcessed = finalProgress?.LinesProcessed ?? 0,
                         linesRemoved = finalProgress?.LinesRemoved ?? 0,
+                        databaseRecordsDeleted = dbCleanupResult.TotalDeleted,
                         service
                     });
 
-                    _logger.LogInformation("Log removal completed successfully for {Service}: Removed {LinesRemoved} of {LinesProcessed} lines",
-                        service, finalProgress?.LinesRemoved ?? 0, finalProgress?.LinesProcessed ?? 0);
+                    _logger.LogInformation("Log removal completed successfully for {Service}: Removed {LinesRemoved} of {LinesProcessed} lines, {DbRecords} database records",
+                        service, finalProgress?.LinesRemoved ?? 0, finalProgress?.LinesProcessed ?? 0, dbCleanupResult.TotalDeleted);
                     return true;
                 }
                 else
@@ -392,5 +407,86 @@ public class RustLogRemovalService
             _logger.LogError(ex, "Error force killing service removal for {Service}", CurrentService);
             return false;
         }
+    }
+
+    /// <summary>
+    /// Result of database cleanup operation
+    /// </summary>
+    private class DatabaseCleanupResult
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = string.Empty;
+        public int TotalDeleted { get; set; }
+        public int LogEntriesDeleted { get; set; }
+        public int DownloadsDeleted { get; set; }
+        public int ServiceStatsDeleted { get; set; }
+    }
+
+    /// <summary>
+    /// Cleans up database records for a removed service.
+    /// Deletes LogEntries, Downloads, and ServiceStats for the specified service.
+    /// </summary>
+    private async Task<DatabaseCleanupResult> CleanupDatabaseRecordsAsync(string service)
+    {
+        var result = new DatabaseCleanupResult();
+
+        try
+        {
+            _logger.LogInformation("Starting database cleanup for service: {Service}", service);
+
+            // Send progress update
+            await _hubContext.Clients.All.SendAsync("LogRemovalProgress", new
+            {
+                filesProcessed = 0,
+                linesProcessed = 0,
+                linesRemoved = 0,
+                percentComplete = 95.0,
+                status = "cleaning_database",
+                message = $"Cleaning up database records for {service}...",
+                service
+            });
+
+            // Use a new DbContext from factory for this operation
+            await using var context = await _dbContextFactory.CreateDbContextAsync();
+
+            // Service names in the database are stored in lowercase
+            var serviceLower = service.ToLowerInvariant();
+
+            // Delete LogEntries for this service first (foreign key constraint)
+            // LogEntries reference Downloads, so delete them first
+            result.LogEntriesDeleted = await context.LogEntries
+                .Where(le => le.Service.ToLower() == serviceLower)
+                .ExecuteDeleteAsync();
+            _logger.LogInformation("Deleted {Count} LogEntries for service {Service}", result.LogEntriesDeleted, service);
+
+            // Delete Downloads for this service
+            result.DownloadsDeleted = await context.Downloads
+                .Where(d => d.Service.ToLower() == serviceLower)
+                .ExecuteDeleteAsync();
+            _logger.LogInformation("Deleted {Count} Downloads for service {Service}", result.DownloadsDeleted, service);
+
+            // Delete ServiceStats for this service
+            result.ServiceStatsDeleted = await context.ServiceStats
+                .Where(s => s.Service.ToLower() == serviceLower)
+                .ExecuteDeleteAsync();
+            _logger.LogInformation("Deleted {Count} ServiceStats for service {Service}", result.ServiceStatsDeleted, service);
+
+            result.TotalDeleted = result.LogEntriesDeleted + result.DownloadsDeleted + result.ServiceStatsDeleted;
+            result.Success = true;
+            result.Message = $"Deleted {result.DownloadsDeleted} downloads, {result.LogEntriesDeleted} log entries, {result.ServiceStatsDeleted} service stats";
+
+            // Invalidate caches so UI refreshes with new data
+            _statsCache.InvalidateDownloads();
+
+            _logger.LogInformation("Database cleanup completed for service {Service}: {Message}", service, result.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during database cleanup for service {Service}", service);
+            result.Success = false;
+            result.Message = $"Error: {ex.Message}";
+        }
+
+        return result;
     }
 }

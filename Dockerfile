@@ -16,17 +16,18 @@ COPY rust-processor/Cargo.toml rust-processor/Cargo.lock* ./
 COPY rust-processor/src ./src
 
 # Build for native platform
+# Binary naming: log_* (log ops), cache_* (cache ops), db_* (database ops)
 RUN cargo build --release && \
     mkdir -p /build/output && \
-    cp target/release/lancache_processor /build/output/ && \
-    cp target/release/database_reset /build/output/ && \
-    cp target/release/log_manager /build/output/ && \
-    cp target/release/cache_cleaner /build/output/ && \
-    cp target/release/corruption_manager /build/output/ && \
-    cp target/release/game_cache_detector /build/output/ && \
-    cp target/release/game_cache_remover /build/output/ && \
-    cp target/release/service_remover /build/output/ && \
-    cp target/release/data_migrator /build/output/ && \
+    cp target/release/log_processor /build/output/ && \
+    cp target/release/log_service_manager /build/output/ && \
+    cp target/release/cache_clear /build/output/ && \
+    cp target/release/cache_corruption /build/output/ && \
+    cp target/release/cache_game_detect /build/output/ && \
+    cp target/release/cache_game_remove /build/output/ && \
+    cp target/release/cache_service_remove /build/output/ && \
+    cp target/release/db_reset /build/output/ && \
+    cp target/release/db_migrate /build/output/ && \
     chmod +x /build/output/*
 
 # Stage 2: Build Frontend

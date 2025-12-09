@@ -128,31 +128,31 @@ public class WindowsPathResolver : IPathResolver
     }
 
     public string GetRustLogProcessorPath() =>
-        Path.Combine(AppContext.BaseDirectory, "rust-processor", "lancache_processor.exe");
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "log_processor.exe");
 
     public string GetRustDatabaseResetPath() =>
-        Path.Combine(AppContext.BaseDirectory, "rust-processor", "database_reset.exe");
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "db_reset.exe");
 
     public string GetRustLogManagerPath() =>
-        Path.Combine(AppContext.BaseDirectory, "rust-processor", "log_manager.exe");
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "log_service_manager.exe");
 
     public string GetRustCacheCleanerPath() =>
-        Path.Combine(AppContext.BaseDirectory, "rust-processor", "cache_cleaner.exe");
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "cache_clear.exe");
 
     public string GetRustCorruptionManagerPath() =>
-        Path.Combine(AppContext.BaseDirectory, "rust-processor", "corruption_manager.exe");
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "cache_corruption.exe");
 
     public string GetRustGameDetectorPath() =>
-        Path.Combine(AppContext.BaseDirectory, "rust-processor", "game_cache_detector.exe");
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "cache_game_detect.exe");
 
     public string GetRustGameRemoverPath() =>
-        Path.Combine(AppContext.BaseDirectory, "rust-processor", "game_cache_remover.exe");
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "cache_game_remove.exe");
 
     public string GetRustServiceRemoverPath() =>
-        Path.Combine(AppContext.BaseDirectory, "rust-processor", "service_remover.exe");
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "cache_service_remove.exe");
 
     public string GetRustDataMigratorPath() =>
-        Path.Combine(AppContext.BaseDirectory, "rust-processor", "data_migrator.exe");
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "db_migrate.exe");
 
     public string GetDatabasePath() =>
         Path.Combine(GetDataDirectory(), "LancacheManager.db");

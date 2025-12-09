@@ -10,7 +10,7 @@ use flate2::write::GzEncoder;
 use flate2::Compression;
 
 mod cache_utils;
-mod corruption_detector;
+mod cache_corruption_detector;
 mod log_discovery;
 mod log_reader;
 mod models;
@@ -18,7 +18,7 @@ mod parser;
 mod progress_utils;
 mod service_utils;
 
-use corruption_detector::CorruptionDetector;
+use cache_corruption_detector::CorruptionDetector;
 
 #[derive(Serialize)]
 struct ProgressData {
