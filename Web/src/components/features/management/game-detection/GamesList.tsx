@@ -106,7 +106,7 @@ const GamesList: React.FC<GamesListProps> = ({
 
       {/* Search Bar */}
       <div className="mb-3">
-        <div className="relative">
+        <div className="relative z-0">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-themed-muted" />
           <input
             type="text"
