@@ -2,7 +2,7 @@ import React, { useState, use } from 'react';
 import { Link, Copy, CheckCircle, Lock, Unlock } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
-import { HelpPopover, HelpSection, HelpNote, HelpKeyword, HelpCode } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 
 // Fetch metrics security status
 const fetchMetricsStatus = async (): Promise<boolean> => {
@@ -70,20 +70,24 @@ const GrafanaEndpoints: React.FC = () => {
             Live API Endpoints for Grafana
           </h3>
           <HelpPopover position="left" width={320}>
-            <HelpSection title="Available Metrics">
-              <HelpKeyword color="blue">Cache</HelpKeyword> capacity and usage,{' '}
-              <HelpKeyword color="green">hit/miss</HelpKeyword> bytes and ratio,{' '}
-              <HelpKeyword color="cyan">active</HelpKeyword> downloads and clients,{' '}
-              <HelpKeyword color="purple">per-service</HelpKeyword> counters.
+            <HelpSection title="Metrics">
+              <div className="space-y-1.5">
+                <HelpDefinition term="Cache" termColor="blue">
+                  Capacity, usage, hit/miss bytes, and hit ratio
+                </HelpDefinition>
+                <HelpDefinition term="Activity" termColor="green">
+                  Active downloads, connected clients, per-service counters
+                </HelpDefinition>
+              </div>
             </HelpSection>
 
             <HelpSection title="Integration" variant="subtle">
-              Poll every <HelpKeyword color="cyan">10-30 seconds</HelpKeyword> for real-time monitoring.
-              Works with both Prometheus and JSON datasource plugins.
+              Compatible with Prometheus and Grafana JSON datasource plugins.
+              Poll every 10-30 seconds for real-time monitoring.
             </HelpSection>
 
             <HelpNote type="info">
-              Toggle security via <HelpCode>Security__RequireAuthForMetrics</HelpCode> in docker-compose.
+              Security can be toggled in docker-compose environment settings.
             </HelpNote>
           </HelpPopover>
         </div>

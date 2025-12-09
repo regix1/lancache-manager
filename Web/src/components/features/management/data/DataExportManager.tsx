@@ -14,7 +14,7 @@ import {
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
-import { HelpPopover, HelpSection, HelpNote, HelpKeyword, HelpDefinition } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import ApiService from '@services/api.service';
 import { formatDateTime } from '@utils/formatters';
 import type { ClientStat, ServiceStat, CacheInfo, DashboardStats, Download } from '../../../../types';
@@ -478,7 +478,7 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
             </HelpSection>
 
             <HelpNote type="info">
-              Download history includes the last <HelpKeyword color="cyan">1000 entries</HelpKeyword>.
+              Download history includes the last 1000 entries.
             </HelpNote>
           </HelpPopover>
         </div>

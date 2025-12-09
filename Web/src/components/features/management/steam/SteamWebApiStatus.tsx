@@ -4,7 +4,7 @@ import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
 import { Alert } from '@components/ui/Alert';
-import { HelpPopover, HelpSection, HelpNote, HelpKeyword, HelpDefinition } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import SteamWebApiKeyModal from '@components/modals/setup/SteamWebApiKeyModal';
 import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 import { usePicsProgress } from '@contexts/PicsProgressContext';
@@ -172,9 +172,8 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
             </HelpSection>
 
             <HelpSection title="API Key" variant="subtle">
-              <HelpKeyword color="cyan">Optional</HelpKeyword> — only needed if V2 becomes unavailable.
-              Anonymous users can use the <HelpKeyword color="purple">GitHub download</HelpKeyword> option
-              as an alternative.
+              Optional — only needed if V2 becomes unavailable.
+              Anonymous users can use GitHub download as an alternative.
             </HelpSection>
 
             <HelpNote type="info">
@@ -188,11 +187,7 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
               >
                 steamcommunity.com/dev/apikey
               </a>
-            </HelpNote>
-
-            <HelpNote type="tip">
-              After requesting, open the <HelpKeyword color="purple">Steam Mobile App</HelpKeyword> →
-              hamburger menu (bottom right) → Confirmations → approve the request.
+              {' '}and approve via Steam Mobile App confirmations.
             </HelpNote>
           </HelpPopover>
         </div>

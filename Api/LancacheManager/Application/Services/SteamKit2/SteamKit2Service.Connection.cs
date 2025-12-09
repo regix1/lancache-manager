@@ -19,7 +19,7 @@ public partial class SteamKit2Service
         _steamClient!.Connect();
 
         // Wait for connected (increased timeout to handle Steam server delays)
-        await WaitForTaskWithTimeout(_connectedTcs.Task, TimeSpan.FromSeconds(60), ct);
+        await WaitForTaskWithTimeout(_connectedTcs.Task, TimeSpan.FromSeconds(60), ct, "Connecting to Steam");
 
         // Check if we have a saved refresh token for authenticated login
         var refreshToken = _stateService.GetSteamRefreshToken();
@@ -44,10 +44,10 @@ public partial class SteamKit2Service
         }
 
         // Wait for logged on (increased timeout to handle Steam server delays)
-        await WaitForTaskWithTimeout(_loggedOnTcs.Task, TimeSpan.FromSeconds(60), ct);
+        await WaitForTaskWithTimeout(_loggedOnTcs.Task, TimeSpan.FromSeconds(60), ct, "Logging into Steam");
     }
 
-    private async Task WaitForTaskWithTimeout(Task task, TimeSpan timeout, CancellationToken ct)
+    private async Task WaitForTaskWithTimeout(Task task, TimeSpan timeout, CancellationToken ct, string operationName = "Steam operation")
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(timeout);
@@ -56,7 +56,9 @@ public partial class SteamKit2Service
 
         if (completedTask != task)
         {
-            throw new TimeoutException("Operation timed out");
+            var errorMessage = $"{operationName} timed out after {timeout.TotalSeconds} seconds. This may indicate Steam servers are busy or your network connection is unstable.";
+            _logger.LogWarning("{Operation} timed out after {Seconds}s", operationName, timeout.TotalSeconds);
+            throw new TimeoutException(errorMessage);
         }
 
         await task; // Rethrow if faulted
@@ -67,6 +69,34 @@ public partial class SteamKit2Service
         _logger.LogInformation("Connected to Steam");
         _reconnectAttempt = 0; // Reset backoff on successful connection
         _connectedTcs?.TrySetResult();
+
+        // If we're reconnecting during an active rebuild, automatically re-login
+        if (IsRebuildRunning && !_isLoggedOn)
+        {
+            _logger.LogInformation("Reconnected during active rebuild - attempting to re-login");
+
+            // Check if we have a saved refresh token for authenticated login
+            var refreshToken = _stateService.GetSteamRefreshToken();
+            var authMode = _stateService.GetSteamAuthMode();
+
+            if (!string.IsNullOrEmpty(refreshToken) && authMode == "authenticated")
+            {
+                var username = _stateService.GetSteamUsername();
+                _logger.LogInformation("Re-logging in with saved refresh token for user: {Username}", username);
+
+                _steamUser!.LogOn(new SteamUser.LogOnDetails
+                {
+                    Username = username,
+                    AccessToken = refreshToken,
+                    ShouldRememberPassword = true
+                });
+            }
+            else
+            {
+                _logger.LogInformation("Re-logging in anonymously...");
+                _steamUser!.LogOnAnonymous();
+            }
+        }
     }
 
     private void OnDisconnected(SteamClient.DisconnectedCallback callback)
@@ -83,31 +113,88 @@ public partial class SteamKit2Service
         }
         _isLoggedOn = false;
 
-        if (!_connectedTcs?.Task.IsCompleted ?? false)
-        {
-            _connectedTcs?.TrySetException(new Exception("Disconnected during connect"));
-        }
-
         // Only reconnect if we're running AND there's an active rebuild
         // This prevents endless reconnection loops after PICS crawls complete
         if (_isRunning && IsRebuildRunning)
         {
             _reconnectAttempt++;
+
+            // Check if we've exceeded max attempts
+            if (_reconnectAttempt > MaxReconnectAttempts)
+            {
+                var errorMessage = $"Failed to maintain Steam connection after {MaxReconnectAttempts} reconnection attempts. Steam servers may be experiencing issues or your network connection is unstable.";
+                _logger.LogError("Max reconnection attempts ({MaxAttempts}) exceeded during rebuild", MaxReconnectAttempts);
+                _lastErrorMessage = errorMessage;
+
+                // Fail any pending connection/login tasks
+                _connectedTcs?.TrySetException(new Exception(errorMessage));
+                _loggedOnTcs?.TrySetException(new Exception(errorMessage));
+
+                // Cancel the rebuild
+                _currentRebuildCts?.Cancel();
+
+                // Send error notification via SignalR
+                _ = _hubContext.Clients.All.SendAsync("SteamSessionError", new
+                {
+                    errorType = "ConnectionFailed",
+                    message = errorMessage,
+                    reconnectAttempts = _reconnectAttempt,
+                    timestamp = DateTime.UtcNow,
+                    wasRebuildActive = true
+                });
+
+                // Send failure completion event
+                _ = _hubContext.Clients.All.SendAsync("DepotMappingComplete", new
+                {
+                    success = false,
+                    error = errorMessage,
+                    errorType = "ConnectionFailed",
+                    depotMappingsFound = _depotToAppMappings.Count,
+                    timestamp = DateTime.UtcNow
+                });
+
+                _reconnectAttempt = 0; // Reset for next time
+                return;
+            }
+
             // Exponential backoff: 5s, 10s, 20s, 40s, 60s (capped)
             var delaySeconds = Math.Min(5 * (int)Math.Pow(2, _reconnectAttempt - 1), MaxReconnectDelaySeconds);
-            _logger.LogInformation("Unexpected disconnection during active rebuild - attempting to reconnect in {Delay} seconds (attempt {Attempt})...",
-                delaySeconds, _reconnectAttempt);
+            _logger.LogInformation("Unexpected disconnection during active rebuild - attempting to reconnect in {Delay} seconds (attempt {Attempt}/{MaxAttempts})...",
+                delaySeconds, _reconnectAttempt, MaxReconnectAttempts);
+
+            // Send progress update so UI knows we're reconnecting
+            _ = _hubContext.Clients.All.SendAsync("DepotMappingProgress", new
+            {
+                status = $"Reconnecting to Steam (attempt {_reconnectAttempt}/{MaxReconnectAttempts})...",
+                percentComplete = _totalBatches > 0 ? (_processedBatches * 100.0 / _totalBatches) : 0,
+                processedBatches = _processedBatches,
+                totalBatches = _totalBatches,
+                depotMappingsFound = _depotToAppMappings.Count,
+                isLoggedOn = false,
+                isReconnecting = true,
+                reconnectAttempt = _reconnectAttempt,
+                maxReconnectAttempts = MaxReconnectAttempts,
+                message = $"Connection lost. Reconnecting in {delaySeconds} seconds..."
+            });
 
             Task.Delay(delaySeconds * 1000, _cancellationTokenSource.Token).ContinueWith(_ =>
             {
                 if (_isRunning && IsRebuildRunning && !_cancellationTokenSource.Token.IsCancellationRequested)
                 {
+                    // Create new TaskCompletionSources for the reconnection attempt
+                    _connectedTcs = new TaskCompletionSource();
+                    _loggedOnTcs = new TaskCompletionSource();
                     _steamClient?.Connect();
                 }
             }, _cancellationTokenSource.Token);
         }
         else
         {
+            // Fail pending tasks if not reconnecting
+            if (!_connectedTcs?.Task.IsCompleted ?? false)
+            {
+                _connectedTcs?.TrySetException(new Exception("Disconnected from Steam"));
+            }
             _reconnectAttempt = 0; // Reset when not actively rebuilding
         }
     }

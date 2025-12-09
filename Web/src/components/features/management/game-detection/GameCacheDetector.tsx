@@ -5,7 +5,7 @@ import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
-import { HelpPopover, HelpSection, HelpNote, HelpKeyword, HelpDefinition } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { useNotifications } from '@contexts/NotificationsContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import GamesList from './GamesList';
@@ -537,16 +537,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               <div className="flex items-center gap-2">
                 <h3 className="text-lg font-semibold text-themed-primary">Game Cache Detection</h3>
                 <HelpPopover position="left" width={340}>
-                  <HelpNote type="info">
-                    Access logs must be processed first to populate the database.
-                  </HelpNote>
-
-                  <HelpSection title="How It Works" variant="subtle">
-                    Scans database for <HelpKeyword color="blue">games</HelpKeyword> and{' '}
-                    <HelpKeyword color="purple">services</HelpKeyword>, verifies cache files exist on disk,
-                    then displays <HelpKeyword color="green">size</HelpKeyword> and file count for each.
-                  </HelpSection>
-
                   <HelpSection title="Removal">
                     <div className="space-y-1.5">
                       <HelpDefinition term="Game" termColor="green">
@@ -557,6 +547,15 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                       </HelpDefinition>
                     </div>
                   </HelpSection>
+
+                  <HelpSection title="How It Works" variant="subtle">
+                    Scans database for games and services, verifies cache files exist on disk,
+                    then displays size and file count for each.
+                  </HelpSection>
+
+                  <HelpNote type="info">
+                    Access logs must be processed first to populate the database.
+                  </HelpNote>
                 </HelpPopover>
               </div>
               <span
@@ -581,16 +580,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   <div className="flex items-center gap-2">
                     <h3 className="text-lg font-semibold text-themed-primary">Game Cache Detection</h3>
                     <HelpPopover position="left" width={340}>
-                      <HelpNote type="info">
-                        Access logs must be processed first to populate the database.
-                      </HelpNote>
-
-                      <HelpSection title="How It Works" variant="subtle">
-                        Scans database for <HelpKeyword color="blue">games</HelpKeyword> and{' '}
-                        <HelpKeyword color="purple">services</HelpKeyword>, verifies cache files exist on disk,
-                        then displays <HelpKeyword color="green">size</HelpKeyword> and file count for each.
-                      </HelpSection>
-
                       <HelpSection title="Removal">
                         <div className="space-y-1.5">
                           <HelpDefinition term="Game" termColor="green">
@@ -601,6 +590,15 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                           </HelpDefinition>
                         </div>
                       </HelpSection>
+
+                      <HelpSection title="How It Works" variant="subtle">
+                        Scans database for games and services, verifies cache files exist on disk,
+                        then displays size and file count for each.
+                      </HelpSection>
+
+                      <HelpNote type="info">
+                        Access logs must be processed first to populate the database.
+                      </HelpNote>
                     </HelpPopover>
                   </div>
                   <p className="text-sm text-themed-secondary mt-1">

@@ -23,7 +23,7 @@ import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Checkbox } from '@components/ui/Checkbox';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
-import { HelpPopover, HelpSection, HelpNote, HelpKeyword } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { API_BASE } from '@utils/constants';
 import { Tooltip } from '@components/ui/Tooltip';
 import { ThemeCard } from './ThemeCard';
@@ -573,15 +573,19 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
               <p className="text-xs text-themed-muted">{themes.length} themes available</p>
             </div>
             <HelpPopover position="left" width={300}>
-              <HelpSection title="Theme Options">
-                <HelpKeyword color="blue">System themes</HelpKeyword> are built-in and cannot be deleted.{' '}
-                <HelpKeyword color="purple">Custom themes</HelpKeyword> can be created, edited, or imported
-                from the community.
+              <HelpSection title="Theme Types">
+                <div className="space-y-1.5">
+                  <HelpDefinition term="System" termColor="blue">
+                    Built-in themes that cannot be deleted
+                  </HelpDefinition>
+                  <HelpDefinition term="Custom" termColor="purple">
+                    User-created or imported from the community
+                  </HelpDefinition>
+                </div>
               </HelpSection>
 
               <HelpSection title="Preview Mode" variant="subtle">
-                Preview themes without committing — click{' '}
-                <HelpKeyword color="cyan">Apply</HelpKeyword> to save your choice permanently.
+                Preview themes without committing — click Apply to save your choice permanently.
               </HelpSection>
 
               <HelpNote type="info">

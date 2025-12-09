@@ -4,7 +4,7 @@ import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
-import { HelpPopover, HelpSection, HelpNote, HelpKeyword } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { API_BASE } from '@utils/constants';
 import authService from '@services/auth.service';
 
@@ -208,18 +208,23 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
           <Cpu className="w-6 h-6 icon-emerald" />
           <h3 className="text-lg font-semibold text-themed-primary">Garbage Collection Settings</h3>
           <HelpPopover position="left" width={320}>
-            <HelpSection title="What is this?">
-              Controls how aggressively the system cleans up memory. If you experience
-              high memory usage, try increasing aggressiveness or lowering the threshold.
-              If performance is slow, decrease aggressiveness.
+            <HelpSection title="Settings">
+              <div className="space-y-1.5">
+                <HelpDefinition term="Aggressiveness" termColor="blue">
+                  How often the system checks and cleans memory
+                </HelpDefinition>
+                <HelpDefinition term="Threshold" termColor="green">
+                  Memory limit that triggers cleanup when exceeded
+                </HelpDefinition>
+              </div>
             </HelpSection>
 
-            <HelpSection title="Recommended" variant="subtle">
-              <HelpKeyword color="blue">On Page Load</HelpKeyword> mode provides balanced memory
-              management with minimal performance impact for most users.
+            <HelpSection title="Recommendation" variant="subtle">
+              On Page Load mode provides balanced memory management with minimal
+              performance impact for most users.
             </HelpSection>
 
-            <HelpNote type="success">
+            <HelpNote type="info">
               Changes take effect immediately — no restart required.
             </HelpNote>
           </HelpPopover>

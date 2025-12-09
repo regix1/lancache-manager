@@ -277,21 +277,40 @@ public class DeviceAuthService
             return;
         }
 
-        try
-        {
-            using var context = _contextFactory.CreateDbContext();
-            var session = context.UserSessions
-                .FirstOrDefault(s => s.DeviceId == deviceId && !s.IsGuest && !s.IsRevoked);
+        // Retry with exponential backoff to handle "database is locked" errors
+        // This can happen when large operations (like PICS import) hold the database lock
+        const int maxRetries = 3;
+        var retryDelayMs = 100;
 
-            if (session != null)
-            {
-                session.LastSeenAtUtc = DateTime.UtcNow;
-                context.SaveChanges();
-            }
-        }
-        catch (Exception ex)
+        for (var attempt = 1; attempt <= maxRetries; attempt++)
         {
-            _logger.LogError(ex, "[DeviceAuth] Failed to update LastSeen for device {DeviceId}", deviceId);
+            try
+            {
+                using var context = _contextFactory.CreateDbContext();
+                var session = context.UserSessions
+                    .FirstOrDefault(s => s.DeviceId == deviceId && !s.IsGuest && !s.IsRevoked);
+
+                if (session != null)
+                {
+                    session.LastSeenAtUtc = DateTime.UtcNow;
+                    context.SaveChanges();
+                }
+                return; // Success - exit the retry loop
+            }
+            catch (Exception ex) when (ex.InnerException?.Message?.Contains("database is locked") == true && attempt < maxRetries)
+            {
+                // Database is locked, wait and retry
+                _logger.LogDebug("[DeviceAuth] Database locked, retrying UpdateLastSeen (attempt {Attempt}/{MaxRetries})", attempt, maxRetries);
+                Thread.Sleep(retryDelayMs);
+                retryDelayMs *= 2; // Exponential backoff
+            }
+            catch (Exception ex)
+            {
+                // Non-retryable error or max retries exceeded - log but don't throw
+                // This is a non-critical operation, so we just log and continue
+                _logger.LogWarning(ex, "[DeviceAuth] Failed to update LastSeen for device {DeviceId} after {Attempts} attempts", deviceId, attempt);
+                return;
+            }
         }
     }
 

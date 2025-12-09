@@ -4,7 +4,7 @@ import ApiService from '@services/api.service';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
-import { HelpPopover, HelpSection, HelpNote, HelpKeyword, HelpDefinition } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { FullScanRequiredModal } from '@components/modals/setup/FullScanRequiredModal';
 import { useNotifications } from '@contexts/NotificationsContext';
 import { usePicsProgress } from '@contexts/PicsProgressContext';
@@ -691,9 +691,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
             </HelpSection>
 
             <HelpSection title="Settings" variant="subtle">
-              <HelpKeyword color="cyan">Automatic Schedule</HelpKeyword> runs in the background at your
-              chosen interval. <HelpKeyword color="blue">Apply Now</HelpKeyword> uses the selected
-              source for immediate updates.
+              Automatic Schedule runs in the background at your chosen interval.
+              Apply Now uses the selected source for immediate updates.
             </HelpSection>
 
             <HelpNote type="info">

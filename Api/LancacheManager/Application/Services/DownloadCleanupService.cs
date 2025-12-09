@@ -192,6 +192,14 @@ public class DownloadCleanupService : BackgroundService
             _logger.LogInformation("Found {Count} services in log files: {Services}",
                 logServiceNames.Count, string.Join(", ", logServiceNames.Take(10)));
 
+            // SAFETY CHECK: If no services found in logs, don't delete anything
+            // This prevents accidentally wiping all data if log scanning fails
+            if (logServiceNames.Count == 0)
+            {
+                _logger.LogWarning("No services found in log files - skipping orphaned service cleanup to prevent accidental data loss");
+                return 0;
+            }
+
             // Get unique services from Downloads table
             var dbServices = await context.Downloads
                 .Select(d => d.Service.ToLower())
@@ -201,10 +209,17 @@ public class DownloadCleanupService : BackgroundService
             _logger.LogInformation("Found {Count} services in database: {Services}",
                 dbServices.Count, string.Join(", ", dbServices.Take(10)));
 
-            // Find orphaned services (in DB but not in logs)
+            // SAFETY CHECK: Don't delete if most services would be removed
+            // This protects against edge cases where log scanning returns partial results
             var orphanedServices = dbServices
                 .Where(s => !logServiceNames.Contains(s.ToLowerInvariant()))
                 .ToList();
+
+            if (dbServices.Count > 0 && orphanedServices.Count >= dbServices.Count)
+            {
+                _logger.LogWarning("All {Count} database services would be marked as orphaned - this looks like a log scanning issue. Skipping cleanup.", dbServices.Count);
+                return 0;
+            }
 
             if (!orphanedServices.Any())
             {

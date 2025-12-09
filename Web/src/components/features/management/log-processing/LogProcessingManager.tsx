@@ -12,7 +12,7 @@ import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
-import { HelpPopover, HelpSection, HelpNote, HelpKeyword, HelpDefinition } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import type { ProcessingStatus as ApiProcessingStatus } from '../../../../types';
 import DepotMappingManager from '../depot/DepotMappingManager';
 
@@ -519,8 +519,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
             </HelpSection>
 
             <HelpNote type="info">
-              Rust service always starts from top with{' '}
-              <HelpKeyword color="cyan">duplicate detection</HelpKeyword> to avoid reimporting entries.
+              Rust processor starts from top with built-in duplicate detection to avoid reimporting entries.
             </HelpNote>
           </HelpPopover>
         </div>

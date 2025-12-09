@@ -4,7 +4,7 @@ import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
-import { HelpPopover, HelpSection, HelpNote, HelpKeyword, HelpDefinition } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { useSteamAuthentication } from '@hooks/useSteamAuthentication';
 import { useSteamAuth } from '@contexts/SteamAuthContext';
@@ -140,8 +140,8 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
             </HelpSection>
 
             <HelpSection title="Depot Mapping" variant="subtle">
-              <HelpKeyword color="cyan">Automatic</HelpKeyword> rebuilds depot mappings after login.{' '}
-              <HelpKeyword color="blue">Manual</HelpKeyword> lets you trigger the rebuild yourself.
+              Automatic mode rebuilds depot mappings after login.
+              Manual mode lets you trigger the rebuild yourself.
             </HelpSection>
 
             <HelpNote type="info">

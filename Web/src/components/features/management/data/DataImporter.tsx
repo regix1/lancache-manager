@@ -5,7 +5,7 @@ import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Checkbox } from '@components/ui/Checkbox';
 import { Modal } from '@components/ui/Modal';
-import { HelpPopover, HelpCode, HelpSection, HelpNote, HelpKeyword } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import ApiService from '@services/api.service';
 import FileBrowser from '../file-browser/FileBrowser';
 
@@ -145,27 +145,21 @@ const DataImporter: React.FC<DataImporterProps> = ({
             <h3 className="text-lg font-semibold text-themed-primary">
               Import Historical Data
             </h3>
-            <HelpPopover position="left" width={380} maxHeight="420px">
-              <HelpSection title="Compatibility">
-                Supports <HelpKeyword color="cyan">SQLite</HelpKeyword> databases from{' '}
-                <HelpKeyword color="purple">DeveLanCacheUI_Backend</HelpKeyword> and other compatible tools.
+            <HelpPopover position="left" width={340}>
+              <HelpSection title="Input Methods">
+                <div className="space-y-1.5">
+                  <HelpDefinition term="Browse" termColor="blue">
+                    Navigate to select your SQLite database file
+                  </HelpDefinition>
+                  <HelpDefinition term="Manual" termColor="green">
+                    Paste the file path directly
+                  </HelpDefinition>
+                </div>
               </HelpSection>
 
-              <HelpSection title="Docker Setup" variant="subtle">
-                <p className="mb-2">Mount your external database as a volume:</p>
-                <HelpCode block>
-                  volumes:<br />
-                  &nbsp;&nbsp;- ./data:/data<br />
-                  &nbsp;&nbsp;- /path/to/data:/mnt/import:ro
-                </HelpCode>
-                <p className="mt-2">
-                  <HelpKeyword color="green">:ro</HelpKeyword> = read-only mount for safety.
-                  Browse to <HelpCode>/mnt/import/lancache.db</HelpCode>
-                </p>
-              </HelpSection>
-
-              <HelpSection title="Manual Input">
-                Paste the file path directly or use a connection string format.
+              <HelpSection title="Compatibility" variant="subtle">
+                Supports SQLite databases from DeveLanCacheUI_Backend and other compatible tools.
+                Mount external databases as Docker volumes.
               </HelpSection>
 
               <HelpNote type="warning">

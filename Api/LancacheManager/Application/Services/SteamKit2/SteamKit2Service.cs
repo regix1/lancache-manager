@@ -48,6 +48,7 @@ public partial class SteamKit2Service : IHostedService, IDisposable
 
     // Exponential backoff for reconnection attempts
     private int _reconnectAttempt = 0;
+    private const int MaxReconnectAttempts = 5; // Give up after 5 attempts
     private const int MaxReconnectDelaySeconds = 60; // Cap at 60 seconds
 
     // Scheduling for periodic PICS crawls
