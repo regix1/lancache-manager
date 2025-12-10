@@ -249,11 +249,9 @@ const RetroView: React.FC<RetroViewProps> = ({
           return (
             <div
               key={data.id}
-              className="transition-colors hover:bg-[var(--theme-bg-tertiary)]/30"
+              className="transition-all duration-150 hover:bg-[var(--theme-bg-tertiary)]/50"
               style={{
-                backgroundColor: index % 2 === 0
-                  ? 'color-mix(in srgb, var(--theme-text-muted) 12%, transparent)'
-                  : 'color-mix(in srgb, var(--theme-text-muted) 6%, transparent)',
+                backgroundColor: 'color-mix(in srgb, var(--theme-bg-secondary) 40%, transparent)',
                 borderBottom: index < items.length - 1 ? '1px solid var(--theme-border-secondary)' : 'none'
               }}
             >
@@ -265,16 +263,16 @@ const RetroView: React.FC<RetroViewProps> = ({
                     <img
                       src={`${API_BASE}/game-images/${data.gameAppId}/header/`}
                       alt={data.gameName || 'Game'}
-                      className="w-[100px] h-[38px] rounded object-cover flex-shrink-0"
+                      className="w-[130px] h-[50px] rounded object-cover flex-shrink-0"
                       loading="lazy"
                       onError={() => handleImageError(String(data.gameAppId))}
                     />
                   ) : (
                     <div
-                      className="w-[100px] h-[38px] rounded flex items-center justify-center flex-shrink-0"
+                      className="w-[130px] h-[50px] rounded flex items-center justify-center flex-shrink-0"
                       style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
                     >
-                      {getServiceIcon(data.service, 24)}
+                      {getServiceIcon(data.service, 28)}
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
@@ -316,14 +314,14 @@ const RetroView: React.FC<RetroViewProps> = ({
                   <div className="flex flex-col gap-1">
                     <div className="text-xs text-[var(--theme-text-muted)]">Hit</div>
                     <div
-                      className="h-3 rounded-full overflow-hidden"
-                      style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+                      className="h-1.5 rounded-full overflow-hidden"
+                      style={{ backgroundColor: 'color-mix(in srgb, var(--theme-bg-tertiary) 80%, transparent)' }}
                     >
                       <div
-                        className="h-full rounded-full transition-all"
+                        className="h-full rounded-full transition-all duration-300"
                         style={{
                           width: `${hitPercent}%`,
-                          backgroundColor: hitPercent > 0 ? 'var(--theme-success)' : 'transparent'
+                          backgroundColor: hitPercent > 0 ? '#4ade80' : 'transparent'
                         }}
                       />
                     </div>
@@ -336,14 +334,14 @@ const RetroView: React.FC<RetroViewProps> = ({
                   <div className="flex flex-col gap-1">
                     <div className="text-xs text-[var(--theme-text-muted)]">Miss</div>
                     <div
-                      className="h-3 rounded-full overflow-hidden"
-                      style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+                      className="h-1.5 rounded-full overflow-hidden"
+                      style={{ backgroundColor: 'color-mix(in srgb, var(--theme-bg-tertiary) 80%, transparent)' }}
                     >
                       <div
-                        className="h-full rounded-full transition-all"
+                        className="h-full rounded-full transition-all duration-300"
                         style={{
                           width: `${missPercent}%`,
-                          backgroundColor: missPercent > 0 ? 'var(--theme-error)' : 'transparent'
+                          backgroundColor: missPercent > 0 ? '#f87171' : 'transparent'
                         }}
                       />
                     </div>
@@ -359,10 +357,10 @@ const RetroView: React.FC<RetroViewProps> = ({
                       className="text-base font-bold"
                       style={{
                         color: hitPercent >= 90
-                          ? 'var(--theme-success)'
+                          ? '#4ade80'
                           : hitPercent >= 50
-                            ? 'var(--theme-warning)'
-                            : 'var(--theme-error)'
+                            ? '#fbbf24'
+                            : '#f87171'
                       }}
                     >
                       {formatPercent(hitPercent)}
@@ -371,10 +369,10 @@ const RetroView: React.FC<RetroViewProps> = ({
                       className="text-[9px] font-medium uppercase"
                       style={{
                         color: hitPercent >= 90
-                          ? 'var(--theme-success-text)'
+                          ? '#86efac'
                           : hitPercent >= 50
-                            ? 'var(--theme-warning-text)'
-                            : 'var(--theme-error-text)'
+                            ? '#fcd34d'
+                            : '#fca5a5'
                       }}
                     >
                       {hitPercent >= 90 ? 'Excellent' : hitPercent >= 50 ? 'Partial' : 'Miss'}
@@ -396,16 +394,16 @@ const RetroView: React.FC<RetroViewProps> = ({
                     <img
                       src={`${API_BASE}/game-images/${data.gameAppId}/header/`}
                       alt={data.gameName || 'Game'}
-                      className="w-[120px] h-[45px] rounded object-cover flex-shrink-0"
+                      className="w-[160px] h-[60px] rounded object-cover flex-shrink-0"
                       loading="lazy"
                       onError={() => handleImageError(String(data.gameAppId))}
                     />
                   ) : (
                     <div
-                      className="w-[120px] h-[45px] rounded flex items-center justify-center flex-shrink-0"
+                      className="w-[160px] h-[60px] rounded flex items-center justify-center flex-shrink-0"
                       style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
                     >
-                      {getServiceIcon(data.service, 28)}
+                      {getServiceIcon(data.service, 32)}
                     </div>
                   )}
                   <div className="flex flex-col min-w-0">
@@ -443,17 +441,17 @@ const RetroView: React.FC<RetroViewProps> = ({
                 </div>
 
                 {/* Cache Hit - Progress bar style */}
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1.5">
                   <div className="flex items-center gap-2">
                     <div
-                      className="flex-1 h-4 rounded-full overflow-hidden"
-                      style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+                      className="flex-1 h-1.5 rounded-full overflow-hidden"
+                      style={{ backgroundColor: 'color-mix(in srgb, var(--theme-bg-tertiary) 80%, transparent)' }}
                     >
                       <div
-                        className="h-full rounded-full transition-all"
+                        className="h-full rounded-full transition-all duration-300"
                         style={{
                           width: `${hitPercent}%`,
-                          backgroundColor: hitPercent > 0 ? 'var(--theme-success)' : 'transparent'
+                          backgroundColor: hitPercent > 0 ? '#4ade80' : 'transparent'
                         }}
                       />
                     </div>
@@ -464,17 +462,17 @@ const RetroView: React.FC<RetroViewProps> = ({
                 </div>
 
                 {/* Cache Miss - Progress bar style */}
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1.5">
                   <div className="flex items-center gap-2">
                     <div
-                      className="flex-1 h-4 rounded-full overflow-hidden"
-                      style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+                      className="flex-1 h-1.5 rounded-full overflow-hidden"
+                      style={{ backgroundColor: 'color-mix(in srgb, var(--theme-bg-tertiary) 80%, transparent)' }}
                     >
                       <div
-                        className="h-full rounded-full transition-all"
+                        className="h-full rounded-full transition-all duration-300"
                         style={{
                           width: `${missPercent}%`,
-                          backgroundColor: missPercent > 0 ? 'var(--theme-error)' : 'transparent'
+                          backgroundColor: missPercent > 0 ? '#f87171' : 'transparent'
                         }}
                       />
                     </div>
@@ -490,10 +488,10 @@ const RetroView: React.FC<RetroViewProps> = ({
                     className="text-lg font-bold"
                     style={{
                       color: hitPercent >= 90
-                        ? 'var(--theme-success)'
+                        ? '#4ade80'
                         : hitPercent >= 50
-                          ? 'var(--theme-warning)'
-                          : 'var(--theme-error)'
+                          ? '#fbbf24'
+                          : '#f87171'
                     }}
                   >
                     {formatPercent(hitPercent)}
@@ -502,10 +500,10 @@ const RetroView: React.FC<RetroViewProps> = ({
                     className="text-[10px] font-medium uppercase tracking-wide"
                     style={{
                       color: hitPercent >= 90
-                        ? 'var(--theme-success-text)'
+                        ? '#86efac'
                         : hitPercent >= 50
-                          ? 'var(--theme-warning-text)'
-                          : 'var(--theme-error-text)'
+                          ? '#fcd34d'
+                          : '#fca5a5'
                     }}
                   >
                     {hitPercent >= 90 ? 'Excellent' : hitPercent >= 50 ? 'Partial' : 'Miss'}
