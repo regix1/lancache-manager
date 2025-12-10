@@ -51,6 +51,10 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     private const int MaxReconnectAttempts = 5; // Give up after 5 attempts
     private const int MaxReconnectDelaySeconds = 60; // Cap at 60 seconds
 
+    // Track session replacement errors to auto-logout after repeated failures
+    private int _sessionReplacedCount = 0;
+    private const int MaxSessionReplacedBeforeLogout = 3; // Auto-logout after 3 session replacements
+
     // Scheduling for periodic PICS crawls
     private Timer? _periodicTimer;
     private DateTime _lastCrawlTime = DateTime.MinValue;

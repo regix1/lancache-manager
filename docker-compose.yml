@@ -43,17 +43,6 @@ services:
       # LanCache__CachePath: Path to the LANCache cache directory
       - LanCache__CachePath=/cache
 
-      #=== Log Processing Settings ===#
-      # LanCache__StartFromEndOfLog: Start processing from end of log file
-      # true = only process new entries (recommended for normal use)
-      # false = process entire log from beginning
-      - LanCache__StartFromEndOfLog=true
-
-      # LanCache__ProcessHistoricalLogs: Process rotated/archived log files on startup
-      # true = scan for and process historical log files (access.log.1, etc.)
-      # false = only process the main log file
-      - LanCache__ProcessHistoricalLogs=false
-
       #=== Security Settings ===#
       # Security__EnableAuthentication: Master switch for authentication
       # true = require API key for admin features (recommended)
@@ -63,9 +52,9 @@ services:
       # Security__MaxAdminDevices: Number of devices that can use the same API key
       - Security__MaxAdminDevices=3
 
-      # Security__GuestSessionDurationHours: How long guest (unauthenticated) sessions last
-      # Guests get read-only access without an API key for this duration
-      - Security__GuestSessionDurationHours=6
+      # Security__GuestSessionDurationHours: Initial default for guest session duration
+      # Only used on first startup - can be changed in Management UI afterwards
+      # - Security__GuestSessionDurationHours=6
 
       # Security__RequireAuthForMetrics: Require API key for /metrics endpoint
       # true = Prometheus/Grafana must use Bearer token authentication

@@ -31,6 +31,7 @@ export const SIGNALR_EVENTS = [
   'DepotMappingProgress',
   'DepotMappingComplete',
   'SteamSessionError',
+  'SteamAutoLogout',
   'DatabaseResetProgress',
   'LogRemovalProgress',
   'LogRemovalComplete',
@@ -221,6 +222,14 @@ export interface DepotMappingCompletePayload {
 export interface SteamSessionErrorPayload {
   errorType: string;
   message?: string;
+  sessionReplacedCount?: number;
+}
+
+export interface SteamAutoLogoutPayload {
+  message: string;
+  reason: string;
+  replacementCount: number;
+  timestamp: string;
 }
 
 export interface ShowToastPayload {

@@ -26,6 +26,7 @@ public class GameCacheDetectionService
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly IHubContext<DownloadHub> _hubContext;
     private readonly ConcurrentDictionary<string, DetectionOperation> _operations = new();
+    private const string FailedDepotsStateKey = "failedDepotResolutions";
 
     public class DetectionOperation
     {
@@ -576,11 +577,40 @@ public class GameCacheDetectionService
                 return 0;
             }
 
-            _logger.LogInformation("[GameDetection] Found {Count} unknown games in cache, attempting to resolve", unknownGames.Count);
+            // Get previously failed depots from state service
+            var failedDepotsState = _operationStateService.GetState(FailedDepotsStateKey);
+            var previouslyFailedDepots = new HashSet<uint>();
+            if (failedDepotsState?.Data != null)
+            {
+                var dataDict = failedDepotsState.GetDataAsDictionary();
+                if (dataDict.TryGetValue("depotIds", out var depotIdsObj) && depotIdsObj is List<object> depotIdsList)
+                {
+                    foreach (var id in depotIdsList)
+                    {
+                        if (id is long longId)
+                            previouslyFailedDepots.Add((uint)longId);
+                        else if (id is int intId)
+                            previouslyFailedDepots.Add((uint)intId);
+                        else if (uint.TryParse(id?.ToString(), out var parsedId))
+                            previouslyFailedDepots.Add(parsedId);
+                    }
+                }
+            }
+
+            // Filter out games we've already failed to resolve
+            var gamesToResolve = unknownGames.Where(g => !previouslyFailedDepots.Contains(g.GameAppId)).ToList();
+
+            if (gamesToResolve.Count == 0)
+            {
+                return 0;
+            }
+
+            _logger.LogInformation("[GameDetection] Found {Count} unknown games in cache, attempting to resolve", gamesToResolve.Count);
 
             int resolvedCount = 0;
+            var newlyFailedDepots = new List<uint>();
 
-            foreach (var unknownGame in unknownGames)
+            foreach (var unknownGame in gamesToResolve)
             {
                 // For unknown games, the depot ID is stored as GameAppId
                 var depotId = unknownGame.GameAppId;
@@ -606,6 +636,14 @@ public class GameCacheDetectionService
                     unknownGame.GameName = resolvedName;
                     unknownGame.GameAppId = mapping.AppId; // Update to actual AppId
                     resolvedCount++;
+
+                    // If this depot was previously in failed list, it's now resolved - remove it
+                    previouslyFailedDepots.Remove(depotId);
+                }
+                else
+                {
+                    // Failed to resolve - track this depot so we don't spam logs
+                    newlyFailedDepots.Add(depotId);
                 }
             }
 
@@ -613,6 +651,31 @@ public class GameCacheDetectionService
             {
                 await dbContext.SaveChangesAsync();
                 _logger.LogInformation("[GameDetection] Resolved {Count} unknown games in cache", resolvedCount);
+            }
+
+            // Log and persist failed resolutions to state.json
+            if (newlyFailedDepots.Count > 0)
+            {
+                _logger.LogInformation("[GameDetection] Failed to resolve {Count} depot(s): {DepotIds}. Marked as Unknown - will retry in 24 hours",
+                    newlyFailedDepots.Count, string.Join(", ", newlyFailedDepots));
+            }
+
+            // Update state with all failed depots (previous + new, minus any resolved)
+            var allFailedDepots = previouslyFailedDepots.Union(newlyFailedDepots.Select(d => d)).ToList();
+            if (allFailedDepots.Count > 0 || failedDepotsState != null)
+            {
+                _operationStateService.SaveState(FailedDepotsStateKey, new OperationState
+                {
+                    Key = FailedDepotsStateKey,
+                    Type = "failedDepotResolutions",
+                    Status = "tracked",
+                    Message = $"{allFailedDepots.Count} depot(s) could not be resolved",
+                    Data = JsonSerializer.SerializeToElement(new Dictionary<string, object>
+                    {
+                        { "depotIds", allFailedDepots },
+                        { "lastAttempt", DateTime.UtcNow.ToString("o") }
+                    })
+                });
             }
 
             return resolvedCount;

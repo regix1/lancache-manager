@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Key, User, Info } from 'lucide-react';
+import { Key, User, Info, AlertTriangle } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
@@ -29,9 +29,11 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
   const {
     steamAuthMode,
     username: authenticatedUsername,
+    autoLogoutMessage,
     refreshSteamAuth,
     setSteamAuthMode: setContextSteamAuthMode,
-    setUsername: setContextUsername
+    setUsername: setContextUsername,
+    clearAutoLogoutMessage
   } = useSteamAuth();
   const { status: webApiStatus, loading: webApiLoading } = useSteamWebApiStatus();
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -149,6 +151,26 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
             </HelpNote>
           </HelpPopover>
         </div>
+
+        {/* Auto-logout warning banner */}
+        {autoLogoutMessage && (
+          <Alert color="red" className="mb-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="font-medium text-sm mb-1">Steam Session Auto-Logout</p>
+                <p className="text-xs opacity-90">{autoLogoutMessage}</p>
+              </div>
+              <Button
+                size="xs"
+                variant="subtle"
+                onClick={clearAutoLogoutMessage}
+              >
+                Dismiss
+              </Button>
+            </div>
+          </Alert>
+        )}
 
         {/* V2 API Required Info Banner */}
         {steamAuthDisabled && !webApiLoading && (

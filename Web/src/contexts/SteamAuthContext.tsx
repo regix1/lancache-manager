@@ -1,5 +1,7 @@
-import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import ApiService from '@services/api.service';
+import { useSignalR } from '@contexts/SignalRContext';
+import type { SteamAutoLogoutPayload } from '@contexts/SignalRContext/types';
 
 export type SteamAuthMode = 'anonymous' | 'authenticated';
 
@@ -13,9 +15,11 @@ interface SteamAuthContextType {
   steamAuthMode: SteamAuthMode;
   username: string;
   isLoading: boolean;
+  autoLogoutMessage: string | null;
   refreshSteamAuth: () => Promise<void>;
   setSteamAuthMode: (mode: SteamAuthMode) => void;
   setUsername: (username: string) => void;
+  clearAutoLogoutMessage: () => void;
 }
 
 const SteamAuthContext = createContext<SteamAuthContextType | undefined>(undefined);
@@ -33,9 +37,11 @@ interface SteamAuthProviderProps {
 }
 
 export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }) => {
+  const signalR = useSignalR();
   const [steamAuthMode, setSteamAuthMode] = useState<SteamAuthMode>('anonymous');
   const [username, setUsername] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
+  const [autoLogoutMessage, setAutoLogoutMessage] = useState<string | null>(null);
 
   const fetchSteamAuth = async () => {
     try {
@@ -60,6 +66,27 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
     await fetchSteamAuth();
   };
 
+  const clearAutoLogoutMessage = useCallback(() => {
+    setAutoLogoutMessage(null);
+  }, []);
+
+  // Listen for SteamAutoLogout SignalR events
+  useEffect(() => {
+    const handleSteamAutoLogout = (payload: SteamAutoLogoutPayload) => {
+      console.log('[SteamAuth] Received SteamAutoLogout event:', payload);
+      // Update local state to reflect logout
+      setSteamAuthMode('anonymous');
+      setUsername('');
+      setAutoLogoutMessage(payload.message);
+    };
+
+    signalR.on('SteamAutoLogout', handleSteamAutoLogout);
+
+    return () => {
+      signalR.off('SteamAutoLogout', handleSteamAutoLogout);
+    };
+  }, [signalR]);
+
   // Initial fetch
   useEffect(() => {
     fetchSteamAuth();
@@ -71,9 +98,11 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
         steamAuthMode,
         username,
         isLoading,
+        autoLogoutMessage,
         refreshSteamAuth,
         setSteamAuthMode,
-        setUsername
+        setUsername,
+        clearAutoLogoutMessage
       }}
     >
       {children}

@@ -204,6 +204,7 @@ public partial class SteamKit2Service
         if (callback.Result == EResult.OK)
         {
             _isLoggedOn = true;
+            _sessionReplacedCount = 0; // Reset session replacement counter on successful login
             _loggedOnTcs?.TrySetResult();
             _logger.LogInformation("Successfully logged onto Steam!");
         }
@@ -280,39 +281,80 @@ public partial class SteamKit2Service
         _isLoggedOn = false;
 
         // Handle specific logoff reasons with user-friendly messages
-        var (errorType, errorMessage, shouldCancelRebuild) = callback.Result switch
+        var (errorType, errorMessage, shouldCancelRebuild, isSessionReplaced) = callback.Result switch
         {
             EResult.LogonSessionReplaced => (
                 "SessionReplaced",
                 "Your Steam session was replaced. This happens when you log into Steam from another device or application (Steam client, another server, etc.). Please close other Steam sessions and try again.",
+                true,
                 true
             ),
             EResult.LoggedInElsewhere => (
                 "LoggedInElsewhere",
                 "You logged into Steam from another location. Steam only allows one active session for PICS access. Please close other Steam sessions and try again.",
+                true,
                 true
             ),
             EResult.AccountLogonDenied => (
                 "AuthenticationRequired",
                 "Steam authentication is required. Please re-authenticate with your Steam account.",
-                true
+                true,
+                false
             ),
             EResult.InvalidPassword => (
                 "InvalidCredentials",
                 "Your Steam credentials are no longer valid. Please re-authenticate with your Steam account.",
-                true
+                true,
+                false
             ),
             EResult.Expired => (
                 "SessionExpired",
                 "Your Steam session has expired. Please re-authenticate with your Steam account.",
-                true
+                true,
+                false
             ),
             _ => (
                 "Disconnected",
                 $"Disconnected from Steam: {callback.Result}",
+                false,
                 false
             )
         };
+
+        // Track session replacement errors and auto-logout after repeated failures
+        if (isSessionReplaced)
+        {
+            _sessionReplacedCount++;
+            _logger.LogWarning("Session replaced count: {Count}/{Max}", _sessionReplacedCount, MaxSessionReplacedBeforeLogout);
+
+            if (_sessionReplacedCount >= MaxSessionReplacedBeforeLogout)
+            {
+                _logger.LogError("Steam session has been replaced {Count} times. Auto-logging out to prevent further attempts. User must re-authenticate.", _sessionReplacedCount);
+
+                // Clear credentials to stop reconnection attempts
+                _stateService.SetSteamRefreshToken(null);
+                _stateService.SetSteamUsername(null);
+                _stateService.SetSteamAuthMode("anonymous");
+                _sessionReplacedCount = 0; // Reset counter
+
+                errorMessage = $"Your Steam session was replaced {MaxSessionReplacedBeforeLogout} times. This usually means another device or application is using your Steam account. Your credentials have been cleared - please re-authenticate after closing other Steam sessions.";
+                errorType = "AutoLogout";
+
+                // Send auto-logout notification
+                _ = _hubContext.Clients.All.SendAsync("SteamAutoLogout", new
+                {
+                    message = errorMessage,
+                    reason = "RepeatedSessionReplacement",
+                    replacementCount = MaxSessionReplacedBeforeLogout,
+                    timestamp = DateTime.UtcNow
+                });
+            }
+        }
+        else
+        {
+            // Reset counter on other types of disconnections
+            _sessionReplacedCount = 0;
+        }
 
         // Send SignalR notification for significant errors
         if (shouldCancelRebuild)
@@ -326,7 +368,8 @@ public partial class SteamKit2Service
                 message = errorMessage,
                 result = callback.Result.ToString(),
                 timestamp = DateTime.UtcNow,
-                wasRebuildActive = IsRebuildRunning
+                wasRebuildActive = IsRebuildRunning,
+                sessionReplacedCount = isSessionReplaced ? _sessionReplacedCount : 0
             });
 
             // Cancel the rebuild if one is active
