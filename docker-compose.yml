@@ -79,7 +79,8 @@ services:
       - Optimizations__EnableGarbageCollectionManagement=false
 
       #=== Cache Clearing Settings ===#
-      # CacheClear__DeleteMode: How to delete files when clearing cache
+      # CacheClear__DeleteMode: Default mode for cache clearing on startup
+      # Can be changed in Management UI during runtime (does not persist)
       # "preserve" = keep directory structure, only delete files (default, safer)
       # "full" = delete everything including directories (faster, more thorough)
-      - CacheClear__DeleteMode=preserve
+      # - CacheClear__DeleteMode=preserve
