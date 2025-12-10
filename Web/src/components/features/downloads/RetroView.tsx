@@ -15,6 +15,9 @@ const API_BASE = '/api';
 interface RetroViewProps {
   items: (Download | DownloadGroup)[];
   aestheticMode?: boolean;
+  itemsPerPage: number | 'unlimited';
+  currentPage: number;
+  onTotalPagesChange: (totalPages: number, totalItems: number) => void;
 }
 
 const getServiceIcon = (service: string, size: number = 24) => {
@@ -163,7 +166,13 @@ const groupByDepot = (items: (Download | DownloadGroup)[]): DepotGroupedData[] =
   );
 };
 
-const RetroView: React.FC<RetroViewProps> = ({ items, aestheticMode = false }) => {
+const RetroView: React.FC<RetroViewProps> = ({
+  items,
+  aestheticMode = false,
+  itemsPerPage,
+  currentPage,
+  onTotalPagesChange
+}) => {
   const [imageErrors, setImageErrors] = React.useState<Set<string>>(new Set());
 
   const handleImageError = (gameAppId: string) => {
@@ -171,7 +180,28 @@ const RetroView: React.FC<RetroViewProps> = ({ items, aestheticMode = false }) =
   };
 
   // Group items by depot ID
-  const groupedItems = React.useMemo(() => groupByDepot(items), [items]);
+  const allGroupedItems = React.useMemo(() => groupByDepot(items), [items]);
+
+  // Calculate pagination based on grouped items
+  const totalPages = React.useMemo(() => {
+    if (itemsPerPage === 'unlimited') return 1;
+    return Math.ceil(allGroupedItems.length / itemsPerPage);
+  }, [allGroupedItems.length, itemsPerPage]);
+
+  // Notify parent of total pages and items whenever they change
+  React.useEffect(() => {
+    onTotalPagesChange(totalPages, allGroupedItems.length);
+  }, [totalPages, allGroupedItems.length, onTotalPagesChange]);
+
+  // Apply pagination to grouped items
+  const groupedItems = React.useMemo(() => {
+    if (itemsPerPage === 'unlimited') {
+      return allGroupedItems;
+    }
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return allGroupedItems.slice(startIndex, endIndex);
+  }, [allGroupedItems, currentPage, itemsPerPage]);
 
   return (
     <div className="rounded-lg border overflow-hidden" style={{ borderColor: 'var(--theme-border-primary)' }}>

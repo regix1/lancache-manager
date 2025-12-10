@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Database, Search } from 'lucide-react';
 import { Button } from '@components/ui/Button';
+import { Pagination } from '@components/ui/Pagination';
 import GameCard from './GameCard';
 import type { GameCacheInfo } from '../../../../types';
 import type { UnifiedNotification } from '@contexts/NotificationsContext';
@@ -168,75 +169,14 @@ const GamesList: React.FC<GamesListProps> = ({
           </div>
 
           {/* Pagination Controls */}
-          {totalPages > 1 && (
-            <div
-              className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-4 p-3 rounded-lg border"
-              style={{
-                backgroundColor: 'var(--theme-bg-elevated)',
-                borderColor: 'var(--theme-border-secondary)'
-              }}
-            >
-              <div className="text-sm text-themed-muted text-center sm:text-left">
-                Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1}-
-                {Math.min(currentPage * ITEMS_PER_PAGE, filteredAndSortedGames.length)} of{' '}
-                {filteredAndSortedGames.length}
-              </div>
-              <div className="flex items-center justify-center gap-2 flex-wrap">
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                  disabled={currentPage === 1}
-                  className="flex-shrink-0"
-                >
-                  Previous
-                </Button>
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                    let pageNum: number;
-                    if (totalPages <= 5) {
-                      pageNum = i + 1;
-                    } else if (currentPage <= 3) {
-                      pageNum = i + 1;
-                    } else if (currentPage >= totalPages - 2) {
-                      pageNum = totalPages - 4 + i;
-                    } else {
-                      pageNum = currentPage - 2 + i;
-                    }
-                    return (
-                      <button
-                        key={pageNum}
-                        onClick={() => setCurrentPage(pageNum)}
-                        className={`px-2 sm:px-3 py-1 rounded text-sm transition-colors ${
-                          currentPage === pageNum
-                            ? 'text-themed-bg font-semibold'
-                            : 'text-themed-secondary hover:text-themed-primary'
-                        }`}
-                        style={
-                          currentPage === pageNum
-                            ? {
-                                backgroundColor: 'var(--theme-accent)'
-                              }
-                            : {}
-                        }
-                      >
-                        {pageNum}
-                      </button>
-                    );
-                  })}
-                </div>
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-                  disabled={currentPage === totalPages}
-                  className="flex-shrink-0"
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
-          )}
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={filteredAndSortedGames.length}
+            itemsPerPage={ITEMS_PER_PAGE}
+            onPageChange={setCurrentPage}
+            itemLabel="games"
+          />
         </>
       )}
     </>

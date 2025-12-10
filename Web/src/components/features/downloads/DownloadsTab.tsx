@@ -1,9 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
   Database,
   Settings,
   Download as DownloadIcon,
@@ -21,6 +17,7 @@ import { Card } from '@components/ui/Card';
 import { Checkbox } from '@components/ui/Checkbox';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { ActionMenu, ActionMenuItem } from '@components/ui/ActionMenu';
+import { Pagination } from '@components/ui/Pagination';
 
 // Import view components
 import CompactView from './CompactView';
@@ -212,6 +209,9 @@ const DownloadsTab: React.FC = () => {
   const [exportLoading, setExportLoading] = useState(false);
   const [showExportOptions, setShowExportOptions] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  // Retro view manages its own pagination since it groups by depot
+  const [retroTotalPages, setRetroTotalPages] = useState(1);
+  const [retroTotalItems, setRetroTotalItems] = useState(0);
   const contentRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
 
@@ -882,6 +882,12 @@ const DownloadsTab: React.FC = () => {
     }
   };
 
+  // Callback for retro view to report its pagination info
+  const handleRetroTotalPagesChange = React.useCallback((totalPages: number, totalItems: number) => {
+    setRetroTotalPages(totalPages);
+    setRetroTotalItems(totalItems);
+  }, []);
+
   const handleExport = (format: 'json' | 'csv') => {
     setExportLoading(true);
     try {
@@ -1388,14 +1394,20 @@ const DownloadsTab: React.FC = () => {
             <span className="whitespace-nowrap">
               {settings.itemsPerPage !== 'unlimited' && (
                 <span className="font-medium">
-                  Page {currentPage} of {totalPages}
+                  Page {currentPage} of {settings.viewMode === 'retro' ? retroTotalPages : totalPages}
                 </span>
               )}
             </span>
             <span className="flex flex-wrap items-center gap-1">
               {settings.itemsPerPage !== 'unlimited' && <span className="hidden sm:inline">-</span>}
               <span>
-                Showing {itemsToDisplay.length} of {allItemsSorted.length} groups
+                Showing {settings.viewMode === 'retro'
+                  ? `${Math.min(
+                      settings.itemsPerPage === 'unlimited' ? retroTotalItems : (settings.itemsPerPage as number),
+                      retroTotalItems - (currentPage - 1) * (settings.itemsPerPage === 'unlimited' ? retroTotalItems : (settings.itemsPerPage as number))
+                    )} of ${retroTotalItems} depot groups`
+                  : `${itemsToDisplay.length} of ${allItemsSorted.length} groups`
+                }
               </span>
               <span className="whitespace-nowrap">
                 ({filteredDownloads.length}{' '}
@@ -1513,267 +1525,27 @@ const DownloadsTab: React.FC = () => {
           >
             {settings.viewMode === 'retro' && (
               <RetroView
-                items={itemsToDisplay as (Download | DownloadGroup)[]}
+                items={allItemsSorted as (Download | DownloadGroup)[]}
                 aestheticMode={settings.aestheticMode}
+                itemsPerPage={settings.itemsPerPage}
+                currentPage={currentPage}
+                onTotalPagesChange={handleRetroTotalPagesChange}
               />
             )}
           </div>
         </div>
       </div>
 
-      {/* Pagination Controls - Fixed Position */}
-      {totalPages > 1 && settings.itemsPerPage !== 'unlimited' && (
-        <div
-          className="sticky bottom-0 mt-4 z-20"
-          style={{
-            backgroundColor: 'var(--theme-bg-primary)',
-            paddingTop: '8px',
-            paddingBottom: '8px',
-            boxShadow: '0 -4px 12px rgba(0,0,0,0.1)'
-          }}
-        >
-          <Card padding="sm" className="max-w-4xl mx-auto">
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-              {/* Page Info */}
-              <div className="flex items-center gap-4">
-                <span
-                  className="text-sm font-medium"
-                  style={{ color: 'var(--theme-text-primary)' }}
-                >
-                  Page {currentPage} of {totalPages}
-                </span>
-                <span className="text-sm" style={{ color: 'var(--theme-text-secondary)' }}>
-                  {(currentPage - 1) *
-                    (typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20) +
-                    1}{' '}
-                  -{' '}
-                  {Math.min(
-                    currentPage *
-                      (typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20),
-                    allItemsSorted.length
-                  )}{' '}
-                  of {allItemsSorted.length} items
-                </span>
-              </div>
-
-              {/* Navigation Controls */}
-              <div className="flex items-center gap-2">
-                {/* First Page */}
-                <button
-                  onClick={() => handlePageChange(1)}
-                  disabled={currentPage === 1}
-                  className="p-2 rounded-lg transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
-                  style={{
-                    backgroundColor: 'var(--theme-bg-secondary)',
-                    color: 'var(--theme-text-primary)',
-                    border: '1px solid var(--theme-border-primary)'
-                  }}
-                  title="First page"
-                  aria-label="Go to first page"
-                >
-                  <ChevronsLeft size={16} />
-                </button>
-
-                {/* Previous Page */}
-                <button
-                  onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
-                  disabled={currentPage === 1}
-                  className="p-2 rounded-lg transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
-                  style={{
-                    backgroundColor: 'var(--theme-bg-secondary)',
-                    color: 'var(--theme-text-primary)',
-                    border: '1px solid var(--theme-border-primary)'
-                  }}
-                  title="Previous page"
-                  aria-label="Go to previous page"
-                >
-                  <ChevronLeft size={16} />
-                </button>
-
-                {/* Page Numbers Container */}
-                <div className="flex items-center gap-1 px-2">
-                  {/* For small number of pages, show all */}
-                  {totalPages <= 7 ? (
-                    Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
-                      <button
-                        key={pageNum}
-                        onClick={() => handlePageChange(pageNum)}
-                        className={`min-w-[32px] h-8 px-2 rounded-lg font-medium transition-all hover:scale-105 ${
-                          currentPage === pageNum ? 'shadow-md' : 'hover:bg-opacity-80'
-                        }`}
-                        style={{
-                          backgroundColor:
-                            currentPage === pageNum
-                              ? 'var(--theme-primary)'
-                              : 'var(--theme-bg-tertiary)',
-                          color:
-                            currentPage === pageNum
-                              ? 'var(--theme-button-text)'
-                              : 'var(--theme-text-primary)',
-                          border:
-                            currentPage === pageNum
-                              ? '1px solid var(--theme-primary)'
-                              : '1px solid var(--theme-border-secondary)'
-                        }}
-                        aria-label={`Go to page ${pageNum}`}
-                        aria-current={currentPage === pageNum ? 'page' : undefined}
-                      >
-                        {pageNum}
-                      </button>
-                    ))
-                  ) : (
-                    <>
-                      {/* Complex pagination for many pages */}
-                      <button
-                        onClick={() => handlePageChange(1)}
-                        className={`min-w-[32px] h-8 px-2 rounded-lg font-medium transition-all hover:scale-105 ${
-                          currentPage === 1 ? 'shadow-md' : 'hover:bg-opacity-80'
-                        }`}
-                        style={{
-                          backgroundColor:
-                            currentPage === 1 ? 'var(--theme-primary)' : 'var(--theme-bg-tertiary)',
-                          color:
-                            currentPage === 1
-                              ? 'var(--theme-button-text)'
-                              : 'var(--theme-text-primary)',
-                          border:
-                            currentPage === 1
-                              ? '1px solid var(--theme-primary)'
-                              : '1px solid var(--theme-border-secondary)'
-                        }}
-                        aria-label="Go to page 1"
-                        aria-current={currentPage === 1 ? 'page' : undefined}
-                      >
-                        1
-                      </button>
-
-                      {currentPage > 3 && (
-                        <span className="px-2" style={{ color: 'var(--theme-text-muted)' }}>
-                          •••
-                        </span>
-                      )}
-
-                      {Array.from({ length: 5 }, (_, i) => {
-                        const pageNum = currentPage - 2 + i;
-                        if (pageNum <= 1 || pageNum >= totalPages) return null;
-                        return (
-                          <button
-                            key={pageNum}
-                            onClick={() => handlePageChange(pageNum)}
-                            className={`min-w-[32px] h-8 px-2 rounded-lg font-medium transition-all hover:scale-105 ${
-                              currentPage === pageNum ? 'shadow-md' : 'hover:bg-opacity-80'
-                            }`}
-                            style={{
-                              backgroundColor:
-                                currentPage === pageNum
-                                  ? 'var(--theme-primary)'
-                                  : 'var(--theme-bg-tertiary)',
-                              color:
-                                currentPage === pageNum
-                                  ? 'var(--theme-button-text)'
-                                  : 'var(--theme-text-primary)',
-                              border:
-                                currentPage === pageNum
-                                  ? '1px solid var(--theme-primary)'
-                                  : '1px solid var(--theme-border-secondary)'
-                            }}
-                            aria-label={`Go to page ${pageNum}`}
-                            aria-current={currentPage === pageNum ? 'page' : undefined}
-                          >
-                            {pageNum}
-                          </button>
-                        );
-                      }).filter(Boolean)}
-
-                      {currentPage < totalPages - 2 && (
-                        <span className="px-2" style={{ color: 'var(--theme-text-muted)' }}>
-                          •••
-                        </span>
-                      )}
-
-                      <button
-                        onClick={() => handlePageChange(totalPages)}
-                        className={`min-w-[32px] h-8 px-2 rounded-lg font-medium transition-all hover:scale-105 ${
-                          currentPage === totalPages ? 'shadow-md' : 'hover:bg-opacity-80'
-                        }`}
-                        style={{
-                          backgroundColor:
-                            currentPage === totalPages
-                              ? 'var(--theme-primary)'
-                              : 'var(--theme-bg-tertiary)',
-                          color:
-                            currentPage === totalPages
-                              ? 'var(--theme-button-text)'
-                              : 'var(--theme-text-primary)',
-                          border:
-                            currentPage === totalPages
-                              ? '1px solid var(--theme-primary)'
-                              : '1px solid var(--theme-border-secondary)'
-                        }}
-                        aria-label={`Go to page ${totalPages}`}
-                        aria-current={currentPage === totalPages ? 'page' : undefined}
-                      >
-                        {totalPages}
-                      </button>
-                    </>
-                  )}
-                </div>
-
-                {/* Next Page */}
-                <button
-                  onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
-                  disabled={currentPage === totalPages}
-                  className="p-2 rounded-lg transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
-                  style={{
-                    backgroundColor: 'var(--theme-bg-secondary)',
-                    color: 'var(--theme-text-primary)',
-                    border: '1px solid var(--theme-border-primary)'
-                  }}
-                  title="Next page"
-                  aria-label="Go to next page"
-                >
-                  <ChevronRight size={16} />
-                </button>
-
-                {/* Last Page */}
-                <button
-                  onClick={() => handlePageChange(totalPages)}
-                  disabled={currentPage === totalPages}
-                  className="p-2 rounded-lg transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
-                  style={{
-                    backgroundColor: 'var(--theme-bg-secondary)',
-                    color: 'var(--theme-text-primary)',
-                    border: '1px solid var(--theme-border-primary)'
-                  }}
-                  title="Last page"
-                  aria-label="Go to last page"
-                >
-                  <ChevronsRight size={16} />
-                </button>
-
-                {/* Quick Page Jump (for many pages) */}
-                {totalPages > 10 && (
-                  <>
-                    <div
-                      className="border-l mx-2 h-6"
-                      style={{ borderColor: 'var(--theme-border-secondary)' }}
-                    />
-                    <EnhancedDropdown
-                      options={Array.from({ length: totalPages }, (_, i) => ({
-                        value: (i + 1).toString(),
-                        label: `Page ${i + 1}`
-                      }))}
-                      value={currentPage.toString()}
-                      onChange={(value) => handlePageChange(parseInt(value))}
-                      placeholder="Jump to..."
-                      className="w-32"
-                    />
-                  </>
-                )}
-              </div>
-            </div>
-          </Card>
-        </div>
+      {/* Pagination Controls */}
+      {settings.itemsPerPage !== 'unlimited' && (
+        <Pagination
+          currentPage={currentPage}
+          totalPages={settings.viewMode === 'retro' ? retroTotalPages : totalPages}
+          totalItems={settings.viewMode === 'retro' ? retroTotalItems : allItemsSorted.length}
+          itemsPerPage={typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20}
+          onPageChange={handlePageChange}
+          itemLabel={settings.viewMode === 'retro' ? 'depot groups' : 'items'}
+        />
       )}
 
       {/* Performance warning */}

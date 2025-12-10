@@ -18,6 +18,7 @@ import { Modal } from '@components/ui/Modal';
 import { Alert } from '@components/ui/Alert';
 import { HelpPopover } from '@components/ui/HelpPopover';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import { Pagination } from '@components/ui/Pagination';
 import ApiService from '@services/api.service';
 import themeService from '@services/theme.service';
 import authService from '@services/auth.service';
@@ -905,90 +906,20 @@ const UserTab: React.FC = () => {
           )}
 
           {/* Pagination */}
-          {!loading && totalPages > 1 && (
-            <div
-              className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4 border-t pt-4"
-              style={{ borderColor: 'var(--theme-border)' }}
-            >
-              <div className="text-sm" style={{ color: 'var(--theme-text-secondary)' }}>
-                Showing {(currentPage - 1) * pageSize + 1} to{' '}
-                {Math.min(currentPage * pageSize, totalCount)} of {totalCount} sessions
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={() => {
-                    const newPage = currentPage - 1;
-                    setCurrentPage(newPage);
-                    loadSessions(true, newPage);
-                  }}
-                  disabled={currentPage === 1}
-                  style={{
-                    opacity: currentPage === 1 ? 0.5 : 1,
-                    cursor: currentPage === 1 ? 'not-allowed' : 'pointer'
-                  }}
-                >
-                  Previous
-                </Button>
-
-                {/* Page numbers */}
-                <div className="flex items-center gap-1">
-                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                    let pageNum;
-                    if (totalPages <= 5) {
-                      pageNum = i + 1;
-                    } else if (currentPage <= 3) {
-                      pageNum = i + 1;
-                    } else if (currentPage >= totalPages - 2) {
-                      pageNum = totalPages - 4 + i;
-                    } else {
-                      pageNum = currentPage - 2 + i;
-                    }
-
-                    return (
-                      <button
-                        key={pageNum}
-                        onClick={() => {
-                          setCurrentPage(pageNum);
-                          loadSessions(true, pageNum);
-                        }}
-                        className="px-3 py-1 text-sm rounded transition-colors"
-                        style={{
-                          backgroundColor:
-                            currentPage === pageNum
-                              ? 'var(--theme-primary)'
-                              : 'var(--theme-bg-secondary)',
-                          color:
-                            currentPage === pageNum
-                              ? 'var(--theme-primary-text)'
-                              : 'var(--theme-text-primary)',
-                          border: '1px solid var(--theme-border)'
-                        }}
-                      >
-                        {pageNum}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={() => {
-                    const newPage = currentPage + 1;
-                    setCurrentPage(newPage);
-                    loadSessions(true, newPage);
-                  }}
-                  disabled={currentPage === totalPages}
-                  style={{
-                    opacity: currentPage === totalPages ? 0.5 : 1,
-                    cursor: currentPage === totalPages ? 'not-allowed' : 'pointer'
-                  }}
-                >
-                  Next
-                </Button>
-              </div>
+          {!loading && (
+            <div className="mt-6 border-t pt-4" style={{ borderColor: 'var(--theme-border)' }}>
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                totalItems={totalCount}
+                itemsPerPage={pageSize}
+                onPageChange={(newPage) => {
+                  setCurrentPage(newPage);
+                  loadSessions(true, newPage);
+                }}
+                itemLabel="sessions"
+                showCard={false}
+              />
             </div>
           )}
         </div>
