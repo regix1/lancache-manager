@@ -273,12 +273,13 @@ export const Pagination: React.FC<PaginationProps> = ({
 
   return (
     <div
-      className={`sticky bottom-0 mt-4 z-20 ${className}`}
+      className={`sticky bottom-0 mt-4 z-20 rounded-lg ${className}`}
       style={{
         backgroundColor: 'var(--theme-bg-primary)',
         paddingTop: '8px',
         paddingBottom: '8px',
-        boxShadow: '0 -4px 12px rgba(0,0,0,0.1)'
+        boxShadow: '0 -4px 12px rgba(0,0,0,0.1)',
+        borderRadius: 'var(--theme-border-radius-lg, 0.75rem)'
       }}
     >
       <Card padding="sm" className="max-w-4xl mx-auto">

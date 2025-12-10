@@ -107,8 +107,8 @@ const GamesList: React.FC<GamesListProps> = ({
 
       {/* Search Bar */}
       <div className="mb-3">
-        <div className="relative z-0">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-themed-muted" />
+        <div className="relative">
+          <Search className="input-icon absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-themed-muted" />
           <input
             type="text"
             placeholder="Search by game name or AppID..."

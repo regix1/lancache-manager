@@ -251,7 +251,9 @@ const RetroView: React.FC<RetroViewProps> = ({
               key={data.id}
               className="transition-colors hover:bg-[var(--theme-bg-tertiary)]/30"
               style={{
-                backgroundColor: index % 2 === 0 ? 'var(--theme-bg-secondary)' : 'var(--theme-bg-primary)',
+                backgroundColor: index % 2 === 0
+                  ? 'color-mix(in srgb, var(--theme-bg-secondary) 60%, var(--theme-bg-primary) 40%)'
+                  : 'var(--theme-bg-primary)',
                 borderBottom: index < items.length - 1 ? '1px solid var(--theme-border-secondary)' : 'none'
               }}
             >

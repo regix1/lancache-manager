@@ -244,14 +244,20 @@
   /* Fix ALL absolute positioned overlays */
   .absolute.z-20,
   .absolute.z-10,
-  .absolute[class*='top-'],
-  .absolute[class*='right-'],
-  .absolute[class*='left-'],
-  .absolute[class*='bottom-'],
+  .absolute[class*='top-']:not(.input-icon),
+  .absolute[class*='right-']:not(.input-icon),
+  .absolute[class*='left-']:not(.input-icon),
+  .absolute[class*='bottom-']:not(.input-icon),
   .custom-dropdown .absolute,
-  .relative > .absolute {
+  .relative > .absolute:not(.input-icon) {
     position: absolute !important;
     z-index: 99999 !important;
+  }
+
+  /* Input icons should stay at normal z-index */
+  .input-icon {
+    z-index: 1 !important;
+    pointer-events: none;
   }
 
   /* Fix backdrop overlays */
