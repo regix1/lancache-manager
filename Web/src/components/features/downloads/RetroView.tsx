@@ -53,42 +53,114 @@ const isDownloadGroup = (item: Download | DownloadGroup): item is DownloadGroup 
   return 'downloads' in item;
 };
 
-// Extract display data from either a Download or DownloadGroup
-const getDisplayData = (item: Download | DownloadGroup) => {
-  if (isDownloadGroup(item)) {
-    const primaryDownload = item.downloads[0];
-    return {
-      id: item.id,
-      service: item.service,
-      gameName: item.name,
-      gameAppId: primaryDownload?.gameAppId || null,
-      depotId: primaryDownload?.depotId || null,
-      clientIp: Array.from(item.clientsSet).join(', '),
-      startTimeUtc: item.firstSeen,
-      endTimeUtc: item.lastSeen,
-      cacheHitBytes: item.cacheHitBytes,
-      cacheMissBytes: item.cacheMissBytes,
-      totalBytes: item.totalBytes,
-      sessionCount: item.downloads.length,
-      clientCount: item.clientsSet.size
-    };
-  } else {
-    return {
-      id: `download-${item.id}`,
-      service: item.service,
-      gameName: item.gameName || item.service,
-      gameAppId: item.gameAppId || null,
-      depotId: item.depotId || null,
-      clientIp: item.clientIp,
-      startTimeUtc: item.startTimeUtc,
-      endTimeUtc: item.endTimeUtc || item.startTimeUtc,
-      cacheHitBytes: item.cacheHitBytes || 0,
-      cacheMissBytes: item.cacheMissBytes || 0,
-      totalBytes: item.totalBytes || 0,
-      sessionCount: 1,
-      clientCount: 1
-    };
-  }
+// Interface for grouped depot data
+interface DepotGroupedData {
+  id: string;
+  service: string;
+  gameName: string;
+  gameAppId: number | null;
+  depotId: number | null;
+  clientIp: string;
+  startTimeUtc: string;
+  endTimeUtc: string;
+  cacheHitBytes: number;
+  cacheMissBytes: number;
+  totalBytes: number;
+  sessionCount: number;
+  clientCount: number;
+}
+
+// Group items by depot ID for retro view display
+const groupByDepot = (items: (Download | DownloadGroup)[]): DepotGroupedData[] => {
+  const depotGroups: Record<string, DepotGroupedData> = {};
+
+  items.forEach((item) => {
+    if (isDownloadGroup(item)) {
+      // For DownloadGroups, extract individual downloads and group by depot
+      item.downloads.forEach((download) => {
+        const depotKey = download.depotId
+          ? `depot-${download.depotId}-${download.clientIp}`
+          : `no-depot-${download.service}-${download.clientIp}-${download.id}`;
+
+        if (!depotGroups[depotKey]) {
+          depotGroups[depotKey] = {
+            id: depotKey,
+            service: download.service,
+            gameName: download.gameName || download.service,
+            gameAppId: download.gameAppId || null,
+            depotId: download.depotId || null,
+            clientIp: download.clientIp,
+            startTimeUtc: download.startTimeUtc,
+            endTimeUtc: download.endTimeUtc || download.startTimeUtc,
+            cacheHitBytes: 0,
+            cacheMissBytes: 0,
+            totalBytes: 0,
+            sessionCount: 0,
+            clientCount: 1
+          };
+        }
+
+        const group = depotGroups[depotKey];
+        group.cacheHitBytes += download.cacheHitBytes || 0;
+        group.cacheMissBytes += download.cacheMissBytes || 0;
+        group.totalBytes += download.totalBytes || 0;
+        group.sessionCount += 1;
+
+        // Update time range
+        if (download.startTimeUtc < group.startTimeUtc) {
+          group.startTimeUtc = download.startTimeUtc;
+        }
+        const endTime = download.endTimeUtc || download.startTimeUtc;
+        if (endTime > group.endTimeUtc) {
+          group.endTimeUtc = endTime;
+        }
+      });
+    } else {
+      // For individual Downloads
+      const download = item;
+      const depotKey = download.depotId
+        ? `depot-${download.depotId}-${download.clientIp}`
+        : `no-depot-${download.service}-${download.clientIp}-${download.id}`;
+
+      if (!depotGroups[depotKey]) {
+        depotGroups[depotKey] = {
+          id: depotKey,
+          service: download.service,
+          gameName: download.gameName || download.service,
+          gameAppId: download.gameAppId || null,
+          depotId: download.depotId || null,
+          clientIp: download.clientIp,
+          startTimeUtc: download.startTimeUtc,
+          endTimeUtc: download.endTimeUtc || download.startTimeUtc,
+          cacheHitBytes: 0,
+          cacheMissBytes: 0,
+          totalBytes: 0,
+          sessionCount: 0,
+          clientCount: 1
+        };
+      }
+
+      const group = depotGroups[depotKey];
+      group.cacheHitBytes += download.cacheHitBytes || 0;
+      group.cacheMissBytes += download.cacheMissBytes || 0;
+      group.totalBytes += download.totalBytes || 0;
+      group.sessionCount += 1;
+
+      // Update time range
+      if (download.startTimeUtc < group.startTimeUtc) {
+        group.startTimeUtc = download.startTimeUtc;
+      }
+      const endTime = download.endTimeUtc || download.startTimeUtc;
+      if (endTime > group.endTimeUtc) {
+        group.endTimeUtc = endTime;
+      }
+    }
+  });
+
+  // Sort by most recent first
+  return Object.values(depotGroups).sort((a, b) =>
+    new Date(b.endTimeUtc).getTime() - new Date(a.endTimeUtc).getTime()
+  );
 };
 
 const RetroView: React.FC<RetroViewProps> = ({ items, aestheticMode = false }) => {
@@ -97,6 +169,9 @@ const RetroView: React.FC<RetroViewProps> = ({ items, aestheticMode = false }) =
   const handleImageError = (gameAppId: string) => {
     setImageErrors((prev) => new Set(prev).add(gameAppId));
   };
+
+  // Group items by depot ID
+  const groupedItems = React.useMemo(() => groupByDepot(items), [items]);
 
   return (
     <div className="rounded-lg border overflow-hidden" style={{ borderColor: 'var(--theme-border-primary)' }}>
@@ -120,8 +195,7 @@ const RetroView: React.FC<RetroViewProps> = ({ items, aestheticMode = false }) =
 
       {/* Table Body */}
       <div>
-        {items.map((item, index) => {
-          const data = getDisplayData(item);
+        {groupedItems.map((data, index) => {
           const serviceLower = data.service.toLowerCase();
           const isSteam = serviceLower === 'steam';
           const hasGameImage = !aestheticMode && isSteam &&
@@ -411,7 +485,7 @@ const RetroView: React.FC<RetroViewProps> = ({ items, aestheticMode = false }) =
         })}
       </div>
 
-      {items.length === 0 && (
+      {groupedItems.length === 0 && (
         <div className="px-4 py-8 text-center text-[var(--theme-text-muted)]">
           No downloads to display
         </div>
