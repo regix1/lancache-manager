@@ -34,6 +34,7 @@ const STORAGE_KEYS = {
   SERVICE_FILTER: 'lancache_downloads_service',
   CLIENT_FILTER: 'lancache_downloads_client',
   ITEMS_PER_PAGE: 'lancache_downloads_items',
+  ITEMS_PER_PAGE_RETRO: 'lancache_downloads_items_retro',
   SHOW_METADATA: 'lancache_downloads_metadata',
   SHOW_SMALL_FILES: 'lancache_downloads_show_small',
   HIDE_LOCALHOST: 'lancache_downloads_hide_localhost',
@@ -44,6 +45,13 @@ const STORAGE_KEYS = {
   FULL_HEIGHT_BANNERS: 'lancache_downloads_full_height_banners',
   ENABLE_SCROLL_INTO_VIEW: 'lancache_downloads_scroll_into_view',
   GROUP_UNKNOWN_GAMES: 'lancache_downloads_group_unknown'
+};
+
+// Default items per page for each view mode
+const DEFAULT_ITEMS_PER_PAGE = {
+  compact: 50,
+  normal: 50,
+  retro: 100
 };
 
 // View modes
@@ -207,34 +215,50 @@ const DownloadsTab: React.FC = () => {
   const contentRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
 
-  const [settings, setSettings] = useState(() => ({
-    showZeroBytes: storage.getItem(STORAGE_KEYS.SHOW_METADATA) === 'true',
-    showSmallFiles: storage.getItem(STORAGE_KEYS.SHOW_SMALL_FILES) !== 'false',
-    hideLocalhost: storage.getItem(STORAGE_KEYS.HIDE_LOCALHOST) === 'true',
-    hideUnknownGames: storage.getItem(STORAGE_KEYS.HIDE_UNKNOWN_GAMES) === 'true',
-    selectedService: storage.getItem(STORAGE_KEYS.SERVICE_FILTER) || 'all',
-    selectedClient: storage.getItem(STORAGE_KEYS.CLIENT_FILTER) || 'all',
-    itemsPerPage:
-      storage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE) === 'unlimited'
-        ? ('unlimited' as const)
-        : parseInt(storage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE) || '50'),
-    viewMode: (storage.getItem(STORAGE_KEYS.VIEW_MODE) || 'normal') as ViewMode,
-    sortOrder: (storage.getItem(STORAGE_KEYS.SORT_ORDER) || 'latest') as
-      | 'latest'
-      | 'oldest'
-      | 'largest'
-      | 'smallest'
-      | 'service'
-      | 'efficiency'
-      | 'efficiency-low'
-      | 'sessions'
-      | 'alphabetical',
-    aestheticMode: storage.getItem(STORAGE_KEYS.AESTHETIC_MODE) === 'true',
-    fullHeightBanners: storage.getItem(STORAGE_KEYS.FULL_HEIGHT_BANNERS) === 'true',
-    groupByFrequency: storage.getItem('lancache_downloads_group_by_frequency') !== 'false',
-    enableScrollIntoView: storage.getItem(STORAGE_KEYS.ENABLE_SCROLL_INTO_VIEW) !== 'false',
-    groupUnknownGames: storage.getItem(STORAGE_KEYS.GROUP_UNKNOWN_GAMES) === 'true'
-  }));
+  const [settings, setSettings] = useState(() => {
+    const savedViewMode = (storage.getItem(STORAGE_KEYS.VIEW_MODE) || 'normal') as ViewMode;
+
+    // Get the appropriate items per page based on view mode
+    const getItemsPerPage = (viewMode: ViewMode): number | 'unlimited' => {
+      if (viewMode === 'retro') {
+        const retroSaved = storage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE_RETRO);
+        if (retroSaved === 'unlimited') return 'unlimited';
+        if (retroSaved) return parseInt(retroSaved);
+        return DEFAULT_ITEMS_PER_PAGE.retro;
+      } else {
+        const standardSaved = storage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE);
+        if (standardSaved === 'unlimited') return 'unlimited';
+        if (standardSaved) return parseInt(standardSaved);
+        return DEFAULT_ITEMS_PER_PAGE[viewMode];
+      }
+    };
+
+    return {
+      showZeroBytes: storage.getItem(STORAGE_KEYS.SHOW_METADATA) === 'true',
+      showSmallFiles: storage.getItem(STORAGE_KEYS.SHOW_SMALL_FILES) !== 'false',
+      hideLocalhost: storage.getItem(STORAGE_KEYS.HIDE_LOCALHOST) === 'true',
+      hideUnknownGames: storage.getItem(STORAGE_KEYS.HIDE_UNKNOWN_GAMES) === 'true',
+      selectedService: storage.getItem(STORAGE_KEYS.SERVICE_FILTER) || 'all',
+      selectedClient: storage.getItem(STORAGE_KEYS.CLIENT_FILTER) || 'all',
+      itemsPerPage: getItemsPerPage(savedViewMode),
+      viewMode: savedViewMode,
+      sortOrder: (storage.getItem(STORAGE_KEYS.SORT_ORDER) || 'latest') as
+        | 'latest'
+        | 'oldest'
+        | 'largest'
+        | 'smallest'
+        | 'service'
+        | 'efficiency'
+        | 'efficiency-low'
+        | 'sessions'
+        | 'alphabetical',
+      aestheticMode: storage.getItem(STORAGE_KEYS.AESTHETIC_MODE) === 'true',
+      fullHeightBanners: storage.getItem(STORAGE_KEYS.FULL_HEIGHT_BANNERS) === 'true',
+      groupByFrequency: storage.getItem('lancache_downloads_group_by_frequency') !== 'false',
+      enableScrollIntoView: storage.getItem(STORAGE_KEYS.ENABLE_SCROLL_INTO_VIEW) !== 'false',
+      groupUnknownGames: storage.getItem(STORAGE_KEYS.GROUP_UNKNOWN_GAMES) === 'true'
+    };
+  });
 
   // Effect to save settings to localStorage
   useEffect(() => {
@@ -244,7 +268,12 @@ const DownloadsTab: React.FC = () => {
     storage.setItem(STORAGE_KEYS.HIDE_UNKNOWN_GAMES, settings.hideUnknownGames.toString());
     storage.setItem(STORAGE_KEYS.SERVICE_FILTER, settings.selectedService);
     storage.setItem(STORAGE_KEYS.CLIENT_FILTER, settings.selectedClient);
-    storage.setItem(STORAGE_KEYS.ITEMS_PER_PAGE, settings.itemsPerPage.toString());
+    // Save items per page to the appropriate key based on view mode
+    if (settings.viewMode === 'retro') {
+      storage.setItem(STORAGE_KEYS.ITEMS_PER_PAGE_RETRO, settings.itemsPerPage.toString());
+    } else {
+      storage.setItem(STORAGE_KEYS.ITEMS_PER_PAGE, settings.itemsPerPage.toString());
+    }
     storage.setItem(STORAGE_KEYS.VIEW_MODE, settings.viewMode);
     storage.setItem(STORAGE_KEYS.SORT_ORDER, settings.sortOrder);
     storage.setItem(STORAGE_KEYS.AESTHETIC_MODE, settings.aestheticMode.toString());
@@ -253,6 +282,44 @@ const DownloadsTab: React.FC = () => {
     storage.setItem(STORAGE_KEYS.ENABLE_SCROLL_INTO_VIEW, settings.enableScrollIntoView.toString());
     storage.setItem(STORAGE_KEYS.GROUP_UNKNOWN_GAMES, settings.groupUnknownGames.toString());
   }, [settings]);
+
+  // Track previous view mode to detect changes
+  const prevViewModeRef = useRef(settings.viewMode);
+
+  // Effect to switch items per page when view mode changes
+  useEffect(() => {
+    if (prevViewModeRef.current !== settings.viewMode) {
+      const newMode = settings.viewMode;
+      prevViewModeRef.current = newMode;
+
+      // Load the saved items per page for the new view mode
+      let newItemsPerPage: number | 'unlimited';
+      if (newMode === 'retro') {
+        const retroSaved = storage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE_RETRO);
+        if (retroSaved === 'unlimited') {
+          newItemsPerPage = 'unlimited';
+        } else if (retroSaved) {
+          newItemsPerPage = parseInt(retroSaved);
+        } else {
+          newItemsPerPage = DEFAULT_ITEMS_PER_PAGE.retro;
+        }
+      } else {
+        const standardSaved = storage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE);
+        if (standardSaved === 'unlimited') {
+          newItemsPerPage = 'unlimited';
+        } else if (standardSaved) {
+          newItemsPerPage = parseInt(standardSaved);
+        } else {
+          newItemsPerPage = DEFAULT_ITEMS_PER_PAGE[newMode];
+        }
+      }
+
+      // Only update if the items per page would actually change
+      if (settings.itemsPerPage !== newItemsPerPage) {
+        setSettings(prev => ({ ...prev, itemsPerPage: newItemsPerPage }));
+      }
+    }
+  }, [settings.viewMode]);
 
   // Note: Downloads are now always fetched from the context - no need to manage mock data count here
 
@@ -1447,6 +1514,7 @@ const DownloadsTab: React.FC = () => {
             {settings.viewMode === 'retro' && (
               <RetroView
                 items={itemsToDisplay as (Download | DownloadGroup)[]}
+                aestheticMode={settings.aestheticMode}
               />
             )}
           </div>
