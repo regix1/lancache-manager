@@ -9,7 +9,8 @@ import {
   Download as DownloadIcon,
   Loader2,
   List,
-  Grid3x3
+  Grid3x3,
+  Table
 } from 'lucide-react';
 import { useDownloads } from '@contexts/DownloadsContext';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
@@ -24,6 +25,7 @@ import { ActionMenu, ActionMenuItem } from '@components/ui/ActionMenu';
 // Import view components
 import CompactView from './CompactView';
 import NormalView from './NormalView';
+import RetroView from './RetroView';
 
 import type { Download, DownloadGroup } from '../../../types';
 
@@ -45,7 +47,7 @@ const STORAGE_KEYS = {
 };
 
 // View modes
-type ViewMode = 'compact' | 'normal';
+type ViewMode = 'compact' | 'normal' | 'retro';
 
 // Sort order type
 type SortOrder = 'latest' | 'oldest' | 'largest' | 'smallest' | 'service' | 'efficiency' | 'efficiency-low' | 'sessions' | 'alphabetical';
@@ -1013,6 +1015,18 @@ const DownloadsTab: React.FC = () => {
                 >
                   <Grid3x3 size={14} />
                 </button>
+                <button
+                  onClick={() => setSettings({ ...settings, viewMode: 'retro' })}
+                  className={`px-2 py-1 rounded-md transition-colors ${
+                    settings.viewMode === 'retro' ? 'bg-primary' : 'text-themed-secondary'
+                  }`}
+                  style={{
+                    color: settings.viewMode === 'retro' ? 'var(--theme-button-text)' : undefined
+                  }}
+                  title="Retro"
+                >
+                  <Table size={14} />
+                </button>
               </div>
             </div>
 
@@ -1101,6 +1115,21 @@ const DownloadsTab: React.FC = () => {
                 >
                   <Grid3x3 size={16} />
                   <span className="text-xs hidden lg:inline">Normal</span>
+                </button>
+                <button
+                  onClick={() => setSettings({ ...settings, viewMode: 'retro' })}
+                  className={`px-2 lg:px-3 py-1.5 rounded-md transition-colors flex items-center gap-1 ${
+                    settings.viewMode === 'retro'
+                      ? 'bg-primary'
+                      : 'text-themed-secondary hover:text-themed-primary'
+                  }`}
+                  style={{
+                    color: settings.viewMode === 'retro' ? 'var(--theme-button-text)' : undefined
+                  }}
+                  title="Retro View"
+                >
+                  <Table size={16} />
+                  <span className="text-xs hidden lg:inline">Retro</span>
                 </button>
               </div>
 
@@ -1404,6 +1433,20 @@ const DownloadsTab: React.FC = () => {
                 fullHeightBanners={settings.fullHeightBanners}
                 groupByFrequency={settings.groupByFrequency}
                 enableScrollIntoView={settings.enableScrollIntoView}
+              />
+            )}
+          </div>
+
+          <div
+            className={`transition-opacity duration-300 ${
+              settings.viewMode === 'retro'
+                ? 'opacity-100'
+                : 'opacity-0 absolute inset-0 pointer-events-none'
+            }`}
+          >
+            {settings.viewMode === 'retro' && (
+              <RetroView
+                items={itemsToDisplay as (Download | DownloadGroup)[]}
               />
             )}
           </div>
