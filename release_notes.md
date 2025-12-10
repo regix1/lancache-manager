@@ -1,7 +1,3 @@
-# LANCache Manager v1.8.1 Release Notes
-
----
-
 ## What's New
 
 ### Retro View for Downloads
