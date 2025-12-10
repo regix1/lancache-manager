@@ -25,8 +25,12 @@ pub fn write_progress_json<T: Serialize>(progress_path: &Path, progress: &T) -> 
     let temp_path = temp_file.into_temp_path();
 
     // Now atomically replace the target file
-    // This works on Windows because the file handle is closed
-    temp_path.persist(progress_path)?;
+    // persist() uses rename which can fail on Windows if file is locked
+    if let Err(persist_err) = temp_path.persist(progress_path) {
+        // Fallback: copy + delete (works even if target is locked by file watcher)
+        std::fs::copy(&persist_err.path, progress_path)?;
+        std::fs::remove_file(&persist_err.path).ok();
+    }
 
     Ok(())
 }
@@ -52,12 +56,21 @@ pub fn write_progress_with_retry<T: Serialize>(
                         let temp_path = temp_file.into_temp_path();
                         match temp_path.persist(progress_path) {
                             Ok(_) => break,
-                            Err(_) if retries < max_retries => {
-                                retries += 1;
-                                thread::sleep(Duration::from_millis(10 * retries as u64));
-                                continue;
+                            Err(persist_err) => {
+                                // Fallback: copy + delete (works even if target is locked)
+                                match std::fs::copy(&persist_err.path, progress_path) {
+                                    Ok(_) => {
+                                        std::fs::remove_file(&persist_err.path).ok();
+                                        break;
+                                    }
+                                    Err(_) if retries < max_retries => {
+                                        retries += 1;
+                                        thread::sleep(Duration::from_millis(10 * retries as u64));
+                                        continue;
+                                    }
+                                    Err(e) => return Err(e.into()),
+                                }
                             }
-                            Err(e) => return Err(anyhow::Error::new(e.error)),
                         }
                     }
                     Err(_) if retries < max_retries => {

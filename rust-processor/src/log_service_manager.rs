@@ -357,9 +357,15 @@ fn remove_service_from_logs(
             }
 
             // Atomically replace original with filtered version
-            // Use into_temp_path() to close file handle before persisting (Windows fix)
+            // persist() uses rename which can fail on Windows if file is locked
             let temp_path = temp_file.into_temp_path();
-            temp_path.persist(&log_file.path).context("Failed to persist temp file")?;
+
+            if let Err(persist_err) = temp_path.persist(&log_file.path) {
+                // Fallback: copy + delete (works even if target is locked by file watcher)
+                eprintln!("    persist() failed ({}), using copy fallback...", persist_err);
+                fs::copy(&persist_err.path, &log_file.path)?;
+                fs::remove_file(&persist_err.path).ok();
+            }
 
             Ok((lines_processed, lines_removed))
         })();

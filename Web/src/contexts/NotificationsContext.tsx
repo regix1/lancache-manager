@@ -275,67 +275,42 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     const handleProcessingProgress = (payload: ProcessingProgressPayload) => {
       const currentProgress = payload.percentComplete || payload.progress || 0;
       const status = payload.status || 'processing';
+      // Use fixed ID for log_processing - deterministic so we can always schedule auto-dismiss
+      const fixedNotificationId = 'log_processing';
 
       if (isCompleteStatus(status)) {
         // Clear from localStorage
         localStorage.removeItem('log_processing_notification');
 
-        // Find existing notification and update it, or create one if it doesn't exist (handles race condition)
-        let notificationId: string | null = null;
         setNotifications((prev) => {
-          const existing = prev.find((n) => n.type === 'log_processing' && n.status === 'running');
-
-          if (!existing) {
-            // Processing completed so fast that the starting event's state update hasn't committed yet
-            // Create a notification and immediately mark it as complete
-            const id = `log_processing-${Date.now()}`;
-            notificationId = id;
-            return [
-              ...prev,
-              {
-                id,
-                type: 'log_processing',
-                status: 'completed' as const,
-                message: 'Processing Complete!',
-                detailMessage: `Successfully processed ${payload.entriesProcessed?.toLocaleString() || 0} entries`,
-                progress: 100,
-                startedAt: new Date()
-              }
-            ];
-          }
-
-          notificationId = existing.id; // Capture ID for auto-dismiss
-
-          const updated = prev.map((n) => {
-            if (n.id === existing.id) {
-              return {
-                ...n,
-                status: 'completed' as const,
-                message: 'Processing Complete!',
-                detailMessage: `Successfully processed ${payload.entriesProcessed?.toLocaleString() || 0} entries`,
-                progress: 100
-              };
+          // Remove any existing log_processing notifications and create completed one
+          const filtered = prev.filter((n) => n.type !== 'log_processing');
+          return [
+            ...filtered,
+            {
+              id: fixedNotificationId,
+              type: 'log_processing' as const,
+              status: 'completed' as const,
+              message: 'Processing Complete!',
+              detailMessage: `Successfully processed ${payload.entriesProcessed?.toLocaleString() || 0} entries`,
+              progress: 100,
+              startedAt: new Date()
             }
-            return n;
-          });
-
-          return updated;
+          ];
         });
 
-        // Schedule auto-dismiss using captured ID
-        if (notificationId) {
-          scheduleAutoDismiss(notificationId);
-        }
+        // Schedule auto-dismiss - use fixed ID so we don't depend on callback timing
+        scheduleAutoDismiss(fixedNotificationId);
       } else {
         const message = `Processing: ${payload.mbProcessed?.toFixed(1) || 0} MB of ${payload.mbTotal?.toFixed(1) || 0} MB`;
         const detailMessage = `${payload.entriesProcessed?.toLocaleString() || 0} of ${payload.totalLines?.toLocaleString() || 0} entries`;
 
         // Use setNotifications to get current state (avoid stale closure)
         setNotifications((prev) => {
-          const existing = prev.find((n) => n.type === 'log_processing' && n.status === 'running');
+          const existing = prev.find((n) => n.id === fixedNotificationId && n.status === 'running');
           if (existing) {
             return prev.map((n) => {
-              if (n.id === existing.id) {
+              if (n.id === fixedNotificationId) {
                 return {
                   ...n,
                   message,
@@ -353,10 +328,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               return n;
             });
           } else {
-            // Create new notification
-            const id = `log_processing-${Date.now()}`;
+            // Create new notification with fixed ID
             const newNotification: UnifiedNotification = {
-              id,
+              id: fixedNotificationId,
               type: 'log_processing' as const,
               status: 'running' as const,
               message,
@@ -374,8 +348,10 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             // Persist to localStorage for recovery on page refresh
             localStorage.setItem('log_processing_notification', JSON.stringify(newNotification));
 
+            // Remove any old log_processing notifications and add the new one
+            const filtered = prev.filter((n) => n.type !== 'log_processing');
             return [
-              ...prev,
+              ...filtered,
               newNotification
             ];
           }
@@ -386,51 +362,28 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     const handleFastProcessingComplete = (result: FastProcessingCompletePayload) => {
       // Clear from localStorage
       localStorage.removeItem('log_processing_notification');
-      let notificationId: string | null = null;
+      // Use fixed ID for log_processing - deterministic so we can always schedule auto-dismiss
+      const fixedNotificationId = 'log_processing';
+
       setNotifications((prev) => {
-        const existing = prev.find((n) => n.type === 'log_processing');
-
-        if (!existing) {
-          // Processing completed so fast that no notification was created yet (race condition)
-          // Create a notification and immediately mark it as complete
-          const id = `log_processing-${Date.now()}`;
-          notificationId = id;
-          return [
-            ...prev,
-            {
-              id,
-              type: 'log_processing',
-              status: 'completed' as const,
-              message: 'Processing Complete!',
-              detailMessage: `Successfully processed ${result.entriesProcessed?.toLocaleString() || 0} entries from ${result.linesProcessed?.toLocaleString() || 0} lines in ${result.elapsed?.toFixed(1) || 0} minutes.`,
-              progress: 100,
-              startedAt: new Date()
-            }
-          ];
-        }
-
-        notificationId = existing.id; // Capture ID for auto-dismiss
-
-        const updated = prev.map((n) => {
-          if (n.id === existing.id) {
-            return {
-              ...n,
-              status: 'completed' as const,
-              message: 'Processing Complete!',
-              detailMessage: `Successfully processed ${result.entriesProcessed?.toLocaleString() || 0} entries from ${result.linesProcessed?.toLocaleString() || 0} lines in ${result.elapsed?.toFixed(1) || 0} minutes.`,
-              progress: 100
-            };
+        // Remove any existing log_processing notifications and create completed one
+        const filtered = prev.filter((n) => n.type !== 'log_processing');
+        return [
+          ...filtered,
+          {
+            id: fixedNotificationId,
+            type: 'log_processing' as const,
+            status: 'completed' as const,
+            message: 'Processing Complete!',
+            detailMessage: `Successfully processed ${result.entriesProcessed?.toLocaleString() || 0} entries from ${result.linesProcessed?.toLocaleString() || 0} lines in ${result.elapsed?.toFixed(1) || 0} minutes.`,
+            progress: 100,
+            startedAt: new Date()
           }
-          return n;
-        });
-
-        return updated;
+        ];
       });
 
-      // Schedule auto-dismiss using captured ID
-      if (notificationId) {
-        scheduleAutoDismiss(notificationId);
-      }
+      // Schedule auto-dismiss - use fixed ID so we don't depend on callback timing
+      scheduleAutoDismiss(fixedNotificationId);
     };
 
     // Service Log Removal
@@ -1551,16 +1504,15 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               console.log('[NotificationsContext] Clearing stale log processing state - backend is idle');
               localStorage.removeItem('log_processing_notification');
 
-              // Mark any restored notification as completed and capture ID for auto-dismiss
-              let actualNotificationId: string | null = null;
+              // Mark any restored notification as completed using fixed ID
               setNotifications((prev) => {
                 const existing = prev.find((n) => n.type === 'log_processing' && n.status === 'running');
                 if (existing) {
-                  actualNotificationId = existing.id;
                   return prev.map((n) => {
                     if (n.type === 'log_processing' && n.status === 'running') {
                       return {
                         ...n,
+                        id: notificationId, // Ensure fixed ID
                         status: 'completed' as NotificationStatus,
                         message: 'Processing Complete!',
                         progress: 100
@@ -1572,9 +1524,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                 return prev;
               });
 
-              if (actualNotificationId) {
-                scheduleAutoDismiss(actualNotificationId);
-              }
+              // Schedule auto-dismiss using fixed ID
+              scheduleAutoDismiss(notificationId);
             }
           }
         }
@@ -1621,8 +1572,17 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               console.log('[NotificationsContext] Clearing stale log removal state - backend is idle');
               localStorage.removeItem('log_removal_notification');
 
-              // Mark any restored notification as completed and capture ID for auto-dismiss
-              let actualNotificationId: string | null = null;
+              // Get service name from saved notification for deterministic ID
+              let savedService = 'unknown';
+              try {
+                const parsed = JSON.parse(savedNotification);
+                savedService = parsed.details?.service || 'unknown';
+              } catch {
+                // Use default
+              }
+              const recoveryNotificationId = `service_removal-${savedService}`;
+
+              // Mark any restored notification as completed
               setNotifications((prev) => {
                 // Find any log entry removal notification (has service in details but isn't a cache removal)
                 const existing = prev.find((n) =>
@@ -1631,11 +1591,11 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                   n.details?.linesProcessed !== undefined
                 );
                 if (existing) {
-                  actualNotificationId = existing.id;
                   return prev.map((n) => {
                     if (n.type === 'service_removal' && n.status === 'running' && n.details?.linesProcessed !== undefined) {
                       return {
                         ...n,
+                        id: recoveryNotificationId, // Ensure consistent ID
                         status: 'completed' as NotificationStatus,
                         message: 'Log entry removal completed',
                         progress: 100
@@ -1647,9 +1607,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                 return prev;
               });
 
-              if (actualNotificationId) {
-                scheduleAutoDismiss(actualNotificationId);
-              }
+              // Schedule auto-dismiss using deterministic ID
+              scheduleAutoDismiss(recoveryNotificationId);
             }
           }
         }
@@ -1934,6 +1893,16 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               console.log('[NotificationsContext] Clearing stale game detection state - backend is idle');
               localStorage.removeItem('game_detection_notification');
 
+              // Get operationId from saved notification for deterministic ID
+              let operationId = 'unknown';
+              try {
+                const parsed = JSON.parse(savedNotification);
+                operationId = parsed.details?.operationId || 'unknown';
+              } catch {
+                // Use default
+              }
+              const recoveryNotificationId = `game_detection-${operationId}`;
+
               // Mark any restored notification as completed
               setNotifications((prev) => {
                 const existing = prev.find((n) => n.type === 'game_detection' && n.status === 'running');
@@ -1942,6 +1911,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                     if (n.type === 'game_detection' && n.status === 'running') {
                       return {
                         ...n,
+                        id: recoveryNotificationId, // Ensure consistent ID
                         status: 'completed' as NotificationStatus,
                         message: 'Game detection completed',
                         progress: 100
@@ -1953,11 +1923,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                 return prev;
               });
 
-              // Schedule auto-dismiss for the completed notification
-              const existing = notifications.find((n) => n.type === 'game_detection');
-              if (existing) {
-                scheduleAutoDismiss(existing.id);
-              }
+              // Schedule auto-dismiss using deterministic ID
+              scheduleAutoDismiss(recoveryNotificationId);
             }
           }
         }
@@ -2006,18 +1973,32 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               if (savedGameRemoval) {
                 console.log('[NotificationsContext] Clearing stale game removal state - backend is idle');
                 localStorage.removeItem('game_removal_notification');
+
+                // Get gameAppId from saved notification for deterministic ID
+                let gameAppId = 'unknown';
+                try {
+                  const parsed = JSON.parse(savedGameRemoval);
+                  gameAppId = parsed.details?.gameAppId || 'unknown';
+                } catch {
+                  // Use default
+                }
+                const recoveryNotificationId = `game_removal-${gameAppId}`;
+
                 setNotifications((prev) => {
                   const existing = prev.find((n) => n.type === 'game_removal' && n.status === 'running');
                   if (existing) {
                     return prev.map((n) => {
                       if (n.type === 'game_removal' && n.status === 'running') {
-                        return { ...n, status: 'completed' as NotificationStatus, message: 'Game removal completed' };
+                        return { ...n, id: recoveryNotificationId, status: 'completed' as NotificationStatus, message: 'Game removal completed', progress: 100 };
                       }
                       return n;
                     });
                   }
                   return prev;
                 });
+
+                // Schedule auto-dismiss using deterministic ID
+                scheduleAutoDismiss(recoveryNotificationId);
               }
             }
 
@@ -2052,18 +2033,32 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               if (savedServiceRemoval) {
                 console.log('[NotificationsContext] Clearing stale service cache removal state - backend is idle');
                 localStorage.removeItem('service_cache_removal_notification');
+
+                // Get serviceName from saved notification for deterministic ID
+                let serviceName = 'unknown';
+                try {
+                  const parsed = JSON.parse(savedServiceRemoval);
+                  serviceName = parsed.details?.service || 'unknown';
+                } catch {
+                  // Use default
+                }
+                const recoveryNotificationId = `service_removal-${serviceName}`;
+
                 setNotifications((prev) => {
                   const existing = prev.find((n) => n.type === 'service_removal' && n.id.startsWith('service_removal-') && n.status === 'running');
                   if (existing) {
                     return prev.map((n) => {
                       if (n.type === 'service_removal' && n.id.startsWith('service_removal-') && n.status === 'running') {
-                        return { ...n, status: 'completed' as NotificationStatus, message: 'Service removal completed' };
+                        return { ...n, id: recoveryNotificationId, status: 'completed' as NotificationStatus, message: 'Service removal completed', progress: 100 };
                       }
                       return n;
                     });
                   }
                   return prev;
                 });
+
+                // Schedule auto-dismiss using deterministic ID
+                scheduleAutoDismiss(recoveryNotificationId);
               }
             }
 
@@ -2097,6 +2092,16 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                 console.log('[NotificationsContext] Clearing stale corruption removal state - backend is idle');
                 localStorage.removeItem('corruption_removal_notification');
 
+                // Get service from saved notification for deterministic ID
+                let corruptionService = 'unknown';
+                try {
+                  const parsed = JSON.parse(savedNotification);
+                  corruptionService = parsed.details?.service || 'unknown';
+                } catch {
+                  // Use default
+                }
+                const recoveryNotificationId = `corruption_removal-${corruptionService}`;
+
                 // Mark any restored notification as completed
                 setNotifications((prev) => {
                   const existing = prev.find((n) => n.type === 'corruption_removal' && n.status === 'running');
@@ -2105,6 +2110,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                       if (n.type === 'corruption_removal' && n.status === 'running') {
                         return {
                           ...n,
+                          id: recoveryNotificationId, // Ensure consistent ID
                           status: 'completed' as NotificationStatus,
                           message: 'Corruption removal completed',
                           progress: 100
@@ -2116,26 +2122,33 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                   return prev;
                 });
 
-                // Schedule auto-dismiss
-                const existing = notifications.find((n) => n.type === 'corruption_removal');
-                if (existing) {
-                  scheduleAutoDismiss(existing.id);
-                }
+                // Schedule auto-dismiss using deterministic ID
+                scheduleAutoDismiss(recoveryNotificationId);
               }
             }
           } else {
             // No active operations at all - clear any stale localStorage
             const staleKeys = [
-              { key: 'game_removal_notification', type: 'game_removal', message: 'Game removal completed' },
-              { key: 'service_cache_removal_notification', type: 'service_removal', message: 'Service removal completed' },
-              { key: 'corruption_removal_notification', type: 'corruption_removal', message: 'Corruption removal completed' }
+              { key: 'game_removal_notification', type: 'game_removal', message: 'Game removal completed', idPrefix: 'game_removal', idField: 'gameAppId' },
+              { key: 'service_cache_removal_notification', type: 'service_removal', message: 'Service removal completed', idPrefix: 'service_removal', idField: 'service' },
+              { key: 'corruption_removal_notification', type: 'corruption_removal', message: 'Corruption removal completed', idPrefix: 'corruption_removal', idField: 'service' }
             ];
 
-            for (const { key, type, message } of staleKeys) {
+            for (const { key, type, message, idPrefix, idField } of staleKeys) {
               const savedNotification = localStorage.getItem(key);
               if (savedNotification) {
                 console.log(`[NotificationsContext] Clearing stale ${type} state - no active operations`);
                 localStorage.removeItem(key);
+
+                // Get ID from saved notification for deterministic ID
+                let idValue = 'unknown';
+                try {
+                  const parsed = JSON.parse(savedNotification);
+                  idValue = parsed.details?.[idField] || 'unknown';
+                } catch {
+                  // Use default
+                }
+                const recoveryNotificationId = `${idPrefix}-${idValue}`;
 
                 // Mark any restored notification as completed
                 setNotifications((prev) => {
@@ -2145,6 +2158,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                       if (n.type === type && n.status === 'running') {
                         return {
                           ...n,
+                          id: recoveryNotificationId,
                           status: 'completed' as NotificationStatus,
                           message,
                           progress: 100
@@ -2155,6 +2169,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                   }
                   return prev;
                 });
+
+                // Schedule auto-dismiss using deterministic ID
+                scheduleAutoDismiss(recoveryNotificationId);
               }
             }
           }

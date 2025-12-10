@@ -421,8 +421,15 @@ fn remove_log_entries_for_game(
             }
 
             // Atomically replace original with filtered version
+            // persist() uses rename which can fail on Windows if file is locked
             let temp_path = temp_file.into_temp_path();
-            temp_path.persist(&log_file.path)?;
+
+            if let Err(persist_err) = temp_path.persist(&log_file.path) {
+                // Fallback: copy + delete (works even if target is locked by file watcher)
+                eprintln!("    persist() failed ({}), using copy fallback...", persist_err);
+                std::fs::copy(&persist_err.path, &log_file.path)?;
+                std::fs::remove_file(&persist_err.path).ok();
+            }
 
             Ok(lines_removed)
         })();

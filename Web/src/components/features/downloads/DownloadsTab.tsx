@@ -1530,6 +1530,7 @@ const DownloadsTab: React.FC = () => {
                 itemsPerPage={settings.itemsPerPage}
                 currentPage={currentPage}
                 onTotalPagesChange={handleRetroTotalPagesChange}
+                sortOrder={settings.sortOrder}
               />
             )}
           </div>

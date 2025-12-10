@@ -12,12 +12,15 @@ import type { Download, DownloadGroup } from '../../../types';
 
 const API_BASE = '/api';
 
+type SortOrder = 'latest' | 'oldest' | 'largest' | 'smallest' | 'service' | 'efficiency' | 'efficiency-low' | 'sessions' | 'alphabetical';
+
 interface RetroViewProps {
   items: (Download | DownloadGroup)[];
   aestheticMode?: boolean;
   itemsPerPage: number | 'unlimited';
   currentPage: number;
   onTotalPagesChange: (totalPages: number, totalItems: number) => void;
+  sortOrder?: SortOrder;
 }
 
 const getServiceIcon = (service: string, size: number = 24) => {
@@ -74,7 +77,7 @@ interface DepotGroupedData {
 }
 
 // Group items by depot ID for retro view display
-const groupByDepot = (items: (Download | DownloadGroup)[]): DepotGroupedData[] => {
+const groupByDepot = (items: (Download | DownloadGroup)[], sortOrder: SortOrder = 'latest'): DepotGroupedData[] => {
   const depotGroups: Record<string, DepotGroupedData> = {};
 
   items.forEach((item) => {
@@ -160,10 +163,42 @@ const groupByDepot = (items: (Download | DownloadGroup)[]): DepotGroupedData[] =
     }
   });
 
-  // Sort by most recent first
-  return Object.values(depotGroups).sort((a, b) =>
-    new Date(b.endTimeUtc).getTime() - new Date(a.endTimeUtc).getTime()
-  );
+  // Sort based on sortOrder
+  const grouped = Object.values(depotGroups);
+
+  return grouped.sort((a, b) => {
+    switch (sortOrder) {
+      case 'oldest':
+        return new Date(a.startTimeUtc).getTime() - new Date(b.startTimeUtc).getTime();
+      case 'largest':
+        return b.totalBytes - a.totalBytes;
+      case 'smallest':
+        return a.totalBytes - b.totalBytes;
+      case 'service': {
+        const serviceCompare = a.service.localeCompare(b.service);
+        if (serviceCompare !== 0) return serviceCompare;
+        // Secondary sort by time within same service
+        return new Date(b.endTimeUtc).getTime() - new Date(a.endTimeUtc).getTime();
+      }
+      case 'efficiency': {
+        const aEff = a.totalBytes > 0 ? (a.cacheHitBytes / a.totalBytes) * 100 : 0;
+        const bEff = b.totalBytes > 0 ? (b.cacheHitBytes / b.totalBytes) * 100 : 0;
+        return bEff - aEff;
+      }
+      case 'efficiency-low': {
+        const aEffLow = a.totalBytes > 0 ? (a.cacheHitBytes / a.totalBytes) * 100 : 0;
+        const bEffLow = b.totalBytes > 0 ? (b.cacheHitBytes / b.totalBytes) * 100 : 0;
+        return aEffLow - bEffLow;
+      }
+      case 'sessions':
+        return b.sessionCount - a.sessionCount;
+      case 'alphabetical':
+        return a.gameName.localeCompare(b.gameName);
+      case 'latest':
+      default:
+        return new Date(b.endTimeUtc).getTime() - new Date(a.endTimeUtc).getTime();
+    }
+  });
 };
 
 const RetroView: React.FC<RetroViewProps> = ({
@@ -171,7 +206,8 @@ const RetroView: React.FC<RetroViewProps> = ({
   aestheticMode = false,
   itemsPerPage,
   currentPage,
-  onTotalPagesChange
+  onTotalPagesChange,
+  sortOrder = 'latest'
 }) => {
   const [imageErrors, setImageErrors] = React.useState<Set<string>>(new Set());
 
@@ -180,7 +216,7 @@ const RetroView: React.FC<RetroViewProps> = ({
   };
 
   // Group items by depot ID
-  const allGroupedItems = React.useMemo(() => groupByDepot(items), [items]);
+  const allGroupedItems = React.useMemo(() => groupByDepot(items, sortOrder), [items, sortOrder]);
 
   // Calculate pagination based on grouped items
   const totalPages = React.useMemo(() => {

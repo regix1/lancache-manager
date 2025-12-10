@@ -463,9 +463,20 @@ fn main() -> Result<()> {
                     }
 
                     // Atomically replace original with filtered version
-                    // persist() handles platform differences (Windows vs Unix)
+                    // persist() uses rename which can fail on Windows if file is locked
                     let temp_path = temp_file.into_temp_path();
-                    temp_path.persist(&log_file.path)?;
+
+                    if let Err(persist_err) = temp_path.persist(&log_file.path) {
+                        // Fallback: copy + delete (works even if target is locked by file watcher)
+                        eprintln!("    persist() failed ({}), using copy fallback...", persist_err);
+
+                        // Copy temp file contents to original
+                        std::fs::copy(&persist_err.path, &log_file.path)
+                            .with_context(|| format!("Failed to copy temp file to {}", log_file.path.display()))?;
+
+                        // Delete the temp file manually (persist_err.path is the temp path)
+                        std::fs::remove_file(&persist_err.path).ok();
+                    }
 
                     Ok(lines_removed)
                 })();

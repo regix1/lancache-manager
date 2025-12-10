@@ -9,7 +9,7 @@ import { MockModeProvider, useMockMode } from '@contexts/MockModeContext';
 import { GuestConfigProvider } from '@contexts/GuestConfigContext';
 import { PicsProgressProvider } from '@contexts/PicsProgressContext';
 import { SetupStatusProvider, useSetupStatus } from '@contexts/SetupStatusContext';
-import { SteamAuthProvider } from '@contexts/SteamAuthContext';
+import { SteamAuthProvider, useSteamAuth } from '@contexts/SteamAuthContext';
 import { AuthProvider, useAuth } from '@contexts/AuthContext';
 import { SteamWebApiStatusProvider, useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 import { TimezoneProvider } from '@contexts/TimezoneContext';
@@ -68,7 +68,8 @@ const AppContent: React.FC = () => {
   const { connectionStatus } = useStats();
   const { setupStatus, isLoading: checkingSetupStatus, markSetupCompleted } = useSetupStatus();
   const { isAuthenticated, authMode, isLoading: checkingAuth, refreshAuth } = useAuth();
-  const { status: steamApiStatus } = useSteamWebApiStatus();
+  const { status: steamApiStatus, refresh: refreshSteamWebApiStatus } = useSteamWebApiStatus();
+  const { refreshSteamAuth } = useSteamAuth();
   const [depotInitialized, setDepotInitialized] = useState<boolean | null>(null);
   const [checkingDepotStatus, setCheckingDepotStatus] = useState(true);
   const [showApiKeyRegenerationModal, setShowApiKeyRegenerationModal] = useState(false);
@@ -403,6 +404,13 @@ const AppContent: React.FC = () => {
 
     // Reload theme from server after initialization
     await themeService.reloadThemeAfterAuth();
+
+    // Refresh Steam-related contexts to pick up data saved during setup
+    // This ensures ManagementTab shows the correct Steam API status and auth mode
+    await Promise.all([
+      refreshSteamWebApiStatus(),
+      refreshSteamAuth()
+    ]);
   };
 
   const handleAuthChanged = async () => {

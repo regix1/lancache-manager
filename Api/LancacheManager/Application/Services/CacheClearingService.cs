@@ -502,7 +502,7 @@ public class CacheClearingService : IHostedService
                 // Keep all operations from last 24 hours for status queries
                 if (op.StartTime > DateTime.UtcNow.AddHours(-24))
                 {
-                    var status = Enum.Parse<ClearStatus>(op.Status);
+                    var status = Enum.Parse<ClearStatus>(op.Status, ignoreCase: true);
                     var error = op.Error;
                     var endTime = op.EndTime;
                     var statusMessage = op.Message;
