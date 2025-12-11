@@ -338,17 +338,51 @@ public class DatabaseRepository : IDatabaseRepository
                 switch (tableName)
                 {
                     case "LogEntries":
-                        // Use ExecuteDeleteAsync for direct deletion (much faster than batched deletion)
-                        var logEntriesCount = await context.LogEntries.ExecuteDeleteAsync();
-                        _logger.LogInformation($"Cleared {logEntriesCount:N0} log entries");
-                        deletedRows += logEntriesCount;
+                        // Use batched deletion to avoid locking the database for too long
+                        // This allows other operations to proceed between batches
+                        var logEntriesTotal = await context.LogEntries.CountAsync();
+                        var logEntriesDeleted = 0;
+                        const int batchSize = 100000;
+
+                        _logger.LogInformation($"Starting batched deletion of {logEntriesTotal:N0} log entries (batch size: {batchSize:N0})");
+
+                        while (true)
+                        {
+                            // Delete a batch using raw SQL for efficiency
+                            // SQLite doesn't support LIMIT in DELETE, so we use a subquery
+                            var deleted = await context.Database.ExecuteSqlRawAsync(
+                                $"DELETE FROM LogEntries WHERE Id IN (SELECT Id FROM LogEntries LIMIT {batchSize})");
+
+                            if (deleted == 0)
+                                break;
+
+                            logEntriesDeleted += deleted;
+                            var percentDone = logEntriesTotal > 0 ? (double)logEntriesDeleted / logEntriesTotal * 100 : 100;
+
+                            _logger.LogInformation($"Deleted {logEntriesDeleted:N0}/{logEntriesTotal:N0} log entries ({percentDone:F1}%)");
+
+                            await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+                            {
+                                isProcessing = true,
+                                percentComplete = Math.Min(currentProgress + progressPerTable * (logEntriesDeleted / (double)Math.Max(logEntriesTotal, 1)), 85.0),
+                                status = "deleting",
+                                message = $"Clearing log entries... {logEntriesDeleted:N0}/{logEntriesTotal:N0} ({percentDone:F1}%)",
+                                timestamp = DateTime.UtcNow
+                            });
+
+                            // Small delay to allow other operations to acquire the lock
+                            await Task.Delay(50);
+                        }
+
+                        _logger.LogInformation($"Cleared {logEntriesDeleted:N0} log entries");
+                        deletedRows += logEntriesDeleted;
 
                         await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
                         {
                             isProcessing = true,
                             percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                             status = "deleting",
-                            message = $"Cleared log entries ({logEntriesCount:N0} rows)",
+                            message = $"Cleared log entries ({logEntriesDeleted:N0} rows)",
                             timestamp = DateTime.UtcNow
                         });
                         break;
