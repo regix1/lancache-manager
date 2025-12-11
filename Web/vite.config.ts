@@ -3,8 +3,13 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import fs from 'fs';
 
-// Read version from VERSION file
-const version = fs.readFileSync(path.resolve(__dirname, '../VERSION'), 'utf-8').trim();
+// Read version from VERSION file, fallback to package.json
+let version = '0.0.0';
+try {
+  version = fs.readFileSync(path.resolve(__dirname, '../VERSION'), 'utf-8').trim();
+} catch {
+  version = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8')).version;
+}
 
 export default defineConfig({
   define: {
