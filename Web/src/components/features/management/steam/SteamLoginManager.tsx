@@ -95,6 +95,8 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
       });
 
       if (response.ok) {
+        // Update context directly - no need to refresh from backend
+        // The backend has already cleared the Steam auth, just update local state
         setContextSteamAuthMode('anonymous');
         setContextUsername('');
         onSuccess?.('Switched to anonymous Steam mode. Depot mappings preserved.');

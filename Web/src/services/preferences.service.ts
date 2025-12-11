@@ -266,6 +266,9 @@ class PreferencesService {
     // CRITICAL: Track recently processed revocations to prevent duplicate SignalR events
     const recentRevocations = new Set<string>();
 
+    // Track if we recently dispatched user-sessions-cleared to prevent duplicate events
+    let recentlyDispatchedSessionsCleared = false;
+
     // Handle preference updates
     const handlePreferencesUpdated = (payload: PreferencesUpdatedPayload) => {
       if (isProcessingUpdate) {
@@ -361,10 +364,23 @@ class PreferencesService {
 
     // Handle session cleared - dispatch event for App.tsx to handle
     const handleSessionsCleared = () => {
-      // console.log('[PreferencesService] UserSessionsCleared event received');
+      // CRITICAL: Prevent duplicate dispatches within 5 seconds
+      // Both UserSessionsCleared and UserSessionRevoked can trigger this
+      if (recentlyDispatchedSessionsCleared) {
+        console.log('[PreferencesService] Already dispatched sessions cleared recently - skipping duplicate');
+        return;
+      }
+
+      console.log('[PreferencesService] UserSessionsCleared event received');
+      recentlyDispatchedSessionsCleared = true;
 
       // Dispatch custom event for App.tsx to handle (needs React context for refreshAuth)
       window.dispatchEvent(new CustomEvent('user-sessions-cleared'));
+
+      // Reset flag after 5 seconds to allow future legitimate events
+      setTimeout(() => {
+        recentlyDispatchedSessionsCleared = false;
+      }, 5000);
     };
 
     // Handle session revoked - check if it's our session and logout immediately
@@ -394,10 +410,22 @@ class PreferencesService {
           (sessionType === 'guest' && deviceId === ourGuestSessionId);
 
         if (isOurSession) {
+          // Check if we already dispatched recently (e.g., from UserSessionsCleared event)
+          if (recentlyDispatchedSessionsCleared) {
+            console.log('[PreferencesService] Session revoked but already dispatched sessions cleared - skipping');
+            return;
+          }
+
           console.warn('[PreferencesService] Our session was revoked - forcing logout');
+          recentlyDispatchedSessionsCleared = true;
 
           // Dispatch custom event for App.tsx to handle (needs React context for refreshAuth)
           window.dispatchEvent(new CustomEvent('user-sessions-cleared'));
+
+          // Reset flag after 5 seconds
+          setTimeout(() => {
+            recentlyDispatchedSessionsCleared = false;
+          }, 5000);
         }
       } finally {
         // Remove from set after 5 seconds to allow future legitimate revocations

@@ -101,11 +101,13 @@ public class DatabaseController : ControllerBase
             // Check C# DatabaseRepository reset operations first
             if (_dbService.IsResetOperationRunning)
             {
+                var progress = DatabaseRepository.CurrentResetProgress;
                 return Ok(new
                 {
-                    isProcessing = true,
-                    status = "running",
-                    message = "Database reset in progress (selective tables)"
+                    isProcessing = progress.IsProcessing,
+                    status = progress.Status,
+                    message = progress.Message,
+                    percentComplete = progress.PercentComplete
                 });
             }
 

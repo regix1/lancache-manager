@@ -27,6 +27,7 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IHubContext<DownloadHub> _hubContext;
     private readonly SteamWebApiService _steamWebApiService;
+    private readonly SteamAuthRepository _steamAuthRepository;
     private SteamClient? _steamClient;
     private CallbackManager? _manager;
     private SteamUser? _steamUser;
@@ -52,8 +53,9 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     private const int MaxReconnectDelaySeconds = 60; // Cap at 60 seconds
 
     // Track session replacement errors to auto-logout after repeated failures
-    private int _sessionReplacedCount = 0;
+    // Counter is persisted to state.json via _stateService
     private const int MaxSessionReplacedBeforeLogout = 3; // Auto-logout after 3 session replacements
+    private bool _isReconnectingAfterSessionReplaced = false; // Don't reset counter during reconnection
 
     // Scheduling for periodic PICS crawls
     private Timer? _periodicTimer;
@@ -115,7 +117,8 @@ public partial class SteamKit2Service : IHostedService, IDisposable
         StateRepository stateService,
         IHttpClientFactory httpClientFactory,
         IHubContext<DownloadHub> hubContext,
-        SteamWebApiService steamWebApiService)
+        SteamWebApiService steamWebApiService,
+        SteamAuthRepository steamAuthRepository)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
@@ -126,6 +129,27 @@ public partial class SteamKit2Service : IHostedService, IDisposable
         _httpClientFactory = httpClientFactory;
         _hubContext = hubContext;
         _steamWebApiService = steamWebApiService;
+        _steamAuthRepository = steamAuthRepository;
+    }
+
+    /// <summary>
+    /// Clears all Steam authentication data (PICS login + Web API key)
+    /// Used during security operations like API key regeneration or session clearing
+    /// </summary>
+    public async Task ClearAllSteamAuthAsync()
+    {
+        // Capture API key status BEFORE clearing
+        var hadWebApiKey = !string.IsNullOrWhiteSpace(_steamAuthRepository.GetSteamAuthData().SteamApiKey);
+
+        await LogoutAsync();
+        _steamAuthRepository.ClearSteamAuthData();
+        _logger.LogInformation("Cleared Steam PICS auth data");
+
+        if (hadWebApiKey)
+        {
+            _steamWebApiService.RemoveApiKey();
+            _logger.LogInformation("Cleared Steam Web API key");
+        }
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)

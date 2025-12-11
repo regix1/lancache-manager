@@ -658,6 +658,33 @@ public class PicsDataService
         _cacheLastLoaded = DateTime.MinValue;
         _logger.LogInformation("PICS data cache cleared");
     }
+
+    /// <summary>
+    /// Delete the PICS JSON file from disk. Call this when SteamDepotMappings table is cleared.
+    /// </summary>
+    public void DeletePicsJsonFile()
+    {
+        try
+        {
+            if (File.Exists(_picsJsonFile))
+            {
+                File.Delete(_picsJsonFile);
+                _logger.LogInformation("Deleted PICS JSON file: {Path}", _picsJsonFile);
+            }
+            else
+            {
+                _logger.LogDebug("PICS JSON file does not exist, nothing to delete: {Path}", _picsJsonFile);
+            }
+
+            // Also clear the cache
+            ClearCache();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete PICS JSON file: {Path}", _picsJsonFile);
+            throw;
+        }
+    }
 }
 
 /// <summary>

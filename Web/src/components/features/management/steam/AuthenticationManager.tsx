@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Key, Lock, Unlock, AlertCircle, AlertTriangle, Clock, Eye, LogOut } from 'lucide-react';
 import authService from '@services/auth.service';
+import ApiService from '@services/api.service';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { useGuestConfig } from '@contexts/GuestConfigContext';
 import { useAuth } from '@contexts/AuthContext';
+import { useSteamAuth } from '@contexts/SteamAuthContext';
+import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 
 interface AuthenticationManagerProps {
   onError?: (message: string) => void;
@@ -20,6 +23,8 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
 }) => {
   const { guestDurationHours } = useGuestConfig();
   const { authMode, refreshAuth } = useAuth();
+  const { refreshSteamAuth, setSteamAuthMode, setUsername } = useSteamAuth();
+  const { refresh: refreshSteamWebApiStatus } = useSteamWebApiStatus();
   const [guestTimeRemaining, setGuestTimeRemaining] = useState<number>(0);
   const [authChecking, setAuthChecking] = useState(true);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -204,6 +209,13 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
         const wasGuestMode = authMode === 'guest';
 
         await refreshAuth();
+
+        // Backend clears Steam auth when API key is regenerated - refresh frontend state
+        setSteamAuthMode('anonymous');
+        setUsername('');
+        await refreshSteamAuth();
+        refreshSteamWebApiStatus();
+
         setShowAuthModal(false);
         onSuccess?.(result.message);
 
@@ -232,10 +244,32 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
     setAuthLoading(true);
 
     try {
+      // First, clear ALL Steam auth (PICS login AND Web API key)
+      try {
+        // Clear Steam PICS authentication
+        await fetch('/api/steam-auth', {
+          method: 'DELETE',
+          headers: ApiService.getHeaders()
+        });
+        // Clear Steam Web API key
+        await fetch('/api/steam-api-keys/current', {
+          method: 'DELETE',
+          headers: ApiService.getHeaders()
+        });
+        // Update frontend state immediately
+        setSteamAuthMode('anonymous');
+        setUsername('');
+      } catch (steamError) {
+        console.warn('[AuthenticationManager] Failed to clear Steam auth during logout:', steamError);
+      }
+
       const result = await authService.logout();
 
       if (result.success) {
         await refreshAuth();
+        // Refresh Steam contexts to ensure UI is updated
+        await refreshSteamAuth();
+        refreshSteamWebApiStatus();
         onSuccess?.('Logged out successfully. This device slot is now available for another user.');
       } else {
         onError?.(result.message || 'Failed to logout');

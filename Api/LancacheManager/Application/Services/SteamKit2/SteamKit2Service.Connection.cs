@@ -204,7 +204,14 @@ public partial class SteamKit2Service
         if (callback.Result == EResult.OK)
         {
             _isLoggedOn = true;
-            _sessionReplacedCount = 0; // Reset session replacement counter on successful login
+
+            // Only reset session replacement counter if this is NOT a reconnection after a session replacement
+            // This prevents the counter from resetting when we automatically reconnect after being kicked
+            if (!_isReconnectingAfterSessionReplaced)
+            {
+                _stateService.ResetSessionReplacedCount();
+            }
+
             _loggedOnTcs?.TrySetResult();
             _logger.LogInformation("Successfully logged onto Steam!");
         }
@@ -322,20 +329,24 @@ public partial class SteamKit2Service
         };
 
         // Track session replacement errors and auto-logout after repeated failures
+        // Counter is persisted to state.json to survive server restarts
         if (isSessionReplaced)
         {
-            _sessionReplacedCount++;
-            _logger.LogWarning("Session replaced count: {Count}/{Max}", _sessionReplacedCount, MaxSessionReplacedBeforeLogout);
+            _stateService.IncrementSessionReplacedCount();
+            var currentCount = _stateService.GetSessionReplacedCount();
+            _isReconnectingAfterSessionReplaced = true; // Prevent counter reset on reconnection login
+            _logger.LogWarning("Session replaced count: {Count}/{Max}", currentCount, MaxSessionReplacedBeforeLogout);
 
-            if (_sessionReplacedCount >= MaxSessionReplacedBeforeLogout)
+            if (currentCount >= MaxSessionReplacedBeforeLogout)
             {
-                _logger.LogError("Steam session has been replaced {Count} times. Auto-logging out to prevent further attempts. User must re-authenticate.", _sessionReplacedCount);
+                _logger.LogError("Steam session has been replaced {Count} times. Auto-logging out to prevent further attempts. User must re-authenticate.", currentCount);
 
                 // Clear credentials to stop reconnection attempts
                 _stateService.SetSteamRefreshToken(null);
                 _stateService.SetSteamUsername(null);
                 _stateService.SetSteamAuthMode("anonymous");
-                _sessionReplacedCount = 0; // Reset counter
+                _stateService.ResetSessionReplacedCount(); // Reset counter in state.json
+                _isReconnectingAfterSessionReplaced = false; // Clear flag since we're logging out
 
                 errorMessage = $"Your Steam session was replaced {MaxSessionReplacedBeforeLogout} times. This usually means another device or application is using your Steam account. Your credentials have been cleared - please re-authenticate after closing other Steam sessions.";
                 errorType = "AutoLogout";
@@ -352,8 +363,9 @@ public partial class SteamKit2Service
         }
         else
         {
-            // Reset counter on other types of disconnections
-            _sessionReplacedCount = 0;
+            // Reset counter on other types of disconnections (not session replaced)
+            _stateService.ResetSessionReplacedCount();
+            _isReconnectingAfterSessionReplaced = false;
         }
 
         // Send SignalR notification for significant errors
@@ -369,7 +381,7 @@ public partial class SteamKit2Service
                 result = callback.Result.ToString(),
                 timestamp = DateTime.UtcNow,
                 wasRebuildActive = IsRebuildRunning,
-                sessionReplacedCount = isSessionReplaced ? _sessionReplacedCount : 0
+                sessionReplacedCount = isSessionReplaced ? _stateService.GetSessionReplacedCount() : 0
             });
 
             // Cancel the rebuild if one is active

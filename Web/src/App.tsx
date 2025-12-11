@@ -223,8 +223,19 @@ const AppContent: React.FC = () => {
   }, [signalR, showFullScanRequiredModal, authMode, wasModalDismissed]);
 
   // Handle user sessions cleared event (dispatched by preferences service)
+  // Use a ref to track if we're already processing to prevent duplicate handling
+  const isProcessingSessionClear = React.useRef(false);
+
   useEffect(() => {
     const handleSessionsCleared = async () => {
+      // CRITICAL: Prevent duplicate processing - both UserSessionsCleared and UserSessionRevoked
+      // can dispatch this event, causing a spam of logout attempts
+      if (isProcessingSessionClear.current) {
+        console.log('[App] Already processing session clear - skipping duplicate');
+        return;
+      }
+
+      isProcessingSessionClear.current = true;
       console.log('[App] User sessions cleared - forcing logout and clearing cookies');
 
       // Clear local authentication data
@@ -248,6 +259,21 @@ const AppContent: React.FC = () => {
 
       // Refresh auth context to trigger authentication modal
       await refreshAuth();
+
+      // IMPORTANT: Also refresh Steam auth and Web API status
+      // When API key is regenerated, backend also clears Steam auth data
+      try {
+        await refreshSteamAuth();
+        refreshSteamWebApiStatus();
+        console.log('[App] Refreshed Steam auth and Web API status after session clear');
+      } catch (error) {
+        console.error('[App] Failed to refresh Steam status:', error);
+      }
+
+      // Reset the flag after a delay to allow future legitimate clears
+      setTimeout(() => {
+        isProcessingSessionClear.current = false;
+      }, 5000);
     };
 
     window.addEventListener('user-sessions-cleared', handleSessionsCleared);
@@ -255,7 +281,7 @@ const AppContent: React.FC = () => {
     return () => {
       window.removeEventListener('user-sessions-cleared', handleSessionsCleared);
     };
-  }, [refreshAuth]);
+  }, [refreshAuth, refreshSteamAuth, refreshSteamWebApiStatus]);
 
   // Fetch server timezone on mount
   useEffect(() => {

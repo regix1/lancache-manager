@@ -1,3 +1,4 @@
+using LancacheManager.Application.Services;
 using LancacheManager.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Repositories.Interfaces;
@@ -18,7 +19,19 @@ public class DatabaseRepository : IDatabaseRepository
     private readonly IPathResolver _pathResolver;
     private readonly StatsCache _statsCache;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
-    private readonly ConcurrentDictionary<string, bool> _activeResetOperations = new();
+    private readonly SteamKit2Service _steamKit2Service;
+    private static readonly ConcurrentDictionary<string, bool> _activeResetOperations = new();
+    private static ResetProgressInfo _currentResetProgress = new();
+
+    public class ResetProgressInfo
+    {
+        public bool IsProcessing { get; set; }
+        public double PercentComplete { get; set; }
+        public string Message { get; set; } = "";
+        public string Status { get; set; } = "idle";
+    }
+
+    public static ResetProgressInfo CurrentResetProgress => _currentResetProgress;
 
     public DatabaseRepository(
         AppDbContext context,
@@ -26,7 +39,8 @@ public class DatabaseRepository : IDatabaseRepository
         ILogger<DatabaseRepository> logger,
         IPathResolver pathResolver,
         StatsCache statsCache,
-        IDbContextFactory<AppDbContext> dbContextFactory)
+        IDbContextFactory<AppDbContext> dbContextFactory,
+        SteamKit2Service steamKit2Service)
     {
         _context = context;
         _hubContext = hubContext;
@@ -34,6 +48,7 @@ public class DatabaseRepository : IDatabaseRepository
         _pathResolver = pathResolver;
         _statsCache = statsCache;
         _dbContextFactory = dbContextFactory;
+        _steamKit2Service = steamKit2Service;
     }
 
     public bool IsResetOperationRunning => _activeResetOperations.Any();
@@ -223,6 +238,15 @@ public class DatabaseRepository : IDatabaseRepository
         {
             _logger.LogInformation($"Starting background reset operation {operationId} for tables: {string.Join(", ", tableNames)}");
 
+            // Initialize progress tracking
+            _currentResetProgress = new ResetProgressInfo
+            {
+                IsProcessing = true,
+                PercentComplete = 0,
+                Message = $"Starting reset of {tableNames.Count} table(s)...",
+                Status = "starting"
+            };
+
             // Start background task
             _ = Task.Run(async () => await ResetSelectedTablesInternal(operationId, tableNames));
         }
@@ -361,12 +385,24 @@ public class DatabaseRepository : IDatabaseRepository
 
                             _logger.LogInformation($"Deleted {logEntriesDeleted:N0}/{logEntriesTotal:N0} log entries ({percentDone:F1}%)");
 
+                            var progressPercent = Math.Min(currentProgress + progressPerTable * (logEntriesDeleted / (double)Math.Max(logEntriesTotal, 1)), 85.0);
+                            var progressMessage = $"Clearing log entries... {logEntriesDeleted:N0}/{logEntriesTotal:N0} ({percentDone:F1}%)";
+
+                            // Update static progress for API access
+                            _currentResetProgress = new ResetProgressInfo
+                            {
+                                IsProcessing = true,
+                                PercentComplete = progressPercent,
+                                Message = progressMessage,
+                                Status = "deleting"
+                            };
+
                             await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
                             {
                                 isProcessing = true,
-                                percentComplete = Math.Min(currentProgress + progressPerTable * (logEntriesDeleted / (double)Math.Max(logEntriesTotal, 1)), 85.0),
+                                percentComplete = progressPercent,
                                 status = "deleting",
-                                message = $"Clearing log entries... {logEntriesDeleted:N0}/{logEntriesTotal:N0} ({percentDone:F1}%)",
+                                message = progressMessage,
                                 timestamp = DateTime.UtcNow
                             });
 
@@ -450,6 +486,22 @@ public class DatabaseRepository : IDatabaseRepository
                                 .SetProperty(d => d.GameAppId, (uint?)null));
                         _logger.LogInformation("Cleared game information from all downloads");
 
+                        // CRITICAL: Also delete the PICS JSON file to prevent re-import on next scan
+                        // Without this, the JSON file would be imported back into the database
+                        var picsJsonPath = Path.Combine(_pathResolver.GetDataDirectory(), "pics_depot_mappings.json");
+                        if (File.Exists(picsJsonPath))
+                        {
+                            try
+                            {
+                                File.Delete(picsJsonPath);
+                                _logger.LogInformation("Deleted PICS JSON file: {Path}", picsJsonPath);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "Failed to delete PICS JSON file: {Path}", picsJsonPath);
+                            }
+                        }
+
                         await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
                         {
                             isProcessing = true,
@@ -500,6 +552,18 @@ public class DatabaseRepository : IDatabaseRepository
                         // CRITICAL: UserSessions is always processed FIRST (priority 0)
                         // This ensures all users are logged out immediately before any other tables are cleared
 
+                        // SECURITY: Clear Steam auth FIRST, before clearing user sessions
+                        // This ensures Steam is fully logged out before frontend receives the event
+                        _logger.LogInformation("Clearing Steam authentication data first...");
+                        try
+                        {
+                            await _steamKit2Service.ClearAllSteamAuthAsync();
+                        }
+                        catch (Exception steamEx)
+                        {
+                            _logger.LogWarning(steamEx, "Error clearing Steam auth during session reset");
+                        }
+
                         _logger.LogInformation($"[PRIORITY] Clearing UserSessions table to invalidate all active sessions");
                         var userSessionsCount = await context.UserSessions.ExecuteDeleteAsync();
                         _logger.LogInformation($"Cleared {userSessionsCount:N0} user sessions");
@@ -510,7 +574,7 @@ public class DatabaseRepository : IDatabaseRepository
                             isProcessing = true,
                             percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                             status = "deleting",
-                            message = $"Cleared user sessions ({userSessionsCount:N0} rows)",
+                            message = $"Cleared user sessions ({userSessionsCount:N0} rows) and Steam auth data",
                             timestamp = DateTime.UtcNow
                         });
 
@@ -624,6 +688,16 @@ public class DatabaseRepository : IDatabaseRepository
         {
             // Clean up operation tracking
             _activeResetOperations.TryRemove(operationId, out _);
+
+            // Clear progress tracking
+            _currentResetProgress = new ResetProgressInfo
+            {
+                IsProcessing = false,
+                PercentComplete = 100,
+                Message = "Database reset completed",
+                Status = "completed"
+            };
+
             _logger.LogInformation($"Reset operation {operationId} completed");
         }
     }
@@ -692,6 +766,21 @@ public class DatabaseRepository : IDatabaseRepository
                     .SetProperty(d => d.GameImageUrl, (string?)null));
 
             await _context.SaveChangesAsync();
+
+            // CRITICAL: Also delete the PICS JSON file to prevent re-import on next scan
+            var picsJsonPath = Path.Combine(_pathResolver.GetDataDirectory(), "pics_depot_mappings.json");
+            if (File.Exists(picsJsonPath))
+            {
+                try
+                {
+                    File.Delete(picsJsonPath);
+                    _logger.LogInformation("Deleted PICS JSON file: {Path}", picsJsonPath);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to delete PICS JSON file: {Path}", picsJsonPath);
+                }
+            }
 
             // Invalidate stats cache since download records changed
             _statsCache.InvalidateDownloads();

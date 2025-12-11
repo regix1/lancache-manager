@@ -165,44 +165,39 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     return () => clearInterval(timer);
   }, [localNextCrawlIn, depotConfig?.isProcessing, depotConfig?.crawlIntervalHours]);
 
-  // Auto-select GitHub when Web API is not available (for Apply Now Source) - only on first load
-  const hasAutoSwitched = useRef(false);
+  // Auto-select GitHub when Web API is not available (for Apply Now Source)
+  // This runs whenever Web API status changes to ensure we don't have an invalid selection
   useEffect(() => {
-    // Only run this once on mount or when Web API status first loads
-    if (hasAutoSwitched.current || webApiLoading || !webApiStatus) return;
+    // Wait for Web API status to finish loading
+    if (webApiLoading || !webApiStatus) return;
 
-    // Web API is not available when:
-    // 1. picsProgress says it's not available, OR
-    // 2. Steam Web API V2 is down AND no V1 API key exists
-    // Note: V1 API key alone is sufficient to fetch all games without Steam authentication
+    // Web API is unavailable only if V2 is down AND there's no API key
+    // If user has an API key, they can always use V1 fallback
     const webApiNotAvailable =
-      picsProgress?.isWebApiAvailable === false ||
-      (!webApiStatus.isV2Available && !webApiStatus.hasApiKey);
+      !webApiStatus.isV2Available && !webApiStatus.hasApiKey;
 
-    // Only auto-switch if Web API is not available and user is not authenticated (GitHub mode available)
-    // And only if user hasn't manually selected something from localStorage
-    const savedSource = storage.getItem('depotSource');
-    if (webApiNotAvailable && steamAuthMode !== 'authenticated' && !savedSource) {
-      // console.log('[DepotMapping] Web API unavailable - defaulting Apply Now Source to GitHub mode');
-      setDepotSource('github');
-      storage.setItem('depotSource', 'github');
+    // If Web API is not available, switch to GitHub
+    // AND current selection requires Web API, switch to GitHub
+    if (webApiNotAvailable) {
+      const currentSource = depotSource;
+      // Only switch if current selection is 'incremental' or 'full' (which require Web API)
+      if (currentSource === 'incremental' || currentSource === 'full') {
+        console.log('[DepotMapping] Web API unavailable - switching Apply Now Source to GitHub mode');
+        setDepotSource('github');
+        storage.setItem('depotSource', 'github');
+      }
     }
-
-    hasAutoSwitched.current = true;
-  }, [picsProgress?.isWebApiAvailable, webApiStatus, webApiLoading, steamAuthMode]);
+  }, [picsProgress?.isWebApiAvailable, webApiStatus, webApiLoading, depotSource]);
 
   // Auto-switch automatic scan schedule to GitHub when Web API is not available
   useEffect(() => {
     // Wait for Web API status to finish loading before making decisions
     if (webApiLoading) return;
 
-    // Web API is not available when:
-    // 1. picsProgress says it's not available, OR
-    // 2. Steam Web API V2 is down AND no V1 API key exists
-    // Note: V1 API key alone is sufficient to fetch all games without Steam authentication
+    // Web API is unavailable only if V2 is down AND there's no API key
+    // If user has an API key, they can always use V1 fallback
     const webApiNotAvailable =
-      picsProgress?.isWebApiAvailable === false ||
-      (!webApiLoading && webApiStatus && !webApiStatus.isV2Available && !webApiStatus.hasApiKey);
+      !webApiLoading && webApiStatus && !webApiStatus.isV2Available && !webApiStatus.hasApiKey;
 
     const webApiAvailable =
       picsProgress?.isWebApiAvailable === true ||
@@ -212,14 +207,12 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     // 1. User is authenticated (to avoid 401 errors)
     // 2. Web API is not available (both V2 and V1)
     // 3. User has NOT configured a V1 API key (if they have a key, let them use V1 instead)
-    // 4. Steam auth mode is anonymous (GitHub mode is available)
-    // 5. Current mode is incremental or full (which require Web API)
-    // 6. Haven't already attempted auto-switch
+    // 4. Current mode is incremental or full (which require Web API)
+    // 5. Haven't already attempted auto-switch
     if (
       isAuthenticated &&
       webApiNotAvailable &&
       !webApiStatus?.hasApiKey &&
-      steamAuthMode !== 'authenticated' &&
       depotConfig?.crawlIncrementalMode !== 'github' &&
       !autoSwitchAttemptedRef.current
     ) {
@@ -320,55 +313,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
   // These are independent controls - users may want to run a different source manually
   // than what runs automatically on schedule (e.g., schedule=GitHub but manual=Incremental).
 
-  // Auto-switch away from GitHub when Steam auth mode changes to authenticated
-  useEffect(() => {
-    if (steamAuthMode === 'authenticated' && depotSource === 'github') {
-      setDepotSource('incremental');
-      storage.setItem('depotSource', 'incremental');
-    }
-  }, [steamAuthMode, depotSource]);
-
-  // Auto-switch automatic schedule from GitHub to Incremental when Steam authenticates
-  useEffect(() => {
-    if (steamAuthMode === 'authenticated' && depotConfig?.crawlIncrementalMode === 'github' && isAuthenticated) {
-      console.log('[DepotMapping] Authenticated with Steam - switching automatic schedule from GitHub to Incremental');
-
-      // Update backend to incremental mode
-      fetch('/api/depots/rebuild/config/mode', {
-        method: 'PUT',
-        headers: {
-          ...ApiService.getHeaders(),
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(true) // true = incremental mode
-      })
-        .then((response) => {
-          if (response.ok) {
-            console.log('[DepotMapping] Successfully switched automatic schedule to Incremental mode');
-            // Set interval to 1 hour (default for non-GitHub modes)
-            return fetch('/api/depots/rebuild/config/interval', {
-              method: 'PUT',
-              headers: {
-                ...ApiService.getHeaders(),
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify(1)
-            });
-          }
-          return null;
-        })
-        .then((intervalResponse) => {
-          if (intervalResponse && intervalResponse.ok) {
-            console.log('[DepotMapping] Successfully set interval to 1 hour for Incremental mode');
-            // Refresh progress to show updated values
-            setTimeout(() => refreshProgress(), 1000);
-          }
-        })
-        .catch((error) => {
-          console.error('[DepotMapping] Error switching schedule mode:', error);
-        });
-    }
-  }, [steamAuthMode, depotConfig?.crawlIncrementalMode, isAuthenticated, refreshProgress]);
+  // NOTE: GitHub mode is now available for all users regardless of Steam auth mode.
+  // Users can use GitHub mode even when authenticated with Steam if Web API is unavailable.
 
   // Check if full scan is required (for incremental mode) - for UI display only
   useEffect(() => {
@@ -809,11 +755,11 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                       : depotConfig.crawlIntervalHours === 0
                         ? 'Disabled'
                         : (() => {
-                            // If Web API is unavailable and user is anonymous, show GitHub interval
+                            // If Web API is unavailable (V2 down AND no API key), show GitHub interval
                             const webApiNotAvailable =
-                              !(picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational);
+                              !webApiStatus?.isV2Available && !webApiStatus?.hasApiKey;
 
-                            if (webApiNotAvailable && steamAuthMode !== 'authenticated') {
+                            if (webApiNotAvailable) {
                               return '30 minutes';
                             }
 
@@ -834,11 +780,11 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                       : depotConfig.crawlIntervalHours === 0
                         ? 'Disabled'
                         : (() => {
-                            // If Web API is unavailable and user is anonymous, show GitHub mode
+                            // If Web API is unavailable (V2 down AND no API key), show GitHub mode
                             const webApiNotAvailable =
-                              !(picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational);
+                              !webApiStatus?.isV2Available && !webApiStatus?.hasApiKey;
 
-                            if (webApiNotAvailable && steamAuthMode !== 'authenticated') {
+                            if (webApiNotAvailable) {
                               return 'GitHub';
                             }
 
@@ -874,11 +820,11 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
             <div className="flex flex-col gap-2 w-full lg:w-auto lg:min-w-[200px]">
               {/* GitHub Mode: Fixed 30-minute interval (either actual GitHub mode or forced due to Web API unavailability) */}
               {(() => {
+                // Web API is unavailable only if V2 is down AND there's no API key
                 const webApiNotAvailable =
-                  !(picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational);
+                  !webApiStatus?.isV2Available && !webApiStatus?.hasApiKey;
                 const isGithubMode =
-                  depotConfig?.crawlIncrementalMode === 'github' ||
-                  (webApiNotAvailable && steamAuthMode !== 'authenticated');
+                  depotConfig?.crawlIncrementalMode === 'github' || webApiNotAvailable;
 
                 if (isGithubMode) {
                   return (
@@ -949,24 +895,20 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                       : 'Full (Web API required)',
                     disabled: !(picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational || webApiStatus?.hasApiKey)
                   },
-                  ...(steamAuthMode !== 'authenticated'
-                    ? [{ value: 'github', label: 'GitHub' }]
-                    : [])
+                  { value: 'github', label: 'GitHub' }
                 ]}
                 value={(() => {
-                  // If Web API is unavailable and user is anonymous, force GitHub mode
+                  // If Web API is unavailable (V2 down AND no API key), force GitHub mode
                   const webApiNotAvailable =
-                    !(picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational);
+                    !webApiStatus?.isV2Available && !webApiStatus?.hasApiKey;
 
-                  if (webApiNotAvailable && steamAuthMode !== 'authenticated') {
+                  if (webApiNotAvailable) {
                     return 'github';
                   }
 
                   // Otherwise use backend value
                   return depotConfig?.crawlIncrementalMode === 'github'
-                    ? steamAuthMode === 'authenticated'
-                      ? 'incremental'
-                      : 'github'
+                    ? 'github'
                     : depotConfig?.crawlIncrementalMode === false
                       ? 'full'
                       : 'incremental';
@@ -1058,13 +1000,10 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
               },
               {
                 value: 'github',
-                label:
-                  steamAuthMode === 'authenticated'
-                    ? 'GitHub (Not available with account login)'
-                    : githubDownloadComplete
-                      ? 'GitHub (Already downloaded)'
-                      : 'GitHub (Download)',
-                disabled: steamAuthMode === 'authenticated' || githubDownloadComplete
+                label: githubDownloadComplete
+                  ? 'GitHub (Already downloaded)'
+                  : 'GitHub (Download)',
+                disabled: githubDownloadComplete
               }
             ]}
             value={depotSource}
@@ -1077,12 +1016,6 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
             disabled={!isAuthenticated || mockMode}
             className="w-full"
           />
-          {steamAuthMode === 'authenticated' && (
-            <p className="text-xs text-themed-muted mt-2">
-              GitHub downloads are disabled when using Steam account login. Switch to anonymous mode
-              to use pre-created depot data.
-            </p>
-          )}
         </div>
 
         {/* Action Buttons */}

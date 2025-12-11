@@ -69,4 +69,12 @@ public interface IStateRepository
     // Default Guest Theme Methods
     string? GetDefaultGuestTheme();
     void SetDefaultGuestTheme(string? themeId);
+
+    // Steam Session Replacement Tracking Methods
+    int GetSessionReplacedCount();
+    void SetSessionReplacedCount(int count);
+    DateTime? GetLastSessionReplacement();
+    void SetLastSessionReplacement(DateTime? timestamp);
+    void IncrementSessionReplacedCount(); // Convenience method that also sets timestamp
+    void ResetSessionReplacedCount(); // Resets both count and timestamp
 }

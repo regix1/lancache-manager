@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Key, Eye, Loader2, Shield, Database, CheckCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import authService from '@services/auth.service';
 import { useGuestConfig } from '@contexts/GuestConfigContext';
+import { useSignalR } from '@contexts/SignalRContext';
 
 interface DatabaseResetStatus {
   isResetting: boolean;
@@ -27,6 +28,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   allowGuestMode = true
 }) => {
   const { guestDurationHours } = useGuestConfig();
+  const { on, off } = useSignalR();
   const [apiKey, setApiKey] = useState('');
   const [authenticating, setAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -56,44 +58,54 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
     }
   }, [allowGuestMode]);
 
-  // Check database reset status
-  const checkResetStatus = useCallback(async () => {
-    try {
-      const response = await fetch('/api/database/reset-status');
-      if (response.ok) {
-        const data = await response.json();
-        const isResetting = data.isProcessing || data.isResetting || false;
-        const wasResetting = resetStatus.isResetting;
-
-        setResetStatus({
-          isResetting,
-          percentComplete: data.percentComplete || 0,
-          message: data.message || data.statusMessage || '',
-          status: data.status || ''
-        });
-
-        // If reset just completed, show success message briefly
-        if (wasResetting && !isResetting) {
-          setResetJustCompleted(true);
-          setTimeout(() => setResetJustCompleted(false), 5000);
-        }
-      }
-    } catch (error) {
-      // Silently fail - server might not be ready yet
-      console.debug('[AuthModal] Failed to check reset status:', error);
-    }
-  }, [resetStatus.isResetting]);
-
-  // Poll for database reset status
+  // Subscribe to SignalR database reset progress events (no polling - SignalR only)
   useEffect(() => {
-    // Check immediately on mount
-    checkResetStatus();
+    const handleDatabaseResetProgress = (payload: {
+      isProcessing?: boolean;
+      percentComplete?: number;
+      message?: string;
+      status?: string;
+    }) => {
+      console.log('[AuthModal] DatabaseResetProgress:', payload);
 
-    // Poll every 1 second while reset might be in progress
-    const interval = setInterval(checkResetStatus, 1000);
+      const statusLower = (payload.status || '').toLowerCase();
+      const isComplete = statusLower === 'completed' || statusLower === 'complete' || statusLower === 'done';
+      const isError = statusLower === 'error' || statusLower === 'failed';
 
-    return () => clearInterval(interval);
-  }, [checkResetStatus]);
+      if (isComplete) {
+        setResetStatus({
+          isResetting: false,
+          percentComplete: 100,
+          message: payload.message || 'Database reset completed',
+          status: 'completed'
+        });
+        setResetJustCompleted(true);
+        setTimeout(() => setResetJustCompleted(false), 5000);
+      } else if (isError) {
+        setResetStatus({
+          isResetting: false,
+          percentComplete: 0,
+          message: payload.message || 'Database reset failed',
+          status: 'error'
+        });
+        setResetJustCompleted(true);
+        setTimeout(() => setResetJustCompleted(false), 5000);
+      } else {
+        setResetStatus({
+          isResetting: true,
+          percentComplete: payload.percentComplete || 0,
+          message: payload.message || 'Resetting database...',
+          status: payload.status || 'running'
+        });
+      }
+    };
+
+    on('DatabaseResetProgress', handleDatabaseResetProgress);
+
+    return () => {
+      off('DatabaseResetProgress', handleDatabaseResetProgress);
+    };
+  }, [on, off]);
 
   const checkDataAvailability = async () => {
     setCheckingDataAvailability(true);

@@ -119,14 +119,18 @@ public class ApiKeysController : ControllerBase
     {
         try
         {
-            // SECURITY: Logout from Steam first
+            // SECURITY: Clear ALL Steam-related data when API key is regenerated
             var steamWasAuthenticated = _stateService.GetSteamAuthMode() == "authenticated";
-            if (steamWasAuthenticated)
+            var hadSteamWebApiKey = !string.IsNullOrWhiteSpace(_steamAuthStorage.GetSteamAuthData().SteamApiKey);
+
+            // Clear Steam auth data (with error handling to ensure API key regen completes)
+            try
             {
-                _logger.LogInformation("Logging out from Steam before API key regeneration for security");
-                await _steamKit2Service.LogoutAsync();
-                _steamAuthStorage.ClearSteamAuthData();
-                _logger.LogInformation("Cleared Steam auth data from encrypted file");
+                await _steamKit2Service.ClearAllSteamAuthAsync();
+            }
+            catch (Exception steamEx)
+            {
+                _logger.LogWarning(steamEx, "Error clearing Steam auth during API key regeneration (continuing anyway)");
             }
 
             var (oldKey, newKey) = _apiKeyService.ForceRegenerateApiKey();
@@ -152,16 +156,21 @@ public class ApiKeysController : ControllerBase
             _logger.LogInformation("Broadcasted UserSessionsCleared event");
 
             _logger.LogWarning(
-                "API key regenerated. Revoked: {DeviceCount} device(s), {GuestCount} guest(s) | Steam: {SteamLogout}",
+                "API key regenerated. Revoked: {DeviceCount} device(s), {GuestCount} guest(s) | Steam PICS: {SteamLogout} | Steam Web API Key: {WebApiKey}",
                 revokedDeviceCount,
                 revokedGuestCount,
-                steamWasAuthenticated ? "Logged out" : "Not connected");
+                steamWasAuthenticated ? "Logged out" : "Cleared",
+                hadSteamWebApiKey ? "Removed" : "None");
+
+            var steamStatus = new List<string>();
+            if (steamWasAuthenticated) steamStatus.Add("Steam session terminated");
+            if (hadSteamWebApiKey) steamStatus.Add("Steam Web API key removed");
+            var steamMessage = steamStatus.Count > 0 ? " " + string.Join(", ", steamStatus) + "." : "";
 
             return Ok(new
             {
                 success = true,
-                message = $"API key regenerated successfully. {revokedDeviceCount} device(s) and {revokedGuestCount} guest session(s) revoked." +
-                          (steamWasAuthenticated ? " Steam session terminated." : ""),
+                message = $"API key regenerated successfully. {revokedDeviceCount} device(s) and {revokedGuestCount} guest session(s) revoked.{steamMessage}",
                 warning = "All users must re-authenticate with the new key. Check container logs for the new API key."
             });
         }

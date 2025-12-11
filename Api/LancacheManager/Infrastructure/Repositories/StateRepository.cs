@@ -70,6 +70,10 @@ public class StateRepository : IStateRepository
         public uint LastViabilityCheckChangeNumber { get; set; } = 0; // Change number at time of last check
         public uint ViabilityChangeGap { get; set; } = 0; // Change gap at time of last check
 
+        // Steam session replacement tracking (persisted to survive restarts)
+        public int SessionReplacedCount { get; set; } = 0; // Counter for session replacement errors
+        public DateTime? LastSessionReplacement { get; set; } // When the last session replacement occurred
+
         // LEGACY: SteamAuth has been migrated to separate file (data/steam_auth/credentials.json)
         // This property is kept temporarily for backward compatibility during migration
         public SteamAuthState? SteamAuth { get; set; }
@@ -109,6 +113,10 @@ public class StateRepository : IStateRepository
         public DateTime? LastViabilityCheck { get; set; }
         public uint LastViabilityCheckChangeNumber { get; set; } = 0;
         public uint ViabilityChangeGap { get; set; } = 0;
+
+        // Steam session replacement tracking
+        public int SessionReplacedCount { get; set; } = 0;
+        public DateTime? LastSessionReplacement { get; set; }
 
         // LEGACY: SteamAuth migrated to separate file - kept for reading old state.json during migration
         // JsonIgnore(Condition = WhenWritingNull) excludes it when saving (always null after migration)
@@ -697,6 +705,9 @@ public class StateRepository : IStateRepository
             LastViabilityCheck = persisted.LastViabilityCheck,
             LastViabilityCheckChangeNumber = persisted.LastViabilityCheckChangeNumber,
             ViabilityChangeGap = persisted.ViabilityChangeGap,
+            // Steam session replacement tracking
+            SessionReplacedCount = persisted.SessionReplacedCount,
+            LastSessionReplacement = persisted.LastSessionReplacement,
             // LEGACY: Only load SteamAuth if present (for migration from old state.json)
             SteamAuth = persisted.SteamAuth != null ? new SteamAuthState
             {
@@ -737,6 +748,9 @@ public class StateRepository : IStateRepository
             LastViabilityCheck = state.LastViabilityCheck,
             LastViabilityCheckChangeNumber = state.LastViabilityCheckChangeNumber,
             ViabilityChangeGap = state.ViabilityChangeGap,
+            // Steam session replacement tracking
+            SessionReplacedCount = state.SessionReplacedCount,
+            LastSessionReplacement = state.LastSessionReplacement,
             // LEGACY: Only persist SteamAuth if not null (will be null after migration)
             // JsonIgnore(WhenWritingNull) on property will exclude from JSON when null
             SteamAuth = state.SteamAuth != null ? new SteamAuthState
@@ -852,5 +866,58 @@ public class StateRepository : IStateRepository
     public void SetDefaultGuestTheme(string? themeId)
     {
         UpdateState(state => state.DefaultGuestTheme = themeId ?? "dark-default");
+    }
+
+    // Steam Session Replacement Tracking Methods
+    public int GetSessionReplacedCount()
+    {
+        var state = GetState();
+        // Reset counter if last replacement was more than 24 hours ago
+        if (state.LastSessionReplacement.HasValue &&
+            DateTime.UtcNow - state.LastSessionReplacement.Value > TimeSpan.FromHours(24))
+        {
+            ResetSessionReplacedCount();
+            return 0;
+        }
+        return state.SessionReplacedCount;
+    }
+
+    public void SetSessionReplacedCount(int count)
+    {
+        UpdateState(state => state.SessionReplacedCount = count);
+    }
+
+    public DateTime? GetLastSessionReplacement()
+    {
+        return GetState().LastSessionReplacement;
+    }
+
+    public void SetLastSessionReplacement(DateTime? timestamp)
+    {
+        UpdateState(state => state.LastSessionReplacement = timestamp);
+    }
+
+    public void IncrementSessionReplacedCount()
+    {
+        UpdateState(state =>
+        {
+            // Reset counter if last replacement was more than 24 hours ago
+            if (state.LastSessionReplacement.HasValue &&
+                DateTime.UtcNow - state.LastSessionReplacement.Value > TimeSpan.FromHours(24))
+            {
+                state.SessionReplacedCount = 0;
+            }
+            state.SessionReplacedCount++;
+            state.LastSessionReplacement = DateTime.UtcNow;
+        });
+    }
+
+    public void ResetSessionReplacedCount()
+    {
+        UpdateState(state =>
+        {
+            state.SessionReplacedCount = 0;
+            state.LastSessionReplacement = null;
+        });
     }
 }
