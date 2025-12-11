@@ -1,3 +1,4 @@
+using LancacheManager.Application.DTOs;
 using LancacheManager.Application.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services.Interfaces;
@@ -45,22 +46,14 @@ public class GamesController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetGames()
     {
-        try
+        // For now, return cached detection results
+        // Could be expanded to scan cache and return actual game list
+        var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync();
+        return Ok(new GameListResponse
         {
-            // For now, return cached detection results
-            // Could be expanded to scan cache and return actual game list
-            var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync();
-            return Ok(new
-            {
-                message = "Use GET /api/games/detect/cached for detection results",
-                cachedResults
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting games list");
-            return StatusCode(500, new { error = "Failed to get games list", details = ex.Message });
-        }
+            Message = "Use GET /api/games/detect/cached for detection results",
+            CachedResults = cachedResults
+        });
     }
 
     /// <summary>
@@ -69,23 +62,15 @@ public class GamesController : ControllerBase
     [HttpGet("{appId}")]
     public async Task<IActionResult> GetGame(int appId)
     {
-        try
-        {
-            var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync();
-            var gameInfo = cachedResults?.Games?.FirstOrDefault(g => g.GameAppId == appId);
+        var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync();
+        var gameInfo = cachedResults?.Games?.FirstOrDefault(g => g.GameAppId == appId);
 
-            if (gameInfo == null)
-            {
-                return NotFound(new { error = $"Game not found: {appId}" });
-            }
-
-            return Ok(gameInfo);
-        }
-        catch (Exception ex)
+        if (gameInfo == null)
         {
-            _logger.LogError(ex, "Error getting game: {AppId}", appId);
-            return StatusCode(500, new { error = $"Failed to get game: {appId}", details = ex.Message });
+            return NotFound(new NotFoundResponse { Error = $"Game not found: {appId}" });
         }
+
+        return Ok(gameInfo);
     }
 
     /// <summary>
@@ -96,102 +81,90 @@ public class GamesController : ControllerBase
     [RequireAuth]
     public async Task<IActionResult> RemoveGameFromCache(int appId)
     {
-        try
+        _logger.LogInformation("Starting background game removal for AppId: {AppId}", appId);
+
+        // Get game name for tracking
+        var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync();
+        var gameName = cachedResults?.Games?.FirstOrDefault(g => g.GameAppId == appId)?.GameName ?? $"Game {appId}";
+
+        // Start tracking this removal operation
+        _removalTracker.StartGameRemoval(appId, gameName);
+
+        // Fire-and-forget background removal with SignalR notification
+        _ = Task.Run(async () =>
         {
-            _logger.LogInformation("Starting background game removal for AppId: {AppId}", appId);
-
-            // Get game name for tracking
-            var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync();
-            var gameName = cachedResults?.Games?.FirstOrDefault(g => g.GameAppId == appId)?.GameName ?? $"Game {appId}";
-
-            // Start tracking this removal operation
-            _removalTracker.StartGameRemoval(appId, gameName);
-
-            // Fire-and-forget background removal with SignalR notification
-            _ = Task.Run(async () =>
+            try
             {
-                try
+                // Send progress update
+                await _hubContext.Clients.All.SendAsync("GameRemovalProgress", new
                 {
-                    // Send progress update
-                    await _hubContext.Clients.All.SendAsync("GameRemovalProgress", new
-                    {
-                        gameAppId = appId,
-                        gameName,
-                        status = "removing_cache",
-                        message = $"Deleting cache files for {gameName}..."
-                    });
-                    _removalTracker.UpdateGameRemoval(appId, "removing_cache", $"Deleting cache files for {gameName}...");
+                    gameAppId = appId,
+                    gameName,
+                    status = "removing_cache",
+                    message = $"Deleting cache files for {gameName}..."
+                });
+                _removalTracker.UpdateGameRemoval(appId, "removing_cache", $"Deleting cache files for {gameName}...");
 
-                    // Use CacheManagementService which actually deletes files via Rust binary
-                    var report = await _cacheManagementService.RemoveGameFromCache((uint)appId);
+                // Use CacheManagementService which actually deletes files via Rust binary
+                var report = await _cacheManagementService.RemoveGameFromCache((uint)appId);
 
-                    // Send progress update
-                    await _hubContext.Clients.All.SendAsync("GameRemovalProgress", new
-                    {
-                        gameAppId = appId,
-                        gameName,
-                        status = "removing_database",
-                        message = $"Updating database...",
-                        filesDeleted = report.CacheFilesDeleted,
-                        bytesFreed = report.TotalBytesFreed
-                    });
-                    _removalTracker.UpdateGameRemoval(appId, "removing_database", "Updating database...", report.CacheFilesDeleted, (long)report.TotalBytesFreed);
-
-                    // Also remove from detection cache so it doesn't show in UI
-                    await _gameCacheDetectionService.RemoveGameFromCacheAsync((uint)appId);
-
-                    _logger.LogInformation("Game removal completed for AppId: {AppId} - Deleted {Files} files, freed {Bytes} bytes",
-                        appId, report.CacheFilesDeleted, report.TotalBytesFreed);
-
-                    // Complete tracking
-                    _removalTracker.CompleteGameRemoval(appId, true, report.CacheFilesDeleted, (long)report.TotalBytesFreed);
-
-                    // Send SignalR notification on success
-                    await _hubContext.Clients.All.SendAsync("GameRemovalComplete", new
-                    {
-                        success = true,
-                        gameAppId = appId,
-                        gameName,
-                        filesDeleted = report.CacheFilesDeleted,
-                        bytesFreed = report.TotalBytesFreed,
-                        logEntriesRemoved = report.LogEntriesRemoved,
-                        message = $"Successfully removed {gameName} from cache"
-                    });
-                }
-                catch (Exception ex)
+                // Send progress update
+                await _hubContext.Clients.All.SendAsync("GameRemovalProgress", new
                 {
-                    _logger.LogError(ex, "Error during game removal for AppId: {AppId}", appId);
+                    gameAppId = appId,
+                    gameName,
+                    status = "removing_database",
+                    message = $"Updating database...",
+                    filesDeleted = report.CacheFilesDeleted,
+                    bytesFreed = report.TotalBytesFreed
+                });
+                _removalTracker.UpdateGameRemoval(appId, "removing_database", "Updating database...", report.CacheFilesDeleted, (long)report.TotalBytesFreed);
 
-                    // Complete tracking with error
-                    _removalTracker.CompleteGameRemoval(appId, false, error: ex.Message);
+                // Also remove from detection cache so it doesn't show in UI
+                await _gameCacheDetectionService.RemoveGameFromCacheAsync((uint)appId);
 
-                    // Send SignalR notification on failure
-                    await _hubContext.Clients.All.SendAsync("GameRemovalComplete", new
-                    {
-                        success = false,
-                        gameAppId = appId,
-                        message = $"Failed to remove game {appId}: {ex.Message}"
-                    });
-                }
-            });
+                _logger.LogInformation("Game removal completed for AppId: {AppId} - Deleted {Files} files, freed {Bytes} bytes",
+                    appId, report.CacheFilesDeleted, report.TotalBytesFreed);
 
-            return Accepted(new
+                // Complete tracking
+                _removalTracker.CompleteGameRemoval(appId, true, report.CacheFilesDeleted, (long)report.TotalBytesFreed);
+
+                // Send SignalR notification on success
+                await _hubContext.Clients.All.SendAsync("GameRemovalComplete", new
+                {
+                    success = true,
+                    gameAppId = appId,
+                    gameName,
+                    filesDeleted = report.CacheFilesDeleted,
+                    bytesFreed = report.TotalBytesFreed,
+                    logEntriesRemoved = report.LogEntriesRemoved,
+                    message = $"Successfully removed {gameName} from cache"
+                });
+            }
+            catch (Exception ex)
             {
-                message = $"Started removal of game {appId} from cache",
-                appId,
-                gameName,
-                status = "running"
-            });
-        }
-        catch (Exception ex)
+                _logger.LogError(ex, "Error during game removal for AppId: {AppId}", appId);
+
+                // Complete tracking with error
+                _removalTracker.CompleteGameRemoval(appId, false, error: ex.Message);
+
+                // Send SignalR notification on failure
+                await _hubContext.Clients.All.SendAsync("GameRemovalComplete", new
+                {
+                    success = false,
+                    gameAppId = appId,
+                    message = $"Failed to remove game {appId}: {ex.Message}"
+                });
+            }
+        });
+
+        return Accepted(new GameRemovalStartResponse
         {
-            _logger.LogError(ex, "Error starting game removal for AppId: {AppId}", appId);
-            return StatusCode(500, new
-            {
-                error = $"Failed to start game removal for AppId: {appId}",
-                details = ex.Message
-            });
-        }
+            Message = $"Started removal of game {appId} from cache",
+            AppId = appId,
+            GameName = gameName,
+            Status = "running"
+        });
     }
 
     /// <summary>
@@ -204,20 +177,20 @@ public class GamesController : ControllerBase
         var operation = _removalTracker.GetGameRemovalStatus(appId);
         if (operation == null)
         {
-            return Ok(new { isProcessing = false });
+            return Ok(new RemovalStatusResponse { IsProcessing = false });
         }
 
-        return Ok(new
+        return Ok(new RemovalStatusResponse
         {
             // Include all non-terminal statuses (running, removing_cache, removing_database, etc.)
-            isProcessing = operation.Status != "complete" && operation.Status != "failed",
-            status = operation.Status,
-            message = operation.Message,
-            gameName = operation.Name,
-            filesDeleted = operation.FilesDeleted,
-            bytesFreed = operation.BytesFreed,
-            startedAt = operation.StartedAt,
-            error = operation.Error
+            IsProcessing = operation.Status != "complete" && operation.Status != "failed",
+            Status = operation.Status,
+            Message = operation.Message,
+            GameName = operation.Name,
+            FilesDeleted = operation.FilesDeleted,
+            BytesFreed = operation.BytesFreed,
+            StartedAt = operation.StartedAt,
+            Error = operation.Error
         });
     }
 
@@ -229,18 +202,18 @@ public class GamesController : ControllerBase
     public IActionResult GetActiveGameRemovals()
     {
         var operations = _removalTracker.GetActiveGameRemovals();
-        return Ok(new
+        return Ok(new ActiveGameRemovalsResponse
         {
-            isProcessing = operations.Any(),
-            operations = operations.Select(o => new
+            IsProcessing = operations.Any(),
+            Operations = operations.Select(o => new GameRemovalInfo
             {
-                gameAppId = int.Parse(o.Id),
-                gameName = o.Name,
-                status = o.Status,
-                message = o.Message,
-                filesDeleted = o.FilesDeleted,
-                bytesFreed = o.BytesFreed,
-                startedAt = o.StartedAt
+                GameAppId = int.Parse(o.Id),
+                GameName = o.Name,
+                Status = o.Status,
+                Message = o.Message,
+                FilesDeleted = o.FilesDeleted,
+                BytesFreed = o.BytesFreed,
+                StartedAt = o.StartedAt
             })
         });
     }
@@ -261,22 +234,18 @@ public class GamesController : ControllerBase
             var operationId = _gameCacheDetectionService.StartDetectionAsync(incremental);
             _logger.LogInformation("Started game detection operation: {OperationId} (forceRefresh={ForceRefresh}, incremental={Incremental})", operationId, forceRefresh, incremental);
 
-            return Accepted(new
+            return Accepted(new GameDetectionStartResponse
             {
-                message = forceRefresh ? "Full scan started" : "Incremental scan started",
-                operationId,
-                status = "running"
+                Message = forceRefresh ? "Full scan started" : "Incremental scan started",
+                OperationId = operationId,
+                Status = "running"
             });
         }
         catch (InvalidOperationException ex)
         {
+            // Specific handling for "already running" case - return 409 Conflict
             _logger.LogWarning(ex, "Cannot start game detection - already running");
-            return Conflict(new { error = ex.Message });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error starting game detection");
-            return StatusCode(500, new { error = "Failed to start game detection", details = ex.Message });
+            return Conflict(new ConflictResponse { Error = ex.Message });
         }
     }
 
@@ -286,22 +255,14 @@ public class GamesController : ControllerBase
     [HttpGet("detect/active")]
     public IActionResult GetActiveDetection()
     {
-        try
-        {
-            var activeOperation = _gameCacheDetectionService.GetActiveOperation();
+        var activeOperation = _gameCacheDetectionService.GetActiveOperation();
 
-            if (activeOperation == null)
-            {
-                return Ok(new { isProcessing = false, operation = (object?)null });
-            }
-
-            return Ok(new { isProcessing = true, operation = activeOperation });
-        }
-        catch (Exception ex)
+        if (activeOperation == null)
         {
-            _logger.LogError(ex, "Error getting active detection");
-            return StatusCode(500, new { error = "Failed to get active detection" });
+            return Ok(new ActiveDetectionResponse { IsProcessing = false, Operation = null });
         }
+
+        return Ok(new ActiveDetectionResponse { IsProcessing = true, Operation = activeOperation });
     }
 
     /// <summary>
@@ -310,22 +271,14 @@ public class GamesController : ControllerBase
     [HttpGet("detect/{id}/status")]
     public IActionResult GetDetectionStatus(string id)
     {
-        try
-        {
-            var status = _gameCacheDetectionService.GetOperationStatus(id);
+        var status = _gameCacheDetectionService.GetOperationStatus(id);
 
-            if (status == null)
-            {
-                return NotFound(new { error = "Detection operation not found", operationId = id });
-            }
-
-            return Ok(status);
-        }
-        catch (Exception ex)
+        if (status == null)
         {
-            _logger.LogError(ex, "Error getting detection status for operation {OperationId}", id);
-            return StatusCode(500, new { error = "Failed to get detection status" });
+            return NotFound(new NotFoundResponse { Error = "Detection operation not found", OperationId = id });
         }
+
+        return Ok(status);
     }
 
     /// <summary>
@@ -334,35 +287,27 @@ public class GamesController : ControllerBase
     [HttpGet("detect/cached")]
     public async Task<IActionResult> GetCachedDetectionResults()
     {
-        try
+        var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync();
+
+        if (cachedResults == null)
         {
-            var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync();
-
-            if (cachedResults == null)
-            {
-                // Return success with hasCachedResults: false instead of 404
-                return Ok(new { hasCachedResults = false });
-            }
-
-            // Return in the format expected by frontend
-            // Ensure StartTime is treated as UTC for proper timezone conversion on frontend
-            var lastDetectionTimeUtc = DateTime.SpecifyKind(cachedResults.StartTime, DateTimeKind.Utc);
-
-            return Ok(new
-            {
-                hasCachedResults = true,
-                games = cachedResults.Games,
-                services = cachedResults.Services,
-                totalGamesDetected = cachedResults.TotalGamesDetected,
-                totalServicesDetected = cachedResults.TotalServicesDetected,
-                lastDetectionTime = lastDetectionTimeUtc.ToString("o") // ISO 8601 format with UTC indicator
-            });
+            // Return success with hasCachedResults: false instead of 404
+            return Ok(new CachedDetectionResponse { HasCachedResults = false });
         }
-        catch (Exception ex)
+
+        // Return in the format expected by frontend
+        // Ensure StartTime is treated as UTC for proper timezone conversion on frontend
+        var lastDetectionTimeUtc = DateTime.SpecifyKind(cachedResults.StartTime, DateTimeKind.Utc);
+
+        return Ok(new CachedDetectionResponse
         {
-            _logger.LogError(ex, "Error getting cached detection results");
-            return StatusCode(500, new { error = "Failed to get cached detection results" });
-        }
+            HasCachedResults = true,
+            Games = cachedResults.Games,
+            Services = cachedResults.Services,
+            TotalGamesDetected = cachedResults.TotalGamesDetected,
+            TotalServicesDetected = cachedResults.TotalServicesDetected,
+            LastDetectionTime = lastDetectionTimeUtc.ToString("o") // ISO 8601 format with UTC indicator
+        });
     }
 
     /// <summary>
@@ -372,23 +317,15 @@ public class GamesController : ControllerBase
     [HttpPost("detect/resolve-unknown")]
     public async Task<IActionResult> ResolveUnknownGames()
     {
-        try
-        {
-            var resolvedCount = await _gameCacheDetectionService.ResolveUnknownGamesInCacheAsync();
+        var resolvedCount = await _gameCacheDetectionService.ResolveUnknownGamesInCacheAsync();
 
-            return Ok(new
-            {
-                success = true,
-                resolvedCount,
-                message = resolvedCount > 0
-                    ? $"Resolved {resolvedCount} unknown game(s) using depot mappings"
-                    : "No unknown games could be resolved (no matching depot mappings found)"
-            });
-        }
-        catch (Exception ex)
+        return Ok(new ResolveUnknownGamesResponse
         {
-            _logger.LogError(ex, "Error resolving unknown games");
-            return StatusCode(500, new { error = "Failed to resolve unknown games", details = ex.Message });
-        }
+            Success = true,
+            ResolvedCount = resolvedCount,
+            Message = resolvedCount > 0
+                ? $"Resolved {resolvedCount} unknown game(s) using depot mappings"
+                : "No unknown games could be resolved (no matching depot mappings found)"
+        });
     }
 }

@@ -1,3 +1,4 @@
+using LancacheManager.Application.DTOs;
 using LancacheManager.Application.Services;
 using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Infrastructure.Services;
@@ -69,23 +70,15 @@ public class CacheController : ControllerBase
     [HttpGet("permissions")]
     public IActionResult GetDirectoryPermissions()
     {
-        try
-        {
-            var cachePath = _pathResolver.GetCacheDirectory();
-            var cacheWritable = _pathResolver.IsCacheDirectoryWritable();
+        var cachePath = _pathResolver.GetCacheDirectory();
+        var cacheWritable = _pathResolver.IsCacheDirectoryWritable();
 
-            return Ok(new
-            {
-                path = cachePath,
-                writable = cacheWritable,
-                readOnly = !cacheWritable
-            });
-        }
-        catch (Exception ex)
+        return Ok(new DirectoryPermission
         {
-            _logger.LogError(ex, "Error checking cache directory permissions");
-            return StatusCode(500, new { error = "Failed to check directory permissions", details = ex.Message });
-        }
+            Path = cachePath,
+            Writable = cacheWritable,
+            ReadOnly = !cacheWritable
+        });
     }
 
     /// <summary>
@@ -96,27 +89,15 @@ public class CacheController : ControllerBase
     [RequireAuth]
     public async Task<IActionResult> ClearAllCache()
     {
-        try
-        {
-            var operationId = await _cacheClearingService.StartCacheClearAsync();
-            _logger.LogInformation("Started cache clear operation: {OperationId}", operationId);
+        var operationId = await _cacheClearingService.StartCacheClearAsync();
+        _logger.LogInformation("Started cache clear operation: {OperationId}", operationId);
 
-            return Accepted(new
-            {
-                message = "Cache clearing started in background",
-                operationId,
-                status = "running"
-            });
-        }
-        catch (UnauthorizedAccessException ex)
+        return Accepted(new CacheOperationResponse
         {
-            return StatusCode(403, new { error = ex.Message });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error starting cache clear");
-            return StatusCode(500, new { error = "Failed to start cache clear", details = ex.Message });
-        }
+            Message = "Cache clearing started in background",
+            OperationId = operationId,
+            Status = "running"
+        });
     }
 
     /// <summary>
@@ -125,17 +106,9 @@ public class CacheController : ControllerBase
     [HttpGet("operations")]
     public IActionResult GetActiveOperations()
     {
-        try
-        {
-            var operations = _cacheClearingService.GetActiveOperations();
-            var isProcessing = operations.Any(op => op.Status != "completed" && op.Status != "failed" && op.Status != "cancelled");
-            return Ok(new { isProcessing, operations });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting active cache operations");
-            return StatusCode(500, new { error = "Failed to get active operations" });
-        }
+        var operations = _cacheClearingService.GetActiveOperations();
+        var isProcessing = operations.Any(op => op.Status != "completed" && op.Status != "failed" && op.Status != "cancelled");
+        return Ok(new ActiveOperationsResponse { IsProcessing = isProcessing, Operations = operations });
     }
 
     /// <summary>
@@ -144,22 +117,14 @@ public class CacheController : ControllerBase
     [HttpGet("operations/{id}/status")]
     public IActionResult GetCacheClearStatus(string id)
     {
-        try
-        {
-            var status = _cacheClearingService.GetCacheClearStatus(id);
+        var status = _cacheClearingService.GetCacheClearStatus(id);
 
-            if (status == null)
-            {
-                return NotFound(new { error = "Cache clear operation not found", operationId = id });
-            }
-
-            return Ok(status);
-        }
-        catch (Exception ex)
+        if (status == null)
         {
-            _logger.LogError(ex, "Error getting cache clear status for operation {OperationId}", id);
-            return StatusCode(500, new { error = "Failed to get cache clear status" });
+            return NotFound(new NotFoundResponse { Error = "Cache clear operation not found", OperationId = id });
         }
+
+        return Ok(status);
     }
 
     /// <summary>
@@ -170,22 +135,14 @@ public class CacheController : ControllerBase
     [RequireAuth]
     public IActionResult CancelCacheClear(string id)
     {
-        try
-        {
-            var result = _cacheClearingService.CancelCacheClear(id);
+        var result = _cacheClearingService.CancelCacheClear(id);
 
-            if (!result)
-            {
-                return NotFound(new { error = "Cache clear operation not found or already completed", operationId = id });
-            }
-
-            return Ok(new { message = "Cache clear operation cancelled successfully", operationId = id });
-        }
-        catch (Exception ex)
+        if (!result)
         {
-            _logger.LogError(ex, "Error cancelling cache clear operation {OperationId}", id);
-            return StatusCode(500, new { error = "Failed to cancel cache clear operation" });
+            return NotFound(new NotFoundResponse { Error = "Cache clear operation not found or already completed", OperationId = id });
         }
+
+        return Ok(new CacheOperationResponse { Message = "Cache clear operation cancelled successfully", OperationId = id });
     }
 
     /// <summary>
@@ -196,22 +153,14 @@ public class CacheController : ControllerBase
     [RequireAuth]
     public async Task<IActionResult> ForceKillCacheClear(string id)
     {
-        try
-        {
-            var result = await _cacheClearingService.ForceKillOperation(id);
+        var result = await _cacheClearingService.ForceKillOperation(id);
 
-            if (!result)
-            {
-                return NotFound(new { error = "Cache clear operation not found or no process to kill", operationId = id });
-            }
-
-            return Ok(new { message = "Cache clear operation force killed successfully", operationId = id });
-        }
-        catch (Exception ex)
+        if (!result)
         {
-            _logger.LogError(ex, "Error force killing cache clear operation {OperationId}", id);
-            return StatusCode(500, new { error = "Failed to force kill cache clear operation" });
+            return NotFound(new NotFoundResponse { Error = "Cache clear operation not found or no process to kill", OperationId = id });
         }
+
+        return Ok(new CacheOperationResponse { Message = "Cache clear operation force killed successfully", OperationId = id });
     }
 
     /// <summary>
@@ -220,20 +169,8 @@ public class CacheController : ControllerBase
     [HttpGet("corruption/summary")]
     public async Task<IActionResult> GetCorruptionSummary([FromQuery] bool forceRefresh = false)
     {
-        try
-        {
-            var summary = await _cacheService.GetCorruptionSummary(forceRefresh);
-            return Ok(summary);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting corruption summary");
-            return StatusCode(500, new
-            {
-                error = "Failed to get corruption summary",
-                details = ex.Message
-            });
-        }
+        var summary = await _cacheService.GetCorruptionSummary(forceRefresh);
+        return Ok(summary);
     }
 
     /// <summary>
@@ -243,21 +180,8 @@ public class CacheController : ControllerBase
     [HttpGet("services/{service}/corruption")]
     public async Task<IActionResult> GetCorruptionDetails(string service, [FromQuery] bool forceRefresh = false)
     {
-        try
-        {
-            // Get detailed corruption information (not just counts)
-            var details = await _cacheService.GetCorruptionDetails(service, forceRefresh);
-            return Ok(details);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting corruption details for service: {Service}", service);
-            return StatusCode(500, new
-            {
-                error = $"Failed to get corruption details for service: {service}",
-                details = ex.Message
-            });
-        }
+        var details = await _cacheService.GetCorruptionDetails(service, forceRefresh);
+        return Ok(details);
     }
 
     /// <summary>
@@ -268,111 +192,99 @@ public class CacheController : ControllerBase
     [RequireAuth]
     public IActionResult RemoveCorruptedChunks(string service)
     {
-        try
+        var cachePath = _pathResolver.GetCacheDirectory();
+        var logsPath = _pathResolver.GetLogsDirectory();
+        var dbPath = _pathResolver.GetDatabasePath();
+
+        var operationId = Guid.NewGuid().ToString();
+
+        // Start tracking this removal operation
+        _removalTracker.StartCorruptionRemoval(service, operationId);
+
+        // Send start notification via SignalR
+        _ = _hubContext.Clients.All.SendAsync("CorruptionRemovalStarted", new
         {
-            var cachePath = _pathResolver.GetCacheDirectory();
-            var logsPath = _pathResolver.GetLogsDirectory();
-            var dbPath = _pathResolver.GetDatabasePath();
+            service,
+            operationId,
+            message = $"Starting corruption removal for {service}...",
+            timestamp = DateTime.UtcNow
+        });
 
-            var operationId = Guid.NewGuid().ToString();
-
-            // Start tracking this removal operation
-            _removalTracker.StartCorruptionRemoval(service, operationId);
-
-            // Send start notification via SignalR
-            _ = _hubContext.Clients.All.SendAsync("CorruptionRemovalStarted", new
+        _ = Task.Run(async () =>
+        {
+            try
             {
-                service,
-                operationId,
-                message = $"Starting corruption removal for {service}...",
-                timestamp = DateTime.UtcNow
-            });
+                // Pause LiveLogMonitorService to prevent file locking issues
+                await LiveLogMonitorService.PauseAsync();
+                _logger.LogInformation("Paused LiveLogMonitorService for corruption removal");
 
-            _ = Task.Run(async () =>
-            {
+                // Update tracking
+                _removalTracker.UpdateCorruptionRemoval(service, "removing", $"Removing corrupted chunks for {service}...");
+
                 try
                 {
-                    // Pause LiveLogMonitorService to prevent file locking issues
-                    await LiveLogMonitorService.PauseAsync();
-                    _logger.LogInformation("Paused LiveLogMonitorService for corruption removal");
+                    var result = await _rustProcessHelper.RunCorruptionManagerAsync(
+                        "remove",
+                        logsPath,
+                        cachePath,
+                        service: service,
+                        progressFile: Path.Combine(_pathResolver.GetOperationsDirectory(), $"corruption_removal_{operationId}.json"),
+                        databasePath: dbPath
+                    );
 
-                    // Update tracking
-                    _removalTracker.UpdateCorruptionRemoval(service, "removing", $"Removing corrupted chunks for {service}...");
-
-                    try
+                    if (result.Success)
                     {
-                        var result = await _rustProcessHelper.RunCorruptionManagerAsync(
-                            "remove",
-                            logsPath,
-                            cachePath,
-                            service: service,
-                            progressFile: Path.Combine(_pathResolver.GetOperationsDirectory(), $"corruption_removal_{operationId}.json"),
-                            databasePath: dbPath
-                        );
-
-                        if (result.Success)
+                        _logger.LogInformation("Corruption removal completed for service: {Service}", service);
+                        _removalTracker.CompleteCorruptionRemoval(service, true);
+                        await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
                         {
-                            _logger.LogInformation("Corruption removal completed for service: {Service}", service);
-                            _removalTracker.CompleteCorruptionRemoval(service, true);
-                            await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
-                            {
-                                service,
-                                operationId,
-                                success = true,
-                                message = $"Successfully removed corrupted chunks for {service}"
-                            });
-                        }
-                        else
-                        {
-                            _logger.LogError("Corruption removal failed for service {Service}: {Error}", service, result.Error);
-                            _removalTracker.CompleteCorruptionRemoval(service, false, result.Error);
-                            await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
-                            {
-                                service,
-                                operationId,
-                                success = false,
-                                error = result.Error
-                            });
-                        }
+                            service,
+                            operationId,
+                            success = true,
+                            message = $"Successfully removed corrupted chunks for {service}"
+                        });
                     }
-                    finally
+                    else
                     {
-                        // Always resume LiveLogMonitorService
-                        await LiveLogMonitorService.ResumeAsync();
-                        _logger.LogInformation("Resumed LiveLogMonitorService after corruption removal");
+                        _logger.LogError("Corruption removal failed for service {Service}: {Error}", service, result.Error);
+                        _removalTracker.CompleteCorruptionRemoval(service, false, result.Error);
+                        await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
+                        {
+                            service,
+                            operationId,
+                            success = false,
+                            error = result.Error
+                        });
                     }
                 }
-                catch (Exception ex)
+                finally
                 {
-                    _logger.LogError(ex, "Error during corruption removal for service: {Service}", service);
-                    _removalTracker.CompleteCorruptionRemoval(service, false, ex.Message);
-                    await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
-                    {
-                        service,
-                        operationId,
-                        success = false,
-                        error = ex.Message
-                    });
+                    // Always resume LiveLogMonitorService
+                    await LiveLogMonitorService.ResumeAsync();
+                    _logger.LogInformation("Resumed LiveLogMonitorService after corruption removal");
                 }
-            });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during corruption removal for service: {Service}", service);
+                _removalTracker.CompleteCorruptionRemoval(service, false, ex.Message);
+                await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
+                {
+                    service,
+                    operationId,
+                    success = false,
+                    error = ex.Message
+                });
+            }
+        });
 
-            return Accepted(new
-            {
-                message = $"Started corruption removal for service: {service}",
-                service,
-                operationId,
-                status = "running"
-            });
-        }
-        catch (Exception ex)
+        return Accepted(new CacheOperationResponse
         {
-            _logger.LogError(ex, "Error starting corruption removal for service: {Service}", service);
-            return StatusCode(500, new
-            {
-                error = $"Failed to start corruption removal for service: {service}",
-                details = ex.Message
-            });
-        }
+            Message = $"Started corruption removal for service: {service}",
+            Service = service,
+            OperationId = operationId,
+            Status = "running"
+        });
     }
 
     /// <summary>
@@ -385,18 +297,18 @@ public class CacheController : ControllerBase
         var operation = _removalTracker.GetCorruptionRemovalStatus(service);
         if (operation == null)
         {
-            return Ok(new { isProcessing = false });
+            return Ok(new RemovalStatusResponse { IsProcessing = false });
         }
 
-        return Ok(new
+        return Ok(new RemovalStatusResponse
         {
             // Include all non-terminal statuses (running, removing, etc.)
-            isProcessing = operation.Status != "complete" && operation.Status != "failed",
-            status = operation.Status,
-            message = operation.Message,
-            operationId = operation.Id,
-            startedAt = operation.StartedAt,
-            error = operation.Error
+            IsProcessing = operation.Status != "complete" && operation.Status != "failed",
+            Status = operation.Status,
+            Message = operation.Message,
+            OperationId = operation.Id,
+            StartedAt = operation.StartedAt,
+            Error = operation.Error
         });
     }
 
@@ -407,16 +319,16 @@ public class CacheController : ControllerBase
     public IActionResult GetActiveCorruptionRemovals()
     {
         var operations = _removalTracker.GetActiveCorruptionRemovals();
-        return Ok(new
+        return Ok(new ActiveCorruptionRemovalsResponse
         {
-            isProcessing = operations.Any(),
-            operations = operations.Select(o => new
+            IsProcessing = operations.Any(),
+            Operations = operations.Select(o => new CorruptionRemovalInfo
             {
-                service = o.Name,
-                operationId = o.Id,
-                status = o.Status,
-                message = o.Message,
-                startedAt = o.StartedAt
+                Service = o.Name,
+                OperationId = o.Id,
+                Status = o.Status,
+                Message = o.Message,
+                StartedAt = o.StartedAt
             })
         });
     }
@@ -429,94 +341,82 @@ public class CacheController : ControllerBase
     [RequireAuth]
     public IActionResult ClearServiceCache(string name)
     {
-        try
+        _logger.LogInformation("Starting background service removal for: {Service}", name);
+
+        // Start tracking this removal operation
+        _removalTracker.StartServiceRemoval(name);
+
+        // Fire-and-forget background removal with SignalR notification
+        _ = Task.Run(async () =>
         {
-            _logger.LogInformation("Starting background service removal for: {Service}", name);
-
-            // Start tracking this removal operation
-            _removalTracker.StartServiceRemoval(name);
-
-            // Fire-and-forget background removal with SignalR notification
-            _ = Task.Run(async () =>
+            try
             {
-                try
+                // Send progress update
+                await _hubContext.Clients.All.SendAsync("ServiceRemovalProgress", new
                 {
-                    // Send progress update
-                    await _hubContext.Clients.All.SendAsync("ServiceRemovalProgress", new
-                    {
-                        serviceName = name,
-                        status = "removing_cache",
-                        message = $"Deleting cache files for {name}..."
-                    });
-                    _removalTracker.UpdateServiceRemoval(name, "removing_cache", $"Deleting cache files for {name}...");
+                    serviceName = name,
+                    status = "removing_cache",
+                    message = $"Deleting cache files for {name}..."
+                });
+                _removalTracker.UpdateServiceRemoval(name, "removing_cache", $"Deleting cache files for {name}...");
 
-                    // Use CacheManagementService which actually deletes files via Rust binary
-                    var report = await _cacheService.RemoveServiceFromCache(name);
+                // Use CacheManagementService which actually deletes files via Rust binary
+                var report = await _cacheService.RemoveServiceFromCache(name);
 
-                    // Send progress update
-                    await _hubContext.Clients.All.SendAsync("ServiceRemovalProgress", new
-                    {
-                        serviceName = name,
-                        status = "removing_database",
-                        message = $"Updating database...",
-                        filesDeleted = report.CacheFilesDeleted,
-                        bytesFreed = report.TotalBytesFreed
-                    });
-                    _removalTracker.UpdateServiceRemoval(name, "removing_database", "Updating database...", report.CacheFilesDeleted, (long)report.TotalBytesFreed);
-
-                    // Also remove from detection cache so it doesn't show in UI
-                    await _gameCacheDetectionService.RemoveServiceFromCacheAsync(name);
-
-                    _logger.LogInformation("Service removal completed for: {Service} - Deleted {Files} files, freed {Bytes} bytes",
-                        name, report.CacheFilesDeleted, report.TotalBytesFreed);
-
-                    // Complete tracking
-                    _removalTracker.CompleteServiceRemoval(name, true, report.CacheFilesDeleted, (long)report.TotalBytesFreed);
-
-                    // Send SignalR notification on success
-                    await _hubContext.Clients.All.SendAsync("ServiceRemovalComplete", new
-                    {
-                        success = true,
-                        serviceName = name,
-                        filesDeleted = report.CacheFilesDeleted,
-                        bytesFreed = report.TotalBytesFreed,
-                        logEntriesRemoved = report.LogEntriesRemoved,
-                        message = $"Successfully removed {name} service from cache"
-                    });
-                }
-                catch (Exception ex)
+                // Send progress update
+                await _hubContext.Clients.All.SendAsync("ServiceRemovalProgress", new
                 {
-                    _logger.LogError(ex, "Error during service removal for: {Service}", name);
+                    serviceName = name,
+                    status = "removing_database",
+                    message = $"Updating database...",
+                    filesDeleted = report.CacheFilesDeleted,
+                    bytesFreed = report.TotalBytesFreed
+                });
+                _removalTracker.UpdateServiceRemoval(name, "removing_database", "Updating database...", report.CacheFilesDeleted, (long)report.TotalBytesFreed);
 
-                    // Complete tracking with error
-                    _removalTracker.CompleteServiceRemoval(name, false, error: ex.Message);
+                // Also remove from detection cache so it doesn't show in UI
+                await _gameCacheDetectionService.RemoveServiceFromCacheAsync(name);
 
-                    // Send SignalR notification on failure
-                    await _hubContext.Clients.All.SendAsync("ServiceRemovalComplete", new
-                    {
-                        success = false,
-                        serviceName = name,
-                        message = $"Failed to remove {name} service: {ex.Message}"
-                    });
-                }
-            });
+                _logger.LogInformation("Service removal completed for: {Service} - Deleted {Files} files, freed {Bytes} bytes",
+                    name, report.CacheFilesDeleted, report.TotalBytesFreed);
 
-            return Accepted(new
+                // Complete tracking
+                _removalTracker.CompleteServiceRemoval(name, true, report.CacheFilesDeleted, (long)report.TotalBytesFreed);
+
+                // Send SignalR notification on success
+                await _hubContext.Clients.All.SendAsync("ServiceRemovalComplete", new
+                {
+                    success = true,
+                    serviceName = name,
+                    filesDeleted = report.CacheFilesDeleted,
+                    bytesFreed = report.TotalBytesFreed,
+                    logEntriesRemoved = report.LogEntriesRemoved,
+                    message = $"Successfully removed {name} service from cache"
+                });
+            }
+            catch (Exception ex)
             {
-                message = $"Started removal of {name} service from cache",
-                serviceName = name,
-                status = "running"
-            });
-        }
-        catch (Exception ex)
+                _logger.LogError(ex, "Error during service removal for: {Service}", name);
+
+                // Complete tracking with error
+                _removalTracker.CompleteServiceRemoval(name, false, error: ex.Message);
+
+                // Send SignalR notification on failure
+                await _hubContext.Clients.All.SendAsync("ServiceRemovalComplete", new
+                {
+                    success = false,
+                    serviceName = name,
+                    message = $"Failed to remove {name} service: {ex.Message}"
+                });
+            }
+        });
+
+        return Accepted(new CacheOperationResponse
         {
-            _logger.LogError(ex, "Error starting service removal for: {Service}", name);
-            return StatusCode(500, new
-            {
-                error = $"Failed to start service removal for: {name}",
-                details = ex.Message
-            });
-        }
+            Message = $"Started removal of {name} service from cache",
+            ServiceName = name,
+            Status = "running"
+        });
     }
 
     /// <summary>
@@ -529,19 +429,19 @@ public class CacheController : ControllerBase
         var operation = _removalTracker.GetServiceRemovalStatus(name);
         if (operation == null)
         {
-            return Ok(new { isProcessing = false });
+            return Ok(new RemovalStatusResponse { IsProcessing = false });
         }
 
-        return Ok(new
+        return Ok(new RemovalStatusResponse
         {
             // Include all non-terminal statuses (running, removing_cache, removing_database, etc.)
-            isProcessing = operation.Status != "complete" && operation.Status != "failed",
-            status = operation.Status,
-            message = operation.Message,
-            filesDeleted = operation.FilesDeleted,
-            bytesFreed = operation.BytesFreed,
-            startedAt = operation.StartedAt,
-            error = operation.Error
+            IsProcessing = operation.Status != "complete" && operation.Status != "failed",
+            Status = operation.Status,
+            Message = operation.Message,
+            FilesDeleted = operation.FilesDeleted,
+            BytesFreed = operation.BytesFreed,
+            StartedAt = operation.StartedAt,
+            Error = operation.Error
         });
     }
 
@@ -552,17 +452,17 @@ public class CacheController : ControllerBase
     public IActionResult GetActiveServiceRemovals()
     {
         var operations = _removalTracker.GetActiveServiceRemovals();
-        return Ok(new
+        return Ok(new ActiveServiceRemovalsResponse
         {
-            isProcessing = operations.Any(),
-            operations = operations.Select(o => new
+            IsProcessing = operations.Any(),
+            Operations = operations.Select(o => new ServiceRemovalInfo
             {
-                serviceName = o.Name,
-                status = o.Status,
-                message = o.Message,
-                filesDeleted = o.FilesDeleted,
-                bytesFreed = o.BytesFreed,
-                startedAt = o.StartedAt
+                ServiceName = o.Name,
+                Status = o.Status,
+                Message = o.Message,
+                FilesDeleted = o.FilesDeleted,
+                BytesFreed = o.BytesFreed,
+                StartedAt = o.StartedAt
             })
         });
     }
@@ -575,35 +475,35 @@ public class CacheController : ControllerBase
     public IActionResult GetAllActiveRemovals()
     {
         var status = _removalTracker.GetAllActiveRemovals();
-        return Ok(new
+        return Ok(new AllActiveRemovalsResponse
         {
-            isProcessing = status.HasActiveOperations,
-            gameRemovals = status.GameRemovals.Select(o => new
+            IsProcessing = status.HasActiveOperations,
+            GameRemovals = status.GameRemovals.Select(o => new GameRemovalInfo
             {
-                gameAppId = int.Parse(o.Id),
-                gameName = o.Name,
-                status = o.Status,
-                message = o.Message,
-                filesDeleted = o.FilesDeleted,
-                bytesFreed = o.BytesFreed,
-                startedAt = o.StartedAt
+                GameAppId = int.Parse(o.Id),
+                GameName = o.Name,
+                Status = o.Status,
+                Message = o.Message,
+                FilesDeleted = o.FilesDeleted,
+                BytesFreed = o.BytesFreed,
+                StartedAt = o.StartedAt
             }),
-            serviceRemovals = status.ServiceRemovals.Select(o => new
+            ServiceRemovals = status.ServiceRemovals.Select(o => new ServiceRemovalInfo
             {
-                serviceName = o.Name,
-                status = o.Status,
-                message = o.Message,
-                filesDeleted = o.FilesDeleted,
-                bytesFreed = o.BytesFreed,
-                startedAt = o.StartedAt
+                ServiceName = o.Name,
+                Status = o.Status,
+                Message = o.Message,
+                FilesDeleted = o.FilesDeleted,
+                BytesFreed = o.BytesFreed,
+                StartedAt = o.StartedAt
             }),
-            corruptionRemovals = status.CorruptionRemovals.Select(o => new
+            CorruptionRemovals = status.CorruptionRemovals.Select(o => new CorruptionRemovalInfo
             {
-                service = o.Name,
-                operationId = o.Id,
-                status = o.Status,
-                message = o.Message,
-                startedAt = o.StartedAt
+                Service = o.Name,
+                OperationId = o.Id,
+                Status = o.Status,
+                Message = o.Message,
+                StartedAt = o.StartedAt
             })
         });
     }

@@ -1,3 +1,4 @@
+using LancacheManager.Application.DTOs;
 using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Security;
@@ -35,23 +36,16 @@ public class DatabaseController : ControllerBase
     [RequireAuth]
     public async Task<IActionResult> ResetDatabase()
     {
-        try
-        {
-            var operationId = await _rustDatabaseResetService.StartDatabaseResetAsync();
-            _logger.LogInformation("Started full database reset operation: {OperationId}", operationId);
+        var started = await _rustDatabaseResetService.StartDatabaseResetAsync();
+        var operationId = Guid.NewGuid().ToString();
+        _logger.LogInformation("Started full database reset operation: {OperationId}, Started: {Started}", operationId, started);
 
-            return Accepted(new
-            {
-                message = "Database reset started",
-                operationId,
-                status = "running"
-            });
-        }
-        catch (Exception ex)
+        return Accepted(new DatabaseResetStartResponse
         {
-            _logger.LogError(ex, "Error starting database reset");
-            return StatusCode(500, new { error = "Failed to start database reset", details = ex.Message });
-        }
+            Message = "Database reset started",
+            OperationId = operationId,
+            Status = "running"
+        });
     }
 
     /// <summary>
@@ -63,30 +57,22 @@ public class DatabaseController : ControllerBase
     [RequireAuth]
     public IActionResult ResetSelectedTables([FromBody] ResetTablesRequest request)
     {
-        try
+        if (request.Tables == null || request.Tables.Count == 0)
         {
-            if (request.Tables == null || request.Tables.Count == 0)
-            {
-                return BadRequest(new { error = "No tables specified for reset" });
-            }
-
-            var operationId = _dbService.StartResetSelectedTablesAsync(request.Tables);
-            _logger.LogInformation("Started selective database reset operation: {OperationId}, Tables: {Tables}",
-                operationId, string.Join(", ", request.Tables));
-
-            return Accepted(new
-            {
-                message = "Database reset started for selected tables",
-                operationId,
-                tables = request.Tables,
-                status = "running"
-            });
+            return BadRequest(new ErrorResponse { Error = "No tables specified for reset" });
         }
-        catch (Exception ex)
+
+        var operationId = _dbService.StartResetSelectedTablesAsync(request.Tables);
+        _logger.LogInformation("Started selective database reset operation: {OperationId}, Tables: {Tables}",
+            operationId, string.Join(", ", request.Tables));
+
+        return Accepted(new SelectedTablesResetResponse
         {
-            _logger.LogError(ex, "Error starting selective database reset");
-            return StatusCode(500, new { error = "Failed to start database reset", details = ex.Message });
-        }
+            Message = "Database reset started for selected tables",
+            OperationId = operationId,
+            Tables = request.Tables,
+            Status = "running"
+        });
     }
 
     /// <summary>
@@ -96,30 +82,22 @@ public class DatabaseController : ControllerBase
     [HttpGet("reset-status")]
     public IActionResult GetDatabaseResetStatus()
     {
-        try
+        // Check C# DatabaseRepository reset operations first
+        if (_dbService.IsResetOperationRunning)
         {
-            // Check C# DatabaseRepository reset operations first
-            if (_dbService.IsResetOperationRunning)
+            var progress = DatabaseRepository.CurrentResetProgress;
+            return Ok(new DatabaseResetStatusResponse
             {
-                var progress = DatabaseRepository.CurrentResetProgress;
-                return Ok(new
-                {
-                    isProcessing = progress.IsProcessing,
-                    status = progress.Status,
-                    message = progress.Message,
-                    percentComplete = progress.PercentComplete
-                });
-            }
+                IsProcessing = progress.IsProcessing,
+                Status = progress.Status,
+                Message = progress.Message,
+                PercentComplete = (int)progress.PercentComplete
+            });
+        }
 
-            // Fall back to Rust-based reset service status
-            var status = _rustDatabaseResetService.GetDatabaseResetStatus();
-            return Ok(status);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting database reset status");
-            return StatusCode(500, new { error = "Failed to get database reset status" });
-        }
+        // Fall back to Rust-based reset service status
+        var status = _rustDatabaseResetService.GetDatabaseResetStatus();
+        return Ok(status);
     }
 
     /// <summary>
@@ -128,16 +106,8 @@ public class DatabaseController : ControllerBase
     [HttpGet("log-entries-count")]
     public async Task<IActionResult> GetLogEntriesCount()
     {
-        try
-        {
-            var count = await _dbService.GetLogEntriesCountAsync();
-            return Ok(new { count });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting log entries count");
-            return StatusCode(500, new { error = "Failed to get log entries count", details = ex.Message });
-        }
+        var count = await _dbService.GetLogEntriesCountAsync();
+        return Ok(new LogEntriesCountResponse { Count = count });
     }
 
     public class ResetTablesRequest

@@ -1,3 +1,4 @@
+using LancacheManager.Application.DTOs;
 using LancacheManager.Infrastructure.Services.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Security;
@@ -40,99 +41,91 @@ public class DataMigrationController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(request.ConnectionString))
         {
-            return BadRequest(new { error = "Connection string is required" });
+            return BadRequest(new ErrorResponse { Error = "Connection string is required" });
         }
+
+        _logger.LogInformation("Starting import from DeveLanCacheUI_Backend database");
+
+        // Extract the database path - supports both raw paths and connection strings
+        var sourceDatabasePath = ExtractDatabasePath(request.ConnectionString);
+        if (string.IsNullOrWhiteSpace(sourceDatabasePath) || !System.IO.File.Exists(sourceDatabasePath))
+        {
+            return BadRequest(new ErrorResponse { Error = "Source database file not found at specified path" });
+        }
+
+        // Get target database path
+        var targetDatabasePath = _pathResolver.GetDatabasePath();
+
+        // Get data migrator binary path
+        var dataMigratorPath = _pathResolver.GetRustDataMigratorPath();
+        _rustProcessHelper.ValidateRustBinaryExists(dataMigratorPath, "data_migrator");
+
+        // Create temporary progress file
+        var progressPath = Path.GetTempFileName();
 
         try
         {
-            _logger.LogInformation("Starting import from DeveLanCacheUI_Backend database");
+            // Build arguments for data_migrator
+            var batchSize = request.BatchSize ?? 1000;
+            var overwriteFlag = request.OverwriteExisting ? "1" : "0";
+            var arguments = $"\"{sourceDatabasePath}\" \"{targetDatabasePath}\" \"{progressPath}\" {overwriteFlag} {batchSize}";
 
-            // Extract the database path - supports both raw paths and connection strings
-            var sourceDatabasePath = ExtractDatabasePath(request.ConnectionString);
-            if (string.IsNullOrWhiteSpace(sourceDatabasePath) || !System.IO.File.Exists(sourceDatabasePath))
+            _logger.LogInformation("[data_migrator] Executing: {Binary} {Args}", dataMigratorPath, arguments);
+
+            // Start the process
+            var startInfo = _rustProcessHelper.CreateProcessStartInfo(dataMigratorPath, arguments);
+            using var process = Process.Start(startInfo);
+
+            if (process == null)
             {
-                return BadRequest(new { error = "Source database file not found at specified path" });
+                return StatusCode(500, new ErrorResponse { Error = "Failed to start data migrator process" });
             }
 
-            // Get target database path
-            var targetDatabasePath = _pathResolver.GetDatabasePath();
+            // Monitor stdout and stderr
+            var (stdoutTask, stderrTask) = _rustProcessHelper.CreateOutputMonitoringTasks(process, "data_migrator");
 
-            // Get data migrator binary path
-            var dataMigratorPath = _pathResolver.GetRustDataMigratorPath();
-            _rustProcessHelper.ValidateRustBinaryExists(dataMigratorPath, "data_migrator");
+            // Wait for process to complete
+            await process.WaitForExitAsync();
 
-            // Create temporary progress file
-            var progressPath = Path.GetTempFileName();
+            // Wait for output tasks
+            await _rustProcessHelper.WaitForOutputTasksAsync(stdoutTask, stderrTask, TimeSpan.FromSeconds(5));
 
-            try
+            if (process.ExitCode != 0)
             {
-                // Build arguments for data_migrator
-                var batchSize = request.BatchSize ?? 1000;
-                var overwriteFlag = request.OverwriteExisting ? "1" : "0";
-                var arguments = $"\"{sourceDatabasePath}\" \"{targetDatabasePath}\" \"{progressPath}\" {overwriteFlag} {batchSize}";
-
-                _logger.LogInformation("[data_migrator] Executing: {Binary} {Args}", dataMigratorPath, arguments);
-
-                // Start the process
-                var startInfo = _rustProcessHelper.CreateProcessStartInfo(dataMigratorPath, arguments);
-                using var process = Process.Start(startInfo);
-
-                if (process == null)
+                return StatusCode(500, new ErrorResponse
                 {
-                    return StatusCode(500, new { error = "Failed to start data migrator process" });
-                }
-
-                // Monitor stdout and stderr
-                var (stdoutTask, stderrTask) = _rustProcessHelper.CreateOutputMonitoringTasks(process, "data_migrator");
-
-                // Wait for process to complete
-                await process.WaitForExitAsync();
-
-                // Wait for output tasks
-                await _rustProcessHelper.WaitForOutputTasksAsync(stdoutTask, stderrTask, TimeSpan.FromSeconds(5));
-
-                if (process.ExitCode != 0)
-                {
-                    return StatusCode(500, new
-                    {
-                        error = "Data migration failed",
-                        details = $"Process exited with code {process.ExitCode}"
-                    });
-                }
-
-                // Read final progress to get statistics
-                var progress = await _rustProcessHelper.ReadProgressFileAsync<MigrationProgress>(progressPath);
-
-                if (progress == null)
-                {
-                    _logger.LogWarning("Progress file not found after migration");
-                    return Ok(new { message = "Import completed but progress data unavailable" });
-                }
-
-                _logger.LogInformation(
-                    "Import completed: {Imported} imported, {Skipped} skipped, {Errors} errors. Backup: {BackupPath}",
-                    progress.RecordsImported, progress.RecordsSkipped, progress.RecordsErrors, progress.BackupPath ?? "none");
-
-                return Ok(new
-                {
-                    message = progress.Message,
-                    totalRecords = progress.RecordsProcessed,
-                    imported = progress.RecordsImported,
-                    skipped = progress.RecordsSkipped,
-                    errors = progress.RecordsErrors,
-                    backupPath = progress.BackupPath
+                    Error = "Data migration failed",
+                    Details = $"Process exited with code {process.ExitCode}"
                 });
             }
-            finally
+
+            // Read final progress to get statistics
+            var progress = await _rustProcessHelper.ReadProgressFileAsync<MigrationProgress>(progressPath);
+
+            if (progress == null)
             {
-                // Clean up progress file
-                await _rustProcessHelper.DeleteTemporaryFileAsync(progressPath);
+                _logger.LogWarning("Progress file not found after migration");
+                return Ok(new MessageResponse { Message = "Import completed but progress data unavailable" });
             }
+
+            _logger.LogInformation(
+                "Import completed: {Imported} imported, {Skipped} skipped, {Errors} errors. Backup: {BackupPath}",
+                progress.RecordsImported, progress.RecordsSkipped, progress.RecordsErrors, progress.BackupPath ?? "none");
+
+            return Ok(new MigrationImportResponse
+            {
+                Message = progress.Message,
+                TotalRecords = progress.RecordsProcessed,
+                Imported = progress.RecordsImported,
+                Skipped = progress.RecordsSkipped,
+                Errors = progress.RecordsErrors,
+                BackupPath = progress.BackupPath
+            });
         }
-        catch (Exception ex)
+        finally
         {
-            _logger.LogError(ex, "Error importing data from DeveLanCacheUI_Backend");
-            return StatusCode(500, new { error = "Import failed", details = ex.Message });
+            // Clean up progress file
+            await _rustProcessHelper.DeleteTemporaryFileAsync(progressPath);
         }
     }
 
@@ -146,7 +139,7 @@ public class DataMigrationController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(connectionString))
         {
-            return BadRequest(new { error = "Database path is required" });
+            return BadRequest(new ErrorResponse { Error = "Database path is required" });
         }
 
         try
@@ -167,10 +160,10 @@ public class DataMigrationController : ControllerBase
 
             if (tableExists == null)
             {
-                return Ok(new
+                return Ok(new ConnectionValidationResponse
                 {
-                    valid = false,
-                    message = "Connection successful, but DownloadEvents table not found"
+                    Valid = false,
+                    Message = "Connection successful, but DownloadEvents table not found"
                 });
             }
 
@@ -179,20 +172,20 @@ public class DataMigrationController : ControllerBase
             countCmd.CommandText = "SELECT COUNT(*) FROM DownloadEvents";
             var recordCount = Convert.ToInt32(await countCmd.ExecuteScalarAsync());
 
-            return Ok(new
+            return Ok(new ConnectionValidationResponse
             {
-                valid = true,
-                message = "Connection successful",
-                recordCount
+                Valid = true,
+                Message = "Connection successful",
+                RecordCount = recordCount
             });
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to validate connection");
-            return Ok(new
+            return Ok(new ConnectionValidationResponse
             {
-                valid = false,
-                message = ex.Message
+                Valid = false,
+                Message = ex.Message
             });
         }
     }

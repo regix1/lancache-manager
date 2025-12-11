@@ -1,3 +1,4 @@
+using LancacheManager.Application.DTOs;
 using LancacheManager.Application.Services;
 using LancacheManager.Data;
 using LancacheManager.Infrastructure.Repositories;
@@ -187,31 +188,31 @@ public class AuthController : ControllerBase
         // If authentication is disabled, always return authenticated
         if (!authEnabled)
         {
-            return Ok(new
+            return Ok(new AuthStatusResponse
             {
-                requiresAuth = false,
-                isAuthenticated = true,
-                authenticationType = "disabled",
-                deviceId = (string?)null,
-                hasData,
-                hasEverBeenSetup,
-                hasBeenInitialized,
-                hasDataLoaded
+                RequiresAuth = false,
+                IsAuthenticated = true,
+                AuthenticationType = "disabled",
+                DeviceId = null,
+                HasData = hasData,
+                HasEverBeenSetup = hasEverBeenSetup,
+                HasBeenInitialized = hasBeenInitialized,
+                HasDataLoaded = hasDataLoaded
             });
         }
 
-        return Ok(new
+        return Ok(new AuthStatusResponse
         {
-            requiresAuth = true,
-            isAuthenticated,
-            authenticationType,
-            deviceId = isAuthenticated && authenticationType == "device" ? deviceId : null,
-            authMode = authMode, // "guest", "expired", or null
-            guestTimeRemaining = guestTimeRemaining, // minutes remaining for guest sessions
-            hasData,
-            hasEverBeenSetup,
-            hasBeenInitialized,
-            hasDataLoaded
+            RequiresAuth = true,
+            IsAuthenticated = isAuthenticated,
+            AuthenticationType = authenticationType,
+            DeviceId = isAuthenticated && authenticationType == "device" ? deviceId : null,
+            AuthMode = authMode, // "guest", "expired", or null
+            GuestTimeRemaining = guestTimeRemaining, // minutes remaining for guest sessions
+            HasData = hasData,
+            HasEverBeenSetup = hasEverBeenSetup,
+            HasBeenInitialized = hasBeenInitialized,
+            HasDataLoaded = hasDataLoaded
         });
     }
 
@@ -224,27 +225,16 @@ public class AuthController : ControllerBase
     [HttpPost("clear-session")]
     public IActionResult ClearSession()
     {
-        try
-        {
-            // Clear ASP.NET session (this clears the HttpOnly session cookie)
-            HttpContext.Session.Clear();
+        // Clear ASP.NET session (this clears the HttpOnly session cookie)
+        HttpContext.Session.Clear();
 
-            _logger.LogInformation("Session cookies cleared for current request");
+        _logger.LogInformation("Session cookies cleared for current request");
 
-            return Ok(new {
-                success = true,
-                message = "Session cookies cleared successfully"
-            });
-        }
-        catch (Exception ex)
+        return Ok(new SessionClearResponse
         {
-            _logger.LogError(ex, "Error clearing session cookies");
-            return StatusCode(500, new {
-                success = false,
-                error = "Failed to clear session cookies",
-                details = ex.Message
-            });
-        }
+            Success = true,
+            Message = "Session cookies cleared successfully"
+        });
     }
 
     /// <summary>
@@ -255,25 +245,13 @@ public class AuthController : ControllerBase
     [RequireAuth]
     public IActionResult GetGuestConfig()
     {
-        try
-        {
-            var durationHours = _guestSessionService.GetGuestSessionDurationHours();
+        var durationHours = _guestSessionService.GetGuestSessionDurationHours();
 
-            return Ok(new
-            {
-                durationHours = durationHours,
-                message = "Guest configuration retrieved successfully"
-            });
-        }
-        catch (Exception ex)
+        return Ok(new GuestConfigResponse
         {
-            _logger.LogError(ex, "Error retrieving guest configuration");
-            return StatusCode(500, new
-            {
-                error = "Failed to retrieve guest configuration",
-                details = ex.Message
-            });
-        }
+            DurationHours = durationHours,
+            Message = "Guest configuration retrieved successfully"
+        });
     }
 
     /// <summary>
@@ -284,38 +262,25 @@ public class AuthController : ControllerBase
     [RequireAuth]
     public IActionResult SetGuestSessionDuration([FromBody] SetGuestDurationRequest request)
     {
-        try
+        if (request.DurationHours < 1 || request.DurationHours > 168)
         {
-            if (request.DurationHours < 1 || request.DurationHours > 168)
-            {
-                return BadRequest(new
-                {
-                    success = false,
-                    error = "Duration must be between 1 and 168 hours"
-                });
-            }
-
-            _guestSessionService.SetGuestSessionDurationHours(request.DurationHours);
-
-            _logger.LogInformation("Guest session duration updated to {Hours} hours", request.DurationHours);
-
-            return Ok(new
-            {
-                success = true,
-                durationHours = request.DurationHours,
-                message = $"Guest session duration updated to {request.DurationHours} hours"
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error updating guest session duration");
-            return StatusCode(500, new
+            return BadRequest(new
             {
                 success = false,
-                error = "Failed to update guest session duration",
-                details = ex.Message
+                error = "Duration must be between 1 and 168 hours"
             });
         }
+
+        _guestSessionService.SetGuestSessionDurationHours(request.DurationHours);
+
+        _logger.LogInformation("Guest session duration updated to {Hours} hours", request.DurationHours);
+
+        return Ok(new GuestDurationResponse
+        {
+            Success = true,
+            DurationHours = request.DurationHours,
+            Message = $"Guest session duration updated to {request.DurationHours} hours"
+        });
     }
 
     public class SetGuestDurationRequest

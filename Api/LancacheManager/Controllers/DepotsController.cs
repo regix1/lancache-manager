@@ -1,4 +1,5 @@
 using System.Text.Json;
+using LancacheManager.Application.DTOs;
 using LancacheManager.Application.Services;
 using LancacheManager.Data;
 using LancacheManager.Security;
@@ -44,40 +45,32 @@ public class DepotsController : ControllerBase
     [HttpGet("status")]
     public async Task<IActionResult> GetDepotStatus()
     {
-        try
-        {
-            var picsData = await _picsDataService.LoadPicsDataFromJsonAsync();
-            var needsUpdate = await _picsDataService.NeedsUpdateAsync();
-            var dbMappingCount = _steamKit2Service.GetDepotMappingCount();
+        var picsData = await _picsDataService.LoadPicsDataFromJsonAsync();
+        var needsUpdate = await _picsDataService.NeedsUpdateAsync();
+        var dbMappingCount = _steamKit2Service.GetDepotMappingCount();
 
-            return Ok(new
-            {
-                jsonFile = new
-                {
-                    exists = picsData != null,
-                    path = _picsDataService.GetPicsJsonFilePath(),
-                    lastUpdated = picsData?.Metadata?.LastUpdated,
-                    totalMappings = picsData?.Metadata?.TotalMappings ?? 0,
-                    nextUpdateDue = picsData?.Metadata?.NextUpdateDue,
-                    needsUpdate
-                },
-                database = new
-                {
-                    totalMappings = dbMappingCount
-                },
-                steamKit2 = new
-                {
-                    isReady = _steamKit2Service.IsReady,
-                    isRebuildRunning = _steamKit2Service.IsRebuildRunning,
-                    depotCount = dbMappingCount
-                }
-            });
-        }
-        catch (Exception ex)
+        return Ok(new DepotFullStatusResponse
         {
-            _logger.LogError(ex, "Error getting depot status");
-            return StatusCode(500, new { error = ex.Message });
-        }
+            JsonFile = new DepotJsonFileStatus
+            {
+                Exists = picsData != null,
+                Path = _picsDataService.GetPicsJsonFilePath(),
+                LastUpdated = picsData?.Metadata?.LastUpdated,
+                TotalMappings = picsData?.Metadata?.TotalMappings ?? 0,
+                NextUpdateDue = picsData?.Metadata?.NextUpdateDue,
+                NeedsUpdate = needsUpdate
+            },
+            Database = new DepotDatabaseStatus
+            {
+                TotalMappings = dbMappingCount
+            },
+            SteamKit2 = new DepotSteamKit2Status
+            {
+                IsReady = _steamKit2Service.IsReady,
+                IsRebuildRunning = _steamKit2Service.IsRebuildRunning,
+                DepotCount = dbMappingCount
+            }
+        });
     }
 
     /// <summary>
@@ -92,58 +85,50 @@ public class DepotsController : ControllerBase
     [RequireAuth]
     public async Task<IActionResult> StartDepotRebuild(CancellationToken cancellationToken, [FromQuery] bool incremental = false)
     {
-        try
+        // PRE-FLIGHT CHECK: Only check viability if user requested incremental scan
+        if (incremental)
         {
-            // PRE-FLIGHT CHECK: Only check viability if user requested incremental scan
-            if (incremental)
-            {
-                _logger.LogInformation("Incremental scan requested - checking viability first");
-                var viability = await _steamKit2Service.CheckIncrementalViabilityAsync(cancellationToken);
-                _logger.LogInformation("Viability check returned: {Viability}", System.Text.Json.JsonSerializer.Serialize(viability));
+            _logger.LogInformation("Incremental scan requested - checking viability first");
+            var viability = await _steamKit2Service.CheckIncrementalViabilityAsync(cancellationToken);
+            _logger.LogInformation("Viability check returned: {Viability}", System.Text.Json.JsonSerializer.Serialize(viability));
 
-                if (viability.WillTriggerFullScan)
+            if (viability.WillTriggerFullScan)
+            {
+                _logger.LogInformation("Incremental scan not viable - change gap too large ({ChangeGap}). Returning requiresFullScan flag.", viability.ChangeGap);
+
+                return Ok(new DepotRebuildViabilityResponse
                 {
-                    _logger.LogInformation("Incremental scan not viable - change gap too large ({ChangeGap}). Returning requiresFullScan flag.", viability.ChangeGap);
-
-                    return Ok(new
-                    {
-                        started = false,
-                        requiresFullScan = true,
-                        changeGap = viability.ChangeGap,
-                        estimatedApps = viability.EstimatedAppsToScan,
-                        message = viability.Error ?? "Change gap is too large for incremental scan. A full scan is required.",
-                        viabilityError = viability.Error
-                    });
-                }
-                else
-                {
-                    _logger.LogInformation("Incremental scan is viable - proceeding with scan");
-                    _steamKit2Service.ClearAutomaticScanSkippedFlag();
-                }
+                    Started = false,
+                    RequiresFullScan = true,
+                    ChangeGap = viability.ChangeGap,
+                    EstimatedApps = viability.EstimatedAppsToScan,
+                    Message = viability.Error ?? "Change gap is too large for incremental scan. A full scan is required.",
+                    ViabilityError = viability.Error
+                });
             }
-
-            // Proceed with scan
-            var started = _steamKit2Service.TryStartRebuild(cancellationToken, incremental);
-
-            if (started)
+            else
             {
-                _steamKit2Service.EnablePeriodicCrawls();
+                _logger.LogInformation("Incremental scan is viable - proceeding with scan");
+                _steamKit2Service.ClearAutomaticScanSkippedFlag();
             }
-
-            return Accepted(new
-            {
-                started,
-                requiresFullScan = false,
-                rebuildInProgress = _steamKit2Service.IsRebuildRunning,
-                ready = _steamKit2Service.IsReady,
-                depotCount = _steamKit2Service.GetDepotMappingCount()
-            });
         }
-        catch (Exception ex)
+
+        // Proceed with scan
+        var started = _steamKit2Service.TryStartRebuild(cancellationToken, incremental);
+
+        if (started)
         {
-            _logger.LogError(ex, "Error triggering depot rebuild");
-            return StatusCode(500, new { error = ex.Message });
+            _steamKit2Service.EnablePeriodicCrawls();
         }
+
+        return Accepted(new DepotRebuildStartResponse
+        {
+            Started = started,
+            RequiresFullScan = false,
+            RebuildInProgress = _steamKit2Service.IsRebuildRunning,
+            Ready = _steamKit2Service.IsReady,
+            DepotCount = _steamKit2Service.GetDepotMappingCount()
+        });
     }
 
     /// <summary>
@@ -153,16 +138,8 @@ public class DepotsController : ControllerBase
     [HttpGet("rebuild/progress")]
     public IActionResult GetRebuildProgress()
     {
-        try
-        {
-            var progress = _steamKit2Service.GetProgress();
-            return Ok(progress);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting depot rebuild progress");
-            return StatusCode(500, new { error = ex.Message });
-        }
+        var progress = _steamKit2Service.GetProgress();
+        return Ok(progress);
     }
 
     /// <summary>
@@ -173,23 +150,15 @@ public class DepotsController : ControllerBase
     [RequireAuth]
     public async Task<IActionResult> CancelRebuild()
     {
-        try
-        {
-            var cancelled = await _steamKit2Service.CancelRebuildAsync();
+        var cancelled = await _steamKit2Service.CancelRebuildAsync();
 
-            if (cancelled)
-            {
-                return Ok(new { message = "Depot rebuild cancelled successfully" });
-            }
-            else
-            {
-                return NotFound(new { message = "No active rebuild to cancel" });
-            }
-        }
-        catch (Exception ex)
+        if (cancelled)
         {
-            _logger.LogError(ex, "Error cancelling depot rebuild");
-            return StatusCode(500, new { error = ex.Message });
+            return Ok(new MessageResponse { Message = "Depot rebuild cancelled successfully" });
+        }
+        else
+        {
+            return NotFound(new NotFoundResponse { Error = "No active rebuild to cancel" });
         }
     }
 
@@ -201,16 +170,8 @@ public class DepotsController : ControllerBase
     [RequireAuth]
     public async Task<IActionResult> CheckIncrementalViability(CancellationToken cancellationToken)
     {
-        try
-        {
-            var result = await _steamKit2Service.CheckIncrementalViabilityAsync(cancellationToken);
-            return Ok(result);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error checking incremental viability");
-            return StatusCode(500, new { error = ex.Message });
-        }
+        var result = await _steamKit2Service.CheckIncrementalViabilityAsync(cancellationToken);
+        return Ok(result);
     }
 
     /// <summary>
@@ -222,71 +183,48 @@ public class DepotsController : ControllerBase
     [RequireAuth]
     public async Task<IActionResult> ImportDepotMappings([FromQuery] string source, CancellationToken cancellationToken)
     {
-        try
+        if (source == "github")
         {
-            if (source == "github")
+            _logger.LogInformation("Starting download of pre-created depot data from GitHub");
+
+            var success = await _steamKit2Service.DownloadAndImportGitHubDataAsync(cancellationToken);
+
+            if (success)
             {
-                _logger.LogInformation("Starting download of pre-created depot data from GitHub");
-
-                var success = await _steamKit2Service.DownloadAndImportGitHubDataAsync(cancellationToken);
-
-                if (success)
-                {
-                    _steamKit2Service.ClearAutomaticScanSkippedFlag();
-                    _steamKit2Service.EnablePeriodicCrawls();
-
-                    _logger.LogInformation("Pre-created depot data downloaded and imported successfully from GitHub");
-
-                    return Ok(new
-                    {
-                        message = "Pre-created depot data downloaded and imported successfully",
-                        source = "GitHub",
-                        timestamp = DateTime.UtcNow
-                    });
-                }
-                else
-                {
-                    return StatusCode(500, new { error = "Failed to download and import pre-created depot data from GitHub" });
-                }
-            }
-            else if (source == "local")
-            {
-                _logger.LogInformation("Starting import of existing PICS data to database");
-
-                await _picsDataService.ImportJsonDataToDatabaseAsync(cancellationToken);
+                _steamKit2Service.ClearAutomaticScanSkippedFlag();
                 _steamKit2Service.EnablePeriodicCrawls();
 
-                return Ok(new
+                _logger.LogInformation("Pre-created depot data downloaded and imported successfully from GitHub");
+
+                return Ok(new DepotImportResponse
                 {
-                    message = "PICS data imported successfully",
-                    source = "Local",
-                    timestamp = DateTime.UtcNow
+                    Message = "Pre-created depot data downloaded and imported successfully",
+                    Source = "GitHub",
+                    Timestamp = DateTime.UtcNow
                 });
             }
             else
             {
-                return BadRequest(new { error = "Invalid source. Must be 'github' or 'local'" });
+                throw new InvalidOperationException("Failed to download and import pre-created depot data from GitHub");
             }
         }
-        catch (HttpRequestException ex)
+        else if (source == "local")
         {
-            _logger.LogError(ex, "Network error while downloading pre-created depot data");
-            return StatusCode(500, new { error = "Network error: Unable to download from GitHub. Check your internet connection." });
+            _logger.LogInformation("Starting import of existing PICS data to database");
+
+            await _picsDataService.ImportJsonDataToDatabaseAsync(cancellationToken);
+            _steamKit2Service.EnablePeriodicCrawls();
+
+            return Ok(new DepotImportResponse
+            {
+                Message = "PICS data imported successfully",
+                Source = "Local",
+                Timestamp = DateTime.UtcNow
+            });
         }
-        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        else
         {
-            _logger.LogError(ex, "Timeout while downloading pre-created depot data");
-            return StatusCode(500, new { error = "Download timeout: The GitHub file is taking too long to download." });
-        }
-        catch (OperationCanceledException)
-        {
-            _logger.LogInformation("Import operation was cancelled by user");
-            return StatusCode(499, new { error = "Operation cancelled by user" });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error importing depot mappings");
-            return StatusCode(500, new { error = "Failed to import depot mappings", details = ex.Message });
+            return BadRequest(new ConflictResponse { Error = "Invalid source. Must be 'github' or 'local'" });
         }
     }
 
@@ -298,25 +236,17 @@ public class DepotsController : ControllerBase
     [RequireAuth]
     public async Task<IActionResult> ApplyDepotMappings(CancellationToken cancellationToken)
     {
-        try
+        _logger.LogInformation("Starting manual depot mapping application");
+
+        await _steamKit2Service.ManuallyApplyDepotMappings();
+
+        _logger.LogInformation("Manual depot mapping completed successfully");
+
+        return Ok(new DepotMappingApplyResponse
         {
-            _logger.LogInformation("Starting manual depot mapping application");
-
-            await _steamKit2Service.ManuallyApplyDepotMappings();
-
-            _logger.LogInformation("Manual depot mapping completed successfully");
-
-            return Ok(new
-            {
-                message = "Depot mappings applied successfully",
-                timestamp = DateTime.UtcNow
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to apply depot mappings");
-            return StatusCode(500, new { error = ex.Message });
-        }
+            Message = "Depot mappings applied successfully",
+            Timestamp = DateTime.UtcNow
+        });
     }
 
 
@@ -329,49 +259,41 @@ public class DepotsController : ControllerBase
     [RequireAuth]
     public IActionResult SetCrawlInterval([FromBody] double intervalHours)
     {
-        try
+        _logger.LogInformation("Received crawl interval request: {IntervalHours} hours", intervalHours);
+
+        if (intervalHours < 0)
         {
-            _logger.LogInformation("Received crawl interval request: {IntervalHours} hours", intervalHours);
-
-            if (intervalHours < 0)
-            {
-                return BadRequest(new { error = $"Interval must be 0 or a positive number. Received: {intervalHours}" });
-            }
-
-            _steamKit2Service.CrawlIntervalHours = intervalHours;
-
-            var actualInterval = _steamKit2Service.CrawlIntervalHours;
-            _logger.LogInformation("Crawl interval set. Requested: {Requested}, Actual: {Actual}", intervalHours, actualInterval);
-
-            if (intervalHours == 0)
-            {
-                _logger.LogInformation("Automatic crawl schedule disabled");
-            }
-            else if (intervalHours < 1)
-            {
-                var seconds = intervalHours * 3600;
-                _logger.LogInformation("Crawl interval updated to {Seconds} seconds", (int)seconds);
-            }
-            else
-            {
-                _logger.LogInformation("Crawl interval updated to {IntervalHours} hours", intervalHours);
-            }
-
-            return Ok(new
-            {
-                intervalHours = _steamKit2Service.CrawlIntervalHours,
-                message = intervalHours == 0
-                    ? "Automatic schedule disabled"
-                    : intervalHours < 1
-                        ? $"Crawl interval updated to {(int)(intervalHours * 3600)} seconds (testing mode)"
-                        : $"Crawl interval updated to {intervalHours} hour(s)"
-            });
+            return BadRequest(new ConflictResponse { Error = $"Interval must be 0 or a positive number. Received: {intervalHours}" });
         }
-        catch (Exception ex)
+
+        _steamKit2Service.CrawlIntervalHours = intervalHours;
+
+        var actualInterval = _steamKit2Service.CrawlIntervalHours;
+        _logger.LogInformation("Crawl interval set. Requested: {Requested}, Actual: {Actual}", intervalHours, actualInterval);
+
+        if (intervalHours == 0)
         {
-            _logger.LogError(ex, "Error setting crawl interval");
-            return StatusCode(500, new { error = ex.Message });
+            _logger.LogInformation("Automatic crawl schedule disabled");
         }
+        else if (intervalHours < 1)
+        {
+            var seconds = intervalHours * 3600;
+            _logger.LogInformation("Crawl interval updated to {Seconds} seconds", (int)seconds);
+        }
+        else
+        {
+            _logger.LogInformation("Crawl interval updated to {IntervalHours} hours", intervalHours);
+        }
+
+        return Ok(new CrawlIntervalResponse
+        {
+            IntervalHours = (int)_steamKit2Service.CrawlIntervalHours,
+            Message = intervalHours == 0
+                ? "Automatic schedule disabled"
+                : intervalHours < 1
+                    ? $"Crawl interval updated to {(int)(intervalHours * 3600)} seconds (testing mode)"
+                    : $"Crawl interval updated to {intervalHours} hour(s)"
+        });
     }
 
     /// <summary>
@@ -383,43 +305,35 @@ public class DepotsController : ControllerBase
     [RequireAuth]
     public IActionResult SetCrawlMode([FromBody] JsonElement mode)
     {
-        try
+        string scanMode;
+
+        // Handle different input types: bool or string "github"
+        if (mode.ValueKind == JsonValueKind.True)
         {
-            string scanMode;
-
-            // Handle different input types: bool or string "github"
-            if (mode.ValueKind == JsonValueKind.True)
-            {
-                _steamKit2Service.CrawlIncrementalMode = true;
-                scanMode = "Incremental";
-            }
-            else if (mode.ValueKind == JsonValueKind.False)
-            {
-                _steamKit2Service.CrawlIncrementalMode = false;
-                scanMode = "Full";
-            }
-            else if (mode.ValueKind == JsonValueKind.String && mode.GetString() == "github")
-            {
-                _steamKit2Service.CrawlIncrementalMode = "github";
-                scanMode = "GitHub (PICS Updates)";
-            }
-            else
-            {
-                return BadRequest(new { error = "Invalid scan mode. Must be true, false, or \"github\"" });
-            }
-
-            _logger.LogInformation("Crawl mode updated to {Mode}", scanMode);
-
-            return Ok(new
-            {
-                incrementalMode = _steamKit2Service.CrawlIncrementalMode,
-                message = $"Automatic scan mode set to {scanMode}"
-            });
+            _steamKit2Service.CrawlIncrementalMode = true;
+            scanMode = "Incremental";
         }
-        catch (Exception ex)
+        else if (mode.ValueKind == JsonValueKind.False)
         {
-            _logger.LogError(ex, "Error setting crawl mode");
-            return StatusCode(500, new { error = ex.Message });
+            _steamKit2Service.CrawlIncrementalMode = false;
+            scanMode = "Full";
         }
+        else if (mode.ValueKind == JsonValueKind.String && mode.GetString() == "github")
+        {
+            _steamKit2Service.CrawlIncrementalMode = "github";
+            scanMode = "GitHub (PICS Updates)";
+        }
+        else
+        {
+            return BadRequest(new ConflictResponse { Error = "Invalid scan mode. Must be true, false, or \"github\"" });
+        }
+
+        _logger.LogInformation("Crawl mode updated to {Mode}", scanMode);
+
+        return Ok(new CrawlModeResponse
+        {
+            IncrementalMode = _steamKit2Service.CrawlIncrementalMode,
+            Message = $"Automatic scan mode set to {scanMode}"
+        });
     }
 }

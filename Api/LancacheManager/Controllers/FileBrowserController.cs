@@ -1,3 +1,4 @@
+using LancacheManager.Application.DTOs;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 
@@ -55,7 +56,7 @@ public class FileBrowserController : ControllerBase
             // Validate path exists
             if (!Directory.Exists(path))
             {
-                return BadRequest(new { error = "Directory does not exist" });
+                return BadRequest(new ErrorResponse { Error = "Directory does not exist" });
             }
 
             var directoryInfo = new DirectoryInfo(path);
@@ -154,12 +155,7 @@ public class FileBrowserController : ControllerBase
         catch (UnauthorizedAccessException ex)
         {
             _logger.LogWarning(ex, "Access denied to path: {Path}", path);
-            return StatusCode(403, new { error = "Access denied to this directory" });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error listing directory: {Path}", path);
-            return StatusCode(500, new { error = "Failed to list directory", details = ex.Message });
+            return StatusCode(403, new ErrorResponse { Error = "Access denied to this directory" });
         }
     }
 
@@ -308,7 +304,7 @@ public class FileBrowserController : ControllerBase
 
             if (!Directory.Exists(searchPath))
             {
-                return BadRequest(new { error = "Search path does not exist" });
+                return BadRequest(new ErrorResponse { Error = "Search path does not exist" });
             }
 
             var results = new List<FileSystemItem>();
@@ -327,12 +323,7 @@ public class FileBrowserController : ControllerBase
         catch (UnauthorizedAccessException ex)
         {
             _logger.LogWarning(ex, "Access denied during search: {Path}", searchPath);
-            return StatusCode(403, new { error = "Access denied" });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error searching for databases");
-            return StatusCode(500, new { error = "Search failed", details = ex.Message });
+            return StatusCode(403, new ErrorResponse { Error = "Access denied" });
         }
     }
 

@@ -1,7 +1,8 @@
-using LancacheManager.Security;
+using LancacheManager.Application.DTOs;
 using LancacheManager.Data;
-using LancacheManager.Models;
 using LancacheManager.Infrastructure.Repositories.Interfaces;
+using LancacheManager.Models;
+using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -42,20 +43,12 @@ public class DevicesController : ControllerBase
     [RequireAuth]
     public IActionResult GetAllDevices()
     {
-        try
+        var devices = _deviceAuthService.GetAllDevices();
+        return Ok(new DeviceListResponse
         {
-            var devices = _deviceAuthService.GetAllDevices();
-            return Ok(new
-            {
-                devices,
-                count = devices.Count
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving devices");
-            return StatusCode(500, new { error = "Failed to retrieve devices", message = ex.Message });
-        }
+            Devices = devices.Cast<object>().ToList(),
+            Count = devices.Count
+        });
     }
 
     /// <summary>
@@ -70,125 +63,117 @@ public class DevicesController : ControllerBase
         if (_databaseRepository.IsResetOperationRunning)
         {
             _logger.LogWarning("Device registration rejected - database reset in progress");
-            return StatusCode(503, new
+            return StatusCode(503, new ServiceUnavailableResponse
             {
-                error = "Service temporarily unavailable",
-                message = "Database reset in progress. Please wait and try again.",
-                retryAfter = 30
+                Error = "Service temporarily unavailable",
+                Message = "Database reset in progress. Please wait and try again.",
+                RetryAfter = 30
             });
         }
 
-        try
+        var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
+        var userAgent = Request.Headers["User-Agent"].FirstOrDefault();
+
+        _logger.LogInformation("Device registration attempt from Server IP: {ServerIP}, Local IP: {LocalIP}, Device: {DeviceId}",
+            ipAddress, request.LocalIp ?? "not detected", request.DeviceId);
+
+        // Check if this device had a guest session before authentication
+        var existingGuestSession = _guestSessionService.GetSessionByDeviceId(request.DeviceId);
+
+        // Map controller's request model to service's request model
+        var serviceRequest = new LancacheManager.Security.DeviceAuthService.RegisterDeviceRequest
         {
-            var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
-            var userAgent = Request.Headers["User-Agent"].FirstOrDefault();
+            DeviceId = request.DeviceId,
+            ApiKey = request.ApiKey,
+            DeviceName = request.DeviceName,
+            LocalIp = request.LocalIp
+        };
 
-            _logger.LogInformation("Device registration attempt from Server IP: {ServerIP}, Local IP: {LocalIP}, Device: {DeviceId}",
-                ipAddress, request.LocalIp ?? "not detected", request.DeviceId);
+        var result = _deviceAuthService.RegisterDevice(serviceRequest, ipAddress, userAgent);
 
-            // Check if this device had a guest session before authentication
-            var existingGuestSession = _guestSessionService.GetSessionByDeviceId(request.DeviceId);
+        if (result.Success)
+        {
+            // Set session cookie for authenticated session
+            HttpContext.Session.SetString("DeviceId", request.DeviceId);
+            HttpContext.Session.SetString("ApiKey", request.ApiKey);
+            HttpContext.Session.SetString("AuthMode", "authenticated");
 
-            // Map controller's request model to service's request model
-            var serviceRequest = new LancacheManager.Security.DeviceAuthService.RegisterDeviceRequest
+            try
             {
-                DeviceId = request.DeviceId,
-                ApiKey = request.ApiKey,
-                DeviceName = request.DeviceName,
-                LocalIp = request.LocalIp
-            };
-
-            var result = _deviceAuthService.RegisterDevice(serviceRequest, ipAddress, userAgent);
-
-            if (result.Success)
-            {
-                // Set session cookie for authenticated session
-                HttpContext.Session.SetString("DeviceId", request.DeviceId);
-                HttpContext.Session.SetString("ApiKey", request.ApiKey);
-                HttpContext.Session.SetString("AuthMode", "authenticated");
-
-                try
+                // Reload UserSession from database to get the ApiKey that was set by RegisterDevice
+                // We need to detach any tracked entities first to avoid stale cache
+                var trackedEntity = _dbContext.ChangeTracker.Entries<UserSession>()
+                    .FirstOrDefault(e => e.Entity.DeviceId == request.DeviceId);
+                if (trackedEntity != null)
                 {
-                    // Reload UserSession from database to get the ApiKey that was set by RegisterDevice
-                    // We need to detach any tracked entities first to avoid stale cache
-                    var trackedEntity = _dbContext.ChangeTracker.Entries<UserSession>()
-                        .FirstOrDefault(e => e.Entity.DeviceId == request.DeviceId);
-                    if (trackedEntity != null)
-                    {
-                        trackedEntity.State = Microsoft.EntityFrameworkCore.EntityState.Detached;
-                    }
-
-                    // Now query fresh from database
-                    var existingUserSession = _dbContext.UserSessions.FirstOrDefault(s => s.DeviceId == request.DeviceId);
-
-                    if (existingGuestSession != null && existingUserSession != null)
-                    {
-                        // Upgrade existing guest session to authenticated
-                        _logger.LogInformation("Upgrading guest session {DeviceId} to authenticated device {DeviceId}",
-                            existingGuestSession.DeviceId, request.DeviceId);
-
-                        // The ApiKey was already set by RegisterDevice -> SaveDeviceRegistration
-                        // Now we just need to flip the IsGuest flag
-                        existingUserSession.IsGuest = false;
-                        existingUserSession.IsRevoked = false;
-                        existingUserSession.RevokedAtUtc = null;
-                        existingUserSession.RevokedBy = null;
-                        existingUserSession.ExpiresAtUtc = null; // Authenticated sessions don't expire
-                        existingUserSession.LastSeenAtUtc = DateTime.UtcNow;
-                        _dbContext.SaveChanges();
-
-                        // CRITICAL: Remove guest session from GuestSessionService cache
-                        // We DON'T delete from database (the record was just updated to IsGuest=false)
-                        // We just remove from cache so GetSessionByDeviceId() won't find it
-                        _guestSessionService.RemoveFromCache(existingGuestSession.DeviceId);
-
-                        // Reload device cache to ensure the upgraded session is recognized by DeviceAuthService
-                        _deviceAuthService.ReloadDeviceCache();
-
-                        _logger.LogInformation("Upgraded UserSession {DeviceId} from guest to authenticated", existingUserSession.DeviceId);
-                    }
-                    else if (existingUserSession == null)
-                    {
-                        // Create new UserSession for direct authentication
-                        _logger.LogInformation("Creating UserSession for direct authentication: {DeviceId}", request.DeviceId);
-
-                        var (os, browser) = ParseUserAgent(userAgent);
-
-                        var newUserSession = new UserSession
-                        {
-                            DeviceId = request.DeviceId,
-                            IsGuest = false,
-                            CreatedAtUtc = DateTime.UtcNow,
-                            LastSeenAtUtc = DateTime.UtcNow,
-                            ExpiresAtUtc = null, // Authenticated sessions don't expire
-                            IsRevoked = false,
-                            DeviceName = request.DeviceName ?? "Unknown Device",
-                            IpAddress = ipAddress ?? "Unknown",
-                            OperatingSystem = os ?? "Unknown",
-                            Browser = browser ?? "Unknown"
-                        };
-
-                        _dbContext.UserSessions.Add(newUserSession);
-                        _dbContext.SaveChanges();
-                        _logger.LogInformation("Created UserSession for authenticated device {DeviceId}", request.DeviceId);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error creating/updating UserSession during authentication");
-                    // Don't fail the registration if this fails
+                    trackedEntity.State = Microsoft.EntityFrameworkCore.EntityState.Detached;
                 }
 
-                return Created($"/api/devices/{request.DeviceId}", result);
+                // Now query fresh from database
+                var existingUserSession = _dbContext.UserSessions.FirstOrDefault(s => s.DeviceId == request.DeviceId);
+
+                if (existingGuestSession != null && existingUserSession != null)
+                {
+                    // Upgrade existing guest session to authenticated
+                    _logger.LogInformation("Upgrading guest session {DeviceId} to authenticated device {DeviceId}",
+                        existingGuestSession.DeviceId, request.DeviceId);
+
+                    // The ApiKey was already set by RegisterDevice -> SaveDeviceRegistration
+                    // Now we just need to flip the IsGuest flag
+                    existingUserSession.IsGuest = false;
+                    existingUserSession.IsRevoked = false;
+                    existingUserSession.RevokedAtUtc = null;
+                    existingUserSession.RevokedBy = null;
+                    existingUserSession.ExpiresAtUtc = null; // Authenticated sessions don't expire
+                    existingUserSession.LastSeenAtUtc = DateTime.UtcNow;
+                    _dbContext.SaveChanges();
+
+                    // CRITICAL: Remove guest session from GuestSessionService cache
+                    // We DON'T delete from database (the record was just updated to IsGuest=false)
+                    // We just remove from cache so GetSessionByDeviceId() won't find it
+                    _guestSessionService.RemoveFromCache(existingGuestSession.DeviceId);
+
+                    // Reload device cache to ensure the upgraded session is recognized by DeviceAuthService
+                    _deviceAuthService.ReloadDeviceCache();
+
+                    _logger.LogInformation("Upgraded UserSession {DeviceId} from guest to authenticated", existingUserSession.DeviceId);
+                }
+                else if (existingUserSession == null)
+                {
+                    // Create new UserSession for direct authentication
+                    _logger.LogInformation("Creating UserSession for direct authentication: {DeviceId}", request.DeviceId);
+
+                    var (os, browser) = ParseUserAgent(userAgent);
+
+                    var newUserSession = new UserSession
+                    {
+                        DeviceId = request.DeviceId,
+                        IsGuest = false,
+                        CreatedAtUtc = DateTime.UtcNow,
+                        LastSeenAtUtc = DateTime.UtcNow,
+                        ExpiresAtUtc = null, // Authenticated sessions don't expire
+                        IsRevoked = false,
+                        DeviceName = request.DeviceName ?? "Unknown Device",
+                        IpAddress = ipAddress ?? "Unknown",
+                        OperatingSystem = os ?? "Unknown",
+                        Browser = browser ?? "Unknown"
+                    };
+
+                    _dbContext.UserSessions.Add(newUserSession);
+                    _dbContext.SaveChanges();
+                    _logger.LogInformation("Created UserSession for authenticated device {DeviceId}", request.DeviceId);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating/updating UserSession during authentication");
+                // Don't fail the registration if this fails
             }
 
-            return Unauthorized(result);
+            return Created($"/api/devices/{request.DeviceId}", result);
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during device registration");
-            return StatusCode(500, new { error = "Registration failed", message = ex.Message });
-        }
+
+        return Unauthorized(result);
     }
 
     // Note: Device/session revocation has been moved to SessionsController

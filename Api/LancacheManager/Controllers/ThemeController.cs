@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using LancacheManager.Application.DTOs;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Repositories.Interfaces;
 using LancacheManager.Infrastructure.Services.Interfaces;
@@ -52,123 +53,107 @@ public class ThemeController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetThemes()
     {
-        try
+        var themes = new List<ThemeInfo>();
+
+        if (!Directory.Exists(_themesPath))
         {
-            var themes = new List<ThemeInfo>();
-
-            if (!Directory.Exists(_themesPath))
-            {
-                Directory.CreateDirectory(_themesPath);
-                _logger.LogInformation($"Created themes directory: {_themesPath}");
-            }
-
-            // Get both JSON and TOML files
-            var jsonFiles = Directory.GetFiles(_themesPath, "*.json");
-            var tomlFiles = Directory.GetFiles(_themesPath, "*.toml");
-            var themeFiles = jsonFiles.Concat(tomlFiles).ToArray();
-
-            // System themes are provided by frontend but marked as protected
-            var systemThemes = SYSTEM_THEMES;
-
-            foreach (var file in themeFiles)
-            {
-                try
-                {
-                    var themeId = Path.GetFileNameWithoutExtension(file);
-
-                    // Skip high-contrast if it exists
-                    if (themeId == "high-contrast")
-                    {
-                        // Delete the file if it exists
-                        System.IO.File.Delete(file);
-                        continue;
-                    }
-
-                    string name, description, author, version;
-
-                    if (file.EndsWith(".toml"))
-                    {
-                        // For TOML files, we'll let the frontend parse them
-                        // Just get basic metadata
-                        name = themeId;
-                        description = "TOML Theme";
-                        author = "Custom";
-                        version = "1.0.0";
-                    }
-                    else
-                    {
-                        // Parse JSON file
-                        var content = await System.IO.File.ReadAllTextAsync(file);
-                        using var doc = JsonDocument.Parse(content);
-                        var root = doc.RootElement;
-
-                        name = root.TryGetProperty("name", out var n) ? n.GetString() ?? themeId : themeId;
-                        description = root.TryGetProperty("description", out var d) ? d.GetString() ?? "" : "";
-                        author = root.TryGetProperty("author", out var a) ? a.GetString() ?? "Unknown" : "Unknown";
-                        version = root.TryGetProperty("version", out var v) ? v.GetString() ?? "1.0.0" : "1.0.0";
-                    }
-
-                    themes.Add(new ThemeInfo
-                    {
-                        Id = themeId,
-                        Name = name,
-                        Description = description,
-                        Author = author,
-                        Version = version,
-                        IsDefault = systemThemes.Contains(themeId),
-                        Format = file.EndsWith(".toml") ? "toml" : "json"
-                    });
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, $"Failed to parse theme file: {file}");
-                }
-            }
-
-            return Ok(themes);
+            Directory.CreateDirectory(_themesPath);
+            _logger.LogInformation($"Created themes directory: {_themesPath}");
         }
-        catch (Exception ex)
+
+        // Get both JSON and TOML files
+        var jsonFiles = Directory.GetFiles(_themesPath, "*.json");
+        var tomlFiles = Directory.GetFiles(_themesPath, "*.toml");
+        var themeFiles = jsonFiles.Concat(tomlFiles).ToArray();
+
+        // System themes are provided by frontend but marked as protected
+        var systemThemes = SYSTEM_THEMES;
+
+        foreach (var file in themeFiles)
         {
-            _logger.LogError(ex, "Failed to get themes");
-            return StatusCode(500, new { error = "Failed to load themes" });
+            try
+            {
+                var themeId = Path.GetFileNameWithoutExtension(file);
+
+                // Skip high-contrast if it exists
+                if (themeId == "high-contrast")
+                {
+                    // Delete the file if it exists
+                    System.IO.File.Delete(file);
+                    continue;
+                }
+
+                string name, description, author, version;
+
+                if (file.EndsWith(".toml"))
+                {
+                    // For TOML files, we'll let the frontend parse them
+                    // Just get basic metadata
+                    name = themeId;
+                    description = "TOML Theme";
+                    author = "Custom";
+                    version = "1.0.0";
+                }
+                else
+                {
+                    // Parse JSON file
+                    var content = await System.IO.File.ReadAllTextAsync(file);
+                    using var doc = JsonDocument.Parse(content);
+                    var root = doc.RootElement;
+
+                    name = root.TryGetProperty("name", out var n) ? n.GetString() ?? themeId : themeId;
+                    description = root.TryGetProperty("description", out var d) ? d.GetString() ?? "" : "";
+                    author = root.TryGetProperty("author", out var a) ? a.GetString() ?? "Unknown" : "Unknown";
+                    version = root.TryGetProperty("version", out var v) ? v.GetString() ?? "1.0.0" : "1.0.0";
+                }
+
+                themes.Add(new ThemeInfo
+                {
+                    Id = themeId,
+                    Name = name,
+                    Description = description,
+                    Author = author,
+                    Version = version,
+                    IsDefault = systemThemes.Contains(themeId),
+                    Format = file.EndsWith(".toml") ? "toml" : "json"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, $"Failed to parse theme file: {file}");
+            }
         }
+
+        return Ok(themes);
     }
 
     [HttpGet("{id}")]
     public async Task<IActionResult> GetTheme(string id)
     {
-        try
+        // Sanitize ID to prevent path traversal
+        id = Regex.Replace(id, @"[^a-zA-Z0-9-_]", "");
+
+        // Check for TOML file first
+        var tomlPath = Path.Combine(_themesPath, $"{id}.toml");
+        if (System.IO.File.Exists(tomlPath))
         {
-            // Sanitize ID to prevent path traversal
-            id = Regex.Replace(id, @"[^a-zA-Z0-9-_]", "");
-
-            // Check for TOML file first
-            var tomlPath = Path.Combine(_themesPath, $"{id}.toml");
-            if (System.IO.File.Exists(tomlPath))
-            {
-                var tomlContent = await System.IO.File.ReadAllTextAsync(tomlPath);
-                // Return TOML content directly with proper content type
-                return Content(tomlContent, "application/toml");
-            }
-
-            // Fallback to JSON file
-            var jsonPath = Path.Combine(_themesPath, $"{id}.json");
-            if (!System.IO.File.Exists(jsonPath))
-            {
-                _logger.LogWarning($"Theme not found: {id}");
-                return NotFound(new { error = "Theme not found" });
-            }
-
-            var content = await System.IO.File.ReadAllTextAsync(jsonPath);
-            var jsonTheme = JsonSerializer.Deserialize<JsonElement>(content);
-
-            return Ok(jsonTheme);
+            var tomlContent = await System.IO.File.ReadAllTextAsync(tomlPath);
+            // Return TOML content directly with proper content type
+            return Content(tomlContent, "application/toml");
         }
-        catch (Exception ex)
+
+        // Fallback to JSON file
+        var jsonPath = Path.Combine(_themesPath, $"{id}.json");
+        if (!System.IO.File.Exists(jsonPath))
         {
-            _logger.LogError(ex, $"Failed to get theme {id}");
-            return StatusCode(500, new { error = "Failed to load theme" });
+            _logger.LogWarning($"Theme not found: {id}");
+            return NotFound(new ErrorResponse { Error = "Theme not found" });
         }
+
+        var content = await System.IO.File.ReadAllTextAsync(jsonPath);
+        var jsonTheme = JsonSerializer.Deserialize<JsonElement>(content);
+
+        return Ok(jsonTheme);
     }
 
     [HttpPost("upload")]
@@ -177,7 +162,7 @@ public class ThemeController : ControllerBase
     {
         if (file == null || file.Length == 0)
         {
-            return BadRequest(new { error = "No file provided" });
+            return BadRequest(new ErrorResponse { Error = "No file provided" });
         }
 
         var isToml = file.FileName.EndsWith(".toml", StringComparison.OrdinalIgnoreCase);
@@ -185,12 +170,12 @@ public class ThemeController : ControllerBase
 
         if (!isToml && !isJson)
         {
-            return BadRequest(new { error = "Only TOML and JSON theme files are allowed" });
+            return BadRequest(new ErrorResponse { Error = "Only TOML and JSON theme files are allowed" });
         }
 
         if (file.Length > 1024 * 1024) // 1MB max
         {
-            return BadRequest(new { error = "Theme file too large (max 1MB)" });
+            return BadRequest(new ErrorResponse { Error = "Theme file too large (max 1MB)" });
         }
 
         try
@@ -225,12 +210,12 @@ public class ThemeController : ControllerBase
                 // Validate required fields
                 if (!root.TryGetProperty("name", out _))
                 {
-                    return BadRequest(new { error = "Theme must have a 'name' property" });
+                    return BadRequest(new ErrorResponse { Error = "Theme must have a 'name' property" });
                 }
 
                 if (!root.TryGetProperty("colors", out var colors) || colors.ValueKind != JsonValueKind.Object)
                 {
-                    return BadRequest(new { error = "Theme must have a 'colors' object" });
+                    return BadRequest(new ErrorResponse { Error = "Theme must have a 'colors' object" });
                 }
 
                 // Generate safe filename
@@ -253,22 +238,17 @@ public class ThemeController : ControllerBase
 
             _logger.LogInformation($"Theme uploaded: {themeId} by {HttpContext.Connection.RemoteIpAddress}");
 
-            return Ok(new
+            return Ok(new ThemeUploadResponse
             {
-                success = true,
-                themeId = themeId,
-                message = "Theme uploaded successfully"
+                Success = true,
+                ThemeId = themeId,
+                Message = "Theme uploaded successfully"
             });
         }
         catch (JsonException ex)
         {
             _logger.LogWarning(ex, "Invalid JSON in theme upload");
-            return BadRequest(new { error = "Invalid JSON format" });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to upload theme");
-            return StatusCode(500, new { error = "Failed to upload theme" });
+            return BadRequest(new ErrorResponse { Error = "Invalid JSON format" });
         }
     }
 
@@ -292,10 +272,10 @@ public class ThemeController : ControllerBase
         if (SYSTEM_THEMES.Contains(id))
         {
             _logger.LogWarning($"Attempted to delete system theme: {id}");
-            return BadRequest(new
+            return BadRequest(new ErrorResponse
             {
-                error = "Cannot delete system theme",
-                details = $"'{id}' is a protected system theme and cannot be deleted"
+                Error = "Cannot delete system theme",
+                Details = $"'{id}' is a protected system theme and cannot be deleted"
             });
         }
 
@@ -369,49 +349,44 @@ public class ThemeController : ControllerBase
 
                 _logger.LogWarning($"Theme not found: {id}. Available files: {string.Join(", ", availableFiles)}");
 
-                return NotFound(new
+                return NotFound(new ThemeNotFoundResponse
                 {
-                    error = $"Theme '{id}' not found on server",
-                    details = $"No files matching '{id}.toml' or '{id}.json' were found",
-                    availableThemes = availableFiles.Select(f => Path.GetFileNameWithoutExtension(f)).Distinct().ToArray()
+                    Error = $"Theme '{id}' not found on server",
+                    Details = $"No files matching '{id}.toml' or '{id}.json' were found",
+                    AvailableThemes = availableFiles.Select(f => Path.GetFileNameWithoutExtension(f) ?? "").Where(s => !string.IsNullOrEmpty(s)).Distinct().ToArray()
                 });
             }
 
             if (errors.Count > 0 && filesDeleted.Count == 0)
             {
                 // Files existed but couldn't be deleted
-                return StatusCode(500, new
+                return StatusCode(500, new ErrorResponse
                 {
-                    error = "Failed to delete theme",
-                    details = string.Join("; ", errors)
+                    Error = "Failed to delete theme",
+                    Details = string.Join("; ", errors)
                 });
             }
 
             // At least one file was deleted successfully
             _logger.LogInformation($"Theme deletion completed for '{id}'. Deleted: {string.Join(", ", filesDeleted)}. Errors: {string.Join(", ", errors)}");
 
-            return Ok(new
+            return Ok(new ThemeDeleteResponse
             {
-                success = true,
-                message = $"Theme '{id}' deleted successfully",
-                filesDeleted = filesDeleted,
-                errors = errors
+                Success = true,
+                Message = $"Theme '{id}' deleted successfully",
+                FilesDeleted = filesDeleted,
+                Errors = errors
             });
         }
         catch (UnauthorizedAccessException ex)
         {
             _logger.LogError(ex, $"Permission denied when deleting theme {id}");
-            return StatusCode(500, new { error = "Permission denied - cannot delete theme file" });
+            return StatusCode(500, new ErrorResponse { Error = "Permission denied - cannot delete theme file" });
         }
         catch (IOException ex)
         {
             _logger.LogError(ex, $"IO error when deleting theme {id}");
-            return StatusCode(500, new { error = $"IO error: {ex.Message}" });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, $"Unexpected error while deleting theme {id}");
-            return StatusCode(500, new { error = $"Unexpected error while deleting theme: {ex.Message}" });
+            return StatusCode(500, new ErrorResponse { Error = $"IO error: {ex.Message}" });
         }
     }
 
@@ -422,78 +397,62 @@ public class ThemeController : ControllerBase
         var deletedThemes = new List<string>();
         var errors = new List<string>();
 
-        try
+        _logger.LogInformation("Starting theme cleanup operation");
+
+        // Get all theme files
+        var themeFiles = Directory.GetFiles(_themesPath, "*.toml")
+            .Concat(Directory.GetFiles(_themesPath, "*.json"))
+            .ToArray();
+
+        _logger.LogInformation($"Found {themeFiles.Length} theme files to process");
+
+        foreach (var file in themeFiles)
         {
-            _logger.LogInformation("Starting theme cleanup operation");
+            var fileName = Path.GetFileNameWithoutExtension(file);
 
-            // Get all theme files
-            var themeFiles = Directory.GetFiles(_themesPath, "*.toml")
-                .Concat(Directory.GetFiles(_themesPath, "*.json"))
-                .ToArray();
-
-            _logger.LogInformation($"Found {themeFiles.Length} theme files to process");
-
-            foreach (var file in themeFiles)
+            // Skip system themes
+            if (SYSTEM_THEMES.Contains(fileName))
             {
-                var fileName = Path.GetFileNameWithoutExtension(file);
-
-                // Skip system themes
-                if (SYSTEM_THEMES.Contains(fileName))
-                {
-                    _logger.LogInformation($"Skipping system theme: {fileName}");
-                    continue;
-                }
-
-                try
-                {
-                    System.IO.File.Delete(file);
-                    deletedThemes.Add($"{fileName}{Path.GetExtension(file)}");
-                    _logger.LogInformation($"Deleted theme file: {Path.GetFileName(file)}");
-                }
-                catch (Exception ex)
-                {
-                    errors.Add($"Failed to delete {Path.GetFileName(file)}: {ex.Message}");
-                    _logger.LogError(ex, $"Failed to delete theme file: {file}");
-                }
+                _logger.LogInformation($"Skipping system theme: {fileName}");
+                continue;
             }
 
-            _logger.LogInformation($"Cleanup complete. Deleted {deletedThemes.Count} themes, {errors.Count} errors");
-
-            return Ok(new
+            try
             {
-                success = true,
-                message = $"Cleanup complete. Deleted {deletedThemes.Count} theme(s)",
-                deletedThemes,
-                errors,
-                remainingThemes = SYSTEM_THEMES
-            });
+                System.IO.File.Delete(file);
+                deletedThemes.Add($"{fileName}{Path.GetExtension(file)}");
+                _logger.LogInformation($"Deleted theme file: {Path.GetFileName(file)}");
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"Failed to delete {Path.GetFileName(file)}: {ex.Message}");
+                _logger.LogError(ex, $"Failed to delete theme file: {file}");
+            }
         }
-        catch (Exception ex)
+
+        _logger.LogInformation($"Cleanup complete. Deleted {deletedThemes.Count} themes, {errors.Count} errors");
+
+        return Ok(new ThemeCleanupResponse
         {
-            _logger.LogError(ex, "Failed to cleanup themes");
-            return StatusCode(500, new { error = "Failed to cleanup themes", details = ex.Message });
-        }
+            Success = true,
+            Message = $"Cleanup complete. Deleted {deletedThemes.Count} theme(s)",
+            DeletedThemes = deletedThemes,
+            Errors = errors,
+            RemainingThemes = SYSTEM_THEMES
+        });
     }
 
     // Theme Preference Endpoints
     [HttpGet("preference")]
     public IActionResult GetThemePreference()
     {
-        try
-        {
-            var themeId = _stateRepository.GetSelectedTheme() ?? "dark-default";
-            _logger.LogInformation($"Retrieved theme preference: {themeId}");
+        var themeId = _stateRepository.GetSelectedTheme() ?? "dark-default";
+        _logger.LogInformation($"Retrieved theme preference: {themeId}");
 
-            return Ok(new
-            {
-                themeId = themeId
-            });
-        }
-        catch (Exception ex)
+        return Ok(new ThemePreferenceResponse
         {
-            _logger.LogError(ex, "Failed to get theme preference");
-            return StatusCode(500, new { error = "Failed to get theme preference" });
-        }
+            ThemeId = themeId
+        });
     }
 
     [HttpPut("preference")]
@@ -502,50 +461,34 @@ public class ThemeController : ControllerBase
     {
         if (request == null || string.IsNullOrWhiteSpace(request.ThemeId))
         {
-            return BadRequest(new { error = "Theme ID is required" });
+            return BadRequest(new ErrorResponse { Error = "Theme ID is required" });
         }
 
-        try
+        // Sanitize theme ID
+        var themeId = Regex.Replace(request.ThemeId, @"[^a-zA-Z0-9-_]", "");
+
+        _stateRepository.SetSelectedTheme(themeId);
+        _logger.LogInformation($"Updated theme preference to: {themeId}");
+
+        return Ok(new ThemePreferenceResponse
         {
-            // Sanitize theme ID
-            var themeId = Regex.Replace(request.ThemeId, @"[^a-zA-Z0-9-_]", "");
-
-            _stateRepository.SetSelectedTheme(themeId);
-            _logger.LogInformation($"Updated theme preference to: {themeId}");
-
-            return Ok(new
-            {
-                success = true,
-                themeId = themeId,
-                message = "Theme preference saved successfully"
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to save theme preference");
-            return StatusCode(500, new { error = "Failed to save theme preference" });
-        }
+            Success = true,
+            ThemeId = themeId,
+            Message = "Theme preference saved successfully"
+        });
     }
 
     // Default Guest Theme Endpoints
     [HttpGet("preferences/guest")]
     public IActionResult GetDefaultGuestTheme()
     {
-        try
-        {
-            var themeId = _stateRepository.GetDefaultGuestTheme() ?? "dark-default";
-            _logger.LogInformation($"Retrieved default guest theme: {themeId}");
+        var themeId = _stateRepository.GetDefaultGuestTheme() ?? "dark-default";
+        _logger.LogInformation($"Retrieved default guest theme: {themeId}");
 
-            return Ok(new
-            {
-                themeId = themeId
-            });
-        }
-        catch (Exception ex)
+        return Ok(new ThemePreferenceResponse
         {
-            _logger.LogError(ex, "Failed to get default guest theme");
-            return StatusCode(500, new { error = "Failed to get default guest theme" });
-        }
+            ThemeId = themeId
+        });
     }
 
     [HttpPut("preferences/guest")]
@@ -554,38 +497,30 @@ public class ThemeController : ControllerBase
     {
         if (request == null || string.IsNullOrWhiteSpace(request.ThemeId))
         {
-            return BadRequest(new { error = "Theme ID is required" });
+            return BadRequest(new ErrorResponse { Error = "Theme ID is required" });
         }
 
-        try
+        // Sanitize theme ID
+        var themeId = Regex.Replace(request.ThemeId, @"[^a-zA-Z0-9-_]", "");
+
+        _stateRepository.SetDefaultGuestTheme(themeId);
+        _logger.LogInformation($"Updated default guest theme to: {themeId}");
+
+        // Broadcast theme change to all connected clients
+        // Only guest users with selectedTheme=null will apply this change
+        await _hubContext.Clients.All.SendAsync("DefaultGuestThemeChanged", new
         {
-            // Sanitize theme ID
-            var themeId = Regex.Replace(request.ThemeId, @"[^a-zA-Z0-9-_]", "");
+            newThemeId = themeId
+        });
 
-            _stateRepository.SetDefaultGuestTheme(themeId);
-            _logger.LogInformation($"Updated default guest theme to: {themeId}");
+        _logger.LogInformation($"Broadcasted DefaultGuestThemeChanged event for theme: {themeId}");
 
-            // Broadcast theme change to all connected clients
-            // Only guest users with selectedTheme=null will apply this change
-            await _hubContext.Clients.All.SendAsync("DefaultGuestThemeChanged", new
-            {
-                newThemeId = themeId
-            });
-
-            _logger.LogInformation($"Broadcasted DefaultGuestThemeChanged event for theme: {themeId}");
-
-            return Ok(new
-            {
-                success = true,
-                themeId = themeId,
-                message = "Default guest theme saved successfully"
-            });
-        }
-        catch (Exception ex)
+        return Ok(new ThemePreferenceResponse
         {
-            _logger.LogError(ex, "Failed to save default guest theme");
-            return StatusCode(500, new { error = "Failed to save default guest theme" });
-        }
+            Success = true,
+            ThemeId = themeId,
+            Message = "Default guest theme saved successfully"
+        });
     }
 }
 

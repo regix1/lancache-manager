@@ -1,3 +1,4 @@
+using LancacheManager.Application.DTOs;
 using LancacheManager.Security;
 using LancacheManager.Data;
 using LancacheManager.Hubs;
@@ -47,100 +48,92 @@ public class SessionsController : ControllerBase
     [RequireAuth]
     public IActionResult GetAllSessions([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
-        try
+        // Validate pagination parameters
+        if (page < 1) page = 1;
+        if (pageSize < 1 || pageSize > 100) pageSize = 20;
+
+        var devices = _deviceAuthService.GetAllDevices();
+        var guests = _guestSessionService.GetAllSessions();
+
+        // Convert to unified format
+        var authenticatedSessions = devices.Select(d => new
         {
-            // Validate pagination parameters
-            if (page < 1) page = 1;
-            if (pageSize < 1 || pageSize > 100) pageSize = 20;
+            id = d.DeviceId, // Use DeviceId as the primary identifier
+            deviceId = d.DeviceId,
+            deviceName = d.DeviceName,
+            ipAddress = d.IpAddress,
+            localIp = d.LocalIp,
+            hostname = d.Hostname,
+            operatingSystem = d.OperatingSystem,
+            browser = d.Browser,
+            createdAt = d.RegisteredAt,
+            lastSeenAt = d.LastSeenAt,
+            expiresAt = d.ExpiresAt,
+            isExpired = d.IsExpired,
+            isRevoked = false,
+            revokedAt = (DateTime?)null,
+            revokedBy = (string?)null,
+            type = "authenticated"
+        }).ToList();
 
-            var devices = _deviceAuthService.GetAllDevices();
-            var guests = _guestSessionService.GetAllSessions();
+        // Filter out guest sessions that have been upgraded to authenticated
+        // If the same device ID exists in both authenticated and guest, show only authenticated
+        var authenticatedDeviceIds = new HashSet<string>(devices.Select(d => d.DeviceId));
 
-            // Convert to unified format
-            var authenticatedSessions = devices.Select(d => new
+        var guestSessions = guests
+            .Where(g => !authenticatedDeviceIds.Contains(g.DeviceId))
+            .Select(g => new
             {
-                id = d.DeviceId, // Use DeviceId as the primary identifier
-                deviceId = d.DeviceId,
-                deviceName = d.DeviceName,
-                ipAddress = d.IpAddress,
-                localIp = d.LocalIp,
-                hostname = d.Hostname,
-                operatingSystem = d.OperatingSystem,
-                browser = d.Browser,
-                createdAt = d.RegisteredAt,
-                lastSeenAt = d.LastSeenAt,
-                expiresAt = d.ExpiresAt,
-                isExpired = d.IsExpired,
-                isRevoked = false,
-                revokedAt = (DateTime?)null,
-                revokedBy = (string?)null,
-                type = "authenticated"
+                id = g.DeviceId, // Use DeviceId as the primary identifier
+                deviceId = g.DeviceId,
+                deviceName = g.DeviceName,
+                ipAddress = g.IpAddress,
+                localIp = (string?)null,
+                hostname = (string?)null,
+                operatingSystem = g.OperatingSystem,
+                browser = g.Browser,
+                createdAt = g.CreatedAt,
+                lastSeenAt = g.LastSeenAt,
+                expiresAt = g.ExpiresAt,
+                isExpired = g.IsExpired,
+                isRevoked = g.IsRevoked,
+                revokedAt = g.RevokedAt,
+                revokedBy = g.RevokedBy,
+                type = "guest"
             }).ToList();
 
-            // Filter out guest sessions that have been upgraded to authenticated
-            // If the same device ID exists in both authenticated and guest, show only authenticated
-            var authenticatedDeviceIds = new HashSet<string>(devices.Select(d => d.DeviceId));
+        // Sort: authenticated users first, then guests, both by creation date (newest first)
+        var allSessionsSorted = authenticatedSessions.Concat(guestSessions)
+            .OrderBy(s => s.type == "guest" ? 1 : 0)  // authenticated (0) before guests (1)
+            .ThenByDescending(s => s.createdAt)  // newest first within each type
+            .ToList();
 
-            var guestSessions = guests
-                .Where(g => !authenticatedDeviceIds.Contains(g.DeviceId))
-                .Select(g => new
-                {
-                    id = g.DeviceId, // Use DeviceId as the primary identifier
-                    deviceId = g.DeviceId,
-                    deviceName = g.DeviceName,
-                    ipAddress = g.IpAddress,
-                    localIp = (string?)null,
-                    hostname = (string?)null,
-                    operatingSystem = g.OperatingSystem,
-                    browser = g.Browser,
-                    createdAt = g.CreatedAt,
-                    lastSeenAt = g.LastSeenAt,
-                    expiresAt = g.ExpiresAt,
-                    isExpired = g.IsExpired,
-                    isRevoked = g.IsRevoked,
-                    revokedAt = g.RevokedAt,
-                    revokedBy = g.RevokedBy,
-                    type = "guest"
-                }).ToList();
+        // Apply pagination
+        var totalCount = allSessionsSorted.Count;
+        var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
+        var skip = (page - 1) * pageSize;
 
-            // Sort: authenticated users first, then guests, both by creation date (newest first)
-            var allSessionsSorted = authenticatedSessions.Concat(guestSessions)
-                .OrderBy(s => s.type == "guest" ? 1 : 0)  // authenticated (0) before guests (1)
-                .ThenByDescending(s => s.createdAt)  // newest first within each type
-                .ToList();
+        var paginatedSessions = allSessionsSorted
+            .Skip(skip)
+            .Take(pageSize)
+            .ToList();
 
-            // Apply pagination
-            var totalCount = allSessionsSorted.Count;
-            var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
-            var skip = (page - 1) * pageSize;
-
-            var paginatedSessions = allSessionsSorted
-                .Skip(skip)
-                .Take(pageSize)
-                .ToList();
-
-            return Ok(new
-            {
-                sessions = paginatedSessions,
-                pagination = new
-                {
-                    page = page,
-                    pageSize = pageSize,
-                    totalCount = totalCount,
-                    totalPages = totalPages,
-                    hasNextPage = page < totalPages,
-                    hasPreviousPage = page > 1
-                },
-                count = totalCount,
-                authenticatedCount = authenticatedSessions.Count,
-                guestCount = guestSessions.Count
-            });
-        }
-        catch (Exception ex)
+        return Ok(new
         {
-            _logger.LogError(ex, "Error retrieving sessions");
-            return StatusCode(500, new { error = "Failed to retrieve sessions", message = ex.Message });
-        }
+            sessions = paginatedSessions,
+            pagination = new
+            {
+                page = page,
+                pageSize = pageSize,
+                totalCount = totalCount,
+                totalPages = totalPages,
+                hasNextPage = page < totalPages,
+                hasPreviousPage = page > 1
+            },
+            count = totalCount,
+            authenticatedCount = authenticatedSessions.Count,
+            guestCount = guestSessions.Count
+        });
     }
 
     /// <summary>
@@ -151,58 +144,50 @@ public class SessionsController : ControllerBase
     [RequireAuth]
     public IActionResult GetSession(string id)
     {
-        try
+        // Check authenticated devices first
+        var device = _deviceAuthService.GetAllDevices().FirstOrDefault(d => d.DeviceId == id);
+        if (device != null)
         {
-            // Check authenticated devices first
-            var device = _deviceAuthService.GetAllDevices().FirstOrDefault(d => d.DeviceId == id);
-            if (device != null)
+            return Ok(new
             {
-                return Ok(new
-                {
-                    id = device.DeviceId,
-                    deviceId = device.DeviceId,
-                    deviceName = device.DeviceName,
-                    ipAddress = device.IpAddress,
-                    localIp = device.LocalIp,
-                    hostname = device.Hostname,
-                    operatingSystem = device.OperatingSystem,
-                    browser = device.Browser,
-                    createdAt = device.RegisteredAt,
-                    lastSeenAt = device.LastSeenAt,
-                    expiresAt = device.ExpiresAt,
-                    isExpired = device.IsExpired,
-                    type = "authenticated"
-                });
-            }
-
-            // Check guest sessions
-            var guestSession = _guestSessionService.GetSessionByDeviceId(id);
-            if (guestSession != null)
-            {
-                return Ok(new
-                {
-                    id = guestSession.DeviceId,
-                    deviceId = guestSession.DeviceId,
-                    deviceName = guestSession.DeviceName,
-                    ipAddress = guestSession.IpAddress,
-                    operatingSystem = guestSession.OperatingSystem,
-                    browser = guestSession.Browser,
-                    createdAt = guestSession.CreatedAt,
-                    lastSeenAt = guestSession.LastSeenAt,
-                    expiresAt = guestSession.ExpiresAt,
-                    isExpired = guestSession.IsExpired,
-                    isRevoked = guestSession.IsRevoked,
-                    type = "guest"
-                });
-            }
-
-            return NotFound(new { error = "Session not found" });
+                id = device.DeviceId,
+                deviceId = device.DeviceId,
+                deviceName = device.DeviceName,
+                ipAddress = device.IpAddress,
+                localIp = device.LocalIp,
+                hostname = device.Hostname,
+                operatingSystem = device.OperatingSystem,
+                browser = device.Browser,
+                createdAt = device.RegisteredAt,
+                lastSeenAt = device.LastSeenAt,
+                expiresAt = device.ExpiresAt,
+                isExpired = device.IsExpired,
+                type = "authenticated"
+            });
         }
-        catch (Exception ex)
+
+        // Check guest sessions
+        var guestSession = _guestSessionService.GetSessionByDeviceId(id);
+        if (guestSession != null)
         {
-            _logger.LogError(ex, "Error retrieving session: {SessionId}", id);
-            return StatusCode(500, new { error = "Failed to retrieve session", message = ex.Message });
+            return Ok(new
+            {
+                id = guestSession.DeviceId,
+                deviceId = guestSession.DeviceId,
+                deviceName = guestSession.DeviceName,
+                ipAddress = guestSession.IpAddress,
+                operatingSystem = guestSession.OperatingSystem,
+                browser = guestSession.Browser,
+                createdAt = guestSession.CreatedAt,
+                lastSeenAt = guestSession.LastSeenAt,
+                expiresAt = guestSession.ExpiresAt,
+                isExpired = guestSession.IsExpired,
+                isRevoked = guestSession.IsRevoked,
+                type = "guest"
+            });
         }
+
+        return NotFound(new { error = "Session not found" });
     }
 
     /// <summary>
@@ -216,52 +201,44 @@ public class SessionsController : ControllerBase
         if (_databaseRepository.IsResetOperationRunning)
         {
             _logger.LogWarning("Guest session creation rejected - database reset in progress");
-            return StatusCode(503, new
+            return StatusCode(503, new ServiceUnavailableResponse
             {
-                error = "Service temporarily unavailable",
-                message = "Database reset in progress. Please wait and try again.",
-                retryAfter = 30
+                Error = "Service temporarily unavailable",
+                Message = "Database reset in progress. Please wait and try again.",
+                RetryAfter = 30
             });
         }
 
-        try
+        // Only support guest session creation via this endpoint
+        // Authenticated sessions are created via POST /api/devices
+        if (type != "guest")
         {
-            // Only support guest session creation via this endpoint
-            // Authenticated sessions are created via POST /api/devices
-            if (type != "guest")
-            {
-                return BadRequest(new { error = "Only guest session creation is supported. Use POST /api/devices for authenticated sessions." });
-            }
-
-            var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
-            var session = _guestSessionService.CreateSession(
-                new GuestSessionService.CreateGuestSessionRequest
-                {
-                    DeviceId = request.DeviceId, // Browser fingerprint
-                    DeviceName = request.DeviceName,
-                    OperatingSystem = request.OperatingSystem,
-                    Browser = request.Browser
-                },
-                ipAddress
-            );
-
-            // Ensure session data exists so session ID is generated
-            HttpContext.Session.SetString("DeviceId", session.DeviceId);
-            HttpContext.Session.SetString("AuthMode", "guest");
-
-            return Created($"/api/sessions/{session.DeviceId}", new
-            {
-                success = true,
-                deviceId = session.DeviceId,
-                expiresAt = session.ExpiresAt,
-                message = "Guest session created successfully"
-            });
+            return BadRequest(new { error = "Only guest session creation is supported. Use POST /api/devices for authenticated sessions." });
         }
-        catch (Exception ex)
+
+        var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
+        var session = _guestSessionService.CreateSession(
+            new GuestSessionService.CreateGuestSessionRequest
+            {
+                DeviceId = request.DeviceId, // Browser fingerprint
+                DeviceName = request.DeviceName,
+                OperatingSystem = request.OperatingSystem,
+                Browser = request.Browser
+            },
+            ipAddress
+        );
+
+        // Ensure session data exists so session ID is generated
+        HttpContext.Session.SetString("DeviceId", session.DeviceId);
+        HttpContext.Session.SetString("AuthMode", "guest");
+
+        return Created($"/api/sessions/{session.DeviceId}", new SessionCreateResponse
         {
-            _logger.LogError(ex, "Error creating guest session");
-            return StatusCode(500, new { error = "Failed to create guest session", message = ex.Message });
-        }
+            Success = true,
+            DeviceId = session.DeviceId,
+            ExpiresAt = session.ExpiresAt,
+            Message = "Guest session created successfully"
+        });
     }
 
     /// <summary>
@@ -272,41 +249,33 @@ public class SessionsController : ControllerBase
     [HttpPatch("current/last-seen")]
     public IActionResult UpdateCurrentLastSeen()
     {
-        try
+        // Get device ID from request header
+        var deviceId = Request.Headers["X-Device-Id"].FirstOrDefault();
+        if (string.IsNullOrEmpty(deviceId))
         {
-            // Get device ID from request header
-            var deviceId = Request.Headers["X-Device-Id"].FirstOrDefault();
-            if (string.IsNullOrEmpty(deviceId))
-            {
-                return BadRequest(new { error = "X-Device-Id header is required" });
-            }
-
-            // Try updating authenticated device first
-            var device = _deviceAuthService.GetAllDevices().FirstOrDefault(d => d.DeviceId == deviceId);
-            if (device != null)
-            {
-                _deviceAuthService.UpdateLastSeen(deviceId);
-                return Ok(new { success = true, type = "authenticated" });
-            }
-
-            // Try updating guest session
-            var (isValid, _) = _guestSessionService.ValidateSessionWithReason(deviceId);
-            if (isValid)
-            {
-                _guestSessionService.UpdateLastSeen(deviceId);
-                return Ok(new { success = true, type = "guest" });
-            }
-
-            // Session not found or invalid - this is OK, it just means the app restarted
-            // Return 200 instead of 404 to prevent errors in the frontend
-            _logger.LogDebug("Session not found for device {DeviceId} - likely app restart", deviceId);
-            return Ok(new { success = true, type = "none", message = "Session will be restored on next auth check" });
+            return BadRequest(new { error = "X-Device-Id header is required" });
         }
-        catch (Exception ex)
+
+        // Try updating authenticated device first
+        var device = _deviceAuthService.GetAllDevices().FirstOrDefault(d => d.DeviceId == deviceId);
+        if (device != null)
         {
-            _logger.LogError(ex, "Error updating last seen for current session");
-            return StatusCode(500, new { error = "Failed to update last seen" });
+            _deviceAuthService.UpdateLastSeen(deviceId);
+            return Ok(new SessionHeartbeatResponse { Success = true, Type = "authenticated" });
         }
+
+        // Try updating guest session
+        var (isValid, _) = _guestSessionService.ValidateSessionWithReason(deviceId);
+        if (isValid)
+        {
+            _guestSessionService.UpdateLastSeen(deviceId);
+            return Ok(new SessionHeartbeatResponse { Success = true, Type = "guest" });
+        }
+
+        // Session not found or invalid - this is OK, it just means the app restarted
+        // Return 200 instead of 404 to prevent errors in the frontend
+        _logger.LogDebug("Session not found for device {DeviceId} - likely app restart", deviceId);
+        return Ok(new SessionHeartbeatResponse { Success = true, Type = "none", Message = "Session will be restored on next auth check" });
     }
 
 
@@ -319,67 +288,59 @@ public class SessionsController : ControllerBase
     [RequireAuth]
     public async Task<IActionResult> DeleteCurrentSession()
     {
-        try
+        // Get device ID from request header
+        var deviceId = Request.Headers["X-Device-Id"].FirstOrDefault();
+        if (string.IsNullOrEmpty(deviceId))
         {
-            // Get device ID from request header
-            var deviceId = Request.Headers["X-Device-Id"].FirstOrDefault();
-            if (string.IsNullOrEmpty(deviceId))
-            {
-                return BadRequest(new { error = "X-Device-Id header is required" });
-            }
-
-            // Check if it's an authenticated device
-            var device = _deviceAuthService.GetAllDevices().FirstOrDefault(d => d.DeviceId == deviceId);
-            if (device != null)
-            {
-                var (success, message) = _deviceAuthService.RevokeDevice(deviceId);
-                if (success)
-                {
-                    // Clear session cookie
-                    HttpContext.Session.Clear();
-
-                    // Broadcast deletion
-                    await _hubContext.Clients.All.SendAsync("UserSessionRevoked", new
-                    {
-                        deviceId = deviceId,
-                        sessionType = "authenticated"
-                    });
-
-                    _logger.LogInformation("Device session deleted: {DeviceId}", deviceId);
-                    return Ok(new { success = true, message = "Session deleted successfully" });
-                }
-                return BadRequest(new { error = message });
-            }
-
-            // Check if it's a guest session
-            var guestSession = _guestSessionService.GetSessionByDeviceId(deviceId);
-            if (guestSession != null)
-            {
-                var deleteSuccess = _guestSessionService.DeleteSession(deviceId);
-                if (deleteSuccess)
-                {
-                    // Broadcast deletion
-                    await _hubContext.Clients.All.SendAsync("UserSessionRevoked", new
-                    {
-                        deviceId = deviceId,
-                        sessionType = "guest"
-                    });
-
-                    _logger.LogInformation("Guest session deleted: {DeviceId}", deviceId);
-                    return Ok(new { success = true, message = "Session deleted successfully" });
-                }
-            }
-
-            // Session not found - this is OK if the app restarted
-            // Clear local session anyway
-            HttpContext.Session.Clear();
-            return Ok(new { success = true, message = "Session cleared successfully" });
+            return BadRequest(new { error = "X-Device-Id header is required" });
         }
-        catch (Exception ex)
+
+        // Check if it's an authenticated device
+        var device = _deviceAuthService.GetAllDevices().FirstOrDefault(d => d.DeviceId == deviceId);
+        if (device != null)
         {
-            _logger.LogError(ex, "Error deleting current session");
-            return StatusCode(500, new { error = "Failed to delete session", message = ex.Message });
+            var (success, message) = _deviceAuthService.RevokeDevice(deviceId);
+            if (success)
+            {
+                // Clear session cookie
+                HttpContext.Session.Clear();
+
+                // Broadcast deletion
+                await _hubContext.Clients.All.SendAsync("UserSessionRevoked", new
+                {
+                    deviceId = deviceId,
+                    sessionType = "authenticated"
+                });
+
+                _logger.LogInformation("Device session deleted: {DeviceId}", deviceId);
+                return Ok(new SessionDeleteResponse { Success = true, Message = "Session deleted successfully" });
+            }
+            return BadRequest(new { error = message });
         }
+
+        // Check if it's a guest session
+        var guestSession = _guestSessionService.GetSessionByDeviceId(deviceId);
+        if (guestSession != null)
+        {
+            var deleteSuccess = _guestSessionService.DeleteSession(deviceId);
+            if (deleteSuccess)
+            {
+                // Broadcast deletion
+                await _hubContext.Clients.All.SendAsync("UserSessionRevoked", new
+                {
+                    deviceId = deviceId,
+                    sessionType = "guest"
+                });
+
+                _logger.LogInformation("Guest session deleted: {DeviceId}", deviceId);
+                return Ok(new SessionDeleteResponse { Success = true, Message = "Session deleted successfully" });
+            }
+        }
+
+        // Session not found - this is OK if the app restarted
+        // Clear local session anyway
+        HttpContext.Session.Clear();
+        return Ok(new SessionDeleteResponse { Success = true, Message = "Session cleared successfully" });
     }
 
     /// <summary>
@@ -392,82 +353,73 @@ public class SessionsController : ControllerBase
     [RequireAuth]
     public async Task<IActionResult> DeleteSession(string id, [FromQuery] string action = "delete")
     {
-        try
+        var isPermanentDelete = action.ToLower() == "delete";
+
+        // Check if it's an authenticated device
+        var device = _deviceAuthService.GetAllDevices().FirstOrDefault(d => d.DeviceId == id);
+        if (device != null)
         {
-            var isPermanentDelete = action.ToLower() == "delete";
-
-            // Check if it's an authenticated device
-            var device = _deviceAuthService.GetAllDevices().FirstOrDefault(d => d.DeviceId == id);
-            if (device != null)
+            // Authenticated devices are always deleted (no revoke-only option)
+            var (success, message) = _deviceAuthService.RevokeDevice(id);
+            if (success)
             {
-                // Authenticated devices are always deleted (no revoke-only option)
-                var (success, message) = _deviceAuthService.RevokeDevice(id);
-                if (success)
+                // Clear session cookie if deleting own session
+                var currentSessionDeviceId = HttpContext.Session.GetString("DeviceId");
+                if (currentSessionDeviceId == id)
                 {
-                    // Clear session cookie if deleting own session
-                    var currentSessionDeviceId = HttpContext.Session.GetString("DeviceId");
-                    if (currentSessionDeviceId == id)
-                    {
-                        HttpContext.Session.Clear();
-                    }
-
-                    // Broadcast deletion
-                    await _hubContext.Clients.All.SendAsync("UserSessionRevoked", new
-                    {
-                        deviceId = id,
-                        sessionType = "authenticated"
-                    });
-
-                    _logger.LogInformation("Device session deleted: {DeviceId}", id);
-                    return Ok(new { success = true, message = "Session deleted successfully" });
+                    HttpContext.Session.Clear();
                 }
-                return BadRequest(new { error = message });
+
+                // Broadcast deletion
+                await _hubContext.Clients.All.SendAsync("UserSessionRevoked", new
+                {
+                    deviceId = id,
+                    sessionType = "authenticated"
+                });
+
+                _logger.LogInformation("Device session deleted: {DeviceId}", id);
+                return Ok(new SessionDeleteResponse { Success = true, Message = "Session deleted successfully" });
+            }
+            return BadRequest(new { error = message });
+        }
+
+        // Check if it's a guest session
+        var guestSession = _guestSessionService.GetSessionByDeviceId(id);
+        if (guestSession != null)
+        {
+            bool success;
+            string actionMessage;
+
+            if (isPermanentDelete)
+            {
+                // Permanently delete the guest session
+                success = _guestSessionService.DeleteSession(id);
+                actionMessage = "deleted";
+            }
+            else
+            {
+                // Just revoke the guest session (keep in history)
+                var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
+                var revokedBy = ipAddress ?? "Unknown IP";
+                success = _guestSessionService.RevokeSession(id, revokedBy);
+                actionMessage = "revoked";
             }
 
-            // Check if it's a guest session
-            var guestSession = _guestSessionService.GetSessionByDeviceId(id);
-            if (guestSession != null)
+            if (success)
             {
-
-                bool success;
-                string actionMessage;
-
-                if (isPermanentDelete)
+                // Broadcast action
+                await _hubContext.Clients.All.SendAsync("UserSessionRevoked", new
                 {
-                    // Permanently delete the guest session
-                    success = _guestSessionService.DeleteSession(id);
-                    actionMessage = "deleted";
-                }
-                else
-                {
-                    // Just revoke the guest session (keep in history)
-                    var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
-                    var revokedBy = ipAddress ?? "Unknown IP";
-                    success = _guestSessionService.RevokeSession(id, revokedBy);
-                    actionMessage = "revoked";
-                }
+                    deviceId = id,
+                    sessionType = "guest"
+                });
 
-                if (success)
-                {
-                    // Broadcast action
-                    await _hubContext.Clients.All.SendAsync("UserSessionRevoked", new
-                    {
-                        deviceId = id,
-                        sessionType = "guest"
-                    });
-
-                    _logger.LogInformation("Guest session {Action}: {DeviceId}", actionMessage, id);
-                    return Ok(new { success = true, message = $"Session {actionMessage} successfully" });
-                }
+                _logger.LogInformation("Guest session {Action}: {DeviceId}", actionMessage, id);
+                return Ok(new SessionDeleteResponse { Success = true, Message = $"Session {actionMessage} successfully" });
             }
+        }
 
-            return NotFound(new { error = "Session not found" });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error deleting/revoking session: {SessionId}", id);
-            return StatusCode(500, new { error = "Failed to delete/revoke session", message = ex.Message });
-        }
+        return NotFound(new { error = "Session not found" });
     }
 
     public class CreateSessionRequest

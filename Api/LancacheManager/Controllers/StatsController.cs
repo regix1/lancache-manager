@@ -1,3 +1,4 @@
+using LancacheManager.Application.DTOs;
 using LancacheManager.Data;
 using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Models;
@@ -149,122 +150,114 @@ public class StatsController : ControllerBase
     [HttpGet("dashboard")]
     public async Task<IActionResult> GetDashboardStats([FromQuery] string period = "24h")
     {
-        try
+        // Parse the time period - handle "all" specially
+        DateTime? cutoffTime = null;
+        if (period != "all")
         {
-            // Parse the time period - handle "all" specially
-            DateTime? cutoffTime = null;
-            if (period != "all")
-            {
-                cutoffTime = ParseTimePeriod(period) ?? DateTime.UtcNow.AddHours(-24);
-            }
+            cutoffTime = ParseTimePeriod(period) ?? DateTime.UtcNow.AddHours(-24);
+        }
 
-            // Get all service stats (these are all-time totals) - USE CACHE
-            var serviceStats = await _statsService.GetServiceStatsAsync();
+        // Get all service stats (these are all-time totals) - USE CACHE
+        var serviceStats = await _statsService.GetServiceStatsAsync();
 
-            // Calculate all-time metrics from ServiceStats (these are cumulative totals)
-            var totalBandwidthSaved = serviceStats.Sum(s => s.TotalCacheHitBytes);
-            var totalAddedToCache = serviceStats.Sum(s => s.TotalCacheMissBytes);
-            var totalServed = totalBandwidthSaved + totalAddedToCache;
-            var cacheHitRatio = totalServed > 0
-                ? (double)totalBandwidthSaved / totalServed
-                : 0;
+        // Calculate all-time metrics from ServiceStats (these are cumulative totals)
+        var totalBandwidthSaved = serviceStats.Sum(s => s.TotalCacheHitBytes);
+        var totalAddedToCache = serviceStats.Sum(s => s.TotalCacheMissBytes);
+        var totalServed = totalBandwidthSaved + totalAddedToCache;
+        var cacheHitRatio = totalServed > 0
+            ? (double)totalBandwidthSaved / totalServed
+            : 0;
 
-            // Get top service
-            var topService = serviceStats
-                .OrderByDescending(s => s.TotalBytes)
-                .FirstOrDefault()?.Service ?? "none";
+        // Get top service
+        var topService = serviceStats
+            .OrderByDescending(s => s.TotalBytes)
+            .FirstOrDefault()?.Service ?? "none";
 
-            // DATABASE-SIDE AGGREGATION: Calculate period metrics without loading all records
-            var downloadsQuery = _context.Downloads.AsNoTracking();
-            if (cutoffTime.HasValue)
-            {
-                downloadsQuery = downloadsQuery.Where(d => d.StartTimeUtc >= cutoffTime.Value);
-            }
+        // DATABASE-SIDE AGGREGATION: Calculate period metrics without loading all records
+        var downloadsQuery = _context.Downloads.AsNoTracking();
+        if (cutoffTime.HasValue)
+        {
+            downloadsQuery = downloadsQuery.Where(d => d.StartTimeUtc >= cutoffTime.Value);
+        }
 
-            // Run aggregates in parallel for better performance
-            var periodHitBytesTask = downloadsQuery.SumAsync(d => (long?)d.CacheHitBytes);
-            var periodMissBytesTask = downloadsQuery.SumAsync(d => (long?)d.CacheMissBytes);
-            var periodDownloadCountTask = downloadsQuery.CountAsync();
-            var activeDownloadsTask = _context.Downloads
+        // Run aggregates in parallel for better performance
+        var periodHitBytesTask = downloadsQuery.SumAsync(d => (long?)d.CacheHitBytes);
+        var periodMissBytesTask = downloadsQuery.SumAsync(d => (long?)d.CacheMissBytes);
+        var periodDownloadCountTask = downloadsQuery.CountAsync();
+        var activeDownloadsTask = _context.Downloads
+            .AsNoTracking()
+            .Where(d => d.IsActive && d.EndTimeUtc > DateTime.UtcNow.AddMinutes(-5))
+            .CountAsync();
+        var uniqueClientsCountTask = cutoffTime.HasValue
+            ? _context.ClientStats
                 .AsNoTracking()
-                .Where(d => d.IsActive && d.EndTimeUtc > DateTime.UtcNow.AddMinutes(-5))
-                .CountAsync();
-            var uniqueClientsCountTask = cutoffTime.HasValue
-                ? _context.ClientStats
-                    .AsNoTracking()
-                    .Where(c => c.LastActivityUtc >= cutoffTime.Value)
-                    .CountAsync()
-                : _context.ClientStats.AsNoTracking().CountAsync();
+                .Where(c => c.LastActivityUtc >= cutoffTime.Value)
+                .CountAsync()
+            : _context.ClientStats.AsNoTracking().CountAsync();
 
-            // Await all tasks in parallel
-            await Task.WhenAll(periodHitBytesTask, periodMissBytesTask, periodDownloadCountTask, activeDownloadsTask, uniqueClientsCountTask);
+        // Await all tasks in parallel
+        await Task.WhenAll(periodHitBytesTask, periodMissBytesTask, periodDownloadCountTask, activeDownloadsTask, uniqueClientsCountTask);
 
-            var periodHitBytes = periodHitBytesTask.Result ?? 0L;
-            var periodMissBytes = periodMissBytesTask.Result ?? 0L;
-            var periodDownloadCount = periodDownloadCountTask.Result;
-            var activeDownloads = activeDownloadsTask.Result;
-            var uniqueClientsCount = uniqueClientsCountTask.Result;
+        var periodHitBytes = periodHitBytesTask.Result ?? 0L;
+        var periodMissBytes = periodMissBytesTask.Result ?? 0L;
+        var periodDownloadCount = periodDownloadCountTask.Result;
+        var activeDownloads = activeDownloadsTask.Result;
+        var uniqueClientsCount = uniqueClientsCountTask.Result;
 
-            var periodTotal = periodHitBytes + periodMissBytes;
-            var periodHitRatio = periodTotal > 0
-                ? (double)periodHitBytes / periodTotal
-                : 0;
+        var periodTotal = periodHitBytes + periodMissBytes;
+        var periodHitRatio = periodTotal > 0
+            ? (double)periodHitBytes / periodTotal
+            : 0;
 
-            // For "all" period, period metrics should equal all-time metrics
-            if (period == "all")
-            {
-                periodHitBytes = totalBandwidthSaved;
-                periodMissBytes = totalAddedToCache;
-                periodTotal = totalServed;
-                periodHitRatio = cacheHitRatio;
-            }
-
-            return Ok(new
-            {
-                // All-time metrics (always from ServiceStats totals)
-                totalBandwidthSaved,
-                totalAddedToCache,
-                totalServed,
-                cacheHitRatio,
-
-                // Current status
-                activeDownloads,
-                uniqueClients = uniqueClientsCount,
-                topService,
-
-                // Period-specific metrics
-                period = new
-                {
-                    duration = period,
-                    since = cutoffTime,
-                    bandwidthSaved = periodHitBytes,
-                    addedToCache = periodMissBytes,
-                    totalServed = periodTotal,
-                    hitRatio = periodHitRatio,
-                    downloads = periodDownloadCount
-                },
-
-                // Service breakdown (always all-time for consistency)
-                serviceBreakdown = serviceStats
-                    .Select(s => new
-                    {
-                        service = s.Service,
-                        bytes = s.TotalBytes,
-                        percentage = totalServed > 0
-                            ? (s.TotalBytes * 100.0) / totalServed
-                            : 0
-                    })
-                    .OrderByDescending(s => s.bytes)
-                    .ToList(),
-
-                lastUpdated = DateTime.UtcNow
-            });
-        }
-        catch (Exception ex)
+        // For "all" period, period metrics should equal all-time metrics
+        if (period == "all")
         {
-            _logger.LogError(ex, "Error getting dashboard stats");
-            return StatusCode(500, new { error = "Failed to get dashboard statistics" });
+            periodHitBytes = totalBandwidthSaved;
+            periodMissBytes = totalAddedToCache;
+            periodTotal = totalServed;
+            periodHitRatio = cacheHitRatio;
         }
+
+        return Ok(new DashboardStatsResponse
+        {
+            // All-time metrics (always from ServiceStats totals)
+            TotalBandwidthSaved = totalBandwidthSaved,
+            TotalAddedToCache = totalAddedToCache,
+            TotalServed = totalServed,
+            CacheHitRatio = cacheHitRatio,
+
+            // Current status
+            ActiveDownloads = activeDownloads,
+            UniqueClients = uniqueClientsCount,
+            TopService = topService,
+
+            // Period-specific metrics
+            Period = new DashboardPeriodStats
+            {
+                Duration = period,
+                Since = cutoffTime,
+                BandwidthSaved = periodHitBytes,
+                AddedToCache = periodMissBytes,
+                TotalServed = periodTotal,
+                HitRatio = periodHitRatio,
+                Downloads = periodDownloadCount
+            },
+
+            // Service breakdown (always all-time for consistency)
+            ServiceBreakdown = serviceStats
+                .Select(s => new ServiceBreakdownItem
+                {
+                    Service = s.Service,
+                    Bytes = s.TotalBytes,
+                    Percentage = totalServed > 0
+                        ? (s.TotalBytes * 100.0) / totalServed
+                        : 0
+                })
+                .OrderByDescending(s => s.Bytes)
+                .ToList(),
+
+            LastUpdated = DateTime.UtcNow
+        });
     }
 
 

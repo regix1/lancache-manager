@@ -42,20 +42,12 @@ public class GcController : ControllerBase
             return NotFound(new { error = "Garbage collection management is disabled" });
         }
 
-        try
+        var settings = _gcSettingsService.GetSettings();
+        return Ok(new GcSettingsResponse
         {
-            var settings = _gcSettingsService.GetSettings();
-            return Ok(new
-            {
-                aggressiveness = settings.Aggressiveness.ToString().ToLower(),
-                memoryThresholdMB = settings.MemoryThresholdMB
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting GC settings");
-            return StatusCode(500, new { error = "Failed to get GC settings" });
-        }
+            Aggressiveness = settings.Aggressiveness.ToString().ToLower(),
+            MemoryThresholdMB = settings.MemoryThresholdMB
+        });
     }
 
     [HttpPut("settings")]
@@ -67,42 +59,30 @@ public class GcController : ControllerBase
             return NotFound(new { error = "Garbage collection management is disabled" });
         }
 
-        try
+        if (!Enum.TryParse<GcAggressiveness>(request.Aggressiveness, true, out var aggressiveness))
         {
-            if (!Enum.TryParse<GcAggressiveness>(request.Aggressiveness, true, out var aggressiveness))
-            {
-                return BadRequest(new { error = "Invalid aggressiveness level" });
-            }
-
-            if (request.MemoryThresholdMB < 512 || request.MemoryThresholdMB > 32768)
-            {
-                return BadRequest(new { error = "Memory threshold must be between 512MB and 32GB" });
-            }
-
-            var newSettings = new GcSettings
-            {
-                Aggressiveness = aggressiveness,
-                MemoryThresholdMB = request.MemoryThresholdMB
-            };
-
-            var updatedSettings = await _gcSettingsService.UpdateSettingsAsync(newSettings);
-
-            return Ok(new
-            {
-                aggressiveness = updatedSettings.Aggressiveness.ToString().ToLower(),
-                memoryThresholdMB = updatedSettings.MemoryThresholdMB,
-                message = "GC settings updated successfully"
-            });
+            return BadRequest(new { error = "Invalid aggressiveness level" });
         }
-        catch (ArgumentException ex)
+
+        if (request.MemoryThresholdMB < 512 || request.MemoryThresholdMB > 32768)
         {
-            return BadRequest(new { error = ex.Message });
+            return BadRequest(new { error = "Memory threshold must be between 512MB and 32GB" });
         }
-        catch (Exception ex)
+
+        var newSettings = new GcSettings
         {
-            _logger.LogError(ex, "Error updating GC settings");
-            return StatusCode(500, new { error = "Failed to update GC settings" });
-        }
+            Aggressiveness = aggressiveness,
+            MemoryThresholdMB = request.MemoryThresholdMB
+        };
+
+        var updatedSettings = await _gcSettingsService.UpdateSettingsAsync(newSettings);
+
+        return Ok(new GcSettingsResponse
+        {
+            Aggressiveness = updatedSettings.Aggressiveness.ToString().ToLower(),
+            MemoryThresholdMB = updatedSettings.MemoryThresholdMB,
+            Message = "GC settings updated successfully"
+        });
     }
 
     [HttpPost("trigger")]
@@ -114,58 +94,50 @@ public class GcController : ControllerBase
             return NotFound(new { error = "Garbage collection management is disabled" });
         }
 
-        try
+        var now = DateTime.UtcNow;
+        var cooldownPeriod = TimeSpan.FromSeconds(5);
+
+        // Check cooldown
+        lock (_gcTriggerLock)
         {
-            var now = DateTime.UtcNow;
-            var cooldownPeriod = TimeSpan.FromSeconds(5);
-
-            // Check cooldown
-            lock (_gcTriggerLock)
+            var timeSinceLastGc = now - _lastGcTriggerTime;
+            if (timeSinceLastGc < cooldownPeriod)
             {
-                var timeSinceLastGc = now - _lastGcTriggerTime;
-                if (timeSinceLastGc < cooldownPeriod)
+                var remainingSeconds = (cooldownPeriod - timeSinceLastGc).TotalSeconds;
+                return Ok(new GcTriggerResponse
                 {
-                    var remainingSeconds = (cooldownPeriod - timeSinceLastGc).TotalSeconds;
-                    return Ok(new
-                    {
-                        skipped = true,
-                        reason = "cooldown",
-                        remainingSeconds = Math.Round(remainingSeconds, 1),
-                        message = $"GC cooldown active. Please wait {Math.Ceiling(remainingSeconds)}s"
-                    });
-                }
-
-                var process = System.Diagnostics.Process.GetCurrentProcess();
-                var beforeMB = process.WorkingSet64 / (1024.0 * 1024.0);
-
-                // Use platform-specific memory manager for garbage collection
-                // On Linux, this includes malloc_trim to force glibc to return memory to OS
-                // On Windows, standard GC is sufficient
-                _memoryManager.PerformAggressiveGarbageCollection(_logger);
-
-                _lastGcTriggerTime = DateTime.UtcNow;
-
-                process.Refresh();
-                var afterMB = process.WorkingSet64 / (1024.0 * 1024.0);
-                var freedMB = beforeMB - afterMB;
-
-                _logger.LogInformation("Manual GC triggered at {BeforeMB:F0}MB, after GC: {AfterMB:F0}MB (freed {FreedMB:F0}MB)",
-                    beforeMB, afterMB, freedMB);
-
-                return Ok(new
-                {
-                    skipped = false,
-                    beforeMB = Math.Round(beforeMB, 0),
-                    afterMB = Math.Round(afterMB, 0),
-                    freedMB = Math.Round(freedMB, 0),
-                    message = "Garbage collection completed"
+                    Skipped = true,
+                    Reason = "cooldown",
+                    RemainingSeconds = Math.Round(remainingSeconds, 1),
+                    Message = $"GC cooldown active. Please wait {Math.Ceiling(remainingSeconds)}s"
                 });
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error triggering garbage collection");
-            return StatusCode(500, new { error = "Failed to trigger garbage collection" });
+
+            var process = System.Diagnostics.Process.GetCurrentProcess();
+            var beforeMB = process.WorkingSet64 / (1024.0 * 1024.0);
+
+            // Use platform-specific memory manager for garbage collection
+            // On Linux, this includes malloc_trim to force glibc to return memory to OS
+            // On Windows, standard GC is sufficient
+            _memoryManager.PerformAggressiveGarbageCollection(_logger);
+
+            _lastGcTriggerTime = DateTime.UtcNow;
+
+            process.Refresh();
+            var afterMB = process.WorkingSet64 / (1024.0 * 1024.0);
+            var freedMB = beforeMB - afterMB;
+
+            _logger.LogInformation("Manual GC triggered at {BeforeMB:F0}MB, after GC: {AfterMB:F0}MB (freed {FreedMB:F0}MB)",
+                beforeMB, afterMB, freedMB);
+
+            return Ok(new GcTriggerResponse
+            {
+                Skipped = false,
+                BeforeMB = Math.Round(beforeMB, 0),
+                AfterMB = Math.Round(afterMB, 0),
+                FreedMB = Math.Round(freedMB, 0),
+                Message = "Garbage collection completed"
+            });
         }
     }
 }

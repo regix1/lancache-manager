@@ -1,4 +1,5 @@
 using System.Text.Json;
+using LancacheManager.Application.DTOs;
 using LancacheManager.Application.Services;
 using Microsoft.AspNetCore.Mvc;
 
@@ -26,149 +27,101 @@ public class OperationStateController : ControllerBase
     [HttpGet("{key}")]
     public IActionResult GetState(string key)
     {
-        try
-        {
-            var state = _stateService.GetState(key);
-            // Return 200 with null instead of 404 to avoid browser console errors
-            return Ok(state);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, $"Error getting state for key: {key}");
-            return StatusCode(500, new { error = "Failed to get state" });
-        }
+        var state = _stateService.GetState(key);
+        // Return 200 with null instead of 404 to avoid browser console errors
+        return Ok(state);
     }
 
     [HttpPost]
     public IActionResult SaveState([FromBody] SaveStateRequest request)
     {
-        try
+        if (string.IsNullOrEmpty(request.Key))
         {
-            if (string.IsNullOrEmpty(request.Key))
-            {
-                return BadRequest(new { error = "Key is required" });
-            }
-
-            var state = new OperationState
-            {
-                Key = request.Key,
-                Type = request.Type ?? string.Empty,
-                Data = request.Data,
-                Status = request.Status,
-                Message = request.Message,
-                ExpiresAt = DateTime.UtcNow.AddMinutes(request.ExpirationMinutes ?? 30)
-            };
-
-            _stateService.SaveState(request.Key, state);
-
-            return Ok(new { success = true, key = request.Key });
+            return BadRequest(new ErrorResponse { Error = "Key is required" });
         }
-        catch (Exception ex)
+
+        var state = new OperationState
         {
-            _logger.LogError(ex, "Error saving state");
-            return StatusCode(500, new { error = "Failed to save state" });
-        }
+            Key = request.Key,
+            Type = request.Type ?? string.Empty,
+            Data = request.Data,
+            Status = request.Status,
+            Message = request.Message,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(request.ExpirationMinutes ?? 30)
+        };
+
+        _stateService.SaveState(request.Key, state);
+
+        return Ok(new SaveStateResponse { Success = true, Key = request.Key });
     }
 
     [HttpPatch("{key}")]
     public IActionResult UpdateState(string key, [FromBody] UpdateStateRequest request)
     {
-        try
+        var state = _stateService.GetState(key);
+        if (state == null)
         {
-            var state = _stateService.GetState(key);
-            if (state == null)
+            _logger.LogWarning($"State not found for key: {key}");
+            // Instead of 404, create a new state if it doesn't exist
+            state = new OperationState
             {
-                _logger.LogWarning($"State not found for key: {key}");
-                // Instead of 404, create a new state if it doesn't exist
-                state = new OperationState
-                {
-                    Key = key,
-                    Type = "unknown",
-                    Data = JsonSerializer.SerializeToElement(new Dictionary<string, object>()),
-                    Status = request.Status,
-                    Message = request.Message,
-                    ExpiresAt = DateTime.UtcNow.AddMinutes(30)
-                };
-                _stateService.SaveState(key, state);
-            }
-
-            if (request.Updates != null && request.Updates.Count > 0)
-            {
-                _stateService.UpdateState(key, request.Updates);
-            }
-
-            if (request.Status != null)
-            {
-                state.Status = request.Status;
-                _stateService.SaveState(key, state);
-            }
-
-            if (request.Message != null)
-            {
-                state.Message = request.Message;
-                _stateService.SaveState(key, state);
-            }
-
-            return Ok(new { success = true });
+                Key = key,
+                Type = "unknown",
+                Data = JsonSerializer.SerializeToElement(new Dictionary<string, object>()),
+                Status = request.Status,
+                Message = request.Message,
+                ExpiresAt = DateTime.UtcNow.AddMinutes(30)
+            };
+            _stateService.SaveState(key, state);
         }
-        catch (Exception ex)
+
+        if (request.Updates != null && request.Updates.Count > 0)
         {
-            _logger.LogError(ex, $"Error updating state for key: {key}");
-            return StatusCode(500, new { error = "Failed to update state", message = ex.Message });
+            _stateService.UpdateState(key, request.Updates);
         }
+
+        if (request.Status != null)
+        {
+            state.Status = request.Status;
+            _stateService.SaveState(key, state);
+        }
+
+        if (request.Message != null)
+        {
+            state.Message = request.Message;
+            _stateService.SaveState(key, state);
+        }
+
+        return Ok(new StateUpdateResponse { Success = true });
     }
 
     [HttpDelete("{key}")]
     public IActionResult RemoveState(string key)
     {
-        try
-        {
-            _stateService.RemoveState(key);
-            return Ok(new { success = true });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, $"Error removing state for key: {key}");
-            return StatusCode(500, new { error = "Failed to remove state" });
-        }
+        _stateService.RemoveState(key);
+        return Ok(new StateUpdateResponse { Success = true });
     }
 
     [HttpGet]
     public IActionResult GetAllStates([FromQuery] string? type = null)
     {
-        try
-        {
-            var states = string.IsNullOrEmpty(type)
-                ? _stateService.GetAllStates()
-                : _stateService.GetStatesByType(type);
+        var states = string.IsNullOrEmpty(type)
+            ? _stateService.GetAllStates()
+            : _stateService.GetStatesByType(type);
 
-            return Ok(states);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting states");
-            return StatusCode(500, new { error = "Failed to get states" });
-        }
+        return Ok(states);
     }
 
     [HttpPost("cleanup")]
     public IActionResult CleanupExpired()
     {
-        try
+        // Trigger manual cleanup if needed
+        var allStates = _stateService.GetAllStates();
+        return Ok(new StateCleanupResponse
         {
-            // Trigger manual cleanup if needed
-            var allStates = _stateService.GetAllStates();
-            return Ok(new
-            {
-                success = true,
-                activeStates = allStates.Count
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error cleaning up states");
-            return StatusCode(500, new { error = "Failed to cleanup states" });
-        }
+            Success = true,
+            ActiveStates = allStates.Count
+        });
     }
 }
 

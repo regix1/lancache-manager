@@ -1,4 +1,5 @@
 using System.Text.Json;
+using LancacheManager.Application.DTOs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
@@ -41,20 +42,12 @@ public class LogsController : ControllerBase
     [HttpGet]
     public IActionResult GetLogInfo()
     {
-        try
+        var logsPath = _pathResolver.GetLogsDirectory();
+        return Ok(new LogInfoResponse
         {
-            var logsPath = _pathResolver.GetLogsDirectory();
-            return Ok(new
-            {
-                path = logsPath,
-                exists = Directory.Exists(logsPath)
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting log information");
-            return StatusCode(500, new { error = "Failed to get log information", details = ex.Message });
-        }
+            Path = logsPath,
+            Exists = Directory.Exists(logsPath)
+        });
     }
 
     /// <summary>
@@ -63,44 +56,28 @@ public class LogsController : ControllerBase
     [HttpGet("service-counts")]
     public async Task<IActionResult> GetServiceCounts()
     {
-        try
+        var logsPath = _pathResolver.GetLogsDirectory();
+        var result = await _rustProcessHelper.RunLogManagerAsync(
+            "count",
+            logsPath,
+            progressFile: null
+        );
+
+        if (!result.Success)
         {
-            var logsPath = _pathResolver.GetLogsDirectory();
-            var result = await _rustProcessHelper.RunLogManagerAsync(
-                "count",
-                logsPath,
-                progressFile: null
-            );
-
-            if (!result.Success)
-            {
-                return StatusCode(500, new
-                {
-                    error = "Failed to count log entries",
-                    details = result.Error
-                });
-            }
-
-            // Extract service_counts from the result
-            if (result.Data is JsonElement jsonElement &&
-                jsonElement.TryGetProperty("service_counts", out var serviceCountsElement))
-            {
-                var serviceCounts = JsonSerializer.Deserialize<Dictionary<string, ulong>>(serviceCountsElement.GetRawText());
-                return Ok(serviceCounts);
-            }
-
-            _logger.LogWarning("RunLogManagerAsync returned data without service_counts property");
-            return Ok(new Dictionary<string, ulong>());
+            throw new InvalidOperationException(result.Error ?? "Failed to count log entries");
         }
-        catch (Exception ex)
+
+        // Extract service_counts from the result
+        if (result.Data is JsonElement jsonElement &&
+            jsonElement.TryGetProperty("service_counts", out var serviceCountsElement))
         {
-            _logger.LogError(ex, "Error getting service counts");
-            return StatusCode(500, new
-            {
-                error = "Failed to get service counts",
-                details = ex.Message
-            });
+            var serviceCounts = JsonSerializer.Deserialize<Dictionary<string, ulong>>(serviceCountsElement.GetRawText());
+            return Ok(serviceCounts);
         }
+
+        _logger.LogWarning("RunLogManagerAsync returned data without service_counts property");
+        return Ok(new Dictionary<string, ulong>());
     }
 
     /// <summary>
@@ -110,7 +87,7 @@ public class LogsController : ControllerBase
     public IActionResult GetEntriesCount()
     {
         // Delegate to DatabaseController's endpoint for consistency
-        return Ok(new { message = "Use GET /api/database/log-entries-count instead" });
+        return Ok(new MessageResponse { Message = "Use GET /api/database/log-entries-count instead" });
     }
 
     /// <summary>
@@ -122,22 +99,14 @@ public class LogsController : ControllerBase
     [RequireAuth]
     public IActionResult ResetLogPosition([FromBody] UpdateLogPositionRequest? request)
     {
-        try
-        {
-            _rustLogProcessorService.ResetLogPosition();
-            _logger.LogInformation("Log position reset to beginning");
+        _rustLogProcessorService.ResetLogPosition();
+        _logger.LogInformation("Log position reset to beginning");
 
-            return Ok(new
-            {
-                message = "Log position reset successfully",
-                position = 0
-            });
-        }
-        catch (Exception ex)
+        return Ok(new LogPositionResponse
         {
-            _logger.LogError(ex, "Error resetting log position");
-            return StatusCode(500, new { error = "Failed to reset log position", details = ex.Message });
-        }
+            Message = "Log position reset successfully",
+            Position = 0
+        });
     }
 
     /// <summary>
@@ -154,21 +123,17 @@ public class LogsController : ControllerBase
             _rustLogProcessorService.StartProcessing();
             _logger.LogInformation("Started log processing");
 
-            return Accepted(new
+            return Accepted(new OperationResponse
             {
-                message = "Log processing started",
-                status = "running"
+                Message = "Log processing started",
+                Status = "running"
             });
         }
         catch (InvalidOperationException ex)
         {
+            // Specific handling for "already running" case - return 409 Conflict
             _logger.LogWarning(ex, "Cannot start log processing - already running");
-            return Conflict(new { error = ex.Message });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error starting log processing");
-            return StatusCode(500, new { error = "Failed to start log processing", details = ex.Message });
+            return Conflict(new ConflictResponse { Error = ex.Message });
         }
     }
 
@@ -178,16 +143,8 @@ public class LogsController : ControllerBase
     [HttpGet("process/status")]
     public IActionResult GetProcessingStatus()
     {
-        try
-        {
-            var status = _rustLogProcessorService.GetStatus();
-            return Ok(status);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting processing status");
-            return StatusCode(500, new { error = "Failed to get processing status" });
-        }
+        var status = _rustLogProcessorService.GetStatus();
+        return Ok(status);
     }
 
     /// <summary>
@@ -198,39 +155,27 @@ public class LogsController : ControllerBase
     [RequireAuth]
     public async Task<IActionResult> RemoveServiceLogs(string service)
     {
-        try
+        if (string.IsNullOrWhiteSpace(service))
         {
-            if (string.IsNullOrWhiteSpace(service))
-            {
-                return BadRequest(new { error = "Service name is required" });
-            }
-
-            // StartServiceRemovalAsync returns bool but runs async - operation started if true
-            var started = await _rustLogRemovalService.StartServiceRemovalAsync(service);
-
-            if (!started)
-            {
-                return Conflict(new { error = "Service removal already in progress" });
-            }
-
-            _logger.LogInformation("Started log removal for service: {Service}", service);
-
-            return Accepted(new
-            {
-                message = $"Started log removal for service: {service}",
-                service,
-                status = "started"
-            });
+            return BadRequest(new ConflictResponse { Error = "Service name is required" });
         }
-        catch (Exception ex)
+
+        // StartServiceRemovalAsync returns bool but runs async - operation started if true
+        var started = await _rustLogRemovalService.StartServiceRemovalAsync(service);
+
+        if (!started)
         {
-            _logger.LogError(ex, "Error starting log removal for service: {Service}", service);
-            return StatusCode(500, new
-            {
-                error = $"Failed to start log removal for service: {service}",
-                details = ex.Message
-            });
+            return Conflict(new ConflictResponse { Error = "Service removal already in progress" });
         }
+
+        _logger.LogInformation("Started log removal for service: {Service}", service);
+
+        return Accepted(new LogRemovalStartResponse
+        {
+            Message = $"Started log removal for service: {service}",
+            Service = service,
+            Status = "started"
+        });
     }
 
     /// <summary>
@@ -239,16 +184,8 @@ public class LogsController : ControllerBase
     [HttpGet("remove/status")]
     public IActionResult GetRemovalStatus()
     {
-        try
-        {
-            var status = _rustLogRemovalService.GetRemovalStatus();
-            return Ok(status);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting log removal status");
-            return StatusCode(500, new { error = "Failed to get log removal status" });
-        }
+        var status = _rustLogRemovalService.GetRemovalStatus();
+        return Ok(status);
     }
 
     /// <summary>
@@ -259,22 +196,14 @@ public class LogsController : ControllerBase
     [RequireAuth]
     public IActionResult CancelServiceRemoval()
     {
-        try
-        {
-            var result = _rustLogRemovalService.CancelOperation();
+        var result = _rustLogRemovalService.CancelOperation();
 
-            if (!result)
-            {
-                return NotFound(new { error = "No service removal operation running" });
-            }
-
-            return Ok(new { message = "Service removal cancellation requested", cancelled = true });
-        }
-        catch (Exception ex)
+        if (!result)
         {
-            _logger.LogError(ex, "Error cancelling service removal");
-            return StatusCode(500, new { error = "Failed to cancel service removal" });
+            return NotFound(new NotFoundResponse { Error = "No service removal operation running" });
         }
+
+        return Ok(new CancellationResponse { Message = "Service removal cancellation requested", Cancelled = true });
     }
 
     /// <summary>
@@ -285,22 +214,14 @@ public class LogsController : ControllerBase
     [RequireAuth]
     public async Task<IActionResult> ForceKillServiceRemoval()
     {
-        try
-        {
-            var result = await _rustLogRemovalService.ForceKillOperation();
+        var result = await _rustLogRemovalService.ForceKillOperation();
 
-            if (!result)
-            {
-                return NotFound(new { error = "No service removal operation running or no process to kill" });
-            }
-
-            return Ok(new { message = "Service removal force killed successfully" });
-        }
-        catch (Exception ex)
+        if (!result)
         {
-            _logger.LogError(ex, "Error force killing service removal");
-            return StatusCode(500, new { error = "Failed to force kill service removal" });
+            return NotFound(new NotFoundResponse { Error = "No service removal operation running or no process to kill" });
         }
+
+        return Ok(new MessageResponse { Message = "Service removal force killed successfully" });
     }
 
     public class UpdateLogPositionRequest

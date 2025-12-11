@@ -1,6 +1,7 @@
+using LancacheManager.Application.DTOs;
+using LancacheManager.Hubs;
 using LancacheManager.Security;
 using LancacheManager.Services;
-using LancacheManager.Hubs;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using static LancacheManager.Services.UserPreferencesService;
@@ -42,50 +43,42 @@ public class UserPreferencesController : ControllerBase
     [HttpGet]
     public IActionResult GetPreferences()
     {
-        try
+        var sessionId = GetSessionId();
+
+        // If no session, return defaults (allows app to load before guest session is created)
+        if (sessionId == null)
         {
-            var sessionId = GetSessionId();
-
-            // If no session, return defaults (allows app to load before guest session is created)
-            if (sessionId == null)
+            _logger.LogInformation("No session found, returning default preferences");
+            return Ok(new UserPreferencesDto
             {
-                _logger.LogInformation("No session found, returning default preferences");
-                return Ok(new UserPreferencesDto
-                {
-                    SelectedTheme = null,
-                    SharpCorners = false,
-                    DisableFocusOutlines = false,
-                    DisableTooltips = false,
-                    PicsAlwaysVisible = false,
-                    DisableStickyNotifications = false,
-                    UseLocalTimezone = false
-                });
-            }
-
-            var preferences = _preferencesService.GetPreferences(sessionId);
-            if (preferences == null)
-            {
-                // Return default preferences if none exist for this session
-                _logger.LogInformation("No preferences found for session {SessionId}, returning defaults", sessionId);
-                return Ok(new UserPreferencesDto
-                {
-                    SelectedTheme = null,
-                    SharpCorners = false,
-                    DisableFocusOutlines = false,
-                    DisableTooltips = false,
-                    PicsAlwaysVisible = false,
-                    DisableStickyNotifications = false,
-                    UseLocalTimezone = false
-                });
-            }
-
-            return Ok(preferences);
+                SelectedTheme = null,
+                SharpCorners = false,
+                DisableFocusOutlines = false,
+                DisableTooltips = false,
+                PicsAlwaysVisible = false,
+                DisableStickyNotifications = false,
+                UseLocalTimezone = false
+            });
         }
-        catch (Exception ex)
+
+        var preferences = _preferencesService.GetPreferences(sessionId);
+        if (preferences == null)
         {
-            _logger.LogError(ex, "Error getting user preferences");
-            return StatusCode(500, new { message = "Error getting preferences" });
+            // Return default preferences if none exist for this session
+            _logger.LogInformation("No preferences found for session {SessionId}, returning defaults", sessionId);
+            return Ok(new UserPreferencesDto
+            {
+                SelectedTheme = null,
+                SharpCorners = false,
+                DisableFocusOutlines = false,
+                DisableTooltips = false,
+                PicsAlwaysVisible = false,
+                DisableStickyNotifications = false,
+                UseLocalTimezone = false
+            });
         }
+
+        return Ok(preferences);
     }
 
     /// <summary>
@@ -95,38 +88,30 @@ public class UserPreferencesController : ControllerBase
     [HttpPut]
     public async Task<IActionResult> SavePreferences([FromBody] UserPreferencesDto preferences)
     {
-        try
+        var sessionId = GetSessionId();
+        if (sessionId == null)
         {
-            var sessionId = GetSessionId();
-            if (sessionId == null)
-            {
-                return Unauthorized(new { message = "No valid session found" });
-            }
-
-            var success = _preferencesService.SavePreferences(sessionId, preferences);
-            if (success)
-            {
-                _logger.LogInformation("Broadcasting UserPreferencesUpdated for session {SessionId} (own preferences)", sessionId);
-
-                // Broadcast preference update via SignalR
-                await _hubContext.Clients.All.SendAsync("UserPreferencesUpdated", new
-                {
-                    sessionId,
-                    preferences
-                });
-
-                _logger.LogInformation("UserPreferencesUpdated broadcast complete");
-
-                return Ok(new { message = "Preferences saved successfully" });
-            }
-
-            return StatusCode(500, new { message = "Error saving preferences" });
+            return Unauthorized(new PreferencesUpdateResponse { Message = "No valid session found" });
         }
-        catch (Exception ex)
+
+        var success = _preferencesService.SavePreferences(sessionId, preferences);
+        if (success)
         {
-            _logger.LogError(ex, "Error saving user preferences");
-            return StatusCode(500, new { message = "Error saving preferences" });
+            _logger.LogInformation("Broadcasting UserPreferencesUpdated for session {SessionId} (own preferences)", sessionId);
+
+            // Broadcast preference update via SignalR
+            await _hubContext.Clients.All.SendAsync("UserPreferencesUpdated", new
+            {
+                sessionId,
+                preferences
+            });
+
+            _logger.LogInformation("UserPreferencesUpdated broadcast complete");
+
+            return Ok(new PreferencesUpdateResponse { Message = "Preferences saved successfully" });
         }
+
+        return StatusCode(500, new PreferencesUpdateResponse { Message = "Error saving preferences" });
     }
 
     /// <summary>
@@ -135,41 +120,33 @@ public class UserPreferencesController : ControllerBase
     [HttpPatch("{key}")]
     public async Task<IActionResult> UpdatePreference(string key, [FromBody] object value)
     {
-        try
+        var sessionId = GetSessionId();
+        if (sessionId == null)
         {
-            var sessionId = GetSessionId();
-            if (sessionId == null)
-            {
-                return Unauthorized(new { message = "No valid session found" });
-            }
-
-            // Use UpdatePreferenceAndGet to get updated preferences in the same transaction
-            // This prevents race conditions where GetPreferences reads stale data
-            var preferences = _preferencesService.UpdatePreferenceAndGet(sessionId, key, value);
-
-            if (preferences != null)
-            {
-                _logger.LogInformation("Broadcasting UserPreferencesUpdated for session {SessionId} (single pref: {Key}={Value})", sessionId, key, value);
-
-                // Broadcast preference update via SignalR
-                await _hubContext.Clients.All.SendAsync("UserPreferencesUpdated", new
-                {
-                    sessionId,
-                    preferences
-                });
-
-                _logger.LogInformation("UserPreferencesUpdated broadcast complete");
-
-                return Ok(new { message = "Preference updated successfully" });
-            }
-
-            return BadRequest(new { message = "Invalid preference key" });
+            return Unauthorized(new PreferencesUpdateResponse { Message = "No valid session found" });
         }
-        catch (Exception ex)
+
+        // Use UpdatePreferenceAndGet to get updated preferences in the same transaction
+        // This prevents race conditions where GetPreferences reads stale data
+        var preferences = _preferencesService.UpdatePreferenceAndGet(sessionId, key, value);
+
+        if (preferences != null)
         {
-            _logger.LogError(ex, "Error updating preference: {Key}", key);
-            return StatusCode(500, new { message = "Error updating preference" });
+            _logger.LogInformation("Broadcasting UserPreferencesUpdated for session {SessionId} (single pref: {Key}={Value})", sessionId, key, value);
+
+            // Broadcast preference update via SignalR
+            await _hubContext.Clients.All.SendAsync("UserPreferencesUpdated", new
+            {
+                sessionId,
+                preferences
+            });
+
+            _logger.LogInformation("UserPreferencesUpdated broadcast complete");
+
+            return Ok(new PreferencesUpdateResponse { Message = "Preference updated successfully" });
         }
+
+        return BadRequest(new PreferencesUpdateResponse { Message = "Invalid preference key" });
     }
 
     /// <summary>
@@ -179,39 +156,31 @@ public class UserPreferencesController : ControllerBase
     [HttpGet("session/{sessionId}")]
     public IActionResult GetPreferencesForSession(string sessionId)
     {
-        try
+        // Verify the requesting user is authenticated (not a guest)
+        var requestingSessionId = GetSessionId();
+        if (requestingSessionId == null || !IsAuthenticated())
         {
-            // Verify the requesting user is authenticated (not a guest)
-            var requestingSessionId = GetSessionId();
-            if (requestingSessionId == null || !IsAuthenticated())
-            {
-                return Unauthorized(new { message = "Admin access required" });
-            }
-
-            var preferences = _preferencesService.GetPreferences(sessionId);
-            if (preferences == null)
-            {
-                // Return default preferences instead of 404
-                _logger.LogInformation("No preferences found for session {SessionId}, returning defaults", sessionId);
-                return Ok(new UserPreferencesDto
-                {
-                    SelectedTheme = null,
-                    SharpCorners = false,
-                    DisableFocusOutlines = false,
-                    DisableTooltips = false,
-                    PicsAlwaysVisible = false,
-                    DisableStickyNotifications = false,
-                    UseLocalTimezone = false
-                });
-            }
-
-            return Ok(preferences);
+            return Unauthorized(new PreferencesUpdateResponse { Message = "Admin access required" });
         }
-        catch (Exception ex)
+
+        var preferences = _preferencesService.GetPreferences(sessionId);
+        if (preferences == null)
         {
-            _logger.LogError(ex, "Error getting preferences for session: {SessionId}", sessionId);
-            return StatusCode(500, new { message = "Error getting preferences" });
+            // Return default preferences instead of 404
+            _logger.LogInformation("No preferences found for session {SessionId}, returning defaults", sessionId);
+            return Ok(new UserPreferencesDto
+            {
+                SelectedTheme = null,
+                SharpCorners = false,
+                DisableFocusOutlines = false,
+                DisableTooltips = false,
+                PicsAlwaysVisible = false,
+                DisableStickyNotifications = false,
+                UseLocalTimezone = false
+            });
         }
+
+        return Ok(preferences);
     }
 
     /// <summary>
@@ -221,35 +190,27 @@ public class UserPreferencesController : ControllerBase
     [HttpPut("session/{sessionId}")]
     public async Task<IActionResult> SavePreferencesForSession(string sessionId, [FromBody] UserPreferencesDto preferences)
     {
-        try
+        // Verify the requesting user is authenticated (not a guest)
+        var requestingSessionId = GetSessionId();
+        if (requestingSessionId == null || !IsAuthenticated())
         {
-            // Verify the requesting user is authenticated (not a guest)
-            var requestingSessionId = GetSessionId();
-            if (requestingSessionId == null || !IsAuthenticated())
-            {
-                return Unauthorized(new { message = "Admin access required" });
-            }
-
-            var success = _preferencesService.SavePreferences(sessionId, preferences);
-            if (success)
-            {
-                // Broadcast preference update via SignalR to notify the target user
-                await _hubContext.Clients.All.SendAsync("UserPreferencesUpdated", new
-                {
-                    sessionId,
-                    preferences
-                });
-
-                return Ok(new { message = "Preferences saved successfully" });
-            }
-
-            return StatusCode(500, new { message = "Error saving preferences" });
+            return Unauthorized(new PreferencesUpdateResponse { Message = "Admin access required" });
         }
-        catch (Exception ex)
+
+        var success = _preferencesService.SavePreferences(sessionId, preferences);
+        if (success)
         {
-            _logger.LogError(ex, "Error saving preferences for session: {SessionId}", sessionId);
-            return StatusCode(500, new { message = "Error saving preferences" });
+            // Broadcast preference update via SignalR to notify the target user
+            await _hubContext.Clients.All.SendAsync("UserPreferencesUpdated", new
+            {
+                sessionId,
+                preferences
+            });
+
+            return Ok(new PreferencesUpdateResponse { Message = "Preferences saved successfully" });
         }
+
+        return StatusCode(500, new PreferencesUpdateResponse { Message = "Error saving preferences" });
     }
 
     /// <summary>

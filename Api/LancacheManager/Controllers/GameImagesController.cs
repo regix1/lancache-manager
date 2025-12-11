@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using LancacheManager.Application.DTOs;
 using LancacheManager.Data;
 using LancacheManager.Infrastructure.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
@@ -46,7 +47,7 @@ public class GameImagesController : ControllerBase
                 if (DateTime.UtcNow - failedTime < _failedCacheDuration)
                 {
                     _logger.LogTrace($"Skipping cached failed image for app {appId}");
-                    return NotFound(new { error = $"Game image not available for app {appId}" });
+                    return NotFound(new GameImageErrorResponse { Error = $"Game image not available for app {appId}" });
                 }
                 else
                 {
@@ -96,22 +97,17 @@ public class GameImagesController : ControllerBase
             // Image fetch failed - cache this failure
             _failedImageCache.TryAdd(appId, DateTime.UtcNow);
 
-            return NotFound(new { error = $"Steam header image not available for app {appId}" });
+            return NotFound(new GameImageErrorResponse { Error = $"Steam header image not available for app {appId}" });
         }
         catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
         {
             _logger.LogWarning($"Timeout fetching Steam header image for app {appId}");
             _failedImageCache.TryAdd(appId, DateTime.UtcNow);
-            return StatusCode(504, new { error = "Request timeout fetching game header image" });
+            return StatusCode(504, new GameImageErrorResponse { Error = "Request timeout fetching game header image" });
         }
         catch (TaskCanceledException)
         {
-            return StatusCode(499, new { error = "Request cancelled" });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, $"Error proxying Steam header image for app {appId}");
-            return StatusCode(500, new { error = "Failed to fetch game header image" });
+            return StatusCode(499, new GameImageErrorResponse { Error = "Request cancelled" });
         }
     }
 

@@ -1,3 +1,4 @@
+using LancacheManager.Application.DTOs;
 using LancacheManager.Application.Services;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
@@ -31,26 +32,18 @@ public class SteamApiKeysController : ControllerBase
     [HttpGet("status")]
     public async Task<IActionResult> GetStatus([FromQuery] bool forceRefresh = false)
     {
-        try
-        {
-            var status = await _steamWebApiService.GetApiStatusAsync(forceRefresh);
+        var status = await _steamWebApiService.GetApiStatusAsync(forceRefresh);
 
-            return Ok(new
-            {
-                version = status.Version.ToString(),
-                isV2Available = status.IsV2Available,
-                isV1Available = status.IsV1Available,
-                hasApiKey = status.HasApiKey,
-                isFullyOperational = status.IsFullyOperational,
-                message = status.Message,
-                lastChecked = status.LastChecked
-            });
-        }
-        catch (Exception ex)
+        return Ok(new SteamApiStatusResponse
         {
-            _logger.LogError(ex, "Error getting Steam Web API status");
-            return StatusCode(500, new { error = "Failed to get Steam Web API status", details = ex.Message });
-        }
+            Version = status.Version.ToString(),
+            IsV2Available = status.IsV2Available,
+            IsV1Available = status.IsV1Available,
+            HasApiKey = status.HasApiKey,
+            IsFullyOperational = status.IsFullyOperational,
+            Message = status.Message,
+            LastChecked = status.LastChecked
+        });
     }
 
     /// <summary>
@@ -62,36 +55,28 @@ public class SteamApiKeysController : ControllerBase
     [RequireAuth]
     public async Task<IActionResult> TestApiKey([FromBody] TestApiKeyRequest request)
     {
-        try
+        if (string.IsNullOrWhiteSpace(request.ApiKey))
         {
-            if (string.IsNullOrWhiteSpace(request.ApiKey))
-            {
-                return BadRequest(new { error = "API key is required" });
-            }
-
-            var isValid = await _steamWebApiService.TestApiKeyAsync(request.ApiKey);
-
-            if (isValid)
-            {
-                return Ok(new
-                {
-                    valid = true,
-                    message = "Steam Web API key is valid and working"
-                });
-            }
-            else
-            {
-                return Ok(new
-                {
-                    valid = false,
-                    message = "Steam Web API key is invalid or Steam Web API V1 is unavailable"
-                });
-            }
+            return BadRequest(new ErrorResponse { Error = "API key is required" });
         }
-        catch (Exception ex)
+
+        var isValid = await _steamWebApiService.TestApiKeyAsync(request.ApiKey);
+
+        if (isValid)
         {
-            _logger.LogError(ex, "Error testing Steam Web API key");
-            return StatusCode(500, new { error = "Failed to test API key", details = ex.Message });
+            return Ok(new ApiKeyTestResponse
+            {
+                Valid = true,
+                Message = "Steam Web API key is valid and working"
+            });
+        }
+        else
+        {
+            return Ok(new ApiKeyTestResponse
+            {
+                Valid = false,
+                Message = "Steam Web API key is invalid or Steam Web API V1 is unavailable"
+            });
         }
     }
 
@@ -104,41 +89,33 @@ public class SteamApiKeysController : ControllerBase
     [RequireAuth]
     public async Task<IActionResult> SaveApiKey([FromBody] SaveApiKeyRequest request)
     {
-        try
+        if (string.IsNullOrWhiteSpace(request.ApiKey))
         {
-            if (string.IsNullOrWhiteSpace(request.ApiKey))
+            return BadRequest(new ErrorResponse { Error = "API key is required" });
+        }
+
+        // Test the key first
+        var isValid = await _steamWebApiService.TestApiKeyAsync(request.ApiKey);
+
+        if (!isValid)
+        {
+            return BadRequest(new ErrorResponse
             {
-                return BadRequest(new { error = "API key is required" });
-            }
-
-            // Test the key first
-            var isValid = await _steamWebApiService.TestApiKeyAsync(request.ApiKey);
-
-            if (!isValid)
-            {
-                return BadRequest(new
-                {
-                    error = "Invalid API key",
-                    message = "The provided API key is invalid or Steam Web API V1 is unavailable. Please verify your key at https://steamcommunity.com/dev/apikey"
-                });
-            }
-
-            // Save the key
-            _steamWebApiService.SaveApiKey(request.ApiKey);
-
-            _logger.LogInformation("Steam Web API key saved successfully");
-
-            return Created("/api/steam-api-keys/status", new
-            {
-                message = "Steam Web API key saved successfully",
-                encrypted = true
+                Error = "Invalid API key",
+                Message = "The provided API key is invalid or Steam Web API V1 is unavailable. Please verify your key at https://steamcommunity.com/dev/apikey"
             });
         }
-        catch (Exception ex)
+
+        // Save the key
+        _steamWebApiService.SaveApiKey(request.ApiKey);
+
+        _logger.LogInformation("Steam Web API key saved successfully");
+
+        return Created("/api/steam-api-keys/status", new ApiKeySaveResponse
         {
-            _logger.LogError(ex, "Error saving Steam Web API key");
-            return StatusCode(500, new { error = "Failed to save API key", details = ex.Message });
-        }
+            Message = "Steam Web API key saved successfully",
+            Encrypted = true
+        });
     }
 
     /// <summary>
@@ -149,22 +126,14 @@ public class SteamApiKeysController : ControllerBase
     [RequireAuth]
     public IActionResult RemoveApiKey()
     {
-        try
-        {
-            _steamWebApiService.RemoveApiKey();
+        _steamWebApiService.RemoveApiKey();
 
-            _logger.LogInformation("Steam Web API key removed successfully");
+        _logger.LogInformation("Steam Web API key removed successfully");
 
-            return Ok(new
-            {
-                message = "Steam Web API key removed successfully"
-            });
-        }
-        catch (Exception ex)
+        return Ok(new ApiKeyRemoveResponse
         {
-            _logger.LogError(ex, "Error removing Steam Web API key");
-            return StatusCode(500, new { error = "Failed to remove API key", details = ex.Message });
-        }
+            Message = "Steam Web API key removed successfully"
+        });
     }
 
     /// <summary>
@@ -175,33 +144,25 @@ public class SteamApiKeysController : ControllerBase
     [RequireAuth]
     public async Task<IActionResult> GetAppList([FromQuery] int? limit = 100)
     {
-        try
+        var apps = await _steamWebApiService.GetAppListAsync();
+
+        if (apps == null)
         {
-            var apps = await _steamWebApiService.GetAppListAsync();
-
-            if (apps == null)
+            return BadRequest(new ErrorResponse
             {
-                return BadRequest(new
-                {
-                    error = "Failed to get app list",
-                    message = "Steam Web API is not operational. Check status endpoint for details."
-                });
-            }
-
-            var limitedApps = apps.Take(limit ?? 100).ToList();
-
-            return Ok(new
-            {
-                total = apps.Count,
-                returned = limitedApps.Count,
-                apps = limitedApps
+                Error = "Failed to get app list",
+                Message = "Steam Web API is not operational. Check status endpoint for details."
             });
         }
-        catch (Exception ex)
+
+        var limitedApps = apps.Take(limit ?? 100).ToList();
+
+        return Ok(new AppListResponse
         {
-            _logger.LogError(ex, "Error getting app list from Steam Web API");
-            return StatusCode(500, new { error = "Failed to get app list", details = ex.Message });
-        }
+            Total = apps.Count,
+            Returned = limitedApps.Count,
+            Apps = limitedApps.Cast<object>().ToList()
+        });
     }
 
     public class TestApiKeyRequest

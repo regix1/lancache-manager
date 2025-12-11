@@ -1,3 +1,4 @@
+using LancacheManager.Application.DTOs;
 using LancacheManager.Application.Services;
 using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Infrastructure.Services;
@@ -49,30 +50,20 @@ public class SystemController : ControllerBase
     [HttpGet("config")]
     public IActionResult GetConfig()
     {
-        try
+        return Ok(new SystemConfigResponse
         {
-            var config = new
-            {
-                cachePath = _pathResolver.GetCacheDirectory(),
-                logsPath = _pathResolver.GetLogsDirectory(),
-                dataPath = _pathResolver.GetDataDirectory(),
-                cacheDeleteMode = _cacheClearingService.GetDeleteMode(),
-                steamAuthMode = _stateService.GetSteamAuthMode(),
-                // Check TZ environment variable first (Docker standard), then TimeZone config, default to UTC
-                timeZone = _configuration.GetValue<string>("TZ")
-                          ?? _configuration.GetValue<string>("TimeZone")
-                          ?? "UTC",
-                cacheWritable = _pathResolver.IsCacheDirectoryWritable(),
-                logsWritable = _pathResolver.IsLogsDirectoryWritable()
-            };
-
-            return Ok(config);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting system config");
-            return StatusCode(500, new { error = "Failed to get system config", details = ex.Message });
-        }
+            CachePath = _pathResolver.GetCacheDirectory(),
+            LogsPath = _pathResolver.GetLogsDirectory(),
+            DataPath = _pathResolver.GetDataDirectory(),
+            CacheDeleteMode = _cacheClearingService.GetDeleteMode(),
+            SteamAuthMode = _stateService.GetSteamAuthMode(),
+            // Check TZ environment variable first (Docker standard), then TimeZone config, default to UTC
+            TimeZone = _configuration.GetValue<string>("TZ")
+                      ?? _configuration.GetValue<string>("TimeZone")
+                      ?? "UTC",
+            CacheWritable = _pathResolver.IsCacheDirectoryWritable(),
+            LogsWritable = _pathResolver.IsLogsDirectoryWritable()
+        });
     }
 
     /// <summary>
@@ -81,23 +72,13 @@ public class SystemController : ControllerBase
     [HttpGet("state")]
     public IActionResult GetState()
     {
-        try
+        return Ok(new SystemStateResponse
         {
-            var state = new
-            {
-                setupCompleted = _stateService.GetSetupCompleted(),
-                hasDataLoaded = _stateService.HasDataLoaded(),
-                steamAuthMode = _stateService.GetSteamAuthMode(),
-                cacheDeleteMode = _cacheClearingService.GetDeleteMode()
-            };
-
-            return Ok(state);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting system state");
-            return StatusCode(500, new { error = "Failed to get system state", details = ex.Message });
-        }
+            SetupCompleted = _stateService.GetSetupCompleted(),
+            HasDataLoaded = _stateService.HasDataLoaded(),
+            SteamAuthMode = _stateService.GetSteamAuthMode(),
+            CacheDeleteMode = _cacheClearingService.GetDeleteMode()
+        });
     }
 
     /// <summary>
@@ -106,40 +87,32 @@ public class SystemController : ControllerBase
     [HttpGet("permissions")]
     public IActionResult GetPermissions()
     {
-        try
+        var cachePath = _pathResolver.GetCacheDirectory();
+        var logPath = _pathResolver.GetLogsDirectory();
+
+        var cacheWritable = _pathResolver.IsCacheDirectoryWritable();
+        var logsWritable = _pathResolver.IsLogsDirectoryWritable();
+        var dockerSocketAvailable = _pathResolver.IsDockerSocketAvailable();
+
+        return Ok(new SystemPermissionsResponse
         {
-            var cachePath = _pathResolver.GetCacheDirectory();
-            var logPath = _pathResolver.GetLogsDirectory();
-
-            var cacheWritable = _pathResolver.IsCacheDirectoryWritable();
-            var logsWritable = _pathResolver.IsLogsDirectoryWritable();
-            var dockerSocketAvailable = _pathResolver.IsDockerSocketAvailable();
-
-            return Ok(new
+            Cache = new DirectoryPermission
             {
-                cache = new
-                {
-                    path = cachePath,
-                    writable = cacheWritable,
-                    readOnly = !cacheWritable
-                },
-                logs = new
-                {
-                    path = logPath,
-                    writable = logsWritable,
-                    readOnly = !logsWritable
-                },
-                dockerSocket = new
-                {
-                    available = dockerSocketAvailable
-                }
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error checking directory permissions");
-            return StatusCode(500, new { error = "Failed to check directory permissions", details = ex.Message });
-        }
+                Path = cachePath,
+                Writable = cacheWritable,
+                ReadOnly = !cacheWritable
+            },
+            Logs = new DirectoryPermission
+            {
+                Path = logPath,
+                Writable = logsWritable,
+                ReadOnly = !logsWritable
+            },
+            DockerSocket = new DockerSocketPermission
+            {
+                Available = dockerSocketAvailable
+            }
+        });
     }
 
     /// <summary>
@@ -148,23 +121,15 @@ public class SystemController : ControllerBase
     [HttpGet("setup")]
     public IActionResult GetSetupStatus()
     {
-        try
-        {
-            var isCompleted = _stateService.GetSetupCompleted();
-            var hasProcessedLogs = _stateService.GetHasProcessedLogs();
+        var isCompleted = _stateService.GetSetupCompleted();
+        var hasProcessedLogs = _stateService.GetHasProcessedLogs();
 
-            return Ok(new
-            {
-                isCompleted,
-                hasProcessedLogs,
-                setupCompleted = isCompleted // For backward compatibility
-            });
-        }
-        catch (Exception ex)
+        return Ok(new SetupStatusResponse
         {
-            _logger.LogError(ex, "Error getting setup status");
-            return StatusCode(500, new { error = "Failed to get setup status", details = ex.Message });
-        }
+            IsCompleted = isCompleted,
+            HasProcessedLogs = hasProcessedLogs,
+            SetupCompleted = isCompleted // For backward compatibility
+        });
     }
 
     /// <summary>
@@ -176,27 +141,19 @@ public class SystemController : ControllerBase
     [RequireAuth]
     public IActionResult UpdateSetupStatus([FromBody] UpdateSetupRequest request)
     {
-        try
+        if (request.Completed.HasValue)
         {
-            if (request.Completed.HasValue)
+            _stateService.SetSetupCompleted(request.Completed.Value);
+            _logger.LogInformation("Setup status updated: {Completed}", request.Completed.Value);
+
+            return Ok(new SetupUpdateResponse
             {
-                _stateService.SetSetupCompleted(request.Completed.Value);
-                _logger.LogInformation("Setup status updated: {Completed}", request.Completed.Value);
-
-                return Ok(new
-                {
-                    message = "Setup status updated",
-                    setupCompleted = request.Completed.Value
-                });
-            }
-
-            return BadRequest(new { error = "No update provided" });
+                Message = "Setup status updated",
+                SetupCompleted = request.Completed.Value
+            });
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error updating setup status");
-            return StatusCode(500, new { error = "Failed to update setup status", details = ex.Message });
-        }
+
+        return BadRequest(new { error = "No update provided" });
     }
 
     /// <summary>
@@ -205,16 +162,8 @@ public class SystemController : ControllerBase
     [HttpGet("rsync/available")]
     public IActionResult CheckRsyncAvailable()
     {
-        try
-        {
-            var isAvailable = _cacheClearingService.IsRsyncAvailable();
-            return Ok(new { available = isAvailable });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error checking rsync availability");
-            return StatusCode(500, new { error = "Failed to check rsync availability", details = ex.Message });
-        }
+        var isAvailable = _cacheClearingService.IsRsyncAvailable();
+        return Ok(new RsyncAvailableResponse { Available = isAvailable });
     }
 
     /// <summary>
@@ -225,18 +174,10 @@ public class SystemController : ControllerBase
     [RequireAuth]
     public async Task<IActionResult> MigrateSessions()
     {
-        try
-        {
-            await _sessionMigrationService.MigrateOldSessionsToDatabase();
-            _logger.LogInformation("Session migration completed successfully");
+        await _sessionMigrationService.MigrateOldSessionsToDatabase();
+        _logger.LogInformation("Session migration completed successfully");
 
-            return Ok(new { message = "Session migration completed successfully" });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during session migration");
-            return StatusCode(500, new { error = "Session migration failed", details = ex.Message });
-        }
+        return Ok(MessageResponse.Ok("Session migration completed successfully"));
     }
 
     /// <summary>
@@ -248,26 +189,14 @@ public class SystemController : ControllerBase
     [RequireAuth]
     public IActionResult SetCacheDeleteMode([FromBody] SetCacheDeleteModeRequest request)
     {
-        try
-        {
-            _cacheClearingService.SetDeleteMode(request.DeleteMode);
-            _logger.LogInformation("Cache delete mode updated to: {Mode}", request.DeleteMode);
+        _cacheClearingService.SetDeleteMode(request.DeleteMode);
+        _logger.LogInformation("Cache delete mode updated to: {Mode}", request.DeleteMode);
 
-            return Ok(new
-            {
-                message = "Cache delete mode updated",
-                deleteMode = request.DeleteMode
-            });
-        }
-        catch (ArgumentException ex)
+        return Ok(new CacheDeleteModeResponse
         {
-            return BadRequest(new { error = ex.Message });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error setting cache delete mode");
-            return StatusCode(500, new { error = "Failed to set cache delete mode", details = ex.Message });
-        }
+            Message = "Cache delete mode updated",
+            DeleteMode = request.DeleteMode
+        });
     }
 
     /// <summary>
@@ -279,27 +208,19 @@ public class SystemController : ControllerBase
     [RequireAuth]
     public IActionResult SetDepotCrawlInterval([FromBody] SetCrawlIntervalRequest request)
     {
-        try
+        if (request.IntervalHours <= 0)
         {
-            if (request.IntervalHours <= 0)
-            {
-                return BadRequest(new { error = "Interval must be greater than 0" });
-            }
-
-            _steamKit2Service.CrawlIntervalHours = request.IntervalHours;
-            _logger.LogInformation("PICS crawl interval set to {Hours} hours", request.IntervalHours);
-
-            return Ok(new
-            {
-                message = "Crawl interval updated",
-                intervalHours = request.IntervalHours
-            });
+            return BadRequest(new { error = "Interval must be greater than 0" });
         }
-        catch (Exception ex)
+
+        _steamKit2Service.CrawlIntervalHours = request.IntervalHours;
+        _logger.LogInformation("PICS crawl interval set to {Hours} hours", request.IntervalHours);
+
+        return Ok(new CrawlIntervalResponse
         {
-            _logger.LogError(ex, "Error setting crawl interval");
-            return StatusCode(500, new { error = "Failed to set crawl interval", details = ex.Message });
-        }
+            Message = "Crawl interval updated",
+            IntervalHours = request.IntervalHours
+        });
     }
 
     /// <summary>
@@ -311,33 +232,25 @@ public class SystemController : ControllerBase
     [RequireAuth]
     public IActionResult SetDepotScanMode([FromBody] SetScanModeRequest request)
     {
-        try
+        if (string.IsNullOrWhiteSpace(request.Mode))
         {
-            if (string.IsNullOrWhiteSpace(request.Mode))
-            {
-                return BadRequest(new { error = "Scan mode is required" });
-            }
-
-            var validModes = new[] { "full", "incremental" };
-            if (!validModes.Contains(request.Mode.ToLowerInvariant()))
-            {
-                return BadRequest(new { error = "Invalid scan mode. Must be 'full' or 'incremental'" });
-            }
-
-            _steamKit2Service.CrawlIncrementalMode = request.Mode.ToLowerInvariant() == "incremental";
-            _logger.LogInformation("PICS scan mode set to: {Mode}", request.Mode);
-
-            return Ok(new
-            {
-                message = "Scan mode updated",
-                mode = request.Mode.ToLowerInvariant()
-            });
+            return BadRequest(new { error = "Scan mode is required" });
         }
-        catch (Exception ex)
+
+        var validModes = new[] { "full", "incremental" };
+        if (!validModes.Contains(request.Mode.ToLowerInvariant()))
         {
-            _logger.LogError(ex, "Error setting scan mode");
-            return StatusCode(500, new { error = "Failed to set scan mode", details = ex.Message });
+            return BadRequest(new { error = "Invalid scan mode. Must be 'full' or 'incremental'" });
         }
+
+        _steamKit2Service.CrawlIncrementalMode = request.Mode.ToLowerInvariant() == "incremental";
+        _logger.LogInformation("PICS scan mode set to: {Mode}", request.Mode);
+
+        return Ok(new ScanModeResponse
+        {
+            Message = "Scan mode updated",
+            Mode = request.Mode.ToLowerInvariant()
+        });
     }
 
     public class UpdateSetupRequest
