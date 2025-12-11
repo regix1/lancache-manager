@@ -1,5 +1,8 @@
 /// <reference types="vite/client" />
 
+// Version injected from VERSION file at build time
+declare const __APP_VERSION__: string;
+
 interface ImportMetaEnv {
   readonly VITE_API_URL: string;
   // more env variables...

@@ -1,9 +1,12 @@
 {
   "name": "lancache-manager",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.8.1.1",
   "type": "module",
   "scripts": {
+    "sync-version": "node -e \"const fs=require('fs');const pkg=require('./package.json');pkg.version=fs.readFileSync('../VERSION','utf-8').trim();fs.writeFileSync('./package.json',JSON.stringify(pkg,null,2)+'\\n')\"",
+    "predev": "npm run sync-version",
+    "prebuild": "npm run sync-version",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
