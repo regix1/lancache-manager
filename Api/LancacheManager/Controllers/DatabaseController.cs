@@ -91,12 +91,25 @@ public class DatabaseController : ControllerBase
 
     /// <summary>
     /// GET /api/database/reset-status - Get status of database reset operation
+    /// Checks both Rust-based reset service and C# DatabaseRepository reset operations
     /// </summary>
     [HttpGet("reset-status")]
     public IActionResult GetDatabaseResetStatus()
     {
         try
         {
+            // Check C# DatabaseRepository reset operations first
+            if (_dbService.IsResetOperationRunning)
+            {
+                return Ok(new
+                {
+                    isProcessing = true,
+                    status = "running",
+                    message = "Database reset in progress (selective tables)"
+                });
+            }
+
+            // Fall back to Rust-based reset service status
             var status = _rustDatabaseResetService.GetDatabaseResetStatus();
             return Ok(status);
         }

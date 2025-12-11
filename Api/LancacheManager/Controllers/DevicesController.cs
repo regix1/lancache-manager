@@ -1,6 +1,7 @@
 using LancacheManager.Security;
 using LancacheManager.Data;
 using LancacheManager.Models;
+using LancacheManager.Infrastructure.Repositories.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -16,17 +17,20 @@ public class DevicesController : ControllerBase
     private readonly DeviceAuthService _deviceAuthService;
     private readonly GuestSessionService _guestSessionService;
     private readonly AppDbContext _dbContext;
+    private readonly IDatabaseRepository _databaseRepository;
     private readonly ILogger<DevicesController> _logger;
 
     public DevicesController(
         DeviceAuthService deviceAuthService,
         GuestSessionService guestSessionService,
         AppDbContext dbContext,
+        IDatabaseRepository databaseRepository,
         ILogger<DevicesController> logger)
     {
         _deviceAuthService = deviceAuthService;
         _guestSessionService = guestSessionService;
         _dbContext = dbContext;
+        _databaseRepository = databaseRepository;
         _logger = logger;
     }
 
@@ -62,6 +66,18 @@ public class DevicesController : ControllerBase
     [HttpPost]
     public IActionResult RegisterDevice([FromBody] RegisterDeviceRequest request)
     {
+        // Block authentication during database reset operations
+        if (_databaseRepository.IsResetOperationRunning)
+        {
+            _logger.LogWarning("Device registration rejected - database reset in progress");
+            return StatusCode(503, new
+            {
+                error = "Service temporarily unavailable",
+                message = "Database reset in progress. Please wait and try again.",
+                retryAfter = 30
+            });
+        }
+
         try
         {
             var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();

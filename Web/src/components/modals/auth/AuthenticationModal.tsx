@@ -1,8 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { Key, Eye, Loader2, Shield } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Key, Eye, Loader2, Shield, Database, CheckCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import authService from '@services/auth.service';
 import { useGuestConfig } from '@contexts/GuestConfigContext';
+
+interface DatabaseResetStatus {
+  isResetting: boolean;
+  percentComplete: number;
+  message: string;
+  status: string;
+}
 
 interface AuthenticationModalProps {
   onAuthComplete: () => void;
@@ -26,6 +33,15 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   const [dataAvailable, setDataAvailable] = useState(false);
   const [checkingDataAvailability, setCheckingDataAvailability] = useState(false);
 
+  // Database reset status
+  const [resetStatus, setResetStatus] = useState<DatabaseResetStatus>({
+    isResetting: false,
+    percentComplete: 0,
+    message: '',
+    status: ''
+  });
+  const [resetJustCompleted, setResetJustCompleted] = useState(false);
+
   // Clear auth state immediately when modal opens to prevent race conditions
   useEffect(() => {
     console.log('[AuthModal] Clearing stale auth state on mount');
@@ -39,6 +55,45 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
       checkDataAvailability();
     }
   }, [allowGuestMode]);
+
+  // Check database reset status
+  const checkResetStatus = useCallback(async () => {
+    try {
+      const response = await fetch('/api/database/reset-status');
+      if (response.ok) {
+        const data = await response.json();
+        const isResetting = data.isProcessing || data.isResetting || false;
+        const wasResetting = resetStatus.isResetting;
+
+        setResetStatus({
+          isResetting,
+          percentComplete: data.percentComplete || 0,
+          message: data.message || data.statusMessage || '',
+          status: data.status || ''
+        });
+
+        // If reset just completed, show success message briefly
+        if (wasResetting && !isResetting) {
+          setResetJustCompleted(true);
+          setTimeout(() => setResetJustCompleted(false), 5000);
+        }
+      }
+    } catch (error) {
+      // Silently fail - server might not be ready yet
+      console.debug('[AuthModal] Failed to check reset status:', error);
+    }
+  }, [resetStatus.isResetting]);
+
+  // Poll for database reset status
+  useEffect(() => {
+    // Check immediately on mount
+    checkResetStatus();
+
+    // Poll every 1 second while reset might be in progress
+    const interval = setInterval(checkResetStatus, 1000);
+
+    return () => clearInterval(interval);
+  }, [checkResetStatus]);
 
   const checkDataAvailability = async () => {
     setCheckingDataAvailability(true);
@@ -136,6 +191,84 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
 
         {/* Content */}
         <div className="p-8">
+          {/* Database Reset Status Banner */}
+          {(resetStatus.isResetting || resetJustCompleted) && (
+            <div
+              className="mb-6 p-4 rounded-lg border"
+              style={{
+                backgroundColor: resetJustCompleted
+                  ? 'var(--theme-success-bg)'
+                  : 'var(--theme-warning-bg)',
+                borderColor: resetJustCompleted
+                  ? 'var(--theme-success)'
+                  : 'var(--theme-warning)'
+              }}
+            >
+              <div className="flex items-center gap-3">
+                {resetJustCompleted ? (
+                  <CheckCircle
+                    className="w-5 h-5 flex-shrink-0"
+                    style={{ color: 'var(--theme-success)' }}
+                  />
+                ) : (
+                  <Database
+                    className="w-5 h-5 flex-shrink-0 animate-pulse"
+                    style={{ color: 'var(--theme-warning)' }}
+                  />
+                )}
+                <div className="flex-1 min-w-0">
+                  <p
+                    className="font-medium text-sm"
+                    style={{
+                      color: resetJustCompleted
+                        ? 'var(--theme-success-text)'
+                        : 'var(--theme-warning-text)'
+                    }}
+                  >
+                    {resetJustCompleted
+                      ? 'Database Reset Complete'
+                      : 'Database Reset In Progress'}
+                  </p>
+                  <p
+                    className="text-xs mt-1"
+                    style={{
+                      color: resetJustCompleted
+                        ? 'var(--theme-success-text)'
+                        : 'var(--theme-warning-text)',
+                      opacity: 0.9
+                    }}
+                  >
+                    {resetJustCompleted
+                      ? 'You can now log in.'
+                      : resetStatus.message || 'Please wait...'}
+                  </p>
+                  {resetStatus.isResetting && resetStatus.percentComplete > 0 && (
+                    <div className="mt-2">
+                      <div
+                        className="h-1.5 rounded-full overflow-hidden"
+                        style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+                      >
+                        <div
+                          className="h-full rounded-full transition-all duration-300"
+                          style={{
+                            width: `${resetStatus.percentComplete}%`,
+                            backgroundColor: 'var(--theme-warning)'
+                          }}
+                        />
+                      </div>
+                      <p
+                        className="text-xs mt-1 text-right"
+                        style={{ color: 'var(--theme-warning-text)', opacity: 0.8 }}
+                      >
+                        {resetStatus.percentComplete.toFixed(1)}%
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           <p className="text-themed-secondary text-center mb-6">
             {subtitle}
             {allowGuestMode && (
@@ -158,14 +291,14 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && apiKey.trim()) {
+                  if (e.key === 'Enter' && apiKey.trim() && !resetStatus.isResetting) {
                     handleAuthenticate();
                   }
                 }}
-                placeholder="Enter your API key here..."
+                placeholder={resetStatus.isResetting ? 'Please wait for reset to complete...' : 'Enter your API key here...'}
                 className="w-full p-3 text-sm themed-input"
-                disabled={authenticating}
-                autoFocus
+                disabled={authenticating || resetStatus.isResetting}
+                autoFocus={!resetStatus.isResetting}
               />
             </div>
 
@@ -181,10 +314,10 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
                   )
                 }
                 onClick={handleAuthenticate}
-                disabled={authenticating || !apiKey.trim()}
+                disabled={authenticating || !apiKey.trim() || resetStatus.isResetting}
                 fullWidth
               >
-                {authenticating ? 'Authenticating...' : 'Authenticate'}
+                {resetStatus.isResetting ? 'Please Wait...' : authenticating ? 'Authenticating...' : 'Authenticate'}
               </Button>
 
               {/* Only show guest mode divider and button if allowed */}
@@ -206,7 +339,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
                     variant="default"
                     leftSection={<Eye className="w-4 h-4" />}
                     onClick={handleStartGuestMode}
-                    disabled={authenticating || checkingDataAvailability || !dataAvailable}
+                    disabled={authenticating || checkingDataAvailability || !dataAvailable || resetStatus.isResetting}
                     fullWidth
                     title={
                       !dataAvailable

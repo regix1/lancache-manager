@@ -1,6 +1,7 @@
 using LancacheManager.Security;
 using LancacheManager.Data;
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Repositories.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 
@@ -19,19 +20,22 @@ public class SessionsController : ControllerBase
     private readonly ILogger<SessionsController> _logger;
     private readonly IHubContext<DownloadHub> _hubContext;
     private readonly AppDbContext _dbContext;
+    private readonly IDatabaseRepository _databaseRepository;
 
     public SessionsController(
         DeviceAuthService deviceAuthService,
         GuestSessionService guestSessionService,
         ILogger<SessionsController> logger,
         IHubContext<DownloadHub> hubContext,
-        AppDbContext dbContext)
+        AppDbContext dbContext,
+        IDatabaseRepository databaseRepository)
     {
         _deviceAuthService = deviceAuthService;
         _guestSessionService = guestSessionService;
         _logger = logger;
         _hubContext = hubContext;
         _dbContext = dbContext;
+        _databaseRepository = databaseRepository;
     }
 
     /// <summary>
@@ -208,6 +212,18 @@ public class SessionsController : ControllerBase
     [HttpPost]
     public IActionResult CreateSession([FromQuery] string? type, [FromBody] CreateSessionRequest request)
     {
+        // Block session creation during database reset operations
+        if (_databaseRepository.IsResetOperationRunning)
+        {
+            _logger.LogWarning("Guest session creation rejected - database reset in progress");
+            return StatusCode(503, new
+            {
+                error = "Service temporarily unavailable",
+                message = "Database reset in progress. Please wait and try again.",
+                retryAfter = 30
+            });
+        }
+
         try
         {
             // Only support guest session creation via this endpoint
