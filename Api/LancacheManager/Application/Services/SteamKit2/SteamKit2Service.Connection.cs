@@ -12,6 +12,9 @@ public partial class SteamKit2Service
             return;
         }
 
+        // Clear auto-logout flag when starting fresh connection
+        _sessionReplacementAutoLogout = false;
+
         _connectedTcs = new TaskCompletionSource();
         _loggedOnTcs = new TaskCompletionSource();
 
@@ -115,7 +118,8 @@ public partial class SteamKit2Service
 
         // Only reconnect if we're running AND there's an active rebuild
         // This prevents endless reconnection loops after PICS crawls complete
-        if (_isRunning && IsRebuildRunning)
+        // Also skip reconnection if auto-logout due to session replacement just occurred
+        if (_isRunning && IsRebuildRunning && !_sessionReplacementAutoLogout)
         {
             _reconnectAttempt++;
 
@@ -196,6 +200,7 @@ public partial class SteamKit2Service
                 _connectedTcs?.TrySetException(new Exception("Disconnected from Steam"));
             }
             _reconnectAttempt = 0; // Reset when not actively rebuilding
+            _sessionReplacementAutoLogout = false; // Clear auto-logout flag
         }
     }
 
@@ -340,6 +345,9 @@ public partial class SteamKit2Service
             if (currentCount >= MaxSessionReplacedBeforeLogout)
             {
                 _logger.LogError("Steam session has been replaced {Count} times. Auto-logging out to prevent further attempts. User must re-authenticate.", currentCount);
+
+                // Set flag to prevent OnDisconnected from attempting reconnections
+                _sessionReplacementAutoLogout = true;
 
                 // Clear credentials to stop reconnection attempts
                 _stateService.SetSteamRefreshToken(null);

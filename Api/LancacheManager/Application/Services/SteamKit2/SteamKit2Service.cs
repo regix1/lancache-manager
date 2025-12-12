@@ -49,13 +49,14 @@ public partial class SteamKit2Service : IHostedService, IDisposable
 
     // Exponential backoff for reconnection attempts
     private int _reconnectAttempt = 0;
-    private const int MaxReconnectAttempts = 5; // Give up after 5 attempts
+    private const int MaxReconnectAttempts = 2; // Give up after 2 attempts
     private const int MaxReconnectDelaySeconds = 60; // Cap at 60 seconds
 
     // Track session replacement errors to auto-logout after repeated failures
     // Counter is persisted to state.json via _stateService
-    private const int MaxSessionReplacedBeforeLogout = 3; // Auto-logout after 3 session replacements
+    private const int MaxSessionReplacedBeforeLogout = 2; // Auto-logout after 2 session replacements
     private bool _isReconnectingAfterSessionReplaced = false; // Don't reset counter during reconnection
+    private bool _sessionReplacementAutoLogout = false; // Prevent reconnection attempts after auto-logout
 
     // Scheduling for periodic PICS crawls
     private Timer? _periodicTimer;
