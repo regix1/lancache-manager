@@ -4,7 +4,7 @@ using LancacheManager.Infrastructure.Services.Interfaces;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
-namespace LancacheManager.Services;
+namespace LancacheManager.Application.Services;
 
 public class SessionMigrationService
 {

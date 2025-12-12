@@ -33,3 +33,59 @@ export function getServiceColorClass(service: string): string {
       return 'text-[var(--theme-text-secondary)]';
   }
 }
+
+/**
+ * Get inline styles for service badges
+ */
+export function getServiceBadgeStyles(service: string): { backgroundColor: string; color: string } {
+  const serviceLower = service.toLowerCase();
+  switch (serviceLower) {
+    case 'steam':
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-steam)'
+      };
+    case 'epic':
+    case 'epicgames':
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-epic)'
+      };
+    case 'origin':
+    case 'ea':
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-origin)'
+      };
+    case 'blizzard':
+    case 'battle.net':
+    case 'battlenet':
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-blizzard)'
+      };
+    case 'wsus':
+    case 'windows':
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-wsus)'
+      };
+    case 'riot':
+    case 'riotgames':
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-riot)'
+      };
+    case 'xbox':
+    case 'xboxlive':
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-xbox)'
+      };
+    default:
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-text-secondary)'
+      };
+  }
+}

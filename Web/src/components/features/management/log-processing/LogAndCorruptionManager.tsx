@@ -117,11 +117,11 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
   const signalR = useSignalR();
 
   // Derive active operations from notifications (standardized pattern)
-  // Log entry removal: notification ID is 'service_removal-{service}', details.service contains the service name
-  const activeServiceRemovalNotification = notifications.find(
-    n => n.type === 'service_removal' && n.id.startsWith('service_removal-') && n.status === 'running'
+  // Log entry removal: notification ID is 'log_removal-{service}', details.service contains the service name
+  const activeLogRemovalNotification = notifications.find(
+    n => n.type === 'log_removal' && n.id.startsWith('log_removal-') && n.status === 'running'
   );
-  const activeServiceRemoval = activeServiceRemovalNotification?.details?.service as string | null ?? null;
+  const activeLogRemoval = activeLogRemovalNotification?.details?.service as string | null ?? null;
 
   // Corruption removal: notification ID is 'corruption_removal-{service}'
   const activeCorruptionRemovalNotification = notifications.find(
@@ -206,8 +206,8 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
     }
   }, [hasInitiallyLoaded, onReloadRef, onClearOperationRef]);
 
-  // Note: Service removal progress is now reported via SignalR in ManagementTab
-  // activeServiceRemoval is only used for local UI state (button disabling, etc.)
+  // Note: Log removal progress is now reported via SignalR in ManagementTab
+  // activeLogRemoval is only used for local UI state (button disabling, etc.)
 
   const loadAllData = async (forceRefresh = false) => {
     setIsLoading(true);
@@ -401,7 +401,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
           </div>
           <button
             onClick={() => loadAllData(true)}
-            disabled={isLoading || !!activeServiceRemoval || !!removingCorruption}
+            disabled={isLoading || !!activeLogRemoval || !!removingCorruption}
             className="p-2 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center"
             style={{
               color: 'var(--theme-text-muted)',
@@ -409,7 +409,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
             }}
             onMouseEnter={(e) =>
               !isLoading &&
-              !activeServiceRemoval &&
+              !activeLogRemoval &&
               !removingCorruption &&
               (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
             }
@@ -535,10 +535,10 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                           key={service}
                           service={service}
                           count={serviceCounts[service] || 0}
-                          isRemoving={activeServiceRemoval === service || startingServiceRemoval === service}
+                          isRemoving={activeLogRemoval === service || startingServiceRemoval === service}
                           isDisabled={
                             mockMode ||
-                            !!activeServiceRemoval ||
+                            !!activeLogRemoval ||
                             !!removingCorruption ||
                             !!startingServiceRemoval ||
                             !!startingCorruptionRemoval ||
@@ -656,7 +656,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                             variant="subtle"
                             size="sm"
                             className="flex-shrink-0"
-                            disabled={!!removingCorruption || !!activeServiceRemoval}
+                            disabled={!!removingCorruption || !!activeLogRemoval}
                           >
                             {expandedCorruptionService === service ? (
                               <ChevronUp className="w-4 h-4" />
@@ -680,7 +680,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                               disabled={
                                 mockMode ||
                                 !!removingCorruption ||
-                                !!activeServiceRemoval ||
+                                !!activeLogRemoval ||
                                 !!startingCorruptionRemoval ||
                                 !!startingServiceRemoval ||
                                 authMode !== 'authenticated' ||

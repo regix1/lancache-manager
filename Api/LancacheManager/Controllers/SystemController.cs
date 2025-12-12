@@ -5,7 +5,6 @@ using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Security;
-using LancacheManager.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -56,7 +55,7 @@ public class SystemController : ControllerBase
             LogsPath = _pathResolver.GetLogsDirectory(),
             DataPath = _pathResolver.GetDataDirectory(),
             CacheDeleteMode = _cacheClearingService.GetDeleteMode(),
-            SteamAuthMode = _stateService.GetSteamAuthMode(),
+            SteamAuthMode = _stateService.GetSteamAuthMode() ?? string.Empty,
             // Check TZ environment variable first (Docker standard), then TimeZone config, default to UTC
             TimeZone = _configuration.GetValue<string>("TZ")
                       ?? _configuration.GetValue<string>("TimeZone")
@@ -76,7 +75,7 @@ public class SystemController : ControllerBase
         {
             SetupCompleted = _stateService.GetSetupCompleted(),
             HasDataLoaded = _stateService.HasDataLoaded(),
-            SteamAuthMode = _stateService.GetSteamAuthMode(),
+            SteamAuthMode = _stateService.GetSteamAuthMode() ?? string.Empty,
             CacheDeleteMode = _cacheClearingService.GetDeleteMode()
         });
     }
@@ -153,7 +152,7 @@ public class SystemController : ControllerBase
             });
         }
 
-        return BadRequest(new { error = "No update provided" });
+        return BadRequest(new ErrorResponse { Error = "No update provided" });
     }
 
     /// <summary>
@@ -210,7 +209,7 @@ public class SystemController : ControllerBase
     {
         if (request.IntervalHours <= 0)
         {
-            return BadRequest(new { error = "Interval must be greater than 0" });
+            return BadRequest(new ErrorResponse { Error = "Interval must be greater than 0" });
         }
 
         _steamKit2Service.CrawlIntervalHours = request.IntervalHours;
@@ -234,13 +233,13 @@ public class SystemController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(request.Mode))
         {
-            return BadRequest(new { error = "Scan mode is required" });
+            return BadRequest(new ErrorResponse { Error = "Scan mode is required" });
         }
 
         var validModes = new[] { "full", "incremental" };
         if (!validModes.Contains(request.Mode.ToLowerInvariant()))
         {
-            return BadRequest(new { error = "Invalid scan mode. Must be 'full' or 'incremental'" });
+            return BadRequest(new ErrorResponse { Error = "Invalid scan mode. Must be 'full' or 'incremental'" });
         }
 
         _steamKit2Service.CrawlIncrementalMode = request.Mode.ToLowerInvariant() == "incremental";

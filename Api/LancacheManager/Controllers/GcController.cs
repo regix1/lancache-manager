@@ -39,7 +39,7 @@ public class GcController : ControllerBase
     {
         if (!IsGcManagementEnabled())
         {
-            return NotFound(new { error = "Garbage collection management is disabled" });
+            return NotFound(new ErrorResponse { Error = "Garbage collection management is disabled" });
         }
 
         var settings = _gcSettingsService.GetSettings();
@@ -56,17 +56,17 @@ public class GcController : ControllerBase
     {
         if (!IsGcManagementEnabled())
         {
-            return NotFound(new { error = "Garbage collection management is disabled" });
+            return NotFound(new ErrorResponse { Error = "Garbage collection management is disabled" });
         }
 
         if (!Enum.TryParse<GcAggressiveness>(request.Aggressiveness, true, out var aggressiveness))
         {
-            return BadRequest(new { error = "Invalid aggressiveness level" });
+            return BadRequest(new ErrorResponse { Error = "Invalid aggressiveness level" });
         }
 
         if (request.MemoryThresholdMB < 512 || request.MemoryThresholdMB > 32768)
         {
-            return BadRequest(new { error = "Memory threshold must be between 512MB and 32GB" });
+            return BadRequest(new ErrorResponse { Error = "Memory threshold must be between 512MB and 32GB" });
         }
 
         var newSettings = new GcSettings
@@ -91,7 +91,7 @@ public class GcController : ControllerBase
     {
         if (!IsGcManagementEnabled())
         {
-            return NotFound(new { error = "Garbage collection management is disabled" });
+            return NotFound(new ErrorResponse { Error = "Garbage collection management is disabled" });
         }
 
         var now = DateTime.UtcNow;

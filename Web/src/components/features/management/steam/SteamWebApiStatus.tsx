@@ -218,33 +218,7 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
           )}
         </div>
 
-        {/* Warning/Info Banners */}
-        {showWarning && needsApiKey && (
-          <div
-            className="mb-4 p-3 rounded-lg border"
-            style={{
-              backgroundColor: 'var(--theme-warning-bg)',
-              borderColor: 'var(--theme-warning)'
-            }}
-          >
-            <div className="flex items-start gap-3">
-              <AlertCircle
-                className="w-5 h-5 flex-shrink-0 mt-0.5"
-                style={{ color: 'var(--theme-warning)' }}
-              />
-              <div className="flex-1">
-                <p className="font-medium text-sm mb-1" style={{ color: 'var(--theme-warning-text)' }}>
-                  Steam Web API V2 Unavailable
-                </p>
-                <p className="text-xs" style={{ color: 'var(--theme-warning-text)', opacity: 0.9 }}>
-                  The Steam Web API V2 is currently unavailable. To enable full functionality,
-                  please configure a Steam Web API key for V1 fallback.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
+        {/* Warning Banner - Only show for critical errors (both APIs down with key configured) */}
         {showWarning && status?.version === 'BothFailed' && status?.hasApiKey && (
           <div
             className="mb-4 p-3 rounded-lg border"

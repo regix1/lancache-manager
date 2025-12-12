@@ -1,64 +1,13 @@
 import React from 'react';
 import { ChevronRight, ExternalLink, ChevronLeft } from 'lucide-react';
 import { formatBytes, formatPercent, formatRelativeTime } from '@utils/formatters';
+import { getServiceBadgeStyles } from '@utils/serviceColors';
 import { Tooltip } from '@components/ui/Tooltip';
 import { SteamIcon } from '@components/ui/SteamIcon';
+import { useHoldTimer } from '@hooks/useHoldTimer';
 import type { Download, DownloadGroup } from '../../../types';
 
 const API_BASE = '/api';
-
-const getServiceBadgeStyles = (service: string): { backgroundColor: string; color: string } => {
-  const serviceLower = service.toLowerCase();
-  switch (serviceLower) {
-    case 'steam':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-steam)'
-      };
-    case 'epic':
-    case 'epicgames':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-epic)'
-      };
-    case 'origin':
-    case 'ea':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-origin)'
-      };
-    case 'blizzard':
-    case 'battle.net':
-    case 'battlenet':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-blizzard)'
-      };
-    case 'wsus':
-    case 'windows':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-wsus)'
-      };
-    case 'riot':
-    case 'riotgames':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-riot)'
-      };
-    case 'xbox':
-    case 'xboxlive':
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-xbox)'
-      };
-    default:
-      return {
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-text-secondary)'
-      };
-  }
-};
 
 interface CompactViewSectionLabels {
   multipleDownloads: string;
@@ -508,37 +457,13 @@ const CompactView: React.FC<CompactViewProps> = ({
   const labels = { ...DEFAULT_SECTION_LABELS, ...sectionLabels };
   const [imageErrors, setImageErrors] = React.useState<Set<string>>(new Set());
   const [groupPages, setGroupPages] = React.useState<Record<string, number>>({});
-  const holdTimerRef = React.useRef<NodeJS.Timeout | null>(null);
-  const holdTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+  const { startHoldTimer, stopHoldTimer } = useHoldTimer();
 
   const SESSIONS_PER_PAGE = 10;
 
   const handleImageError = (gameAppId: string) => {
     setImageErrors((prev) => new Set(prev).add(gameAppId));
   };
-
-  const stopHoldTimer = React.useCallback(() => {
-    if (holdTimeoutRef.current) {
-      clearTimeout(holdTimeoutRef.current);
-      holdTimeoutRef.current = null;
-    }
-    if (holdTimerRef.current) {
-      clearInterval(holdTimerRef.current);
-      holdTimerRef.current = null;
-    }
-  }, []);
-
-  const startHoldTimer = React.useCallback(
-    (callback: () => void) => {
-      stopHoldTimer();
-      holdTimeoutRef.current = setTimeout(() => {
-        holdTimerRef.current = setInterval(callback, 150);
-      }, 400);
-    },
-    [stopHoldTimer]
-  );
-
-  React.useEffect(() => () => stopHoldTimer(), [stopHoldTimer]);
 
   const renderGroupRow = (group: DownloadGroup) => (
     <GroupRow

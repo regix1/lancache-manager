@@ -49,7 +49,8 @@ const isErrorStatus = (status?: string): boolean => {
 export type NotificationType =
   | 'log_processing'
   | 'cache_clearing'
-  | 'service_removal'
+  | 'log_removal'      // Removing log entries for a service
+  | 'service_removal'  // Removing cache files for a service
   | 'game_removal'
   | 'corruption_removal'
   | 'database_reset'
@@ -386,9 +387,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       scheduleAutoDismiss(fixedNotificationId);
     };
 
-    // Service Log Removal
+    // Log Entry Removal (removing entries from log files)
     const handleLogRemovalProgress = (payload: LogRemovalProgressPayload) => {
-      const notificationId = `service_removal-${payload.service}`;
+      const notificationId = `log_removal-${payload.service}`;
 
       if (payload.status === 'starting' || payload.status === 'removing') {
         // Create message that shows removal count during processing
@@ -423,7 +424,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             const filtered = prev.filter((n) => n.id !== notificationId);
             const newNotification: UnifiedNotification = {
               id: notificationId,
-              type: 'service_removal' as const,
+              type: 'log_removal' as const,
               status: 'running' as const,
               message,
               progress: payload.percentComplete || 0,
@@ -448,25 +449,40 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     const handleLogRemovalComplete = (payload: LogRemovalCompletePayload) => {
-      const notificationId = `service_removal-${payload.service}`;
+      const notificationId = `log_removal-${payload.service}`;
 
       // Clear from localStorage
       localStorage.removeItem('log_removal_notification');
 
-      if (payload.success) {
-        updateNotification(notificationId, {
-          status: 'completed',
-          message:
-            payload.message ||
-            `Successfully removed ${payload.service} log entries (${payload.linesProcessed || 0} lines processed)`,
-          progress: 100
+      // First update progress to 100 while keeping status as 'running' to allow animation to play
+      setNotifications((prev) => {
+        return prev.map((n) => {
+          if (n.id === notificationId) {
+            return {
+              ...n,
+              progress: 100,
+              message: payload.success
+                ? (payload.message || `Successfully removed ${payload.service} log entries (${payload.linesProcessed || 0} lines processed)`)
+                : n.message
+            };
+          }
+          return n;
         });
-      } else {
-        updateNotification(notificationId, {
-          status: 'failed',
-          error: payload.message || 'Removal failed'
-        });
-      }
+      });
+
+      // After animation delay, update status to completed/failed
+      setTimeout(() => {
+        if (payload.success) {
+          updateNotification(notificationId, {
+            status: 'completed'
+          });
+        } else {
+          updateNotification(notificationId, {
+            status: 'failed',
+            error: payload.message || 'Removal failed'
+          });
+        }
+      }, 800); // Match CSS animation duration
     };
 
     // Game Removal Progress - updates existing notification with progress details
@@ -698,7 +714,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       // Clear from localStorage
       localStorage.removeItem('corruption_removal_notification');
 
-      // Use setNotifications to get current state (avoid stale closure)
+      // First update progress to 100 while keeping status as 'running' to allow animation to play
       setNotifications((prev) => {
         const existing = prev.find((n) => n.id === notificationId);
         if (!existing) {
@@ -706,34 +722,45 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           return prev;
         }
 
-        // Update the notification
-        const updated = prev.map((n) => {
+        return prev.map((n) => {
           if (n.id === notificationId) {
-            if (payload.success) {
-              return {
-                ...n,
-                status: 'completed' as const,
-                message: payload.message || `Successfully removed corrupted chunks for ${payload.service}`,
-                progress: 100
-              };
-            } else {
-              return {
-                ...n,
-                status: 'failed' as const,
-                error: payload.error || payload.message || 'Corruption removal failed'
-              };
-            }
+            return {
+              ...n,
+              progress: 100,
+              message: payload.success
+                ? (payload.message || `Successfully removed corrupted chunks for ${payload.service}`)
+                : n.message
+            };
           }
           return n;
         });
-
-        return updated;
       });
 
-      // Schedule auto-dismiss
-      if (payload.success || !payload.success) {
+      // After animation delay, update status to completed/failed
+      setTimeout(() => {
+        setNotifications((prev) => {
+          return prev.map((n) => {
+            if (n.id === notificationId) {
+              if (payload.success) {
+                return {
+                  ...n,
+                  status: 'completed' as const
+                };
+              } else {
+                return {
+                  ...n,
+                  status: 'failed' as const,
+                  error: payload.error || payload.message || 'Corruption removal failed'
+                };
+              }
+            }
+            return n;
+          });
+        });
+
+        // Schedule auto-dismiss
         scheduleAutoDismiss(notificationId);
-      }
+      }, 800); // Match CSS animation duration
     };
 
     // Game Detection Started
@@ -1449,7 +1476,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         // Run all recovery checks in parallel
         await Promise.allSettled([
           recoverLogProcessing(),
-          recoverServiceRemoval(),
+          recoverLogRemoval(),
           recoverDepotMapping(),
           recoverCacheClearing(),
           recoverDatabaseReset(),
@@ -1534,23 +1561,23 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       }
     };
 
-    const recoverServiceRemoval = async () => {
+    const recoverLogRemoval = async () => {
       try {
         const response = await fetch('/api/logs/remove/status');
         if (response.ok) {
           const data = await response.json();
-          const notificationId = `service_removal-${data.service || 'unknown'}`;
+          const notificationId = `log_removal-${data.service || 'unknown'}`;
 
           if (data.isProcessing && data.service) {
             setNotifications((prev) => {
               // Remove any existing log removal notification and add fresh one from backend
-              const filtered = prev.filter((n) => !(n.type === 'service_removal' && n.details?.service === data.service));
+              const filtered = prev.filter((n) => !(n.type === 'log_removal' && n.details?.service === data.service));
 
               return [
                 ...filtered,
                 {
                   id: notificationId,
-                  type: 'service_removal' as NotificationType,
+                  type: 'log_removal' as NotificationType,
                   status: 'running' as NotificationStatus,
                   message: `Removing ${data.service} entries from logs`,
                   progress: data.percentComplete || 0,
@@ -1564,7 +1591,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               ];
             });
 
-            console.log('[NotificationsContext] Recovered service removal notification');
+            console.log('[NotificationsContext] Recovered log removal notification');
           } else {
             // Backend says NOT running - clear any stale state from localStorage
             const savedNotification = localStorage.getItem('log_removal_notification');
@@ -1580,22 +1607,20 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               } catch {
                 // Use default
               }
-              const recoveryNotificationId = `service_removal-${savedService}`;
+              const recoveryNotificationId = `log_removal-${savedService}`;
 
               // Mark any restored notification as completed
               setNotifications((prev) => {
-                // Find any log entry removal notification (has service in details but isn't a cache removal)
                 const existing = prev.find((n) =>
-                  n.type === 'service_removal' &&
-                  n.status === 'running' &&
-                  n.details?.linesProcessed !== undefined
+                  n.type === 'log_removal' &&
+                  n.status === 'running'
                 );
                 if (existing) {
                   return prev.map((n) => {
-                    if (n.type === 'service_removal' && n.status === 'running' && n.details?.linesProcessed !== undefined) {
+                    if (n.type === 'log_removal' && n.status === 'running') {
                       return {
                         ...n,
-                        id: recoveryNotificationId, // Ensure consistent ID
+                        id: recoveryNotificationId,
                         status: 'completed' as NotificationStatus,
                         message: 'Log entry removal completed',
                         progress: 100

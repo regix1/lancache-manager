@@ -19,18 +19,6 @@ public class FileBrowserController : ControllerBase
         _logger = logger;
     }
 
-    /// <summary>
-    /// Model for directory/file information
-    /// </summary>
-    public class FileSystemItem
-    {
-        public string Name { get; set; } = string.Empty;
-        public string Path { get; set; } = string.Empty;
-        public bool IsDirectory { get; set; }
-        public long Size { get; set; }
-        public DateTime LastModified { get; set; }
-        public bool IsAccessible { get; set; } = true;
-    }
 
     /// <summary>
     /// GET /api/filebrowser/list - List contents of a directory
@@ -45,11 +33,11 @@ public class FileBrowserController : ControllerBase
             // If no path provided, return common locations
             if (string.IsNullOrWhiteSpace(path))
             {
-                return Ok(new
+                return Ok(new DirectoryListResponse
                 {
-                    currentPath = "/",
-                    parentPath = (string?)null,
-                    items = GetCommonLocations()
+                    CurrentPath = "/",
+                    ParentPath = null,
+                    Items = GetCommonLocations()
                 });
             }
 
@@ -60,7 +48,7 @@ public class FileBrowserController : ControllerBase
             }
 
             var directoryInfo = new DirectoryInfo(path);
-            var items = new List<FileSystemItem>();
+            var items = new List<FileSystemItemDto>();
 
             // Get directories
             try
@@ -72,7 +60,7 @@ public class FileBrowserController : ControllerBase
                 {
                     try
                     {
-                        items.Add(new FileSystemItem
+                        items.Add(new FileSystemItemDto
                         {
                             Name = dir.Name,
                             Path = dir.FullName,
@@ -83,7 +71,7 @@ public class FileBrowserController : ControllerBase
                     }
                     catch (UnauthorizedAccessException)
                     {
-                        items.Add(new FileSystemItem
+                        items.Add(new FileSystemItemDto
                         {
                             Name = dir.Name,
                             Path = dir.FullName,
@@ -109,7 +97,7 @@ public class FileBrowserController : ControllerBase
                 {
                     try
                     {
-                        items.Add(new FileSystemItem
+                        items.Add(new FileSystemItemDto
                         {
                             Name = file.Name,
                             Path = file.FullName,
@@ -121,7 +109,7 @@ public class FileBrowserController : ControllerBase
                     }
                     catch (UnauthorizedAccessException)
                     {
-                        items.Add(new FileSystemItem
+                        items.Add(new FileSystemItemDto
                         {
                             Name = file.Name,
                             Path = file.FullName,
@@ -145,11 +133,11 @@ public class FileBrowserController : ControllerBase
                 parentPath = directoryInfo.Parent.FullName;
             }
 
-            return Ok(new
+            return Ok(new DirectoryListResponse
             {
-                currentPath = path,
-                parentPath,
-                items
+                CurrentPath = path,
+                ParentPath = parentPath,
+                Items = items
             });
         }
         catch (UnauthorizedAccessException ex)
@@ -162,9 +150,9 @@ public class FileBrowserController : ControllerBase
     /// <summary>
     /// Get common locations where DeveLanCacheUI databases might be located
     /// </summary>
-    private List<FileSystemItem> GetCommonLocations()
+    private List<FileSystemItemDto> GetCommonLocations()
     {
-        var locations = new List<FileSystemItem>();
+        var locations = new List<FileSystemItemDto>();
         var commonPaths = new List<string>();
 
         // Detect OS and add appropriate paths
@@ -206,7 +194,7 @@ public class FileBrowserController : ControllerBase
         try
         {
             var currentDir = Directory.GetCurrentDirectory();
-            locations.Add(new FileSystemItem
+            locations.Add(new FileSystemItemDto
             {
                 Name = "Current Directory",
                 Path = currentDir,
@@ -220,7 +208,7 @@ public class FileBrowserController : ControllerBase
         // Add root
         if (OperatingSystem.IsLinux() || OperatingSystem.IsFreeBSD() || OperatingSystem.IsMacOS())
         {
-            locations.Add(new FileSystemItem
+            locations.Add(new FileSystemItemDto
             {
                 Name = "Root (/)",
                 Path = "/",
@@ -240,7 +228,7 @@ public class FileBrowserController : ControllerBase
 
                 foreach (var drive in drives)
                 {
-                    locations.Add(new FileSystemItem
+                    locations.Add(new FileSystemItemDto
                     {
                         Name = $"{drive.Name} ({drive.VolumeLabel})",
                         Path = drive.RootDirectory.FullName,
@@ -261,7 +249,7 @@ public class FileBrowserController : ControllerBase
                 try
                 {
                     var dirInfo = new DirectoryInfo(path);
-                    locations.Add(new FileSystemItem
+                    locations.Add(new FileSystemItemDto
                     {
                         Name = $"Common: {path}",
                         Path = path,
@@ -272,7 +260,7 @@ public class FileBrowserController : ControllerBase
                 }
                 catch
                 {
-                    locations.Add(new FileSystemItem
+                    locations.Add(new FileSystemItemDto
                     {
                         Name = $"Common: {path}",
                         Path = path,
@@ -307,17 +295,17 @@ public class FileBrowserController : ControllerBase
                 return BadRequest(new ErrorResponse { Error = "Search path does not exist" });
             }
 
-            var results = new List<FileSystemItem>();
+            var results = new List<FileSystemItemDto>();
             var searchPattern = string.IsNullOrWhiteSpace(pattern) ? "*.db" : pattern;
 
             // Search up to 3 levels deep to avoid long searches
             SearchDirectory(searchPath, searchPattern, results, 0, 3);
 
-            return Ok(new
+            return Ok(new FileSearchResponse
             {
-                searchPath,
-                pattern = searchPattern,
-                results = results.OrderBy(r => r.Path).ToList()
+                SearchPath = searchPath,
+                Pattern = searchPattern,
+                Results = results.OrderBy(r => r.Path).ToList()
             });
         }
         catch (UnauthorizedAccessException ex)
@@ -327,7 +315,7 @@ public class FileBrowserController : ControllerBase
         }
     }
 
-    private void SearchDirectory(string path, string pattern, List<FileSystemItem> results, int currentDepth, int maxDepth)
+    private void SearchDirectory(string path, string pattern, List<FileSystemItemDto> results, int currentDepth, int maxDepth)
     {
         if (currentDepth >= maxDepth)
             return;
@@ -340,7 +328,7 @@ public class FileBrowserController : ControllerBase
             var files = dirInfo.GetFiles(pattern);
             foreach (var file in files)
             {
-                results.Add(new FileSystemItem
+                results.Add(new FileSystemItemDto
                 {
                     Name = file.Name,
                     Path = file.FullName,

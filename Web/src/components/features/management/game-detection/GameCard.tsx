@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
+import { formatBytes } from '@utils/formatters';
 import type { GameCacheInfo } from '../../../../types';
 
 interface GameCardProps {
@@ -41,14 +42,6 @@ const GameCard: React.FC<GameCardProps> = ({
 }) => {
   const [showAllPaths, setShowAllPaths] = useState(false);
   const [showAllUrls, setShowAllUrls] = useState(false);
-
-  const formatBytes = (bytes: number): string => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
-  };
 
   return (
     <div

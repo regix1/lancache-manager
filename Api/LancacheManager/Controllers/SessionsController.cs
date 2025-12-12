@@ -187,7 +187,7 @@ public class SessionsController : ControllerBase
             });
         }
 
-        return NotFound(new { error = "Session not found" });
+        return NotFound(new ErrorResponse { Error = "Session not found" });
     }
 
     /// <summary>
@@ -195,7 +195,7 @@ public class SessionsController : ControllerBase
     /// RESTful: POST is proper method for creating resources
     /// </summary>
     [HttpPost]
-    public IActionResult CreateSession([FromQuery] string? type, [FromBody] CreateSessionRequest request)
+    public async Task<IActionResult> CreateSession([FromQuery] string? type, [FromBody] CreateSessionRequest request)
     {
         // Block session creation during database reset operations
         if (_databaseRepository.IsResetOperationRunning)
@@ -213,7 +213,7 @@ public class SessionsController : ControllerBase
         // Authenticated sessions are created via POST /api/devices
         if (type != "guest")
         {
-            return BadRequest(new { error = "Only guest session creation is supported. Use POST /api/devices for authenticated sessions." });
+            return BadRequest(new ErrorResponse { Error = "Only guest session creation is supported. Use POST /api/devices for authenticated sessions." });
         }
 
         var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
@@ -231,6 +231,13 @@ public class SessionsController : ControllerBase
         // Ensure session data exists so session ID is generated
         HttpContext.Session.SetString("DeviceId", session.DeviceId);
         HttpContext.Session.SetString("AuthMode", "guest");
+
+        // Broadcast session creation via SignalR for real-time updates
+        await _hubContext.Clients.All.SendAsync("UserSessionCreated", new
+        {
+            deviceId = session.DeviceId,
+            sessionType = "guest"
+        });
 
         return Created($"/api/sessions/{session.DeviceId}", new SessionCreateResponse
         {
@@ -253,7 +260,7 @@ public class SessionsController : ControllerBase
         var deviceId = Request.Headers["X-Device-Id"].FirstOrDefault();
         if (string.IsNullOrEmpty(deviceId))
         {
-            return BadRequest(new { error = "X-Device-Id header is required" });
+            return BadRequest(new ErrorResponse { Error = "X-Device-Id header is required" });
         }
 
         // Try updating authenticated device first
@@ -292,7 +299,7 @@ public class SessionsController : ControllerBase
         var deviceId = Request.Headers["X-Device-Id"].FirstOrDefault();
         if (string.IsNullOrEmpty(deviceId))
         {
-            return BadRequest(new { error = "X-Device-Id header is required" });
+            return BadRequest(new ErrorResponse { Error = "X-Device-Id header is required" });
         }
 
         // Check if it's an authenticated device
@@ -315,7 +322,7 @@ public class SessionsController : ControllerBase
                 _logger.LogInformation("Device session deleted: {DeviceId}", deviceId);
                 return Ok(new SessionDeleteResponse { Success = true, Message = "Session deleted successfully" });
             }
-            return BadRequest(new { error = message });
+            return BadRequest(new ErrorResponse { Error = message });
         }
 
         // Check if it's a guest session
@@ -380,7 +387,7 @@ public class SessionsController : ControllerBase
                 _logger.LogInformation("Device session deleted: {DeviceId}", id);
                 return Ok(new SessionDeleteResponse { Success = true, Message = "Session deleted successfully" });
             }
-            return BadRequest(new { error = message });
+            return BadRequest(new ErrorResponse { Error = message });
         }
 
         // Check if it's a guest session
@@ -419,7 +426,7 @@ public class SessionsController : ControllerBase
             }
         }
 
-        return NotFound(new { error = "Session not found" });
+        return NotFound(new ErrorResponse { Error = "Session not found" });
     }
 
     public class CreateSessionRequest

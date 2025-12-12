@@ -13,5 +13,4 @@ export { default as EditThemeModal } from './theme/EditThemeModal';
 export { DeleteConfirmModal } from './theme/DeleteConfirmModal';
 
 // Cache modals
-export { default as GameRemovalModal } from './cache/GameRemovalModal';
-export { default as ServiceRemovalModal } from './cache/ServiceRemovalModal';
+export { default as CacheRemovalModal } from './cache/CacheRemovalModal';

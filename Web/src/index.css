@@ -1421,6 +1421,17 @@
   }
 }
 
+@keyframes progressFill {
+  from {
+    width: 0%;
+  }
+}
+
+/* Progress bar animation class */
+.progress-bar-animate {
+  animation: progressFill 0.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
 /* Chart container animations */
 .chart-animate-in {
   animation: scaleIn 0.6s cubic-bezier(0.4, 0, 0.2, 1);

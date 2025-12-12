@@ -1,9 +1,11 @@
 using LancacheManager.Application.DTOs;
 using LancacheManager.Data;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Repositories.Interfaces;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Controllers;
 
@@ -20,19 +22,22 @@ public class DevicesController : ControllerBase
     private readonly AppDbContext _dbContext;
     private readonly IDatabaseRepository _databaseRepository;
     private readonly ILogger<DevicesController> _logger;
+    private readonly IHubContext<DownloadHub> _hubContext;
 
     public DevicesController(
         DeviceAuthService deviceAuthService,
         GuestSessionService guestSessionService,
         AppDbContext dbContext,
         IDatabaseRepository databaseRepository,
-        ILogger<DevicesController> logger)
+        ILogger<DevicesController> logger,
+        IHubContext<DownloadHub> hubContext)
     {
         _deviceAuthService = deviceAuthService;
         _guestSessionService = guestSessionService;
         _dbContext = dbContext;
         _databaseRepository = databaseRepository;
         _logger = logger;
+        _hubContext = hubContext;
     }
 
     /// <summary>
@@ -57,7 +62,7 @@ public class DevicesController : ControllerBase
     /// Request body: { "deviceId": "...", "apiKey": "...", "deviceName": "..." }
     /// </summary>
     [HttpPost]
-    public IActionResult RegisterDevice([FromBody] RegisterDeviceRequest request)
+    public async Task<IActionResult> RegisterDevice([FromBody] RegisterDeviceRequest request)
     {
         // Block authentication during database reset operations
         if (_databaseRepository.IsResetOperationRunning)
@@ -163,6 +168,13 @@ public class DevicesController : ControllerBase
                     _dbContext.SaveChanges();
                     _logger.LogInformation("Created UserSession for authenticated device {DeviceId}", request.DeviceId);
                 }
+
+                // Broadcast session creation via SignalR for real-time updates
+                await _hubContext.Clients.All.SendAsync("UserSessionCreated", new
+                {
+                    deviceId = request.DeviceId,
+                    sessionType = "authenticated"
+                });
             }
             catch (Exception ex)
             {

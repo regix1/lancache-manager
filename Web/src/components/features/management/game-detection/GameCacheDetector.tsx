@@ -10,8 +10,7 @@ import { useNotifications } from '@contexts/NotificationsContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import GamesList from './GamesList';
 import ServicesList from './ServicesList';
-import GameRemovalModal from '@components/modals/cache/GameRemovalModal';
-import ServiceRemovalModal from '@components/modals/cache/ServiceRemovalModal';
+import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
 import type { GameCacheInfo, ServiceCacheInfo } from '../../../../types';
 
 interface GameCacheDetectorProps {
@@ -782,15 +781,15 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       </Card>
 
       {/* Game Removal Confirmation Modal */}
-      <GameRemovalModal
-        game={gameToRemove}
+      <CacheRemovalModal
+        target={gameToRemove ? { type: 'game', data: gameToRemove } : null}
         onClose={() => setGameToRemove(null)}
         onConfirm={confirmRemoval}
       />
 
       {/* Service Removal Confirmation Modal */}
-      <ServiceRemovalModal
-        service={serviceToRemove}
+      <CacheRemovalModal
+        target={serviceToRemove ? { type: 'service', data: serviceToRemove } : null}
         onClose={() => setServiceToRemove(null)}
         onConfirm={confirmServiceRemoval}
       />

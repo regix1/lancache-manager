@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 
-namespace LancacheManager.Services;
+namespace LancacheManager.Application.Services;
 
 public class UserPreferencesService
 {

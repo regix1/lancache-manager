@@ -1,3 +1,4 @@
+using LancacheManager.Application.DTOs;
 using LancacheManager.Infrastructure.Services.Interfaces;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
@@ -54,32 +55,32 @@ public class MemoryController : ControllerBase
         // Get total system memory
         var totalSystemMemoryBytes = gcMemoryInfo.TotalAvailableMemoryBytes;
 
-        var stats = new
+        var stats = new MemoryStatsResponse
         {
-            timestamp = DateTime.UtcNow,
+            Timestamp = DateTime.UtcNow,
             // System Memory
-            totalSystemMemoryMB = totalSystemMemoryBytes / 1024.0 / 1024.0,
-            totalSystemMemoryGB = totalSystemMemoryBytes / 1024.0 / 1024.0 / 1024.0,
+            TotalSystemMemoryMB = totalSystemMemoryBytes / 1024.0 / 1024.0,
+            TotalSystemMemoryGB = totalSystemMemoryBytes / 1024.0 / 1024.0 / 1024.0,
             // Process Memory
-            workingSetMB = workingSetBytes / 1024.0 / 1024.0,
-            workingSetGB = workingSetBytes / 1024.0 / 1024.0 / 1024.0,
-            managedMB = managedBytes / 1024.0 / 1024.0,
-            managedGB = managedBytes / 1024.0 / 1024.0 / 1024.0,
-            unmanagedMB = unmanagedBytes / 1024.0 / 1024.0,
-            unmanagedGB = unmanagedBytes / 1024.0 / 1024.0 / 1024.0,
+            WorkingSetMB = workingSetBytes / 1024.0 / 1024.0,
+            WorkingSetGB = workingSetBytes / 1024.0 / 1024.0 / 1024.0,
+            ManagedMB = managedBytes / 1024.0 / 1024.0,
+            ManagedGB = managedBytes / 1024.0 / 1024.0 / 1024.0,
+            UnmanagedMB = unmanagedBytes / 1024.0 / 1024.0,
+            UnmanagedGB = unmanagedBytes / 1024.0 / 1024.0 / 1024.0,
             // Managed Memory Details
-            totalAllocatedMB = totalMemory / 1024.0 / 1024.0,
-            totalAllocatedGB = totalMemory / 1024.0 / 1024.0 / 1024.0,
-            heapSizeMB = gcMemoryInfo.HeapSizeBytes / 1024.0 / 1024.0,
-            heapSizeGB = gcMemoryInfo.HeapSizeBytes / 1024.0 / 1024.0 / 1024.0,
-            fragmentedMB = gcMemoryInfo.FragmentedBytes / 1024.0 / 1024.0,
-            fragmentedGB = gcMemoryInfo.FragmentedBytes / 1024.0 / 1024.0 / 1024.0,
+            TotalAllocatedMB = totalMemory / 1024.0 / 1024.0,
+            TotalAllocatedGB = totalMemory / 1024.0 / 1024.0 / 1024.0,
+            HeapSizeMB = gcMemoryInfo.HeapSizeBytes / 1024.0 / 1024.0,
+            HeapSizeGB = gcMemoryInfo.HeapSizeBytes / 1024.0 / 1024.0 / 1024.0,
+            FragmentedMB = gcMemoryInfo.FragmentedBytes / 1024.0 / 1024.0,
+            FragmentedGB = gcMemoryInfo.FragmentedBytes / 1024.0 / 1024.0 / 1024.0,
             // Process Statistics
-            gen0Collections = GC.CollectionCount(0),
-            gen1Collections = GC.CollectionCount(1),
-            gen2Collections = GC.CollectionCount(2),
-            threadCount = process.Threads.Count,
-            handleCount = process.HandleCount
+            Gen0Collections = GC.CollectionCount(0),
+            Gen1Collections = GC.CollectionCount(1),
+            Gen2Collections = GC.CollectionCount(2),
+            ThreadCount = process.Threads.Count,
+            HandleCount = process.HandleCount
         };
 
         return Ok(stats);

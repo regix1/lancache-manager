@@ -51,7 +51,8 @@ export const SIGNALR_EVENTS = [
   'UserPreferencesReset',
   'UserSessionsCleared',
   'DefaultGuestThemeChanged',
-  'UserSessionRevoked'
+  'UserSessionRevoked',
+  'UserSessionCreated'
 ] as const;
 
 export type SignalREvent = (typeof SIGNALR_EVENTS)[number];

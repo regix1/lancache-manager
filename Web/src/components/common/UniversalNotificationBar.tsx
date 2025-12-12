@@ -175,9 +175,8 @@ const UnifiedNotificationItem = ({
           </div>
         )}
 
-        {/* Detail message (except for depot_mapping and service_removal which show details in progress bar) */}
+        {/* Detail message (except for service_removal which shows details differently) */}
         {notification.detailMessage &&
-          notification.type !== 'depot_mapping' &&
           notification.type !== 'service_removal' && (
             <div className="text-xs text-themed-muted mt-0.5">{notification.detailMessage}</div>
           )}
@@ -190,38 +189,8 @@ const UnifiedNotificationItem = ({
             </div>
           )}
 
-        {/* Log entry removal (ID is 'service_removal' without suffix) - has progress bar */}
+        {/* Service cache removal - show details when complete */}
         {notification.type === 'service_removal' &&
-         notification.id === 'service_removal' &&
-         notification.status === 'running' && (
-          <>
-            {notification.progress !== undefined && (
-              <div className="mt-1">
-                <div className="flex items-center justify-between text-xs text-themed-muted mb-0.5">
-                  <span>{notification.progress.toFixed(1)}%</span>
-                  {notification.details?.linesProcessed !== undefined && (
-                    <span>
-                      {notification.details.linesProcessed.toLocaleString()} lines processed
-                    </span>
-                  )}
-                </div>
-                <div className="w-full bg-themed-tertiary rounded-full h-1.5">
-                  <div
-                    className="h-1.5 rounded-full transition-all duration-300"
-                    style={{
-                      width: `${notification.progress}%`,
-                      backgroundColor: 'var(--theme-info)'
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-          </>
-        )}
-
-        {/* Service cache removal (ID is 'service_removal-{serviceName}') - show details when complete */}
-        {notification.type === 'service_removal' &&
-         notification.id.startsWith('service_removal-') &&
          notification.status === 'completed' && (
           <div className="text-xs text-themed-muted mt-0.5">
             {notification.details?.filesDeleted?.toLocaleString() || 0} cache files deleted
@@ -238,35 +207,6 @@ const UnifiedNotificationItem = ({
           </div>
         )}
 
-        {notification.type === 'depot_mapping' && notification.status === 'running' && (
-          <>
-            {notification.progress !== undefined && (
-              <div className="mt-2">
-                {/* Detail message and percentage on same line */}
-                <div className="flex items-center justify-between text-xs mb-1.5">
-                  <span className="text-themed-muted">
-                    {notification.detailMessage || 'Processing...'}
-                  </span>
-                  <span className="text-themed-muted font-medium ml-3">
-                    {Math.round(notification.progress)}%
-                  </span>
-                </div>
-
-                {/* Clean progress bar */}
-                <div className="w-full bg-themed-tertiary rounded-full h-2 overflow-hidden">
-                  <div
-                    className="h-2 rounded-full transition-all duration-300"
-                    style={{
-                      width: `${notification.progress}%`,
-                      backgroundColor: 'var(--theme-info)'
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-          </>
-        )}
-
         {notification.type === 'game_removal' && notification.status === 'completed' && (
           <div className="text-xs text-themed-muted mt-0.5">
             {notification.details?.filesDeleted?.toLocaleString() || 0} cache files deleted
@@ -277,19 +217,17 @@ const UnifiedNotificationItem = ({
           </div>
         )}
 
-        {/* Progress bar for running operations (except service removal and depot mapping which have custom progress) */}
+        {/* Progress bar for running operations */}
         {notification.status === 'running' &&
           notification.progress !== undefined &&
-          notification.progress > 0 &&
-          notification.type !== 'service_removal' &&
-          notification.type !== 'depot_mapping' && (
+          notification.type !== 'service_removal' && (
             <div className="mt-2">
               <div
                 className="w-full rounded-full h-2"
                 style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
               >
                 <div
-                  className="h-2 rounded-full transition-all duration-300"
+                  className="h-2 rounded-full progress-bar-animate"
                   style={{
                     backgroundColor: getStatusColor(),
                     width: `${Math.max(0, Math.min(100, notification.progress))}%`
@@ -318,10 +256,9 @@ const UnifiedNotificationItem = ({
       {/* Action buttons */}
       <div className="flex items-center gap-2 flex-shrink-0">
         {/* Cancel button for operations that support cancellation */}
-        {/* Note: service_removal with ID 'service_removal' is log entry removal (cancellable) */}
-        {/* service_removal with ID 'service_removal-{name}' is cache removal (not cancellable) */}
+        {/* log_removal is cancellable, service_removal (cache) is not */}
         {(notification.type === 'cache_clearing' ||
-          (notification.type === 'service_removal' && notification.id === 'service_removal') ||
+          notification.type === 'log_removal' ||
           notification.type === 'depot_mapping') &&
           notification.status === 'running' &&
           onCancel && (
@@ -333,7 +270,7 @@ const UnifiedNotificationItem = ({
             ) : (
               <Tooltip content={
                 notification.type === 'cache_clearing' ? 'Cancel cache clearing' :
-                notification.type === 'service_removal' ? 'Cancel service removal' :
+                notification.type === 'log_removal' ? 'Cancel log removal' :
                 'Cancel depot mapping'
               } position="left">
                 <button
@@ -486,8 +423,8 @@ const UniversalNotificationBar: React.FC = () => {
     }
   };
 
-  // Cancel handler for service removal
-  const handleCancelServiceRemoval = async (notification: UnifiedNotification) => {
+  // Cancel handler for log removal
+  const handleCancelLogRemoval = async (notification: UnifiedNotification) => {
     const notificationId = notification.id;
 
     // Set cancelling state to show UI feedback
@@ -574,8 +511,11 @@ const UniversalNotificationBar: React.FC = () => {
       }}
     >
       <div className="container mx-auto px-4 py-2 space-y-2">
-        {/* Unified Notifications */}
-        {notifications.map((notification) => (
+        {/* Unified Notifications - completed/failed first, then running */}
+        {[...notifications].sort((a, b) => {
+          const statusOrder = { completed: 0, failed: 1, running: 2, pending: 3 };
+          return (statusOrder[a.status] ?? 4) - (statusOrder[b.status] ?? 4);
+        }).map((notification) => (
           <UnifiedNotificationItem
             key={notification.id}
             notification={notification}
@@ -583,8 +523,8 @@ const UniversalNotificationBar: React.FC = () => {
             onCancel={
               notification.type === 'cache_clearing'
                 ? () => handleCancelCacheClearing(notification)
-                : notification.type === 'service_removal'
-                  ? () => handleCancelServiceRemoval(notification)
+                : notification.type === 'log_removal'
+                  ? () => handleCancelLogRemoval(notification)
                   : notification.type === 'depot_mapping'
                     ? () => handleCancelDepotMapping(notification)
                     : undefined

@@ -43,11 +43,11 @@ public class SteamAuthController : ControllerBase
 
         return Ok(new SteamAuthStatusResponse
         {
-            Mode = authMode,
+            Mode = authMode ?? string.Empty,
             Username = username ?? string.Empty,
             IsAuthenticated = !string.IsNullOrEmpty(username),
             // Legacy fields for backward compatibility
-            AuthMode = authMode,
+            AuthMode = authMode ?? string.Empty,
             IsConnected = isConnected,
             HasStoredCredentials = !string.IsNullOrEmpty(username)
         });
@@ -112,7 +112,7 @@ public class SteamAuthController : ControllerBase
             }
             else
             {
-                return BadRequest(new { error = result.Message ?? "Authentication failed" });
+                return BadRequest(new ErrorResponse { Error = result.Message ?? "Authentication failed" });
             }
         }
 
@@ -141,7 +141,7 @@ public class SteamAuthController : ControllerBase
         }
         else
         {
-            return BadRequest(new { error = $"Unknown Steam auth mode: {authMode}" });
+            return BadRequest(new ErrorResponse { Error = $"Unknown Steam auth mode: {authMode}" });
         }
     }
 
@@ -155,13 +155,13 @@ public class SteamAuthController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(request?.Mode))
         {
-            return BadRequest(new { error = "Mode is required" });
+            return BadRequest(new ErrorResponse { Error = "Mode is required" });
         }
 
         var mode = request.Mode.ToLowerInvariant();
         if (mode != "anonymous" && mode != "authenticated")
         {
-            return BadRequest(new { error = "Mode must be 'anonymous' or 'authenticated'" });
+            return BadRequest(new ErrorResponse { Error = "Mode must be 'anonymous' or 'authenticated'" });
         }
 
         _stateService.SetSteamAuthMode(mode);

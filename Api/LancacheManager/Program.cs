@@ -261,8 +261,8 @@ builder.Services.AddHttpClient("SteamImages", client =>
 builder.Services.AddSingleton<ApiKeyService>();
 builder.Services.AddSingleton<DeviceAuthService>();
 builder.Services.AddSingleton<GuestSessionService>();
-builder.Services.AddSingleton<LancacheManager.Services.UserPreferencesService>();
-builder.Services.AddSingleton<LancacheManager.Services.SessionMigrationService>();
+builder.Services.AddSingleton<LancacheManager.Application.Services.UserPreferencesService>();
+builder.Services.AddSingleton<LancacheManager.Application.Services.SessionMigrationService>();
 
 // Register SteamKit2Service for real-time Steam depot mapping
 builder.Services.AddSingleton<SteamKit2Service>();
@@ -496,7 +496,7 @@ app.MapGet("/health", () => Results.Ok(new
 app.MapGet("/api/version", () =>
 {
     var version = Environment.GetEnvironmentVariable("LANCACHE_MANAGER_VERSION") ?? "dev";
-    return Results.Ok(new { version });
+    return Results.Ok(new LancacheManager.Application.DTOs.VersionResponse { Version = version });
 });
 
 // Fallback to index.html for client-side routing

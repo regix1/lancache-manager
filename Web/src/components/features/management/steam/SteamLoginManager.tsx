@@ -236,7 +236,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
         </div>
 
         {/* Configuration section with unified background */}
-        <div className={`p-4 rounded-lg bg-themed-tertiary/30 ${steamAuthMode === 'anonymous' || steamAuthDisabled ? 'opacity-50' : ''}`}>
+        <div className={`p-4 rounded-lg bg-themed-tertiary/30 ${steamAuthDisabled ? 'opacity-50' : ''}`}>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="flex-1">
               <p className="text-themed-primary font-medium text-sm mb-1">
@@ -245,11 +245,9 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
               <p className="text-xs text-themed-muted">
                 {steamAuthDisabled
                   ? 'Only available when V2 API is available'
-                  : steamAuthMode === 'anonymous'
-                    ? 'Only available when logged in with Steam account'
-                    : autoStartPics
-                      ? 'Automatically rebuild depot mappings after login'
-                      : 'Manually trigger depot mapping rebuild after login'}
+                  : autoStartPics
+                    ? 'Automatically rebuild depot mappings after login'
+                    : 'Manually trigger depot mapping rebuild after login'}
               </p>
             </div>
             <div className="flex gap-2">
@@ -258,7 +256,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                 variant={autoStartPics ? 'filled' : 'default'}
                 color={autoStartPics ? 'blue' : undefined}
                 onClick={() => handleAutoStartPicsChange(true)}
-                disabled={loading || mockMode || steamAuthMode === 'anonymous' || steamAuthDisabled}
+                disabled={loading || mockMode || steamAuthDisabled}
               >
                 Automatic
               </Button>
@@ -267,7 +265,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                 variant={!autoStartPics ? 'filled' : 'default'}
                 color={!autoStartPics ? 'blue' : undefined}
                 onClick={() => handleAutoStartPicsChange(false)}
-                disabled={loading || mockMode || steamAuthMode === 'anonymous' || steamAuthDisabled}
+                disabled={loading || mockMode || steamAuthDisabled}
               >
                 Manual
               </Button>

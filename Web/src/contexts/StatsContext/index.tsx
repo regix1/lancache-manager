@@ -3,7 +3,6 @@ import ApiService from '@services/api.service';
 import { isAbortError } from '@utils/error';
 import MockDataService from '../../test/mockData.service';
 import { useTimeFilter } from '../TimeFilterContext';
-import { usePollingRate } from '../PollingRateContext';
 import { useSignalR } from '../SignalRContext';
 import type { CacheInfo, ClientStat, ServiceStat, DashboardStats } from '../../types';
 import type { StatsContextType, StatsProviderProps } from './types';
@@ -20,7 +19,6 @@ export const useStats = () => {
 
 export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode = false }) => {
   const { getTimeRangeParams, timeRange, customStartDate, customEndDate } = useTimeFilter();
-  const { getPollingInterval } = usePollingRate();
   const signalR = useSignalR();
 
   const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null);
@@ -40,23 +38,14 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   const hasData = useRef(false);
   const fetchInProgress = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const fastIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const mediumIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const slowIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const lastFastFetchTime = useRef<number>(0);
-  const lastMediumFetchTime = useRef<number>(0);
-  const lastSlowFetchTime = useRef<number>(0);
-  const lastSignalRRefreshTime = useRef<number>(0);
-  const isEffectActive = useRef<boolean>(true);
+  const lastFetchTime = useRef<number>(0);
   const currentTimeRangeRef = useRef<string>(timeRange);
   const getTimeRangeParamsRef = useRef(getTimeRangeParams);
-  const getPollingIntervalRef = useRef(getPollingInterval);
   const mockModeRef = useRef(mockMode);
 
   // Update refs on each render (no useEffect needed)
   currentTimeRangeRef.current = timeRange;
   getTimeRangeParamsRef.current = getTimeRangeParams;
-  getPollingIntervalRef.current = getPollingInterval;
   mockModeRef.current = mockMode;
 
   const getApiUrl = (): string => {
@@ -89,18 +78,18 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     }
   };
 
-  // Fast refresh: cache info, dashboard stats
-  const fetchFastData = async () => {
+  // Fetch all stats (called by SignalR events)
+  const fetchAllStats = useCallback(async () => {
     if (mockModeRef.current) return;
 
     const now = Date.now();
-    const debounceTime = Math.min(1000, Math.max(250, getPollingIntervalRef.current() / 4));
-
-    if (!isInitialLoad.current && now - lastFastFetchTime.current < debounceTime) {
+    // Debounce rapid SignalR events (min 250ms between fetches)
+    if (now - lastFetchTime.current < 250) {
       return;
     }
+    lastFetchTime.current = now;
 
-    lastFastFetchTime.current = now;
+    const { startTime, endTime } = getTimeRangeParamsRef.current();
 
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -126,16 +115,25 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       };
       const period = periodMap[currentTimeRangeRef.current] || '24h';
 
-      const [cache, dashboard] = await Promise.allSettled([
+      const [cache, clients, services, dashboard] = await Promise.allSettled([
         ApiService.getCacheInfo(abortControllerRef.current.signal),
+        ApiService.getClientStats(abortControllerRef.current.signal, startTime, endTime),
+        ApiService.getServiceStats(abortControllerRef.current.signal, null, startTime, endTime),
         ApiService.getDashboardStats(period, abortControllerRef.current.signal)
       ]);
 
       if (cache.status === 'fulfilled' && cache.value !== undefined) {
         setCacheInfo(cache.value);
       }
+      if (clients.status === 'fulfilled' && clients.value !== undefined) {
+        setClientStats(clients.value);
+      }
+      if (services.status === 'fulfilled' && services.value !== undefined) {
+        setServiceStats(services.value);
+      }
       if (dashboard.status === 'fulfilled' && dashboard.value !== undefined) {
         setDashboardStats(dashboard.value);
+        hasData.current = true;
       }
 
       clearTimeout(timeoutId);
@@ -145,69 +143,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
         setError('Failed to fetch stats');
       }
     }
-  };
-
-  // Medium refresh: client stats
-  const fetchMediumData = async () => {
-    if (mockModeRef.current) return;
-
-    const { startTime, endTime } = getTimeRangeParamsRef.current();
-    const now = Date.now();
-    const debounceTime = 500;
-
-    if (!isInitialLoad.current && now - lastMediumFetchTime.current < debounceTime) {
-      return;
-    }
-
-    lastMediumFetchTime.current = now;
-
-    try {
-      const signal =
-        abortControllerRef.current && !abortControllerRef.current.signal.aborted
-          ? abortControllerRef.current.signal
-          : new AbortController().signal;
-
-      const clients = await ApiService.getClientStats(signal, startTime, endTime);
-      if (clients && clients.length >= 0) {
-        setClientStats(clients);
-      }
-    } catch (err: unknown) {
-      if (!isAbortError(err)) {
-        console.error('Failed to fetch client stats:', err);
-      }
-    }
-  };
-
-  // Slow refresh: service stats
-  const fetchSlowData = async () => {
-    if (mockModeRef.current) return;
-
-    const { startTime, endTime } = getTimeRangeParamsRef.current();
-    const now = Date.now();
-    const debounceTime = 1000;
-
-    if (!isInitialLoad.current && now - lastSlowFetchTime.current < debounceTime) {
-      return;
-    }
-
-    lastSlowFetchTime.current = now;
-
-    try {
-      const signal =
-        abortControllerRef.current && !abortControllerRef.current.signal.aborted
-          ? abortControllerRef.current.signal
-          : new AbortController().signal;
-
-      const services = await ApiService.getServiceStats(signal, null, startTime, endTime);
-      if (services) {
-        setServiceStats(services);
-      }
-    } catch (err: unknown) {
-      if (!isAbortError(err)) {
-        console.error('Failed to fetch service stats:', err);
-      }
-    }
-  };
+  }, []);
 
   // Combined refresh for initial load or manual refresh
   const refreshStats = useCallback(async () => {
@@ -294,31 +230,39 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     }
   }, []);
 
-  // Subscribe to SignalR DownloadsRefresh for real-time updates
+  // Subscribe to SignalR events for real-time updates
   useEffect(() => {
     if (mockMode) return;
 
-    const handleDownloadsRefresh = () => {
-      const now = Date.now();
-      const timeSinceLastRefresh = now - lastSignalRRefreshTime.current;
-      const pollingInterval = getPollingIntervalRef.current();
-
-      if (timeSinceLastRefresh < pollingInterval) {
-        return;
+    // Handler for database reset completion
+    const handleDatabaseResetProgress = (payload: { status?: string }) => {
+      const status = (payload.status || '').toLowerCase();
+      if (status === 'completed' || status === 'complete' || status === 'done') {
+        setTimeout(() => fetchAllStats(), 500);
       }
-
-      lastSignalRRefreshTime.current = now;
-      fetchFastData();
-      fetchSlowData();
-      fetchMediumData();
     };
 
-    signalR.on('DownloadsRefresh', handleDownloadsRefresh);
+    // Events that trigger data refresh
+    const refreshEvents = [
+      'DownloadsRefresh',
+      'FastProcessingComplete',
+      'DepotMappingComplete',
+      'LogRemovalComplete',
+      'CorruptionRemovalComplete',
+      'ServiceRemovalComplete',
+      'GameDetectionComplete',
+      'GameRemovalComplete',
+      'CacheClearComplete'
+    ];
+
+    refreshEvents.forEach(event => signalR.on(event, fetchAllStats));
+    signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
 
     return () => {
-      signalR.off('DownloadsRefresh', handleDownloadsRefresh);
+      refreshEvents.forEach(event => signalR.off(event, fetchAllStats));
+      signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
     };
-  }, [mockMode, signalR]);
+  }, [mockMode, signalR, fetchAllStats]);
 
   // Load mock data when mock mode is enabled
   useEffect(() => {
@@ -339,41 +283,13 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     }
   }, [mockMode]);
 
-  // Initial load and polling intervals
+  // Initial load only - SignalR handles real-time updates
   useEffect(() => {
     if (!mockMode) {
-      isEffectActive.current = true;
-
-      // Clear existing intervals
-      if (fastIntervalRef.current) clearInterval(fastIntervalRef.current);
-      if (mediumIntervalRef.current) clearInterval(mediumIntervalRef.current);
-      if (slowIntervalRef.current) clearInterval(slowIntervalRef.current);
-
-      // Initial load
-      refreshStats().then(() => {
-        if (!isEffectActive.current) return;
-
-        // Clear existing intervals (race condition handling)
-        if (fastIntervalRef.current) clearInterval(fastIntervalRef.current);
-        if (mediumIntervalRef.current) clearInterval(mediumIntervalRef.current);
-        if (slowIntervalRef.current) clearInterval(slowIntervalRef.current);
-
-        // Set up intervals - use ref to get current polling interval
-        const fastInterval = getPollingIntervalRef.current();
-        const mediumInterval = 15000; // 15 seconds
-        const slowInterval = 30000; // 30 seconds
-
-        fastIntervalRef.current = setInterval(fetchFastData, fastInterval);
-        mediumIntervalRef.current = setInterval(fetchMediumData, mediumInterval);
-        slowIntervalRef.current = setInterval(fetchSlowData, slowInterval);
-      });
+      refreshStats();
     }
 
     return () => {
-      isEffectActive.current = false;
-      if (fastIntervalRef.current) clearInterval(fastIntervalRef.current);
-      if (mediumIntervalRef.current) clearInterval(mediumIntervalRef.current);
-      if (slowIntervalRef.current) clearInterval(slowIntervalRef.current);
       if (abortControllerRef.current) abortControllerRef.current.abort();
     };
   }, [mockMode, refreshStats]);

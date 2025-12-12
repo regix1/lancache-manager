@@ -1,3 +1,4 @@
+using LancacheManager.Application.DTOs;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -25,11 +26,11 @@ public class MetricsController : ControllerBase
     {
         var requiresAuth = _configuration.GetValue<bool>("Security:RequireAuthForMetrics", false);
 
-        return Ok(new
+        return Ok(new MetricsStatusResponse
         {
-            requiresAuthentication = requiresAuth,
-            endpoint = "/metrics",
-            authMethod = requiresAuth ? "X-Api-Key header required" : "Public access"
+            RequiresAuthentication = requiresAuth,
+            Endpoint = "/metrics",
+            AuthMethod = requiresAuth ? "X-Api-Key header required" : "Public access"
         });
     }
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   Users,
   User,
@@ -25,6 +25,7 @@ import authService from '@services/auth.service';
 import { getErrorMessage } from '@utils/error';
 import { useAuth } from '@contexts/AuthContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
+import { useSignalR } from '@contexts/SignalRContext';
 
 interface Session {
   id: string;
@@ -74,6 +75,7 @@ const SessionTimestamp: React.FC<{
 
 const UserTab: React.FC = () => {
   const { refreshAuth } = useAuth();
+  const { on, off } = useSignalR();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [revokingSession, setRevokingSession] = useState<string | null>(null);
@@ -101,7 +103,7 @@ const UserTab: React.FC = () => {
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
 
-  const loadSessions = async (showLoading = false, page = currentPage) => {
+  const loadSessions = useCallback(async (showLoading = false, page = currentPage) => {
     try {
       if (showLoading) {
         setLoading(true);
@@ -137,7 +139,7 @@ const UserTab: React.FC = () => {
         setLoading(false);
       }
     }
-  };
+  }, [currentPage, pageSize]);
 
   const loadGuestDuration = async () => {
     try {
@@ -235,6 +237,24 @@ const UserTab: React.FC = () => {
     { value: '168', label: '168 hours (1 week)' }
   ];
 
+  // SignalR handler for session changes
+  const handleSessionRevoked = useCallback(() => {
+    // Refresh sessions list when a session is revoked/deleted via SignalR
+    loadSessions(false);
+  }, [loadSessions]);
+
+  // SignalR handler for sessions cleared (e.g., during database reset)
+  const handleSessionsCleared = useCallback(() => {
+    // Refresh sessions list when all sessions are cleared
+    loadSessions(false);
+  }, [loadSessions]);
+
+  // SignalR handler for new session created
+  const handleSessionCreated = useCallback(() => {
+    // Refresh sessions list when a new session is created via SignalR
+    loadSessions(false);
+  }, [loadSessions]);
+
   useEffect(() => {
     // Initial load with loading spinner
     loadSessions(true);
@@ -242,16 +262,18 @@ const UserTab: React.FC = () => {
     loadAvailableThemes();
     loadDefaultGuestTheme();
 
-    // Live refresh every 3 seconds for near-realtime updates (without loading spinner)
-    const refreshInterval = setInterval(() => {
-      loadSessions(false);
-    }, 3000);
+    // Subscribe to SignalR events for real-time session updates
+    on('UserSessionRevoked', handleSessionRevoked);
+    on('UserSessionsCleared', handleSessionsCleared);
+    on('UserSessionCreated', handleSessionCreated);
 
-    // Cleanup interval on unmount
+    // Cleanup SignalR subscriptions on unmount
     return () => {
-      clearInterval(refreshInterval);
+      off('UserSessionRevoked', handleSessionRevoked);
+      off('UserSessionsCleared', handleSessionsCleared);
+      off('UserSessionCreated', handleSessionCreated);
     };
-  }, []);
+  }, [loadSessions, on, off, handleSessionRevoked, handleSessionsCleared, handleSessionCreated]);
 
   const handleRevokeSession = (session: Session) => {
     setPendingRevokeSession(session);
@@ -504,7 +526,7 @@ const UserTab: React.FC = () => {
               User Management
             </h1>
             <p className="text-xs sm:text-sm" style={{ color: 'var(--theme-text-secondary)' }}>
-              Manage all users and devices • Live refresh
+              Manage all users and devices • Real-time updates
             </p>
           </div>
         </div>

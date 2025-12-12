@@ -1,28 +1,11 @@
 namespace LancacheManager.Application.DTOs;
 
 /// <summary>
-/// Standard API response wrapper for consistent response format across all endpoints
+/// Response for API version endpoint
 /// </summary>
-/// <typeparam name="T">The type of data being returned</typeparam>
-public class ApiResponse<T>
+public class VersionResponse
 {
-    public bool Success { get; set; }
-    public string? Message { get; set; }
-    public T? Data { get; set; }
-    public string? Error { get; set; }
-
-    public static ApiResponse<T> Ok(T data, string? message = null) => new()
-    {
-        Success = true,
-        Data = data,
-        Message = message
-    };
-
-    public static ApiResponse<T> Fail(string error) => new()
-    {
-        Success = false,
-        Error = error
-    };
+    public string Version { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -90,54 +73,6 @@ public class AuthStatusResponse
     public bool HasEverBeenSetup { get; set; }
     public bool HasBeenInitialized { get; set; }
     public bool HasDataLoaded { get; set; }
-}
-
-/// <summary>
-/// Response for session information
-/// </summary>
-public class SessionResponse
-{
-    public string Id { get; set; } = string.Empty;
-    public string DeviceId { get; set; } = string.Empty;
-    public string? DeviceName { get; set; }
-    public string? IpAddress { get; set; }
-    public string? LocalIp { get; set; }
-    public string? Hostname { get; set; }
-    public string? OperatingSystem { get; set; }
-    public string? Browser { get; set; }
-    public DateTime CreatedAt { get; set; }
-    public DateTime? LastSeenAt { get; set; }
-    public DateTime? ExpiresAt { get; set; }
-    public bool IsExpired { get; set; }
-    public bool IsRevoked { get; set; }
-    public DateTime? RevokedAt { get; set; }
-    public string? RevokedBy { get; set; }
-    public string Type { get; set; } = string.Empty; // "authenticated" or "guest"
-}
-
-/// <summary>
-/// Response for paginated session list
-/// </summary>
-public class SessionListResponse
-{
-    public List<SessionResponse> Sessions { get; set; } = new();
-    public PaginationInfo Pagination { get; set; } = new();
-    public int Count { get; set; }
-    public int AuthenticatedCount { get; set; }
-    public int GuestCount { get; set; }
-}
-
-/// <summary>
-/// Pagination information
-/// </summary>
-public class PaginationInfo
-{
-    public int Page { get; set; }
-    public int PageSize { get; set; }
-    public int TotalCount { get; set; }
-    public int TotalPages { get; set; }
-    public bool HasNextPage { get; set; }
-    public bool HasPreviousPage { get; set; }
 }
 
 /// <summary>
@@ -213,19 +148,6 @@ public class ApiKeyStatusResponse
     public bool HasApiKey { get; set; }
     public string KeyType { get; set; } = "none";
     public bool HasPrimaryKey { get; set; }
-}
-
-/// <summary>
-/// Response for game detection results
-/// </summary>
-public class GameDetectionResponse
-{
-    public bool HasCachedResults { get; set; }
-    public List<object>? Games { get; set; }
-    public List<object>? Services { get; set; }
-    public int TotalGamesDetected { get; set; }
-    public int TotalServicesDetected { get; set; }
-    public string? LastDetectionTime { get; set; }
 }
 
 /// <summary>
@@ -1143,11 +1065,51 @@ public class DepotRebuildCancelResponse
     public string Message { get; set; } = string.Empty;
 }
 
+// ============================================================
+// Memory Controller DTOs
+// ============================================================
+
 /// <summary>
-/// Response for depot crawl interval update (supports fractional hours)
+/// Response for memory statistics
 /// </summary>
-public class DepotCrawlIntervalResponse
+public class MemoryStatsResponse
 {
-    public double IntervalHours { get; set; }
-    public string Message { get; set; } = string.Empty;
+    public DateTime Timestamp { get; set; }
+    // System Memory
+    public double TotalSystemMemoryMB { get; set; }
+    public double TotalSystemMemoryGB { get; set; }
+    // Process Memory
+    public double WorkingSetMB { get; set; }
+    public double WorkingSetGB { get; set; }
+    public double ManagedMB { get; set; }
+    public double ManagedGB { get; set; }
+    public double UnmanagedMB { get; set; }
+    public double UnmanagedGB { get; set; }
+    // Managed Memory Details
+    public double TotalAllocatedMB { get; set; }
+    public double TotalAllocatedGB { get; set; }
+    public double HeapSizeMB { get; set; }
+    public double HeapSizeGB { get; set; }
+    public double FragmentedMB { get; set; }
+    public double FragmentedGB { get; set; }
+    // Process Statistics
+    public int Gen0Collections { get; set; }
+    public int Gen1Collections { get; set; }
+    public int Gen2Collections { get; set; }
+    public int ThreadCount { get; set; }
+    public int HandleCount { get; set; }
+}
+
+// ============================================================
+// Metrics Controller DTOs
+// ============================================================
+
+/// <summary>
+/// Response for metrics endpoint status
+/// </summary>
+public class MetricsStatusResponse
+{
+    public bool RequiresAuthentication { get; set; }
+    public string Endpoint { get; set; } = string.Empty;
+    public string AuthMethod { get; set; } = string.Empty;
 }
