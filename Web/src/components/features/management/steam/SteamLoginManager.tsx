@@ -156,9 +156,8 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
 
         {/* Auto-logout warning banner */}
         {autoLogoutMessage && (
-          <Alert color="red" className="mb-4">
+          <Alert color="red" className="mb-4" icon={<AlertTriangle className="w-5 h-5" />}>
             <div className="flex items-start gap-3">
-              <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
               <div className="flex-1">
                 <p className="font-medium text-sm mb-1">Steam Session Auto-Logout</p>
                 <p className="text-xs opacity-90">{autoLogoutMessage}</p>

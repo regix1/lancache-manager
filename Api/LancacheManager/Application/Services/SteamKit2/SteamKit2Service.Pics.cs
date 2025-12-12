@@ -898,8 +898,8 @@ public partial class SteamKit2Service
             // Check if we're still connected
             if (!_isLoggedOn || _steamClient?.IsConnected != true)
             {
-                // Give it a moment for auto-reconnection to kick in
-                await Task.Delay(TimeSpan.FromSeconds(1), linkedCts.Token);
+                // Give reconnection time to complete (reconnect delay is 5s + connection time)
+                await Task.Delay(TimeSpan.FromSeconds(10), linkedCts.Token);
 
                 // If still not connected after waiting, throw a more descriptive exception
                 if (!_isLoggedOn || _steamClient?.IsConnected != true)
