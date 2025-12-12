@@ -351,13 +351,13 @@ const RetroView: React.FC<RetroViewProps> = ({
                     <div className="text-xs text-[var(--theme-text-muted)]">Hit</div>
                     <div
                       className="h-1.5 rounded-full overflow-hidden"
-                      style={{ backgroundColor: 'color-mix(in srgb, var(--theme-bg-tertiary) 80%, transparent)' }}
+                      style={{ backgroundColor: 'var(--theme-progress-bg)' }}
                     >
                       <div
                         className="h-full rounded-full transition-all duration-300"
                         style={{
                           width: `${hitPercent}%`,
-                          backgroundColor: hitPercent > 0 ? '#4ade80' : 'transparent'
+                          backgroundColor: hitPercent > 0 ? 'var(--theme-chart-cache-hit)' : 'transparent'
                         }}
                       />
                     </div>
@@ -371,13 +371,13 @@ const RetroView: React.FC<RetroViewProps> = ({
                     <div className="text-xs text-[var(--theme-text-muted)]">Miss</div>
                     <div
                       className="h-1.5 rounded-full overflow-hidden"
-                      style={{ backgroundColor: 'color-mix(in srgb, var(--theme-bg-tertiary) 80%, transparent)' }}
+                      style={{ backgroundColor: 'var(--theme-progress-bg)' }}
                     >
                       <div
                         className="h-full rounded-full transition-all duration-300"
                         style={{
                           width: `${missPercent}%`,
-                          backgroundColor: missPercent > 0 ? '#f87171' : 'transparent'
+                          backgroundColor: missPercent > 0 ? 'var(--theme-error)' : 'transparent'
                         }}
                       />
                     </div>
@@ -393,10 +393,10 @@ const RetroView: React.FC<RetroViewProps> = ({
                       className="text-base font-bold"
                       style={{
                         color: hitPercent >= 90
-                          ? '#4ade80'
+                          ? 'var(--theme-success-text)'
                           : hitPercent >= 50
-                            ? '#fbbf24'
-                            : '#f87171'
+                            ? 'var(--theme-warning-text)'
+                            : 'var(--theme-error-text)'
                       }}
                     >
                       {formatPercent(hitPercent)}
@@ -405,10 +405,10 @@ const RetroView: React.FC<RetroViewProps> = ({
                       className="text-[9px] font-medium uppercase"
                       style={{
                         color: hitPercent >= 90
-                          ? '#86efac'
+                          ? 'var(--theme-success-text)'
                           : hitPercent >= 50
-                            ? '#fcd34d'
-                            : '#fca5a5'
+                            ? 'var(--theme-warning-text)'
+                            : 'var(--theme-error-text)'
                       }}
                     >
                       {hitPercent >= 90 ? 'Excellent' : hitPercent >= 50 ? 'Partial' : 'Miss'}
@@ -481,13 +481,13 @@ const RetroView: React.FC<RetroViewProps> = ({
                   <div className="flex items-center gap-2">
                     <div
                       className="flex-1 h-1.5 rounded-full overflow-hidden"
-                      style={{ backgroundColor: 'color-mix(in srgb, var(--theme-bg-tertiary) 80%, transparent)' }}
+                      style={{ backgroundColor: 'var(--theme-progress-bg)' }}
                     >
                       <div
                         className="h-full rounded-full transition-all duration-300"
                         style={{
                           width: `${hitPercent}%`,
-                          backgroundColor: hitPercent > 0 ? '#4ade80' : 'transparent'
+                          backgroundColor: hitPercent > 0 ? 'var(--theme-chart-cache-hit)' : 'transparent'
                         }}
                       />
                     </div>
@@ -502,13 +502,13 @@ const RetroView: React.FC<RetroViewProps> = ({
                   <div className="flex items-center gap-2">
                     <div
                       className="flex-1 h-1.5 rounded-full overflow-hidden"
-                      style={{ backgroundColor: 'color-mix(in srgb, var(--theme-bg-tertiary) 80%, transparent)' }}
+                      style={{ backgroundColor: 'var(--theme-progress-bg)' }}
                     >
                       <div
                         className="h-full rounded-full transition-all duration-300"
                         style={{
                           width: `${missPercent}%`,
-                          backgroundColor: missPercent > 0 ? '#f87171' : 'transparent'
+                          backgroundColor: missPercent > 0 ? 'var(--theme-error)' : 'transparent'
                         }}
                       />
                     </div>
@@ -524,10 +524,10 @@ const RetroView: React.FC<RetroViewProps> = ({
                     className="text-lg font-bold"
                     style={{
                       color: hitPercent >= 90
-                        ? '#4ade80'
+                        ? 'var(--theme-success-text)'
                         : hitPercent >= 50
-                          ? '#fbbf24'
-                          : '#f87171'
+                          ? 'var(--theme-warning-text)'
+                          : 'var(--theme-error-text)'
                     }}
                   >
                     {formatPercent(hitPercent)}
@@ -536,10 +536,10 @@ const RetroView: React.FC<RetroViewProps> = ({
                     className="text-[10px] font-medium uppercase tracking-wide"
                     style={{
                       color: hitPercent >= 90
-                        ? '#86efac'
+                        ? 'var(--theme-success-text)'
                         : hitPercent >= 50
-                          ? '#fcd34d'
-                          : '#fca5a5'
+                          ? 'var(--theme-warning-text)'
+                          : 'var(--theme-error-text)'
                     }}
                   >
                     {hitPercent >= 90 ? 'Excellent' : hitPercent >= 50 ? 'Partial' : 'Miss'}
