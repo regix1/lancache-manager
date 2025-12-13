@@ -14,7 +14,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
   ({ serviceStats }) => {
     const [activeTab, setActiveTab] = useState(0);
     const [chartSize, setChartSize] = useState(100);
-    const [chartKey, setChartKey] = useState(0); // Force re-render key
+    const [, setThemeVersion] = useState(0); // Triggers re-render on theme change
     const chartRef = useRef<HTMLCanvasElement>(null);
     const chartInstance = useRef<Chart | null>(null);
     const prevDataRef = useRef<string>('');
@@ -30,46 +30,45 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
       { name: 'Bandwidth Saved', id: 'bandwidth' }
     ];
 
-    const getServiceDistributionData = useMemo(() => {
+    // Helper to get service color from theme CSS variables
+    const getServiceColor = (serviceName: string) => {
+      const computedStyle = getComputedStyle(document.documentElement);
+      const serviceLower = serviceName.toLowerCase();
+
+      switch (serviceLower) {
+        case 'steam':
+          return computedStyle.getPropertyValue('--theme-steam').trim() || '#10b981';
+        case 'epic':
+        case 'epicgames':
+          return computedStyle.getPropertyValue('--theme-epic').trim() || '#8b5cf6';
+        case 'origin':
+        case 'ea':
+          return computedStyle.getPropertyValue('--theme-origin').trim() || '#fb923c';
+        case 'blizzard':
+        case 'battle.net':
+        case 'battlenet':
+          return computedStyle.getPropertyValue('--theme-blizzard').trim() || '#3b82f6';
+        case 'wsus':
+        case 'windows':
+          return computedStyle.getPropertyValue('--theme-wsus').trim() || '#06b6d4';
+        case 'riot':
+        case 'riotgames':
+          return computedStyle.getPropertyValue('--theme-riot').trim() || '#ef4444';
+        case 'xbox':
+        case 'xboxlive':
+          return computedStyle.getPropertyValue('--theme-xbox').trim() || '#107C10';
+        default:
+          return computedStyle.getPropertyValue('--theme-text-secondary').trim() || '#6b7280';
+      }
+    };
+
+    const getServiceDistributionData = () => {
       if (!serviceStats || serviceStats.length === 0) {
-        // Keep previous data if we had it before
         return { labels: [], data: [], colors: [] };
       }
 
       const totalBytes = serviceStats.reduce((sum, s) => sum + (s.totalBytes || 0), 0);
       if (totalBytes === 0) return { labels: [], data: [], colors: [] };
-
-      // Map service names to their theme colors
-      const getServiceColor = (serviceName: string) => {
-        const computedStyle = getComputedStyle(document.documentElement);
-        const serviceLower = serviceName.toLowerCase();
-
-        switch (serviceLower) {
-          case 'steam':
-            return computedStyle.getPropertyValue('--theme-steam').trim() || '#10b981';
-          case 'epic':
-          case 'epicgames':
-            return computedStyle.getPropertyValue('--theme-epic').trim() || '#8b5cf6';
-          case 'origin':
-          case 'ea':
-            return computedStyle.getPropertyValue('--theme-origin').trim() || '#fb923c';
-          case 'blizzard':
-          case 'battle.net':
-          case 'battlenet':
-            return computedStyle.getPropertyValue('--theme-blizzard').trim() || '#3b82f6';
-          case 'wsus':
-          case 'windows':
-            return computedStyle.getPropertyValue('--theme-wsus').trim() || '#06b6d4';
-          case 'riot':
-          case 'riotgames':
-            return computedStyle.getPropertyValue('--theme-riot').trim() || '#ef4444';
-          case 'xbox':
-          case 'xboxlive':
-            return computedStyle.getPropertyValue('--theme-xbox').trim() || '#107C10';
-          default:
-            return computedStyle.getPropertyValue('--theme-text-secondary').trim() || '#6b7280';
-        }
-      };
 
       const sorted = serviceStats
         .map((s) => ({
@@ -84,9 +83,9 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
         data: sorted.map((s) => s.value),
         colors: sorted.map((s) => getServiceColor(s.name))
       };
-    }, [serviceStats]);
+    };
 
-    const getCacheHitRatioData = useMemo(() => {
+    const getCacheHitRatioData = () => {
       if (!serviceStats || serviceStats.length === 0) return { labels: [], data: [], colors: [] };
 
       const totalHits = serviceStats.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);
@@ -106,42 +105,10 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
         data: [totalHits, totalMisses],
         colors: [hitColor, missColor]
       };
-    }, [serviceStats]);
+    };
 
-    const getBandwidthSavedData = useMemo(() => {
+    const getBandwidthSavedData = () => {
       if (!serviceStats || serviceStats.length === 0) return { labels: [], data: [], colors: [] };
-
-      // Map service names to their theme colors
-      const getServiceColor = (serviceName: string) => {
-        const computedStyle = getComputedStyle(document.documentElement);
-        const serviceLower = serviceName.toLowerCase();
-
-        switch (serviceLower) {
-          case 'steam':
-            return computedStyle.getPropertyValue('--theme-steam').trim() || '#10b981';
-          case 'epic':
-          case 'epicgames':
-            return computedStyle.getPropertyValue('--theme-epic').trim() || '#8b5cf6';
-          case 'origin':
-          case 'ea':
-            return computedStyle.getPropertyValue('--theme-origin').trim() || '#fb923c';
-          case 'blizzard':
-          case 'battle.net':
-          case 'battlenet':
-            return computedStyle.getPropertyValue('--theme-blizzard').trim() || '#3b82f6';
-          case 'wsus':
-          case 'windows':
-            return computedStyle.getPropertyValue('--theme-wsus').trim() || '#06b6d4';
-          case 'riot':
-          case 'riotgames':
-            return computedStyle.getPropertyValue('--theme-riot').trim() || '#ef4444';
-          case 'xbox':
-          case 'xboxlive':
-            return computedStyle.getPropertyValue('--theme-xbox').trim() || '#107C10';
-          default:
-            return computedStyle.getPropertyValue('--theme-text-secondary').trim() || '#6b7280';
-        }
-      };
 
       // Calculate bandwidth saved per service (cache hits only)
       const servicesWithSavings = serviceStats
@@ -167,20 +134,21 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
         data: servicesWithSavings.map((s) => s.value),
         colors: servicesWithSavings.map((s) => getServiceColor(s.name))
       };
-    }, [serviceStats]);
+    };
 
-    const chartData = useMemo(() => {
+    // Get chart data based on active tab - recalculates on every render to pick up theme changes
+    const chartData = (() => {
       switch (tabs[activeTab]?.id) {
         case 'service':
-          return getServiceDistributionData;
+          return getServiceDistributionData();
         case 'hit-ratio':
-          return getCacheHitRatioData;
+          return getCacheHitRatioData();
         case 'bandwidth':
-          return getBandwidthSavedData;
+          return getBandwidthSavedData();
         default:
-          return getServiceDistributionData;
+          return getServiceDistributionData();
       }
-    }, [activeTab, getServiceDistributionData, getCacheHitRatioData, getBandwidthSavedData]);
+    })();
 
     // Get chart description and stats based on active tab
     const getChartInfo = useMemo(() => {
@@ -235,31 +203,22 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
       }
     }, [activeTab, serviceStats]);
 
-    // Listen for theme changes
+    // Listen for theme changes to trigger re-render with new colors
     useEffect(() => {
       const handleThemeChange = () => {
-        // Delay chart recreation to ensure CSS variables are updated
+        // Delay slightly to ensure CSS variables are updated
         setTimeout(() => {
           if (chartInstance.current) {
             chartInstance.current.destroy();
             chartInstance.current = null;
-            // Force re-render by updating key
-            setChartKey((prev) => prev + 1);
           }
+          // Trigger re-render to pick up new theme colors
+          setThemeVersion((v) => v + 1);
         }, 50);
       };
 
       window.addEventListener('themechange', handleThemeChange);
       return () => window.removeEventListener('themechange', handleThemeChange);
-    }, []);
-
-    // Force initial render after mount
-    useEffect(() => {
-      // Small delay to ensure DOM is ready and CSS variables are available
-      const timer = setTimeout(() => {
-        setChartKey((prev) => prev + 1);
-      }, 100);
-      return () => clearTimeout(timer);
     }, []);
 
     useEffect(() => {
@@ -406,7 +365,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
           chartInstance.current.destroy();
         }
       };
-    }, [chartData, chartSize, activeTab, chartKey]);
+    }, [chartData, chartSize, activeTab]);
 
     // Swipe handlers
     const handleTouchStart = useCallback((e: React.TouchEvent) => {
@@ -555,7 +514,6 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
                     }}
                   >
                     <canvas
-                      key={chartKey}
                       ref={chartRef}
                       className="transition-opacity duration-300"
                       style={{
