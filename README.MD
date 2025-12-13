@@ -225,6 +225,14 @@ services:
       # - LanCache__DataSources__1__LogPath=/mnt/logs/epic
       # - LanCache__DataSources__1__Enabled=true
 
+      #=== Auto-Discovery (Alternative to Manual Datasources) ===#
+      # Automatically detect datasources by scanning for matching subdirectories.
+      # When enabled, the app scans /cache and /logs for subdirectories that exist
+      # in BOTH locations (e.g., /cache/steam + /logs/steam = "Steam" datasource).
+      # This is an alternative to manually configuring each DataSource above.
+      # Note: Explicit DataSources config takes priority over auto-discovery.
+      # - LanCache__AutoDiscoverDatasources=true
+
       #=== Security Settings ===#
       # Security__EnableAuthentication: Master switch for authentication
       # true = require API key for admin features (recommended)
@@ -284,6 +292,14 @@ Also saved to `/data/api_key.txt`
 3. Open `http://localhost:8080`
 4. Go to Management and enter your API key
 5. Click "Process Logs" to start analyzing
+
+### Multiple Directories
+
+You can configure multiple log and cache directory pairs:
+- **Manual configuration** - Define each datasource with `LanCache__DataSources__N__` environment variables
+- **Auto-discovery** - Enable `LanCache__AutoDiscoverDatasources=true` to automatically detect matching subdirectories in `/cache` and `/logs`
+
+See [Multiple Datasources](#multiple-datasources) for detailed configuration.
 
 ### Read-Only Volumes
 
@@ -425,36 +441,15 @@ Game identification uses mappings from [lancache-pics](https://github.com/regix1
 
 For private depots or unrecognized games, add custom mappings in the same section.
 
-### Steam Web API (V1 vs V2)
+### Steam Web API Key (Optional)
 
-Steam provides two Web API versions for fetching game data:
+For access to playtest and restricted games, you can configure a Steam Web API key:
 
-| API Version | Requirements | Access Level |
-|-------------|--------------|--------------|
-| **V2** | None | Public games only (no auth) |
-| **V2 + Account Login** | Steam credentials | Public + playtest/restricted games |
-| **V1** | API Key | Public + playtest/restricted games |
-
-**Key difference:** V1 API keys are tied to your Steam account, so they inherently provide access to playtest/restricted games without needing a separate login. V2 requires a Steam account login to access those same restricted games.
-
-**V1 API Key Setup:**
 1. Get your API key from [Steam Web API](https://steamcommunity.com/dev/apikey)
 2. Go to **Management > Steam Web API Status**
 3. Click **Configure API Key** and enter your key
 
-The system automatically uses V2 when available and falls back to V1 if V2 becomes unavailable.
-
-### Steam Account Login vs API Key
-
-| Method | Requirements | Access Level |
-|--------|--------------|--------------|
-| **Anonymous (V2)** | None | Public games only |
-| **Account Login (V2)** | V2 API + Steam credentials | Public + playtest/restricted games |
-| **V1 API Key** | API key from Steam | Public + playtest/restricted games |
-
-> **Important:** Steam account login requires the **V2 API to be available**. When V2 is unavailable, the account login option is disabled. If you have a V1 API key configured, you already have access to playtest/restricted games through that key.
-
-**For most users:** The V1 API key method is recommended. It provides access to all depot mappings including playtest games, doesn't require V2 API availability, and doesn't require entering your Steam password.
+**Note:** Most users don't need this. The GitHub mappings cover the vast majority of games.
 
 <a id="grafana--prometheus-integration"></a>
 ## Grafana & Prometheus Integration [⬆](#-table-of-contents)

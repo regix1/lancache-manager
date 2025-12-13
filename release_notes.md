@@ -1,5 +1,10 @@
 ## What's New
 
+### UI Display Improvements
+- Updated display technique for better item rendering
+- Fixed alignment issues across various components
+- Improved visual consistency for item layouts
+
 ### Multiple Datasources Support
 You can now configure multiple log and cache directory pairs. Useful if you're running multiple LANCache instances or have logs split across different locations.
 
