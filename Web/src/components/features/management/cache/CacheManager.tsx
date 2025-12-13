@@ -1,5 +1,5 @@
 import React, { useState, useEffect, use, useRef } from 'react';
-import { Server, Trash2, AlertTriangle, Lock, FolderOpen } from 'lucide-react';
+import { Server, AlertTriangle, Lock, FolderOpen } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useSignalR } from '@contexts/SignalRContext';
@@ -88,6 +88,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   const [deleteMode, setDeleteMode] = useState<'preserve' | 'full' | 'rsync'>(config.cacheDeleteMode as 'preserve' | 'full' | 'rsync');
   const [deleteModeLoading, setDeleteModeLoading] = useState(false);
   const [isCacheClearing, setIsCacheClearing] = useState(false);
+  const [clearingDatasource, setClearingDatasource] = useState<string | null>(null); // null = all, string = specific
   const cacheOperationInProgressRef = useRef(false);
   const deleteModeChangeInProgressRef = useRef(false);
 
@@ -130,12 +131,13 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   };
 
 
-  const handleClearAllCache = () => {
+  const handleClearCache = (datasourceName: string | null = null) => {
     if (authMode !== 'authenticated') {
       onError?.('Full authentication required for management operations');
       return;
     }
 
+    setClearingDatasource(datasourceName);
     setShowConfirmModal(true);
   };
 
@@ -154,7 +156,11 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     setIsCacheClearing(true);
 
     try {
-      await ApiService.clearAllCache();
+      if (clearingDatasource) {
+        await ApiService.clearDatasourceCache(clearingDatasource);
+      } else {
+        await ApiService.clearAllCache();
+      }
       // NotificationsContext handles success/error messages via SignalR
     } catch (err: unknown) {
       onError?.('Failed to start cache clearing: ' + ((err instanceof Error ? err.message : String(err)) || 'Unknown error'));
@@ -216,7 +222,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
               </HelpPopover>
             </div>
 
-            {/* Main Cache Path and Clear Button */}
+            {/* Main Cache Path and Clear Buttons */}
             {(() => {
               // Get datasources - use dataSources array if available, otherwise create single entry from legacy config
               const datasources: DatasourceInfo[] = config.dataSources && config.dataSources.length > 0
@@ -233,56 +239,67 @@ const CacheManager: React.FC<CacheManagerProps> = ({
 
               return (
                 <div className="mb-6">
-                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-                    <div className="flex-1">
-                      {hasMultiple ? (
-                        <>
-                          <p className="text-themed-secondary mb-2">
-                            Manage cached game files across {datasources.length} datasources
-                          </p>
-                          <div className="space-y-1.5">
-                            {datasources.map((ds) => (
-                              <div key={ds.name} className="flex items-center gap-2 text-xs">
-                                <FolderOpen className="w-3.5 h-3.5 text-themed-muted flex-shrink-0" />
-                                <span className="font-medium text-themed-primary">{ds.name}:</span>
-                                <code className="bg-themed-tertiary px-1.5 py-0.5 rounded text-themed-secondary truncate">
-                                  {ds.cachePath}
-                                </code>
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      ) : (
-                        <p className="text-themed-secondary">
-                          Manage cached game files in{' '}
-                          <code className="bg-themed-tertiary px-2 py-1 rounded text-xs">
-                            {datasources[0]?.cachePath || config.cachePath}
+                  {/* Datasource list with individual clear buttons */}
+                  <div className="space-y-2 mb-4">
+                    {datasources.map((ds) => (
+                      <div
+                        key={ds.name}
+                        className="flex items-center justify-between gap-3 p-2.5 rounded-lg"
+                        style={{ backgroundColor: 'var(--theme-bg-secondary)' }}
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <FolderOpen className="w-4 h-4 text-themed-muted flex-shrink-0" />
+                          <span className="font-medium text-themed-primary">{ds.name}:</span>
+                          <code className="bg-themed-tertiary px-1.5 py-0.5 rounded text-xs text-themed-secondary truncate">
+                            {ds.cachePath}
                           </code>
-                        </p>
-                      )}
-                      <p className="text-xs text-themed-muted mt-2 flex items-center gap-1.5">
-                        <AlertTriangle className="w-3.5 h-3.5 text-themed-accent flex-shrink-0" />
-                        <span>This deletes ALL cached game files from disk</span>
-                      </p>
-                    </div>
-                    <Button
-                      variant="filled"
-                      color="red"
-                      leftSection={<Trash2 className="w-4 h-4" />}
-                      onClick={handleClearAllCache}
-                      disabled={
-                        actionLoading ||
-                        mockMode ||
-                        isCacheClearing ||
-                        authMode !== 'authenticated' ||
-                        cacheReadOnly
-                      }
-                      loading={actionLoading}
-                      className="w-full sm:w-48 flex-shrink-0"
-                      title={cacheReadOnly ? 'Cache directory is mounted read-only' : undefined}
-                    >
-                      {isCacheClearing ? 'Clearing...' : hasMultiple ? 'Clear All Caches' : 'Clear Cache'}
-                    </Button>
+                        </div>
+                        <Button
+                          variant="outline"
+                          color="red"
+                          size="xs"
+                          onClick={() => handleClearCache(ds.name)}
+                          disabled={
+                            actionLoading ||
+                            mockMode ||
+                            isCacheClearing ||
+                            authMode !== 'authenticated' ||
+                            cacheReadOnly ||
+                            !ds.cacheWritable
+                          }
+                          title={!ds.cacheWritable ? 'Cache directory is read-only' : `Clear ${ds.name} cache`}
+                        >
+                          Clear
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Warning and Clear All button */}
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <p className="text-xs text-themed-muted flex items-center gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 text-themed-accent flex-shrink-0" />
+                      <span>Clearing cache deletes ALL cached game files from disk</span>
+                    </p>
+                    {hasMultiple && (
+                      <Button
+                        variant="filled"
+                        color="red"
+                        size="sm"
+                        onClick={() => handleClearCache(null)}
+                        disabled={
+                          actionLoading ||
+                          mockMode ||
+                          isCacheClearing ||
+                          authMode !== 'authenticated' ||
+                          cacheReadOnly
+                        }
+                        loading={actionLoading && !clearingDatasource}
+                        title={cacheReadOnly ? 'Cache directory is mounted read-only' : undefined}
+                      >
+                        {isCacheClearing && !clearingDatasource ? 'Clearing All...' : 'Clear All Caches'}
+                      </Button>
+                    )}
                   </div>
                 </div>
               );
@@ -370,7 +387,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
         title={
           <div className="flex items-center space-x-3">
             <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>Confirm Cache Clear</span>
+            <span>{clearingDatasource ? `Clear ${clearingDatasource} Cache` : 'Clear All Caches'}</span>
           </div>
         }
         size="md"
@@ -387,12 +404,24 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                   logsWritable: config.logsWritable ?? false,
                   enabled: true
                 }];
-            const hasMultiple = datasources.length > 1;
 
-            return hasMultiple ? (
+            // Show specific datasource or all
+            if (clearingDatasource) {
+              const targetDs = datasources.find(ds => ds.name === clearingDatasource);
+              return (
+                <p className="text-themed-secondary">
+                  This will permanently delete <strong>all cached game files</strong> from the <strong>{clearingDatasource}</strong> cache at{' '}
+                  <code className="bg-themed-tertiary px-1 py-0.5 rounded">{targetDs?.cachePath || 'unknown'}</code>.
+                  Games will need to redownload content after clearing.
+                </p>
+              );
+            }
+
+            // Show all datasources
+            return (
               <>
                 <p className="text-themed-secondary">
-                  This will permanently delete <strong>all cached game files</strong> from the following directories.
+                  This will permanently delete <strong>all cached game files</strong> from {datasources.length > 1 ? 'all datasources' : 'the cache'}.
                   Games will need to redownload content after clearing.
                 </p>
                 <div className="space-y-1.5 p-3 rounded-lg bg-themed-tertiary/50">
@@ -405,12 +434,6 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                   ))}
                 </div>
               </>
-            ) : (
-              <p className="text-themed-secondary">
-                This will permanently delete <strong>all cached game files</strong> from{' '}
-                <code className="bg-themed-tertiary px-1 py-0.5 rounded">{datasources[0]?.cachePath || config.cachePath}</code>.
-                Games will need to redownload content after clearing.
-              </p>
             );
           })()}
 
@@ -436,11 +459,10 @@ const CacheManager: React.FC<CacheManagerProps> = ({
             <Button
               variant="filled"
               color="red"
-              leftSection={<Trash2 className="w-4 h-4" />}
               onClick={startCacheClear}
               loading={actionLoading}
             >
-              Delete Cached Files
+              {clearingDatasource ? `Delete ${clearingDatasource} Cache` : 'Delete All Caches'}
             </Button>
           </div>
         </div>

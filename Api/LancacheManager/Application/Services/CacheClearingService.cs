@@ -113,7 +113,7 @@ public class CacheClearingService : IHostedService
         return Task.CompletedTask;
     }
 
-    public Task<string> StartCacheClearAsync()
+    public Task<string> StartCacheClearAsync(string? datasourceName = null)
     {
         var operationId = Guid.NewGuid().ToString();
         var operation = new CacheClearOperation
@@ -121,14 +121,18 @@ public class CacheClearingService : IHostedService
             Id = operationId,
             StartTime = DateTime.UtcNow,
             Status = ClearStatus.Preparing,
-            StatusMessage = "Initializing cache clear...",
-            CancellationTokenSource = new CancellationTokenSource()
+            StatusMessage = datasourceName != null
+                ? $"Initializing cache clear for {datasourceName}..."
+                : "Initializing cache clear...",
+            CancellationTokenSource = new CancellationTokenSource(),
+            DatasourceName = datasourceName
         };
 
         _operations[operationId] = operation;
         SaveOperationToState(operation);
 
-        _logger.LogInformation($"Starting cache clear operation {operationId}");
+        _logger.LogInformation($"Starting cache clear operation {operationId}" +
+            (datasourceName != null ? $" for datasource: {datasourceName}" : " for all datasources"));
 
         // Start the clear operation on a background thread
         _ = Task.Run(async () => await ExecuteCacheClear(operation), operation.CancellationTokenSource.Token);
@@ -146,21 +150,47 @@ public class CacheClearingService : IHostedService
             operation.StatusMessage = "Checking permissions...";
             await NotifyProgress(operation);
 
-            // Get all enabled datasources to clear
-            var datasources = _datasourceService.GetDatasources()
+            // Get datasources to clear (filtered by name if specified)
+            var allDatasources = _datasourceService.GetDatasources()
                 .Where(ds => ds.Enabled && !string.IsNullOrEmpty(ds.CachePath))
                 .ToList();
 
-            if (!datasources.Any())
+            List<ResolvedDatasource> datasources;
+            if (!string.IsNullOrEmpty(operation.DatasourceName))
             {
-                // Fallback to default cache path
-                datasources = new List<ResolvedDatasource>
-                {
-                    new ResolvedDatasource { Name = "default", CachePath = _cachePath, Enabled = true }
-                };
-            }
+                // Filter to specific datasource
+                datasources = allDatasources
+                    .Where(ds => ds.Name.Equals(operation.DatasourceName, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
 
-            _logger.LogInformation($"Cache clear will process {datasources.Count} datasource(s)");
+                if (!datasources.Any())
+                {
+                    operation.Status = ClearStatus.Failed;
+                    operation.Error = $"Datasource '{operation.DatasourceName}' not found";
+                    operation.EndTime = DateTime.UtcNow;
+                    await NotifyProgress(operation);
+                    SaveOperationToState(operation);
+                    return;
+                }
+
+                _logger.LogInformation($"Cache clear will process specific datasource: {operation.DatasourceName}");
+            }
+            else
+            {
+                // Clear all datasources
+                datasources = allDatasources;
+
+                if (!datasources.Any())
+                {
+                    // Fallback to default cache path
+                    datasources = new List<ResolvedDatasource>
+                    {
+                        new ResolvedDatasource { Name = "default", CachePath = _cachePath, Enabled = true }
+                    };
+                }
+
+                _logger.LogInformation($"Cache clear will process {datasources.Count} datasource(s)");
+            }
 
             // Collect all valid cache paths with their directory counts
             var validCachePaths = new List<(string Name, string Path, int DirCount)>();
@@ -877,6 +907,11 @@ public class CacheClearOperation
     public long BytesDeleted { get; set; }
     public long FilesDeleted { get; set; }
     public double PercentComplete { get; set; }
+
+    /// <summary>
+    /// Optional: Name of the specific datasource to clear (null = all datasources)
+    /// </summary>
+    public string? DatasourceName { get; set; }
 
     [JsonIgnore]
     public CancellationTokenSource? CancellationTokenSource { get; set; }

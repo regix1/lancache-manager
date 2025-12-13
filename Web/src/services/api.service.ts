@@ -280,7 +280,7 @@ class ApiService {
   }
 
 
-  // Start async cache clearing operation (requires auth)
+  // Start async cache clearing operation for all datasources (requires auth)
   static async clearAllCache(): Promise<ClearCacheResponse> {
     try {
       const res = await fetch(`${API_BASE}/cache`, this.getFetchOptions({
@@ -291,6 +291,20 @@ class ApiService {
       return await this.handleResponse<ClearCacheResponse>(res);
     } catch (error) {
       console.error('clearAllCache error:', error);
+      throw error;
+    }
+  }
+
+  // Start async cache clearing operation for a specific datasource (requires auth)
+  static async clearDatasourceCache(datasourceName: string): Promise<ClearCacheResponse> {
+    try {
+      const res = await fetch(`${API_BASE}/cache/datasources/${encodeURIComponent(datasourceName)}`, this.getFetchOptions({
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' }
+      }));
+      return await this.handleResponse<ClearCacheResponse>(res);
+    } catch (error) {
+      console.error('clearDatasourceCache error:', error);
       throw error;
     }
   }

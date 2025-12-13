@@ -82,7 +82,7 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
-    /// DELETE /api/cache - Clear all cache
+    /// DELETE /api/cache - Clear all cache (all datasources)
     /// RESTful: DELETE is proper method for clearing/removing resources
     /// </summary>
     [HttpDelete]
@@ -90,11 +90,30 @@ public class CacheController : ControllerBase
     public async Task<IActionResult> ClearAllCache()
     {
         var operationId = await _cacheClearingService.StartCacheClearAsync();
-        _logger.LogInformation("Started cache clear operation: {OperationId}", operationId);
+        _logger.LogInformation("Started cache clear operation for all datasources: {OperationId}", operationId);
 
         return Accepted(new CacheOperationResponse
         {
-            Message = "Cache clearing started in background",
+            Message = "Cache clearing started in background for all datasources",
+            OperationId = operationId,
+            Status = "running"
+        });
+    }
+
+    /// <summary>
+    /// DELETE /api/cache/datasources/{name} - Clear cache for a specific datasource
+    /// RESTful: DELETE is proper method for clearing/removing resources
+    /// </summary>
+    [HttpDelete("datasources/{name}")]
+    [RequireAuth]
+    public async Task<IActionResult> ClearDatasourceCache(string name)
+    {
+        var operationId = await _cacheClearingService.StartCacheClearAsync(name);
+        _logger.LogInformation("Started cache clear operation for datasource {Datasource}: {OperationId}", name, operationId);
+
+        return Accepted(new CacheOperationResponse
+        {
+            Message = $"Cache clearing started for datasource: {name}",
             OperationId = operationId,
             Status = "running"
         });
