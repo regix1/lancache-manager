@@ -938,6 +938,7 @@ public class GameCacheDetectionService
 
     private static GameCacheInfo ConvertToGameCacheInfo(CachedGameDetection cached)
     {
+        var datasourcesJson = string.IsNullOrWhiteSpace(cached.DatasourcesJson) ? "[]" : cached.DatasourcesJson;
         return new GameCacheInfo
         {
             GameAppId = cached.GameAppId,
@@ -947,12 +948,13 @@ public class GameCacheDetectionService
             DepotIds = JsonSerializer.Deserialize<List<uint>>(cached.DepotIdsJson) ?? new List<uint>(),
             SampleUrls = JsonSerializer.Deserialize<List<string>>(cached.SampleUrlsJson) ?? new List<string>(),
             CacheFilePaths = JsonSerializer.Deserialize<List<string>>(cached.CacheFilePathsJson) ?? new List<string>(),
-            Datasources = JsonSerializer.Deserialize<List<string>>(cached.DatasourcesJson ?? "[]") ?? new List<string>()
+            Datasources = JsonSerializer.Deserialize<List<string>>(datasourcesJson) ?? new List<string>()
         };
     }
 
     private static ServiceCacheInfo ConvertToServiceCacheInfo(CachedServiceDetection cached)
     {
+        var datasourcesJson = string.IsNullOrWhiteSpace(cached.DatasourcesJson) ? "[]" : cached.DatasourcesJson;
         return new ServiceCacheInfo
         {
             ServiceName = cached.ServiceName,
@@ -960,7 +962,7 @@ public class GameCacheDetectionService
             TotalSizeBytes = cached.TotalSizeBytes,
             SampleUrls = JsonSerializer.Deserialize<List<string>>(cached.SampleUrlsJson) ?? new List<string>(),
             CacheFilePaths = JsonSerializer.Deserialize<List<string>>(cached.CacheFilePathsJson) ?? new List<string>(),
-            Datasources = JsonSerializer.Deserialize<List<string>>(cached.DatasourcesJson ?? "[]") ?? new List<string>()
+            Datasources = JsonSerializer.Deserialize<List<string>>(datasourcesJson) ?? new List<string>()
         };
     }
 
