@@ -11,6 +11,7 @@ import ApiService from '@services/api.service';
 import { isAbortError } from '@utils/error';
 import MockDataService from '../test/mockData.service';
 import { useTimeFilter } from './TimeFilterContext';
+import { usePollingRate } from './PollingRateContext';
 import { useSignalR } from './SignalRContext';
 import type { Download } from '../types';
 
@@ -46,6 +47,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   mockMode = false
 }) => {
   const { getTimeRangeParams, timeRange, customStartDate, customEndDate } = useTimeFilter();
+  const { getPollingInterval } = usePollingRate();
   const signalR = useSignalR();
 
   const [activeDownloads, setActiveDownloads] = useState<Download[]>([]);
@@ -64,10 +66,13 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastFetchTime = useRef<number>(0);
   const getTimeRangeParamsRef = useRef(getTimeRangeParams);
+  const getPollingIntervalRef = useRef(getPollingInterval);
   const mockModeRef = useRef(mockMode);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Update refs on each render (no useEffect needed)
   getTimeRangeParamsRef.current = getTimeRangeParams;
+  getPollingIntervalRef.current = getPollingInterval;
   mockModeRef.current = mockMode;
 
   // Fetch downloads data (called by SignalR events)
@@ -242,6 +247,53 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
       if (abortControllerRef.current) abortControllerRef.current.abort();
     };
   }, [mockMode, refreshDownloads]);
+
+  // Polling interval - fetch data at user-configured rate
+  useEffect(() => {
+    if (mockMode) return;
+
+    // Clear any existing polling interval
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+
+    // Set up polling at the user's configured rate
+    const setupPolling = () => {
+      const interval = getPollingIntervalRef.current();
+      pollingIntervalRef.current = setInterval(() => {
+        fetchDownloads();
+      }, interval);
+    };
+
+    // Start polling after initial load completes
+    if (!isInitialLoad.current) {
+      setupPolling();
+    } else {
+      // Wait for initial load to complete, then start polling
+      const checkAndSetup = setInterval(() => {
+        if (!isInitialLoad.current) {
+          clearInterval(checkAndSetup);
+          setupPolling();
+        }
+      }, 100);
+
+      return () => {
+        clearInterval(checkAndSetup);
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
+      };
+    }
+
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
+  }, [mockMode, fetchDownloads]);
 
   // Handle time range changes
   useEffect(() => {

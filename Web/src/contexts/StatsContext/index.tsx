@@ -3,6 +3,7 @@ import ApiService from '@services/api.service';
 import { isAbortError } from '@utils/error';
 import MockDataService from '../../test/mockData.service';
 import { useTimeFilter } from '../TimeFilterContext';
+import { usePollingRate } from '../PollingRateContext';
 import { useSignalR } from '../SignalRContext';
 import type { CacheInfo, ClientStat, ServiceStat, DashboardStats } from '../../types';
 import type { StatsContextType, StatsProviderProps } from './types';
@@ -19,6 +20,7 @@ export const useStats = () => {
 
 export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode = false }) => {
   const { getTimeRangeParams, timeRange, customStartDate, customEndDate } = useTimeFilter();
+  const { getPollingInterval } = usePollingRate();
   const signalR = useSignalR();
 
   const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null);
@@ -41,11 +43,14 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   const lastFetchTime = useRef<number>(0);
   const currentTimeRangeRef = useRef<string>(timeRange);
   const getTimeRangeParamsRef = useRef(getTimeRangeParams);
+  const getPollingIntervalRef = useRef(getPollingInterval);
   const mockModeRef = useRef(mockMode);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Update refs on each render (no useEffect needed)
   currentTimeRangeRef.current = timeRange;
   getTimeRangeParamsRef.current = getTimeRangeParams;
+  getPollingIntervalRef.current = getPollingInterval;
   mockModeRef.current = mockMode;
 
   const getApiUrl = (): string => {
@@ -293,6 +298,53 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       if (abortControllerRef.current) abortControllerRef.current.abort();
     };
   }, [mockMode, refreshStats]);
+
+  // Polling interval - fetch data at user-configured rate
+  useEffect(() => {
+    if (mockMode) return;
+
+    // Clear any existing polling interval
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+
+    // Set up polling at the user's configured rate
+    const setupPolling = () => {
+      const interval = getPollingIntervalRef.current();
+      pollingIntervalRef.current = setInterval(() => {
+        fetchAllStats();
+      }, interval);
+    };
+
+    // Start polling after initial load completes
+    if (!isInitialLoad.current) {
+      setupPolling();
+    } else {
+      // Wait for initial load to complete, then start polling
+      const checkAndSetup = setInterval(() => {
+        if (!isInitialLoad.current) {
+          clearInterval(checkAndSetup);
+          setupPolling();
+        }
+      }, 100);
+
+      return () => {
+        clearInterval(checkAndSetup);
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
+      };
+    }
+
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
+  }, [mockMode, fetchAllStats]);
 
   // Handle time range changes
   useEffect(() => {
