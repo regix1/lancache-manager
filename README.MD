@@ -548,7 +548,25 @@ If you run multiple LANCache instances with separate log and cache directories, 
 
 ### Configuration
 
-Add datasources using environment variables with array indexing:
+#### Option 1: Auto-Discovery (Recommended)
+
+The simplest approach - automatically detect datasources by scanning for matching subdirectories:
+
+```yaml
+volumes:
+  - ./data:/data
+  - /mnt/lancache/logs:/logs:ro      # Contains subdirs: steam/, epic/, etc.
+  - /mnt/lancache/cache:/cache:ro    # Contains subdirs: steam/, epic/, etc.
+
+environment:
+  - LanCache__AutoDiscoverDatasources=true
+```
+
+The app scans `/cache` and `/logs` for subdirectories that exist in **both** locations. For example, if you have `/cache/steam` and `/logs/steam`, it creates a "Steam" datasource automatically.
+
+#### Option 2: Manual Configuration
+
+Define each datasource explicitly with environment variables:
 
 ```yaml
 environment:
@@ -565,7 +583,9 @@ environment:
   - LanCache__DataSources__1__Enabled=true
 ```
 
-### Multi-Datasource Docker Compose Example
+> **Note:** Explicit DataSources config takes priority over auto-discovery.
+
+### Multi-Datasource Docker Compose Example (Manual)
 
 ```yaml
 version: '3.8'
@@ -610,6 +630,52 @@ services:
       - Security__EnableAuthentication=true
       - NginxLogRotation__Enabled=true
 ```
+
+### Multi-Datasource Docker Compose Example (Auto-Discovery)
+
+```yaml
+version: '3.8'
+
+services:
+  lancache-manager:
+    image: ghcr.io/regix1/lancache-manager:latest
+    container_name: lancache-manager
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./data:/data
+
+      # Mount the entire lancache directory
+      # Host structure:
+      #   /mnt/lancache/
+      #     ├── cache/
+      #     │   ├── steam/
+      #     │   └── epic/
+      #     └── logs/
+      #         ├── steam/
+      #         └── epic/
+      - /mnt/lancache:/lancache:ro
+
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Chicago
+      - ASPNETCORE_URLS=http://+:80
+
+      # Point to the mounted paths
+      - LanCache__CachePath=/lancache/cache
+      - LanCache__LogPath=/lancache/logs
+
+      # Auto-discover datasources from matching subdirectories
+      - LanCache__AutoDiscoverDatasources=true
+
+      - Security__EnableAuthentication=true
+      - NginxLogRotation__Enabled=true
+```
+
+Auto-discovery scans `CachePath` and `LogPath` for matching subdirectories (e.g., `steam/` exists in both → creates "Steam" datasource).
 
 ### How It Works
 
