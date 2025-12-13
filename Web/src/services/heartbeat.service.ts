@@ -3,30 +3,75 @@ import authService from './auth.service';
 
 /**
  * Heartbeat service to keep session alive and update last seen timestamp
- * Sends periodic updates to the server when user is active
+ * Sends periodic updates to the server when user is active and page is visible
  */
 class HeartbeatService {
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private isActive: boolean = true;
+  private isPageVisible: boolean = true;
+  private visibilityHandler: (() => void) | null = null;
 
   /**
-   * Start sending heartbeats every 30 seconds when user is active
+   * Start sending heartbeats every 30 seconds when user is active and page is visible
    */
   startHeartbeat(): void {
     // Clear any existing interval
     this.stopHeartbeat();
 
-    // Send initial heartbeat
-    this.sendHeartbeat();
+    // Set up Page Visibility API listener
+    this.setupVisibilityListener();
+
+    // Send initial heartbeat if page is visible
+    if (this.isPageVisible) {
+      this.sendHeartbeat();
+    }
 
     // Set up interval to send heartbeat every 30 seconds
     this.heartbeatInterval = setInterval(() => {
-      if (this.isActive) {
+      // Only send heartbeat if user is active AND page is visible
+      if (this.isActive && this.isPageVisible) {
         this.sendHeartbeat();
       }
     }, 30000); // 30 seconds
 
     console.log('[Heartbeat] Started sending heartbeats every 30 seconds');
+  }
+
+  /**
+   * Set up Page Visibility API listener to pause heartbeats when tab is hidden
+   */
+  private setupVisibilityListener(): void {
+    // Remove any existing listener
+    this.removeVisibilityListener();
+
+    // Update initial visibility state
+    this.isPageVisible = !document.hidden;
+
+    // Create handler for visibility changes
+    this.visibilityHandler = () => {
+      const wasVisible = this.isPageVisible;
+      this.isPageVisible = !document.hidden;
+
+      if (this.isPageVisible && !wasVisible) {
+        // Tab became visible - send immediate heartbeat
+        console.log('[Heartbeat] Page became visible, sending heartbeat');
+        this.sendHeartbeat();
+      } else if (!this.isPageVisible && wasVisible) {
+        console.log('[Heartbeat] Page hidden, pausing heartbeats');
+      }
+    };
+
+    document.addEventListener('visibilitychange', this.visibilityHandler);
+  }
+
+  /**
+   * Remove visibility listener
+   */
+  private removeVisibilityListener(): void {
+    if (this.visibilityHandler) {
+      document.removeEventListener('visibilitychange', this.visibilityHandler);
+      this.visibilityHandler = null;
+    }
   }
 
   /**
@@ -38,6 +83,7 @@ class HeartbeatService {
       this.heartbeatInterval = null;
       console.log('[Heartbeat] Stopped sending heartbeats');
     }
+    this.removeVisibilityListener();
   }
 
   /**
@@ -47,8 +93,8 @@ class HeartbeatService {
   setActive(active: boolean): void {
     this.isActive = active;
 
-    if (active) {
-      // User became active - send immediate heartbeat
+    if (active && this.isPageVisible) {
+      // User became active and page is visible - send immediate heartbeat
       this.sendHeartbeat();
     }
   }
