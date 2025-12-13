@@ -61,11 +61,12 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const formattedLastDetectionTime = useFormattedDateTime(lastDetectionTime);
 
   // Filter games and services by selected datasource
+  // Note: Items with empty/missing datasources (legacy data) are shown regardless of filter
   const filteredGames = selectedDatasource
-    ? games.filter((g) => g.datasources?.includes(selectedDatasource))
+    ? games.filter((g) => !g.datasources?.length || g.datasources.includes(selectedDatasource))
     : games;
   const filteredServices = selectedDatasource
-    ? services.filter((s) => s.datasources?.includes(selectedDatasource))
+    ? services.filter((s) => !s.datasources?.length || s.datasources.includes(selectedDatasource))
     : services;
 
   // Load cached games and services from backend on mount and when refreshKey changes
