@@ -219,61 +219,68 @@ public class CacheManagementService
             // Invalidate cache since we're modifying logs
             await InvalidateServiceCountsCache();
 
-            if (!File.Exists(_logPath))
-            {
-                throw new FileNotFoundException($"Log file not found: {_logPath}");
-            }
-
-            var logDir = Path.GetDirectoryName(_logPath) ?? _pathResolver.GetLogsDirectory();
-
-            // Check write permissions using PathResolver
-            if (!_pathResolver.IsLogsDirectoryWritable())
-            {
-                var errorMsg = $"Cannot write to logs directory: {logDir}. " +
-                              "Directory is mounted read-only. " +
-                              "Remove :ro from the logs volume mount in docker-compose.yml to enable log management features.";
-                _logger.LogWarning(errorMsg);
-                throw new UnauthorizedAccessException(errorMsg);
-            }
-
-            // Use Rust binary for fast log filtering
-            var operationsDir = _pathResolver.GetOperationsDirectory();
-            var progressFile = Path.Combine(operationsDir, "log_remove_progress.json");
+            var datasources = _datasourceService.GetDatasources();
             var rustBinaryPath = _pathResolver.GetRustLogManagerPath();
 
             // Check if Rust binary exists
             _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Rust log_manager");
 
-            _logger.LogInformation($"Using Rust binary for log filtering: {rustBinaryPath}");
+            _logger.LogInformation("Using Rust binary for log filtering across {Count} datasource(s): {Path}",
+                datasources.Count, rustBinaryPath);
 
-            var startInfo = _rustProcessHelper.CreateProcessStartInfo(
-                rustBinaryPath,
-                $"remove \"{logDir}\" \"{service}\" \"{progressFile}\"");
-
-            using (var process = Process.Start(startInfo))
+            // Process each datasource
+            foreach (var datasource in datasources)
             {
-                if (process == null)
+                var logDir = datasource.LogPath;
+
+                if (!Directory.Exists(logDir))
                 {
-                    throw new Exception("Failed to start Rust log_manager process");
+                    _logger.LogWarning("Log directory not found for datasource '{Name}': {Path}, skipping",
+                        datasource.Name, logDir);
+                    continue;
                 }
 
-                // Read stdout and stderr asynchronously to prevent buffer deadlock
-                var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-                var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-
-                await _processManager.WaitForProcessAsync(process, cancellationToken);
-
-                var output = await outputTask;
-                var error = await errorTask;
-
-                if (process.ExitCode != 0)
+                // Check write permissions for this datasource's logs
+                if (!datasource.LogsWritable)
                 {
-                    throw new Exception($"Rust log_manager failed with exit code {process.ExitCode}: {error}");
+                    _logger.LogWarning("Logs directory is read-only for datasource '{Name}': {Path}, skipping",
+                        datasource.Name, logDir);
+                    continue;
                 }
 
-                _logger.LogInformation($"Rust log filtering completed: {output}");
-                if (!string.IsNullOrEmpty(error))
+                var operationsDir = _pathResolver.GetOperationsDirectory();
+                var progressFile = Path.Combine(operationsDir, $"log_remove_progress_{datasource.Name}.json");
+
+                _logger.LogInformation("Removing {Service} entries from datasource '{DatasourceName}' logs: {LogDir}",
+                    service, datasource.Name, logDir);
+
+                var startInfo = _rustProcessHelper.CreateProcessStartInfo(
+                    rustBinaryPath,
+                    $"remove \"{logDir}\" \"{service}\" \"{progressFile}\"");
+
+                using (var process = Process.Start(startInfo))
                 {
+                    if (process == null)
+                    {
+                        throw new Exception($"Failed to start Rust log_manager process for datasource '{datasource.Name}'");
+                    }
+
+                    // Read stdout and stderr asynchronously to prevent buffer deadlock
+                    var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+                    var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+
+                    await _processManager.WaitForProcessAsync(process, cancellationToken);
+
+                    var output = await outputTask;
+                    var error = await errorTask;
+
+                    if (process.ExitCode != 0)
+                    {
+                        throw new Exception($"Rust log_manager failed for datasource '{datasource.Name}' with exit code {process.ExitCode}: {error}");
+                    }
+
+                    _logger.LogInformation("Rust log filtering completed for datasource '{DatasourceName}': {Output}",
+                        datasource.Name, output);
                 }
             }
         }
@@ -284,7 +291,7 @@ public class CacheManagementService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Error removing {service} from logs with Rust binary");
+            _logger.LogError(ex, "Error removing {Service} from logs with Rust binary", service);
             throw;
         }
         finally
@@ -582,6 +589,7 @@ public class CacheManagementService
 
     /// <summary>
     /// Remove corrupted chunks for a specific service (invalidates cache)
+    /// Processes all datasources to remove corruption from all log/cache pairs.
     /// </summary>
     public async Task RemoveCorruptedChunks(string service, CancellationToken cancellationToken = default)
     {
@@ -591,103 +599,124 @@ public class CacheManagementService
         {
             _logger.LogInformation("[CorruptionDetection] RemoveCorruptedChunks for service: {Service}", service);
 
-            var logDir = Path.GetDirectoryName(_logPath) ?? _pathResolver.GetLogsDirectory();
-            var cacheDir = _cachePath;
-
-            // Check write permissions for both cache and logs directories
-            if (!_pathResolver.IsCacheDirectoryWritable())
-            {
-                var errorMsg = $"Cannot write to cache directory: {cacheDir}. " +
-                              "Directory is mounted read-only. " +
-                              "Remove :ro from the cache volume mount in docker-compose.yml to enable corruption removal.";
-                _logger.LogWarning(errorMsg);
-                throw new UnauthorizedAccessException(errorMsg);
-            }
-
-            if (!_pathResolver.IsLogsDirectoryWritable())
-            {
-                var errorMsg = $"Cannot write to logs directory: {logDir}. " +
-                              "Directory is mounted read-only. " +
-                              "Remove :ro from the logs volume mount in docker-compose.yml to enable corruption removal.";
-                _logger.LogWarning(errorMsg);
-                throw new UnauthorizedAccessException(errorMsg);
-            }
-
+            var datasources = _datasourceService.GetDatasources();
             var dbPath = _pathResolver.GetDatabasePath();
             var operationsDir = _pathResolver.GetOperationsDirectory();
-            var progressPath = Path.Combine(operationsDir, "corruption_removal_progress.json");
+            var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
 
-            _logger.LogInformation("[CorruptionDetection] Removal params - db: {DbPath}, logDir: {LogDir}, cacheDir: {CacheDir}, progress: {Progress}",
-                dbPath, logDir, cacheDir, progressPath);
+            _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Corruption manager");
 
             // Send start notification via SignalR
             await _hubContext.Clients.All.SendAsync("CorruptionRemovalStarted", new
             {
                 service,
-                message = $"Starting corruption removal for {service}...",
+                message = $"Starting corruption removal for {service} across {datasources.Count} datasource(s)...",
                 timestamp = DateTime.UtcNow
             }, cancellationToken);
 
-            var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
+            var processedCount = 0;
+            var skippedCount = 0;
 
-            _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Corruption manager");
-
-            var startInfo = _rustProcessHelper.CreateProcessStartInfo(
-                rustBinaryPath,
-                $"remove \"{dbPath}\" \"{logDir}\" \"{cacheDir}\" \"{service}\" \"{progressPath}\"");
-
-            using (var process = Process.Start(startInfo))
+            // Process each datasource
+            foreach (var datasource in datasources)
             {
-                if (process == null)
+                var logDir = datasource.LogPath;
+                var cacheDir = datasource.CachePath;
+
+                // Check write permissions for this datasource
+                if (!datasource.CacheWritable)
                 {
-                    throw new Exception("Failed to start corruption_manager process");
+                    _logger.LogWarning("[CorruptionDetection] Cache is read-only for datasource '{Name}': {Path}, skipping",
+                        datasource.Name, cacheDir);
+                    skippedCount++;
+                    continue;
                 }
 
-                var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-                var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-
-                await _processManager.WaitForProcessAsync(process, cancellationToken);
-
-                var output = await outputTask;
-                var error = await errorTask;
-
-                _logger.LogInformation("[CorruptionDetection] Removal process exit code: {Code}", process.ExitCode);
-                _logger.LogInformation("[CorruptionDetection] Removal stdout: {Output}", output);
-                if (!string.IsNullOrEmpty(error))
+                if (!datasource.LogsWritable)
                 {
-                    _logger.LogWarning("[CorruptionDetection] Removal stderr: {Error}", error);
+                    _logger.LogWarning("[CorruptionDetection] Logs are read-only for datasource '{Name}': {Path}, skipping",
+                        datasource.Name, logDir);
+                    skippedCount++;
+                    continue;
                 }
 
-                if (process.ExitCode != 0)
+                if (!Directory.Exists(logDir))
                 {
-                    _logger.LogError("[CorruptionDetection] Removal failed with exit code {Code}: {Error}", process.ExitCode, error);
+                    _logger.LogWarning("[CorruptionDetection] Log directory not found for datasource '{Name}': {Path}, skipping",
+                        datasource.Name, logDir);
+                    skippedCount++;
+                    continue;
+                }
 
-                    // Send failure notification via SignalR
-                    await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
+                var progressPath = Path.Combine(operationsDir, $"corruption_removal_{datasource.Name}_{Guid.NewGuid()}.json");
+
+                _logger.LogInformation("[CorruptionDetection] Processing datasource '{DatasourceName}' - logDir: {LogDir}, cacheDir: {CacheDir}",
+                    datasource.Name, logDir, cacheDir);
+
+                var startInfo = _rustProcessHelper.CreateProcessStartInfo(
+                    rustBinaryPath,
+                    $"remove \"{dbPath}\" \"{logDir}\" \"{cacheDir}\" \"{service}\" \"{progressPath}\"");
+
+                using (var process = Process.Start(startInfo))
+                {
+                    if (process == null)
                     {
-                        success = false,
-                        service,
-                        message = $"Failed to remove corrupted chunks for {service}",
-                        error = error,
-                        timestamp = DateTime.UtcNow
-                    }, cancellationToken);
+                        throw new Exception($"Failed to start corruption_manager process for datasource '{datasource.Name}'");
+                    }
 
-                    throw new Exception($"corruption_manager failed with exit code {process.ExitCode}: {error}");
+                    var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+                    var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+
+                    await _processManager.WaitForProcessAsync(process, cancellationToken);
+
+                    var output = await outputTask;
+                    var error = await errorTask;
+
+                    _logger.LogInformation("[CorruptionDetection] Removal process exit code for '{DatasourceName}': {Code}",
+                        datasource.Name, process.ExitCode);
+
+                    if (!string.IsNullOrEmpty(error))
+                    {
+                        _logger.LogWarning("[CorruptionDetection] Removal stderr for '{DatasourceName}': {Error}",
+                            datasource.Name, error);
+                    }
+
+                    if (process.ExitCode != 0)
+                    {
+                        _logger.LogError("[CorruptionDetection] Removal failed for datasource '{DatasourceName}' with exit code {Code}: {Error}",
+                            datasource.Name, process.ExitCode, error);
+
+                        // Send failure notification via SignalR
+                        await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
+                        {
+                            success = false,
+                            service,
+                            message = $"Failed to remove corrupted chunks for {service} in datasource '{datasource.Name}'",
+                            error = error,
+                            timestamp = DateTime.UtcNow
+                        }, cancellationToken);
+
+                        throw new Exception($"corruption_manager failed for datasource '{datasource.Name}' with exit code {process.ExitCode}: {error}");
+                    }
+
+                    processedCount++;
+                    _logger.LogInformation("[CorruptionDetection] Successfully removed corrupted chunks for {Service} in datasource '{DatasourceName}'",
+                        service, datasource.Name);
                 }
-
-                _logger.LogInformation("[CorruptionDetection] Successfully removed corrupted chunks for {Service}", service);
-
-                // Send success notification via SignalR
-                await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
-                {
-                    success = true,
-                    service,
-                    message = $"Successfully removed corrupted chunks for {service}",
-                    timestamp = DateTime.UtcNow
-                }, cancellationToken);
             }
 
-            // No corruption summary cache to invalidate (Rust runs fresh each time)
+            _logger.LogInformation("[CorruptionDetection] Corruption removal complete - processed {Processed} datasource(s), skipped {Skipped}",
+                processedCount, skippedCount);
+
+            // Send success notification via SignalR
+            await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
+            {
+                success = true,
+                service,
+                message = $"Successfully removed corrupted chunks for {service}",
+                timestamp = DateTime.UtcNow
+            }, cancellationToken);
+
             // Invalidate service count cache since corruption removal affects counts
             await InvalidateServiceCountsCache();
 

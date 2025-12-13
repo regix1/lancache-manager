@@ -40,19 +40,19 @@ export const Button: React.FC<ButtonProps> = ({
     }
     if (variant === 'subtle') {
       const colors = {
-        red: 'bg-transparent hover:bg-themed-hover text-themed-error',
-        blue: 'bg-transparent hover:bg-themed-hover text-themed-secondary',
-        green: 'bg-transparent hover:bg-themed-hover text-themed-secondary',
-        yellow: 'bg-transparent hover:bg-themed-hover text-themed-secondary',
-        purple: 'bg-transparent hover:bg-themed-hover text-themed-secondary',
-        gray: 'bg-transparent hover:bg-themed-hover text-themed-secondary',
-        orange: 'bg-transparent hover:bg-themed-hover text-themed-secondary',
-        default: 'bg-transparent hover:bg-themed-hover text-themed-secondary'
+        red: 'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-error',
+        blue: 'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-secondary',
+        green: 'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-secondary',
+        yellow: 'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-secondary',
+        purple: 'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-secondary',
+        gray: 'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-secondary',
+        orange: 'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-secondary',
+        default: 'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-secondary'
       };
       return colors[color];
     }
     if (variant === 'outline') {
-      return 'border border-themed-secondary hover:bg-themed-hover text-themed-primary';
+      return 'border border-themed-secondary hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] focus:border-[var(--theme-border-focus)] text-themed-primary';
     }
     return 'bg-themed-tertiary hover:bg-themed-hover text-themed-primary';
   };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   FileText,
   AlertTriangle,
@@ -6,7 +6,8 @@ import {
   RefreshCw,
   ChevronDown,
   ChevronUp,
-  Lock
+  Lock,
+  FolderOpen
 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
@@ -19,7 +20,7 @@ import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { Tooltip } from '@components/ui/Tooltip';
-import type { CorruptedChunkDetail } from '@/types';
+import type { CorruptedChunkDetail, DatasourceServiceCounts } from '@/types';
 
 // Main services that should always be shown first
 const MAIN_SERVICES = [
@@ -80,21 +81,19 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
   authMode,
   mockMode,
   onError,
-  onSuccess,
+  onSuccess: _onSuccess,
   onReloadRef,
   onClearOperationRef
 }) => {
+  // Note: _onSuccess is currently unused but kept for future use
   // Get notifications to check for running operations
   const { notifications } = useNotifications();
 
-  // Log File Management State
-  const [serviceCounts, setServiceCounts] = useState<Record<string, number>>({});
-  const [config, setConfig] = useState({
-    logPath: 'Loading...',
-    services: [] as string[]
-  });
-  const [pendingServiceRemoval, setPendingServiceRemoval] = useState<string | null>(null);
-  const [showMoreServices, setShowMoreServices] = useState(false);
+  // Log File Management State - per datasource
+  const [datasourceCounts, setDatasourceCounts] = useState<DatasourceServiceCounts[]>([]);
+  const [expandedDatasources, setExpandedDatasources] = useState<Set<string>>(new Set());
+  const [pendingServiceRemoval, setPendingServiceRemoval] = useState<{ datasource: string; service: string } | null>(null);
+  const [showMoreServices, setShowMoreServices] = useState<Record<string, boolean>>({});
 
   // Corruption Detection State
   const [corruptionSummary, setCorruptionSummary] = useState<Record<string, number>>({});
@@ -151,16 +150,11 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
       // We just need to refresh the data if successful
       if (payload.success) {
         try {
-          const [configData, counts, corruption] = await Promise.all([
-            ApiService.getConfig(),
-            ApiService.getServiceLogCounts(true),
+          const [dsCounts, corruption] = await Promise.all([
+            ApiService.getServiceLogCountsByDatasource(),
             ApiService.getCorruptionSummary(true)
           ]);
-          setConfig({
-            logPath: configData.logsPath,
-            services: Object.keys(counts)
-          });
-          setServiceCounts(counts);
+          setDatasourceCounts(dsCounts);
           setCorruptionSummary(corruption);
         } catch (err) {
           console.error('[LogAndCorruptionManager] Failed to refresh after corruption removal:', err);
@@ -213,17 +207,16 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
     setIsLoading(true);
     setLoadError(null);
     try {
-      const [configData, counts, corruption] = await Promise.all([
-        ApiService.getConfig(),
-        ApiService.getServiceLogCounts(forceRefresh),
+      const [dsCounts, corruption] = await Promise.all([
+        ApiService.getServiceLogCountsByDatasource(),
         ApiService.getCorruptionSummary(forceRefresh)
       ]);
-      setConfig({
-        logPath: configData.logsPath,
-        services: Object.keys(counts)
-      });
-      setServiceCounts(counts);
+      setDatasourceCounts(dsCounts);
       setCorruptionSummary(corruption);
+      // Auto-expand single datasource
+      if (dsCounts.length === 1) {
+        setExpandedDatasources(new Set([dsCounts[0].datasource]));
+      }
       setLoadError(null);
       setHasInitiallyLoaded(true);
     } catch (err: unknown) {
@@ -251,22 +244,21 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
     }
   };
 
-  const executeRemoveServiceLogs = async (serviceName: string) => {
+  const executeRemoveServiceLogs = async (datasourceName: string, serviceName: string) => {
     if (authMode !== 'authenticated') {
       onError?.('Full authentication required for management operations');
       return;
     }
 
     setPendingServiceRemoval(null);
-    setStartingServiceRemoval(serviceName);
+    setStartingServiceRemoval(`${datasourceName}:${serviceName}`);
 
     try {
-      const result = await ApiService.removeServiceFromLogs(serviceName);
+      const result = await ApiService.removeServiceFromDatasourceLogs(datasourceName, serviceName);
 
       if (result && result.status === 'started') {
         // SignalR will send LogRemovalProgress which creates the notification
         // The UI will update automatically when the notification is added
-        onSuccess?.(`Removing ${serviceName} entries from logs...`);
       } else {
         onError?.(`Unexpected response when starting log removal for ${serviceName}`);
       }
@@ -282,12 +274,12 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
   };
 
   const handleRemoveServiceLogs = useCallback(
-    (serviceName: string) => {
+    (datasourceName: string, serviceName: string) => {
       if (authMode !== 'authenticated') {
         onError?.('Full authentication required for management operations');
         return;
       }
-      setPendingServiceRemoval(serviceName);
+      setPendingServiceRemoval({ datasource: datasourceName, service: serviceName });
     },
     [authMode, onError]
   );
@@ -344,21 +336,28 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
     }
   };
 
-  const { mainServices, otherServices, servicesWithData } = useMemo(() => {
-    const allServices = Object.keys(serviceCounts).filter((service) => serviceCounts[service] > 0);
+  // Helper to get services for a datasource
+  const getServicesForDatasource = useCallback((ds: DatasourceServiceCounts) => {
+    const allServices = Object.keys(ds.serviceCounts).filter((s) => ds.serviceCounts[s] > 0);
+    const main = allServices.filter((s) => MAIN_SERVICES.includes(s.toLowerCase())).sort();
+    const other = allServices.filter((s) => !MAIN_SERVICES.includes(s.toLowerCase())).sort();
+    const showMore = showMoreServices[ds.datasource] ?? false;
+    const displayed = showMore ? [...main, ...other] : main;
+    return { main, other, displayed };
+  }, [showMoreServices]);
 
-    const main = allServices
-      .filter((service) => MAIN_SERVICES.includes(service.toLowerCase()))
-      .sort();
+  const toggleDatasourceExpanded = (name: string) => {
+    setExpandedDatasources(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
 
-    const other = allServices
-      .filter((service) => !MAIN_SERVICES.includes(service.toLowerCase()))
-      .sort();
-
-    const displayed = showMoreServices ? [...main, ...other] : main;
-
-    return { mainServices: main, otherServices: other, servicesWithData: displayed };
-  }, [serviceCounts, showMoreServices]);
+  const hasAnyLogEntries = datasourceCounts.some(ds =>
+    Object.values(ds.serviceCounts).some(count => count > 0)
+  );
 
   const corruptionList = Object.entries(corruptionSummary)
     .filter(([_, count]) => count > 0)
@@ -488,10 +487,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
           </div>
           {!logsReadOnly && dockerSocketAvailable && (
             <p className="text-themed-muted text-sm mb-4 break-words">
-              Remove service entries from{' '}
-              <code className="bg-themed-tertiary px-1.5 py-0.5 rounded text-xs">
-                {config.logPath}
-              </code>
+              Remove service entries from log files
             </p>
           )}
 
@@ -525,50 +521,121 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                     This may take several minutes for large log files
                   </p>
                 </div>
-              ) : !loadError && (mainServices.length > 0 || otherServices.length > 0) ? (
-                <>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                    {servicesWithData.map((service) => {
-                      const handleClick = () => handleRemoveServiceLogs(service);
-                      return (
-                        <ServiceButton
-                          key={service}
-                          service={service}
-                          count={serviceCounts[service] || 0}
-                          isRemoving={activeLogRemoval === service || startingServiceRemoval === service}
-                          isDisabled={
-                            mockMode ||
-                            !!activeLogRemoval ||
-                            !!removingCorruption ||
-                            !!startingServiceRemoval ||
-                            !!startingCorruptionRemoval ||
-                            authMode !== 'authenticated' ||
-                            logsReadOnly ||
-                            !dockerSocketAvailable ||
-                            checkingPermissions
-                          }
-                          onClick={handleClick}
-                        />
-                      );
-                    })}
-                  </div>
+              ) : !loadError && hasAnyLogEntries ? (
+                <div className="space-y-3">
+                  {datasourceCounts.map((ds) => {
+                    const { other, displayed } = getServicesForDatasource(ds);
+                    const isExpanded = expandedDatasources.has(ds.datasource);
+                    const totalEntries = Object.values(ds.serviceCounts).reduce((a, b) => a + b, 0);
+                    const hasEntries = totalEntries > 0;
 
-                  {otherServices.length > 0 && (
-                    <div className="mt-4 text-center">
-                      <Button
-                        variant="default"
-                        size="sm"
-                        onClick={() => setShowMoreServices(!showMoreServices)}
+                    return (
+                      <div
+                        key={ds.datasource}
+                        className="rounded-lg border"
+                        style={{
+                          backgroundColor: 'var(--theme-bg-secondary)',
+                          borderColor: ds.logsWritable ? 'var(--theme-border-primary)' : 'var(--theme-border-secondary)',
+                          opacity: ds.enabled && ds.logsWritable ? 1 : 0.7
+                        }}
                       >
-                        {showMoreServices ? (
-                          <>Show Less ({otherServices.length} hidden)</>
-                        ) : (
-                          <>Show More ({otherServices.length} more)</>
+                        {/* Datasource header */}
+                        <div
+                          className="p-3 cursor-pointer"
+                          onClick={() => toggleDatasourceExpanded(ds.datasource)}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <FolderOpen className="w-4 h-4 text-themed-muted" />
+                              <span className="font-semibold text-themed-primary">{ds.datasource}</span>
+                              {!ds.logsWritable && (
+                                <Tooltip content="Logs are read-only">
+                                  <Lock className="w-3.5 h-3.5 text-themed-warning" />
+                                </Tooltip>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span className="text-xs text-themed-muted">
+                                {totalEntries.toLocaleString()} entries
+                              </span>
+                              {isExpanded ? (
+                                <ChevronUp className="w-4 h-4 text-themed-muted" />
+                              ) : (
+                                <ChevronDown className="w-4 h-4 text-themed-muted" />
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-themed-muted mt-1">
+                            <code className="bg-themed-tertiary px-1.5 py-0.5 rounded truncate">
+                              {ds.logsPath}
+                            </code>
+                          </div>
+                        </div>
+
+                        {/* Expanded content with services */}
+                        {isExpanded && (
+                          <div className="px-3 pb-3 border-t" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+                            {hasEntries ? (
+                              <>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 pt-3">
+                                  {displayed.map((service) => {
+                                    const key = `${ds.datasource}:${service}`;
+                                    return (
+                                      <ServiceButton
+                                        key={key}
+                                        service={service}
+                                        count={ds.serviceCounts[service] || 0}
+                                        isRemoving={activeLogRemoval === service || startingServiceRemoval === key}
+                                        isDisabled={
+                                          mockMode ||
+                                          !!activeLogRemoval ||
+                                          !!removingCorruption ||
+                                          !!startingServiceRemoval ||
+                                          !!startingCorruptionRemoval ||
+                                          authMode !== 'authenticated' ||
+                                          !ds.logsWritable ||
+                                          !dockerSocketAvailable ||
+                                          checkingPermissions
+                                        }
+                                        onClick={() => handleRemoveServiceLogs(ds.datasource, service)}
+                                      />
+                                    );
+                                  })}
+                                </div>
+
+                                {other.length > 0 && (
+                                  <div className="mt-3 text-center">
+                                    <Button
+                                      variant="default"
+                                      size="sm"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setShowMoreServices(prev => ({
+                                          ...prev,
+                                          [ds.datasource]: !prev[ds.datasource]
+                                        }));
+                                      }}
+                                    >
+                                      {showMoreServices[ds.datasource] ? (
+                                        <>Show Less ({other.length} hidden)</>
+                                      ) : (
+                                        <>Show More ({other.length} more)</>
+                                      )}
+                                    </Button>
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <div className="text-center py-4 text-themed-muted text-sm">
+                                No services with log entries
+                              </div>
+                            )}
+                          </div>
                         )}
-                      </Button>
-                    </div>
-                  )}
-                </>
+                      </div>
+                    );
+                  })}
+                </div>
               ) : (
                 <div className="text-center py-8 text-themed-muted">
                   <div className="mb-2">No services with log entries found</div>
@@ -807,7 +874,8 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            Remove all <strong>{pendingServiceRemoval}</strong> entries from the log file? This will
+            Remove all <strong>{pendingServiceRemoval?.service}</strong> entries from{' '}
+            <strong>{pendingServiceRemoval?.datasource}</strong> logs? This will
             reduce log size and improve performance.
           </p>
 
@@ -817,7 +885,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
                 <li>This action cannot be undone</li>
                 <li>May take several minutes for large log files</li>
-                <li>Cached {pendingServiceRemoval} game files will remain intact</li>
+                <li>Cached {pendingServiceRemoval?.service} game files will remain intact</li>
               </ul>
             </div>
           </Alert>
@@ -834,7 +902,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
               variant="filled"
               color="red"
               onClick={() =>
-                pendingServiceRemoval && executeRemoveServiceLogs(pendingServiceRemoval)
+                pendingServiceRemoval && executeRemoveServiceLogs(pendingServiceRemoval.datasource, pendingServiceRemoval.service)
               }
               loading={!!startingServiceRemoval}
             >

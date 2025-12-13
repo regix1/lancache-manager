@@ -308,8 +308,15 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
         // Use setNotifications to get current state (avoid stale closure)
         setNotifications((prev) => {
-          const existing = prev.find((n) => n.id === fixedNotificationId && n.status === 'running');
-          if (existing) {
+          // Check if there's already a completed/failed notification - don't overwrite it with a stale progress event
+          const existingCompleted = prev.find((n) => n.id === fixedNotificationId && (n.status === 'completed' || n.status === 'failed'));
+          if (existingCompleted) {
+            // Ignore stale progress events after completion
+            return prev;
+          }
+
+          const existingRunning = prev.find((n) => n.id === fixedNotificationId && n.status === 'running');
+          if (existingRunning) {
             return prev.map((n) => {
               if (n.id === fixedNotificationId) {
                 return {

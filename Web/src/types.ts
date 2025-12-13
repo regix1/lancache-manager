@@ -163,6 +163,14 @@ export interface DatasourceLogPosition {
   enabled: boolean;
 }
 
+export interface DatasourceServiceCounts {
+  datasource: string;
+  logsPath: string;
+  logsWritable: boolean;
+  enabled: boolean;
+  serviceCounts: Record<string, number>;
+}
+
 export interface Config {
   cachePath: string;
   logsPath: string;

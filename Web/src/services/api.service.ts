@@ -15,7 +15,8 @@ import type {
   GameDetectionStatus,
   GameCacheInfo,
   ServiceCacheInfo,
-  DatasourceLogPosition
+  DatasourceLogPosition,
+  DatasourceServiceCounts
 } from '../types';
 
 // Response types for API operations
@@ -518,7 +519,7 @@ class ApiService {
     }
   }
 
-  // Get counts of log entries per service (from log files)
+  // Get counts of log entries per service (from log files) - aggregated from all datasources
   static async getServiceLogCounts(forceRefresh = false): Promise<Record<string, number>> {
     try {
       const url = `${API_BASE}/logs/service-counts${forceRefresh ? '?forceRefresh=true' : ''}`;
@@ -528,6 +529,36 @@ class ApiService {
       return await this.handleResponse<Record<string, number>>(res);
     } catch (error) {
       console.error('getServiceLogCounts error:', error);
+      throw error;
+    }
+  }
+
+  // Get counts of log entries per service, grouped by datasource
+  static async getServiceLogCountsByDatasource(): Promise<DatasourceServiceCounts[]> {
+    try {
+      const res = await fetch(`${API_BASE}/logs/service-counts/by-datasource`, this.getFetchOptions({
+        // No timeout - can take time for large log files
+      }));
+      return await this.handleResponse<DatasourceServiceCounts[]>(res);
+    } catch (error) {
+      console.error('getServiceLogCountsByDatasource error:', error);
+      throw error;
+    }
+  }
+
+  // Remove specific service entries from a specific datasource's logs (requires auth)
+  static async removeServiceFromDatasourceLogs(datasourceName: string, service: string): Promise<OperationResponse> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/logs/datasources/${encodeURIComponent(datasourceName)}/services/${encodeURIComponent(service)}`,
+        this.getFetchOptions({
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+      return await this.handleResponse<OperationResponse>(res);
+    } catch (error: unknown) {
+      console.error('removeServiceFromDatasourceLogs error:', error);
       throw error;
     }
   }

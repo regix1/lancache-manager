@@ -107,7 +107,9 @@ public class DatasourceService
                 CachePath = cachePath,
                 LogPath = logDir,
                 LogFilePath = Path.Combine(logDir, "access.log"),
-                Enabled = config.Enabled
+                Enabled = config.Enabled,
+                CacheWritable = _pathResolver.IsDirectoryWritable(cachePath),
+                LogsWritable = _pathResolver.IsDirectoryWritable(logDir)
             };
         }
         catch (Exception ex)
@@ -220,6 +222,16 @@ public class ResolvedDatasource
     /// Whether this datasource is enabled.
     /// </summary>
     public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// Whether the cache directory is writable.
+    /// </summary>
+    public bool CacheWritable { get; set; }
+
+    /// <summary>
+    /// Whether the logs directory is writable.
+    /// </summary>
+    public bool LogsWritable { get; set; }
 }
 
 /// <summary>

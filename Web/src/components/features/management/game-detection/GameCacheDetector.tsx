@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { HardDrive, Loader2, Lock } from 'lucide-react';
+import { HardDrive, Loader2, Lock, FolderOpen } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -11,7 +11,7 @@ import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import GamesList from './GamesList';
 import ServicesList from './ServicesList';
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
-import type { GameCacheInfo, ServiceCacheInfo } from '../../../../types';
+import type { GameCacheInfo, ServiceCacheInfo, DatasourceInfo } from '../../../../types';
 
 interface GameCacheDetectorProps {
   mockMode?: boolean;
@@ -54,6 +54,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [checkingLogs, setCheckingLogs] = useState(true);
   const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
   const [scanType, setScanType] = useState<'full' | 'incremental' | 'load' | null>(null);
+  const [datasources, setDatasources] = useState<DatasourceInfo[]>([]);
 
   // Format last detection time with timezone awareness
   const formattedLastDetectionTime = useFormattedDateTime(lastDetectionTime);
@@ -130,8 +131,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
     loadCachedGames();
     if (refreshKey === 0) {
-      // Only check permissions and logs on initial mount
+      // Only check permissions, logs, and datasources on initial mount
       loadDirectoryPermissions();
+      loadDatasources();
       checkIfLogsProcessed(); // Check database for LogEntries
       // Note: Recovery is now handled by NotificationsContext's recoverGameDetection
       // which queries the backend and creates the notification on page load
@@ -150,6 +152,27 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       setDockerSocketAvailable(true); // Assume available on error
     } finally {
       setCheckingPermissions(false);
+    }
+  };
+
+  const loadDatasources = async () => {
+    try {
+      const config = await ApiService.getConfig();
+      if (config.dataSources && config.dataSources.length > 0) {
+        setDatasources(config.dataSources);
+      } else {
+        // Fallback to default datasource from config
+        setDatasources([{
+          name: 'default',
+          cachePath: config.cachePath || '/cache',
+          logsPath: config.logsPath || '/logs',
+          cacheWritable: config.cacheWritable ?? false,
+          logsWritable: config.logsWritable ?? false,
+          enabled: true
+        }]);
+      }
+    } catch (err) {
+      console.error('Failed to load datasources:', err);
     }
   };
 
@@ -601,8 +624,28 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                     </HelpPopover>
                   </div>
                   <p className="text-sm text-themed-secondary mt-1">
-                    Scan cache directory to find which games have stored files
+                    {datasources.length > 1
+                      ? `Scan ${datasources.length} cache directories to find which games have stored files`
+                      : 'Scan cache directory to find which games have stored files'}
                   </p>
+                  {datasources.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-2 mt-2">
+                      {datasources.map((ds) => (
+                        <Tooltip key={ds.name} content={ds.cachePath}>
+                          <span
+                            className="inline-flex items-center gap-1.5 px-2 py-0.5 text-xs rounded"
+                            style={{
+                              backgroundColor: 'var(--theme-bg-tertiary)',
+                              color: 'var(--theme-text-secondary)'
+                            }}
+                          >
+                            <FolderOpen className="w-3 h-3" />
+                            {ds.name}
+                          </span>
+                        </Tooltip>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-2 w-full lg:w-auto">
@@ -697,7 +740,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                 <div className="flex flex-col items-center justify-center py-8 gap-3">
                   <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
                   <p className="text-sm text-themed-secondary">
-                    Scanning database and cache directory...
+                    {datasources.length > 1
+                      ? `Scanning database and ${datasources.length} cache directories...`
+                      : 'Scanning database and cache directory...'}
                   </p>
                   <p className="text-xs text-themed-muted">
                     This may take several minutes for large databases and cache directories

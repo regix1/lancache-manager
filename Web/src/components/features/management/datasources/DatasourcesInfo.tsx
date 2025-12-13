@@ -108,7 +108,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     setActionLoading('all');
     try {
       await ApiService.processAllLogs();
-      onSuccess?.('Started processing all datasources');
+      // Note: Progress/completion notifications are handled via SignalR in NotificationsContext
       onDataRefresh?.();
     } catch (err: unknown) {
       onError?.((err instanceof Error ? err.message : String(err)) || 'Failed to start processing');
@@ -123,7 +123,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     setActionLoading(datasourceName);
     try {
       await ApiService.processDatasourceLogs(datasourceName);
-      onSuccess?.(`Started processing ${datasourceName}`);
+      // Note: Progress/completion notifications are handled via SignalR in NotificationsContext
       onDataRefresh?.();
     } catch (err: unknown) {
       onError?.((err instanceof Error ? err.message : String(err)) || 'Failed to start processing');

@@ -59,33 +59,116 @@ public class LogsController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/logs/service-counts - Get log entry counts by service
+    /// GET /api/logs/service-counts - Get log entry counts by service (aggregated from all datasources)
     /// </summary>
     [HttpGet("service-counts")]
     public async Task<IActionResult> GetServiceCounts()
     {
-        var logsPath = _pathResolver.GetLogsDirectory();
-        var result = await _rustProcessHelper.RunLogManagerAsync(
-            "count",
-            logsPath,
-            progressFile: null
-        );
+        var datasources = _datasourceService.GetDatasources();
+        var aggregatedCounts = new Dictionary<string, ulong>();
 
-        if (!result.Success)
+        foreach (var ds in datasources)
         {
-            throw new InvalidOperationException(result.Error ?? "Failed to count log entries");
+            if (!Directory.Exists(ds.LogPath))
+            {
+                _logger.LogWarning("Log directory not found for datasource '{Name}': {Path}", ds.Name, ds.LogPath);
+                continue;
+            }
+
+            var result = await _rustProcessHelper.RunLogManagerAsync(
+                "count",
+                ds.LogPath,
+                progressFile: null
+            );
+
+            if (!result.Success)
+            {
+                _logger.LogWarning("Failed to count logs for datasource '{Name}': {Error}", ds.Name, result.Error);
+                continue;
+            }
+
+            // Extract service_counts from the result
+            if (result.Data is JsonElement jsonElement &&
+                jsonElement.TryGetProperty("service_counts", out var serviceCountsElement))
+            {
+                var serviceCounts = JsonSerializer.Deserialize<Dictionary<string, ulong>>(serviceCountsElement.GetRawText());
+                if (serviceCounts != null)
+                {
+                    foreach (var kvp in serviceCounts)
+                    {
+                        if (aggregatedCounts.ContainsKey(kvp.Key))
+                            aggregatedCounts[kvp.Key] += kvp.Value;
+                        else
+                            aggregatedCounts[kvp.Key] = kvp.Value;
+                    }
+                }
+            }
         }
 
-        // Extract service_counts from the result
-        if (result.Data is JsonElement jsonElement &&
-            jsonElement.TryGetProperty("service_counts", out var serviceCountsElement))
+        return Ok(aggregatedCounts);
+    }
+
+    /// <summary>
+    /// GET /api/logs/service-counts/by-datasource - Get log entry counts by service, grouped by datasource
+    /// </summary>
+    [HttpGet("service-counts/by-datasource")]
+    public async Task<IActionResult> GetServiceCountsByDatasource()
+    {
+        var datasources = _datasourceService.GetDatasources();
+        var result = new List<object>();
+
+        foreach (var ds in datasources)
         {
-            var serviceCounts = JsonSerializer.Deserialize<Dictionary<string, ulong>>(serviceCountsElement.GetRawText());
-            return Ok(serviceCounts);
+            var dsEntry = new
+            {
+                datasource = ds.Name,
+                logsPath = ds.LogPath,
+                logsWritable = ds.LogsWritable,
+                enabled = ds.Enabled,
+                serviceCounts = new Dictionary<string, ulong>()
+            };
+
+            if (!Directory.Exists(ds.LogPath))
+            {
+                _logger.LogWarning("Log directory not found for datasource '{Name}': {Path}", ds.Name, ds.LogPath);
+                result.Add(dsEntry);
+                continue;
+            }
+
+            var countResult = await _rustProcessHelper.RunLogManagerAsync(
+                "count",
+                ds.LogPath,
+                progressFile: null
+            );
+
+            if (!countResult.Success)
+            {
+                _logger.LogWarning("Failed to count logs for datasource '{Name}': {Error}", ds.Name, countResult.Error);
+                result.Add(dsEntry);
+                continue;
+            }
+
+            // Extract service_counts from the result
+            if (countResult.Data is JsonElement jsonElement &&
+                jsonElement.TryGetProperty("service_counts", out var serviceCountsElement))
+            {
+                var serviceCounts = JsonSerializer.Deserialize<Dictionary<string, ulong>>(serviceCountsElement.GetRawText());
+                result.Add(new
+                {
+                    datasource = ds.Name,
+                    logsPath = ds.LogPath,
+                    logsWritable = ds.LogsWritable,
+                    enabled = ds.Enabled,
+                    serviceCounts = serviceCounts ?? new Dictionary<string, ulong>()
+                });
+            }
+            else
+            {
+                result.Add(dsEntry);
+            }
         }
 
-        _logger.LogWarning("RunLogManagerAsync returned data without service_counts property");
-        return Ok(new Dictionary<string, ulong>());
+        return Ok(result);
     }
 
     /// <summary>
@@ -331,7 +414,7 @@ public class LogsController : ControllerBase
     }
 
     /// <summary>
-    /// DELETE /api/logs/services/{service} - Remove logs for specific service
+    /// DELETE /api/logs/services/{service} - Remove logs for specific service (from all datasources)
     /// RESTful: DELETE is proper method for removing resources, service name in path
     /// </summary>
     [HttpDelete("services/{service}")]
@@ -356,6 +439,46 @@ public class LogsController : ControllerBase
         return Accepted(new LogRemovalStartResponse
         {
             Message = $"Started log removal for service: {service}",
+            Service = service,
+            Status = "started"
+        });
+    }
+
+    /// <summary>
+    /// DELETE /api/logs/datasources/{datasourceName}/services/{service} - Remove logs for specific service from a specific datasource
+    /// </summary>
+    [HttpDelete("datasources/{datasourceName}/services/{service}")]
+    [RequireAuth]
+    public async Task<IActionResult> RemoveServiceLogsFromDatasource(string datasourceName, string service)
+    {
+        if (string.IsNullOrWhiteSpace(service))
+        {
+            return BadRequest(new ConflictResponse { Error = "Service name is required" });
+        }
+
+        var datasource = _datasourceService.GetDatasource(datasourceName);
+        if (datasource == null)
+        {
+            return NotFound(new NotFoundResponse { Error = $"Datasource '{datasourceName}' not found" });
+        }
+
+        if (!datasource.LogsWritable)
+        {
+            return BadRequest(new ConflictResponse { Error = $"Logs directory is read-only for datasource '{datasourceName}'" });
+        }
+
+        var started = await _rustLogRemovalService.StartServiceRemovalForDatasourceAsync(service, datasourceName);
+
+        if (!started)
+        {
+            return Conflict(new ConflictResponse { Error = "Service removal already in progress" });
+        }
+
+        _logger.LogInformation("Started log removal for service: {Service} in datasource: {Datasource}", service, datasourceName);
+
+        return Accepted(new LogRemovalStartResponse
+        {
+            Message = $"Started log removal for service: {service} from datasource: {datasourceName}",
             Service = service,
             Status = "started"
         });

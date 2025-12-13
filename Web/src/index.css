@@ -859,7 +859,6 @@
   a:focus:not(:focus-visible) {
     outline: none !important;
     box-shadow: none;
-    border-color: inherit;
   }
 
   /* Apply theme-based focus border only for keyboard navigation */
@@ -1421,15 +1420,9 @@
   }
 }
 
-@keyframes progressFill {
-  from {
-    width: 0%;
-  }
-}
-
-/* Progress bar animation class */
+/* Progress bar smooth transition - uses transition instead of animation to avoid restart on re-render */
 .progress-bar-animate {
-  animation: progressFill 0.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Chart container animations */

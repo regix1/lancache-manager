@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { FileText, Loader2, CheckCircle } from 'lucide-react';
+import { FileText, Loader2, CheckCircle, FolderOpen, ChevronDown, ChevronUp, PlayCircle, XCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
+import { Tooltip } from '@components/ui/Tooltip';
 import { useSignalR } from '@contexts/SignalRContext';
 import type {
   ProcessingProgressPayload,
   FastProcessingCompletePayload
 } from '@contexts/SignalRContext/types';
 import ApiService from '@services/api.service';
+import type { Config, DatasourceInfo } from '../../../types';
 
 interface LogProcessingStepProps {
   onComplete: () => void;
@@ -35,6 +37,27 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
   const [progress, setProgress] = useState<ProcessingProgress | null>(null);
   const [complete, setComplete] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Multi-datasource state
+  const [config, setConfig] = useState<Config | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [expandedDatasources, setExpandedDatasources] = useState<Set<string>>(new Set());
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  // Load datasource config
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const configData = await ApiService.getConfig();
+        setConfig(configData);
+      } catch (err) {
+        console.error('Failed to load datasource data:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, []);
 
   useEffect(() => {
     onProcessingStateChange?.(processing);
@@ -121,21 +144,83 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
     };
   }, [signalR]);
 
-  const startLogProcessing = async () => {
+  const toggleExpanded = (name: string) => {
+    setExpandedDatasources(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) {
+        next.delete(name);
+      } else {
+        next.add(name);
+      }
+      return next;
+    });
+  };
+
+  // Always reset to beginning (position 0) and process all logs
+  const handleProcessAll = async () => {
+    if (processing) return;
+
     setProcessing(true);
     setError(null);
     setComplete(false);
+    setActionLoading('all');
 
     try {
+      // Always start from the beginning for initialization
       await ApiService.resetLogPosition('top');
       await ApiService.processAllLogs();
     } catch (err: unknown) {
       setError((err instanceof Error ? err.message : String(err)) || 'Failed to start log processing');
       setProcessing(false);
+    } finally {
+      setActionLoading(null);
     }
   };
 
+  // Always reset to beginning (position 0) and process single datasource
+  const handleProcessDatasource = async (datasourceName: string) => {
+    if (processing) return;
+
+    setProcessing(true);
+    setError(null);
+    setComplete(false);
+    setActionLoading(datasourceName);
+
+    try {
+      // Always start from the beginning for initialization
+      await ApiService.resetDatasourceLogPosition(datasourceName, 'top');
+      await ApiService.processDatasourceLogs(datasourceName);
+    } catch (err: unknown) {
+      setError((err instanceof Error ? err.message : String(err)) || 'Failed to start processing');
+      setProcessing(false);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // Get datasources - ensure at least one exists
+  const datasources = config?.dataSources && config.dataSources.length > 0
+    ? config.dataSources
+    : config ? [{
+        name: 'default',
+        cachePath: config.cachePath || '/cache',
+        logsPath: config.logsPath || '/logs',
+        cacheWritable: config.cacheWritable ?? false,
+        logsWritable: config.logsWritable ?? false,
+        enabled: true
+      } as DatasourceInfo] : [];
+
+  const hasMultiple = datasources.length > 1;
   const progressPercent = progress?.progress || 0;
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-8">
+        <Loader2 className="w-8 h-8 animate-spin text-themed-muted mb-3" />
+        <p className="text-themed-muted">Loading datasources...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
@@ -165,30 +250,15 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
         <p className="text-sm text-themed-secondary max-w-md">
           {complete
             ? 'All cache logs have been processed'
-            : 'Identify downloads and games from your cache history'}
+            : hasMultiple
+              ? `${datasources.length} datasources configured. Import all historical data to identify downloads.`
+              : 'Identify downloads and games from your cache history'}
         </p>
       </div>
 
-      {/* Info (when not processing) */}
-      {!processing && !complete && (
-        <div
-          className="p-4 rounded-lg"
-          style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-        >
-          <p className="text-sm text-themed-secondary mb-2">
-            Processing logs identifies all downloads and games in your cache history.
-            This can take several minutes depending on log size.
-          </p>
-          <p className="text-sm text-themed-muted">
-            You can skip this and process logs later from the Management tab.
-          </p>
-        </div>
-      )}
-
-      {/* Progress Display */}
+      {/* Progress Display (when processing) */}
       {processing && progress && !complete && (
         <div className="space-y-4">
-          {/* Progress Bar */}
           <div>
             <div
               className="w-full rounded-full h-2.5 overflow-hidden"
@@ -207,7 +277,6 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
             </p>
           </div>
 
-          {/* Stats Grid */}
           <div
             className="grid grid-cols-2 gap-3 p-4 rounded-lg"
             style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
@@ -240,6 +309,148 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
         </div>
       )}
 
+      {/* Datasource List (when not processing and not complete) */}
+      {!processing && !complete && (
+        <>
+          {/* Info text */}
+          <div
+            className="p-4 rounded-lg"
+            style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+          >
+            <p className="text-sm text-themed-secondary mb-2">
+              Processing imports all log entries from the beginning to identify downloads and games.
+              This can take several minutes depending on log size.
+            </p>
+            <p className="text-sm text-themed-muted">
+              You can skip this and process logs later from the Management tab.
+            </p>
+          </div>
+
+          {/* Process All button */}
+          <Button
+            variant="filled"
+            color="green"
+            leftSection={<PlayCircle className="w-4 h-4" />}
+            onClick={handleProcessAll}
+            disabled={actionLoading !== null || processing}
+            loading={actionLoading === 'all'}
+            fullWidth
+          >
+            Process All Logs
+          </Button>
+
+          {/* Datasource list */}
+          <div className="space-y-2">
+            {datasources.map((ds) => {
+              const isExpanded = expandedDatasources.has(ds.name);
+
+              return (
+                <div
+                  key={ds.name}
+                  className="rounded-lg border"
+                  style={{
+                    backgroundColor: 'var(--theme-bg-secondary)',
+                    borderColor: ds.enabled ? 'var(--theme-border-primary)' : 'var(--theme-border-secondary)',
+                    opacity: ds.enabled ? 1 : 0.6
+                  }}
+                >
+                  {/* Header - clickable to expand */}
+                  <div
+                    className="p-3 cursor-pointer"
+                    onClick={() => toggleExpanded(ds.name)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-themed-primary">{ds.name}</span>
+                        {!ds.enabled && (
+                          <span
+                            className="px-2 py-0.5 text-xs rounded font-medium"
+                            style={{
+                              backgroundColor: 'var(--theme-bg-tertiary)',
+                              color: 'var(--theme-text-muted)'
+                            }}
+                          >
+                            Disabled
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2">
+                          <Tooltip content={ds.cacheWritable ? 'Cache is writable' : 'Cache is read-only'} position="top">
+                            <span className="flex items-center gap-1 text-xs">
+                              {ds.cacheWritable ? (
+                                <CheckCircle className="w-3.5 h-3.5" style={{ color: 'var(--theme-success-text)' }} />
+                              ) : (
+                                <XCircle className="w-3.5 h-3.5" style={{ color: 'var(--theme-warning)' }} />
+                              )}
+                            </span>
+                          </Tooltip>
+                          <Tooltip content={ds.logsWritable ? 'Logs are writable' : 'Logs are read-only'} position="top">
+                            <span className="flex items-center gap-1 text-xs">
+                              {ds.logsWritable ? (
+                                <CheckCircle className="w-3.5 h-3.5" style={{ color: 'var(--theme-success-text)' }} />
+                              ) : (
+                                <XCircle className="w-3.5 h-3.5" style={{ color: 'var(--theme-warning)' }} />
+                              )}
+                            </span>
+                          </Tooltip>
+                        </div>
+                        {isExpanded ? (
+                          <ChevronUp className="w-4 h-4 text-themed-muted" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4 text-themed-muted" />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Expanded details */}
+                  {isExpanded && (
+                    <div className="px-3 pb-3 border-t" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+                      <div className="py-2 space-y-1">
+                        <div className="flex items-center gap-2 text-xs">
+                          <FolderOpen className="w-3.5 h-3.5 text-themed-muted flex-shrink-0" />
+                          <span className="text-themed-muted">Cache:</span>
+                          <code className="bg-themed-tertiary px-1.5 py-0.5 rounded text-themed-secondary truncate">
+                            {ds.cachePath}
+                          </code>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs">
+                          <FileText className="w-3.5 h-3.5 text-themed-muted flex-shrink-0" />
+                          <span className="text-themed-muted">Logs:</span>
+                          <code className="bg-themed-tertiary px-1.5 py-0.5 rounded text-themed-secondary truncate">
+                            {ds.logsPath}
+                          </code>
+                        </div>
+                      </div>
+
+                      {/* Process single datasource */}
+                      <div className="pt-2">
+                        <Button
+                          variant="filled"
+                          color="green"
+                          size="sm"
+                          leftSection={<PlayCircle className="w-3.5 h-3.5" />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleProcessDatasource(ds.name);
+                          }}
+                          disabled={actionLoading !== null || processing || !ds.enabled}
+                          loading={actionLoading === ds.name}
+                          fullWidth
+                        >
+                          Process This Datasource
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
       {/* Success */}
       {complete && (
         <div
@@ -265,14 +476,9 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       {/* Action Buttons */}
       <div className="pt-2">
         {!processing && !complete && (
-          <div className="flex gap-3">
-            <Button variant="filled" color="blue" onClick={startLogProcessing} className="flex-1">
-              Process All Logs
-            </Button>
-            <Button variant="default" onClick={onSkip} className="flex-1">
-              Skip for Now
-            </Button>
-          </div>
+          <Button variant="default" onClick={onSkip} fullWidth>
+            Skip for Now
+          </Button>
         )}
 
         {complete && (

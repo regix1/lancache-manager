@@ -27,9 +27,12 @@ public class RustLogRemovalService
     private Process? _rustProcess;
     private CancellationTokenSource? _cancellationTokenSource;
 
+    private readonly DatasourceService _datasourceService;
+
     public bool IsProcessing { get; private set; }
     public string? CurrentService { get; private set; }
     public string? CurrentOperationId { get; private set; }
+    public string? CurrentDatasource { get; private set; }
 
     /// <summary>
     /// Starts service removal operation (wrapper for StartRemovalAsync)
@@ -37,6 +40,14 @@ public class RustLogRemovalService
     public Task<bool> StartServiceRemovalAsync(string service)
     {
         return StartRemovalAsync(service);
+    }
+
+    /// <summary>
+    /// Starts service removal operation for a specific datasource
+    /// </summary>
+    public Task<bool> StartServiceRemovalForDatasourceAsync(string service, string datasourceName)
+    {
+        return StartRemovalForDatasourceAsync(service, datasourceName);
     }
 
     /// <summary>
@@ -83,7 +94,8 @@ public class RustLogRemovalService
         RustProcessHelper rustProcessHelper,
         NginxLogRotationService nginxLogRotationService,
         IDbContextFactory<AppDbContext> dbContextFactory,
-        StatsCache statsCache)
+        StatsCache statsCache,
+        DatasourceService datasourceService)
     {
         _logger = logger;
         _pathResolver = pathResolver;
@@ -94,6 +106,7 @@ public class RustLogRemovalService
         _nginxLogRotationService = nginxLogRotationService;
         _dbContextFactory = dbContextFactory;
         _statsCache = statsCache;
+        _datasourceService = datasourceService;
     }
 
     public class ProgressData
@@ -290,6 +303,178 @@ public class RustLogRemovalService
         {
             IsProcessing = false;
             CurrentService = null;
+            CurrentDatasource = null;
+            _rustProcess = null;
+            _cancellationTokenSource?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Starts service removal for a specific datasource only
+    /// </summary>
+    public async Task<bool> StartRemovalForDatasourceAsync(string service, string datasourceName)
+    {
+        if (IsProcessing)
+        {
+            _logger.LogWarning("Log removal is already running for service: {CurrentService}", CurrentService);
+            return false;
+        }
+
+        var datasource = _datasourceService.GetDatasource(datasourceName);
+        if (datasource == null)
+        {
+            _logger.LogError("Datasource '{DatasourceName}' not found", datasourceName);
+            return false;
+        }
+
+        if (!datasource.LogsWritable)
+        {
+            _logger.LogError("Logs directory is read-only for datasource '{DatasourceName}'", datasourceName);
+            return false;
+        }
+
+        try
+        {
+            IsProcessing = true;
+            CurrentService = service;
+            CurrentDatasource = datasourceName;
+            _cancellationTokenSource = new CancellationTokenSource();
+
+            var operationsDir = _pathResolver.GetOperationsDirectory();
+            var logDir = datasource.LogPath;
+            var progressPath = Path.Combine(operationsDir, $"log_remove_progress_{datasourceName}.json");
+            var rustExecutablePath = _pathResolver.GetRustLogManagerPath();
+
+            // Delete old progress file
+            if (File.Exists(progressPath))
+            {
+                File.Delete(progressPath);
+            }
+
+            _logger.LogInformation("Starting Rust log removal for service: {Service} in datasource: {Datasource}", service, datasourceName);
+            _logger.LogInformation("Log directory: {LogDir}", logDir);
+
+            return await _cacheManagementService.ExecuteWithLockAsync(async () =>
+            {
+                var arguments = $"remove \"{logDir}\" \"{service}\" \"{progressPath}\"";
+                _logger.LogInformation("Rust arguments: {Arguments}", arguments);
+
+                var startInfo = _rustProcessHelper.CreateProcessStartInfo(
+                    rustExecutablePath,
+                    arguments,
+                    Path.GetDirectoryName(rustExecutablePath));
+
+                _rustProcess = Process.Start(startInfo);
+
+                if (_rustProcess == null)
+                {
+                    throw new Exception("Failed to start Rust process");
+                }
+
+                var (stdoutTask, stderrTask) = _rustProcessHelper.CreateOutputMonitoringTasks(_rustProcess, "Rust log removal");
+
+                await _hubContext.Clients.All.SendAsync("LogRemovalProgress", new
+                {
+                    filesProcessed = 0,
+                    linesProcessed = 0,
+                    linesRemoved = 0,
+                    percentComplete = 0.0,
+                    status = "starting",
+                    message = $"Starting removal of {service} entries from {datasourceName}...",
+                    service,
+                    datasource = datasourceName
+                });
+
+                var progressTask = Task.Run(async () => await MonitorProgressAsync(progressPath, service, _cancellationTokenSource.Token));
+
+                await _processManager.WaitForProcessAsync(_rustProcess, _cancellationTokenSource.Token);
+
+                var exitCode = _rustProcess.ExitCode;
+                _logger.LogInformation("Rust log_manager exited with code {ExitCode} for datasource {Datasource}", exitCode, datasourceName);
+
+                await _rustProcessHelper.WaitForOutputTasksAsync(stdoutTask, stderrTask, TimeSpan.FromSeconds(5));
+
+                _cancellationTokenSource.Cancel();
+                try { await progressTask; } catch (OperationCanceledException) { }
+
+                if (exitCode == 0)
+                {
+                    await _cacheManagementService.InvalidateServiceCountsCache();
+                    await _nginxLogRotationService.ReopenNginxLogsAsync();
+
+                    // Note: Database cleanup is not datasource-specific, so we skip it for per-datasource removal
+                    // The user would need to remove from all datasources to clean up DB records
+
+                    var finalProgress = await ReadProgressFileAsync(progressPath);
+                    await _hubContext.Clients.All.SendAsync("LogRemovalComplete", new
+                    {
+                        success = true,
+                        message = finalProgress?.Message ?? $"Successfully removed {service} entries from {datasourceName}",
+                        filesProcessed = finalProgress?.FilesProcessed ?? 0,
+                        linesProcessed = finalProgress?.LinesProcessed ?? 0,
+                        linesRemoved = finalProgress?.LinesRemoved ?? 0,
+                        service,
+                        datasource = datasourceName
+                    });
+
+                    _logger.LogInformation("Log removal completed for {Service} in datasource {Datasource}: Removed {LinesRemoved} lines",
+                        service, datasourceName, finalProgress?.LinesRemoved ?? 0);
+                    return true;
+                }
+                else
+                {
+                    await _hubContext.Clients.All.SendAsync("LogRemovalComplete", new
+                    {
+                        success = false,
+                        message = $"Failed to remove {service} entries from {datasourceName}",
+                        service,
+                        datasource = datasourceName
+                    });
+
+                    _logger.LogError("Log removal failed for {Service} in datasource {Datasource} with exit code {ExitCode}",
+                        service, datasourceName, exitCode);
+                    return false;
+                }
+            }, _cancellationTokenSource.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Service removal for {Service} in {Datasource} was cancelled", service, datasourceName);
+
+            await _hubContext.Clients.All.SendAsync("LogRemovalComplete", new
+            {
+                success = false,
+                message = $"Service removal for {service} in {datasourceName} was cancelled",
+                cancelled = true,
+                service,
+                datasource = datasourceName
+            });
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during log removal for {Service} in {Datasource}", service, datasourceName);
+
+            try
+            {
+                await _hubContext.Clients.All.SendAsync("LogRemovalComplete", new
+                {
+                    success = false,
+                    message = $"Error during log removal: {ex.Message}",
+                    service,
+                    datasource = datasourceName
+                });
+            }
+            catch { }
+
+            return false;
+        }
+        finally
+        {
+            IsProcessing = false;
+            CurrentService = null;
+            CurrentDatasource = null;
             _rustProcess = null;
             _cancellationTokenSource?.Dispose();
         }
