@@ -263,7 +263,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                   <span
                     className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2 sm:px-2.5 py-0.5 sm:py-1 text-xs'} font-semibold rounded-full bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)]`}
                   >
-                    {group.count}× downloads
+                    {group.clientsSet.size} client{group.clientsSet.size !== 1 ? 's' : ''} · {group.count} request{group.count !== 1 ? 's' : ''}
                   </span>
                 )}
               </div>

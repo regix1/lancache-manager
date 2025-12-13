@@ -162,7 +162,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                 </div>
                 <div className="flex items-center justify-between pl-6 text-xs">
                   <span className="text-themed-muted">
-                    {group.count} download{group.count !== 1 ? 's' : ''}
+                    {group.clientsSet.size} client{group.clientsSet.size !== 1 ? 's' : ''} · {group.count} request{group.count !== 1 ? 's' : ''}
                   </span>
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-[var(--theme-text-primary)] font-mono">
@@ -216,7 +216,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     </span>
                   )}
                   <span className="text-xs text-themed-muted flex-shrink-0">
-                    {group.count} download{group.count !== 1 ? 's' : ''}
+                    {group.clientsSet.size} client{group.clientsSet.size !== 1 ? 's' : ''} · {group.count} request{group.count !== 1 ? 's' : ''}
                   </span>
                 </div>
                 <div className="flex items-center gap-3 flex-shrink-0">
@@ -235,9 +235,6 @@ const GroupRow: React.FC<GroupRowProps> = ({
                       0%
                     </span>
                   )}
-                  <span className="text-xs text-themed-muted font-mono text-right min-w-[60px]">
-                    {group.clientsSet.size} client{group.clientsSet.size !== 1 ? 's' : ''}
-                  </span>
                 </div>
               </div>
             </>

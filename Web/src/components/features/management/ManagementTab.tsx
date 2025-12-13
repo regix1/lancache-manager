@@ -650,14 +650,6 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
 
             {/* Data Configuration Section */}
             <CollapsibleSection title="Data Configuration" icon={FolderCog}>
-              <DataImporter
-                isAuthenticated={isAuthenticated}
-                mockMode={mockMode}
-                onError={addError}
-                onSuccess={setSuccess}
-                onDataRefresh={refreshStatsAndGameCache}
-              />
-
               <DepotMappingManager
                 isAuthenticated={isAuthenticated}
                 mockMode={mockMode}
@@ -665,6 +657,14 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
                 actionLoading={depotActionLoading}
                 setActionLoading={setDepotActionLoading}
                 isProcessingLogs={isProcessingLogs}
+                onError={addError}
+                onSuccess={setSuccess}
+                onDataRefresh={refreshStatsAndGameCache}
+              />
+
+              <DataImporter
+                isAuthenticated={isAuthenticated}
+                mockMode={mockMode}
                 onError={addError}
                 onSuccess={setSuccess}
                 onDataRefresh={refreshStatsAndGameCache}
