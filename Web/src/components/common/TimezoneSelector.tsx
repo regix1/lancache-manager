@@ -4,33 +4,63 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import preferencesService from '@services/preferences.service';
 import { useTimezone } from '@contexts/TimezoneContext';
 
+type TimeSettingValue = 'server-24h' | 'server-12h' | 'local-24h' | 'local-12h';
+
 const TimezoneSelector: React.FC = () => {
-  const { useLocalTimezone } = useTimezone();
+  const { useLocalTimezone, use24HourFormat } = useTimezone();
 
-  const handleTimezoneChange = async (value: string) => {
-    const newValue = value === 'local';
+  // Derive current value from both preferences
+  const getCurrentValue = (): TimeSettingValue => {
+    if (useLocalTimezone) {
+      return use24HourFormat ? 'local-24h' : 'local-12h';
+    } else {
+      return use24HourFormat ? 'server-24h' : 'server-12h';
+    }
+  };
 
-    // Save to server (will trigger SignalR broadcast which updates TimezoneContext)
+  const handleTimeSettingChange = async (value: string) => {
+    const newUseLocal = value.startsWith('local');
+    const newUse24Hour = value.endsWith('24h');
+
+    // Save both preferences (will trigger SignalR broadcasts which update TimezoneContext)
     try {
-      await preferencesService.setPreference('useLocalTimezone', newValue);
+      // Update both preferences
+      await Promise.all([
+        preferencesService.setPreference('useLocalTimezone', newUseLocal),
+        preferencesService.setPreference('use24HourFormat', newUse24Hour)
+      ]);
     } catch (error) {
-      console.error('Failed to update timezone preference:', error);
+      console.error('Failed to update time settings:', error);
     }
   };
 
   const options = [
     {
-      value: 'server',
-      label: 'Server Timezone',
-      shortLabel: 'Server',
-      description: 'Show times in server timezone (Docker/UTC)',
+      value: 'server-24h',
+      label: 'Server (24h)',
+      shortLabel: 'Server 24h',
+      description: 'Server timezone with 24-hour format (15:30)',
       icon: Globe
     },
     {
-      value: 'local',
-      label: 'Local Timezone',
-      shortLabel: 'Local',
-      description: 'Show times in your local timezone',
+      value: 'server-12h',
+      label: 'Server (12h)',
+      shortLabel: 'Server 12h',
+      description: 'Server timezone with 12-hour format (3:30 PM)',
+      icon: Globe
+    },
+    {
+      value: 'local-24h',
+      label: 'Local (24h)',
+      shortLabel: 'Local 24h',
+      description: 'Your local timezone with 24-hour format',
+      icon: MapPin
+    },
+    {
+      value: 'local-12h',
+      label: 'Local (12h)',
+      shortLabel: 'Local 12h',
+      description: 'Your local timezone with 12-hour format',
       icon: MapPin
     }
   ];
@@ -38,10 +68,10 @@ const TimezoneSelector: React.FC = () => {
   return (
     <EnhancedDropdown
       options={options}
-      value={useLocalTimezone ? 'local' : 'server'}
-      onChange={handleTimezoneChange}
+      value={getCurrentValue()}
+      onChange={handleTimeSettingChange}
       compactMode={true}
-      dropdownWidth="w-64"
+      dropdownWidth="w-72"
       alignRight={true}
     />
   );

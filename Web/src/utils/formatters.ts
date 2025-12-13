@@ -1,6 +1,7 @@
 import { FILE_SIZE_UNITS } from './constants';
 import { getServerTimezone } from './timezone';
 import { getGlobalTimezonePreference } from './timezonePreference';
+import { getGlobal24HourPreference } from './timeFormatPreference';
 
 /**
  * Format date/time to localized string
@@ -17,7 +18,6 @@ export function formatDateTime(dateString: string | Date | null | undefined): st
 
     // Determine which timezone to use based on preference
     let targetTimezone: string | undefined;
-    let isUTC = false;
 
     if (getGlobalTimezonePreference()) {
       // Use browser's local timezone (undefined = automatic)
@@ -25,31 +25,40 @@ export function formatDateTime(dateString: string | Date | null | undefined): st
     } else {
       // Use server timezone from config
       targetTimezone = getServerTimezone();
-      isUTC = targetTimezone === 'UTC';
+    }
+
+    // Get 24-hour format preference
+    const use24Hour = getGlobal24HourPreference();
+
+    // Check if date is in a different year than current
+    const now = new Date();
+    const includeYear = date.getFullYear() !== now.getFullYear();
+
+    // Build format options
+    const formatOptions: Intl.DateTimeFormatOptions = {
+      timeZone: targetTimezone,
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: !use24Hour
+    };
+
+    // Add year if date is from a different year
+    if (includeYear) {
+      formatOptions.year = 'numeric';
     }
 
     // Convert to target timezone for display
     try {
-      return date.toLocaleString(undefined, {
-        timeZone: targetTimezone,
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: isUTC ? false : undefined
-      });
+      return date.toLocaleString(undefined, formatOptions);
     } catch (tzError) {
       // Timezone invalid, fall back to UTC
       console.warn(`Invalid timezone "${targetTimezone}", falling back to UTC`);
       return date.toLocaleString(undefined, {
-        timeZone: 'UTC',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
+        ...formatOptions,
+        timeZone: 'UTC'
       });
     }
   } catch (error) {

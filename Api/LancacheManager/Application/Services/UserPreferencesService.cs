@@ -26,6 +26,7 @@ public class UserPreferencesService
         public bool PicsAlwaysVisible { get; set; }
         public bool DisableStickyNotifications { get; set; }
         public bool UseLocalTimezone { get; set; }
+        public bool Use24HourFormat { get; set; }
     }
 
     /// <summary>
@@ -49,7 +50,8 @@ public class UserPreferencesService
                     DisableTooltips = preferences.DisableTooltips,
                     PicsAlwaysVisible = preferences.PicsAlwaysVisible,
                     DisableStickyNotifications = preferences.DisableStickyNotifications,
-                    UseLocalTimezone = preferences.UseLocalTimezone
+                    UseLocalTimezone = preferences.UseLocalTimezone,
+                    Use24HourFormat = preferences.Use24HourFormat
                 };
             }
 
@@ -178,6 +180,9 @@ public class UserPreferencesService
                 case "uselocaltimezone":
                     preferences.UseLocalTimezone = GetValueAsBoolean(value);
                     break;
+                case "use24hourformat":
+                    preferences.Use24HourFormat = GetValueAsBoolean(value);
+                    break;
                 default:
                     _logger.LogWarning("Unknown preference key: {Key}", preferenceKey);
                     return false;
@@ -251,6 +256,9 @@ public class UserPreferencesService
                 case "uselocaltimezone":
                     preferences.UseLocalTimezone = GetValueAsBoolean(value);
                     break;
+                case "use24hourformat":
+                    preferences.Use24HourFormat = GetValueAsBoolean(value);
+                    break;
                 default:
                     _logger.LogWarning("Unknown preference key: {Key}", preferenceKey);
                     return null;
@@ -268,7 +276,8 @@ public class UserPreferencesService
                 DisableTooltips = preferences.DisableTooltips,
                 PicsAlwaysVisible = preferences.PicsAlwaysVisible,
                 DisableStickyNotifications = preferences.DisableStickyNotifications,
-                UseLocalTimezone = preferences.UseLocalTimezone
+                UseLocalTimezone = preferences.UseLocalTimezone,
+                Use24HourFormat = preferences.Use24HourFormat
             };
         }
         catch (Exception ex)

@@ -30,6 +30,7 @@ export interface UserPreferences {
   picsAlwaysVisible: boolean;
   disableStickyNotifications: boolean;
   useLocalTimezone: boolean;
+  use24HourFormat: boolean;
 }
 
 class PreferencesService {
@@ -77,7 +78,8 @@ class PreferencesService {
           disableTooltips: data.disableTooltips || false,
           picsAlwaysVisible: data.picsAlwaysVisible || false,
           disableStickyNotifications: data.disableStickyNotifications || false,
-          useLocalTimezone: data.useLocalTimezone || false
+          useLocalTimezone: data.useLocalTimezone || false,
+          use24HourFormat: data.use24HourFormat || false
         };
         this.loaded = true;
         // console.log('[PreferencesService] Loaded preferences from API:', this.preferences);
@@ -303,7 +305,8 @@ class PreferencesService {
           disableTooltips: newPreferences.disableTooltips || false,
           picsAlwaysVisible: newPreferences.picsAlwaysVisible || false,
           disableStickyNotifications: newPreferences.disableStickyNotifications || false,
-          useLocalTimezone: newPreferences.useLocalTimezone || false
+          useLocalTimezone: newPreferences.useLocalTimezone || false,
+          use24HourFormat: newPreferences.use24HourFormat || false
         };
 
         // Update cache directly with SignalR values (don't fetch from API to avoid race conditions)
@@ -484,7 +487,8 @@ class PreferencesService {
       disableTooltips: false,
       picsAlwaysVisible: false,
       disableStickyNotifications: false,
-      useLocalTimezone: false // Default to server timezone
+      useLocalTimezone: false, // Default to server timezone
+      use24HourFormat: true // Default to 24-hour format
     };
   }
 
@@ -507,7 +511,8 @@ class PreferencesService {
           disableTooltips: data.disableTooltips || false,
           picsAlwaysVisible: data.picsAlwaysVisible || false,
           disableStickyNotifications: data.disableStickyNotifications || false,
-          useLocalTimezone: data.useLocalTimezone || false
+          useLocalTimezone: data.useLocalTimezone || false,
+          use24HourFormat: data.use24HourFormat || false
         };
       } else {
         console.error(

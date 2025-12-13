@@ -21,6 +21,7 @@ public class UserPreferences
     public bool PicsAlwaysVisible { get; set; }
     public bool DisableStickyNotifications { get; set; }
     public bool UseLocalTimezone { get; set; }
+    public bool Use24HourFormat { get; set; }
 
     // Timestamp
     public DateTime UpdatedAtUtc { get; set; }
