@@ -1502,7 +1502,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           const data = await response.json();
           const notificationId = 'log_processing';
 
-          if (data.isProcessing) {
+          // Skip recovery if processing is in silent mode (e.g., live log monitoring)
+          // Silent processing should not show notifications
+          if (data.isProcessing && !data.silentMode) {
             setNotifications((prev) => {
               // Remove any existing and add fresh one from backend
               const filtered = prev.filter((n) => n.type !== 'log_processing');
@@ -1531,6 +1533,11 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             });
 
             console.log('[NotificationsContext] Recovered log processing notification');
+          } else if (data.isProcessing && data.silentMode) {
+            // Silent mode processing - clear any stale notifications without creating new ones
+            console.log('[NotificationsContext] Silent mode processing detected - not showing notification');
+            localStorage.removeItem('log_processing_notification');
+            setNotifications((prev) => prev.filter((n) => n.type !== 'log_processing'));
           } else {
             // Backend says NOT running - clear any stale state from localStorage
             const savedNotification = localStorage.getItem('log_processing_notification');

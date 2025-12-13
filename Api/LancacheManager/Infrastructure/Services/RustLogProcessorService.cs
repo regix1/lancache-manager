@@ -29,6 +29,7 @@ public class RustLogProcessorService
     private Task? _progressMonitorTask;
 
     public bool IsProcessing { get; private set; }
+    public bool IsSilentMode { get; private set; }
 
     /// <summary>
     /// Resets the log position to 0 to reprocess all logs (all datasources)
@@ -104,6 +105,7 @@ public class RustLogProcessorService
             return new
             {
                 isProcessing = false,
+                silentMode = false,
                 status = "idle"
             };
         }
@@ -131,6 +133,7 @@ public class RustLogProcessorService
             return new
             {
                 isProcessing = true,
+                silentMode = IsSilentMode,
                 status = "starting"
             };
         }
@@ -144,6 +147,7 @@ public class RustLogProcessorService
         return new
         {
             isProcessing = true,
+            silentMode = IsSilentMode,
             status = progress.Status,
             percentComplete = progress.PercentComplete,
             mbProcessed = Math.Round(mbProcessed, 1),
@@ -218,6 +222,7 @@ public class RustLogProcessorService
         try
         {
             IsProcessing = true;
+            IsSilentMode = silentMode;
             _cancellationTokenSource = new CancellationTokenSource();
 
             var dataDirectory = _pathResolver.GetDataDirectory();
@@ -476,6 +481,7 @@ public class RustLogProcessorService
         finally
         {
             IsProcessing = false;
+            IsSilentMode = false;
             _cancellationTokenSource?.Dispose();
             _rustProcess?.Dispose();
         }
