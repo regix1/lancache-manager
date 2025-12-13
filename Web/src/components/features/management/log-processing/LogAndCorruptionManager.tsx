@@ -51,7 +51,7 @@ const ServiceButton: React.FC<{
     <Button
       onClick={onClick}
       disabled={isDisabled}
-      variant="default"
+      variant="outline"
       loading={isRemoving}
       className="flex flex-col items-center min-h-[60px] justify-center"
       fullWidth

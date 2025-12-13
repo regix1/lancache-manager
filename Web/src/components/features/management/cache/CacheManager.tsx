@@ -1,5 +1,5 @@
 import React, { useState, useEffect, use, useRef } from 'react';
-import { Server, Trash2, AlertTriangle, Lock } from 'lucide-react';
+import { Server, Trash2, AlertTriangle, Lock, FolderOpen } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useSignalR } from '@contexts/SignalRContext';
@@ -8,7 +8,7 @@ import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
-import type { Config } from '../../../../types';
+import type { Config, DatasourceInfo } from '../../../../types';
 
 // Fetch initial cache configuration data
 const fetchCacheConfig = async (): Promise<Config> => {
@@ -217,38 +217,76 @@ const CacheManager: React.FC<CacheManagerProps> = ({
             </div>
 
             {/* Main Cache Path and Clear Button */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-              <div className="flex-1">
-                <p className="text-themed-secondary">
-                  Manage cached game files in{' '}
-                  <code className="bg-themed-tertiary px-2 py-1 rounded text-xs">
-                    {config.cachePath}
-                  </code>
-                </p>
-                <p className="text-xs text-themed-muted mt-1 flex items-center gap-1.5">
-                  <AlertTriangle className="w-3.5 h-3.5 text-themed-accent flex-shrink-0" />
-                  <span>This deletes ALL cached game files from disk</span>
-                </p>
-              </div>
-              <Button
-                variant="filled"
-                color="red"
-                leftSection={<Trash2 className="w-4 h-4" />}
-                onClick={handleClearAllCache}
-                disabled={
-                  actionLoading ||
-                  mockMode ||
-                  isCacheClearing ||
-                  authMode !== 'authenticated' ||
-                  cacheReadOnly
-                }
-                loading={actionLoading}
-                className="w-full sm:w-48"
-                title={cacheReadOnly ? 'Cache directory is mounted read-only' : undefined}
-              >
-                {isCacheClearing ? 'Clearing...' : 'Clear Cache'}
-              </Button>
-            </div>
+            {(() => {
+              // Get datasources - use dataSources array if available, otherwise create single entry from legacy config
+              const datasources: DatasourceInfo[] = config.dataSources && config.dataSources.length > 0
+                ? config.dataSources
+                : [{
+                    name: 'default',
+                    cachePath: config.cachePath || '/cache',
+                    logsPath: config.logsPath || '/logs',
+                    cacheWritable: config.cacheWritable ?? false,
+                    logsWritable: config.logsWritable ?? false,
+                    enabled: true
+                  }];
+              const hasMultiple = datasources.length > 1;
+
+              return (
+                <div className="mb-6">
+                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                    <div className="flex-1">
+                      {hasMultiple ? (
+                        <>
+                          <p className="text-themed-secondary mb-2">
+                            Manage cached game files across {datasources.length} datasources
+                          </p>
+                          <div className="space-y-1.5">
+                            {datasources.map((ds) => (
+                              <div key={ds.name} className="flex items-center gap-2 text-xs">
+                                <FolderOpen className="w-3.5 h-3.5 text-themed-muted flex-shrink-0" />
+                                <span className="font-medium text-themed-primary">{ds.name}:</span>
+                                <code className="bg-themed-tertiary px-1.5 py-0.5 rounded text-themed-secondary truncate">
+                                  {ds.cachePath}
+                                </code>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      ) : (
+                        <p className="text-themed-secondary">
+                          Manage cached game files in{' '}
+                          <code className="bg-themed-tertiary px-2 py-1 rounded text-xs">
+                            {datasources[0]?.cachePath || config.cachePath}
+                          </code>
+                        </p>
+                      )}
+                      <p className="text-xs text-themed-muted mt-2 flex items-center gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5 text-themed-accent flex-shrink-0" />
+                        <span>This deletes ALL cached game files from disk</span>
+                      </p>
+                    </div>
+                    <Button
+                      variant="filled"
+                      color="red"
+                      leftSection={<Trash2 className="w-4 h-4" />}
+                      onClick={handleClearAllCache}
+                      disabled={
+                        actionLoading ||
+                        mockMode ||
+                        isCacheClearing ||
+                        authMode !== 'authenticated' ||
+                        cacheReadOnly
+                      }
+                      loading={actionLoading}
+                      className="w-full sm:w-48 flex-shrink-0"
+                      title={cacheReadOnly ? 'Cache directory is mounted read-only' : undefined}
+                    >
+                      {isCacheClearing ? 'Clearing...' : hasMultiple ? 'Clear All Caches' : 'Clear Cache'}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Configuration Options */}
             <div className="p-4 rounded-lg bg-themed-tertiary/30">
@@ -338,11 +376,43 @@ const CacheManager: React.FC<CacheManagerProps> = ({
         size="md"
       >
         <div className="space-y-4">
-          <p className="text-themed-secondary">
-            This will permanently delete <strong>all cached game files</strong> from{' '}
-            <code className="bg-themed-tertiary px-1 py-0.5 rounded">{config.cachePath}</code>.
-            Games will need to redownload content after clearing.
-          </p>
+          {(() => {
+            const datasources: DatasourceInfo[] = config.dataSources && config.dataSources.length > 0
+              ? config.dataSources
+              : [{
+                  name: 'default',
+                  cachePath: config.cachePath || '/cache',
+                  logsPath: config.logsPath || '/logs',
+                  cacheWritable: config.cacheWritable ?? false,
+                  logsWritable: config.logsWritable ?? false,
+                  enabled: true
+                }];
+            const hasMultiple = datasources.length > 1;
+
+            return hasMultiple ? (
+              <>
+                <p className="text-themed-secondary">
+                  This will permanently delete <strong>all cached game files</strong> from the following directories.
+                  Games will need to redownload content after clearing.
+                </p>
+                <div className="space-y-1.5 p-3 rounded-lg bg-themed-tertiary/50">
+                  {datasources.map((ds) => (
+                    <div key={ds.name} className="flex items-center gap-2 text-xs">
+                      <FolderOpen className="w-3.5 h-3.5 text-themed-muted flex-shrink-0" />
+                      <span className="font-medium text-themed-primary">{ds.name}:</span>
+                      <code className="text-themed-secondary truncate">{ds.cachePath}</code>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="text-themed-secondary">
+                This will permanently delete <strong>all cached game files</strong> from{' '}
+                <code className="bg-themed-tertiary px-1 py-0.5 rounded">{datasources[0]?.cachePath || config.cachePath}</code>.
+                Games will need to redownload content after clearing.
+              </p>
+            );
+          })()}
 
           <Alert color="yellow">
             <div>
