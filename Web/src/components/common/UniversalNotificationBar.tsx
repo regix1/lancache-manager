@@ -221,7 +221,8 @@ const UnifiedNotificationItem = ({
         {/* Progress bar for running operations */}
         {notification.status === 'running' &&
           notification.progress !== undefined &&
-          notification.type !== 'service_removal' && (
+          notification.type !== 'service_removal' &&
+          notification.type !== 'game_detection' && (
             <div className="mt-2">
               <div
                 className="w-full rounded-full h-2"
