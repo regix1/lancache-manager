@@ -187,10 +187,27 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   }, []);
 
   // Subscribe to SignalR events for real-time updates
+  // These events respect the user's polling rate preference
   useEffect(() => {
     if (mockMode) return;
 
-    // Handler for database reset completion
+    // Track last SignalR-triggered refresh to respect polling rate
+    let lastSignalRRefresh = 0;
+
+    // Throttled handler that respects user's polling rate
+    const throttledFetchDownloads = () => {
+      const now = Date.now();
+      const pollingInterval = getPollingIntervalRef.current();
+      const timeSinceLastRefresh = now - lastSignalRRefresh;
+
+      // Only fetch if enough time has passed according to polling rate
+      if (timeSinceLastRefresh >= pollingInterval) {
+        lastSignalRRefresh = now;
+        fetchDownloads();
+      }
+    };
+
+    // Handler for database reset completion - always refresh immediately
     const handleDatabaseResetProgress = (payload: { status?: string }) => {
       const status = (payload.status || '').toLowerCase();
       if (status === 'completed' || status === 'complete' || status === 'done') {
@@ -199,10 +216,14 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
       }
     };
 
-    // Events that trigger data refresh
+    // Events that trigger data refresh (throttled by polling rate)
     const refreshEvents = [
       'DownloadsRefresh',
-      'FastProcessingComplete',
+      'FastProcessingComplete'
+    ];
+
+    // Events that should always trigger immediate refresh (user-initiated actions)
+    const immediateRefreshEvents = [
       'DepotMappingComplete',
       'LogRemovalComplete',
       'CorruptionRemovalComplete',
@@ -212,11 +233,13 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
       'CacheClearComplete'
     ];
 
-    refreshEvents.forEach(event => signalR.on(event, fetchDownloads));
+    refreshEvents.forEach(event => signalR.on(event, throttledFetchDownloads));
+    immediateRefreshEvents.forEach(event => signalR.on(event, fetchDownloads));
     signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
 
     return () => {
-      refreshEvents.forEach(event => signalR.off(event, fetchDownloads));
+      refreshEvents.forEach(event => signalR.off(event, throttledFetchDownloads));
+      immediateRefreshEvents.forEach(event => signalR.off(event, fetchDownloads));
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
     };
   }, [mockMode, signalR, fetchDownloads]);
