@@ -646,16 +646,19 @@ services:
     volumes:
       - ./data:/data
 
-      # Mount the entire lancache directory
-      # Host structure:
-      #   /mnt/lancache/
-      #     ├── cache/
-      #     │   ├── steam/
-      #     │   └── epic/
-      #     └── logs/
-      #         ├── steam/
-      #         └── epic/
-      - /mnt/lancache:/lancache:ro
+      # LANCache logs directory containing service subdirectories
+      # /mnt/lancache/logs/
+      #   ├── steam/
+      #   ├── epic/
+      #   └── battlenet/
+      - /mnt/lancache/logs:/logs:ro
+
+      # LANCache cache directory containing service subdirectories
+      # /mnt/lancache/cache/
+      #   ├── steam/
+      #   ├── epic/
+      #   └── battlenet/
+      - /mnt/lancache/cache:/cache:ro
 
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
@@ -665,8 +668,8 @@ services:
       - ASPNETCORE_URLS=http://+:80
 
       # Point to the mounted paths
-      - LanCache__CachePath=/lancache/cache
-      - LanCache__LogPath=/lancache/logs
+      - LanCache__LogPath=/logs
+      - LanCache__CachePath=/cache
 
       # Auto-discover datasources from matching subdirectories
       - LanCache__AutoDiscoverDatasources=true
