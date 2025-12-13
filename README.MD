@@ -193,8 +193,8 @@ services:
       #=== User/Group Settings ===#
       # PUID/PGID: User and group ID the application runs as after setup
       # Set these to match your NFS/host filesystem permissions
-      - PUID=1000
-      - PGID=1000
+      - PUID=33
+      - PGID=33
 
       # TZ: Timezone for log timestamps and display
       - TZ=America/Chicago
@@ -643,8 +643,8 @@ services:
 
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
-      - PUID=1000
-      - PGID=1000
+      - PUID=33
+      - PGID=33
       - TZ=America/Chicago
       - ASPNETCORE_URLS=http://+:80
 
@@ -696,8 +696,8 @@ services:
 
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
-      - PUID=1000
-      - PGID=1000
+      - PUID=33
+      - PGID=33
       - TZ=America/Chicago
       - ASPNETCORE_URLS=http://+:80
 
@@ -776,8 +776,8 @@ docker logs lancache-manager | grep "API Key"
 3. Update docker-compose:
    ```yaml
    environment:
-     - PUID=1000
-     - PGID=1000
+     - PUID=33
+     - PGID=33
    ```
 
 <a id="building-from-source"></a>

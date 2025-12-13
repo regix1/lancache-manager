@@ -27,8 +27,9 @@ services:
       #=== User/Group Settings ===#
       # PUID/PGID: User and group ID the application runs as after setup
       # Set these to match your NFS/host filesystem permissions
-      - PUID=1000
-      - PGID=1000
+      # Common values: 1000 (default user), 33 (www-data on Debian/Ubuntu)
+      - PUID=33
+      - PGID=33
 
       # TZ: Timezone for log timestamps and display
       - TZ=America/Chicago

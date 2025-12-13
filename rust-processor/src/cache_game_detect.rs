@@ -285,7 +285,7 @@ fn query_service_downloads(db_path: &Path) -> Result<HashMap<String, Vec<(String
         FROM LogEntries le
         WHERE le.Service IS NOT NULL
         AND le.Url IS NOT NULL
-        AND LOWER(le.Service) NOT IN ('steam', 'unknown', 'ip-address', 'localhost')
+        AND LOWER(le.Service) NOT IN ('steam', 'unknown', 'localhost')
         AND le.Service != ''
         ORDER BY le.Service, le.BytesServed DESC
     ";
