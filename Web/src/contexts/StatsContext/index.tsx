@@ -329,6 +329,8 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
 
   // Polling interval - fetch data at user-configured rate
   // Skipped in Live mode (0) since SignalR handles real-time updates
+  // Re-runs when pollingRate changes to update the interval
+  const currentPollingInterval = getPollingInterval();
   useEffect(() => {
     if (mockMode) return;
 
@@ -338,18 +340,16 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       pollingIntervalRef.current = null;
     }
 
+    // Live mode (0) = no polling needed, SignalR handles updates
+    if (currentPollingInterval === 0) {
+      return;
+    }
+
     // Set up polling at the user's configured rate
     const setupPolling = () => {
-      const interval = getPollingIntervalRef.current();
-
-      // Live mode (0) = no polling needed, SignalR handles updates
-      if (interval === 0) {
-        return;
-      }
-
       pollingIntervalRef.current = setInterval(() => {
         fetchAllStats();
-      }, interval);
+      }, currentPollingInterval);
     };
 
     // Start polling after initial load completes
@@ -379,7 +379,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
         pollingIntervalRef.current = null;
       }
     };
-  }, [mockMode, fetchAllStats]);
+  }, [mockMode, fetchAllStats, currentPollingInterval]);
 
   // Handle time range changes
   useEffect(() => {
