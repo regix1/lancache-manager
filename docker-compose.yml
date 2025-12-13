@@ -17,7 +17,7 @@ services:
       # LANCache cache directory
       # Use :ro for read-only monitoring
       # Remove :ro to enable cache clearing, corruption removal, and game removal
-      - /mnt/cache/cache:/cache:ro
+      - /mnt/cache:/cache:ro
 
       # Docker socket for nginx log rotation (optional)
       # Allows signaling nginx to reopen logs after manipulation
@@ -37,11 +37,27 @@ services:
       - ASPNETCORE_URLS=http://+:80
 
       #=== Path Settings ===#
+      # Single datasource mode (default):
       # LanCache__LogPath: Path to the LANCache access log file
       - LanCache__LogPath=/logs/access.log
 
       # LanCache__CachePath: Path to the LANCache cache directory
       - LanCache__CachePath=/cache
+
+      #=== Multiple Datasources (Optional) ===#
+      # Configure multiple LANCache instances with separate log/cache directories.
+      # When DataSources are configured, LogPath and CachePath above are ignored.
+      # Uncomment and modify the examples below for multi-datasource support:
+      #
+      # - LanCache__DataSources__0__Name=Steam
+      # - LanCache__DataSources__0__CachePath=/mnt/cache/steam
+      # - LanCache__DataSources__0__LogPath=/mnt/logs/steam
+      # - LanCache__DataSources__0__Enabled=true
+      #
+      # - LanCache__DataSources__1__Name=Epic
+      # - LanCache__DataSources__1__CachePath=/mnt/cache/epic
+      # - LanCache__DataSources__1__LogPath=/mnt/logs/epic
+      # - LanCache__DataSources__1__Enabled=true
 
       #=== Security Settings ===#
       # Security__EnableAuthentication: Master switch for authentication

@@ -40,6 +40,11 @@ public class AppDbContext : DbContext
             .HasIndex(d => d.EndTimeUtc)
             .HasDatabaseName("IX_Downloads_EndTime");
 
+        // Datasource index for multi-datasource filtering
+        modelBuilder.Entity<Download>()
+            .HasIndex(d => d.Datasource)
+            .HasDatabaseName("IX_Downloads_Datasource");
+
         // ClientStats indexes
         modelBuilder.Entity<ClientStats>()
             .HasIndex(c => c.LastActivityUtc)
@@ -76,6 +81,11 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<LogEntryRecord>()
             .HasIndex(l => new { l.ClientIp, l.Service, l.Timestamp, l.Url, l.BytesServed })
             .HasDatabaseName("IX_LogEntries_DuplicateCheck");
+
+        // Datasource index for multi-datasource filtering
+        modelBuilder.Entity<LogEntryRecord>()
+            .HasIndex(l => l.Datasource)
+            .HasDatabaseName("IX_LogEntries_Datasource");
 
         // Unique constraint on the combination of DepotId and AppId
         modelBuilder.Entity<SteamDepotMapping>()

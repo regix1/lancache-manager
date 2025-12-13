@@ -80,14 +80,66 @@ public class AuthStatusResponse
 /// </summary>
 public class SystemConfigResponse
 {
+    /// <summary>
+    /// Primary cache path (for backward compatibility).
+    /// When multiple datasources are configured, this is the first datasource's cache path.
+    /// </summary>
     public string CachePath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Primary logs path (for backward compatibility).
+    /// When multiple datasources are configured, this is the first datasource's logs path.
+    /// </summary>
     public string LogsPath { get; set; } = string.Empty;
+
     public string DataPath { get; set; } = string.Empty;
     public string CacheDeleteMode { get; set; } = string.Empty;
     public string SteamAuthMode { get; set; } = string.Empty;
     public string TimeZone { get; set; } = "UTC";
     public bool CacheWritable { get; set; }
     public bool LogsWritable { get; set; }
+
+    /// <summary>
+    /// List of all configured datasources.
+    /// Empty list indicates single datasource mode (use CachePath/LogsPath).
+    /// </summary>
+    public List<DatasourceInfoDto> DataSources { get; set; } = new();
+}
+
+/// <summary>
+/// Datasource information for API responses.
+/// </summary>
+public class DatasourceInfoDto
+{
+    /// <summary>
+    /// Unique name/identifier for this datasource.
+    /// </summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Resolved cache directory path.
+    /// </summary>
+    public string CachePath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Resolved logs directory path.
+    /// </summary>
+    public string LogsPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether the cache directory is writable.
+    /// </summary>
+    public bool CacheWritable { get; set; }
+
+    /// <summary>
+    /// Whether the logs directory is writable.
+    /// </summary>
+    public bool LogsWritable { get; set; }
+
+    /// <summary>
+    /// Whether this datasource is enabled.
+    /// </summary>
+    public bool Enabled { get; set; }
 }
 
 /// <summary>

@@ -27,6 +27,8 @@ struct ProgressData {
     files_processed: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     service_counts: Option<HashMap<String, u64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    datasource_name: Option<String>,
     timestamp: String,
 }
 
@@ -40,6 +42,7 @@ impl ProgressData {
         lines_removed: u64,
         files_processed: usize,
         service_counts: Option<HashMap<String, u64>>,
+        datasource_name: Option<String>,
     ) -> Self {
         Self {
             is_processing,
@@ -50,6 +53,7 @@ impl ProgressData {
             lines_removed,
             files_processed,
             service_counts,
+            datasource_name,
             timestamp: progress_utils::current_timestamp(),
         }
     }
@@ -66,9 +70,14 @@ fn extract_service_from_line(line: &str) -> Option<String> {
     service_utils::extract_service_from_line(line)
 }
 
-fn count_services(log_path: &str, progress_path: &Path) -> Result<HashMap<String, u64>> {
+fn count_services(log_path: &str, progress_path: &Path, datasource_name: Option<&str>) -> Result<HashMap<String, u64>> {
     let start_time = Instant::now();
-    eprintln!("Counting services in log files...");
+    let ds_name = datasource_name.map(|s| s.to_string());
+    if let Some(ds) = &ds_name {
+        eprintln!("Counting services in log files for datasource: {}", ds);
+    } else {
+        eprintln!("Counting services in log files...");
+    }
 
     // Determine if log_path is a file or directory
     let (log_dir, base_name) = if Path::new(log_path).is_dir() {
@@ -99,6 +108,7 @@ fn count_services(log_path: &str, progress_path: &Path) -> Result<HashMap<String
             0,
             0,
             Some(HashMap::new()),
+            ds_name.clone(),
         );
         write_progress(progress_path, &progress)?;
 
@@ -164,6 +174,7 @@ fn count_services(log_path: &str, progress_path: &Path) -> Result<HashMap<String
                         0,
                         file_index + 1,
                         None,
+                        ds_name.clone(),
                     );
                     write_progress(progress_path, &progress)?;
                     last_progress_update = Instant::now();
@@ -202,6 +213,7 @@ fn count_services(log_path: &str, progress_path: &Path) -> Result<HashMap<String
         0,
         log_files.len(),
         Some(service_counts.clone()),
+        ds_name,
     );
     write_progress(progress_path, &progress)?;
 
@@ -212,9 +224,15 @@ fn remove_service_from_logs(
     log_path: &str,
     service_to_remove: &str,
     progress_path: &Path,
+    datasource_name: Option<&str>,
 ) -> Result<()> {
     let start_time = Instant::now();
-    eprintln!("Removing {} entries from log files...", service_to_remove);
+    let ds_name = datasource_name.map(|s| s.to_string());
+    if let Some(ds) = &ds_name {
+        eprintln!("Removing {} entries from log files for datasource: {}", service_to_remove, ds);
+    } else {
+        eprintln!("Removing {} entries from log files...", service_to_remove);
+    }
 
     // Determine the target log file(s)
     // For removal, we want to process all log files (current + rotated)
@@ -281,6 +299,7 @@ fn remove_service_from_logs(
                     total_lines_removed,
                     file_index + 1,
                     None,
+                    ds_name.clone(),
                 );
                 write_progress(progress_path, &progress)?;
 
@@ -332,6 +351,7 @@ fn remove_service_from_logs(
                             total_lines_removed + lines_removed,
                             file_index + 1,
                             None,
+                            ds_name.clone(),
                         );
                         write_progress(progress_path, &progress)?;
                         last_progress_update = Instant::now();
@@ -411,6 +431,7 @@ fn remove_service_from_logs(
         total_lines_removed,
         log_files.len(),
         None,
+        ds_name,
     );
     write_progress(progress_path, &progress)?;
 
@@ -481,12 +502,13 @@ fn main() {
 
     if args.len() < 4 {
         eprintln!("Usage:");
-        eprintln!("  log_manager count <log_path_or_directory> <progress_json_path>");
-        eprintln!("  log_manager remove <log_path_or_directory> <service_name> <progress_json_path>");
+        eprintln!("  log_manager count <log_path_or_directory> <progress_json_path> [datasource_name]");
+        eprintln!("  log_manager remove <log_path_or_directory> <service_name> <progress_json_path> [datasource_name]");
         eprintln!("\nExamples:");
         eprintln!("  log_manager count ./logs ./data/log_count_progress.json");
-        eprintln!("  log_manager count ./logs/access.log ./data/log_count_progress.json");
+        eprintln!("  log_manager count ./logs ./data/log_count_progress.json my-lancache");
         eprintln!("  log_manager remove ./logs steam ./data/log_remove_progress.json");
+        eprintln!("  log_manager remove ./logs steam ./data/log_remove_progress.json my-lancache");
         eprintln!("\nNote: Will automatically discover and process all log files (access.log, access.log.1, .gz, .zst)");
         std::process::exit(1);
     }
@@ -496,11 +518,16 @@ fn main() {
 
     match command.as_str() {
         "count" => {
-            if args.len() != 4 {
-                eprintln!("Usage: log_manager count <log_path_or_directory> <progress_json_path>");
+            if args.len() < 4 || args.len() > 5 {
+                eprintln!("Usage: log_manager count <log_path_or_directory> <progress_json_path> [datasource_name]");
                 std::process::exit(1);
             }
             let progress_path = Path::new(&args[3]);
+            let datasource_name = args.get(4).map(|s| s.as_str());
+
+            if let Some(ds) = datasource_name {
+                eprintln!("Processing for datasource: {}", ds);
+            }
 
             // Check if cached progress is still valid
             if let Ok(_cached_counts) = check_cache_validity(log_path, progress_path) {
@@ -508,7 +535,7 @@ fn main() {
                 std::process::exit(0);
             }
 
-            match count_services(log_path, progress_path) {
+            match count_services(log_path, progress_path, datasource_name) {
                 Ok(_) => {
                     std::process::exit(0);
                 }
@@ -523,6 +550,7 @@ fn main() {
                         0,
                         0,
                         None,
+                        datasource_name.map(|s| s.to_string()),
                     );
                     let _ = write_progress(progress_path, &error_progress);
                     std::process::exit(1);
@@ -530,14 +558,19 @@ fn main() {
             }
         }
         "remove" => {
-            if args.len() != 5 {
-                eprintln!("Usage: log_manager remove <log_path_or_directory> <service_name> <progress_json_path>");
+            if args.len() < 5 || args.len() > 6 {
+                eprintln!("Usage: log_manager remove <log_path_or_directory> <service_name> <progress_json_path> [datasource_name]");
                 std::process::exit(1);
             }
             let service_name = &args[3];
             let progress_path = Path::new(&args[4]);
+            let datasource_name = args.get(5).map(|s| s.as_str());
 
-            match remove_service_from_logs(log_path, service_name, progress_path) {
+            if let Some(ds) = datasource_name {
+                eprintln!("Processing for datasource: {}", ds);
+            }
+
+            match remove_service_from_logs(log_path, service_name, progress_path, datasource_name) {
                 Ok(_) => {
                     std::process::exit(0);
                 }
@@ -552,6 +585,7 @@ fn main() {
                         0,
                         0,
                         None,
+                        datasource_name.map(|s| s.to_string()),
                     );
                     let _ = write_progress(progress_path, &error_progress);
                     std::process::exit(1);

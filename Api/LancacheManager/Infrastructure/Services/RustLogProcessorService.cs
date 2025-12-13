@@ -23,6 +23,7 @@ public class RustLogProcessorService
     private readonly IServiceProvider _serviceProvider;
     private readonly ProcessManager _processManager;
     private readonly RustProcessHelper _rustProcessHelper;
+    private readonly DatasourceService _datasourceService;
     private Process? _rustProcess;
     private CancellationTokenSource? _cancellationTokenSource;
     private Task? _progressMonitorTask;
@@ -30,30 +31,67 @@ public class RustLogProcessorService
     public bool IsProcessing { get; private set; }
 
     /// <summary>
-    /// Resets the log position to 0 to reprocess all logs
+    /// Resets the log position to 0 to reprocess all logs (all datasources)
     /// </summary>
     public void ResetLogPosition()
     {
+        // Reset all datasource positions
+        foreach (var ds in _datasourceService.GetDatasources())
+        {
+            _stateService.SetLogPosition(ds.Name, 0);
+        }
+        // Also reset legacy position for backward compatibility
         _stateService.SetLogPosition(0);
-        _logger.LogInformation("Log position reset to 0");
+        _logger.LogInformation("Log position reset to 0 for all datasources");
     }
 
     /// <summary>
-    /// Starts log processing with default log directory (parameterless overload)
+    /// Resets the log position for a specific datasource
     /// </summary>
-    public Task<bool> StartProcessing()
+    public void ResetLogPosition(string datasourceName)
     {
-        var logsPath = _pathResolver.GetLogsDirectory();
-        var logPosition = _stateService.GetLogPosition();
-        return StartProcessingAsync(logsPath, logPosition, silentMode: false);
+        _stateService.SetLogPosition(datasourceName, 0);
+        _logger.LogInformation("Log position reset to 0 for datasource '{DatasourceName}'", datasourceName);
+    }
+
+    /// <summary>
+    /// Starts log processing for all configured datasources
+    /// </summary>
+    public async Task<bool> StartProcessing()
+    {
+        var datasources = _datasourceService.GetDatasources();
+
+        if (datasources.Count == 0)
+        {
+            _logger.LogWarning("No datasources configured for log processing");
+            return false;
+        }
+
+        // Process each datasource sequentially
+        var allSuccess = true;
+        foreach (var datasource in datasources)
+        {
+            var logPosition = _stateService.GetLogPosition(datasource.Name);
+            _logger.LogInformation("Processing datasource '{DatasourceName}' from position {Position}",
+                datasource.Name, logPosition);
+
+            var success = await StartProcessingAsync(datasource.LogPath, logPosition, silentMode: false, datasourceName: datasource.Name);
+            if (!success)
+            {
+                allSuccess = false;
+                _logger.LogWarning("Processing failed for datasource '{DatasourceName}'", datasource.Name);
+            }
+        }
+
+        return allSuccess;
     }
 
     /// <summary>
     /// Starts log processing (wrapper for StartProcessingAsync)
     /// </summary>
-    public Task<bool> StartProcessing(string logFilePath, long startPosition = 0, bool silentMode = false)
+    public Task<bool> StartProcessing(string logFilePath, long startPosition = 0, bool silentMode = false, string? datasourceName = null)
     {
-        return StartProcessingAsync(logFilePath, startPosition, silentMode);
+        return StartProcessingAsync(logFilePath, startPosition, silentMode, datasourceName);
     }
 
     /// <summary>
@@ -123,7 +161,8 @@ public class RustLogProcessorService
         StateRepository stateService,
         IServiceProvider serviceProvider,
         ProcessManager processManager,
-        RustProcessHelper rustProcessHelper)
+        RustProcessHelper rustProcessHelper,
+        DatasourceService datasourceService)
     {
         _logger = logger;
         _pathResolver = pathResolver;
@@ -132,6 +171,7 @@ public class RustLogProcessorService
         _serviceProvider = serviceProvider;
         _processManager = processManager;
         _rustProcessHelper = rustProcessHelper;
+        _datasourceService = datasourceService;
     }
 
     public class ProgressData
@@ -164,13 +204,16 @@ public class RustLogProcessorService
         public List<string> Errors { get; set; } = new();
     }
 
-    public async Task<bool> StartProcessingAsync(string logFilePath, long startPosition = 0, bool silentMode = false)
+    public async Task<bool> StartProcessingAsync(string logFilePath, long startPosition = 0, bool silentMode = false, string? datasourceName = null)
     {
         if (IsProcessing)
         {
             _logger.LogWarning("Rust log processor is already running");
             return false;
         }
+
+        // Use default datasource name if not specified
+        datasourceName ??= _datasourceService.GetDefaultDatasource()?.Name ?? "default";
 
         try
         {
@@ -179,7 +222,7 @@ public class RustLogProcessorService
 
             var dataDirectory = _pathResolver.GetDataDirectory();
             var dbPath = Path.Combine(dataDirectory, "LancacheManager.db");
-            var progressPath = Path.Combine(dataDirectory, "rust_progress.json");
+            var progressPath = Path.Combine(dataDirectory, $"rust_progress_{datasourceName}.json");
             var rustExecutablePath = _pathResolver.GetRustLogProcessorPath();
 
             // Determine if logFilePath is a directory or file path
@@ -223,10 +266,11 @@ public class RustLogProcessorService
             // Rust processor will discover all access.log* files (including .1, .2, .gz, .zst)
             // Pass auto_map_depots flag: Always 1 to map depots during processing (avoids showing "Unknown Game" in Active tab)
             // This ensures downloads are properly mapped before appearing in the UI
+            // Pass datasource name for multi-datasource support (records will be tagged with this name)
             var autoMapDepots = 1;
             var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                 rustExecutablePath,
-                $"\"{dbPath}\" \"{logDirectory}\" \"{progressPath}\" {startPosition} {autoMapDepots}",
+                $"\"{dbPath}\" \"{logDirectory}\" \"{progressPath}\" {startPosition} {autoMapDepots} \"{datasourceName}\"",
                 Path.GetDirectoryName(rustExecutablePath));
 
             // Pass TZ environment variable to Rust processor so it uses the correct timezone
@@ -314,7 +358,8 @@ public class RustLogProcessorService
                 // Normal completion - send completion with actual data
                 if (finalProgress != null)
                 {
-                    _stateService.SetLogPosition(finalProgress.LinesParsed);
+                    // Save position per-datasource for multi-datasource support
+                    _stateService.SetLogPosition(datasourceName!, finalProgress.LinesParsed);
 
                     // Mark that logs have been processed at least once to enable guest mode
                     _stateService.SetHasProcessedLogs(true);

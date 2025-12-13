@@ -275,6 +275,9 @@ builder.Services.AddHostedService(provider => provider.GetRequiredService<SteamS
 // Register SteamWebApiService for V2/V1 fallback
 builder.Services.AddSingleton<SteamWebApiService>();
 
+// Register DatasourceService for multi-datasource support
+builder.Services.AddSingleton<DatasourceService>();
+
 // Register services (repositories already registered above)
 builder.Services.AddSingleton<CacheManagementService>();
 builder.Services.AddSingleton<RemovalOperationTracker>();

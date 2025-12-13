@@ -31,6 +31,7 @@ export interface UserPreferences {
   disableStickyNotifications: boolean;
   useLocalTimezone: boolean;
   use24HourFormat: boolean;
+  showDatasourceLabels: boolean;
 }
 
 class PreferencesService {
@@ -79,7 +80,8 @@ class PreferencesService {
           picsAlwaysVisible: data.picsAlwaysVisible || false,
           disableStickyNotifications: data.disableStickyNotifications || false,
           useLocalTimezone: data.useLocalTimezone || false,
-          use24HourFormat: data.use24HourFormat || false
+          use24HourFormat: data.use24HourFormat || false,
+          showDatasourceLabels: data.showDatasourceLabels ?? true
         };
         this.loaded = true;
         // console.log('[PreferencesService] Loaded preferences from API:', this.preferences);
@@ -306,7 +308,8 @@ class PreferencesService {
           picsAlwaysVisible: newPreferences.picsAlwaysVisible || false,
           disableStickyNotifications: newPreferences.disableStickyNotifications || false,
           useLocalTimezone: newPreferences.useLocalTimezone || false,
-          use24HourFormat: newPreferences.use24HourFormat || false
+          use24HourFormat: newPreferences.use24HourFormat || false,
+          showDatasourceLabels: newPreferences.showDatasourceLabels ?? true
         };
 
         // Update cache directly with SignalR values (don't fetch from API to avoid race conditions)
@@ -488,7 +491,8 @@ class PreferencesService {
       picsAlwaysVisible: false,
       disableStickyNotifications: false,
       useLocalTimezone: false, // Default to server timezone
-      use24HourFormat: true // Default to 24-hour format
+      use24HourFormat: true, // Default to 24-hour format
+      showDatasourceLabels: true // Default to showing datasource labels when multiple datasources
     };
   }
 
@@ -512,7 +516,8 @@ class PreferencesService {
           picsAlwaysVisible: data.picsAlwaysVisible || false,
           disableStickyNotifications: data.disableStickyNotifications || false,
           useLocalTimezone: data.useLocalTimezone || false,
-          use24HourFormat: data.use24HourFormat || false
+          use24HourFormat: data.use24HourFormat || false,
+          showDatasourceLabels: data.showDatasourceLabels ?? true
         };
       } else {
         console.error(

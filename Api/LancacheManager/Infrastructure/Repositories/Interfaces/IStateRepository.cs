@@ -12,6 +12,11 @@ public interface IStateRepository
     long GetLogPosition();
     void SetLogPosition(long position);
 
+    // Per-datasource log position methods (for multi-datasource support)
+    long GetLogPosition(string datasourceName);
+    void SetLogPosition(string datasourceName, long position);
+    Dictionary<string, long> GetAllLogPositions();
+
     // Cache Clear Operations Methods (stored in data/operations/cache_operations.json)
     List<CacheClearOperation> GetCacheClearOperations();
     void RemoveCacheClearOperation(string id);

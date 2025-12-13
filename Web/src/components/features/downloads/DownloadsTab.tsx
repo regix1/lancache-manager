@@ -11,6 +11,8 @@ import {
 import { useDownloads } from '@contexts/DownloadsContext';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
 import { storage } from '@utils/storage';
+import ApiService from '@services/api.service';
+import preferencesService from '@services/preferences.service';
 import { formatDateTime } from '@utils/formatters';
 import { Alert } from '@components/ui/Alert';
 import { Card } from '@components/ui/Card';
@@ -24,7 +26,7 @@ import CompactView from './CompactView';
 import NormalView from './NormalView';
 import RetroView from './RetroView';
 
-import type { Download, DownloadGroup } from '../../../types';
+import type { Download, DownloadGroup, Config } from '../../../types';
 
 // Storage keys for persistence
 const STORAGE_KEYS = {
@@ -201,6 +203,42 @@ const convertDownloadsToCSV = (downloads: Download[]): string => {
 const DownloadsTab: React.FC = () => {
   const { latestDownloads = [], loading } = useDownloads();
   const { timeRange } = useTimeFilter();
+
+  // Datasource display state
+  const [config, setConfig] = useState<Config | null>(null);
+  const [showDatasourceLabels, setShowDatasourceLabels] = useState(true);
+
+  // Fetch config and preferences for datasource display
+  useEffect(() => {
+    const loadDatasourceSettings = async () => {
+      try {
+        const [configData, prefs] = await Promise.all([
+          ApiService.getConfig(),
+          preferencesService.getPreferences()
+        ]);
+        setConfig(configData);
+        setShowDatasourceLabels(prefs.showDatasourceLabels ?? true);
+      } catch (err) {
+        console.error('Failed to load datasource settings:', err);
+      }
+    };
+    loadDatasourceSettings();
+
+    // Listen for preference changes
+    const handlePreferenceChange = (event: CustomEvent<{ key: string; value: unknown }>) => {
+      if (event.detail.key === 'showDatasourceLabels') {
+        setShowDatasourceLabels(event.detail.value as boolean);
+      }
+    };
+    window.addEventListener('preference-changed', handlePreferenceChange as EventListener);
+
+    return () => {
+      window.removeEventListener('preference-changed', handlePreferenceChange as EventListener);
+    };
+  }, []);
+
+  // Compute whether to show datasource labels
+  const hasMultipleDatasources = (config?.dataSources?.length ?? 0) > 1;
 
   // State management
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
@@ -1492,6 +1530,8 @@ const DownloadsTab: React.FC = () => {
                 aestheticMode={settings.aestheticMode}
                 groupByFrequency={settings.groupByFrequency}
                 enableScrollIntoView={settings.enableScrollIntoView}
+                showDatasourceLabels={showDatasourceLabels}
+                hasMultipleDatasources={hasMultipleDatasources}
               />
             )}
           </div>
@@ -1512,6 +1552,8 @@ const DownloadsTab: React.FC = () => {
                 fullHeightBanners={settings.fullHeightBanners}
                 groupByFrequency={settings.groupByFrequency}
                 enableScrollIntoView={settings.enableScrollIntoView}
+                showDatasourceLabels={showDatasourceLabels}
+                hasMultipleDatasources={hasMultipleDatasources}
               />
             )}
           </div>

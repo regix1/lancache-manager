@@ -24,6 +24,7 @@ public class SystemController : ControllerBase
     private readonly SessionMigrationService _sessionMigrationService;
     private readonly CacheClearingService _cacheClearingService;
     private readonly SteamKit2Service _steamKit2Service;
+    private readonly DatasourceService _datasourceService;
 
     public SystemController(
         StateRepository stateService,
@@ -32,7 +33,8 @@ public class SystemController : ControllerBase
         IPathResolver pathResolver,
         SessionMigrationService sessionMigrationService,
         CacheClearingService cacheClearingService,
-        SteamKit2Service steamKit2Service)
+        SteamKit2Service steamKit2Service,
+        DatasourceService datasourceService)
     {
         _stateService = stateService;
         _configuration = configuration;
@@ -41,6 +43,7 @@ public class SystemController : ControllerBase
         _sessionMigrationService = sessionMigrationService;
         _cacheClearingService = cacheClearingService;
         _steamKit2Service = steamKit2Service;
+        _datasourceService = datasourceService;
     }
 
     /// <summary>
@@ -49,10 +52,14 @@ public class SystemController : ControllerBase
     [HttpGet("config")]
     public IActionResult GetConfig()
     {
+        var datasources = _datasourceService.GetDatasources();
+        var defaultDatasource = _datasourceService.GetDefaultDatasource();
+
         return Ok(new SystemConfigResponse
         {
-            CachePath = _pathResolver.GetCacheDirectory(),
-            LogsPath = _pathResolver.GetLogsDirectory(),
+            // Use first datasource paths for backward compatibility, or fall back to PathResolver
+            CachePath = defaultDatasource?.CachePath ?? _pathResolver.GetCacheDirectory(),
+            LogsPath = defaultDatasource?.LogPath ?? _pathResolver.GetLogsDirectory(),
             DataPath = _pathResolver.GetDataDirectory(),
             CacheDeleteMode = _cacheClearingService.GetDeleteMode(),
             SteamAuthMode = _stateService.GetSteamAuthMode() ?? string.Empty,
@@ -60,8 +67,22 @@ public class SystemController : ControllerBase
             TimeZone = _configuration.GetValue<string>("TZ")
                       ?? _configuration.GetValue<string>("TimeZone")
                       ?? "UTC",
-            CacheWritable = _pathResolver.IsCacheDirectoryWritable(),
-            LogsWritable = _pathResolver.IsLogsDirectoryWritable()
+            CacheWritable = defaultDatasource != null
+                ? _pathResolver.IsDirectoryWritable(defaultDatasource.CachePath)
+                : _pathResolver.IsCacheDirectoryWritable(),
+            LogsWritable = defaultDatasource != null
+                ? _pathResolver.IsDirectoryWritable(defaultDatasource.LogPath)
+                : _pathResolver.IsLogsDirectoryWritable(),
+            // Include all datasources
+            DataSources = datasources.Select(ds => new DatasourceInfoDto
+            {
+                Name = ds.Name,
+                CachePath = ds.CachePath,
+                LogsPath = ds.LogPath,
+                CacheWritable = _pathResolver.IsDirectoryWritable(ds.CachePath),
+                LogsWritable = _pathResolver.IsDirectoryWritable(ds.LogPath),
+                Enabled = ds.Enabled
+            }).ToList()
         });
     }
 

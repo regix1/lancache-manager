@@ -57,6 +57,7 @@ struct Processor {
     auto_map_depots: bool,
     last_logged_percent: AtomicU64, // Store as integer (0-100) for atomic operations
     logged_depots: HashSet<u32>, // Track depots that have already been logged
+    datasource_name: String, // Datasource identifier for multi-datasource support
 }
 
 impl Processor {
@@ -67,12 +68,14 @@ impl Processor {
         progress_path: PathBuf,
         start_position: u64,
         auto_map_depots: bool,
+        datasource_name: String,
     ) -> Self {
         // Get timezone from environment variable (same as C# uses)
         let tz_str = env::var("TZ").unwrap_or_else(|_| "UTC".to_string());
         let local_tz: Tz = tz_str.parse().unwrap_or(chrono_tz::UTC);
         println!("Using timezone: {} (from TZ env var)", local_tz);
         println!("Auto-map depots: {}", auto_map_depots);
+        println!("Datasource: {}", datasource_name);
 
         Self {
             db_path,
@@ -89,6 +92,7 @@ impl Processor {
             auto_map_depots,
             last_logged_percent: AtomicU64::new(0),
             logged_depots: HashSet::new(),
+            datasource_name,
         }
     }
 
@@ -511,8 +515,8 @@ impl Processor {
             let last_local = self.utc_to_local(last_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
 
             tx.execute(
-                "INSERT INTO Downloads (Service, ClientIp, StartTimeUtc, EndTimeUtc, StartTimeLocal, EndTimeLocal, CacheHitBytes, CacheMissBytes, IsActive, LastUrl, DepotId, GameAppId, GameName, GameImageUrl)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)",
+                "INSERT INTO Downloads (Service, ClientIp, StartTimeUtc, EndTimeUtc, StartTimeLocal, EndTimeLocal, CacheHitBytes, CacheMissBytes, IsActive, LastUrl, DepotId, GameAppId, GameName, GameImageUrl, Datasource)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)",
                 params![
                     service,
                     client_ip,
@@ -527,6 +531,7 @@ impl Processor {
                     game_app_id,
                     game_name,
                     game_image_url,
+                    &self.datasource_name,
                 ],
             )?;
 
@@ -608,7 +613,7 @@ impl Processor {
                 let last_local = self.utc_to_local(last_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
 
                 tx.execute(
-                    "INSERT INTO Downloads (ClientIp, Service, StartTimeUtc, EndTimeUtc, StartTimeLocal, EndTimeLocal, CacheHitBytes, CacheMissBytes, IsActive, GameAppId, GameName, GameImageUrl, LastUrl, DepotId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO Downloads (ClientIp, Service, StartTimeUtc, EndTimeUtc, StartTimeLocal, EndTimeLocal, CacheHitBytes, CacheMissBytes, IsActive, GameAppId, GameName, GameImageUrl, LastUrl, DepotId, Datasource) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     params![
                         client_ip,
                         service,
@@ -624,6 +629,7 @@ impl Processor {
                         game_image_url,
                         last_url,
                         primary_depot_id,
+                        &self.datasource_name,
                     ],
                 )?;
                 (tx.last_insert_rowid(), true)
@@ -671,8 +677,8 @@ impl Processor {
 
         // Insert ONLY the new (non-duplicate) entries
         let mut insert_stmt = tx.prepare_cached(
-            "INSERT INTO LogEntries (Timestamp, ClientIp, Service, Method, Url, StatusCode, BytesServed, CacheStatus, DepotId, DownloadId, CreatedAt)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO LogEntries (Timestamp, ClientIp, Service, Method, Url, StatusCode, BytesServed, CacheStatus, DepotId, DownloadId, CreatedAt, Datasource)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )?;
 
         let now = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
@@ -693,6 +699,7 @@ impl Processor {
                 entry.depot_id,
                 download_id,
                 now,
+                &self.datasource_name,
             ])?;
         }
 
@@ -715,7 +722,7 @@ fn main() -> Result<()> {
 
     if args.len() < 6 {
         eprintln!(
-            "Usage: {} <db_path> <log_dir> <progress_path> <start_position> <auto_map_depots>",
+            "Usage: {} <db_path> <log_dir> <progress_path> <start_position> <auto_map_depots> [datasource_name]",
             args[0]
         );
         eprintln!("  db_path: Path to SQLite database");
@@ -723,6 +730,7 @@ fn main() -> Result<()> {
         eprintln!("  progress_path: Path to progress JSON file");
         eprintln!("  start_position: Line number to start from (0 for beginning)");
         eprintln!("  auto_map_depots: 1 to map depot IDs to games during processing (recommended), 0 to skip mapping");
+        eprintln!("  datasource_name: Optional name for multi-datasource support (default: 'default')");
         eprintln!("\nNote: Processor will discover all log files matching 'access.log*' pattern");
         eprintln!("      including rotated logs (access.log.1, access.log.2, etc.)");
         eprintln!("      and compressed logs (.gz, .zst)");
@@ -735,6 +743,13 @@ fn main() -> Result<()> {
     let start_position: u64 = args[4].parse().context("Invalid start_position")?;
     let auto_map_depots: bool = args[5].parse::<u8>().context("Invalid auto_map_depots")? == 1;
 
+    // Optional datasource name (for multi-datasource support)
+    let datasource_name = if args.len() > 6 {
+        args[6].clone()
+    } else {
+        "default".to_string()
+    };
+
     // Log file base name (hardcoded for now, could be made configurable)
     let log_base_name = "access.log".to_string();
 
@@ -744,7 +759,8 @@ fn main() -> Result<()> {
         log_base_name,
         progress_path,
         start_position,
-        auto_map_depots
+        auto_map_depots,
+        datasource_name,
     );
     processor.process()?;
 

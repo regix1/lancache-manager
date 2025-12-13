@@ -28,6 +28,12 @@ public class Download
     public string? LastUrl { get; set; } // Store the last URL to extract game info
     public uint? DepotId { get; set; } // Steam depot ID extracted from URLs
 
+    /// <summary>
+    /// The datasource this download belongs to (for multi-datasource support).
+    /// Defaults to "default" for backward compatibility.
+    /// </summary>
+    public string Datasource { get; set; } = "default";
+
     // Computed properties need [JsonInclude] to be serialized
     [JsonInclude]
     public long TotalBytes => CacheHitBytes + CacheMissBytes;

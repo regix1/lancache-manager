@@ -54,6 +54,7 @@ interface UserPreferences {
   disableTooltips: boolean;
   picsAlwaysVisible: boolean;
   disableStickyNotifications: boolean;
+  showDatasourceLabels: boolean;
 }
 
 // Helper component for session timestamps with timezone awareness
@@ -405,7 +406,8 @@ const UserTab: React.FC = () => {
           disableFocusOutlines: prefs.disableFocusOutlines ?? true,
           disableTooltips: prefs.disableTooltips ?? false,
           picsAlwaysVisible: prefs.picsAlwaysVisible ?? false,
-          disableStickyNotifications: prefs.disableStickyNotifications ?? false
+          disableStickyNotifications: prefs.disableStickyNotifications ?? false,
+          showDatasourceLabels: prefs.showDatasourceLabels ?? true
         });
       } else {
         // Initialize with defaults if no preferences exist
@@ -415,7 +417,8 @@ const UserTab: React.FC = () => {
           disableFocusOutlines: true,
           disableTooltips: false,
           picsAlwaysVisible: false,
-          disableStickyNotifications: false
+          disableStickyNotifications: false,
+          showDatasourceLabels: true
         });
       }
     } catch (err: unknown) {
@@ -1305,6 +1308,27 @@ const UserTab: React.FC = () => {
                     </label>
                   </>
                 )}
+
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editingPreferences.showDatasourceLabels}
+                    onChange={(e) =>
+                      setEditingPreferences({
+                        ...editingPreferences,
+                        showDatasourceLabels: e.target.checked
+                      })
+                    }
+                    className="w-4 h-4 rounded"
+                    style={{ accentColor: 'var(--theme-primary)' }}
+                  />
+                  <div className="flex flex-col">
+                    <span className="text-sm text-themed-secondary">Datasource Labels</span>
+                    <span className="text-xs text-themed-muted">
+                      Show datasource indicators on downloads (multi-datasource mode)
+                    </span>
+                  </div>
+                </label>
               </div>
             </div>
           )}

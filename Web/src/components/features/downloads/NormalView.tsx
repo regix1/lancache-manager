@@ -44,6 +44,8 @@ interface NormalViewProps {
   fullHeightBanners?: boolean;
   groupByFrequency?: boolean;
   enableScrollIntoView?: boolean;
+  showDatasourceLabels?: boolean;
+  hasMultipleDatasources?: boolean;
 }
 
 interface GroupCardProps {
@@ -60,6 +62,8 @@ interface GroupCardProps {
   stopHoldTimer: () => void;
   SESSIONS_PER_PAGE: number;
   enableScrollIntoView: boolean;
+  showDatasourceLabels: boolean;
+  hasMultipleDatasources: boolean;
 }
 
 const GroupCard: React.FC<GroupCardProps> = ({
@@ -75,7 +79,9 @@ const GroupCard: React.FC<GroupCardProps> = ({
   startHoldTimer,
   stopHoldTimer,
   SESSIONS_PER_PAGE,
-  enableScrollIntoView
+  enableScrollIntoView,
+  showDatasourceLabels,
+  hasMultipleDatasources
 }) => {
   const isExpanded = expandedItem === group.id;
   const cardRef = React.useRef<HTMLDivElement>(null);
@@ -239,6 +245,19 @@ const GroupCard: React.FC<GroupCardProps> = ({
                 >
                   {group.service.toUpperCase()}
                 </span>
+                {hasMultipleDatasources && showDatasourceLabels && group.downloads[0]?.datasource && (
+                  <span
+                    className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2 sm:px-2.5 py-0.5 sm:py-1 text-xs'} font-medium rounded-md`}
+                    style={{
+                      backgroundColor: 'var(--theme-bg-tertiary)',
+                      color: 'var(--theme-text-secondary)',
+                      border: '1px solid var(--theme-border-secondary)'
+                    }}
+                    title={`Datasource: ${group.downloads[0].datasource}`}
+                  >
+                    {group.downloads[0].datasource}
+                  </span>
+                )}
                 {group.count > 1 && (
                   <span
                     className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2 sm:px-2.5 py-0.5 sm:py-1 text-xs'} font-semibold rounded-full bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)]`}
@@ -755,7 +774,9 @@ const NormalView: React.FC<NormalViewProps> = ({
   aestheticMode = false,
   fullHeightBanners = false,
   groupByFrequency = true,
-  enableScrollIntoView = true
+  enableScrollIntoView = true,
+  showDatasourceLabels = true,
+  hasMultipleDatasources = false
 }) => {
   const labels = { ...DEFAULT_SECTION_LABELS, ...sectionLabels };
   const [imageErrors, setImageErrors] = React.useState<Set<string>>(new Set());
@@ -783,6 +804,8 @@ const NormalView: React.FC<NormalViewProps> = ({
       stopHoldTimer={stopHoldTimer}
       SESSIONS_PER_PAGE={SESSIONS_PER_PAGE}
       enableScrollIntoView={enableScrollIntoView}
+      showDatasourceLabels={showDatasourceLabels}
+      hasMultipleDatasources={hasMultipleDatasources}
     />
   );
 

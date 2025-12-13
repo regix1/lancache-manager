@@ -25,6 +25,7 @@ public class GameCacheDetectionService
     private readonly ProcessManager _processManager;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly DatasourceService _datasourceService;
     private readonly ConcurrentDictionary<string, DetectionOperation> _operations = new();
     private const string FailedDepotsStateKey = "failedDepotResolutions";
 
@@ -52,7 +53,8 @@ public class GameCacheDetectionService
         SteamKit2Service steamKit2Service,
         ProcessManager processManager,
         RustProcessHelper rustProcessHelper,
-        IHubContext<DownloadHub> hubContext)
+        IHubContext<DownloadHub> hubContext,
+        DatasourceService datasourceService)
     {
         _logger = logger;
         _pathResolver = pathResolver;
@@ -62,6 +64,9 @@ public class GameCacheDetectionService
         _processManager = processManager;
         _rustProcessHelper = rustProcessHelper;
         _hubContext = hubContext;
+        _datasourceService = datasourceService;
+
+        _logger.LogInformation("GameCacheDetectionService initialized with {Count} datasource(s)", _datasourceService.DatasourceCount);
 
         // Restore any interrupted operations on startup
         RestoreInterruptedOperations();
@@ -224,6 +229,7 @@ public class GameCacheDetectionService
 
         string? excludedIdsPath = null;
         List<GameCacheInfo>? existingGames = null;
+        var outputJsonFiles = new List<string>();
 
         try
         {
@@ -237,8 +243,6 @@ public class GameCacheDetectionService
 
             var operationsDir = _pathResolver.GetOperationsDirectory();
             var dbPath = _pathResolver.GetDatabasePath();
-            var outputJson = Path.Combine(operationsDir, $"game_detection_{operationId}.json");
-
             var rustBinaryPath = _pathResolver.GetRustGameDetectorPath();
 
             _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Game cache detector");
@@ -248,12 +252,11 @@ public class GameCacheDetectionService
                 throw new FileNotFoundException($"Database not found at {dbPath}");
             }
 
-            var cachePath = _pathResolver.GetCacheDirectory();
+            // Get all datasources
+            var datasources = _datasourceService.GetDatasources();
+            _logger.LogInformation("[GameDetection] Scanning {Count} datasource(s)", datasources.Count);
 
-            _logger.LogInformation("[GameDetection] Using cache path: {CachePath}", cachePath);
-
-            // Build arguments - add excluded game IDs if incremental and cache exists
-            string arguments;
+            // Prepare excluded IDs for incremental scans
             if (incremental)
             {
                 // Load existing games from database
@@ -272,67 +275,135 @@ public class GameCacheDetectionService
 
                         _logger.LogInformation("[GameDetection] Incremental scan: excluding {ExcludedCount} already-detected games", excludedGameIds.Count);
                         operation.Message = $"Scanning for new games (skipping {excludedGameIds.Count} already detected)...";
-
-                        arguments = $"\"{dbPath}\" \"{cachePath}\" \"{outputJson}\" \"{excludedIdsPath}\"";
                     }
                     else
                     {
                         _logger.LogInformation("[GameDetection] No cached results found, performing full scan");
-                        arguments = $"\"{dbPath}\" \"{cachePath}\" \"{outputJson}\"";
                     }
                 }
             }
             else
             {
                 _logger.LogInformation("[GameDetection] Force refresh: performing full scan");
-                arguments = $"\"{dbPath}\" \"{cachePath}\" \"{outputJson}\"";
             }
 
-            var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, arguments);
+            // Aggregate results from all datasources
+            var aggregatedGames = new List<GameCacheInfo>();
+            var aggregatedServices = new List<ServiceCacheInfo>();
+            var gameAppIdSet = new HashSet<uint>(); // Track unique game app IDs across datasources
+            var serviceNameSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase); // Track unique services
 
-            operation.Message = "Scanning database and cache directory...";
-
-            var result = await _rustProcessHelper.ExecuteProcessAsync(startInfo, CancellationToken.None);
-
-            // Log diagnostic output from stderr (contains scan progress and stats)
-            if (!string.IsNullOrWhiteSpace(result.Error))
+            // Scan each datasource
+            foreach (var datasource in datasources)
             {
-                _logger.LogInformation("[GameDetection] Diagnostic output:\n{DiagnosticOutput}", result.Error);
-            }
+                var cachePath = datasource.CachePath;
+                var outputJson = Path.Combine(operationsDir, $"game_detection_{operationId}_{datasource.Name}.json");
+                outputJsonFiles.Add(outputJson);
 
-            if (result.ExitCode != 0)
-            {
-                _logger.LogError("[GameDetection] Process failed with exit code {ExitCode}. Error: {Error}",
-                    result.ExitCode, result.Error);
-                throw new Exception($"Game detection failed: {result.Error}");
-            }
+                _logger.LogInformation("[GameDetection] Scanning datasource '{DatasourceName}': {CachePath}", datasource.Name, cachePath);
+                operation.Message = datasources.Count > 1
+                    ? $"Scanning datasource '{datasource.Name}'..."
+                    : "Scanning database and cache directory...";
 
-            // Read results from JSON
-            if (!File.Exists(outputJson))
-            {
-                throw new FileNotFoundException($"Output file not found: {outputJson}");
-            }
+                // Build arguments
+                string arguments = !string.IsNullOrEmpty(excludedIdsPath)
+                    ? $"\"{dbPath}\" \"{cachePath}\" \"{outputJson}\" \"{excludedIdsPath}\""
+                    : $"\"{dbPath}\" \"{cachePath}\" \"{outputJson}\"";
 
-            var json = await File.ReadAllTextAsync(outputJson);
-            var detectionResult = JsonSerializer.Deserialize<GameDetectionResult>(json);
+                var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, arguments);
 
-            if (detectionResult == null)
-            {
-                throw new Exception("Failed to parse detection results");
+                var result = await _rustProcessHelper.ExecuteProcessAsync(startInfo, CancellationToken.None);
+
+                // Log diagnostic output from stderr (contains scan progress and stats)
+                if (!string.IsNullOrWhiteSpace(result.Error))
+                {
+                    _logger.LogInformation("[GameDetection] Diagnostic output for '{DatasourceName}':\n{DiagnosticOutput}",
+                        datasource.Name, result.Error);
+                }
+
+                if (result.ExitCode != 0)
+                {
+                    _logger.LogError("[GameDetection] Process failed for datasource '{DatasourceName}' with exit code {ExitCode}. Error: {Error}",
+                        datasource.Name, result.ExitCode, result.Error);
+                    throw new Exception($"Game detection failed for datasource '{datasource.Name}': {result.Error}");
+                }
+
+                // Read results from JSON
+                if (!File.Exists(outputJson))
+                {
+                    throw new FileNotFoundException($"Output file not found: {outputJson}");
+                }
+
+                var json = await File.ReadAllTextAsync(outputJson);
+                var detectionResult = JsonSerializer.Deserialize<GameDetectionResult>(json);
+
+                if (detectionResult == null)
+                {
+                    throw new Exception($"Failed to parse detection results for datasource '{datasource.Name}'");
+                }
+
+                // Aggregate games (deduplicate by GameAppId)
+                foreach (var game in detectionResult.Games)
+                {
+                    if (!gameAppIdSet.Contains(game.GameAppId))
+                    {
+                        gameAppIdSet.Add(game.GameAppId);
+                        aggregatedGames.Add(game);
+                    }
+                    else
+                    {
+                        // Game already found in another datasource - merge cache file info
+                        var existingGame = aggregatedGames.First(g => g.GameAppId == game.GameAppId);
+                        existingGame.CacheFilesFound += game.CacheFilesFound;
+                        existingGame.TotalSizeBytes += game.TotalSizeBytes;
+                        existingGame.CacheFilePaths.AddRange(game.CacheFilePaths);
+                        existingGame.SampleUrls.AddRange(game.SampleUrls.Take(5 - existingGame.SampleUrls.Count));
+                        foreach (var depotId in game.DepotIds)
+                        {
+                            if (!existingGame.DepotIds.Contains(depotId))
+                            {
+                                existingGame.DepotIds.Add(depotId);
+                            }
+                        }
+                    }
+                }
+
+                // Aggregate services (deduplicate by ServiceName)
+                foreach (var service in detectionResult.Services)
+                {
+                    if (!serviceNameSet.Contains(service.ServiceName))
+                    {
+                        serviceNameSet.Add(service.ServiceName);
+                        aggregatedServices.Add(service);
+                    }
+                    else
+                    {
+                        // Service already found in another datasource - merge cache file info
+                        var existingService = aggregatedServices.First(s =>
+                            s.ServiceName.Equals(service.ServiceName, StringComparison.OrdinalIgnoreCase));
+                        existingService.CacheFilesFound += service.CacheFilesFound;
+                        existingService.TotalSizeBytes += service.TotalSizeBytes;
+                        existingService.CacheFilePaths.AddRange(service.CacheFilePaths);
+                        existingService.SampleUrls.AddRange(service.SampleUrls.Take(5 - existingService.SampleUrls.Count));
+                    }
+                }
+
+                _logger.LogInformation("[GameDetection] Datasource '{DatasourceName}' found {GameCount} games, {ServiceCount} services",
+                    datasource.Name, detectionResult.Games.Count, detectionResult.Services.Count);
             }
 
             // Merge with existing games if this was an incremental scan
             List<GameCacheInfo> finalGames;
             int totalGamesDetected;
+            int newGamesCount = aggregatedGames.Count;
 
             if (incremental && existingGames != null && existingGames.Count > 0)
             {
                 // Merge existing games with newly detected games
                 finalGames = existingGames.ToList();
-                finalGames.AddRange(detectionResult.Games);
+                finalGames.AddRange(aggregatedGames);
                 totalGamesDetected = finalGames.Count;
 
-                var newGamesCount = detectionResult.TotalGamesDetected;
                 _logger.LogInformation("[GameDetection] Incremental scan complete: {NewCount} new games, {TotalCount} total",
                     newGamesCount, totalGamesDetected);
 
@@ -342,16 +413,22 @@ public class GameCacheDetectionService
             }
             else
             {
-                finalGames = detectionResult.Games;
-                totalGamesDetected = detectionResult.TotalGamesDetected;
+                finalGames = aggregatedGames;
+                totalGamesDetected = aggregatedGames.Count;
                 operation.Message = $"Detected {totalGamesDetected} games with cache files";
+            }
+
+            // Add datasource info to message if multiple datasources
+            if (datasources.Count > 1)
+            {
+                operation.Message += $" across {datasources.Count} datasources";
             }
 
             operation.Status = "complete";
             operation.Games = finalGames;
             operation.TotalGamesDetected = totalGamesDetected;
-            operation.Services = detectionResult.Services;
-            operation.TotalServicesDetected = detectionResult.Services.Count;
+            operation.Services = aggregatedServices;
+            operation.TotalServicesDetected = aggregatedServices.Count;
 
             // Save results to database (replaces in-memory cache)
             await SaveGamesToDatabaseAsync(finalGames, incremental);
@@ -370,10 +447,10 @@ public class GameCacheDetectionService
             }
 
             // Save services to database
-            if (detectionResult.Services.Count > 0)
+            if (aggregatedServices.Count > 0)
             {
-                await SaveServicesToDatabaseAsync(detectionResult.Services);
-                _logger.LogInformation("[GameDetection] Services saved to database - {Count} services total", detectionResult.Services.Count);
+                await SaveServicesToDatabaseAsync(aggregatedServices);
+                _logger.LogInformation("[GameDetection] Services saved to database - {Count} services total", aggregatedServices.Count);
             }
 
             // Update persisted state with complete status
@@ -383,10 +460,11 @@ public class GameCacheDetectionService
                 Type = "gameDetection",
                 Status = "complete",
                 Message = operation.Message,
-                Data = JsonSerializer.SerializeToElement(new { operationId, totalGamesDetected = detectionResult.TotalGamesDetected })
+                Data = JsonSerializer.SerializeToElement(new { operationId, totalGamesDetected })
             });
 
-            _logger.LogInformation("[GameDetection] Completed: {Count} games detected", detectionResult.TotalGamesDetected);
+            _logger.LogInformation("[GameDetection] Completed: {Count} games detected across {DatasourceCount} datasource(s)",
+                totalGamesDetected, datasources.Count);
 
             // Send SignalR notification that detection completed successfully
             await _hubContext.Clients.All.SendAsync("GameDetectionComplete", new
@@ -394,13 +472,16 @@ public class GameCacheDetectionService
                 success = true,
                 operationId,
                 totalGamesDetected,
-                totalServicesDetected = detectionResult.Services.Count,
+                totalServicesDetected = aggregatedServices.Count,
                 message = operation.Message,
                 timestamp = DateTime.UtcNow
             });
 
             // Clean up temporary files
-            await _rustProcessHelper.DeleteTemporaryFileAsync(outputJson);
+            foreach (var outputJson in outputJsonFiles)
+            {
+                await _rustProcessHelper.DeleteTemporaryFileAsync(outputJson);
+            }
             if (!string.IsNullOrEmpty(excludedIdsPath))
             {
                 await _rustProcessHelper.DeleteTemporaryFileAsync(excludedIdsPath);
@@ -433,7 +514,11 @@ public class GameCacheDetectionService
                 timestamp = DateTime.UtcNow
             });
 
-            // Clean up excluded IDs file in error path too
+            // Clean up temporary files in error path too
+            foreach (var outputJson in outputJsonFiles)
+            {
+                await _rustProcessHelper.DeleteTemporaryFileAsync(outputJson);
+            }
             if (!string.IsNullOrEmpty(excludedIdsPath))
             {
                 await _rustProcessHelper.DeleteTemporaryFileAsync(excludedIdsPath);

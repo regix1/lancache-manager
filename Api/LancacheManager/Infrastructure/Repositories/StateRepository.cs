@@ -126,7 +126,17 @@ public class StateRepository : IStateRepository
 
     public class LogProcessingState
     {
+        /// <summary>
+        /// Legacy single position (for backward compatibility with single datasource).
+        /// Use DatasourcePositions for multi-datasource support.
+        /// </summary>
         public long Position { get; set; } = 0;
+
+        /// <summary>
+        /// Per-datasource log positions. Key is datasource name, value is byte offset.
+        /// </summary>
+        public Dictionary<string, long> DatasourcePositions { get; set; } = new();
+
         public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
     }
 
@@ -302,11 +312,20 @@ public class StateRepository : IStateRepository
     }
 
     // Log Processing Methods
+
+    /// <summary>
+    /// Gets the legacy single log position (for backward compatibility).
+    /// Use GetLogPosition(datasourceName) for multi-datasource support.
+    /// </summary>
     public long GetLogPosition()
     {
         return GetState().LogProcessing.Position;
     }
 
+    /// <summary>
+    /// Sets the legacy single log position (for backward compatibility).
+    /// Use SetLogPosition(datasourceName, position) for multi-datasource support.
+    /// </summary>
     public void SetLogPosition(long position)
     {
         UpdateState(state =>
@@ -314,6 +333,64 @@ public class StateRepository : IStateRepository
             state.LogProcessing.Position = position;
             state.LogProcessing.LastUpdated = DateTime.UtcNow;
         });
+    }
+
+    /// <summary>
+    /// Gets the log position for a specific datasource.
+    /// Falls back to legacy Position if datasource is "default" and no specific position exists.
+    /// </summary>
+    public long GetLogPosition(string datasourceName)
+    {
+        var state = GetState();
+
+        // Try to get datasource-specific position
+        if (state.LogProcessing.DatasourcePositions.TryGetValue(datasourceName, out var position))
+        {
+            return position;
+        }
+
+        // Fall back to legacy position for "default" datasource
+        if (datasourceName == "default")
+        {
+            return state.LogProcessing.Position;
+        }
+
+        return 0;
+    }
+
+    /// <summary>
+    /// Sets the log position for a specific datasource.
+    /// </summary>
+    public void SetLogPosition(string datasourceName, long position)
+    {
+        UpdateState(state =>
+        {
+            state.LogProcessing.DatasourcePositions[datasourceName] = position;
+            state.LogProcessing.LastUpdated = DateTime.UtcNow;
+
+            // Also update legacy Position if this is the "default" datasource
+            if (datasourceName == "default")
+            {
+                state.LogProcessing.Position = position;
+            }
+        });
+    }
+
+    /// <summary>
+    /// Gets all datasource log positions.
+    /// </summary>
+    public Dictionary<string, long> GetAllLogPositions()
+    {
+        var state = GetState();
+        var positions = new Dictionary<string, long>(state.LogProcessing.DatasourcePositions);
+
+        // Include legacy position as "default" if not already in dictionary
+        if (!positions.ContainsKey("default") && state.LogProcessing.Position > 0)
+        {
+            positions["default"] = state.LogProcessing.Position;
+        }
+
+        return positions;
     }
 
     // Cache Clear Operations Methods - now use separate file (data/operations/cache_operations.json)

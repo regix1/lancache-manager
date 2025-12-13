@@ -18,6 +18,9 @@ public class CacheManagementService
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly NginxLogRotationService _nginxLogRotationService;
     private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly DatasourceService _datasourceService;
+
+    // Legacy single-path fields (for backward compatibility)
     private readonly string _cachePath;
     private readonly string _logPath;
 
@@ -26,7 +29,15 @@ public class CacheManagementService
     private DateTime? _lastLogWarningTime; // Track last time we logged a warning
     private readonly TimeSpan _logWarningThrottle = TimeSpan.FromMinutes(5); // Only log warnings every 5 minutes
 
-    public CacheManagementService(IConfiguration configuration, ILogger<CacheManagementService> logger, IPathResolver pathResolver, ProcessManager processManager, RustProcessHelper rustProcessHelper, NginxLogRotationService nginxLogRotationService, IHubContext<DownloadHub> hubContext)
+    public CacheManagementService(
+        IConfiguration configuration,
+        ILogger<CacheManagementService> logger,
+        IPathResolver pathResolver,
+        ProcessManager processManager,
+        RustProcessHelper rustProcessHelper,
+        NginxLogRotationService nginxLogRotationService,
+        IHubContext<DownloadHub> hubContext,
+        DatasourceService datasourceService)
     {
         _configuration = configuration;
         _logger = logger;
@@ -35,36 +46,47 @@ public class CacheManagementService
         _rustProcessHelper = rustProcessHelper;
         _nginxLogRotationService = nginxLogRotationService;
         _hubContext = hubContext;
+        _datasourceService = datasourceService;
 
-        // Use PathResolver to get properly resolved paths
-        var configCachePath = configuration["LanCache:CachePath"];
-        _cachePath = !string.IsNullOrEmpty(configCachePath)
-            ? _pathResolver.ResolvePath(configCachePath)
-            : _pathResolver.GetCacheDirectory();
-
-        var configLogPath = configuration["LanCache:LogPath"];
-        _logPath = !string.IsNullOrEmpty(configLogPath)
-            ? _pathResolver.ResolvePath(configLogPath)
-            : Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
-
-        // Check if cache directory exists, create if it doesn't
-        if (!Directory.Exists(_cachePath))
+        // Use DatasourceService for paths (with backward compatibility)
+        var defaultDatasource = _datasourceService.GetDefaultDatasource();
+        if (defaultDatasource != null)
         {
-            try
+            _cachePath = defaultDatasource.CachePath;
+            _logPath = defaultDatasource.LogFilePath;
+        }
+        else
+        {
+            // Fallback to legacy configuration
+            var configCachePath = configuration["LanCache:CachePath"];
+            _cachePath = !string.IsNullOrEmpty(configCachePath)
+                ? _pathResolver.ResolvePath(configCachePath)
+                : _pathResolver.GetCacheDirectory();
+
+            var configLogPath = configuration["LanCache:LogPath"];
+            _logPath = !string.IsNullOrEmpty(configLogPath)
+                ? _pathResolver.ResolvePath(configLogPath)
+                : Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
+        }
+
+        // Check if cache directories exist for all datasources
+        foreach (var ds in _datasourceService.GetDatasources())
+        {
+            if (!Directory.Exists(ds.CachePath))
             {
-                Directory.CreateDirectory(_cachePath);
-                _logger.LogInformation($"Created cache directory: {_cachePath}");
-            }
-            catch (Exception ex)
-            {
-                var errorMsg = $"Failed to create cache directory: {_cachePath}. Error: {ex.Message}";
-                _logger.LogError(ex, errorMsg);
-                // Don't throw - allow the service to start but log the error
-                // The cache operations will fail appropriately when attempted
+                try
+                {
+                    Directory.CreateDirectory(ds.CachePath);
+                    _logger.LogInformation("Created cache directory for datasource '{Name}': {Path}", ds.Name, ds.CachePath);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to create cache directory for datasource '{Name}': {Path}", ds.Name, ds.CachePath);
+                }
             }
         }
 
-        _logger.LogInformation($"CacheManagementService initialized - Cache: {_cachePath}, Logs: {_logPath}");
+        _logger.LogInformation("CacheManagementService initialized with {Count} datasource(s)", _datasourceService.DatasourceCount);
     }
 
     public CacheInfo GetCacheInfo()
@@ -277,22 +299,54 @@ public class CacheManagementService
         await _cacheLock.WaitAsync();
         try
         {
-            // Use Rust binary which has its own file-based caching with modification time validation
-            // No need for C# in-memory cache - Rust handles it efficiently
-            var counts = new Dictionary<string, long>();
+            var aggregatedCounts = new Dictionary<string, long>();
+            var datasources = _datasourceService.GetDatasources();
 
-            // Extract log directory - Rust will discover all log files (access.log, .1, .2.gz, etc.)
-            var logDir = Path.GetDirectoryName(_logPath) ?? _pathResolver.GetLogsDirectory();
-
-            if (!Directory.Exists(logDir))
+            // Process each datasource and aggregate counts
+            foreach (var datasource in datasources)
             {
-                LogThrottledWarning($"Log directory not found: {logDir}");
-                return counts;
+                var dsCounts = await GetServiceLogCountsForDatasource(datasource.Name, datasource.LogPath, forceRefresh, cancellationToken);
+
+                // Aggregate counts
+                foreach (var kvp in dsCounts)
+                {
+                    if (aggregatedCounts.ContainsKey(kvp.Key))
+                    {
+                        aggregatedCounts[kvp.Key] += kvp.Value;
+                    }
+                    else
+                    {
+                        aggregatedCounts[kvp.Key] = kvp.Value;
+                    }
+                }
             }
 
+            return aggregatedCounts;
+        }
+        finally
+        {
+            _cacheLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Get service log counts for a specific datasource.
+    /// </summary>
+    private async Task<Dictionary<string, long>> GetServiceLogCountsForDatasource(string datasourceName, string logDir, bool forceRefresh, CancellationToken cancellationToken)
+    {
+        var counts = new Dictionary<string, long>();
+
+        if (!Directory.Exists(logDir))
+        {
+            LogThrottledWarning($"Log directory not found for datasource '{datasourceName}': {logDir}");
+            return counts;
+        }
+
+        try
+        {
             // Use Rust binary for fast log counting
             var operationsDir = _pathResolver.GetOperationsDirectory();
-            var progressFile = Path.Combine(operationsDir, "log_count_progress.json");
+            var progressFile = Path.Combine(operationsDir, $"log_count_progress_{datasourceName}.json");
             var rustBinaryPath = _pathResolver.GetRustLogManagerPath();
 
             // Check if Rust binary exists
@@ -301,7 +355,8 @@ public class CacheManagementService
             // If forceRefresh is true, delete the cache file to force Rust to rescan
             if (forceRefresh && File.Exists(progressFile))
             {
-                _logger.LogInformation("Force refresh - deleting cached progress file: {ProgressFile}", progressFile);
+                _logger.LogDebug("Force refresh - deleting cached progress file for datasource '{DatasourceName}': {ProgressFile}",
+                    datasourceName, progressFile);
                 File.Delete(progressFile);
             }
 
@@ -313,10 +368,9 @@ public class CacheManagementService
             {
                 if (process == null)
                 {
-                    throw new Exception("Failed to start Rust log_manager process");
+                    throw new Exception($"Failed to start Rust log_manager process for datasource '{datasourceName}'");
                 }
 
-                // Read stdout and stderr asynchronously to prevent buffer deadlock
                 var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
                 var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
 
@@ -327,59 +381,32 @@ public class CacheManagementService
 
                 if (process.ExitCode != 0)
                 {
-                    throw new Exception($"Rust log_manager failed with exit code {process.ExitCode}: {error}");
-                }
-
-                if (!string.IsNullOrEmpty(error))
-                {
+                    throw new Exception($"Rust log_manager failed for datasource '{datasourceName}' with exit code {process.ExitCode}: {error}");
                 }
 
                 // Read results from progress file
                 var progressData = await _rustProcessHelper.ReadProgressFileAsync<LogCountProgressData>(progressFile);
 
-                if (progressData != null)
+                if (progressData?.ServiceCounts != null)
                 {
-                    try
-                    {
-
-                        if (progressData?.ServiceCounts != null)
-                        {
-                            counts = progressData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
-                            // Rust binary handles caching via file modification time - no need for C# cache
-                        }
-                        else
-                        {
-                            LogThrottledWarning($"Rust progress file did not include service counts. Path: {progressFile}");
-                        }
-                    }
-                    catch (JsonException jsonEx)
-                    {
-                        LogThrottledWarning($"Rust progress file contained invalid JSON. Path: {progressFile}. Error: {jsonEx.Message}");
-                        return counts;
-                    }
+                    counts = progressData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
                 }
             }
-
-            return counts;
         }
         catch (Exception ex)
         {
             // If the log file doesn't exist, return empty counts instead of throwing
             if (ex.Message.Contains("No such file or directory") || ex.Message.Contains("os error 2"))
             {
-                LogThrottledWarning($"Log file not accessible: {_logPath}. Returning empty service counts.");
-                return new Dictionary<string, long>();
+                LogThrottledWarning($"Log file not accessible for datasource '{datasourceName}': {logDir}. Returning empty counts.");
+                return counts;
             }
 
-            // Log the full exception details for debugging
-            _logger.LogError(ex, "Error counting service logs with Rust binary. Exception type: {ExceptionType}, Message: {Message}",
-                ex.GetType().Name, ex.Message);
+            _logger.LogError(ex, "Error counting service logs for datasource '{DatasourceName}'", datasourceName);
             throw;
         }
-        finally
-        {
-            _cacheLock.Release();
-        }
+
+        return counts;
     }
 
     /// <summary>
@@ -458,7 +485,8 @@ public class CacheManagementService
     }
 
     /// <summary>
-    /// Get corruption summary with caching based on log file modification time
+    /// Get corruption summary with caching based on log file modification time.
+    /// Aggregates corruption from all configured datasources.
     /// </summary>
     public async Task<Dictionary<string, long>> GetCorruptionSummary(bool forceRefresh = false, CancellationToken cancellationToken = default)
     {
@@ -466,68 +494,89 @@ public class CacheManagementService
         await _cacheLock.WaitAsync();
         try
         {
-            var logDir = _pathResolver.GetLogsDirectory();
-            var cacheDir = _cachePath;
+            var aggregatedCounts = new Dictionary<string, long>();
+            var datasources = _datasourceService.GetDatasources();
             var timezone = Environment.GetEnvironmentVariable("TZ") ?? "UTC";
-
             var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
 
             _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Corruption manager");
 
-            var startInfo = _rustProcessHelper.CreateProcessStartInfo(
-                rustBinaryPath,
-                $"summary \"{logDir}\" \"{cacheDir}\" \"{timezone}\"");
-
-            using (var process = Process.Start(startInfo))
+            // Process each datasource and aggregate corruption counts
+            foreach (var datasource in datasources)
             {
-                if (process == null)
+                var dsCounts = await GetCorruptionSummaryForDatasource(datasource.LogPath, datasource.CachePath, timezone, rustBinaryPath, cancellationToken);
+
+                // Aggregate counts
+                foreach (var kvp in dsCounts)
                 {
-                    throw new Exception("Failed to start corruption_manager process");
+                    if (aggregatedCounts.ContainsKey(kvp.Key))
+                    {
+                        aggregatedCounts[kvp.Key] += kvp.Value;
+                    }
+                    else
+                    {
+                        aggregatedCounts[kvp.Key] = kvp.Value;
+                    }
                 }
-
-                var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-                var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-
-                await _processManager.WaitForProcessAsync(process, cancellationToken);
-
-                var output = await outputTask;
-                var error = await errorTask;
-
-                // Only log exit code for debugging (not at Information level to avoid log spam)
-                _logger.LogDebug("[CorruptionDetection] Rust process exit code: {Code}", process.ExitCode);
-
-                if (process.ExitCode != 0)
-                {
-                    _logger.LogError("[CorruptionDetection] Failed with exit code {Code}: {Error}", process.ExitCode, error);
-                    throw new Exception($"corruption_manager failed with exit code {process.ExitCode}: {error}");
-                }
-
-                // Parse JSON output from Rust binary
-                var summaryData = JsonSerializer.Deserialize<CorruptionSummaryData>(output,
-                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-
-                if (summaryData?.ServiceCounts == null)
-                {
-                    _logger.LogInformation("[CorruptionDetection] No service counts in result");
-                    return new Dictionary<string, long>();
-                }
-
-                var finalResult = summaryData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
-
-                // Only log if corruption was actually found
-                if (finalResult.Count > 0)
-                {
-                    _logger.LogInformation("[CorruptionDetection] Summary generated: {Services}",
-                        string.Join(", ", finalResult.Select(kvp => $"{kvp.Key}={kvp.Value}")));
-                }
-
-                // No caching needed - Rust binary is fast enough to run on every request
-                return finalResult;
             }
+
+            // Only log if corruption was actually found
+            if (aggregatedCounts.Count > 0)
+            {
+                _logger.LogInformation("[CorruptionDetection] Aggregated summary: {Services}",
+                    string.Join(", ", aggregatedCounts.Select(kvp => $"{kvp.Key}={kvp.Value}")));
+            }
+
+            return aggregatedCounts;
         }
         finally
         {
             _cacheLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Get corruption summary for a specific datasource.
+    /// </summary>
+    private async Task<Dictionary<string, long>> GetCorruptionSummaryForDatasource(string logDir, string cacheDir, string timezone, string rustBinaryPath, CancellationToken cancellationToken)
+    {
+        var startInfo = _rustProcessHelper.CreateProcessStartInfo(
+            rustBinaryPath,
+            $"summary \"{logDir}\" \"{cacheDir}\" \"{timezone}\"");
+
+        using (var process = Process.Start(startInfo))
+        {
+            if (process == null)
+            {
+                throw new Exception("Failed to start corruption_manager process");
+            }
+
+            var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+            var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+
+            await _processManager.WaitForProcessAsync(process, cancellationToken);
+
+            var output = await outputTask;
+            var error = await errorTask;
+
+            _logger.LogDebug("[CorruptionDetection] Rust process exit code: {Code}", process.ExitCode);
+
+            if (process.ExitCode != 0)
+            {
+                _logger.LogError("[CorruptionDetection] Failed with exit code {Code}: {Error}", process.ExitCode, error);
+                throw new Exception($"corruption_manager failed with exit code {process.ExitCode}: {error}");
+            }
+
+            // Parse JSON output from Rust binary
+            var summaryData = JsonSerializer.Deserialize<CorruptionSummaryData>(output,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            if (summaryData?.ServiceCounts == null)
+            {
+                return new Dictionary<string, long>();
+            }
+
+            return summaryData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
         }
     }
 

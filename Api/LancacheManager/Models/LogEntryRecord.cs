@@ -35,6 +35,13 @@ public class LogEntryRecord
 
     public uint? DepotId { get; set; }
 
+    /// <summary>
+    /// The datasource this log entry belongs to (for multi-datasource support).
+    /// Defaults to "default" for backward compatibility.
+    /// </summary>
+    [MaxLength(100)]
+    public string Datasource { get; set; } = "default";
+
     // Foreign key to associate with download session
     public int? DownloadId { get; set; }
     public virtual Download? Download { get; set; }

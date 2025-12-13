@@ -29,6 +29,8 @@ export interface Download {
   depotId?: number;
   lastUrl?: string;
   displayName?: string;
+  /** The datasource this download belongs to (for multi-datasource support). */
+  datasource?: string;
 }
 
 export interface DownloadSettings {
@@ -144,6 +146,15 @@ export interface ClearCacheResponse {
   message: string;
 }
 
+export interface DatasourceInfo {
+  name: string;
+  cachePath: string;
+  logsPath: string;
+  cacheWritable: boolean;
+  logsWritable: boolean;
+  enabled: boolean;
+}
+
 export interface Config {
   cachePath: string;
   logsPath: string;
@@ -153,6 +164,8 @@ export interface Config {
   timeZone: string;
   cacheWritable: boolean;
   logsWritable: boolean;
+  /** List of all configured datasources. Empty indicates single datasource mode. */
+  dataSources: DatasourceInfo[];
 }
 
 export interface StatCardData {

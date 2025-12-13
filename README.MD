@@ -31,6 +31,7 @@ A web interface for monitoring and managing your LANCache. Track downloads, see 
 - [Depot Mappings](#depot-mappings)
 - [Grafana & Prometheus Integration](#grafana--prometheus-integration)
 - [API Examples](#api-examples)
+- [Multiple Datasources](#multiple-datasources)
 - [Troubleshooting](#troubleshooting)
 - [Building from Source](#building-from-source)
 - [Contributing](#contributing)
@@ -182,7 +183,7 @@ services:
       # LANCache cache directory
       # Use :ro for read-only monitoring
       # Remove :ro to enable cache clearing, corruption removal, and game removal
-      - /mnt/cache/cache:/cache:ro
+      - /mnt/cache:/cache:ro
 
       # Docker socket for nginx log rotation (optional)
       # Allows signaling nginx to reopen logs after manipulation
@@ -202,11 +203,27 @@ services:
       - ASPNETCORE_URLS=http://+:80
 
       #=== Path Settings ===#
+      # Single datasource mode (default):
       # LanCache__LogPath: Path to the LANCache access log file
       - LanCache__LogPath=/logs/access.log
 
       # LanCache__CachePath: Path to the LANCache cache directory
       - LanCache__CachePath=/cache
+
+      #=== Multiple Datasources (Optional) ===#
+      # Configure multiple LANCache instances with separate log/cache directories.
+      # When DataSources are configured, LogPath and CachePath above are ignored.
+      # Uncomment and modify the examples below for multi-datasource support:
+      #
+      # - LanCache__DataSources__0__Name=Steam
+      # - LanCache__DataSources__0__CachePath=/mnt/cache/steam
+      # - LanCache__DataSources__0__LogPath=/mnt/logs/steam
+      # - LanCache__DataSources__0__Enabled=true
+      #
+      # - LanCache__DataSources__1__Name=Epic
+      # - LanCache__DataSources__1__CachePath=/mnt/cache/epic
+      # - LanCache__DataSources__1__LogPath=/mnt/logs/epic
+      # - LanCache__DataSources__1__Enabled=true
 
       #=== Security Settings ===#
       # Security__EnableAuthentication: Master switch for authentication
@@ -522,6 +539,96 @@ curl -X POST -H "X-Api-Key: your-key" \
 # Prometheus metrics
 curl http://localhost:8080/metrics
 ```
+
+<a id="multiple-datasources"></a>
+## Multiple Datasources [⬆](#-table-of-contents)
+
+If you run multiple LANCache instances with separate log and cache directories, you can configure them as datasources for unified management.
+
+### Use Cases
+
+- **Dedicated game caches** - Separate cache for specific games (Riot, Blizzard, etc.)
+- **Multiple LANCache instances** - Different servers or storage locations
+- **Segmented storage** - Different drives or partitions for different content
+
+### Configuration
+
+Add datasources using environment variables with array indexing:
+
+```yaml
+environment:
+  # First datasource
+  - LanCache__DataSources__0__Name=Steam
+  - LanCache__DataSources__0__CachePath=/mnt/cache/steam
+  - LanCache__DataSources__0__LogPath=/mnt/logs/steam
+  - LanCache__DataSources__0__Enabled=true
+
+  # Second datasource
+  - LanCache__DataSources__1__Name=Epic
+  - LanCache__DataSources__1__CachePath=/mnt/cache/epic
+  - LanCache__DataSources__1__LogPath=/mnt/logs/epic
+  - LanCache__DataSources__1__Enabled=true
+```
+
+### Multi-Datasource Docker Compose Example
+
+```yaml
+version: '3.8'
+
+services:
+  lancache-manager:
+    image: ghcr.io/regix1/lancache-manager:latest
+    container_name: lancache-manager
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./data:/data
+
+      # Steam LANCache
+      - /mnt/lancache/steam/logs:/mnt/logs/steam:ro
+      - /mnt/lancache/steam/cache:/mnt/cache/steam:ro
+
+      # Epic Games LANCache
+      - /mnt/lancache/epic/logs:/mnt/logs/epic:ro
+      - /mnt/lancache/epic/cache:/mnt/cache/epic:ro
+
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Chicago
+      - ASPNETCORE_URLS=http://+:80
+
+      # Steam datasource
+      - LanCache__DataSources__0__Name=Steam
+      - LanCache__DataSources__0__CachePath=/mnt/cache/steam
+      - LanCache__DataSources__0__LogPath=/mnt/logs/steam
+      - LanCache__DataSources__0__Enabled=true
+
+      # Epic Games datasource
+      - LanCache__DataSources__1__Name=Epic
+      - LanCache__DataSources__1__CachePath=/mnt/cache/epic
+      - LanCache__DataSources__1__LogPath=/mnt/logs/epic
+      - LanCache__DataSources__1__Enabled=true
+
+      - Security__EnableAuthentication=true
+      - NginxLogRotation__Enabled=true
+```
+
+### How It Works
+
+- **Aggregated views** - Dashboard and stats combine data from all datasources
+- **Per-datasource tracking** - Log processing position tracked separately for each datasource
+- **Unified database** - All downloads stored together with datasource tagging
+- **Backward compatible** - Single CachePath/LogPath config still works (creates "default" datasource)
+
+### Management Features
+
+When multiple datasources are configured:
+- Datasource info displayed in Management tab
+- Cache operations work across all datasources
+- Log processing handles each datasource independently
 
 <a id="troubleshooting"></a>
 ## Troubleshooting [⬆](#-table-of-contents)

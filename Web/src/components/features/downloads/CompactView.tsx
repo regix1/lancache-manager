@@ -33,6 +33,8 @@ interface CompactViewProps {
   aestheticMode?: boolean;
   groupByFrequency?: boolean;
   enableScrollIntoView?: boolean;
+  showDatasourceLabels?: boolean;
+  hasMultipleDatasources?: boolean;
 }
 
 interface GroupRowProps {
@@ -49,6 +51,8 @@ interface GroupRowProps {
   SESSIONS_PER_PAGE: number;
   labels: CompactViewSectionLabels;
   enableScrollIntoView: boolean;
+  showDatasourceLabels: boolean;
+  hasMultipleDatasources: boolean;
 }
 
 const GroupRow: React.FC<GroupRowProps> = ({
@@ -63,7 +67,9 @@ const GroupRow: React.FC<GroupRowProps> = ({
   startHoldTimer,
   stopHoldTimer,
   SESSIONS_PER_PAGE,
-  enableScrollIntoView
+  enableScrollIntoView,
+  showDatasourceLabels,
+  hasMultipleDatasources
 }) => {
   const isExpanded = expandedItem === group.id;
   const rowRef = React.useRef<HTMLDivElement>(null);
@@ -112,93 +118,129 @@ const GroupRow: React.FC<GroupRowProps> = ({
         className="w-full text-left px-3 py-2 focus:outline-none"
         style={{ WebkitTapHighlightColor: 'transparent' }}
       >
-        {/* Mobile Layout */}
-        <div className="sm:hidden">
-          <div className="flex items-center gap-2 mb-1">
-            <ChevronRight
-              size={14}
-              className={`flex-shrink-0 text-[var(--theme-text-secondary)] transition-transform duration-200 ${
-                isExpanded ? 'rotate-90' : ''
-              }`}
-            />
-            <span
-              className="px-2 py-0.5 text-xs font-bold rounded flex-shrink-0"
-              style={getServiceBadgeStyles(group.service)}
-            >
-              {group.service.toUpperCase()}
-            </span>
-            {group.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/)) && (
-              <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate flex-1">
-                {group.name}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center justify-between pl-6 text-xs">
-            <span className="text-themed-muted">
-              {group.count} download{group.count !== 1 ? 's' : ''}
-            </span>
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-[var(--theme-text-primary)] font-mono">
-                {formatBytes(group.totalBytes)}
-              </span>
-              {group.cacheHitBytes > 0 ? (
-                <span className="cache-hit font-medium font-mono">
-                  {formatPercent(hitPercent)}
-                </span>
-              ) : (
-                <span className="font-medium font-mono" style={{ color: 'var(--theme-error-text)' }}>
-                  0%
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
+        {/* Get datasource from primary download */}
+        {(() => {
+          const primaryDatasource = group.downloads[0]?.datasource;
+          const shouldShowDatasource = hasMultipleDatasources && showDatasourceLabels && primaryDatasource;
 
-        {/* Desktop Layout */}
-        <div className="hidden sm:flex items-center gap-3">
-          <ChevronRight
-            size={14}
-            className={`flex-shrink-0 text-[var(--theme-text-secondary)] transition-transform duration-200 ${
-              isExpanded ? 'rotate-90' : ''
-            }`}
-          />
-          <div className="flex items-center gap-2 min-w-0 flex-1">
-            <span
-              className="px-2 py-0.5 text-xs font-bold rounded flex-shrink-0"
-              style={getServiceBadgeStyles(group.service)}
-            >
-              {group.service.toUpperCase()}
-            </span>
-            {group.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/)) && (
-              <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
-                {group.name}
-              </span>
-            )}
-            <span className="text-xs text-themed-muted flex-shrink-0">
-              {group.count} download{group.count !== 1 ? 's' : ''}
-            </span>
-          </div>
-          <div className="flex items-center gap-3 flex-shrink-0">
-            <span className="text-sm font-semibold text-[var(--theme-text-primary)] font-mono text-right min-w-[70px]">
-              {formatBytes(group.totalBytes)}
-            </span>
-            {group.cacheHitBytes > 0 ? (
-              <span className="cache-hit font-medium text-xs font-mono text-right min-w-[45px]">
-                {formatPercent(hitPercent)}
-              </span>
-            ) : (
-              <span
-                className="font-medium text-xs font-mono text-right min-w-[45px]"
-                style={{ color: 'var(--theme-error-text)' }}
-              >
-                0%
-              </span>
-            )}
-            <span className="text-xs text-themed-muted font-mono text-right min-w-[60px]">
-              {group.clientsSet.size} client{group.clientsSet.size !== 1 ? 's' : ''}
-            </span>
-          </div>
-        </div>
+          return (
+            <>
+              {/* Mobile Layout */}
+              <div className="sm:hidden">
+                <div className="flex items-center gap-2 mb-1">
+                  <ChevronRight
+                    size={14}
+                    className={`flex-shrink-0 text-[var(--theme-text-secondary)] transition-transform duration-200 ${
+                      isExpanded ? 'rotate-90' : ''
+                    }`}
+                  />
+                  <span
+                    className="px-2 py-0.5 text-xs font-bold rounded flex-shrink-0"
+                    style={getServiceBadgeStyles(group.service)}
+                  >
+                    {group.service.toUpperCase()}
+                  </span>
+                  {shouldShowDatasource && (
+                    <span
+                      className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0"
+                      style={{
+                        backgroundColor: 'var(--theme-bg-tertiary)',
+                        color: 'var(--theme-text-secondary)',
+                        border: '1px solid var(--theme-border-secondary)'
+                      }}
+                      title={`Datasource: ${primaryDatasource}`}
+                    >
+                      {primaryDatasource}
+                    </span>
+                  )}
+                  {group.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/)) && (
+                    <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate flex-1">
+                      {group.name}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center justify-between pl-6 text-xs">
+                  <span className="text-themed-muted">
+                    {group.count} download{group.count !== 1 ? 's' : ''}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-[var(--theme-text-primary)] font-mono">
+                      {formatBytes(group.totalBytes)}
+                    </span>
+                    {group.cacheHitBytes > 0 ? (
+                      <span className="cache-hit font-medium font-mono">
+                        {formatPercent(hitPercent)}
+                      </span>
+                    ) : (
+                      <span className="font-medium font-mono" style={{ color: 'var(--theme-error-text)' }}>
+                        0%
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Desktop Layout */}
+              <div className="hidden sm:flex items-center gap-3">
+                <ChevronRight
+                  size={14}
+                  className={`flex-shrink-0 text-[var(--theme-text-secondary)] transition-transform duration-200 ${
+                    isExpanded ? 'rotate-90' : ''
+                  }`}
+                />
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <span
+                    className="px-2 py-0.5 text-xs font-bold rounded flex-shrink-0"
+                    style={getServiceBadgeStyles(group.service)}
+                  >
+                    {group.service.toUpperCase()}
+                  </span>
+                  {shouldShowDatasource && (
+                    <span
+                      className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0"
+                      style={{
+                        backgroundColor: 'var(--theme-bg-tertiary)',
+                        color: 'var(--theme-text-secondary)',
+                        border: '1px solid var(--theme-border-secondary)'
+                      }}
+                      title={`Datasource: ${primaryDatasource}`}
+                    >
+                      {primaryDatasource}
+                    </span>
+                  )}
+                  {group.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/)) && (
+                    <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
+                      {group.name}
+                    </span>
+                  )}
+                  <span className="text-xs text-themed-muted flex-shrink-0">
+                    {group.count} download{group.count !== 1 ? 's' : ''}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  <span className="text-sm font-semibold text-[var(--theme-text-primary)] font-mono text-right min-w-[70px]">
+                    {formatBytes(group.totalBytes)}
+                  </span>
+                  {group.cacheHitBytes > 0 ? (
+                    <span className="cache-hit font-medium text-xs font-mono text-right min-w-[45px]">
+                      {formatPercent(hitPercent)}
+                    </span>
+                  ) : (
+                    <span
+                      className="font-medium text-xs font-mono text-right min-w-[45px]"
+                      style={{ color: 'var(--theme-error-text)' }}
+                    >
+                      0%
+                    </span>
+                  )}
+                  <span className="text-xs text-themed-muted font-mono text-right min-w-[60px]">
+                    {group.clientsSet.size} client{group.clientsSet.size !== 1 ? 's' : ''}
+                  </span>
+                </div>
+              </div>
+            </>
+          );
+        })()}
       </button>
 
       {isExpanded && (
@@ -452,7 +494,9 @@ const CompactView: React.FC<CompactViewProps> = ({
   sectionLabels,
   aestheticMode = false,
   groupByFrequency = true,
-  enableScrollIntoView = true
+  enableScrollIntoView = true,
+  showDatasourceLabels = true,
+  hasMultipleDatasources = false
 }) => {
   const labels = { ...DEFAULT_SECTION_LABELS, ...sectionLabels };
   const [imageErrors, setImageErrors] = React.useState<Set<string>>(new Set());
@@ -480,6 +524,8 @@ const CompactView: React.FC<CompactViewProps> = ({
       SESSIONS_PER_PAGE={SESSIONS_PER_PAGE}
       labels={labels}
       enableScrollIntoView={enableScrollIntoView}
+      showDatasourceLabels={showDatasourceLabels}
+      hasMultipleDatasources={hasMultipleDatasources}
     />
   );
 

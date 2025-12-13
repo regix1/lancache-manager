@@ -19,6 +19,7 @@ public class CacheClearingService : IHostedService
     private readonly StateRepository _stateService;
     private readonly ProcessManager _processManager;
     private readonly RustProcessHelper _rustProcessHelper;
+    private readonly DatasourceService _datasourceService;
     private readonly ConcurrentDictionary<string, CacheClearOperation> _operations = new();
     private readonly string _cachePath;
     private Timer? _cleanupTimer;
@@ -31,7 +32,8 @@ public class CacheClearingService : IHostedService
         IPathResolver pathResolver,
         StateRepository stateService,
         ProcessManager processManager,
-        RustProcessHelper rustProcessHelper)
+        RustProcessHelper rustProcessHelper,
+        DatasourceService datasourceService)
     {
         _logger = logger;
         _hubContext = hubContext;
@@ -40,47 +42,55 @@ public class CacheClearingService : IHostedService
         _stateService = stateService;
         _processManager = processManager;
         _rustProcessHelper = rustProcessHelper;
+        _datasourceService = datasourceService;
 
         // Read delete mode from configuration
         _deleteMode = configuration.GetValue<string>("CacheClear:DeleteMode", "preserve") ?? "preserve";
 
-        // Determine cache path - check most likely locations first
-        var possiblePaths = new List<string> { _pathResolver.GetCacheDirectory() };
-
-        // Add config override if different
-        var configPath = configuration["LanCache:CachePath"];
-        if (!string.IsNullOrEmpty(configPath) && !possiblePaths.Contains(configPath))
+        // Use DatasourceService for default cache path
+        var defaultDatasource = _datasourceService.GetDefaultDatasource();
+        if (defaultDatasource != null)
         {
-            possiblePaths.Insert(0, configPath);  // Config path takes priority
+            _cachePath = defaultDatasource.CachePath;
+            _logger.LogInformation("Using cache path from default datasource: {CachePath}", _cachePath);
         }
-
-        foreach (var path in possiblePaths)
+        else
         {
-            if (Directory.Exists(path))
+            // Fallback to legacy configuration
+            var possiblePaths = new List<string> { _pathResolver.GetCacheDirectory() };
+
+            var configPath = configuration["LanCache:CachePath"];
+            if (!string.IsNullOrEmpty(configPath) && !possiblePaths.Contains(configPath))
             {
-                // Check if it has hex directories (00-ff) to confirm it's a cache
-                var dirs = Directory.GetDirectories(path);
-                if (dirs.Any(d =>
+                possiblePaths.Insert(0, configPath);
+            }
+
+            foreach (var path in possiblePaths)
+            {
+                if (Directory.Exists(path))
                 {
-                    var name = Path.GetFileName(d);
-                    return name.Length == 2 && IsHex(name);
-                }))
-                {
-                    _cachePath = path;
-                    _logger.LogInformation($"Detected cache path: {_cachePath}");
-                    break;
+                    var dirs = Directory.GetDirectories(path);
+                    if (dirs.Any(d =>
+                    {
+                        var name = Path.GetFileName(d);
+                        return name.Length == 2 && IsHex(name);
+                    }))
+                    {
+                        _cachePath = path;
+                        _logger.LogInformation("Detected cache path: {CachePath}", _cachePath);
+                        break;
+                    }
                 }
+            }
+
+            if (string.IsNullOrEmpty(_cachePath))
+            {
+                _cachePath = _pathResolver.GetCacheDirectory();
+                _logger.LogWarning("No cache detected, using configured path: {CachePath}", _cachePath);
             }
         }
 
-        // If no valid cache found, use path resolver default
-        if (string.IsNullOrEmpty(_cachePath))
-        {
-            _cachePath = _pathResolver.GetCacheDirectory();
-            _logger.LogWarning($"No cache detected, using configured path: {_cachePath}");
-        }
-
-        _logger.LogInformation($"CacheClearingService initialized with cache path: {_cachePath}");
+        _logger.LogInformation("CacheClearingService initialized with {Count} datasource(s)", _datasourceService.DatasourceCount);
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
