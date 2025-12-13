@@ -108,6 +108,11 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   }, [mockMode, signalR]);
 
   const handleDeleteModeChange = async (newMode: 'preserve' | 'full' | 'rsync') => {
+    // Skip if already selected
+    if (newMode === deleteMode) {
+      return;
+    }
+
     // Prevent double-clicks
     if (deleteModeChangeInProgressRef.current) {
       return;

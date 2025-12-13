@@ -243,7 +243,7 @@ const RetroView: React.FC<RetroViewProps> = ({
     <div className="rounded-lg border overflow-hidden" style={{ borderColor: 'var(--theme-border-primary)' }}>
       {/* Desktop Table Header - hidden on mobile */}
       <div
-        className="hidden lg:grid grid-cols-[minmax(180px,1fr)_minmax(200px,2fr)_100px_120px_minmax(130px,1fr)_minmax(130px,1fr)_100px] gap-2 px-4 py-3 text-xs font-semibold uppercase tracking-wide border-b"
+        className="hidden lg:grid grid-cols-[minmax(260px,auto)_minmax(200px,2fr)_100px_120px_minmax(130px,1fr)_minmax(130px,1fr)_100px] gap-2 px-4 py-3 text-xs font-semibold uppercase tracking-wide border-b"
         style={{
           backgroundColor: 'var(--theme-bg-tertiary)',
           borderColor: 'var(--theme-border-secondary)',
@@ -418,9 +418,9 @@ const RetroView: React.FC<RetroViewProps> = ({
               </div>
 
               {/* Desktop Layout */}
-              <div className="hidden lg:grid grid-cols-[minmax(180px,1fr)_minmax(200px,2fr)_100px_120px_minmax(130px,1fr)_minmax(130px,1fr)_100px] gap-2 px-4 py-3 items-center">
+              <div className="hidden lg:grid grid-cols-[minmax(260px,auto)_minmax(200px,2fr)_100px_120px_minmax(130px,1fr)_minmax(130px,1fr)_100px] gap-2 px-4 py-3 items-center">
                 {/* Timestamp */}
-                <div className="text-xs text-[var(--theme-text-secondary)]">
+                <div className="text-xs text-[var(--theme-text-secondary)] whitespace-nowrap">
                   {timeRange}
                 </div>
 
