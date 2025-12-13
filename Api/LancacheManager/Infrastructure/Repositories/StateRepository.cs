@@ -63,6 +63,7 @@ public class StateRepository : IStateRepository
         public int GuestSessionDurationHours { get; set; } = 6; // Default to 6 hours
         public string? SelectedTheme { get; set; } = "dark-default"; // Default theme for authenticated users
         public string? DefaultGuestTheme { get; set; } = "dark-default"; // Default theme for guest users
+        public string PollingRate { get; set; } = "STANDARD"; // Default to 10 seconds (LIVE, ULTRA, REALTIME, STANDARD, RELAXED, SLOW)
 
         // PICS viability check caching (prevents repeated Steam API calls)
         public bool RequiresFullScan { get; set; } = false; // True if Steam requires full scan due to large change gap
@@ -107,6 +108,7 @@ public class StateRepository : IStateRepository
         public int GuestSessionDurationHours { get; set; } = 6;
         public string? SelectedTheme { get; set; } = "dark-default";
         public string? DefaultGuestTheme { get; set; } = "dark-default";
+        public string PollingRate { get; set; } = "STANDARD";
 
         // PICS viability check caching
         public bool RequiresFullScan { get; set; } = false;
@@ -777,6 +779,7 @@ public class StateRepository : IStateRepository
             GuestSessionDurationHours = persisted.GuestSessionDurationHours,
             SelectedTheme = persisted.SelectedTheme ?? "dark-default",
             DefaultGuestTheme = persisted.DefaultGuestTheme ?? "dark-default",
+            PollingRate = persisted.PollingRate ?? "STANDARD",
             // PICS viability check caching
             RequiresFullScan = persisted.RequiresFullScan,
             LastViabilityCheck = persisted.LastViabilityCheck,
@@ -820,6 +823,7 @@ public class StateRepository : IStateRepository
             GuestSessionDurationHours = state.GuestSessionDurationHours,
             SelectedTheme = state.SelectedTheme,
             DefaultGuestTheme = state.DefaultGuestTheme,
+            PollingRate = state.PollingRate ?? "STANDARD",
             // PICS viability check caching
             RequiresFullScan = state.RequiresFullScan,
             LastViabilityCheck = state.LastViabilityCheck,
@@ -943,6 +947,23 @@ public class StateRepository : IStateRepository
     public void SetDefaultGuestTheme(string? themeId)
     {
         UpdateState(state => state.DefaultGuestTheme = themeId ?? "dark-default");
+    }
+
+    // Polling Rate Methods
+    public string GetPollingRate()
+    {
+        return GetState().PollingRate ?? "STANDARD";
+    }
+
+    public void SetPollingRate(string rate)
+    {
+        // Validate the rate is a valid option
+        var validRates = new[] { "LIVE", "ULTRA", "REALTIME", "STANDARD", "RELAXED", "SLOW" };
+        if (!validRates.Contains(rate.ToUpperInvariant()))
+        {
+            rate = "STANDARD";
+        }
+        UpdateState(state => state.PollingRate = rate.ToUpperInvariant());
     }
 
     // Steam Session Replacement Tracking Methods

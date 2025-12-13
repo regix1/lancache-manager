@@ -1,6 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
-import { POLLING_RATES, STORAGE_KEYS, type PollingRate } from '@utils/constants';
-import { storage } from '@utils/storage';
+import React, { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { POLLING_RATES, type PollingRate } from '@utils/constants';
 
 interface PollingRateContextType {
   pollingRate: PollingRate;
@@ -23,33 +22,68 @@ interface PollingRateProviderProps {
 }
 
 export const PollingRateProvider: React.FC<PollingRateProviderProps> = ({ children }) => {
-  // Load saved polling rate from localStorage, default to STANDARD (10s)
-  const [pollingRate, setPollingRateState] = useState<PollingRate>(() => {
-    const saved = storage.getItem(STORAGE_KEYS.POLLING_RATE);
-    if (saved && saved in POLLING_RATES) {
-      return saved as PollingRate;
-    }
-    return 'STANDARD'; // Default to 10 seconds
-  });
+  // Default to STANDARD (10s) until we fetch from API
+  const [pollingRate, setPollingRateState] = useState<PollingRate>('STANDARD');
+  const [isLoaded, setIsLoaded] = useState(false);
 
-  // Save polling rate to localStorage whenever it changes
+  // Fetch polling rate from API on mount
   useEffect(() => {
-    storage.setItem(STORAGE_KEYS.POLLING_RATE, pollingRate);
-  }, [pollingRate]);
+    const fetchPollingRate = async () => {
+      try {
+        const response = await fetch('/api/system/polling-rate');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.pollingRate && data.pollingRate in POLLING_RATES) {
+            setPollingRateState(data.pollingRate as PollingRate);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch polling rate:', error);
+      } finally {
+        setIsLoaded(true);
+      }
+    };
 
-  const setPollingRate = (rate: PollingRate) => {
+    fetchPollingRate();
+  }, []);
+
+  const setPollingRate = useCallback(async (rate: PollingRate) => {
+    // Optimistically update state
     setPollingRateState(rate);
-  };
 
-  const getPollingInterval = () => {
+    // Save to API
+    try {
+      const response = await fetch('/api/system/polling-rate', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ pollingRate: rate })
+      });
+
+      if (!response.ok) {
+        console.error('Failed to save polling rate to API');
+      }
+    } catch (error) {
+      console.error('Failed to save polling rate:', error);
+    }
+  }, []);
+
+  const getPollingInterval = useCallback(() => {
     return POLLING_RATES[pollingRate];
-  };
+  }, [pollingRate]);
 
   const value: PollingRateContextType = {
     pollingRate,
     setPollingRate,
     getPollingInterval
   };
+
+  // Only render children after we've loaded the polling rate from API
+  // This prevents a flash of default rate before the actual rate is loaded
+  if (!isLoaded) {
+    return null;
+  }
 
   return <PollingRateContext.Provider value={value}>{children}</PollingRateContext.Provider>;
 };

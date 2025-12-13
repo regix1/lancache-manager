@@ -41,6 +41,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   const fetchInProgress = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastFetchTime = useRef<number>(0);
+  const lastSignalRRefresh = useRef<number>(0);
   const currentTimeRangeRef = useRef<string>(timeRange);
   const getTimeRangeParamsRef = useRef(getTimeRangeParams);
   const getPollingIntervalRef = useRef(getPollingInterval);
@@ -240,9 +241,6 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   useEffect(() => {
     if (mockMode) return;
 
-    // Track last SignalR-triggered refresh to respect polling rate
-    let lastSignalRRefresh = 0;
-
     // Throttled handler that respects user's polling rate (or instant if Live mode)
     const throttledFetchAllStats = () => {
       const pollingInterval = getPollingIntervalRef.current();
@@ -254,11 +252,11 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       }
 
       const now = Date.now();
-      const timeSinceLastRefresh = now - lastSignalRRefresh;
+      const timeSinceLastRefresh = now - lastSignalRRefresh.current;
 
       // Only fetch if enough time has passed according to polling rate
       if (timeSinceLastRefresh >= pollingInterval) {
-        lastSignalRRefresh = now;
+        lastSignalRRefresh.current = now;
         fetchAllStats();
       }
     };

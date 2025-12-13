@@ -65,6 +65,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   const fetchInProgress = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastFetchTime = useRef<number>(0);
+  const lastSignalRRefresh = useRef<number>(0);
   const getTimeRangeParamsRef = useRef(getTimeRangeParams);
   const getPollingIntervalRef = useRef(getPollingInterval);
   const mockModeRef = useRef(mockMode);
@@ -191,9 +192,6 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   useEffect(() => {
     if (mockMode) return;
 
-    // Track last SignalR-triggered refresh to respect polling rate
-    let lastSignalRRefresh = 0;
-
     // Throttled handler that respects user's polling rate (or instant if Live mode)
     const throttledFetchDownloads = () => {
       const pollingInterval = getPollingIntervalRef.current();
@@ -205,11 +203,11 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
       }
 
       const now = Date.now();
-      const timeSinceLastRefresh = now - lastSignalRRefresh;
+      const timeSinceLastRefresh = now - lastSignalRRefresh.current;
 
       // Only fetch if enough time has passed according to polling rate
       if (timeSinceLastRefresh >= pollingInterval) {
-        lastSignalRRefresh = now;
+        lastSignalRRefresh.current = now;
         fetchDownloads();
       }
     };

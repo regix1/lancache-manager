@@ -273,6 +273,45 @@ public class SystemController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// GET /api/system/polling-rate - Get the current polling rate setting
+    /// </summary>
+    [HttpGet("polling-rate")]
+    public IActionResult GetPollingRate()
+    {
+        var rate = _stateService.GetPollingRate();
+        return Ok(new PollingRateResponse { PollingRate = rate });
+    }
+
+    /// <summary>
+    /// PATCH /api/system/polling-rate - Set the polling rate
+    /// RESTful: PATCH is proper method for configuration updates
+    /// Request body: { "pollingRate": "LIVE" | "ULTRA" | "REALTIME" | "STANDARD" | "RELAXED" | "SLOW" }
+    /// </summary>
+    [HttpPatch("polling-rate")]
+    public IActionResult SetPollingRate([FromBody] SetPollingRateRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.PollingRate))
+        {
+            return BadRequest(new ErrorResponse { Error = "Polling rate is required" });
+        }
+
+        var validRates = new[] { "LIVE", "ULTRA", "REALTIME", "STANDARD", "RELAXED", "SLOW" };
+        if (!validRates.Contains(request.PollingRate.ToUpperInvariant()))
+        {
+            return BadRequest(new ErrorResponse { Error = "Invalid polling rate. Must be LIVE, ULTRA, REALTIME, STANDARD, RELAXED, or SLOW" });
+        }
+
+        _stateService.SetPollingRate(request.PollingRate);
+        _logger.LogInformation("Polling rate set to: {Rate}", request.PollingRate.ToUpperInvariant());
+
+        return Ok(new PollingRateResponse
+        {
+            Message = "Polling rate updated",
+            PollingRate = request.PollingRate.ToUpperInvariant()
+        });
+    }
+
     public class UpdateSetupRequest
     {
         public bool? Completed { get; set; }
@@ -291,5 +330,16 @@ public class SystemController : ControllerBase
     public class SetScanModeRequest
     {
         public string Mode { get; set; } = string.Empty;
+    }
+
+    public class SetPollingRateRequest
+    {
+        public string PollingRate { get; set; } = string.Empty;
+    }
+
+    public class PollingRateResponse
+    {
+        public string? Message { get; set; }
+        public string PollingRate { get; set; } = string.Empty;
     }
 }
