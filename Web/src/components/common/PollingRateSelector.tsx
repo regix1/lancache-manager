@@ -16,7 +16,7 @@ const PollingRateSelector: React.FC<PollingRateSelectorProps> = ({ disabled = fa
       value: 'ULTRA',
       label: 'Ultra-fast',
       shortLabel: '1s',
-      description: 'Updates every 1 second (very high load)',
+      description: 'Updates every 1 second',
       rightLabel: '1s',
       icon: Gauge
     },
@@ -24,7 +24,7 @@ const PollingRateSelector: React.FC<PollingRateSelectorProps> = ({ disabled = fa
       value: 'REALTIME',
       label: 'Real-time',
       shortLabel: '5s',
-      description: 'Updates every 5 seconds (high server load)',
+      description: 'Updates every 5 seconds',
       rightLabel: '5s',
       icon: Gauge
     },
@@ -40,7 +40,7 @@ const PollingRateSelector: React.FC<PollingRateSelectorProps> = ({ disabled = fa
       value: 'RELAXED',
       label: 'Relaxed',
       shortLabel: '30s',
-      description: 'Updates every 30 seconds (low server load)',
+      description: 'Updates every 30 seconds',
       rightLabel: '30s',
       icon: Gauge
     },
@@ -48,7 +48,7 @@ const PollingRateSelector: React.FC<PollingRateSelectorProps> = ({ disabled = fa
       value: 'SLOW',
       label: 'Slow',
       shortLabel: '60s',
-      description: 'Updates every 60 seconds (minimal server impact)',
+      description: 'Updates every 60 seconds',
       rightLabel: '60s',
       icon: Gauge
     }
@@ -69,7 +69,7 @@ const PollingRateSelector: React.FC<PollingRateSelectorProps> = ({ disabled = fa
       dropdownWidth="w-64"
       alignRight={true}
       dropdownTitle="Polling Rate"
-      footerNote="Lower rates reduce server load but data may be less current"
+      footerNote="Lower rates mean less frequent data updates"
       footerIcon={Lightbulb}
       cleanStyle={true}
     />

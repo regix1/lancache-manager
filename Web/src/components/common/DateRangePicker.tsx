@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Calendar, ChevronDown } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
+import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 
 interface DateRangePickerProps {
   startDate: Date | null;
@@ -18,7 +19,6 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   onClose
 }) => {
   const [currentMonth, setCurrentMonth] = useState(() => {
-    // Initialize to show the current month or the month of the start date if it exists
     return startDate ? new Date(startDate.getFullYear(), startDate.getMonth(), 1) : new Date();
   });
   const [showYearDropdown, setShowYearDropdown] = useState(false);
@@ -28,7 +28,39 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   const [lastClickedDate, setLastClickedDate] = useState<Date | null>(null);
   const [clickCount, setClickCount] = useState<number>(0);
 
-  // Close dropdowns when clicking elsewhere
+  const monthDropdownRef = useRef<HTMLDivElement>(null);
+  const yearDropdownRef = useRef<HTMLDivElement>(null);
+  const monthButtonRef = useRef<HTMLButtonElement>(null);
+  const yearButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Click outside handler for dropdowns
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+
+      // Check month dropdown
+      if (showMonthDropdown &&
+          monthDropdownRef.current &&
+          !monthDropdownRef.current.contains(target) &&
+          monthButtonRef.current &&
+          !monthButtonRef.current.contains(target)) {
+        setShowMonthDropdown(false);
+      }
+
+      // Check year dropdown
+      if (showYearDropdown &&
+          yearDropdownRef.current &&
+          !yearDropdownRef.current.contains(target) &&
+          yearButtonRef.current &&
+          !yearButtonRef.current.contains(target)) {
+        setShowYearDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showMonthDropdown, showYearDropdown]);
+
   const closeDropdowns = () => {
     setShowYearDropdown(false);
     setShowMonthDropdown(false);
@@ -52,7 +84,6 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
     const timeDiff = now - lastClickTime;
     const isSameDate = lastClickedDate && selectedDate.getTime() === lastClickedDate.getTime();
 
-    // Track clicks for triple-click detection (within 500ms window)
     if (isSameDate && timeDiff < 500) {
       setClickCount((prev) => prev + 1);
     } else {
@@ -70,23 +101,16 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
       return;
     }
 
-    // Simple logic: if no start date or we have both dates, set start date
-    // If we have start date but no end date, set end date
     if (!startDate || (startDate && endDate)) {
-      // Starting a new selection
       onStartDateChange(selectedDate);
       onEndDateChange(null);
     } else {
-      // Setting end date
       if (selectedDate < startDate) {
-        // If selected date is before start, swap them
         onStartDateChange(selectedDate);
         onEndDateChange(startDate);
       } else if (selectedDate.getTime() === startDate.getTime()) {
-        // If clicking the same date, make it a single day range
         onEndDateChange(selectedDate);
       } else {
-        // Normal end date selection
         onEndDateChange(selectedDate);
       }
     }
@@ -107,7 +131,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   };
 
   const changeMonth = (increment: number) => {
-    closeDropdowns(); // Close dropdowns when navigating with arrows
+    closeDropdowns();
     setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + increment, 1));
   };
 
@@ -121,25 +145,14 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
     setShowMonthDropdown(false);
   };
 
-  // Generate year options (1999 to 2 years forward)
   const currentYear = new Date().getFullYear();
   const startYear = 1999;
   const endYear = currentYear + 2;
   const yearOptions = Array.from({ length: endYear - startYear + 1 }, (_, i) => startYear + i);
 
   const monthNames = [
-    'January',
-    'February',
-    'March',
-    'April',
-    'May',
-    'June',
-    'July',
-    'August',
-    'September',
-    'October',
-    'November',
-    'December'
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
   ];
 
   const isDateInRange = (day: number): boolean => {
@@ -225,78 +238,90 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
         <div className="mb-4 flex items-center justify-between">
           <button
             onClick={() => changeMonth(-1)}
-            className="p-2 hover:bg-[var(--theme-bg-tertiary)] rounded transition-colors"
+            className="p-2 hover:bg-[var(--theme-bg-tertiary)] rounded-lg transition-colors"
           >
             <ChevronLeft className="w-5 h-5 text-[var(--theme-text-primary)]" />
           </button>
 
           <div className="flex items-center gap-2">
             {/* Month Dropdown */}
-            <div className="relative" style={{ zIndex: 100002 }}>
+            <div className="relative">
               <button
+                ref={monthButtonRef}
                 onClick={() => {
                   setShowMonthDropdown(!showMonthDropdown);
                   setShowYearDropdown(false);
                 }}
-                className="flex items-center gap-1 px-3 py-1 text-[var(--theme-text-primary)] font-medium hover:bg-[var(--theme-bg-tertiary)] rounded transition-colors"
+                className="flex items-center gap-1 px-3 py-1.5 text-[var(--theme-text-primary)] font-medium hover:bg-[var(--theme-bg-tertiary)] rounded-lg transition-colors border border-transparent hover:border-[var(--theme-border-primary)]"
               >
                 {monthNames[currentMonth.getMonth()]}
-                <ChevronDown className="w-4 h-4" />
+                <ChevronDown className={`w-4 h-4 transition-transform ${showMonthDropdown ? 'rotate-180' : ''}`} />
               </button>
 
               {showMonthDropdown && (
                 <div
-                  className="absolute top-full left-0 mt-1 bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)] rounded-lg shadow-lg max-h-48 overflow-y-auto"
+                  ref={monthDropdownRef}
+                  className="absolute top-full left-0 mt-1 bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)] rounded-lg shadow-lg overflow-hidden"
                   style={{ zIndex: 100003 }}
                 >
-                  {monthNames.map((month, index) => (
-                    <button
-                      key={month}
-                      onClick={() => changeToMonth(index)}
-                      className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--theme-bg-tertiary)] transition-colors ${
-                        index === currentMonth.getMonth()
-                          ? 'bg-[var(--theme-primary)] text-white'
-                          : 'text-[var(--theme-text-primary)]'
-                      }`}
-                    >
-                      {month}
-                    </button>
-                  ))}
+                  <CustomScrollbar maxHeight="200px" paddingMode="none">
+                    <div className="py-1">
+                      {monthNames.map((month, index) => (
+                        <button
+                          key={month}
+                          onClick={() => changeToMonth(index)}
+                          className={`w-full text-left px-3 py-2 text-sm transition-colors whitespace-nowrap ${
+                            index === currentMonth.getMonth()
+                              ? 'bg-[var(--theme-primary)] text-white font-medium'
+                              : 'text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-tertiary)]'
+                          }`}
+                        >
+                          {month}
+                        </button>
+                      ))}
+                    </div>
+                  </CustomScrollbar>
                 </div>
               )}
             </div>
 
             {/* Year Dropdown */}
-            <div className="relative" style={{ zIndex: 100002 }}>
+            <div className="relative">
               <button
+                ref={yearButtonRef}
                 onClick={() => {
                   setShowYearDropdown(!showYearDropdown);
                   setShowMonthDropdown(false);
                 }}
-                className="flex items-center gap-1 px-3 py-1 text-[var(--theme-text-primary)] font-medium hover:bg-[var(--theme-bg-tertiary)] rounded transition-colors"
+                className="flex items-center gap-1 px-3 py-1.5 text-[var(--theme-text-primary)] font-medium hover:bg-[var(--theme-bg-tertiary)] rounded-lg transition-colors border border-transparent hover:border-[var(--theme-border-primary)]"
               >
                 {currentMonth.getFullYear()}
-                <ChevronDown className="w-4 h-4" />
+                <ChevronDown className={`w-4 h-4 transition-transform ${showYearDropdown ? 'rotate-180' : ''}`} />
               </button>
 
               {showYearDropdown && (
                 <div
-                  className="absolute top-full right-0 mt-1 bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)] rounded-lg shadow-lg max-h-48 overflow-y-auto"
+                  ref={yearDropdownRef}
+                  className="absolute top-full right-0 mt-1 bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)] rounded-lg shadow-lg overflow-hidden"
                   style={{ zIndex: 100003 }}
                 >
-                  {yearOptions.map((year) => (
-                    <button
-                      key={year}
-                      onClick={() => changeYear(year)}
-                      className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--theme-bg-tertiary)] transition-colors ${
-                        year === currentMonth.getFullYear()
-                          ? 'bg-[var(--theme-primary)] text-white'
-                          : 'text-[var(--theme-text-primary)]'
-                      }`}
-                    >
-                      {year}
-                    </button>
-                  ))}
+                  <CustomScrollbar maxHeight="200px" paddingMode="none">
+                    <div className="py-1">
+                      {yearOptions.map((year) => (
+                        <button
+                          key={year}
+                          onClick={() => changeYear(year)}
+                          className={`w-full text-left px-3 py-2 text-sm transition-colors whitespace-nowrap ${
+                            year === currentMonth.getFullYear()
+                              ? 'bg-[var(--theme-primary)] text-white font-medium'
+                              : 'text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-tertiary)]'
+                          }`}
+                        >
+                          {year}
+                        </button>
+                      ))}
+                    </div>
+                  </CustomScrollbar>
                 </div>
               )}
             </div>
@@ -304,7 +329,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
 
           <button
             onClick={() => changeMonth(1)}
-            className="p-2 hover:bg-[var(--theme-bg-tertiary)] rounded transition-colors"
+            className="p-2 hover:bg-[var(--theme-bg-tertiary)] rounded-lg transition-colors"
           >
             <ChevronRight className="w-5 h-5 text-[var(--theme-text-primary)]" />
           </button>
@@ -333,27 +358,20 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
             const isHovered = isHoveredDate(day);
             const today = isToday(day);
 
-            let className = 'relative p-2 text-sm transition-all ';
+            let className = 'relative p-2 text-sm transition-all cursor-pointer ';
 
-            // Shape classes for better visual feedback
             if (isStart && isEnd) {
-              // Single day selection
               className += 'rounded-lg ';
             } else if (isStart) {
-              // Start of range
               className += 'rounded-l-lg ';
             } else if (isEnd) {
-              // End of range
               className += 'rounded-r-lg ';
             } else if (inRange) {
-              // Middle of range
               className += '';
             } else {
-              // Not selected
-              className += 'rounded ';
+              className += 'rounded-lg ';
             }
 
-            // Color classes
             if (isStart || isEnd) {
               className += 'bg-[var(--theme-primary)] text-white font-semibold z-10 ';
             } else if (inRange) {
@@ -364,7 +382,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
               className += 'hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] ';
             }
 
-            if (today) {
+            if (today && !isStart && !isEnd) {
               className += 'ring-2 ring-[var(--theme-primary)]/50 ';
             }
 
@@ -384,7 +402,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
           })}
         </div>
 
-        <div className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--theme-border-primary)' }}>
+        <div className="mt-4 pt-4 border-t border-[var(--theme-border-primary)]">
           <div className="flex justify-between text-sm">
             <div>
               <span className="text-[var(--theme-text-secondary)]">Start: </span>
@@ -401,17 +419,17 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
           </div>
           <div className="mt-2 text-xs text-[var(--theme-text-secondary)] text-center">
             {!startDate
-              ? 'Select start date (triple-click to unselect)'
+              ? 'Click to select start date'
               : !endDate
-                ? 'Select end date (triple-click to unselect)'
+                ? 'Click to select end date'
                 : `${Math.abs(Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))) + 1} day(s) selected`}
           </div>
         </div>
 
         {/* Quick Presets */}
-        <div className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--theme-border-primary)' }}>
+        <div className="mt-4 pt-4 border-t border-[var(--theme-border-primary)]">
           <div className="text-xs text-[var(--theme-text-secondary)] mb-2">Quick Select:</div>
-          <div className="grid grid-cols-3 gap-2 mb-3">
+          <div className="flex flex-wrap gap-2">
             <button
               onClick={() => {
                 const today = new Date();
@@ -419,7 +437,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
                 onStartDateChange(today);
                 onEndDateChange(today);
               }}
-              className="px-2 py-1 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded hover:bg-[var(--theme-bg-primary)] transition-colors"
+              className="px-3 py-1.5 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg hover:bg-[var(--theme-bg-primary)] transition-colors border border-[var(--theme-border-primary)]"
             >
               Today
             </button>
@@ -432,7 +450,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
                 onStartDateChange(start);
                 onEndDateChange(end);
               }}
-              className="px-2 py-1 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded hover:bg-[var(--theme-bg-primary)] transition-colors"
+              className="px-3 py-1.5 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg hover:bg-[var(--theme-bg-primary)] transition-colors border border-[var(--theme-border-primary)]"
             >
               Last 7 Days
             </button>
@@ -445,7 +463,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
                 onStartDateChange(start);
                 onEndDateChange(end);
               }}
-              className="px-2 py-1 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded hover:bg-[var(--theme-bg-primary)] transition-colors"
+              className="px-3 py-1.5 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg hover:bg-[var(--theme-bg-primary)] transition-colors border border-[var(--theme-border-primary)]"
             >
               Last 30 Days
             </button>
@@ -459,7 +477,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
                 onStartDateChange(start);
                 onEndDateChange(end);
               }}
-              className="px-2 py-1 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded hover:bg-[var(--theme-bg-primary)] transition-colors"
+              className="px-3 py-1.5 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg hover:bg-[var(--theme-bg-primary)] transition-colors border border-[var(--theme-border-primary)]"
             >
               This Month
             </button>
@@ -473,7 +491,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
                 onStartDateChange(start);
                 onEndDateChange(end);
               }}
-              className="px-2 py-1 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded hover:bg-[var(--theme-bg-primary)] transition-colors"
+              className="px-3 py-1.5 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg hover:bg-[var(--theme-bg-primary)] transition-colors border border-[var(--theme-border-primary)]"
             >
               Last Month
             </button>
@@ -487,7 +505,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
                 onStartDateChange(start);
                 onEndDateChange(end);
               }}
-              className="px-2 py-1 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded hover:bg-[var(--theme-bg-primary)] transition-colors"
+              className="px-3 py-1.5 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg hover:bg-[var(--theme-bg-primary)] transition-colors border border-[var(--theme-border-primary)]"
             >
               This Year
             </button>
@@ -495,7 +513,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
         </div>
 
         {/* Action Buttons */}
-        <div className="flex gap-2">
+        <div className="flex gap-2 mt-4">
           <button
             onClick={() => {
               onStartDateChange(null);
@@ -504,16 +522,15 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
               setClickCount(0);
               setLastClickedDate(null);
               closeDropdowns();
-              // Reset calendar to current month/year
               setCurrentMonth(new Date());
             }}
-            className="flex-1 px-3 py-2 text-sm bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded hover:bg-[var(--theme-bg-primary)] transition-colors"
+            className="flex-1 px-3 py-2 text-sm bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg hover:bg-[var(--theme-bg-primary)] transition-colors border border-[var(--theme-border-primary)]"
           >
             Clear
           </button>
           <button
             onClick={onClose}
-            className="flex-1 px-3 py-2 text-sm bg-[var(--theme-primary)] text-white rounded hover:bg-[var(--theme-primary)]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 px-3 py-2 text-sm bg-[var(--theme-primary)] text-white rounded-lg hover:bg-[var(--theme-primary)]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={!startDate || !endDate}
           >
             Apply

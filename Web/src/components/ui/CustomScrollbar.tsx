@@ -4,13 +4,17 @@ interface CustomScrollbarProps {
   children: React.ReactNode;
   maxHeight?: string;
   className?: string;
+  /** Right padding for scrollbar space. Use 'compact' for smaller dropdowns. Default is 12px. */
+  paddingMode?: 'default' | 'compact' | 'none';
 }
 
 export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
   children,
   maxHeight = '32rem',
   className = '',
+  paddingMode = 'default',
 }) => {
+  const paddingRight = paddingMode === 'none' ? '0px' : paddingMode === 'compact' ? '6px' : '12px';
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollTrackRef = useRef<HTMLDivElement>(null);
   const scrollThumbRef = useRef<HTMLDivElement>(null);
@@ -168,7 +172,7 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
         className="overflow-y-auto overflow-x-hidden"
         style={{
           maxHeight,
-          paddingRight: '12px',
+          paddingRight,
           scrollbarWidth: 'none', // Firefox
           msOverflowStyle: 'none', // IE/Edge
         }}

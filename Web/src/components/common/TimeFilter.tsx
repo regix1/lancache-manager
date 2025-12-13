@@ -81,7 +81,13 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
           endDate={customEndDate}
           onStartDateChange={setCustomStartDate}
           onEndDateChange={setCustomEndDate}
-          onClose={() => setShowDatePicker(false)}
+          onClose={() => {
+            setShowDatePicker(false);
+            // If dates were cleared, switch back to live mode
+            if (!customStartDate || !customEndDate) {
+              setTimeRange('live');
+            }
+          }}
         />
       )}
     </>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChevronDown, Check } from 'lucide-react';
+import { CustomScrollbar } from './CustomScrollbar';
 
 /** Props interface for icon components used in dropdowns */
 interface IconComponentProps {
@@ -294,14 +295,12 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       {isOpen && (
         <div
           ref={dropdownRef}
-          className={`absolute ${dropdownWidth || 'w-full'} ${horizontalPosition === 'right' ? 'right-0' : 'left-0'} rounded-lg border z-[9999] overflow-x-hidden ${
+          className={`absolute ${dropdownWidth || 'w-full'} ${horizontalPosition === 'right' ? 'right-0' : 'left-0'} rounded-lg border z-[9999] overflow-hidden ${
             openUpward ? 'bottom-full mb-2' : 'mt-2'
           }`}
           style={{
             backgroundColor: 'var(--theme-bg-secondary)',
             borderColor: 'var(--theme-border-primary)',
-            maxHeight: cleanStyle ? 'none' : '280px',
-            overflowY: cleanStyle ? 'visible' : 'auto',
             maxWidth: 'calc(100vw - 32px)', // Account for 16px padding on each side
             transform: horizontalOffset !== 0 ? `translateX(${horizontalOffset}px)` : 'none',
             boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05)',
@@ -320,81 +319,83 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
               {dropdownTitle}
             </div>
           )}
-          <div className="py-1">
-            {options.map((option) =>
-              option.value === 'divider' ? (
-                <div
-                  key={option.value}
-                  className="px-3 py-2 text-xs font-medium border-t mt-1 mb-1 truncate"
-                  style={{
-                    color: 'var(--theme-text-muted)',
-                    borderColor: 'var(--theme-border-primary)',
-                    backgroundColor: 'var(--theme-bg-tertiary)'
-                  }}
-                >
-                  {option.label}
-                </div>
-              ) : (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => !option.disabled && handleSelect(option.value)}
-                  disabled={option.disabled}
-                  className={`w-full px-3 py-2.5 text-left text-sm transition-all duration-150 ${
-                    option.disabled
-                      ? 'opacity-40 cursor-not-allowed'
-                      : 'hover:bg-[var(--theme-bg-tertiary)] cursor-pointer'
-                  } ${
-                    option.value === value
-                      ? 'bg-[var(--theme-bg-tertiary)]'
-                      : ''
-                  } ${
-                    options.findIndex((opt) => opt.value === 'divider') !== -1 &&
-                    options.findIndex((opt) => opt.value === option.value) >
-                      options.findIndex((opt) => opt.value === 'divider')
-                      ? 'opacity-75 text-xs pl-6'
-                      : ''
-                  }`}
-                  title={option.description || option.label}
-                >
-                  <div className="flex items-start gap-3">
-                    {!cleanStyle && option.icon && (
-                      <option.icon
-                        className="flex-shrink-0 mt-0.5"
-                        size={16}
-                        style={{ color: option.value === value ? 'var(--theme-primary)' : 'var(--theme-text-secondary)' }}
-                      />
-                    )}
-                    <div className="flex flex-col flex-1 min-w-0">
-                      <span className={`font-medium truncate ${option.value === value ? 'text-[var(--theme-primary)]' : 'text-[var(--theme-text-primary)]'}`}>
-                        {option.label}
-                      </span>
-                      {option.description && (
-                        <span className="text-xs mt-0.5 leading-relaxed" style={{ color: 'var(--theme-text-secondary)' }}>
-                          {option.description}
+          <CustomScrollbar maxHeight={cleanStyle ? 'none' : '280px'} paddingMode="compact">
+            <div className="py-1">
+              {options.map((option) =>
+                option.value === 'divider' ? (
+                  <div
+                    key={option.value}
+                    className="px-3 py-2 text-xs font-medium border-t mt-1 mb-1 truncate"
+                    style={{
+                      color: 'var(--theme-text-muted)',
+                      borderColor: 'var(--theme-border-primary)',
+                      backgroundColor: 'var(--theme-bg-tertiary)'
+                    }}
+                  >
+                    {option.label}
+                  </div>
+                ) : (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => !option.disabled && handleSelect(option.value)}
+                    disabled={option.disabled}
+                    className={`w-full px-3 py-2.5 text-left text-sm transition-all duration-150 ${
+                      option.disabled
+                        ? 'opacity-40 cursor-not-allowed'
+                        : 'hover:bg-[var(--theme-bg-tertiary)] cursor-pointer'
+                    } ${
+                      option.value === value
+                        ? 'bg-[var(--theme-bg-tertiary)]'
+                        : ''
+                    } ${
+                      options.findIndex((opt) => opt.value === 'divider') !== -1 &&
+                      options.findIndex((opt) => opt.value === option.value) >
+                        options.findIndex((opt) => opt.value === 'divider')
+                        ? 'opacity-75 text-xs pl-6'
+                        : ''
+                    }`}
+                    title={option.description || option.label}
+                  >
+                    <div className="flex items-start gap-3">
+                      {!cleanStyle && option.icon && (
+                        <option.icon
+                          className="flex-shrink-0 mt-0.5"
+                          size={16}
+                          style={{ color: option.value === value ? 'var(--theme-primary)' : 'var(--theme-text-secondary)' }}
+                        />
+                      )}
+                      <div className="flex flex-col flex-1 min-w-0">
+                        <span className={`font-medium truncate ${option.value === value ? 'text-[var(--theme-primary)]' : 'text-[var(--theme-text-primary)]'}`}>
+                          {option.label}
+                        </span>
+                        {option.description && (
+                          <span className="text-xs mt-0.5 leading-relaxed" style={{ color: 'var(--theme-text-secondary)' }}>
+                            {option.description}
+                          </span>
+                        )}
+                      </div>
+                      {option.rightLabel && (
+                        <span
+                          className="flex-shrink-0 text-xs font-medium"
+                          style={{ color: option.value === value ? 'var(--theme-primary)' : 'var(--theme-text-secondary)' }}
+                        >
+                          {option.rightLabel}
                         </span>
                       )}
+                      {!cleanStyle && option.value === value && (
+                        <Check
+                          size={16}
+                          className="flex-shrink-0 mt-0.5"
+                          style={{ color: 'var(--theme-primary)' }}
+                        />
+                      )}
                     </div>
-                    {option.rightLabel && (
-                      <span
-                        className="flex-shrink-0 text-xs font-medium"
-                        style={{ color: option.value === value ? 'var(--theme-primary)' : 'var(--theme-text-secondary)' }}
-                      >
-                        {option.rightLabel}
-                      </span>
-                    )}
-                    {!cleanStyle && option.value === value && (
-                      <Check
-                        size={16}
-                        className="flex-shrink-0 mt-0.5"
-                        style={{ color: 'var(--theme-primary)' }}
-                      />
-                    )}
-                  </div>
-                </button>
-              )
-            )}
-          </div>
+                  </button>
+                )
+              )}
+            </div>
+          </CustomScrollbar>
           {footerNote && (
             <div
               className="px-3 py-2.5 text-xs border-t flex items-start gap-2"
