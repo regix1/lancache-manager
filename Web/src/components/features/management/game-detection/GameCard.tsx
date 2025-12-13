@@ -91,6 +91,22 @@ const GameCard: React.FC<GameCardProps> = ({
               <strong className="text-themed-primary">{game.depot_ids.length}</strong>{' '}
               depot{game.depot_ids.length !== 1 ? 's' : ''}
             </span>
+            {game.datasources && game.datasources.length > 0 && (
+              <span className="flex items-center gap-1">
+                {game.datasources.map((ds) => (
+                  <span
+                    key={ds}
+                    className="px-1.5 py-0.5 rounded text-[10px] font-medium capitalize"
+                    style={{
+                      backgroundColor: 'var(--theme-accent-muted)',
+                      color: 'var(--theme-accent)'
+                    }}
+                  >
+                    {ds}
+                  </span>
+                ))}
+              </span>
+            )}
           </div>
         </div>
         <Tooltip content="Remove all cache files for this game">

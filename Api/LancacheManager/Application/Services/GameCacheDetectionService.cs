@@ -348,6 +348,8 @@ public class GameCacheDetectionService
                     if (!gameAppIdSet.Contains(game.GameAppId))
                     {
                         gameAppIdSet.Add(game.GameAppId);
+                        // Initialize datasources list with current datasource
+                        game.Datasources = new List<string> { datasource.Name };
                         aggregatedGames.Add(game);
                     }
                     else
@@ -365,6 +367,11 @@ public class GameCacheDetectionService
                                 existingGame.DepotIds.Add(depotId);
                             }
                         }
+                        // Track that this game was also found in this datasource
+                        if (!existingGame.Datasources.Contains(datasource.Name))
+                        {
+                            existingGame.Datasources.Add(datasource.Name);
+                        }
                     }
                 }
 
@@ -374,6 +381,8 @@ public class GameCacheDetectionService
                     if (!serviceNameSet.Contains(service.ServiceName))
                     {
                         serviceNameSet.Add(service.ServiceName);
+                        // Initialize datasources list with current datasource
+                        service.Datasources = new List<string> { datasource.Name };
                         aggregatedServices.Add(service);
                     }
                     else
@@ -385,6 +394,11 @@ public class GameCacheDetectionService
                         existingService.TotalSizeBytes += service.TotalSizeBytes;
                         existingService.CacheFilePaths.AddRange(service.CacheFilePaths);
                         existingService.SampleUrls.AddRange(service.SampleUrls.Take(5 - existingService.SampleUrls.Count));
+                        // Track that this service was also found in this datasource
+                        if (!existingService.Datasources.Contains(datasource.Name))
+                        {
+                            existingService.Datasources.Add(datasource.Name);
+                        }
                     }
                 }
 
@@ -852,6 +866,7 @@ public class GameCacheDetectionService
                 DepotIdsJson = JsonSerializer.Serialize(game.DepotIds),
                 SampleUrlsJson = JsonSerializer.Serialize(game.SampleUrls),
                 CacheFilePathsJson = JsonSerializer.Serialize(game.CacheFilePaths),
+                DatasourcesJson = JsonSerializer.Serialize(game.Datasources),
                 LastDetectedUtc = now,
                 CreatedAtUtc = now
             };
@@ -868,6 +883,7 @@ public class GameCacheDetectionService
                 existing.DepotIdsJson = cachedGame.DepotIdsJson;
                 existing.SampleUrlsJson = cachedGame.SampleUrlsJson;
                 existing.CacheFilePathsJson = cachedGame.CacheFilePathsJson;
+                existing.DatasourcesJson = cachedGame.DatasourcesJson;
                 existing.LastDetectedUtc = now;
             }
             else
@@ -909,6 +925,7 @@ public class GameCacheDetectionService
                 TotalSizeBytes = service.TotalSizeBytes,
                 SampleUrlsJson = JsonSerializer.Serialize(service.SampleUrls),
                 CacheFilePathsJson = JsonSerializer.Serialize(service.CacheFilePaths),
+                DatasourcesJson = JsonSerializer.Serialize(service.Datasources),
                 LastDetectedUtc = now,
                 CreatedAtUtc = now
             };
@@ -929,7 +946,8 @@ public class GameCacheDetectionService
             TotalSizeBytes = cached.TotalSizeBytes,
             DepotIds = JsonSerializer.Deserialize<List<uint>>(cached.DepotIdsJson) ?? new List<uint>(),
             SampleUrls = JsonSerializer.Deserialize<List<string>>(cached.SampleUrlsJson) ?? new List<string>(),
-            CacheFilePaths = JsonSerializer.Deserialize<List<string>>(cached.CacheFilePathsJson) ?? new List<string>()
+            CacheFilePaths = JsonSerializer.Deserialize<List<string>>(cached.CacheFilePathsJson) ?? new List<string>(),
+            Datasources = JsonSerializer.Deserialize<List<string>>(cached.DatasourcesJson ?? "[]") ?? new List<string>()
         };
     }
 
@@ -941,7 +959,8 @@ public class GameCacheDetectionService
             CacheFilesFound = cached.CacheFilesFound,
             TotalSizeBytes = cached.TotalSizeBytes,
             SampleUrls = JsonSerializer.Deserialize<List<string>>(cached.SampleUrlsJson) ?? new List<string>(),
-            CacheFilePaths = JsonSerializer.Deserialize<List<string>>(cached.CacheFilePathsJson) ?? new List<string>()
+            CacheFilePaths = JsonSerializer.Deserialize<List<string>>(cached.CacheFilePathsJson) ?? new List<string>(),
+            Datasources = JsonSerializer.Deserialize<List<string>>(cached.DatasourcesJson ?? "[]") ?? new List<string>()
         };
     }
 

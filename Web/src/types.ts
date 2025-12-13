@@ -210,6 +210,7 @@ export interface GameCacheInfo {
   depot_ids: number[];
   sample_urls: string[];
   cache_file_paths: string[];
+  datasources: string[];
 }
 
 export interface ServiceCacheInfo {
@@ -218,6 +219,7 @@ export interface ServiceCacheInfo {
   total_size_bytes: number;
   sample_urls: string[];
   cache_file_paths: string[];
+  datasources: string[];
 }
 
 export interface GameDetectionStatus {

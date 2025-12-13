@@ -30,6 +30,11 @@ public class CachedServiceDetection
     public string CacheFilePathsJson { get; set; } = "[]";
 
     /// <summary>
+    /// JSON-serialized list of datasource names where this service was found
+    /// </summary>
+    public string DatasourcesJson { get; set; } = "[]";
+
+    /// <summary>
     /// When this service was last detected in cache
     /// </summary>
     public DateTime LastDetectedUtc { get; set; } = DateTime.UtcNow;

@@ -35,6 +35,11 @@ public class CachedGameDetection
     public string CacheFilePathsJson { get; set; } = "[]";
 
     /// <summary>
+    /// JSON-serialized list of datasource names where this game was found
+    /// </summary>
+    public string DatasourcesJson { get; set; } = "[]";
+
+    /// <summary>
     /// When this game was last detected in cache
     /// </summary>
     public DateTime LastDetectedUtc { get; set; } = DateTime.UtcNow;

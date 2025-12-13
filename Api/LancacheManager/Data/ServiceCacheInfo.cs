@@ -16,4 +16,10 @@ public class ServiceCacheInfo
 
     [System.Text.Json.Serialization.JsonPropertyName("cache_file_paths")]
     public List<string> CacheFilePaths { get; set; } = new List<string>();
+
+    /// <summary>
+    /// List of datasource names where this service's cache files were found.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonPropertyName("datasources")]
+    public List<string> Datasources { get; set; } = new List<string>();
 }

@@ -80,6 +80,22 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
                 {formatBytes(service.total_size_bytes)}
               </strong>
             </span>
+            {service.datasources && service.datasources.length > 0 && (
+              <span className="flex items-center gap-1">
+                {service.datasources.map((ds) => (
+                  <span
+                    key={ds}
+                    className="px-1.5 py-0.5 rounded text-[10px] font-medium capitalize"
+                    style={{
+                      backgroundColor: 'var(--theme-accent-muted)',
+                      color: 'var(--theme-accent)'
+                    }}
+                  >
+                    {ds}
+                  </span>
+                ))}
+              </span>
+            )}
           </div>
         </div>
         <Tooltip content="Remove all cache files for this service">
