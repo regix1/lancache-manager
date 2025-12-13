@@ -4,9 +4,10 @@ using LancacheManager.Infrastructure.Services.Interfaces;
 namespace LancacheManager.Application.Services;
 
 /// <summary>
-/// Background service that continuously monitors the log file for new entries
+/// Background service that continuously monitors log files for new entries
 /// and processes them using the Rust processor. This enables live/automatic updates
 /// without requiring manual "Process All Logs" button clicks.
+/// Supports multiple datasources - monitors each datasource's log directory.
 /// </summary>
 public class LiveLogMonitorService : BackgroundService
 {
@@ -15,8 +16,9 @@ public class LiveLogMonitorService : BackgroundService
     private readonly RustLogProcessorService _rustLogProcessorService;
     private readonly RustLogRemovalService _rustLogRemovalService;
     private readonly StateRepository _stateService;
-    private readonly string _logFilePath;
-    private long _lastFileSize = 0;
+    private readonly DatasourceService _datasourceService;
+    private readonly string _logFilePath; // Legacy single log path for backward compatibility
+    private readonly Dictionary<string, long> _lastFileSizes = new(); // Per-datasource file sizes
     private bool _isProcessing = false;
 
     // Static pause mechanism for log file operations (corruption removal, etc.)
@@ -66,13 +68,15 @@ public class LiveLogMonitorService : BackgroundService
         IPathResolver pathResolver,
         RustLogProcessorService rustLogProcessorService,
         RustLogRemovalService rustLogRemovalService,
-        StateRepository stateService)
+        StateRepository stateService,
+        DatasourceService datasourceService)
     {
         _logger = logger;
         _pathResolver = pathResolver;
         _rustLogProcessorService = rustLogProcessorService;
         _rustLogRemovalService = rustLogRemovalService;
         _stateService = stateService;
+        _datasourceService = datasourceService;
         _logFilePath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
     }
 
@@ -124,25 +128,40 @@ public class LiveLogMonitorService : BackgroundService
         // Wait for app to start up and for initial setup to complete
         await Task.Delay(TimeSpan.FromSeconds(20), stoppingToken);
 
-        _logger.LogInformation("LiveLogMonitorService started - monitoring {LogFile} for new entries (silent mode enabled)", _logFilePath);
+        var datasources = _datasourceService.GetDatasources();
 
-        // Get initial file size if file exists
-        if (File.Exists(_logFilePath))
+        if (datasources.Count == 0)
         {
-            var fileInfo = new FileInfo(_logFilePath);
-            _lastFileSize = fileInfo.Length;
-            _logger.LogInformation("Initial log file size: {Size:N0} bytes", _lastFileSize);
+            _logger.LogWarning("No datasources configured, LiveLogMonitorService will not monitor any log files");
+            return;
+        }
 
-            // If log position is 0 (default), initialize it to the end of the file
-            // This ensures we only process NEW entries going forward, not the entire history
-            var currentPosition = _stateService.GetLogPosition();
-            if (currentPosition == 0)
+        // Initialize file sizes for each datasource
+        foreach (var ds in datasources)
+        {
+            var logFile = Path.Combine(ds.LogPath, "access.log");
+            if (File.Exists(logFile))
             {
-                var lineCount = CountLinesWithSharing(_logFilePath);
-                _stateService.SetLogPosition(lineCount);
-                _logger.LogInformation("Initialized log position to end of file (line {LineCount}) - will only process new entries", lineCount);
+                var fileInfo = new FileInfo(logFile);
+                _lastFileSizes[ds.Name] = fileInfo.Length;
+                _logger.LogInformation("Datasource '{Name}': Initial log file size: {Size:N0} bytes", ds.Name, fileInfo.Length);
+
+                // If log position is 0, initialize it to the end of the file
+                var currentPosition = _stateService.GetLogPosition(ds.Name);
+                if (currentPosition == 0)
+                {
+                    var lineCount = CountLinesWithSharing(logFile);
+                    _stateService.SetLogPosition(ds.Name, lineCount);
+                    _logger.LogInformation("Datasource '{Name}': Initialized log position to end of file (line {LineCount})", ds.Name, lineCount);
+                }
+            }
+            else
+            {
+                _lastFileSizes[ds.Name] = 0;
             }
         }
+
+        _logger.LogInformation("LiveLogMonitorService started - monitoring {Count} datasource(s) for new entries (silent mode enabled)", datasources.Count);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -162,7 +181,12 @@ public class LiveLogMonitorService : BackgroundService
 
                 if (!shouldSkip)
                 {
-                    await MonitorAndProcessLogFile(stoppingToken);
+                    // Monitor each datasource
+                    foreach (var ds in datasources)
+                    {
+                        if (!ds.Enabled) continue;
+                        await MonitorAndProcessDatasource(ds, stoppingToken);
+                    }
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -189,7 +213,7 @@ public class LiveLogMonitorService : BackgroundService
         _logger.LogInformation("LiveLogMonitorService stopped");
     }
 
-    private async Task MonitorAndProcessLogFile(CancellationToken stoppingToken)
+    private async Task MonitorAndProcessDatasource(ResolvedDatasource datasource, CancellationToken stoppingToken)
     {
         // Skip if already processing
         if (_isProcessing)
@@ -197,33 +221,37 @@ public class LiveLogMonitorService : BackgroundService
             return;
         }
 
+        var logFilePath = Path.Combine(datasource.LogPath, "access.log");
+
         // Check if log file exists - if not, skip monitoring (only rotated files exist)
-        // This is normal when logs are rotated and current access.log doesn't exist yet
-        if (!File.Exists(_logFilePath))
+        if (!File.Exists(logFilePath))
         {
             // Only log once per service start to avoid spam
-            if (_lastFileSize == 0)
+            if (!_lastFileSizes.ContainsKey(datasource.Name) || _lastFileSizes[datasource.Name] == 0)
             {
-                _lastFileSize = -1; // Mark as logged
+                _lastFileSizes[datasource.Name] = -1; // Mark as logged
             }
             return;
         }
 
         // Reset size tracker if file reappeared after being missing
-        if (_lastFileSize == -1)
+        if (_lastFileSizes.TryGetValue(datasource.Name, out var lastSize) && lastSize == -1)
         {
-            _lastFileSize = 0;
-            _logger.LogInformation("Current log file now exists: {LogFile}. Resuming live monitoring.", _logFilePath);
+            _lastFileSizes[datasource.Name] = 0;
+            _logger.LogInformation("Datasource '{Name}': Log file now exists. Resuming live monitoring.", datasource.Name);
         }
 
         try
         {
             // Check file size (very fast operation)
-            var fileInfo = new FileInfo(_logFilePath);
+            var fileInfo = new FileInfo(logFilePath);
             var currentFileSize = fileInfo.Length;
 
+            // Get last known file size for this datasource
+            _lastFileSizes.TryGetValue(datasource.Name, out var lastFileSize);
+
             // Calculate size increase
-            var sizeIncrease = currentFileSize - _lastFileSize;
+            var sizeIncrease = currentFileSize - lastFileSize;
 
             // Only process if file has grown by at least the threshold
             if (sizeIncrease >= _minFileSizeIncrease)
@@ -238,14 +266,14 @@ public class LiveLogMonitorService : BackgroundService
                 // Check if manual processing is already running
                 if (_rustLogProcessorService.IsProcessing)
                 {
-                    _logger.LogInformation("Manual processing is already running, skipping live update");
+                    _logger.LogDebug("Manual processing is already running, skipping live update for '{Name}'", datasource.Name);
                     return;
                 }
 
                 // Check if log removal is in progress
                 if (_rustLogRemovalService.IsProcessing)
                 {
-                    _logger.LogDebug("Log removal is in progress for {Service}, skipping live update", _rustLogRemovalService.CurrentService);
+                    _logger.LogDebug("Log removal is in progress for {Service}, skipping live update for '{Name}'", _rustLogRemovalService.CurrentService, datasource.Name);
                     return;
                 }
 
@@ -255,39 +283,37 @@ public class LiveLogMonitorService : BackgroundService
 
                 try
                 {
-                    // ALWAYS use the current end of file position for live monitoring
-                    // This ensures we only process NEW entries, not the entire log history
-                    // The stored position is only used by the "Process All Logs" button
-                    var lastPosition = _stateService.GetLogPosition();
+                    // Get the stored position for this datasource
+                    var lastPosition = _stateService.GetLogPosition(datasource.Name);
 
                     // Count total lines in the file to get the current end position
-                    var currentLineCount = CountLinesWithSharing(_logFilePath);
+                    var currentLineCount = CountLinesWithSharing(logFilePath);
 
                     // If stored position is less than current file size, use stored position
                     // Otherwise use current line count (file might have been truncated/rotated)
                     var startPosition = Math.Min(lastPosition, currentLineCount);
 
                     // Start Rust processor from last processed position in SILENT MODE
-                    // The Rust processor will:
-                    // 1. Skip to the start position
-                    // 2. Process all new lines to the end of file
-                    // 3. Use duplicate detection to avoid re-processing entries
-                    // 4. NOT send any SignalR notifications (silentMode = true)
-                    var success = await _rustLogProcessorService.StartProcessingAsync(_logFilePath, startPosition, silentMode: true);
+                    // Pass the datasource name so the position is saved correctly
+                    var success = await _rustLogProcessorService.StartProcessingAsync(
+                        datasource.LogPath,
+                        startPosition,
+                        silentMode: true,
+                        datasourceName: datasource.Name);
 
                     if (success)
                     {
                         // Update file size tracker after successful processing
-                        _lastFileSize = currentFileSize;
+                        _lastFileSizes[datasource.Name] = currentFileSize;
                     }
                     else
                     {
-                        _logger.LogWarning("Live processing did not complete successfully, will retry on next interval");
+                        _logger.LogWarning("Live processing for datasource '{Name}' did not complete successfully, will retry on next interval", datasource.Name);
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error during live log processing");
+                    _logger.LogError(ex, "Error during live log processing for datasource '{Name}'", datasource.Name);
                 }
                 finally
                 {
@@ -297,7 +323,7 @@ public class LiveLogMonitorService : BackgroundService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error checking log file size");
+            _logger.LogError(ex, "Error checking log file size for datasource '{Name}'", datasource.Name);
             _isProcessing = false;
         }
     }

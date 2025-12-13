@@ -1,5 +1,7 @@
 using System.Text.Json;
 using LancacheManager.Application.DTOs;
+using LancacheManager.Application.Services;
+using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
@@ -21,19 +23,25 @@ public class LogsController : ControllerBase
     private readonly ILogger<LogsController> _logger;
     private readonly IPathResolver _pathResolver;
     private readonly RustProcessHelper _rustProcessHelper;
+    private readonly DatasourceService _datasourceService;
+    private readonly StateRepository _stateRepository;
 
     public LogsController(
         RustLogProcessorService rustLogProcessorService,
         RustLogRemovalService rustLogRemovalService,
         ILogger<LogsController> logger,
         IPathResolver pathResolver,
-        RustProcessHelper rustProcessHelper)
+        RustProcessHelper rustProcessHelper,
+        DatasourceService datasourceService,
+        StateRepository stateRepository)
     {
         _rustLogProcessorService = rustLogProcessorService;
         _rustLogRemovalService = rustLogRemovalService;
         _logger = logger;
         _pathResolver = pathResolver;
         _rustProcessHelper = rustProcessHelper;
+        _datasourceService = datasourceService;
+        _stateRepository = stateRepository;
     }
 
     /// <summary>
@@ -91,22 +99,71 @@ public class LogsController : ControllerBase
     }
 
     /// <summary>
-    /// PATCH /api/logs/position - Update log position (reset to beginning)
+    /// PATCH /api/logs/position - Update log position (reset to beginning or end)
     /// RESTful: PATCH is proper method for partial updates
-    /// Request body: { "position": 0 } or { "reset": true }
+    /// Request body: { "position": 0 } to reset to beginning, { "position": null } to reset to end
     /// </summary>
     [HttpPatch("position")]
     [RequireAuth]
     public IActionResult ResetLogPosition([FromBody] UpdateLogPositionRequest? request)
     {
-        _rustLogProcessorService.ResetLogPosition();
-        _logger.LogInformation("Log position reset to beginning");
+        var datasources = _datasourceService.GetDatasources();
+
+        // If position is explicitly 0, reset to beginning
+        if (request?.Position == 0)
+        {
+            _rustLogProcessorService.ResetLogPosition();
+            _logger.LogInformation("Log position reset to beginning for all datasources");
+
+            return Ok(new LogPositionResponse
+            {
+                Message = "Log position reset to beginning",
+                Position = 0
+            });
+        }
+
+        // Otherwise (position is null or not specified), reset to end of file
+        // Count lines in each datasource's log file and set position to that
+        long totalLines = 0;
+        foreach (var ds in datasources)
+        {
+            var logFile = Path.Combine(ds.LogPath, "access.log");
+            if (System.IO.File.Exists(logFile))
+            {
+                var lineCount = CountLinesInFile(logFile);
+                _stateRepository.SetLogPosition(ds.Name, lineCount);
+                totalLines += lineCount;
+                _logger.LogInformation("Datasource '{Name}': Log position set to end (line {LineCount})", ds.Name, lineCount);
+            }
+            else
+            {
+                _stateRepository.SetLogPosition(ds.Name, 0);
+                _logger.LogInformation("Datasource '{Name}': Log file not found, position set to 0", ds.Name);
+            }
+        }
+
+        _logger.LogInformation("Log position reset to end for all datasources (total lines: {TotalLines})", totalLines);
 
         return Ok(new LogPositionResponse
         {
-            Message = "Log position reset successfully",
-            Position = 0
+            Message = "Log position reset to end of file",
+            Position = totalLines
         });
+    }
+
+    /// <summary>
+    /// Count lines in a file efficiently
+    /// </summary>
+    private static long CountLinesInFile(string filePath)
+    {
+        long lineCount = 0;
+        using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(stream);
+        while (reader.ReadLine() != null)
+        {
+            lineCount++;
+        }
+        return lineCount;
     }
 
     /// <summary>
