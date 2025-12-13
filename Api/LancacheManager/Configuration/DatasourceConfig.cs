@@ -50,4 +50,11 @@ public class LanCacheSettings
     /// Whether to start processing from end of log file (skip existing entries).
     /// </summary>
     public bool StartFromEndOfLog { get; set; } = false;
+
+    /// <summary>
+    /// Enable auto-discovery of datasources by scanning for matching subdirectories
+    /// in the cache and logs folders. When enabled, subdirectories that exist in both
+    /// locations will be automatically configured as datasources.
+    /// </summary>
+    public bool AutoDiscoverDatasources { get; set; } = false;
 }

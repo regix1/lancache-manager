@@ -14,6 +14,8 @@ import { type AuthMode } from '@services/auth.service';
 import { useSignalR } from '@contexts/SignalRContext';
 import type { CorruptionRemovalCompletePayload } from '@contexts/SignalRContext/types';
 import { useNotifications } from '@contexts/NotificationsContext';
+import { useSteamAuth } from '@contexts/SteamAuthContext';
+import DepotMappingManager from '../depot/DepotMappingManager';
 import { Card } from '@components/ui/Card';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { Button } from '@components/ui/Button';
@@ -78,14 +80,18 @@ interface LogAndCorruptionManagerProps {
 }
 
 const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
+  isAuthenticated,
   authMode,
   mockMode,
   onError,
-  onSuccess: _onSuccess,
+  onSuccess,
+  onDataRefresh,
   onReloadRef,
   onClearOperationRef
 }) => {
-  // Note: _onSuccess is currently unused but kept for future use
+  // Get steam auth mode for depot mapping
+  const { steamAuthMode } = useSteamAuth();
+
   // Get notifications to check for running operations
   const { notifications } = useNotifications();
 
@@ -133,6 +139,15 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
   // Track local loading states for button feedback before SignalR events arrive
   const [startingServiceRemoval, setStartingServiceRemoval] = useState<string | null>(null);
   const [startingCorruptionRemoval, setStartingCorruptionRemoval] = useState<string | null>(null);
+
+  // Action loading state for depot mapping
+  const [actionLoading, setActionLoading] = useState(false);
+
+  // Derive log processing state from notifications
+  const activeProcessingNotification = notifications.find(
+    n => n.type === 'log_processing' && n.status === 'running'
+  );
+  const isProcessingLogs = !!activeProcessingNotification;
 
   // Clear operation state is now a no-op since state is derived from notifications
   const clearOperationState = async () => {
@@ -978,6 +993,19 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
           </div>
         </div>
       </Modal>
+
+      {/* Depot Mapping Manager */}
+      <DepotMappingManager
+        isAuthenticated={isAuthenticated}
+        mockMode={mockMode}
+        steamAuthMode={steamAuthMode}
+        actionLoading={actionLoading}
+        setActionLoading={setActionLoading}
+        isProcessingLogs={isProcessingLogs}
+        onError={onError}
+        onSuccess={onSuccess}
+        onDataRefresh={onDataRefresh}
+      />
     </>
   );
 };

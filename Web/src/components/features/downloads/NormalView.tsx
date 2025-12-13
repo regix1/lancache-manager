@@ -246,17 +246,18 @@ const GroupCard: React.FC<GroupCardProps> = ({
                   {group.service.toUpperCase()}
                 </span>
                 {hasMultipleDatasources && showDatasourceLabels && group.downloads[0]?.datasource && (
-                  <span
-                    className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2 sm:px-2.5 py-0.5 sm:py-1 text-xs'} font-medium rounded-md`}
-                    style={{
-                      backgroundColor: 'var(--theme-bg-tertiary)',
-                      color: 'var(--theme-text-secondary)',
-                      border: '1px solid var(--theme-border-secondary)'
-                    }}
-                    title={`Datasource: ${group.downloads[0].datasource}`}
-                  >
-                    {group.downloads[0].datasource}
-                  </span>
+                  <Tooltip content={`Datasource: ${group.downloads[0].datasource}`}>
+                    <span
+                      className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2 sm:px-2.5 py-0.5 sm:py-1 text-xs'} font-medium rounded-md`}
+                      style={{
+                        backgroundColor: 'var(--theme-bg-tertiary)',
+                        color: 'var(--theme-text-secondary)',
+                        border: '1px solid var(--theme-border-secondary)'
+                      }}
+                    >
+                      {group.downloads[0].datasource}
+                    </span>
+                  </Tooltip>
                 )}
                 {group.count > 1 && (
                   <span

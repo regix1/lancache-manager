@@ -7,6 +7,7 @@ import { Modal } from '@components/ui/Modal';
 import { Tooltip } from '@components/ui/Tooltip';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { useSignalR } from '@contexts/SignalRContext';
+import type { FastProcessingCompletePayload } from '@contexts/SignalRContext/types';
 import { useNotifications } from '@contexts/NotificationsContext';
 import type { Config, DatasourceInfo, DatasourceLogPosition } from '../../../../types';
 
@@ -89,6 +90,25 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     const interval = setInterval(refreshPositions, 30000);
     return () => clearInterval(interval);
   }, [mockMode, signalR.isConnected]);
+
+  // Listen for processing complete events to refresh positions
+  useEffect(() => {
+    const handleProcessingComplete = async (_payload: FastProcessingCompletePayload) => {
+      console.log('[DatasourcesManager] Processing complete, refreshing positions');
+      try {
+        const positions = await fetchLogPositions();
+        setLogPositions(positions);
+      } catch (err) {
+        console.error('Failed to refresh log positions after processing:', err);
+      }
+    };
+
+    signalR.on('FastProcessingComplete', handleProcessingComplete);
+
+    return () => {
+      signalR.off('FastProcessingComplete', handleProcessingComplete);
+    };
+  }, [signalR]);
 
   const toggleExpanded = (name: string) => {
     setExpandedDatasources(prev => {

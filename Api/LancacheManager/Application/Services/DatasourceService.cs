@@ -1,3 +1,4 @@
+using System.Globalization;
 using LancacheManager.Configuration;
 using LancacheManager.Infrastructure.Services.Interfaces;
 
@@ -29,7 +30,8 @@ public class DatasourceService
 
     /// <summary>
     /// Load and resolve all datasource configurations.
-    /// Supports both new array-based config and legacy single-path config.
+    /// Supports explicit config, auto-discovery, and legacy single-path modes.
+    /// Priority: Explicit DataSources > Auto-Discovery > Legacy single-path
     /// </summary>
     private void LoadDatasources()
     {
@@ -38,7 +40,8 @@ public class DatasourceService
 
         if (datasourceConfigs != null && datasourceConfigs.Count > 0)
         {
-            _logger.LogInformation("Loading {Count} datasource(s) from configuration", datasourceConfigs.Count);
+            // Explicit configuration takes highest priority
+            _logger.LogInformation("Loading {Count} datasource(s) from explicit configuration", datasourceConfigs.Count);
 
             foreach (var config in datasourceConfigs.Where(c => c.Enabled))
             {
@@ -53,28 +56,58 @@ public class DatasourceService
         }
         else
         {
-            // Fall back to legacy single-path configuration
-            _logger.LogInformation("No datasources configured, using legacy single-path configuration");
+            // Check if auto-discovery is enabled
+            var autoDiscover = _configuration.GetValue<bool>("LanCache:AutoDiscoverDatasources");
 
-            var legacyConfig = new DatasourceConfig
+            if (autoDiscover)
             {
-                Name = "default",
-                Enabled = true
-            };
+                var discovered = DiscoverDatasources();
+                if (discovered.Count > 0)
+                {
+                    _logger.LogInformation("Auto-discovered {Count} datasource(s)", discovered.Count);
 
-            // Get legacy paths from configuration
-            var configCachePath = _configuration["LanCache:CachePath"];
-            var configLogPath = _configuration["LanCache:LogPath"];
+                    foreach (var config in discovered)
+                    {
+                        var resolved = ResolveDatasource(config);
+                        if (resolved != null)
+                        {
+                            _datasources.Add(resolved);
+                            _logger.LogInformation("Auto-discovered datasource '{Name}': Cache={CachePath}, Logs={LogPath}",
+                                resolved.Name, resolved.CachePath, resolved.LogPath);
+                        }
+                    }
+                }
+                else
+                {
+                    _logger.LogInformation("Auto-discovery enabled but no matching subdirectories found");
+                }
+            }
 
-            legacyConfig.CachePath = !string.IsNullOrEmpty(configCachePath) ? configCachePath : "cache";
-            legacyConfig.LogPath = !string.IsNullOrEmpty(configLogPath) ? configLogPath : "logs";
-
-            var resolved = ResolveDatasource(legacyConfig);
-            if (resolved != null)
+            // Fall back to legacy single-path configuration if no datasources loaded
+            if (_datasources.Count == 0)
             {
-                _datasources.Add(resolved);
-                _logger.LogInformation("Loaded default datasource: Cache={CachePath}, Logs={LogPath}",
-                    resolved.CachePath, resolved.LogPath);
+                _logger.LogInformation("Using legacy single-path configuration");
+
+                var legacyConfig = new DatasourceConfig
+                {
+                    Name = "default",
+                    Enabled = true
+                };
+
+                // Get legacy paths from configuration
+                var configCachePath = _configuration["LanCache:CachePath"];
+                var configLogPath = _configuration["LanCache:LogPath"];
+
+                legacyConfig.CachePath = !string.IsNullOrEmpty(configCachePath) ? configCachePath : "cache";
+                legacyConfig.LogPath = !string.IsNullOrEmpty(configLogPath) ? configLogPath : "logs";
+
+                var resolved = ResolveDatasource(legacyConfig);
+                if (resolved != null)
+                {
+                    _datasources.Add(resolved);
+                    _logger.LogInformation("Loaded default datasource: Cache={CachePath}, Logs={LogPath}",
+                        resolved.CachePath, resolved.LogPath);
+                }
             }
         }
 
@@ -82,6 +115,65 @@ public class DatasourceService
         {
             _logger.LogWarning("No valid datasources configured. Some features may not work correctly.");
         }
+    }
+
+    /// <summary>
+    /// Discover datasources by scanning for matching subdirectories in cache and logs folders.
+    /// A subdirectory is only added if it exists in BOTH the cache and logs base paths.
+    /// </summary>
+    private List<DatasourceConfig> DiscoverDatasources()
+    {
+        var discovered = new List<DatasourceConfig>();
+
+        var baseCachePath = _pathResolver.ResolvePath(
+            _configuration["LanCache:CachePath"] ?? "cache");
+        var baseLogsPath = _pathResolver.ResolvePath(
+            _configuration["LanCache:LogPath"] ?? "logs");
+
+        _logger.LogDebug("Auto-discovery scanning: Cache={CachePath}, Logs={LogsPath}", baseCachePath, baseLogsPath);
+
+        if (!Directory.Exists(baseCachePath))
+        {
+            _logger.LogWarning("Auto-discovery: Cache directory does not exist: {Path}", baseCachePath);
+            return discovered;
+        }
+
+        if (!Directory.Exists(baseLogsPath))
+        {
+            _logger.LogWarning("Auto-discovery: Logs directory does not exist: {Path}", baseLogsPath);
+            return discovered;
+        }
+
+        foreach (var cacheSubdir in Directory.GetDirectories(baseCachePath))
+        {
+            var subdirName = Path.GetFileName(cacheSubdir);
+
+            // Skip hidden directories and common non-datasource folders
+            if (subdirName.StartsWith(".") || subdirName.StartsWith("_"))
+                continue;
+
+            var logsSubdir = Path.Combine(baseLogsPath, subdirName);
+
+            // Only create datasource if BOTH cache and logs subdirectories exist
+            if (Directory.Exists(logsSubdir))
+            {
+                var displayName = CultureInfo.CurrentCulture.TextInfo.ToTitleCase(subdirName.ToLower());
+
+                discovered.Add(new DatasourceConfig
+                {
+                    Name = displayName,
+                    CachePath = cacheSubdir,
+                    LogPath = logsSubdir,
+                    Enabled = true
+                });
+
+                _logger.LogDebug("Auto-discovery found matching pair: {Name} (cache: {Cache}, logs: {Logs})",
+                    displayName, cacheSubdir, logsSubdir);
+            }
+        }
+
+        // Sort by name for consistent ordering
+        return discovered.OrderBy(d => d.Name).ToList();
     }
 
     /// <summary>

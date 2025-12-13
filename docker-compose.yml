@@ -59,6 +59,14 @@ services:
       # - LanCache__DataSources__1__LogPath=/mnt/logs/epic
       # - LanCache__DataSources__1__Enabled=true
 
+      #=== Auto-Discovery (Alternative to Manual Datasources) ===#
+      # Automatically detect datasources by scanning for matching subdirectories.
+      # When enabled, the app scans /cache and /logs for subdirectories that exist
+      # in BOTH locations (e.g., /cache/steam + /logs/steam = "Steam" datasource).
+      # This is an alternative to manually configuring each DataSource above.
+      # Note: Explicit DataSources config takes priority over auto-discovery.
+      # - LanCache__AutoDiscoverDatasources=true
+
       #=== Security Settings ===#
       # Security__EnableAuthentication: Master switch for authentication
       # true = require API key for admin features (recommended)

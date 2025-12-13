@@ -141,17 +141,18 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     {group.service.toUpperCase()}
                   </span>
                   {shouldShowDatasource && (
-                    <span
-                      className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0"
-                      style={{
-                        backgroundColor: 'var(--theme-bg-tertiary)',
-                        color: 'var(--theme-text-secondary)',
-                        border: '1px solid var(--theme-border-secondary)'
-                      }}
-                      title={`Datasource: ${primaryDatasource}`}
-                    >
-                      {primaryDatasource}
-                    </span>
+                    <Tooltip content={`Datasource: ${primaryDatasource}`}>
+                      <span
+                        className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0"
+                        style={{
+                          backgroundColor: 'var(--theme-bg-tertiary)',
+                          color: 'var(--theme-text-secondary)',
+                          border: '1px solid var(--theme-border-secondary)'
+                        }}
+                      >
+                        {primaryDatasource}
+                      </span>
+                    </Tooltip>
                   )}
                   {group.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/)) && (
                     <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate flex-1">
@@ -196,17 +197,18 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     {group.service.toUpperCase()}
                   </span>
                   {shouldShowDatasource && (
-                    <span
-                      className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0"
-                      style={{
-                        backgroundColor: 'var(--theme-bg-tertiary)',
-                        color: 'var(--theme-text-secondary)',
-                        border: '1px solid var(--theme-border-secondary)'
-                      }}
-                      title={`Datasource: ${primaryDatasource}`}
-                    >
-                      {primaryDatasource}
-                    </span>
+                    <Tooltip content={`Datasource: ${primaryDatasource}`}>
+                      <span
+                        className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0"
+                        style={{
+                          backgroundColor: 'var(--theme-bg-tertiary)',
+                          color: 'var(--theme-text-secondary)',
+                          border: '1px solid var(--theme-border-secondary)'
+                        }}
+                      >
+                        {primaryDatasource}
+                      </span>
+                    </Tooltip>
                   )}
                   {group.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/)) && (
                     <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
