@@ -11,6 +11,7 @@ export const SERVICES = ['steam', 'epic', 'origin', 'blizzard', 'wsus', 'riot'] 
 
 // Polling rate options (in milliseconds) - Best practices for dashboard refresh rates
 export const POLLING_RATES = {
+  LIVE: 0, // Live - Real-time SignalR updates, no throttling
   ULTRA: 1000, // 1s - Ultra-fast (very high load, unstable)
   REALTIME: 5000, // 5s - Real-time monitoring (high server load)
   STANDARD: 10000, // 10s - Balanced performance (recommended)

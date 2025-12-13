@@ -187,17 +187,24 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   }, []);
 
   // Subscribe to SignalR events for real-time updates
-  // These events respect the user's polling rate preference
+  // These events respect the user's polling rate preference (unless Live mode)
   useEffect(() => {
     if (mockMode) return;
 
     // Track last SignalR-triggered refresh to respect polling rate
     let lastSignalRRefresh = 0;
 
-    // Throttled handler that respects user's polling rate
+    // Throttled handler that respects user's polling rate (or instant if Live mode)
     const throttledFetchDownloads = () => {
-      const now = Date.now();
       const pollingInterval = getPollingIntervalRef.current();
+
+      // Live mode (0) = instant updates, no throttling
+      if (pollingInterval === 0) {
+        fetchDownloads();
+        return;
+      }
+
+      const now = Date.now();
       const timeSinceLastRefresh = now - lastSignalRRefresh;
 
       // Only fetch if enough time has passed according to polling rate
@@ -216,7 +223,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
       }
     };
 
-    // Events that trigger data refresh (throttled by polling rate)
+    // Events that trigger data refresh (throttled by polling rate, or instant if Live)
     const refreshEvents = [
       'DownloadsRefresh',
       'FastProcessingComplete'
@@ -272,6 +279,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   }, [mockMode, refreshDownloads]);
 
   // Polling interval - fetch data at user-configured rate
+  // Skipped in Live mode (0) since SignalR handles real-time updates
   useEffect(() => {
     if (mockMode) return;
 
@@ -284,6 +292,12 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
     // Set up polling at the user's configured rate
     const setupPolling = () => {
       const interval = getPollingIntervalRef.current();
+
+      // Live mode (0) = no polling needed, SignalR handles updates
+      if (interval === 0) {
+        return;
+      }
+
       pollingIntervalRef.current = setInterval(() => {
         fetchDownloads();
       }, interval);

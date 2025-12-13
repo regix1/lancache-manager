@@ -1,5 +1,5 @@
 import React from 'react';
-import { Lightbulb, Gauge } from 'lucide-react';
+import { Lightbulb, Gauge, Zap } from 'lucide-react';
 import { usePollingRate } from '@contexts/PollingRateContext';
 import { type PollingRate } from '@utils/constants';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
@@ -12,6 +12,14 @@ const PollingRateSelector: React.FC<PollingRateSelectorProps> = ({ disabled = fa
   const { pollingRate, setPollingRate } = usePollingRate();
 
   const pollingOptions = [
+    {
+      value: 'LIVE',
+      label: 'Live',
+      shortLabel: 'Live',
+      description: 'Instant updates via SignalR',
+      rightLabel: 'Live',
+      icon: Zap
+    },
     {
       value: 'ULTRA',
       label: 'Ultra-fast',
