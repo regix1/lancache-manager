@@ -1,6 +1,5 @@
 using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Infrastructure.Services;
-using LancacheManager.Infrastructure.Services.Interfaces;
 namespace LancacheManager.Application.Services;
 
 /// <summary>
@@ -12,12 +11,10 @@ namespace LancacheManager.Application.Services;
 public class LiveLogMonitorService : BackgroundService
 {
     private readonly ILogger<LiveLogMonitorService> _logger;
-    private readonly IPathResolver _pathResolver;
     private readonly RustLogProcessorService _rustLogProcessorService;
     private readonly RustLogRemovalService _rustLogRemovalService;
     private readonly StateRepository _stateService;
     private readonly DatasourceService _datasourceService;
-    private readonly string _logFilePath; // Legacy single log path for backward compatibility
     private readonly Dictionary<string, long> _lastFileSizes = new(); // Per-datasource file sizes
     private bool _isProcessing = false;
 
@@ -65,19 +62,16 @@ public class LiveLogMonitorService : BackgroundService
 
     public LiveLogMonitorService(
         ILogger<LiveLogMonitorService> logger,
-        IPathResolver pathResolver,
         RustLogProcessorService rustLogProcessorService,
         RustLogRemovalService rustLogRemovalService,
         StateRepository stateService,
         DatasourceService datasourceService)
     {
         _logger = logger;
-        _pathResolver = pathResolver;
         _rustLogProcessorService = rustLogProcessorService;
         _rustLogRemovalService = rustLogRemovalService;
         _stateService = stateService;
         _datasourceService = datasourceService;
-        _logFilePath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
     }
 
     /// <summary>

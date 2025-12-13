@@ -19,6 +19,7 @@ import themeService from '@services/theme.service';
 import { Tooltip } from '@components/ui/Tooltip';
 
 // Unified notification component that handles all types
+// Note: CSS transitions handle animation smoothness outside React's render cycle
 const UnifiedNotificationItem = ({
   notification,
   onDismiss,

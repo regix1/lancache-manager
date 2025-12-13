@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Database, FolderOpen, FileText, CheckCircle, XCircle, PlayCircle, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+import { Logs, FolderOpen, FileText, CheckCircle, XCircle, PlayCircle, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
+import { Tooltip } from '@components/ui/Tooltip';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useNotifications } from '@contexts/NotificationsContext';
@@ -172,7 +173,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       <Card>
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
-            <Database className="w-5 h-5 icon-purple" />
+            <Logs className="w-5 h-5 icon-purple" />
           </div>
           <h3 className="text-lg font-semibold text-themed-primary">Log Processing</h3>
         </div>
@@ -200,7 +201,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       <Card>
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
-            <Database className="w-5 h-5 icon-purple" />
+            <Logs className="w-5 h-5 icon-purple" />
           </div>
           <h3 className="text-lg font-semibold text-themed-primary">Log Processing</h3>
           <HelpPopover position="left" width={320}>
@@ -301,26 +302,24 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                       </span>
                       {/* Writable status icons */}
                       <div className="flex items-center gap-2">
-                        <span
-                          className="flex items-center gap-1 text-xs"
-                          title={ds.cacheWritable ? 'Cache is writable' : 'Cache is read-only'}
-                        >
-                          {ds.cacheWritable ? (
-                            <CheckCircle className="w-3.5 h-3.5" style={{ color: 'var(--theme-success-text)' }} />
-                          ) : (
-                            <XCircle className="w-3.5 h-3.5" style={{ color: 'var(--theme-warning)' }} />
-                          )}
-                        </span>
-                        <span
-                          className="flex items-center gap-1 text-xs"
-                          title={ds.logsWritable ? 'Logs are writable' : 'Logs are read-only'}
-                        >
-                          {ds.logsWritable ? (
-                            <CheckCircle className="w-3.5 h-3.5" style={{ color: 'var(--theme-success-text)' }} />
-                          ) : (
-                            <XCircle className="w-3.5 h-3.5" style={{ color: 'var(--theme-warning)' }} />
-                          )}
-                        </span>
+                        <Tooltip content={ds.cacheWritable ? 'Cache is writable' : 'Cache is read-only'} position="top">
+                          <span className="flex items-center gap-1 text-xs">
+                            {ds.cacheWritable ? (
+                              <CheckCircle className="w-3.5 h-3.5" style={{ color: 'var(--theme-success-text)' }} />
+                            ) : (
+                              <XCircle className="w-3.5 h-3.5" style={{ color: 'var(--theme-warning)' }} />
+                            )}
+                          </span>
+                        </Tooltip>
+                        <Tooltip content={ds.logsWritable ? 'Logs are writable' : 'Logs are read-only'} position="top">
+                          <span className="flex items-center gap-1 text-xs">
+                            {ds.logsWritable ? (
+                              <CheckCircle className="w-3.5 h-3.5" style={{ color: 'var(--theme-success-text)' }} />
+                            ) : (
+                              <XCircle className="w-3.5 h-3.5" style={{ color: 'var(--theme-warning)' }} />
+                            )}
+                          </span>
+                        </Tooltip>
                       </div>
                       {/* Expand/collapse icon */}
                       {isExpanded ? (
@@ -447,8 +446,3 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 };
 
 export default DatasourcesManager;
-
-// Export function to invalidate cache when needed (kept for compatibility)
-export const invalidateDatasourcesCache = () => {
-  // No longer using promise cache, but keep export for any existing imports
-};
