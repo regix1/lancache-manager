@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, typ
 import { POLLING_RATES, type PollingRate } from '@utils/constants';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useAuth } from '@contexts/AuthContext';
+import authService from '@services/auth.service';
 import type {
   GuestPollingRateUpdatedPayload,
   DefaultGuestPollingRateChangedPayload
@@ -47,7 +48,8 @@ export const PollingRateProvider: React.FC<PollingRateProviderProps> = ({ childr
 
           // Try to get user-specific polling rate from preferences
           const prefsResponse = await fetch('/api/user-preferences', {
-            credentials: 'include'
+            credentials: 'include',
+            headers: authService.getAuthHeaders()
           });
 
           if (prefsResponse.ok) {
@@ -71,7 +73,10 @@ export const PollingRateProvider: React.FC<PollingRateProviderProps> = ({ childr
           // For authenticated users, fetch the global polling rate
           setIsControlledByAdmin(false);
 
-          const response = await fetch('/api/system/polling-rate');
+          const response = await fetch('/api/system/polling-rate', {
+            credentials: 'include',
+            headers: authService.getAuthHeaders()
+          });
           if (response.ok) {
             const data = await response.json();
             if (data.pollingRate && data.pollingRate in POLLING_RATES) {
@@ -106,7 +111,7 @@ export const PollingRateProvider: React.FC<PollingRateProviderProps> = ({ childr
       if (authMode === 'guest' && data.pollingRate && data.pollingRate in POLLING_RATES) {
         // Re-fetch to see if we should use the new default
         // (only if we don't have a custom rate set)
-        fetch('/api/user-preferences', { credentials: 'include' })
+        fetch('/api/user-preferences', { credentials: 'include', headers: authService.getAuthHeaders() })
           .then((res) => res.json())
           .then((prefsData) => {
             // If no custom polling rate set, use the new default
@@ -146,8 +151,10 @@ export const PollingRateProvider: React.FC<PollingRateProviderProps> = ({ childr
       try {
         const response = await fetch('/api/system/polling-rate', {
           method: 'PATCH',
+          credentials: 'include',
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            ...authService.getAuthHeaders()
           },
           body: JSON.stringify({ pollingRate: rate })
         });

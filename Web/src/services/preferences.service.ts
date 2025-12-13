@@ -32,6 +32,7 @@ export interface UserPreferences {
   useLocalTimezone: boolean;
   use24HourFormat: boolean;
   showDatasourceLabels: boolean;
+  pollingRate?: string | null; // Polling rate for guest users (null = use default)
 }
 
 class PreferencesService {
@@ -81,7 +82,8 @@ class PreferencesService {
           disableStickyNotifications: data.disableStickyNotifications || false,
           useLocalTimezone: data.useLocalTimezone || false,
           use24HourFormat: data.use24HourFormat || false,
-          showDatasourceLabels: data.showDatasourceLabels ?? true
+          showDatasourceLabels: data.showDatasourceLabels ?? true,
+          pollingRate: data.pollingRate || null
         };
         this.loaded = true;
         // console.log('[PreferencesService] Loaded preferences from API:', this.preferences);
@@ -309,7 +311,8 @@ class PreferencesService {
           disableStickyNotifications: newPreferences.disableStickyNotifications || false,
           useLocalTimezone: newPreferences.useLocalTimezone || false,
           use24HourFormat: newPreferences.use24HourFormat || false,
-          showDatasourceLabels: newPreferences.showDatasourceLabels ?? true
+          showDatasourceLabels: newPreferences.showDatasourceLabels ?? true,
+          pollingRate: newPreferences.pollingRate || null
         };
 
         // Update cache directly with SignalR values (don't fetch from API to avoid race conditions)
@@ -492,7 +495,8 @@ class PreferencesService {
       disableStickyNotifications: false,
       useLocalTimezone: false, // Default to server timezone
       use24HourFormat: true, // Default to 24-hour format
-      showDatasourceLabels: true // Default to showing datasource labels when multiple datasources
+      showDatasourceLabels: true, // Default to showing datasource labels when multiple datasources
+      pollingRate: null // Default polling rate (null = use system default)
     };
   }
 
@@ -517,7 +521,8 @@ class PreferencesService {
           disableStickyNotifications: data.disableStickyNotifications || false,
           useLocalTimezone: data.useLocalTimezone || false,
           use24HourFormat: data.use24HourFormat || false,
-          showDatasourceLabels: data.showDatasourceLabels ?? true
+          showDatasourceLabels: data.showDatasourceLabels ?? true,
+          pollingRate: data.pollingRate || null
         };
       } else {
         console.error(

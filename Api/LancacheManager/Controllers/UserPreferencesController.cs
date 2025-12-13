@@ -59,7 +59,8 @@ public class UserPreferencesController : ControllerBase
                 DisableStickyNotifications = false,
                 UseLocalTimezone = false,
                 Use24HourFormat = true,
-                ShowDatasourceLabels = true
+                ShowDatasourceLabels = true,
+                PollingRate = null
             });
         }
 
@@ -78,7 +79,8 @@ public class UserPreferencesController : ControllerBase
                 DisableStickyNotifications = false,
                 UseLocalTimezone = false,
                 Use24HourFormat = true,
-                ShowDatasourceLabels = true
+                ShowDatasourceLabels = true,
+                PollingRate = null
             });
         }
 
@@ -182,7 +184,8 @@ public class UserPreferencesController : ControllerBase
                 DisableStickyNotifications = false,
                 UseLocalTimezone = false,
                 Use24HourFormat = true,
-                ShowDatasourceLabels = true
+                ShowDatasourceLabels = true,
+                PollingRate = null
             });
         }
 
