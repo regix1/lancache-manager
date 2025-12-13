@@ -55,9 +55,18 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
   const [scanType, setScanType] = useState<'full' | 'incremental' | 'load' | null>(null);
   const [datasources, setDatasources] = useState<DatasourceInfo[]>([]);
+  const [selectedDatasource, setSelectedDatasource] = useState<string | null>(null);
 
   // Format last detection time with timezone awareness
   const formattedLastDetectionTime = useFormattedDateTime(lastDetectionTime);
+
+  // Filter games and services by selected datasource
+  const filteredGames = selectedDatasource
+    ? games.filter((g) => g.datasources?.includes(selectedDatasource))
+    : games;
+  const filteredServices = selectedDatasource
+    ? services.filter((s) => s.datasources?.includes(selectedDatasource))
+    : services;
 
   // Load cached games and services from backend on mount and when refreshKey changes
   useEffect(() => {
@@ -630,20 +639,25 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   </p>
                   {datasources.length > 0 && (
                     <div className="flex flex-wrap items-center gap-2 mt-2">
-                      {datasources.map((ds) => (
-                        <Tooltip key={ds.name} content={ds.cachePath}>
-                          <span
-                            className="inline-flex items-center gap-1.5 px-2 py-0.5 text-xs rounded"
-                            style={{
-                              backgroundColor: 'var(--theme-bg-tertiary)',
-                              color: 'var(--theme-text-secondary)'
-                            }}
-                          >
-                            <FolderOpen className="w-3 h-3" />
-                            {ds.name}
-                          </span>
-                        </Tooltip>
-                      ))}
+                      {datasources.map((ds) => {
+                        const isSelected = selectedDatasource === ds.name;
+                        return (
+                          <Tooltip key={ds.name} content={isSelected ? `Click to show all` : `Click to filter by ${ds.name}`}>
+                            <button
+                              onClick={() => setSelectedDatasource(isSelected ? null : ds.name)}
+                              className="inline-flex items-center gap-1.5 px-2 py-0.5 text-xs rounded cursor-pointer transition-all hover:opacity-80"
+                              style={{
+                                backgroundColor: isSelected ? 'var(--theme-accent-muted)' : 'var(--theme-bg-tertiary)',
+                                color: isSelected ? 'var(--theme-accent)' : 'var(--theme-text-secondary)',
+                                border: isSelected ? '1px solid var(--theme-accent)' : '1px solid transparent'
+                              }}
+                            >
+                              <FolderOpen className="w-3 h-3" />
+                              {ds.name}
+                            </button>
+                          </Tooltip>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -764,11 +778,29 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                 </Alert>
               )}
 
+              {/* Filter indicator */}
+              {selectedDatasource && !loading && (totalGames > 0 || totalServices > 0) && (
+                <Alert color="blue">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">
+                      Showing results from <strong>{selectedDatasource}</strong>: {filteredGames.length} game{filteredGames.length !== 1 ? 's' : ''}, {filteredServices.length} service{filteredServices.length !== 1 ? 's' : ''}
+                    </span>
+                    <Button
+                      variant="subtle"
+                      size="xs"
+                      onClick={() => setSelectedDatasource(null)}
+                    >
+                      Show all
+                    </Button>
+                  </div>
+                </Alert>
+              )}
+
               {/* Services List - NOW APPEARS FIRST */}
               {!loading && (
                 <ServicesList
-                  services={services}
-                  totalServices={totalServices}
+                  services={filteredServices}
+                  totalServices={filteredServices.length}
                   notifications={notifications}
                   isAuthenticated={isAuthenticated}
                   cacheReadOnly={cacheReadOnly}
@@ -781,8 +813,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               {/* Games List - NOW APPEARS AFTER SERVICES */}
               {!loading && (
                 <GamesList
-                  games={games}
-                  totalGames={totalGames}
+                  games={filteredGames}
+                  totalGames={filteredGames.length}
                   notifications={notifications}
                   isAuthenticated={isAuthenticated}
                   cacheReadOnly={cacheReadOnly}
@@ -794,28 +826,41 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
               {/* Empty State */}
               {!loading &&
-                totalGames === 0 &&
-                totalServices === 0 &&
-                games.length === 0 &&
-                services.length === 0 &&
+                filteredGames.length === 0 &&
+                filteredServices.length === 0 &&
                 !error && (
                   <div className="text-center py-8 text-themed-muted">
                     <HardDrive className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                    <div className="mb-2">No games or services with cache files detected</div>
-                    {!hasProcessedLogs && !checkingLogs ? (
-                      <div className="text-xs space-y-1">
-                        <div className="text-themed-warning font-medium">
-                          Database has no LogEntries
-                        </div>
-                        <div>
-                          Process access logs to populate the database. Detection requires
-                          LogEntries to match cache files.
-                        </div>
-                      </div>
+                    {selectedDatasource ? (
+                      <>
+                        <div className="mb-2">No games or services found in {selectedDatasource}</div>
+                        <Button
+                          variant="subtle"
+                          size="sm"
+                          onClick={() => setSelectedDatasource(null)}
+                        >
+                          Show all results
+                        </Button>
+                      </>
                     ) : (
-                      <div className="text-xs">
-                        Click &ldquo;Detect Games&rdquo; to scan your cache directory
-                      </div>
+                      <>
+                        <div className="mb-2">No games or services with cache files detected</div>
+                        {!hasProcessedLogs && !checkingLogs ? (
+                          <div className="text-xs space-y-1">
+                            <div className="text-themed-warning font-medium">
+                              Database has no LogEntries
+                            </div>
+                            <div>
+                              Process access logs to populate the database. Detection requires
+                              LogEntries to match cache files.
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-xs">
+                            Click &ldquo;Detect Games&rdquo; to scan your cache directory
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 )}
