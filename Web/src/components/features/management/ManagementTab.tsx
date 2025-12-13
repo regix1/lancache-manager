@@ -28,14 +28,13 @@ import AuthenticationManager from './steam/AuthenticationManager';
 import SteamLoginManager from './steam/SteamLoginManager';
 import SteamWebApiStatus from './steam/SteamWebApiStatus';
 import CacheManager from './cache/CacheManager';
-import LogProcessingManager from './log-processing/LogProcessingManager';
 import LogAndCorruptionManager from './log-processing/LogAndCorruptionManager';
 import GameCacheDetector from './game-detection/GameCacheDetector';
 import ThemeManager from './theme/ThemeManager';
 import GcManager from './gc/GcManager';
 import GrafanaEndpoints from './grafana/GrafanaEndpoints';
 import DataImporter from './data/DataImporter';
-import DatasourcesInfo from './datasources/DatasourcesInfo';
+import DatasourcesManager from './datasources/DatasourcesInfo';
 import { CollapsibleSection } from '@components/ui/CollapsibleSection';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -598,15 +597,13 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
 
             {/* Data Management Section - Default Open */}
             <CollapsibleSection title="Data Management" icon={HardDrive} defaultOpen>
-              <Suspense fallback={
-                <Card>
-                  <div className="flex items-center justify-center py-8">
-                    <div className="text-themed-muted">Loading datasources...</div>
-                  </div>
-                </Card>
-              }>
-                <DatasourcesInfo />
-              </Suspense>
+              <DatasourcesManager
+                isAuthenticated={isAuthenticated}
+                mockMode={mockMode}
+                onError={addError}
+                onSuccess={setSuccess}
+                onDataRefresh={refreshStats}
+              />
 
               <DatabaseManager
                 isAuthenticated={isAuthenticated}
@@ -640,14 +637,6 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
                   onSuccess={setSuccess}
                 />
               </Suspense>
-
-              <LogProcessingManager
-                isAuthenticated={isAuthenticated}
-                mockMode={mockMode}
-                onError={addError}
-                onSuccess={setSuccess}
-                onDataRefresh={refreshStats}
-              />
 
               <LogAndCorruptionManager
                 isAuthenticated={isAuthenticated}

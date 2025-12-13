@@ -14,8 +14,8 @@ import type {
   CorruptedChunkDetail,
   GameDetectionStatus,
   GameCacheInfo,
-  ServiceCacheInfo
-  // GameCacheRemovalReport // No longer used - game removal is fire-and-forget
+  ServiceCacheInfo,
+  DatasourceLogPosition
 } from '../types';
 
 // Response types for API operations
@@ -406,7 +406,7 @@ class ApiService {
     }
   }
 
-  // Reset log position (requires auth)
+  // Reset log position (requires auth) - all datasources
   static async resetLogPosition(position: 'top' | 'bottom' = 'bottom'): Promise<OperationResponse> {
     try {
       const res = await fetch(`${API_BASE}/logs/position`, this.getFetchOptions({
@@ -422,7 +422,35 @@ class ApiService {
     }
   }
 
-  // Process all logs (requires auth)
+  // Reset log position for a specific datasource (requires auth)
+  static async resetDatasourceLogPosition(datasourceName: string, position: 'top' | 'bottom' = 'bottom'): Promise<OperationResponse> {
+    try {
+      const res = await fetch(`${API_BASE}/logs/position/${encodeURIComponent(datasourceName)}`, this.getFetchOptions({
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ position: position === 'top' ? 0 : null })
+      }));
+      return await this.handleResponse<OperationResponse>(res);
+    } catch (error: unknown) {
+      console.error('resetDatasourceLogPosition error:', error);
+      throw error;
+    }
+  }
+
+  // Get log positions for all datasources
+  static async getLogPositions(): Promise<DatasourceLogPosition[]> {
+    try {
+      const res = await fetch(`${API_BASE}/logs/positions`, this.getFetchOptions({
+        signal: AbortSignal.timeout(10000)
+      }));
+      return await this.handleResponse<DatasourceLogPosition[]>(res);
+    } catch (error: unknown) {
+      console.error('getLogPositions error:', error);
+      throw error;
+    }
+  }
+
+  // Process all logs (requires auth) - all datasources
   static async processAllLogs(): Promise<OperationResponse> {
     try {
       const res = await fetch(`${API_BASE}/logs/process`, this.getFetchOptions({
@@ -433,6 +461,20 @@ class ApiService {
       return await this.handleResponse<OperationResponse>(res);
     } catch (error: unknown) {
       console.error('processAllLogs error:', error);
+      throw error;
+    }
+  }
+
+  // Process logs for a specific datasource (requires auth)
+  static async processDatasourceLogs(datasourceName: string): Promise<OperationResponse> {
+    try {
+      const res = await fetch(`${API_BASE}/logs/process/${encodeURIComponent(datasourceName)}`, this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      }));
+      return await this.handleResponse<OperationResponse>(res);
+    } catch (error: unknown) {
+      console.error('processDatasourceLogs error:', error);
       throw error;
     }
   }

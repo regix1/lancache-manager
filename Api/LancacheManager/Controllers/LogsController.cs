@@ -167,7 +167,85 @@ public class LogsController : ControllerBase
     }
 
     /// <summary>
-    /// POST /api/logs/process - Start processing logs from current position
+    /// GET /api/logs/positions - Get log positions for all datasources
+    /// </summary>
+    [HttpGet("positions")]
+    public IActionResult GetLogPositions()
+    {
+        var datasources = _datasourceService.GetDatasources();
+        var positions = new List<object>();
+
+        foreach (var ds in datasources)
+        {
+            var position = _stateRepository.GetLogPosition(ds.Name);
+            var logFile = Path.Combine(ds.LogPath, "access.log");
+            long totalLines = 0;
+
+            if (System.IO.File.Exists(logFile))
+            {
+                totalLines = CountLinesInFile(logFile);
+            }
+
+            positions.Add(new
+            {
+                datasource = ds.Name,
+                position = position,
+                totalLines = totalLines,
+                logPath = ds.LogPath,
+                enabled = ds.Enabled
+            });
+        }
+
+        return Ok(positions);
+    }
+
+    /// <summary>
+    /// PATCH /api/logs/position/{datasourceName} - Reset position for a specific datasource
+    /// </summary>
+    [HttpPatch("position/{datasourceName}")]
+    [RequireAuth]
+    public IActionResult ResetDatasourceLogPosition(string datasourceName, [FromBody] UpdateLogPositionRequest? request)
+    {
+        var datasource = _datasourceService.GetDatasource(datasourceName);
+        if (datasource == null)
+        {
+            return NotFound(new NotFoundResponse { Error = $"Datasource '{datasourceName}' not found" });
+        }
+
+        // If position is explicitly 0, reset to beginning
+        if (request?.Position == 0)
+        {
+            _rustLogProcessorService.ResetLogPosition(datasourceName);
+            _logger.LogInformation("Datasource '{Name}': Log position reset to beginning", datasourceName);
+
+            return Ok(new LogPositionResponse
+            {
+                Message = $"Log position reset to beginning for '{datasourceName}'",
+                Position = 0
+            });
+        }
+
+        // Otherwise reset to end of file
+        var logFile = Path.Combine(datasource.LogPath, "access.log");
+        long lineCount = 0;
+
+        if (System.IO.File.Exists(logFile))
+        {
+            lineCount = CountLinesInFile(logFile);
+        }
+
+        _stateRepository.SetLogPosition(datasourceName, lineCount);
+        _logger.LogInformation("Datasource '{Name}': Log position set to end (line {LineCount})", datasourceName, lineCount);
+
+        return Ok(new LogPositionResponse
+        {
+            Message = $"Log position reset to end of file for '{datasourceName}'",
+            Position = lineCount
+        });
+    }
+
+    /// <summary>
+    /// POST /api/logs/process - Start processing logs from current position (all datasources)
     /// Note: POST is acceptable here as this starts an asynchronous operation
     /// Uses the position set by PUT /api/logs/position endpoint (top or bottom)
     /// </summary>
@@ -177,12 +255,12 @@ public class LogsController : ControllerBase
     {
         try
         {
-            _rustLogProcessorService.StartProcessing();
-            _logger.LogInformation("Started log processing");
+            _ = _rustLogProcessorService.StartProcessing();
+            _logger.LogInformation("Started log processing for all datasources");
 
             return Accepted(new OperationResponse
             {
-                Message = "Log processing started",
+                Message = "Log processing started for all datasources",
                 Status = "running"
             });
         }
@@ -190,6 +268,54 @@ public class LogsController : ControllerBase
         {
             // Specific handling for "already running" case - return 409 Conflict
             _logger.LogWarning(ex, "Cannot start log processing - already running");
+            return Conflict(new ConflictResponse { Error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// POST /api/logs/process/{datasourceName} - Start processing logs for a specific datasource
+    /// </summary>
+    [HttpPost("process/{datasourceName}")]
+    [RequireAuth]
+    public async Task<IActionResult> ProcessDatasourceLogs(string datasourceName)
+    {
+        var datasource = _datasourceService.GetDatasource(datasourceName);
+        if (datasource == null)
+        {
+            return NotFound(new NotFoundResponse { Error = $"Datasource '{datasourceName}' not found" });
+        }
+
+        if (_rustLogProcessorService.IsProcessing)
+        {
+            return Conflict(new ConflictResponse { Error = "Log processing is already running" });
+        }
+
+        try
+        {
+            var position = _stateRepository.GetLogPosition(datasourceName);
+            var success = await _rustLogProcessorService.StartProcessingAsync(
+                datasource.LogPath,
+                position,
+                silentMode: false,
+                datasourceName: datasourceName);
+
+            if (success)
+            {
+                _logger.LogInformation("Started log processing for datasource '{Name}'", datasourceName);
+                return Accepted(new OperationResponse
+                {
+                    Message = $"Log processing started for '{datasourceName}'",
+                    Status = "running"
+                });
+            }
+            else
+            {
+                return Conflict(new ConflictResponse { Error = "Failed to start log processing" });
+            }
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Cannot start log processing for datasource '{Name}'", datasourceName);
             return Conflict(new ConflictResponse { Error = ex.Message });
         }
     }

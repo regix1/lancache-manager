@@ -155,6 +155,14 @@ export interface DatasourceInfo {
   enabled: boolean;
 }
 
+export interface DatasourceLogPosition {
+  datasource: string;
+  position: number;
+  totalLines: number;
+  logPath: string;
+  enabled: boolean;
+}
+
 export interface Config {
   cachePath: string;
   logsPath: string;

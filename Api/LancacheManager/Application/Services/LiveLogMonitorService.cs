@@ -136,6 +136,9 @@ public class LiveLogMonitorService : BackgroundService
             return;
         }
 
+        // Check if logs have been processed before (to distinguish fresh install from manual reset)
+        var hasProcessedLogs = _stateService.GetHasProcessedLogs();
+
         // Initialize file sizes for each datasource
         foreach (var ds in datasources)
         {
@@ -146,13 +149,14 @@ public class LiveLogMonitorService : BackgroundService
                 _lastFileSizes[ds.Name] = fileInfo.Length;
                 _logger.LogInformation("Datasource '{Name}': Initial log file size: {Size:N0} bytes", ds.Name, fileInfo.Length);
 
-                // If log position is 0, initialize it to the end of the file
+                // Only auto-initialize to end of file on fresh install (never processed logs before)
+                // If position is 0 but logs have been processed, user intentionally reset to beginning
                 var currentPosition = _stateService.GetLogPosition(ds.Name);
-                if (currentPosition == 0)
+                if (currentPosition == 0 && !hasProcessedLogs)
                 {
                     var lineCount = CountLinesWithSharing(logFile);
                     _stateService.SetLogPosition(ds.Name, lineCount);
-                    _logger.LogInformation("Datasource '{Name}': Initialized log position to end of file (line {LineCount})", ds.Name, lineCount);
+                    _logger.LogInformation("Datasource '{Name}': Fresh install - initialized log position to end of file (line {LineCount})", ds.Name, lineCount);
                 }
             }
             else
