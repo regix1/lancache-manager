@@ -550,19 +550,42 @@ If you run multiple LANCache instances with separate log and cache directories, 
 
 #### Option 1: Auto-Discovery (Recommended)
 
-The simplest approach - automatically detect datasources by scanning for matching subdirectories:
+Automatically detect datasources by scanning your cache and logs directories:
 
 ```yaml
 volumes:
   - ./data:/data
-  - /mnt/lancache/logs:/logs:ro      # Contains subdirs: steam/, epic/, etc.
-  - /mnt/lancache/cache:/cache:ro    # Contains subdirs: steam/, epic/, etc.
+  - /mnt/lancache/logs:/logs:ro
+  - /mnt/lancache/cache:/cache:ro
 
 environment:
+  - LanCache__LogPath=/logs
+  - LanCache__CachePath=/cache
   - LanCache__AutoDiscoverDatasources=true
 ```
 
-The app scans `/cache` and `/logs` for subdirectories that exist in **both** locations. For example, if you have `/cache/steam` and `/logs/steam`, it creates a "Steam" datasource automatically.
+**Auto-discovery detects:**
+1. **Default datasource** - If there's an `access.log` at the root level AND cache content (LANCache hash directories) at the root
+2. **Subdirectory datasources** - Matching folders in both cache and logs (e.g., `steam/` in both → "Steam" datasource)
+
+**Example: Main LANCache + Outsourced Steam**
+
+```
+Host directory structure:
+/mnt/lancache/
+  ├── cache/
+  │   ├── 00/, 01/, a1/, ff/    # LANCache hash dirs (Default)
+  │   └── steam/                 # Outsourced Steam cache
+  │       └── 00/, 01/, ...
+  └── logs/
+      ├── access.log             # Main log (Default)
+      └── steam/                 # Outsourced Steam logs
+          └── access.log
+```
+
+Auto-discovery creates: **Default** (root level) + **Steam** (subdirectory)
+
+**Folder name matching:** Case-insensitive and flexible - folders named `Steam`, `steam`, `STEAM`, or `steam-cache` will match `steam-logs`.
 
 #### Option 2: Manual Configuration
 
@@ -585,7 +608,9 @@ environment:
 
 > **Note:** Explicit DataSources config takes priority over auto-discovery.
 
-### Multi-Datasource Docker Compose Example (Manual)
+### Multi-Datasource Docker Compose Example (Manual - Default + Outsourced)
+
+Use manual configuration when you have a main LANCache plus outsourced services on separate drives:
 
 ```yaml
 version: '3.8'
@@ -600,13 +625,21 @@ services:
     volumes:
       - ./data:/data
 
-      # Steam LANCache
-      - /mnt/lancache/steam/logs:/mnt/logs/steam:ro
-      - /mnt/lancache/steam/cache:/mnt/cache/steam:ro
+      # Main LANCache (all services except Steam)
+      # /mnt/lancache/
+      #   ├── cache/     (contains 00/, 01/, a1/, ff/, etc.)
+      #   └── logs/
+      #       └── access.log
+      - /mnt/lancache/logs:/logs:ro
+      - /mnt/lancache/cache:/cache:ro
 
-      # Epic Games LANCache
-      - /mnt/lancache/epic/logs:/mnt/logs/epic:ro
-      - /mnt/lancache/epic/cache:/mnt/cache/epic:ro
+      # Outsourced Steam on separate drive
+      # /mnt/steam-drive/
+      #   ├── cache/     (contains 00/, 01/, a1/, ff/, etc.)
+      #   └── logs/
+      #       └── access.log
+      - /mnt/steam-drive/logs:/steam-logs:ro
+      - /mnt/steam-drive/cache:/steam-cache:ro
 
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
@@ -615,23 +648,25 @@ services:
       - TZ=America/Chicago
       - ASPNETCORE_URLS=http://+:80
 
-      # Steam datasource
-      - LanCache__DataSources__0__Name=Steam
-      - LanCache__DataSources__0__CachePath=/mnt/cache/steam
-      - LanCache__DataSources__0__LogPath=/mnt/logs/steam
+      # Default datasource - main LANCache
+      - LanCache__DataSources__0__Name=Default
+      - LanCache__DataSources__0__CachePath=/cache
+      - LanCache__DataSources__0__LogPath=/logs
       - LanCache__DataSources__0__Enabled=true
 
-      # Epic Games datasource
-      - LanCache__DataSources__1__Name=Epic
-      - LanCache__DataSources__1__CachePath=/mnt/cache/epic
-      - LanCache__DataSources__1__LogPath=/mnt/logs/epic
+      # Outsourced Steam datasource
+      - LanCache__DataSources__1__Name=Steam
+      - LanCache__DataSources__1__CachePath=/steam-cache
+      - LanCache__DataSources__1__LogPath=/steam-logs
       - LanCache__DataSources__1__Enabled=true
 
       - Security__EnableAuthentication=true
       - NginxLogRotation__Enabled=true
 ```
 
-### Multi-Datasource Docker Compose Example (Auto-Discovery)
+### Multi-Datasource Docker Compose Example (Auto-Discovery - Default + Outsourced)
+
+Auto-discovery detects both root-level content AND subdirectories automatically:
 
 ```yaml
 version: '3.8'
@@ -646,18 +681,17 @@ services:
     volumes:
       - ./data:/data
 
-      # LANCache logs directory containing service subdirectories
-      # /mnt/lancache/logs/
-      #   ├── steam/
-      #   ├── epic/
-      #   └── battlenet/
+      # Main LANCache directory with default + outsourced subdirectory
+      # /mnt/lancache/
+      #   ├── cache/
+      #   │   ├── 00/, 01/, a1/, ff/   # Default cache content
+      #   │   └── steam/                # Outsourced Steam
+      #   │       └── 00/, 01/, ...
+      #   └── logs/
+      #       ├── access.log            # Default log
+      #       └── steam/                # Outsourced Steam
+      #           └── access.log
       - /mnt/lancache/logs:/logs:ro
-
-      # LANCache cache directory containing service subdirectories
-      # /mnt/lancache/cache/
-      #   ├── steam/
-      #   ├── epic/
-      #   └── battlenet/
       - /mnt/lancache/cache:/cache:ro
 
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -671,14 +705,16 @@ services:
       - LanCache__LogPath=/logs
       - LanCache__CachePath=/cache
 
-      # Auto-discover datasources from matching subdirectories
+      # Auto-discover datasources
       - LanCache__AutoDiscoverDatasources=true
 
       - Security__EnableAuthentication=true
       - NginxLogRotation__Enabled=true
 ```
 
-Auto-discovery scans `CachePath` and `LogPath` for matching subdirectories (e.g., `steam/` exists in both → creates "Steam" datasource).
+Auto-discovery creates:
+- **Default** - From root-level `access.log` + cache hash directories
+- **Steam** - From matching `steam/` subdirectory in both cache and logs
 
 ### How It Works
 

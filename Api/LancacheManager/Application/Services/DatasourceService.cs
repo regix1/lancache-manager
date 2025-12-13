@@ -118,8 +118,9 @@ public class DatasourceService
     }
 
     /// <summary>
-    /// Discover datasources by scanning for matching subdirectories in cache and logs folders.
-    /// A subdirectory is only added if it exists in BOTH the cache and logs base paths.
+    /// Discover datasources by scanning cache and logs folders.
+    /// - Detects "Default" datasource if access.log exists at root level
+    /// - Detects subdirectory datasources if matching folders exist in BOTH cache and logs
     /// </summary>
     private List<DatasourceConfig> DiscoverDatasources()
     {
@@ -144,6 +145,23 @@ public class DatasourceService
             return discovered;
         }
 
+        // Check for root-level "Default" datasource
+        // If there's an access.log at the root AND cache has content, create Default datasource
+        if (HasRootLevelLogFile(baseLogsPath) && HasCacheContent(baseCachePath))
+        {
+            discovered.Add(new DatasourceConfig
+            {
+                Name = "Default",
+                CachePath = baseCachePath,
+                LogPath = baseLogsPath,
+                Enabled = true
+            });
+
+            _logger.LogDebug("Auto-discovery found root-level Default datasource: Cache={Cache}, Logs={Logs}",
+                baseCachePath, baseLogsPath);
+        }
+
+        // Scan subdirectories for additional datasources
         foreach (var cacheSubdir in Directory.GetDirectories(baseCachePath))
         {
             var subdirName = Path.GetFileName(cacheSubdir);
@@ -152,10 +170,15 @@ public class DatasourceService
             if (subdirName.StartsWith(".") || subdirName.StartsWith("_"))
                 continue;
 
-            var logsSubdir = Path.Combine(baseLogsPath, subdirName);
+            // Skip LANCache hash directories (2 character hex names like 00, 01, a1, ff)
+            // These are cache content, not datasource subdirectories
+            if (IsLanCacheHashDirectory(subdirName))
+                continue;
 
-            // Only create datasource if BOTH cache and logs subdirectories exist
-            if (Directory.Exists(logsSubdir))
+            // Try to find matching logs subdirectory (handles naming variations)
+            var logsSubdir = FindMatchingLogsDirectory(baseLogsPath, subdirName);
+
+            if (logsSubdir != null)
             {
                 var displayName = CultureInfo.CurrentCulture.TextInfo.ToTitleCase(subdirName.ToLower());
 
@@ -172,8 +195,159 @@ public class DatasourceService
             }
         }
 
-        // Sort by name for consistent ordering
-        return discovered.OrderBy(d => d.Name).ToList();
+        // Sort by name for consistent ordering, but keep Default first
+        return discovered
+            .OrderBy(d => d.Name == "Default" ? 0 : 1)
+            .ThenBy(d => d.Name)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Check if there's a log file at the root level of the logs directory.
+    /// Looks for common log file patterns: access.log, *.log, etc.
+    /// </summary>
+    private bool HasRootLevelLogFile(string logsPath)
+    {
+        try
+        {
+            // Common log file patterns
+            var logPatterns = new[] { "access.log", "*.log" };
+
+            foreach (var pattern in logPatterns)
+            {
+                var files = Directory.GetFiles(logsPath, pattern, SearchOption.TopDirectoryOnly);
+                if (files.Length > 0)
+                {
+                    _logger.LogDebug("Found root-level log file(s) in {Path}: {Files}",
+                        logsPath, string.Join(", ", files.Select(Path.GetFileName)));
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error checking for root-level log files in {Path}", logsPath);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Check if the cache directory has actual cache content (not just subdirectories).
+    /// LANCache creates hash-named directories (2 character hex names like 00, 01, a1, etc.)
+    /// </summary>
+    private bool HasCacheContent(string cachePath)
+    {
+        try
+        {
+            // Look for LANCache hash directories (2 character hex names)
+            var subdirs = Directory.GetDirectories(cachePath);
+            foreach (var subdir in subdirs)
+            {
+                var name = Path.GetFileName(subdir);
+                if (IsLanCacheHashDirectory(name))
+                {
+                    _logger.LogDebug("Found LANCache hash directory in {Path}: {Dir}", cachePath, name);
+                    return true;
+                }
+            }
+
+            // Also check for any files directly in the cache directory
+            var files = Directory.GetFiles(cachePath, "*", SearchOption.TopDirectoryOnly);
+            if (files.Length > 0)
+            {
+                return true;
+            }
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error checking for cache content in {Path}", cachePath);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Check if a directory name is a LANCache hash directory.
+    /// LANCache creates 2-character hex directories (00, 01, a1, ff, etc.)
+    /// </summary>
+    private static bool IsLanCacheHashDirectory(string name)
+    {
+        // LANCache creates 2-char hex directories like 00, 01, a1, ff, etc.
+        return name.Length == 2 && name.All(c => "0123456789abcdefABCDEF".Contains(c));
+    }
+
+    /// <summary>
+    /// Find a matching logs directory for a given cache subdirectory name.
+    /// Uses case-insensitive matching and normalized name comparison.
+    /// </summary>
+    private string? FindMatchingLogsDirectory(string baseLogsPath, string cacheSubdirName)
+    {
+        // Try exact match first
+        var exactMatch = Path.Combine(baseLogsPath, cacheSubdirName);
+        if (Directory.Exists(exactMatch))
+        {
+            return exactMatch;
+        }
+
+        // Scan all directories and find case-insensitive or normalized matches
+        try
+        {
+            var logsDirectories = Directory.GetDirectories(baseLogsPath);
+            var normalizedCacheName = NormalizeName(cacheSubdirName);
+
+            foreach (var logsDir in logsDirectories)
+            {
+                var logsDirName = Path.GetFileName(logsDir);
+
+                // Skip hash directories
+                if (IsLanCacheHashDirectory(logsDirName))
+                    continue;
+
+                // Case-insensitive exact match
+                if (string.Equals(logsDirName, cacheSubdirName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return logsDir;
+                }
+
+                // Normalized name match (removes hyphens, underscores, handles pluralization)
+                var normalizedLogsName = NormalizeName(logsDirName);
+                if (string.Equals(normalizedLogsName, normalizedCacheName, StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogDebug("Found logs directory via normalized match: {Cache} -> {Logs}",
+                        cacheSubdirName, logsDirName);
+                    return logsDir;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error scanning logs directories in {Path}", baseLogsPath);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Normalize a directory name for flexible matching.
+    /// Removes common separators and trailing 's' for pluralization.
+    /// </summary>
+    private static string NormalizeName(string name)
+    {
+        var normalized = name.ToLowerInvariant();
+
+        // Remove common separators
+        normalized = normalized.Replace("-", "").Replace("_", "").Replace(" ", "");
+
+        // Remove trailing 's' for pluralization (but not for short names like 'logs')
+        if (normalized.Length > 4 && normalized.EndsWith("s"))
+        {
+            normalized = normalized[..^1];
+        }
+
+        return normalized;
     }
 
     /// <summary>
