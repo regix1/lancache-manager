@@ -1,7 +1,9 @@
 using LancacheManager.Application.DTOs;
+using LancacheManager.Application.Services;
 using LancacheManager.Security;
 using LancacheManager.Data;
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Infrastructure.Repositories.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
@@ -22,6 +24,9 @@ public class SessionsController : ControllerBase
     private readonly IHubContext<DownloadHub> _hubContext;
     private readonly AppDbContext _dbContext;
     private readonly IDatabaseRepository _databaseRepository;
+    private readonly ConnectionTrackingService _connectionTrackingService;
+    private readonly UserPreferencesService _userPreferencesService;
+    private readonly StateRepository _stateService;
 
     public SessionsController(
         DeviceAuthService deviceAuthService,
@@ -29,7 +34,10 @@ public class SessionsController : ControllerBase
         ILogger<SessionsController> logger,
         IHubContext<DownloadHub> hubContext,
         AppDbContext dbContext,
-        IDatabaseRepository databaseRepository)
+        IDatabaseRepository databaseRepository,
+        ConnectionTrackingService connectionTrackingService,
+        UserPreferencesService userPreferencesService,
+        StateRepository stateService)
     {
         _deviceAuthService = deviceAuthService;
         _guestSessionService = guestSessionService;
@@ -37,6 +45,9 @@ public class SessionsController : ControllerBase
         _hubContext = hubContext;
         _dbContext = dbContext;
         _databaseRepository = databaseRepository;
+        _connectionTrackingService = connectionTrackingService;
+        _userPreferencesService = userPreferencesService;
+        _stateService = stateService;
     }
 
     /// <summary>
@@ -427,6 +438,87 @@ public class SessionsController : ControllerBase
         }
 
         return NotFound(new ErrorResponse { Error = "Session not found" });
+    }
+
+    /// <summary>
+    /// PATCH /api/sessions/{id}/polling-rate - Set the polling rate for a specific guest session
+    /// RESTful: PATCH is proper method for partial resource updates
+    /// Request body: { "pollingRate": "LIVE" | "ULTRA" | "REALTIME" | "STANDARD" | "RELAXED" | "SLOW" | null }
+    /// Pass null or empty string to reset to default guest polling rate
+    /// </summary>
+    [HttpPatch("{id}/polling-rate")]
+    [RequireAuth]
+    public async Task<IActionResult> SetSessionPollingRate(string id, [FromBody] SetSessionPollingRateRequest request)
+    {
+        // Check if it's a guest session
+        var guestSession = _guestSessionService.GetSessionByDeviceId(id);
+        if (guestSession == null)
+        {
+            return NotFound(new ErrorResponse { Error = "Guest session not found" });
+        }
+
+        string? pollingRate = null;
+        var isReset = string.IsNullOrWhiteSpace(request.PollingRate);
+
+        if (!isReset)
+        {
+            var validRates = new[] { "LIVE", "ULTRA", "REALTIME", "STANDARD", "RELAXED", "SLOW" };
+            if (!validRates.Contains(request.PollingRate!.ToUpperInvariant()))
+            {
+                return BadRequest(new ErrorResponse { Error = "Invalid polling rate. Must be LIVE, ULTRA, REALTIME, STANDARD, RELAXED, or SLOW" });
+            }
+            pollingRate = request.PollingRate.ToUpperInvariant();
+        }
+
+        // Update the polling rate in user preferences (null clears custom rate)
+        _userPreferencesService.UpdatePreferenceAndGet(id, "PollingRate", pollingRate);
+
+        if (isReset)
+        {
+            _logger.LogInformation("Guest session polling rate reset to default: DeviceId={DeviceId}", id);
+        }
+        else
+        {
+            _logger.LogInformation("Guest session polling rate set: DeviceId={DeviceId}, Rate={Rate}", id, pollingRate);
+        }
+
+        // Push the new rate to the guest if they're connected
+        var connectionId = _connectionTrackingService.GetConnectionId(id);
+        if (!string.IsNullOrEmpty(connectionId))
+        {
+            // If reset, send the default guest polling rate
+            var rateToSend = pollingRate ?? _stateService.GetDefaultGuestPollingRate();
+            await _hubContext.Clients.Client(connectionId).SendAsync("GuestPollingRateUpdated", new
+            {
+                pollingRate = rateToSend,
+                isDefault = isReset
+            });
+            _logger.LogDebug("Pushed polling rate to connected guest: DeviceId={DeviceId}, ConnectionId={ConnectionId}, Rate={Rate}, IsDefault={IsDefault}",
+                id, connectionId, rateToSend, isReset);
+        }
+        else
+        {
+            _logger.LogDebug("Guest not connected, polling rate will apply on reconnect: DeviceId={DeviceId}", id);
+        }
+
+        return Ok(new SetSessionPollingRateResponse
+        {
+            Success = true,
+            Message = isReset ? "Polling rate reset to default" : "Polling rate updated",
+            PollingRate = pollingRate ?? _stateService.GetDefaultGuestPollingRate()
+        });
+    }
+
+    public class SetSessionPollingRateRequest
+    {
+        public string PollingRate { get; set; } = string.Empty;
+    }
+
+    public class SetSessionPollingRateResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = string.Empty;
+        public string PollingRate { get; set; } = string.Empty;
     }
 
     public class CreateSessionRequest

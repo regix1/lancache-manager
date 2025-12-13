@@ -264,6 +264,9 @@ builder.Services.AddSingleton<GuestSessionService>();
 builder.Services.AddSingleton<LancacheManager.Application.Services.UserPreferencesService>();
 builder.Services.AddSingleton<LancacheManager.Application.Services.SessionMigrationService>();
 
+// Register SignalR connection tracking service for targeted messaging
+builder.Services.AddSingleton<LancacheManager.Application.Services.ConnectionTrackingService>();
+
 // Register SteamKit2Service for real-time Steam depot mapping
 builder.Services.AddSingleton<SteamKit2Service>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<SteamKit2Service>());

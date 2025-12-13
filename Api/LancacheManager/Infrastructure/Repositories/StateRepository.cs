@@ -64,6 +64,7 @@ public class StateRepository : IStateRepository
         public string? SelectedTheme { get; set; } = "dark-default"; // Default theme for authenticated users
         public string? DefaultGuestTheme { get; set; } = "dark-default"; // Default theme for guest users
         public string PollingRate { get; set; } = "STANDARD"; // Default to 10 seconds (LIVE, ULTRA, REALTIME, STANDARD, RELAXED, SLOW)
+        public string DefaultGuestPollingRate { get; set; } = "STANDARD"; // Default polling rate for guest users
 
         // PICS viability check caching (prevents repeated Steam API calls)
         public bool RequiresFullScan { get; set; } = false; // True if Steam requires full scan due to large change gap
@@ -109,6 +110,7 @@ public class StateRepository : IStateRepository
         public string? SelectedTheme { get; set; } = "dark-default";
         public string? DefaultGuestTheme { get; set; } = "dark-default";
         public string PollingRate { get; set; } = "STANDARD";
+        public string DefaultGuestPollingRate { get; set; } = "STANDARD";
 
         // PICS viability check caching
         public bool RequiresFullScan { get; set; } = false;
@@ -780,6 +782,7 @@ public class StateRepository : IStateRepository
             SelectedTheme = persisted.SelectedTheme ?? "dark-default",
             DefaultGuestTheme = persisted.DefaultGuestTheme ?? "dark-default",
             PollingRate = persisted.PollingRate ?? "STANDARD",
+            DefaultGuestPollingRate = persisted.DefaultGuestPollingRate ?? "STANDARD",
             // PICS viability check caching
             RequiresFullScan = persisted.RequiresFullScan,
             LastViabilityCheck = persisted.LastViabilityCheck,
@@ -824,6 +827,7 @@ public class StateRepository : IStateRepository
             SelectedTheme = state.SelectedTheme,
             DefaultGuestTheme = state.DefaultGuestTheme,
             PollingRate = state.PollingRate ?? "STANDARD",
+            DefaultGuestPollingRate = state.DefaultGuestPollingRate ?? "STANDARD",
             // PICS viability check caching
             RequiresFullScan = state.RequiresFullScan,
             LastViabilityCheck = state.LastViabilityCheck,
@@ -964,6 +968,23 @@ public class StateRepository : IStateRepository
             rate = "STANDARD";
         }
         UpdateState(state => state.PollingRate = rate.ToUpperInvariant());
+    }
+
+    // Default Guest Polling Rate Methods
+    public string GetDefaultGuestPollingRate()
+    {
+        return GetState().DefaultGuestPollingRate ?? "STANDARD";
+    }
+
+    public void SetDefaultGuestPollingRate(string rate)
+    {
+        // Validate the rate is a valid option
+        var validRates = new[] { "LIVE", "ULTRA", "REALTIME", "STANDARD", "RELAXED", "SLOW" };
+        if (!validRates.Contains(rate.ToUpperInvariant()))
+        {
+            rate = "STANDARD";
+        }
+        UpdateState(state => state.DefaultGuestPollingRate = rate.ToUpperInvariant());
     }
 
     // Steam Session Replacement Tracking Methods

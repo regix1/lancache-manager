@@ -26,6 +26,7 @@ import { getErrorMessage } from '@utils/error';
 import { useAuth } from '@contexts/AuthContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useSignalR } from '@contexts/SignalRContext';
+import { useActivityTracker } from '@hooks/useActivityTracker';
 
 interface Session {
   id: string;
@@ -55,6 +56,7 @@ interface UserPreferences {
   picsAlwaysVisible: boolean;
   disableStickyNotifications: boolean;
   showDatasourceLabels: boolean;
+  pollingRate?: string | null; // Polling rate for guest users (null = use default)
 }
 
 // Helper component for session timestamps with timezone awareness
@@ -81,6 +83,10 @@ const UserTab: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [revokingSession, setRevokingSession] = useState<string | null>(null);
 
+  // Track local user activity to show "Active" pill immediately for current session
+  const { isActive: isLocallyActive } = useActivityTracker();
+  const currentDeviceId = authService.getDeviceId();
+
   // Helper to show toast notifications
   const showToast = (type: 'success' | 'error' | 'info', message: string) => {
     window.dispatchEvent(new CustomEvent('show-toast', {
@@ -95,6 +101,8 @@ const UserTab: React.FC = () => {
   const [defaultGuestTheme, setDefaultGuestTheme] = useState<string>('dark-default');
   const [updatingGuestTheme, setUpdatingGuestTheme] = useState(false);
   const [availableThemes, setAvailableThemes] = useState<{ id: string; name: string }[]>([]);
+  const [defaultGuestPollingRate, setDefaultGuestPollingRate] = useState<string>('STANDARD');
+  const [updatingGuestPollingRate, setUpdatingGuestPollingRate] = useState(false);
   const [editingSession, setEditingSession] = useState<Session | null>(null);
   const [editingPreferences, setEditingPreferences] = useState<UserPreferences | null>(null);
   const [loadingPreferences, setLoadingPreferences] = useState(false);
@@ -226,6 +234,55 @@ const UserTab: React.FC = () => {
     }
   };
 
+  const loadDefaultGuestPollingRate = async () => {
+    try {
+      const response = await fetch('/api/system/default-guest-polling-rate', {
+        headers: ApiService.getHeaders()
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setDefaultGuestPollingRate(data.pollingRate || 'STANDARD');
+      }
+    } catch (err) {
+      console.error('Failed to load default guest polling rate:', err);
+    }
+  };
+
+  const handleUpdateGuestPollingRate = async (newRate: string) => {
+    try {
+      setUpdatingGuestPollingRate(true);
+      const response = await fetch('/api/system/default-guest-polling-rate', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...ApiService.getHeaders()
+        },
+        body: JSON.stringify({ pollingRate: newRate })
+      });
+
+      if (response.ok) {
+        setDefaultGuestPollingRate(newRate);
+        showToast('success', 'Default guest polling rate updated');
+      } else {
+        const errorData = await response.json();
+        showToast('error', errorData.error || 'Failed to update default guest polling rate');
+      }
+    } catch (err: unknown) {
+      showToast('error', getErrorMessage(err) || 'Failed to update default guest polling rate');
+    } finally {
+      setUpdatingGuestPollingRate(false);
+    }
+  };
+
+  const pollingRateOptions = [
+    { value: 'LIVE', label: 'Live (Real-time)' },
+    { value: 'ULTRA', label: 'Ultra (1s)' },
+    { value: 'REALTIME', label: 'Real-time (5s)' },
+    { value: 'STANDARD', label: 'Standard (10s)' },
+    { value: 'RELAXED', label: 'Relaxed (30s)' },
+    { value: 'SLOW', label: 'Slow (60s)' }
+  ];
+
   const durationOptions = [
     { value: '1', label: '1 hour' },
     { value: '2', label: '2 hours' },
@@ -262,17 +319,34 @@ const UserTab: React.FC = () => {
     loadGuestDuration();
     loadAvailableThemes();
     loadDefaultGuestTheme();
+    loadDefaultGuestPollingRate();
 
     // Subscribe to SignalR events for real-time session updates
     on('UserSessionRevoked', handleSessionRevoked);
     on('UserSessionsCleared', handleSessionsCleared);
     on('UserSessionCreated', handleSessionCreated);
 
-    // Cleanup SignalR subscriptions on unmount
+    // Poll sessions every 30 seconds to keep "Active" status current
+    // This ensures lastSeenAt updates are reflected in the UI
+    const pollInterval = setInterval(() => {
+      loadSessions(false);
+    }, 30000);
+
+    // Refresh sessions when page becomes visible (user returns to tab)
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        loadSessions(false);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Cleanup SignalR subscriptions and polling on unmount
     return () => {
       off('UserSessionRevoked', handleSessionRevoked);
       off('UserSessionsCleared', handleSessionsCleared);
       off('UserSessionCreated', handleSessionCreated);
+      clearInterval(pollInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [loadSessions, on, off, handleSessionRevoked, handleSessionsCleared, handleSessionCreated]);
 
@@ -407,7 +481,8 @@ const UserTab: React.FC = () => {
           disableTooltips: prefs.disableTooltips ?? false,
           picsAlwaysVisible: prefs.picsAlwaysVisible ?? false,
           disableStickyNotifications: prefs.disableStickyNotifications ?? false,
-          showDatasourceLabels: prefs.showDatasourceLabels ?? true
+          showDatasourceLabels: prefs.showDatasourceLabels ?? true,
+          pollingRate: prefs.pollingRate ?? null
         });
       } else {
         // Initialize with defaults if no preferences exist
@@ -418,7 +493,8 @@ const UserTab: React.FC = () => {
           disableTooltips: false,
           picsAlwaysVisible: false,
           disableStickyNotifications: false,
-          showDatasourceLabels: true
+          showDatasourceLabels: true,
+          pollingRate: null
         });
       }
     } catch (err: unknown) {
@@ -474,6 +550,19 @@ const UserTab: React.FC = () => {
           );
         }
 
+        // For guest users, push the polling rate change via SignalR
+        // This is done via a separate endpoint that handles the SignalR notification
+        if (editingSession.type === 'guest') {
+          await fetch(`/api/sessions/${encodeURIComponent(editingSession.id)}/polling-rate`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              ...ApiService.getHeaders()
+            },
+            body: JSON.stringify({ pollingRate: editingPreferences.pollingRate || '' })
+          });
+        }
+
         setEditingSession(null);
         setEditingPreferences(null);
       } else {
@@ -506,6 +595,12 @@ const UserTab: React.FC = () => {
   const isSessionActive = (session: Session) => {
     // Don't show active for revoked or expired sessions
     if (session.isRevoked || session.isExpired) return false;
+
+    // For the current user's own session, use local activity state for immediate feedback
+    // This shows "Active" immediately when the user interacts with the page
+    if (session.id === currentDeviceId && isLocallyActive) {
+      return true;
+    }
 
     // Check if lastSeenAt is within the last 60 seconds (1 minute)
     if (!session.lastSeenAt) return false;
@@ -1024,6 +1119,33 @@ const UserTab: React.FC = () => {
                 Default theme applied to all guest users (guests cannot change their theme)
               </p>
             </div>
+
+            <div>
+              <label
+                className="block text-sm font-medium mb-2"
+                style={{ color: 'var(--theme-text-primary)' }}
+              >
+                Default Guest Polling Rate
+              </label>
+              <div className="flex items-center gap-3">
+                <EnhancedDropdown
+                  options={pollingRateOptions}
+                  value={defaultGuestPollingRate}
+                  onChange={handleUpdateGuestPollingRate}
+                  disabled={updatingGuestPollingRate}
+                  className="w-64"
+                />
+                {updatingGuestPollingRate && (
+                  <Loader2
+                    className="w-4 h-4 animate-spin"
+                    style={{ color: 'var(--theme-primary)' }}
+                  />
+                )}
+              </div>
+              <p className="text-xs mt-2" style={{ color: 'var(--theme-text-muted)' }}>
+                Default polling rate for all guest users (guests cannot change this)
+              </p>
+            </div>
           </div>
         </div>
       </Card>
@@ -1232,6 +1354,35 @@ const UserTab: React.FC = () => {
                   className="w-full"
                 />
               </div>
+
+              {/* Polling Rate (Guest Users Only) */}
+              {editingSession && editingSession.type === 'guest' && (
+                <div>
+                  <label className="block text-sm font-medium text-themed-primary mb-2">
+                    Polling Rate
+                  </label>
+                  <EnhancedDropdown
+                    options={[
+                      {
+                        value: 'default',
+                        label: `Default (${pollingRateOptions.find((o) => o.value === defaultGuestPollingRate)?.label || defaultGuestPollingRate})`
+                      },
+                      ...pollingRateOptions
+                    ]}
+                    value={editingPreferences.pollingRate || 'default'}
+                    onChange={(value) =>
+                      setEditingPreferences({
+                        ...editingPreferences,
+                        pollingRate: value === 'default' ? null : value
+                      })
+                    }
+                    className="w-full"
+                  />
+                  <p className="text-xs text-themed-muted mt-1">
+                    Controls how often this guest&apos;s dashboard refreshes data
+                  </p>
+                </div>
+              )}
 
               {/* UI Preferences */}
               <div className="space-y-3">

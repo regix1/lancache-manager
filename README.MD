@@ -546,11 +546,27 @@ If you run multiple LANCache instances with separate log and cache directories, 
 - **Multiple LANCache instances** - Different servers or storage locations
 - **Segmented storage** - Different drives or partitions for different content
 
-### Configuration
+### How It Works
 
-#### Option 1: Auto-Discovery (Recommended)
+- **Aggregated views** - Dashboard and stats combine data from all datasources
+- **Per-datasource tracking** - Log processing position tracked separately for each datasource
+- **Unified database** - All downloads stored together with datasource tagging
+- **Backward compatible** - Single CachePath/LogPath config still works (creates "default" datasource)
 
-Automatically detect datasources by scanning your cache and logs directories:
+### Management Features
+
+When multiple datasources are configured:
+- Datasource info displayed in Management tab
+- Cache operations work across all datasources
+- Log processing handles each datasource independently
+
+---
+
+### Auto-Discovery (Recommended)
+
+Automatically detect datasources by scanning your cache and logs directories. This is the simplest approach when your directory structure follows standard conventions.
+
+#### Basic Setup
 
 ```yaml
 volumes:
@@ -564,14 +580,14 @@ environment:
   - LanCache__AutoDiscoverDatasources=true
 ```
 
-**Auto-discovery detects:**
+#### What Auto-Discovery Detects
+
 1. **Default datasource** - If there's an `access.log` at the root level AND cache content (LANCache hash directories) at the root
 2. **Subdirectory datasources** - Matching folders in both cache and logs (e.g., `steam/` in both → "Steam" datasource)
 
-**Example: Main LANCache + Outsourced Steam**
+#### Example Directory Structure
 
 ```
-Host directory structure:
 /mnt/lancache/
   ├── cache/
   │   ├── 00/, 01/, a1/, ff/    # LANCache hash dirs (Default)
@@ -585,11 +601,65 @@ Host directory structure:
 
 Auto-discovery creates: **Default** (root level) + **Steam** (subdirectory)
 
-**Folder name matching:** Case-insensitive and flexible - folders named `Steam`, `steam`, `STEAM`, or `steam-cache` will match `steam-logs`.
+#### Folder Name Matching
 
-#### Option 2: Manual Configuration
+Case-insensitive and flexible - folders named `Steam`, `steam`, `STEAM`, or `steam-cache` will match `steam-logs`.
 
-Define each datasource explicitly with environment variables:
+#### Full Docker Compose Example (Auto-Discovery)
+
+```yaml
+version: '3.8'
+
+services:
+  lancache-manager:
+    image: ghcr.io/regix1/lancache-manager:latest
+    container_name: lancache-manager
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./data:/data
+
+      # Main LANCache directory with default + outsourced subdirectory
+      # /mnt/lancache/
+      #   ├── cache/
+      #   │   ├── 00/, 01/, a1/, ff/   # Default cache content
+      #   │   └── steam/                # Outsourced Steam
+      #   │       └── 00/, 01/, ...
+      #   └── logs/
+      #       ├── access.log            # Default log
+      #       └── steam/                # Outsourced Steam
+      #           └── access.log
+      - /mnt/lancache/logs:/logs:ro
+      - /mnt/lancache/cache:/cache:ro
+
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - PUID=33
+      - PGID=33
+      - TZ=America/Chicago
+      - ASPNETCORE_URLS=http://+:80
+
+      # Point to the mounted paths
+      - LanCache__LogPath=/logs
+      - LanCache__CachePath=/cache
+
+      # Auto-discover datasources
+      - LanCache__AutoDiscoverDatasources=true
+
+      - Security__EnableAuthentication=true
+      - NginxLogRotation__Enabled=true
+```
+
+---
+
+### Manual Configuration
+
+Define each datasource explicitly with environment variables. Use this when you have datasources on separate drives or need precise control over naming and paths.
+
+> **Note:** Explicit DataSources config takes priority over auto-discovery.
+
+#### Basic Setup
 
 ```yaml
 environment:
@@ -606,9 +676,7 @@ environment:
   - LanCache__DataSources__1__Enabled=true
 ```
 
-> **Note:** Explicit DataSources config takes priority over auto-discovery.
-
-### Multi-Datasource Docker Compose Example (Manual - Default + Outsourced)
+#### Full Docker Compose Example (Manual)
 
 Use manual configuration when you have a main LANCache plus outsourced services on separate drives:
 
@@ -663,72 +731,6 @@ services:
       - Security__EnableAuthentication=true
       - NginxLogRotation__Enabled=true
 ```
-
-### Multi-Datasource Docker Compose Example (Auto-Discovery - Default + Outsourced)
-
-Auto-discovery detects both root-level content AND subdirectories automatically:
-
-```yaml
-version: '3.8'
-
-services:
-  lancache-manager:
-    image: ghcr.io/regix1/lancache-manager:latest
-    container_name: lancache-manager
-    restart: unless-stopped
-    ports:
-      - "8080:80"
-    volumes:
-      - ./data:/data
-
-      # Main LANCache directory with default + outsourced subdirectory
-      # /mnt/lancache/
-      #   ├── cache/
-      #   │   ├── 00/, 01/, a1/, ff/   # Default cache content
-      #   │   └── steam/                # Outsourced Steam
-      #   │       └── 00/, 01/, ...
-      #   └── logs/
-      #       ├── access.log            # Default log
-      #       └── steam/                # Outsourced Steam
-      #           └── access.log
-      - /mnt/lancache/logs:/logs:ro
-      - /mnt/lancache/cache:/cache:ro
-
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    environment:
-      - PUID=33
-      - PGID=33
-      - TZ=America/Chicago
-      - ASPNETCORE_URLS=http://+:80
-
-      # Point to the mounted paths
-      - LanCache__LogPath=/logs
-      - LanCache__CachePath=/cache
-
-      # Auto-discover datasources
-      - LanCache__AutoDiscoverDatasources=true
-
-      - Security__EnableAuthentication=true
-      - NginxLogRotation__Enabled=true
-```
-
-Auto-discovery creates:
-- **Default** - From root-level `access.log` + cache hash directories
-- **Steam** - From matching `steam/` subdirectory in both cache and logs
-
-### How It Works
-
-- **Aggregated views** - Dashboard and stats combine data from all datasources
-- **Per-datasource tracking** - Log processing position tracked separately for each datasource
-- **Unified database** - All downloads stored together with datasource tagging
-- **Backward compatible** - Single CachePath/LogPath config still works (creates "default" datasource)
-
-### Management Features
-
-When multiple datasources are configured:
-- Datasource info displayed in Management tab
-- Cache operations work across all datasources
-- Log processing handles each datasource independently
 
 <a id="troubleshooting"></a>
 ## Troubleshooting [⬆](#-table-of-contents)

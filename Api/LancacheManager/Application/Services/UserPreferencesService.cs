@@ -28,6 +28,7 @@ public class UserPreferencesService
         public bool UseLocalTimezone { get; set; }
         public bool Use24HourFormat { get; set; }
         public bool ShowDatasourceLabels { get; set; } = true;
+        public string? PollingRate { get; set; } // Polling rate for guest users (null = use default)
     }
 
     /// <summary>
@@ -53,7 +54,8 @@ public class UserPreferencesService
                     DisableStickyNotifications = preferences.DisableStickyNotifications,
                     UseLocalTimezone = preferences.UseLocalTimezone,
                     Use24HourFormat = preferences.Use24HourFormat,
-                    ShowDatasourceLabels = preferences.ShowDatasourceLabels
+                    ShowDatasourceLabels = preferences.ShowDatasourceLabels,
+                    PollingRate = preferences.PollingRate
                 };
             }
 
@@ -98,6 +100,7 @@ public class UserPreferencesService
                 existingPreferences.UseLocalTimezone = preferencesDto.UseLocalTimezone;
                 existingPreferences.Use24HourFormat = preferencesDto.Use24HourFormat;
                 existingPreferences.ShowDatasourceLabels = preferencesDto.ShowDatasourceLabels;
+                existingPreferences.PollingRate = preferencesDto.PollingRate;
                 existingPreferences.UpdatedAtUtc = DateTime.UtcNow;
             }
             else
@@ -115,6 +118,7 @@ public class UserPreferencesService
                     UseLocalTimezone = preferencesDto.UseLocalTimezone,
                     Use24HourFormat = preferencesDto.Use24HourFormat,
                     ShowDatasourceLabels = preferencesDto.ShowDatasourceLabels,
+                    PollingRate = preferencesDto.PollingRate,
                     UpdatedAtUtc = DateTime.UtcNow
                 };
                 context.UserPreferences.Add(newPreferences);
@@ -188,6 +192,12 @@ public class UserPreferencesService
                     break;
                 case "use24hourformat":
                     preferences.Use24HourFormat = GetValueAsBoolean(value);
+                    break;
+                case "showdatasourcelabels":
+                    preferences.ShowDatasourceLabels = GetValueAsBoolean(value);
+                    break;
+                case "pollingrate":
+                    preferences.PollingRate = GetValueAsString(value);
                     break;
                 default:
                     _logger.LogWarning("Unknown preference key: {Key}", preferenceKey);
@@ -268,6 +278,9 @@ public class UserPreferencesService
                 case "showdatasourcelabels":
                     preferences.ShowDatasourceLabels = GetValueAsBoolean(value);
                     break;
+                case "pollingrate":
+                    preferences.PollingRate = GetValueAsString(value);
+                    break;
                 default:
                     _logger.LogWarning("Unknown preference key: {Key}", preferenceKey);
                     return null;
@@ -287,7 +300,8 @@ public class UserPreferencesService
                 DisableStickyNotifications = preferences.DisableStickyNotifications,
                 UseLocalTimezone = preferences.UseLocalTimezone,
                 Use24HourFormat = preferences.Use24HourFormat,
-                ShowDatasourceLabels = preferences.ShowDatasourceLabels
+                ShowDatasourceLabels = preferences.ShowDatasourceLabels,
+                PollingRate = preferences.PollingRate
             };
         }
         catch (Exception ex)

@@ -718,10 +718,10 @@ const App: React.FC = () => {
   return (
     <ErrorBoundary>
       <MockModeProvider>
-        <PollingRateProvider>
-          <TimeFilterProvider>
-            <SignalRProvider>
-              <AuthProvider>
+        <TimeFilterProvider>
+          <SignalRProvider>
+            <AuthProvider>
+              <PollingRateProvider>
                 <TimezoneProvider>
                   <SteamWebApiStatusProvider>
                     <GuestConfigProvider>
@@ -741,10 +741,10 @@ const App: React.FC = () => {
                     </GuestConfigProvider>
                   </SteamWebApiStatusProvider>
                 </TimezoneProvider>
-              </AuthProvider>
-            </SignalRProvider>
-          </TimeFilterProvider>
-        </PollingRateProvider>
+              </PollingRateProvider>
+            </AuthProvider>
+          </SignalRProvider>
+        </TimeFilterProvider>
       </MockModeProvider>
     </ErrorBoundary>
   );

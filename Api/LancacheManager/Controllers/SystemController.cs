@@ -1,11 +1,13 @@
 using LancacheManager.Application.DTOs;
 using LancacheManager.Application.Services;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Controllers;
 
@@ -25,6 +27,7 @@ public class SystemController : ControllerBase
     private readonly CacheClearingService _cacheClearingService;
     private readonly SteamKit2Service _steamKit2Service;
     private readonly DatasourceService _datasourceService;
+    private readonly IHubContext<DownloadHub> _hubContext;
 
     public SystemController(
         StateRepository stateService,
@@ -34,7 +37,8 @@ public class SystemController : ControllerBase
         SessionMigrationService sessionMigrationService,
         CacheClearingService cacheClearingService,
         SteamKit2Service steamKit2Service,
-        DatasourceService datasourceService)
+        DatasourceService datasourceService,
+        IHubContext<DownloadHub> hubContext)
     {
         _stateService = stateService;
         _configuration = configuration;
@@ -44,6 +48,7 @@ public class SystemController : ControllerBase
         _cacheClearingService = cacheClearingService;
         _steamKit2Service = steamKit2Service;
         _datasourceService = datasourceService;
+        _hubContext = hubContext;
     }
 
     /// <summary>
@@ -308,6 +313,52 @@ public class SystemController : ControllerBase
         return Ok(new PollingRateResponse
         {
             Message = "Polling rate updated",
+            PollingRate = request.PollingRate.ToUpperInvariant()
+        });
+    }
+
+    /// <summary>
+    /// GET /api/system/default-guest-polling-rate - Get the default polling rate for guest users
+    /// </summary>
+    [HttpGet("default-guest-polling-rate")]
+    public IActionResult GetDefaultGuestPollingRate()
+    {
+        var rate = _stateService.GetDefaultGuestPollingRate();
+        return Ok(new PollingRateResponse { PollingRate = rate });
+    }
+
+    /// <summary>
+    /// PATCH /api/system/default-guest-polling-rate - Set the default polling rate for guest users
+    /// RESTful: PATCH is proper method for configuration updates
+    /// Request body: { "pollingRate": "LIVE" | "ULTRA" | "REALTIME" | "STANDARD" | "RELAXED" | "SLOW" }
+    /// </summary>
+    [HttpPatch("default-guest-polling-rate")]
+    [RequireAuth]
+    public async Task<IActionResult> SetDefaultGuestPollingRate([FromBody] SetPollingRateRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.PollingRate))
+        {
+            return BadRequest(new ErrorResponse { Error = "Polling rate is required" });
+        }
+
+        var validRates = new[] { "LIVE", "ULTRA", "REALTIME", "STANDARD", "RELAXED", "SLOW" };
+        if (!validRates.Contains(request.PollingRate.ToUpperInvariant()))
+        {
+            return BadRequest(new ErrorResponse { Error = "Invalid polling rate. Must be LIVE, ULTRA, REALTIME, STANDARD, RELAXED, or SLOW" });
+        }
+
+        _stateService.SetDefaultGuestPollingRate(request.PollingRate);
+        _logger.LogInformation("Default guest polling rate set to: {Rate}", request.PollingRate.ToUpperInvariant());
+
+        // Broadcast to all clients so guest users pick up the new default
+        await _hubContext.Clients.All.SendAsync("DefaultGuestPollingRateChanged", new
+        {
+            pollingRate = request.PollingRate.ToUpperInvariant()
+        });
+
+        return Ok(new PollingRateResponse
+        {
+            Message = "Default guest polling rate updated",
             PollingRate = request.PollingRate.ToUpperInvariant()
         });
     }

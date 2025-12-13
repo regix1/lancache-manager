@@ -52,7 +52,9 @@ export const SIGNALR_EVENTS = [
   'UserSessionsCleared',
   'DefaultGuestThemeChanged',
   'UserSessionRevoked',
-  'UserSessionCreated'
+  'UserSessionCreated',
+  'GuestPollingRateUpdated',
+  'DefaultGuestPollingRateChanged'
 ] as const;
 
 export type SignalREvent = (typeof SIGNALR_EVENTS)[number];
@@ -242,4 +244,12 @@ export interface ShowToastPayload {
 export interface PreferenceChangePayload {
   key: string;
   value: unknown;
+}
+
+export interface GuestPollingRateUpdatedPayload {
+  pollingRate: string;
+}
+
+export interface DefaultGuestPollingRateChangedPayload {
+  pollingRate: string;
 }
