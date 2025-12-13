@@ -58,7 +58,8 @@ public class UserPreferencesController : ControllerBase
                 PicsAlwaysVisible = false,
                 DisableStickyNotifications = false,
                 UseLocalTimezone = false,
-                Use24HourFormat = true
+                Use24HourFormat = true,
+                ShowDatasourceLabels = true
             });
         }
 
@@ -76,7 +77,8 @@ public class UserPreferencesController : ControllerBase
                 PicsAlwaysVisible = false,
                 DisableStickyNotifications = false,
                 UseLocalTimezone = false,
-                Use24HourFormat = true
+                Use24HourFormat = true,
+                ShowDatasourceLabels = true
             });
         }
 
@@ -179,7 +181,8 @@ public class UserPreferencesController : ControllerBase
                 PicsAlwaysVisible = false,
                 DisableStickyNotifications = false,
                 UseLocalTimezone = false,
-                Use24HourFormat = true
+                Use24HourFormat = true,
+                ShowDatasourceLabels = true
             });
         }
 

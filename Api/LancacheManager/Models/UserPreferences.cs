@@ -22,6 +22,7 @@ public class UserPreferences
     public bool DisableStickyNotifications { get; set; }
     public bool UseLocalTimezone { get; set; }
     public bool Use24HourFormat { get; set; }
+    public bool ShowDatasourceLabels { get; set; } = true;
 
     // Timestamp
     public DateTime UpdatedAtUtc { get; set; }

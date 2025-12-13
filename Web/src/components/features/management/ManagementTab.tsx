@@ -7,7 +7,8 @@ import {
   Shield,
   HardDrive,
   Plug,
-  Settings
+  Settings,
+  FolderCog
 } from 'lucide-react';
 import { useStats } from '@contexts/StatsContext';
 import { useNotifications } from '@contexts/NotificationsContext';
@@ -35,6 +36,7 @@ import GcManager from './gc/GcManager';
 import GrafanaEndpoints from './grafana/GrafanaEndpoints';
 import DataImporter from './data/DataImporter';
 import DatasourcesManager from './datasources/DatasourcesInfo';
+import DepotMappingManager from './depot/DepotMappingManager';
 import { CollapsibleSection } from '@components/ui/CollapsibleSection';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -406,13 +408,22 @@ interface ManagementTabProps {
 
 const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) => {
   const { refreshStats } = useStats();
-  const { addNotification } = useNotifications();
+  const { addNotification, notifications } = useNotifications();
   const { mockMode, setMockMode } = useMockMode();
   const signalR = useSignalR();
   const { isAuthenticated, authMode } = useAuth();
   const { steamAuthMode } = useSteamAuth();
   const [optimizationsEnabled, setOptimizationsEnabled] = useState(false);
   const [gameCacheRefreshKey, setGameCacheRefreshKey] = useState(0);
+
+  // State for DepotMappingManager
+  const [depotActionLoading, setDepotActionLoading] = useState(false);
+
+  // Derive log processing state from notifications for DepotMappingManager
+  const activeProcessingNotification = notifications.find(
+    n => n.type === 'log_processing' && n.status === 'running'
+  );
+  const isProcessingLogs = !!activeProcessingNotification;
 
   // Wrapper to refresh both stats and game cache
   const refreshStatsAndGameCache = () => {
@@ -595,31 +606,14 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
               </Suspense>
             </CollapsibleSection>
 
-            {/* Data Management Section - Default Open */}
-            <CollapsibleSection title="Data Management" icon={HardDrive} defaultOpen>
+            {/* Storage Management Section - Default Open */}
+            <CollapsibleSection title="Storage Management" icon={HardDrive} defaultOpen>
               <DatasourcesManager
                 isAuthenticated={isAuthenticated}
                 mockMode={mockMode}
                 onError={addError}
                 onSuccess={setSuccess}
                 onDataRefresh={refreshStats}
-              />
-
-              <DatabaseManager
-                isAuthenticated={isAuthenticated}
-                authMode={authMode}
-                mockMode={mockMode}
-                onError={addError}
-                onSuccess={setSuccess}
-                onDataRefresh={refreshStatsAndGameCache}
-              />
-
-              <DataImporter
-                isAuthenticated={isAuthenticated}
-                mockMode={mockMode}
-                onError={addError}
-                onSuccess={setSuccess}
-                onDataRefresh={refreshStatsAndGameCache}
               />
 
               <Suspense fallback={
@@ -639,12 +633,9 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
               </Suspense>
 
               <LogAndCorruptionManager
-                isAuthenticated={isAuthenticated}
                 authMode={authMode}
                 mockMode={mockMode}
                 onError={addError}
-                onSuccess={setSuccess}
-                onDataRefresh={refreshLogAndCorruption}
                 onReloadRef={logAndCorruptionReloadRef}
                 onClearOperationRef={logAndCorruptionClearOpRef}
               />
@@ -654,6 +645,38 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
                 isAuthenticated={authMode === 'authenticated'}
                 onDataRefresh={refreshStats}
                 refreshKey={gameCacheRefreshKey}
+              />
+            </CollapsibleSection>
+
+            {/* Data Configuration Section */}
+            <CollapsibleSection title="Data Configuration" icon={FolderCog}>
+              <DataImporter
+                isAuthenticated={isAuthenticated}
+                mockMode={mockMode}
+                onError={addError}
+                onSuccess={setSuccess}
+                onDataRefresh={refreshStatsAndGameCache}
+              />
+
+              <DepotMappingManager
+                isAuthenticated={isAuthenticated}
+                mockMode={mockMode}
+                steamAuthMode={steamAuthMode}
+                actionLoading={depotActionLoading}
+                setActionLoading={setDepotActionLoading}
+                isProcessingLogs={isProcessingLogs}
+                onError={addError}
+                onSuccess={setSuccess}
+                onDataRefresh={refreshStatsAndGameCache}
+              />
+
+              <DatabaseManager
+                isAuthenticated={isAuthenticated}
+                authMode={authMode}
+                mockMode={mockMode}
+                onError={addError}
+                onSuccess={setSuccess}
+                onDataRefresh={refreshStatsAndGameCache}
               />
             </CollapsibleSection>
 

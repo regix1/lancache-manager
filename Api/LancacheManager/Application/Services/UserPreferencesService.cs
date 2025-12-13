@@ -27,6 +27,7 @@ public class UserPreferencesService
         public bool DisableStickyNotifications { get; set; }
         public bool UseLocalTimezone { get; set; }
         public bool Use24HourFormat { get; set; }
+        public bool ShowDatasourceLabels { get; set; } = true;
     }
 
     /// <summary>
@@ -51,7 +52,8 @@ public class UserPreferencesService
                     PicsAlwaysVisible = preferences.PicsAlwaysVisible,
                     DisableStickyNotifications = preferences.DisableStickyNotifications,
                     UseLocalTimezone = preferences.UseLocalTimezone,
-                    Use24HourFormat = preferences.Use24HourFormat
+                    Use24HourFormat = preferences.Use24HourFormat,
+                    ShowDatasourceLabels = preferences.ShowDatasourceLabels
                 };
             }
 
@@ -94,6 +96,8 @@ public class UserPreferencesService
                 existingPreferences.PicsAlwaysVisible = preferencesDto.PicsAlwaysVisible;
                 existingPreferences.DisableStickyNotifications = preferencesDto.DisableStickyNotifications;
                 existingPreferences.UseLocalTimezone = preferencesDto.UseLocalTimezone;
+                existingPreferences.Use24HourFormat = preferencesDto.Use24HourFormat;
+                existingPreferences.ShowDatasourceLabels = preferencesDto.ShowDatasourceLabels;
                 existingPreferences.UpdatedAtUtc = DateTime.UtcNow;
             }
             else
@@ -109,6 +113,8 @@ public class UserPreferencesService
                     PicsAlwaysVisible = preferencesDto.PicsAlwaysVisible,
                     DisableStickyNotifications = preferencesDto.DisableStickyNotifications,
                     UseLocalTimezone = preferencesDto.UseLocalTimezone,
+                    Use24HourFormat = preferencesDto.Use24HourFormat,
+                    ShowDatasourceLabels = preferencesDto.ShowDatasourceLabels,
                     UpdatedAtUtc = DateTime.UtcNow
                 };
                 context.UserPreferences.Add(newPreferences);
@@ -259,6 +265,9 @@ public class UserPreferencesService
                 case "use24hourformat":
                     preferences.Use24HourFormat = GetValueAsBoolean(value);
                     break;
+                case "showdatasourcelabels":
+                    preferences.ShowDatasourceLabels = GetValueAsBoolean(value);
+                    break;
                 default:
                     _logger.LogWarning("Unknown preference key: {Key}", preferenceKey);
                     return null;
@@ -277,7 +286,8 @@ public class UserPreferencesService
                 PicsAlwaysVisible = preferences.PicsAlwaysVisible,
                 DisableStickyNotifications = preferences.DisableStickyNotifications,
                 UseLocalTimezone = preferences.UseLocalTimezone,
-                Use24HourFormat = preferences.Use24HourFormat
+                Use24HourFormat = preferences.Use24HourFormat,
+                ShowDatasourceLabels = preferences.ShowDatasourceLabels
             };
         }
         catch (Exception ex)

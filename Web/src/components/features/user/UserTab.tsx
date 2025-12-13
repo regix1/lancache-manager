@@ -465,6 +465,13 @@ const UserTab: React.FC = () => {
             editingPreferences.disableStickyNotifications
           );
           await themeService.setPicsAlwaysVisible(editingPreferences.picsAlwaysVisible);
+
+          // Dispatch event for showDatasourceLabels change
+          window.dispatchEvent(
+            new CustomEvent('preference-changed', {
+              detail: { key: 'showDatasourceLabels', value: editingPreferences.showDatasourceLabels }
+            })
+          );
         }
 
         setEditingSession(null);

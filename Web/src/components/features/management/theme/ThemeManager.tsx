@@ -14,10 +14,12 @@ import {
   FileText,
   Settings2,
   Moon,
-  Sun
+  Sun,
+  Database
 } from 'lucide-react';
 import themeService from '@services/theme.service';
 import authService from '@services/auth.service';
+import preferencesService from '@services/preferences.service';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -64,6 +66,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   const [tooltipsDisabled, setTooltipsDisabled] = useState(false);
   const [picsAlwaysVisible, setPicsAlwaysVisible] = useState(false);
   const [disableStickyNotifications, setDisableStickyNotifications] = useState(false);
+  const [showDatasourceLabels, setShowDatasourceLabels] = useState(true);
 
   const [editedTheme, setEditedTheme] = useState<EditableTheme>({
     name: '',
@@ -107,6 +110,11 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     setPicsAlwaysVisible(themeService.getPicsAlwaysVisibleSync());
     setDisableStickyNotifications(themeService.getDisableStickyNotificationsSync());
 
+    // Load datasource labels preference
+    preferencesService.getPreferences().then(prefs => {
+      setShowDatasourceLabels(prefs.showDatasourceLabels ?? true);
+    });
+
     // Listen for live preference changes from admin
     const handlePreferenceChange = (event: Event) => {
       const customEvent = event as CustomEvent<{ key: string; value: unknown }>;
@@ -133,6 +141,9 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           break;
         case 'disableStickyNotifications':
           setDisableStickyNotifications(value as boolean);
+          break;
+        case 'showDatasourceLabels':
+          setShowDatasourceLabels(value as boolean);
           break;
       }
     };
@@ -520,6 +531,12 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     themeService.setDisableStickyNotifications(enabled);
   };
 
+  const handleShowDatasourceLabelsToggle = async (enabled: boolean) => {
+    setShowDatasourceLabels(enabled);
+    // Update preferences via service (it dispatches the event internally)
+    await preferencesService.updatePreference('showDatasourceLabels', enabled);
+  };
+
   // Utility Functions
   const toggleGroup = (groupName: string) => {
     setExpandedGroups((prev) =>
@@ -748,7 +765,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
             </div>
 
             {/* Preferences Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               {/* Visual Preferences */}
               <div
                 className="p-4 rounded-lg border"
@@ -820,6 +837,33 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                     <div>
                       <span className="text-sm text-themed-primary">Static Notifications</span>
                       <p className="text-xs text-themed-muted">Require manual dismissal</p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Downloads Preferences */}
+              <div
+                className="p-4 rounded-lg border"
+                style={{
+                  backgroundColor: 'var(--theme-bg-tertiary)',
+                  borderColor: 'var(--theme-border-secondary)'
+                }}
+              >
+                <div className="flex items-center gap-2 mb-4">
+                  <Database className="w-4 h-4 text-themed-accent" />
+                  <span className="text-sm font-medium text-themed-primary">Downloads</span>
+                </div>
+                <div className="space-y-3">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <Checkbox
+                      checked={showDatasourceLabels}
+                      onChange={(e) => handleShowDatasourceLabelsToggle(e.target.checked)}
+                      variant="rounded"
+                    />
+                    <div>
+                      <span className="text-sm text-themed-primary">Datasource Labels</span>
+                      <p className="text-xs text-themed-muted">Show source on downloads (multi-datasource)</p>
                     </div>
                   </label>
                 </div>
