@@ -35,9 +35,13 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ top: 0, left: 0 });
 
-  // Calculate position when menu opens
+  // Calculate position and track trigger movement
   useLayoutEffect(() => {
-    if (isOpen && triggerRef.current) {
+    if (!isOpen || !triggerRef.current) return;
+
+    const calculatePosition = () => {
+      if (!triggerRef.current) return null;
+
       const rect = triggerRef.current.getBoundingClientRect();
       const menuWidth = 160; // w-40 = 10rem = 160px
 
@@ -59,12 +63,50 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
         left = 8;
       }
 
-      setPosition({
+      return {
         top: rect.bottom + 4, // 4px gap below trigger
-        left
-      });
+        left,
+        triggerTop: rect.top
+      };
+    };
+
+    // Initial position
+    const initialPos = calculatePosition();
+    if (initialPos) {
+      setPosition({ top: initialPos.top, left: initialPos.left });
     }
-  }, [isOpen, align]);
+
+    // Track position changes (e.g., from notification dismissal causing layout shift)
+    let lastTriggerTop = initialPos?.triggerTop ?? 0;
+    let animationFrameId: number;
+
+    const checkPosition = () => {
+      const newPos = calculatePosition();
+      if (newPos) {
+        // If trigger moved significantly (more than 2px), close the menu
+        // This handles layout shifts from notifications disappearing
+        if (Math.abs(newPos.triggerTop - lastTriggerTop) > 2) {
+          onClose();
+          return;
+        }
+
+        // Update position if it changed slightly
+        setPosition((prev) => {
+          if (prev.top !== newPos.top || prev.left !== newPos.left) {
+            return { top: newPos.top, left: newPos.left };
+          }
+          return prev;
+        });
+      }
+      animationFrameId = requestAnimationFrame(checkPosition);
+    };
+
+    animationFrameId = requestAnimationFrame(checkPosition);
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, [isOpen, align, onClose]);
 
   // Handle click outside and escape key
   useEffect(() => {
