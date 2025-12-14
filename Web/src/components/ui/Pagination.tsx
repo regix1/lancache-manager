@@ -6,7 +6,6 @@ import {
   ChevronsRight
 } from 'lucide-react';
 import { EnhancedDropdown } from './EnhancedDropdown';
-import { Card } from './Card';
 
 interface PaginationProps {
   currentPage: number;
@@ -17,6 +16,8 @@ interface PaginationProps {
   itemLabel?: string;
   className?: string;
   showCard?: boolean;
+  /** Offset to extend pagination to parent edges (default: 1.5rem for Card lg padding) */
+  parentPadding?: 'sm' | 'md' | 'lg' | 'none';
 }
 
 export const Pagination: React.FC<PaginationProps> = ({
@@ -27,8 +28,17 @@ export const Pagination: React.FC<PaginationProps> = ({
   onPageChange,
   itemLabel = 'items',
   className = '',
-  showCard = true
+  showCard = true,
+  parentPadding = 'lg'
 }) => {
+  // Calculate offset based on parent padding
+  const paddingValues = {
+    none: '0',
+    sm: '0.75rem',  // p-3
+    md: '1rem',     // p-4
+    lg: '1.5rem'    // p-6
+  };
+  const offset = paddingValues[parentPadding];
   if (totalPages <= 1) return null;
 
   const startItem = (currentPage - 1) * itemsPerPage + 1;
@@ -273,18 +283,23 @@ export const Pagination: React.FC<PaginationProps> = ({
 
   return (
     <div
-      className={`sticky bottom-0 mt-4 z-20 rounded-lg ${className}`}
+      className={`relative mt-4 z-20 ${className}`}
       style={{
-        backgroundColor: 'var(--theme-bg-primary)',
-        paddingTop: '16px',
-        paddingBottom: '12px',
-        boxShadow: '0 -4px 12px rgba(0,0,0,0.1)',
-        borderRadius: 'var(--theme-border-radius-lg, 0.75rem)'
+        // Use negative margins to extend beyond parent padding and cover rounded corners
+        marginLeft: `-${offset}`,
+        marginRight: `-${offset}`,
+        marginBottom: `-${offset}`,
+        paddingLeft: offset,
+        paddingRight: offset,
+        paddingTop: '1rem',
+        paddingBottom: offset,
+        backgroundColor: 'var(--theme-card-bg)',
+        borderTop: '1px solid var(--theme-border-primary)',
+        borderBottomLeftRadius: 'var(--theme-border-radius-lg, 0.75rem)',
+        borderBottomRightRadius: 'var(--theme-border-radius-lg, 0.75rem)'
       }}
     >
-      <Card padding="sm" className="max-w-4xl mx-auto">
-        {content}
-      </Card>
+      {content}
     </div>
   );
 };

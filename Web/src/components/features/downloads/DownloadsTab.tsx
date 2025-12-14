@@ -1588,6 +1588,7 @@ const DownloadsTab: React.FC = () => {
           itemsPerPage={typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20}
           onPageChange={handlePageChange}
           itemLabel={settings.viewMode === 'retro' ? 'depot groups' : 'items'}
+          showCard={false}
         />
       )}
 
