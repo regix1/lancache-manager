@@ -1,22 +1,35 @@
 import React, { useState, use } from 'react';
-import { Link, Copy, CheckCircle, Lock, Unlock } from 'lucide-react';
+import { Link, Copy, CheckCircle, Lock, Unlock, Timer, Lightbulb } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
+import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 
-// Fetch metrics security status
-const fetchMetricsStatus = async (): Promise<boolean> => {
+interface MetricsStatus {
+  requiresAuthentication: boolean;
+  interval: number;
+}
+
+// Fetch metrics status and interval
+const fetchMetricsStatus = async (): Promise<MetricsStatus> => {
   try {
-    const res = await fetch('/api/metrics/status');
-    const data = await res.json();
-    return data.requiresAuthentication;
+    const [statusRes, intervalRes] = await Promise.all([
+      fetch('/api/metrics/status'),
+      fetch('/api/metrics/interval')
+    ]);
+    const statusData = await statusRes.json();
+    const intervalData = await intervalRes.json();
+    return {
+      requiresAuthentication: statusData.requiresAuthentication,
+      interval: intervalData.interval
+    };
   } catch {
-    return false;
+    return { requiresAuthentication: false, interval: 15 };
   }
 };
 
 // Cache the promise to avoid refetching on every render
-let metricsStatusPromise: Promise<boolean> | null = null;
+let metricsStatusPromise: Promise<MetricsStatus> | null = null;
 
 const getMetricsStatusPromise = () => {
   if (!metricsStatusPromise) {
@@ -25,9 +38,32 @@ const getMetricsStatusPromise = () => {
   return metricsStatusPromise;
 };
 
+const scrapeIntervalOptions = [
+  { value: '5', label: '5 seconds', shortLabel: '5s', description: 'Very frequent updates', rightLabel: '5s', icon: Timer },
+  { value: '10', label: '10 seconds', shortLabel: '10s', description: 'Recommended for real-time', rightLabel: '10s', icon: Timer },
+  { value: '15', label: '15 seconds', shortLabel: '15s', description: 'Balanced performance', rightLabel: '15s', icon: Timer },
+  { value: '30', label: '30 seconds', shortLabel: '30s', description: 'Lower resource usage', rightLabel: '30s', icon: Timer },
+  { value: '60', label: '60 seconds', shortLabel: '60s', description: 'Minimal overhead', rightLabel: '60s', icon: Timer },
+];
+
 const GrafanaEndpoints: React.FC = () => {
   const [copiedEndpoint, setCopiedEndpoint] = useState<string | null>(null);
-  const metricsSecured = use(getMetricsStatusPromise());
+  const metricsStatus = use(getMetricsStatusPromise());
+  const [scrapeInterval, setScrapeInterval] = useState<string>(String(metricsStatus.interval));
+  const metricsSecured = metricsStatus.requiresAuthentication;
+
+  const handleIntervalChange = async (value: string) => {
+    setScrapeInterval(value);
+    try {
+      await fetch('/api/metrics/interval', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ interval: parseInt(value, 10) })
+      });
+    } catch (error) {
+      console.error('Failed to update metrics interval:', error);
+    }
+  };
 
   const copyToClipboard = async (text: string, endpoint: string) => {
     try {
@@ -152,19 +188,43 @@ const GrafanaEndpoints: React.FC = () => {
         </p>
       </div>
 
-      {/* Security Configuration Info */}
-      {metricsSecured && (
-        <div className="mt-4 p-3 rounded-lg border" style={{ backgroundColor: 'var(--theme-bg-tertiary)', borderColor: 'var(--theme-border-secondary)' }}>
-          <p className="text-xs font-medium text-themed-primary mb-2">Prometheus Configuration</p>
-          <div className="bg-themed-secondary p-2 rounded font-mono text-[10px] text-themed-muted">
-            <div>scrape_configs:</div>
-            <div className="ml-2">- job_name: 'lancache-manager'</div>
-            <div className="ml-4">metrics_path: '/metrics'</div>
-            <div className="ml-4">headers:</div>
-            <div className="ml-6">X-Api-Key: your-api-key-here</div>
-          </div>
+      {/* Scrape Interval Selector */}
+      <div className="mt-4 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Timer className="w-4 h-4 text-themed-muted" />
+          <span className="text-sm text-themed-secondary">Scrape Interval</span>
         </div>
-      )}
+        <EnhancedDropdown
+          options={scrapeIntervalOptions}
+          value={scrapeInterval}
+          onChange={handleIntervalChange}
+          placeholder="Select interval"
+          compactMode={true}
+          dropdownWidth="w-56"
+          alignRight={true}
+          dropdownTitle="Scrape Interval"
+          footerNote="How often Prometheus fetches metrics"
+          footerIcon={Lightbulb}
+          cleanStyle={true}
+        />
+      </div>
+
+      {/* Prometheus Configuration */}
+      <div className="mt-4 p-3 rounded-lg border" style={{ backgroundColor: 'var(--theme-bg-tertiary)', borderColor: 'var(--theme-border-secondary)' }}>
+        <p className="text-xs font-medium text-themed-primary mb-2">Prometheus Configuration</p>
+        <div className="bg-themed-secondary p-2 rounded font-mono text-[10px] text-themed-muted">
+          <div>scrape_configs:</div>
+          <div className="ml-2">- job_name: 'lancache-manager'</div>
+          <div className="ml-4">scrape_interval: {scrapeInterval}s</div>
+          <div className="ml-4">metrics_path: '/metrics'</div>
+          {metricsSecured && (
+            <>
+              <div className="ml-4">headers:</div>
+              <div className="ml-6">X-Api-Key: your-api-key-here</div>
+            </>
+          )}
+        </div>
+      </div>
     </Card>
   );
 };

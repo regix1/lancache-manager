@@ -56,6 +56,10 @@ public class LancacheMetricsService : BackgroundService
     // Time tracking
     private long _lastUpdateTimestamp;
 
+    // Configurable update interval (default 15 seconds)
+    private int _updateIntervalSeconds = 15;
+    private readonly object _intervalLock = new();
+
     private class ServiceMetrics
     {
         public long TotalBytes;
@@ -354,12 +358,41 @@ public class LancacheMetricsService : BackgroundService
     }
 
     /// <summary>
+    /// Get the current metrics update interval in seconds
+    /// </summary>
+    public int GetUpdateInterval()
+    {
+        lock (_intervalLock)
+        {
+            return _updateIntervalSeconds;
+        }
+    }
+
+    /// <summary>
+    /// Set the metrics update interval in seconds (5-60 range)
+    /// </summary>
+    public void SetUpdateInterval(int seconds)
+    {
+        // Clamp to valid range
+        seconds = Math.Clamp(seconds, 5, 60);
+
+        lock (_intervalLock)
+        {
+            if (_updateIntervalSeconds != seconds)
+            {
+                _logger.LogInformation("Metrics update interval changed from {Old}s to {New}s", _updateIntervalSeconds, seconds);
+                _updateIntervalSeconds = seconds;
+            }
+        }
+    }
+
+    /// <summary>
     /// Background task to periodically update metric values from database
-    /// Updates every 15 seconds for near real-time monitoring
+    /// Update interval is configurable via SetUpdateInterval
     /// </summary>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("LancacheMetricsService background task started");
+        _logger.LogInformation("LancacheMetricsService background task started with {Interval}s interval", _updateIntervalSeconds);
 
         // Wait for app to initialize
         await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken);
@@ -376,8 +409,9 @@ public class LancacheMetricsService : BackgroundService
                 // Update timestamp
                 Interlocked.Exchange(ref _lastUpdateTimestamp, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
 
-                // Log every 40 updates (~10 minutes at 15s interval)
-                if (updateCount % 40 == 0)
+                // Log periodically based on interval
+                int logFrequency = Math.Max(1, 600 / _updateIntervalSeconds); // Log roughly every 10 minutes
+                if (updateCount % logFrequency == 0)
                 {
                     _logger.LogDebug(
                         "Metrics updated - Downloads: {Downloads}, Services: {Services}, ActiveDownloads: {Active}",
@@ -394,8 +428,13 @@ public class LancacheMetricsService : BackgroundService
                 _logger.LogError(ex, "Failed to update metrics");
             }
 
-            // Update every 15 seconds for responsive dashboards
-            await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken);
+            // Use configurable interval
+            int interval;
+            lock (_intervalLock)
+            {
+                interval = _updateIntervalSeconds;
+            }
+            await Task.Delay(TimeSpan.FromSeconds(interval), stoppingToken);
         }
 
         _logger.LogInformation("LancacheMetricsService background task stopped");
