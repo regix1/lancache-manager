@@ -585,8 +585,9 @@ environment:
 1. **Default datasource** - If there's an `access.log` at the root level AND cache content (LANCache hash directories) at the root
 2. **Subdirectory datasources** - Matching folders in both cache and logs (e.g., `steam/` in both → "Steam" datasource)
 
-#### Example Directory Structure
+#### Example Directory Structures
 
+**Single outsourced service:**
 ```
 /mnt/lancache/
   ├── cache/
@@ -598,8 +599,53 @@ environment:
       └── steam/                 # Outsourced Steam logs
           └── access.log
 ```
+Auto-discovery creates: **Default** + **Steam**
 
-Auto-discovery creates: **Default** (root level) + **Steam** (subdirectory)
+**Multiple outsourced services:**
+```
+/mnt/lancache/
+  ├── cache/
+  │   ├── 00/, 01/, a1/, ff/    # Default cache (everything else)
+  │   ├── steam/
+  │   │   └── 00/, 01/, ...
+  │   ├── epic/
+  │   │   └── 00/, 01/, ...
+  │   └── blizzard/
+  │       └── 00/, 01/, ...
+  └── logs/
+      ├── access.log             # Default log
+      ├── steam/
+      │   └── access.log
+      ├── epic/
+      │   └── access.log
+      └── blizzard/
+          └── access.log
+```
+Auto-discovery creates: **Default** + **Steam** + **Epic** + **Blizzard**
+
+**No default (all outsourced):**
+```
+/mnt/lancache/
+  ├── cache/
+  │   ├── steam/
+  │   │   └── 00/, 01/, ...
+  │   ├── epic/
+  │   │   └── 00/, 01/, ...
+  │   ├── origin/
+  │   │   └── 00/, 01/, ...
+  │   └── uplay/
+  │       └── 00/, 01/, ...
+  └── logs/
+      ├── steam/
+      │   └── access.log
+      ├── epic/
+      │   └── access.log
+      ├── origin/
+      │   └── access.log
+      └── uplay/
+          └── access.log
+```
+Auto-discovery creates: **Steam** + **Epic** + **Origin** + **Uplay** (no Default - no root level content)
 
 #### Folder Name Matching
 
@@ -620,16 +666,26 @@ services:
     volumes:
       - ./data:/data
 
-      # Main LANCache directory with default + outsourced subdirectory
+      # Main LANCache directory with default + multiple outsourced subdirectories
       # /mnt/lancache/
       #   ├── cache/
       #   │   ├── 00/, 01/, a1/, ff/   # Default cache content
-      #   │   └── steam/                # Outsourced Steam
+      #   │   ├── steam/                # Outsourced Steam
+      #   │   │   └── 00/, 01/, ...
+      #   │   ├── epic/                 # Outsourced Epic Games
+      #   │   │   └── 00/, 01/, ...
+      #   │   └── blizzard/             # Outsourced Battle.net
       #   │       └── 00/, 01/, ...
       #   └── logs/
       #       ├── access.log            # Default log
-      #       └── steam/                # Outsourced Steam
+      #       ├── steam/
+      #       │   └── access.log
+      #       ├── epic/
+      #       │   └── access.log
+      #       └── blizzard/
       #           └── access.log
+      #
+      # Auto-discovers: Default + Steam + Epic + Blizzard
       - /mnt/lancache/logs:/logs:ro
       - /mnt/lancache/cache:/cache:ro
 
