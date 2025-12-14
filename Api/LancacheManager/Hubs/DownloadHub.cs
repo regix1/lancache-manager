@@ -1,4 +1,5 @@
 using LancacheManager.Application.Services;
+using LancacheManager.Security;
 using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Hubs;
@@ -6,11 +7,19 @@ namespace LancacheManager.Hubs;
 public class DownloadHub : Hub
 {
     private readonly ConnectionTrackingService _connectionTrackingService;
+    private readonly DeviceAuthService _deviceAuthService;
     private readonly ILogger<DownloadHub> _logger;
 
-    public DownloadHub(ConnectionTrackingService connectionTrackingService, ILogger<DownloadHub> logger)
+    // SignalR group for authenticated users only
+    public const string AuthenticatedUsersGroup = "AuthenticatedUsers";
+
+    public DownloadHub(
+        ConnectionTrackingService connectionTrackingService,
+        DeviceAuthService deviceAuthService,
+        ILogger<DownloadHub> logger)
     {
         _connectionTrackingService = connectionTrackingService;
+        _deviceAuthService = deviceAuthService;
         _logger = logger;
     }
 
@@ -23,8 +32,19 @@ public class DownloadHub : Hub
         if (!string.IsNullOrEmpty(deviceId))
         {
             _connectionTrackingService.RegisterConnection(deviceId, Context.ConnectionId);
-            _logger.LogDebug("SignalR client connected: ConnectionId={ConnectionId}, DeviceId={DeviceId}",
-                Context.ConnectionId, deviceId);
+
+            // Check if this is an authenticated user and add to group
+            if (_deviceAuthService.ValidateDevice(deviceId))
+            {
+                await Groups.AddToGroupAsync(Context.ConnectionId, AuthenticatedUsersGroup);
+                _logger.LogDebug("SignalR client connected (authenticated): ConnectionId={ConnectionId}, DeviceId={DeviceId}",
+                    Context.ConnectionId, deviceId);
+            }
+            else
+            {
+                _logger.LogDebug("SignalR client connected (guest): ConnectionId={ConnectionId}, DeviceId={DeviceId}",
+                    Context.ConnectionId, deviceId);
+            }
         }
         else
         {

@@ -280,8 +280,9 @@ public class SessionsController : ControllerBase
         {
             _deviceAuthService.UpdateLastSeen(deviceId);
 
-            // Notify admins that this session's lastSeenAt was updated
-            await _hubContext.Clients.All.SendAsync("SessionLastSeenUpdated", new
+            // Notify authenticated users (admins viewing UserTab) that this session's lastSeenAt was updated
+            // Only send to authenticated group to avoid warnings on guest clients
+            await _hubContext.Clients.Group(Hubs.DownloadHub.AuthenticatedUsersGroup).SendAsync("SessionLastSeenUpdated", new
             {
                 deviceId = deviceId,
                 sessionType = "authenticated",
@@ -297,8 +298,9 @@ public class SessionsController : ControllerBase
         {
             _guestSessionService.UpdateLastSeen(deviceId);
 
-            // Notify admins that this session's lastSeenAt was updated
-            await _hubContext.Clients.All.SendAsync("SessionLastSeenUpdated", new
+            // Notify authenticated users (admins viewing UserTab) that this session's lastSeenAt was updated
+            // Only send to authenticated group to avoid warnings on guest clients
+            await _hubContext.Clients.Group(Hubs.DownloadHub.AuthenticatedUsersGroup).SendAsync("SessionLastSeenUpdated", new
             {
                 deviceId = deviceId,
                 sessionType = "guest",
