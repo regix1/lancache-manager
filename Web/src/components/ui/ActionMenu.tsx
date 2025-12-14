@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, type ReactNode } from 'react';
+import React, { useEffect, useRef, useState, useLayoutEffect, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 interface ActionMenuProps {
   isOpen: boolean;
@@ -30,7 +31,40 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
   align = 'right',
   width = 'w-40'
 }) => {
+  const triggerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+
+  // Calculate position when menu opens
+  useLayoutEffect(() => {
+    if (isOpen && triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      const menuWidth = 160; // w-40 = 10rem = 160px
+
+      let left: number;
+      if (align === 'right') {
+        // Align right edge of menu with right edge of trigger
+        left = rect.right - menuWidth;
+      } else {
+        // Align left edge of menu with left edge of trigger
+        left = rect.left;
+      }
+
+      // Ensure menu doesn't go off-screen
+      const viewportWidth = window.innerWidth;
+      if (left + menuWidth > viewportWidth - 8) {
+        left = viewportWidth - menuWidth - 8;
+      }
+      if (left < 8) {
+        left = 8;
+      }
+
+      setPosition({
+        top: rect.bottom + 4, // 4px gap below trigger
+        left
+      });
+    }
+  }, [isOpen, align]);
 
   // Handle click outside and escape key
   useEffect(() => {
@@ -55,35 +89,46 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
       }
     };
 
+    // Close on scroll to prevent menu from being mispositioned
+    const handleScroll = () => {
+      if (isOpen) {
+        onClose();
+      }
+    };
+
     if (isOpen) {
       document.addEventListener('mousedown', handleClickOutside);
       document.addEventListener('keydown', handleEscape);
+      window.addEventListener('scroll', handleScroll, true);
       return () => {
         document.removeEventListener('mousedown', handleClickOutside);
         document.removeEventListener('keydown', handleEscape);
+        window.removeEventListener('scroll', handleScroll, true);
       };
     }
   }, [isOpen, onClose]);
 
-  const alignmentClass = align === 'left' ? 'left-0' : 'right-0';
-
   return (
     <div className="relative">
       {/* Trigger button wrapper - adds data attribute */}
-      <div data-action-menu-trigger="true">{trigger}</div>
+      <div ref={triggerRef} data-action-menu-trigger="true">{trigger}</div>
 
-      {/* Dropdown Menu */}
-      {isOpen && (
+      {/* Dropdown Menu - rendered via portal to escape stacking context */}
+      {isOpen && createPortal(
         <div
           ref={dropdownRef}
-          className={`absolute ${alignmentClass} mt-1 ${width} bg-themed-secondary rounded-lg shadow-lg z-50 animate-fadeIn origin-top-${align} overflow-hidden`}
+          className={`fixed ${width} bg-themed-secondary rounded-lg shadow-xl overflow-hidden`}
           style={{
+            top: position.top,
+            left: position.left,
             border: '1px solid var(--theme-border-primary)',
-            animation: 'dropdownSlide 0.2s ease-out'
+            animation: 'dropdownSlide 0.15s ease-out',
+            zIndex: 9999
           }}
         >
           {children}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
