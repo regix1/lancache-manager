@@ -229,9 +229,11 @@ public class DeviceAuthService
                 return false;
             }
 
-            // Update LastSeenAtUtc to track active sessions
-            session.LastSeenAtUtc = DateTime.UtcNow;
-            context.SaveChanges();
+            // NOTE: Do NOT update LastSeenAtUtc here - that's the heartbeat's job
+            // The heartbeat endpoint (/api/sessions/current/last-seen) respects page visibility
+            // and only updates LastSeenAt when the user is actively viewing the page.
+            // Updating it here on every API request would make users always appear "Active"
+            // even when their browser tab is minimized.
         }
         catch (Exception ex)
         {

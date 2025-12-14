@@ -139,9 +139,11 @@ public class GuestSessionService
         {
             if (_sessionCache.TryGetValue(deviceId, out var session))
             {
-                // Update last seen
-                session.LastSeenAt = DateTime.UtcNow;
-                SaveGuestSession(session);
+                // NOTE: Do NOT update LastSeenAt here - that's the heartbeat's job
+                // The heartbeat endpoint (/api/sessions/current/last-seen) respects page visibility
+                // and only updates LastSeenAt when the user is actively viewing the page.
+                // Updating it here on every API request would make guests always appear "Active"
+                // even when their browser tab is minimized.
 
                 // Check if revoked or expired
                 if (session.IsRevoked)
