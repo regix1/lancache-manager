@@ -313,6 +313,17 @@ const UserTab: React.FC = () => {
     loadSessions(false);
   }, [loadSessions]);
 
+  // SignalR handler for lastSeenAt updates (heartbeats)
+  // Updates session in-place without full refresh for instant "Active" status
+  const handleSessionLastSeenUpdated = useCallback((data: { deviceId: string; lastSeenAt: string }) => {
+    setSessions(prev => prev.map(session => {
+      if (session.id === data.deviceId || session.deviceId === data.deviceId) {
+        return { ...session, lastSeenAt: data.lastSeenAt };
+      }
+      return session;
+    }));
+  }, []);
+
   useEffect(() => {
     // Initial load with loading spinner
     loadSessions(true);
@@ -325,6 +336,7 @@ const UserTab: React.FC = () => {
     on('UserSessionRevoked', handleSessionRevoked);
     on('UserSessionsCleared', handleSessionsCleared);
     on('UserSessionCreated', handleSessionCreated);
+    on('SessionLastSeenUpdated', handleSessionLastSeenUpdated);
 
     // Poll sessions every 30 seconds to keep "Active" status current
     // This ensures lastSeenAt updates are reflected in the UI
@@ -345,10 +357,11 @@ const UserTab: React.FC = () => {
       off('UserSessionRevoked', handleSessionRevoked);
       off('UserSessionsCleared', handleSessionsCleared);
       off('UserSessionCreated', handleSessionCreated);
+      off('SessionLastSeenUpdated', handleSessionLastSeenUpdated);
       clearInterval(pollInterval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [loadSessions, on, off, handleSessionRevoked, handleSessionsCleared, handleSessionCreated]);
+  }, [loadSessions, on, off, handleSessionRevoked, handleSessionsCleared, handleSessionCreated, handleSessionLastSeenUpdated]);
 
   const handleRevokeSession = (session: Session) => {
     setPendingRevokeSession(session);

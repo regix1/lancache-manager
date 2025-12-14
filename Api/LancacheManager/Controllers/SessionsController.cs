@@ -265,7 +265,7 @@ public class SessionsController : ControllerBase
     /// This prevents 404 errors when sessions are cleared on app restart
     /// </summary>
     [HttpPatch("current/last-seen")]
-    public IActionResult UpdateCurrentLastSeen()
+    public async Task<IActionResult> UpdateCurrentLastSeen()
     {
         // Get device ID from request header
         var deviceId = Request.Headers["X-Device-Id"].FirstOrDefault();
@@ -279,14 +279,32 @@ public class SessionsController : ControllerBase
         if (device != null)
         {
             _deviceAuthService.UpdateLastSeen(deviceId);
+
+            // Notify admins that this session's lastSeenAt was updated
+            await _hubContext.Clients.All.SendAsync("SessionLastSeenUpdated", new
+            {
+                deviceId = deviceId,
+                sessionType = "authenticated",
+                lastSeenAt = DateTime.UtcNow.ToString("o")
+            });
+
             return Ok(new SessionHeartbeatResponse { Success = true, Type = "authenticated" });
         }
 
         // Try updating guest session
-        var (isValid, _) = _guestSessionService.ValidateSessionWithReason(deviceId);
-        if (isValid)
+        var guestSession = _guestSessionService.GetSessionByDeviceId(deviceId);
+        if (guestSession != null && !guestSession.IsRevoked && guestSession.ExpiresAt > DateTime.UtcNow)
         {
             _guestSessionService.UpdateLastSeen(deviceId);
+
+            // Notify admins that this session's lastSeenAt was updated
+            await _hubContext.Clients.All.SendAsync("SessionLastSeenUpdated", new
+            {
+                deviceId = deviceId,
+                sessionType = "guest",
+                lastSeenAt = DateTime.UtcNow.ToString("o")
+            });
+
             return Ok(new SessionHeartbeatResponse { Success = true, Type = "guest" });
         }
 
