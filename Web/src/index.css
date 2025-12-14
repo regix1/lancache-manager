@@ -1582,3 +1582,84 @@ input[type='number']::-webkit-outer-spin-button {
   height: 1rem;
   stroke-width: 2.5;
 }
+
+/* ===== MANAGEMENT TAB STYLES ===== */
+
+/* Management Navigation Container */
+.management-nav-container {
+  position: relative;
+}
+
+/* Tab styling - segmented control appearance */
+.management-nav-tab {
+  position: relative;
+  overflow: hidden;
+}
+
+/* Section transition animation */
+.management-section {
+  animation: sectionFadeIn 0.25s ease-out;
+}
+
+@keyframes sectionFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Subsection headers with accent bar */
+.management-section h3 {
+  letter-spacing: 0.05em;
+}
+
+/* Card hover effects within management sections */
+.management-section .themed-card {
+  transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
+}
+
+.management-section .themed-card:hover {
+  transform: translateY(-1px);
+}
+
+/* Grid layouts for integrations */
+.management-section .grid {
+  gap: 1rem;
+}
+
+@media (min-width: 1280px) {
+  .management-section .grid.grid-cols-1.xl\:grid-cols-2 {
+    gap: 1.5rem;
+  }
+}
+
+/* Mobile tab scrollbar styling - thin and subtle */
+@media (max-width: 768px) {
+  .management-nav-container .custom-scrollbar::-webkit-scrollbar {
+    height: 4px;
+  }
+
+  .management-nav-container .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--theme-border-secondary);
+    border-radius: 2px;
+  }
+}
+
+/* Line clamp utility */
+.line-clamp-1 {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

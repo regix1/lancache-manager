@@ -200,74 +200,95 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
         )}
 
         {/* Main auth mode selector */}
-        <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 ${steamAuthDisabled ? 'opacity-50' : ''}`}>
-          <div className="flex-1">
-            <p className="text-themed-secondary">
-              {steamAuthMode === 'authenticated'
-                ? 'Logged in with Steam account - can access playtest and restricted games'
-                : 'Using anonymous mode - only public games available'}
-            </p>
-            <p className="text-xs text-themed-muted mt-1">
-              {steamAuthDisabled
-                ? 'Steam account login requires V2 API'
-                : authMode === 'authenticated' && !mockMode
-                  ? 'Change login mode to access different depot mappings'
-                  : 'Login with your API key to change Steam authentication mode'}
-            </p>
-          </div>
-
-          {authMode === 'authenticated' && !mockMode ? (
-            <div className="w-full sm:w-64">
-              <EnhancedDropdown
-                options={dropdownOptions}
-                value={steamAuthMode}
-                onChange={handleModeChange}
-                disabled={loading || steamAuthDisabled}
-              />
-            </div>
-          ) : (
-            <div className="w-full sm:w-64 px-3 py-2 rounded-lg border bg-themed-tertiary/30 opacity-50">
-              <p className="text-sm text-themed-secondary">
-                {steamAuthMode === 'authenticated' ? 'Account Login' : 'Anonymous'}
+        <div
+          className={`p-4 rounded-lg mb-4 ${steamAuthDisabled ? 'opacity-50' : ''}`}
+          style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <p className="text-themed-primary text-sm font-medium mb-1">
+                {steamAuthMode === 'authenticated'
+                  ? 'Logged in with Steam account'
+                  : 'Using anonymous mode'}
+              </p>
+              <p className="text-xs text-themed-muted">
+                {steamAuthMode === 'authenticated'
+                  ? 'Can access playtest and restricted games'
+                  : 'Only public games available'}
               </p>
             </div>
-          )}
+
+            {authMode === 'authenticated' && !mockMode ? (
+              <div className="w-full sm:w-auto sm:min-w-[220px]">
+                <EnhancedDropdown
+                  options={dropdownOptions}
+                  value={steamAuthMode}
+                  onChange={handleModeChange}
+                  disabled={loading || steamAuthDisabled}
+                />
+              </div>
+            ) : (
+              <div
+                className="w-full sm:w-auto sm:min-w-[180px] px-3 py-2 rounded-lg text-center"
+                style={{
+                  backgroundColor: 'var(--theme-bg-secondary)',
+                  border: '1px solid var(--theme-border-primary)'
+                }}
+              >
+                <p className="text-sm text-themed-muted">
+                  {steamAuthMode === 'authenticated' ? 'Account Login' : 'Anonymous'}
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Configuration section with unified background */}
-        <div className={`p-4 rounded-lg bg-themed-tertiary/30 ${steamAuthDisabled ? 'opacity-50' : ''}`}>
+        {/* Configuration section */}
+        <div
+          className={`p-4 rounded-lg ${steamAuthDisabled ? 'opacity-50' : ''}`}
+          style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+        >
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <p className="text-themed-primary font-medium text-sm mb-1">
                 Depot Mapping After Login
               </p>
               <p className="text-xs text-themed-muted">
-                {steamAuthDisabled
-                  ? 'Only available when V2 API is available'
-                  : autoStartPics
-                    ? 'Automatically rebuild depot mappings after login'
-                    : 'Manually trigger depot mapping rebuild after login'}
+                {autoStartPics
+                  ? 'Automatically rebuild depot mappings after login'
+                  : 'Manually trigger depot mapping rebuild after login'}
               </p>
             </div>
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant={autoStartPics ? 'filled' : 'default'}
-                color={autoStartPics ? 'blue' : undefined}
+            <div
+              className="inline-flex rounded-lg p-0.5"
+              style={{ backgroundColor: 'var(--theme-bg-secondary)' }}
+            >
+              <button
                 onClick={() => handleAutoStartPicsChange(true)}
                 disabled={loading || mockMode || steamAuthDisabled}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${
+                  loading || mockMode || steamAuthDisabled ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+                style={{
+                  backgroundColor: autoStartPics ? 'var(--theme-primary)' : 'transparent',
+                  color: autoStartPics ? 'var(--theme-button-text)' : 'var(--theme-text-secondary)'
+                }}
               >
                 Automatic
-              </Button>
-              <Button
-                size="sm"
-                variant={!autoStartPics ? 'filled' : 'default'}
-                color={!autoStartPics ? 'blue' : undefined}
+              </button>
+              <button
                 onClick={() => handleAutoStartPicsChange(false)}
                 disabled={loading || mockMode || steamAuthDisabled}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${
+                  loading || mockMode || steamAuthDisabled ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+                style={{
+                  backgroundColor: !autoStartPics ? 'var(--theme-primary)' : 'transparent',
+                  color: !autoStartPics ? 'var(--theme-button-text)' : 'var(--theme-text-secondary)'
+                }}
               >
                 Manual
-              </Button>
+              </button>
             </div>
           </div>
         </div>

@@ -1,0 +1,190 @@
+[meta]
+name = "Accessible - Tritanopia"
+id = "accessible-tritanopia"
+description = "Color blind accessible theme for Tritanopia (blue-yellow blindness) - Uses red-green-pink palette"
+author = "System"
+version = "1.0.0"
+isDark = true
+sharpCorners = false
+basedOn = "dark-default"
+
+[colors]
+# Core colors - Teal primary (distinguishable from blue), Pink secondary
+primaryColor = "#14b8a6"
+secondaryColor = "#ec4899"
+accentColor = "#10b981"
+
+# Backgrounds - Slightly warm-tinted for better contrast
+bgPrimary = "#121518"
+bgSecondary = "#1e2328"
+bgTertiary = "#282d33"
+bgHover = "#363c44"
+
+# Text - Standard dark theme text with warm tint
+textPrimary = "#f5f5f5"
+textSecondary = "#d1d5db"
+textMuted = "#9ca3af"
+textAccent = "#5eead4"
+textPlaceholder = "#6b7280"
+
+# Drag handle
+dragHandleColor = "#6b7280"
+dragHandleHover = "#5eead4"
+
+# Borders
+borderPrimary = "#363c44"
+borderSecondary = "#454d56"
+borderFocus = "#14b8a6"
+
+# Navigation
+navBg = "#1a1f24"
+navBorder = "#363c44"
+navTabActive = "#14b8a6"
+navTabInactive = "#9ca3af"
+navTabHover = "#ffffff"
+navTabActiveBorder = "#14b8a6"
+navMobileMenuBg = "#1a1f24"
+navMobileItemHover = "#282d33"
+
+# Status colors - Teal for success, Pink/Magenta for warning, Red for error (avoids blue-yellow)
+success = "#10b981"
+successBg = "#134e4a"
+successText = "#6ee7b7"
+warning = "#ec4899"
+warningBg = "#5c1a40"
+warningText = "#f9a8d4"
+error = "#ef4444"
+errorBg = "#5c1a1a"
+errorText = "#fca5a5"
+info = "#14b8a6"
+infoBg = "#134e4a"
+infoText = "#5eead4"
+
+# Service colors - Distinguishable without blue-yellow
+steamColor = "#10b981"
+epicColor = "#ec4899"
+originColor = "#f97316"
+blizzardColor = "#14b8a6"
+wsusColor = "#06d6a0"
+riotColor = "#ef4444"
+xboxColor = "#22c55e"
+
+# Components
+cardBg = "#1e2328"
+cardBorder = "#363c44"
+cardOutline = "#14b8a6"
+buttonBg = "#14b8a6"
+buttonHover = "#0d9488"
+buttonText = "#ffffff"
+inputBg = "#282d33"
+inputBorder = "#454d56"
+inputFocus = "#14b8a6"
+checkboxAccent = "#14b8a6"
+checkboxBorder = "#454d56"
+checkboxBg = "#1e2328"
+checkboxCheckmark = "#ffffff"
+checkboxShadow = "none"
+checkboxHoverShadow = "0 0 0 3px rgba(20, 184, 166, 0.15)"
+checkboxHoverBg = "#282d33"
+checkboxFocus = "#14b8a6"
+sliderAccent = "#14b8a6"
+sliderThumb = "#14b8a6"
+sliderTrack = "#282d33"
+progressBg = "#282d33"
+
+# Hit rate - Teal-Pink-Red scale (no blue-yellow)
+hitRateHighBg = "#134e4a"
+hitRateHighText = "#6ee7b7"
+hitRateMediumBg = "#5c1a40"
+hitRateMediumText = "#f9a8d4"
+hitRateLowBg = "#5c1a1a"
+hitRateLowText = "#fca5a5"
+hitRateWarningBg = "#5c1a1a"
+hitRateWarningText = "#fca5a5"
+
+# Action buttons - Green/Pink/Red (avoids blue-yellow)
+actionResetBg = "#ec4899"
+actionResetHover = "#db2777"
+actionProcessBg = "#10b981"
+actionProcessHover = "#059669"
+actionDeleteBg = "#ef4444"
+actionDeleteHover = "#dc2626"
+
+# Icon backgrounds - Distinguishable colors for tritanopia
+iconBgBlue = "#14b8a6"
+iconBgGreen = "#10b981"
+iconBgEmerald = "#22c55e"
+iconBgPurple = "#ec4899"
+iconBgIndigo = "#a855f7"
+iconBgOrange = "#f97316"
+iconBgYellow = "#fb923c"
+iconBgCyan = "#06d6a0"
+iconBgRed = "#ef4444"
+
+# Chart colors - Distinguishable without blue-yellow
+chartColor1 = "#14b8a6"
+chartColor2 = "#10b981"
+chartColor3 = "#ec4899"
+chartColor4 = "#ef4444"
+chartColor5 = "#a855f7"
+chartColor6 = "#f97316"
+chartColor7 = "#22c55e"
+chartColor8 = "#db2777"
+chartBorderColor = "#1e2328"
+chartGridColor = "#363c44"
+chartTextColor = "#9ca3af"
+chartCacheHitColor = "#10b981"
+chartCacheMissColor = "#ec4899"
+
+# Scrollbar
+scrollbarTrack = "#282d33"
+scrollbarThumb = "#6B7280"
+scrollbarHover = "#9CA3AF"
+
+# Access indicators - Teal for public, Pink for secured
+publicAccessBg = "rgba(16, 185, 129, 0.2)"
+publicAccessText = "#6ee7b7"
+publicAccessBorder = "rgba(16, 185, 129, 0.3)"
+securedAccessBg = "rgba(236, 72, 153, 0.2)"
+securedAccessText = "#f9a8d4"
+securedAccessBorder = "rgba(236, 72, 153, 0.3)"
+
+# Session colors
+userSessionColor = "#14b8a6"
+userSessionBg = "rgba(20, 184, 166, 0.15)"
+guestSessionColor = "#10b981"
+guestSessionBg = "rgba(16, 185, 129, 0.15)"
+activeSessionColor = "#ec4899"
+activeSessionBg = "rgba(236, 72, 153, 0.15)"
+
+[css]
+content = """
+/* Accessible Tritanopia Theme */
+/* Designed for blue-yellow blindness - uses teal-green-pink-red palette */
+
+.themed-card {
+  transition: all 0.2s ease;
+}
+
+.themed-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+/* Teal focus glow */
+*:focus-visible {
+  box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.4);
+  outline: none;
+}
+
+button {
+  transition: all 0.15s ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+}
+
+button:active {
+  transform: translateY(0);
+}
+"""

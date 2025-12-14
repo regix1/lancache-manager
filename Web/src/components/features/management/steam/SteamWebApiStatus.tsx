@@ -21,6 +21,7 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [showRemoveModal, setShowRemoveModal] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Format last checked time with timezone awareness
   const formattedLastChecked = useFormattedDateTime(status?.lastChecked || null);
@@ -138,15 +139,31 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
   };
 
   const getVersionBadge = (version: string, available: boolean) => {
-    const bgColor = available ? 'var(--theme-success-bg)' : 'var(--theme-muted-bg)';
-    const textColor = available ? 'var(--theme-success-text)' : 'var(--theme-muted)';
-
     return (
       <span
-        className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
-        style={{ backgroundColor: bgColor, color: textColor }}
+        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border ${
+          available
+            ? 'border-transparent'
+            : 'border-transparent'
+        }`}
+        style={{
+          backgroundColor: available
+            ? 'var(--theme-success-bg)'
+            : 'var(--theme-bg-tertiary)',
+          color: available
+            ? 'var(--theme-success-text)'
+            : 'var(--theme-text-muted)'
+        }}
       >
-        {version} {available ? '✓' : '✗'}
+        <span
+          className={`w-1.5 h-1.5 rounded-full ${available ? '' : ''}`}
+          style={{
+            backgroundColor: available
+              ? 'var(--theme-success)'
+              : 'var(--theme-text-muted)'
+          }}
+        />
+        {version}
       </span>
     );
   };
@@ -193,29 +210,52 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
         </div>
 
         {/* Status Overview */}
-        <div className="mb-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              {getStatusIcon()}
-              <span className="text-sm font-medium" style={{ color: getStatusColor() }}>
-                {loading ? 'Checking status...' : status?.message || 'Unknown status'}
-              </span>
-            </div>
-            <Button variant="subtle" size="sm" onClick={() => refresh()} disabled={loading}>
+        <div
+          className="p-4 rounded-lg mb-4"
+          style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+        >
+          {/* Status message - full width */}
+          <div className="flex items-start gap-2.5 mb-3">
+            <div className="mt-0.5 flex-shrink-0">{getStatusIcon()}</div>
+            <p
+              className="text-sm font-medium leading-relaxed"
+              style={{ color: getStatusColor() }}
+            >
+              {loading ? 'Checking status...' : status?.message || 'Unknown status'}
+            </p>
+          </div>
+
+          {/* Version badges and refresh button */}
+          <div className="flex items-center justify-between gap-3">
+            {!loading && status ? (
+              <div className="flex flex-wrap gap-2">
+                {getVersionBadge('V2', status.isV2Available)}
+                {getVersionBadge(
+                  status.hasApiKey ? 'V1 (with key)' : 'V1 (no key)',
+                  status.isV1Available
+                )}
+              </div>
+            ) : (
+              <div />
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                setRefreshing(true);
+                try {
+                  await refresh();
+                } finally {
+                  setRefreshing(false);
+                }
+              }}
+              disabled={loading || refreshing}
+              loading={refreshing}
+              className="flex-shrink-0"
+            >
               Refresh
             </Button>
           </div>
-
-          {/* Version Status */}
-          {!loading && status && (
-            <div className="flex flex-wrap gap-2 mb-3">
-              {getVersionBadge('V2', status.isV2Available)}
-              {getVersionBadge(
-                status.hasApiKey ? 'V1 (with key)' : 'V1 (no key)',
-                status.isV1Available
-              )}
-            </div>
-          )}
         </div>
 
         {/* Warning Banner - Only show for critical errors (both APIs down with key configured) */}

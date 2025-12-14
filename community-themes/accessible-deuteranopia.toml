@@ -1,0 +1,190 @@
+[meta]
+name = "Accessible - Deuteranopia"
+id = "accessible-deuteranopia"
+description = "Color blind accessible theme for Deuteranopia (green-blindness) - Uses blue-yellow-magenta palette"
+author = "System"
+version = "1.0.0"
+isDark = true
+sharpCorners = false
+basedOn = "dark-default"
+
+[colors]
+# Core colors - Blue primary, Magenta secondary (avoids green confusion)
+primaryColor = "#3b82f6"
+secondaryColor = "#c026d3"
+accentColor = "#0ea5e9"
+
+# Backgrounds - Same as dark default
+bgPrimary = "#111827"
+bgSecondary = "#283649"
+bgTertiary = "#313e52"
+bgHover = "#4b5563"
+
+# Text - Standard dark theme text
+textPrimary = "#ffffff"
+textSecondary = "#d1d5db"
+textMuted = "#9ca3af"
+textAccent = "#60a5fa"
+textPlaceholder = "#6b7280"
+
+# Drag handle
+dragHandleColor = "#6b7280"
+dragHandleHover = "#60a5fa"
+
+# Borders
+borderPrimary = "#374151"
+borderSecondary = "#4b5563"
+borderFocus = "#3b82f6"
+
+# Navigation
+navBg = "#1f2937"
+navBorder = "#374151"
+navTabActive = "#3b82f6"
+navTabInactive = "#9ca3af"
+navTabHover = "#ffffff"
+navTabActiveBorder = "#3b82f6"
+navMobileMenuBg = "#1f2937"
+navMobileItemHover = "#374151"
+
+# Status colors - Blue for success, Yellow for warning, Magenta for error
+success = "#3b82f6"
+successBg = "#1e3a5f"
+successText = "#93c5fd"
+warning = "#eab308"
+warningBg = "#443d0c"
+warningText = "#fef08a"
+error = "#e879f9"
+errorBg = "#4c1d5c"
+errorText = "#f5d0fe"
+info = "#0ea5e9"
+infoBg = "#0c4a5c"
+infoText = "#7dd3fc"
+
+# Service colors - Distinguishable without green perception
+steamColor = "#3b82f6"
+epicColor = "#c026d3"
+originColor = "#eab308"
+blizzardColor = "#0ea5e9"
+wsusColor = "#a855f7"
+riotColor = "#e879f9"
+xboxColor = "#facc15"
+
+# Components
+cardBg = "#1e2938"
+cardBorder = "#374151"
+cardOutline = "#3b82f6"
+buttonBg = "#3b82f6"
+buttonHover = "#2563eb"
+buttonText = "#ffffff"
+inputBg = "#374151"
+inputBorder = "#4b5563"
+inputFocus = "#3b82f6"
+checkboxAccent = "#3b82f6"
+checkboxBorder = "#4b5563"
+checkboxBg = "#1f2937"
+checkboxCheckmark = "#ffffff"
+checkboxShadow = "none"
+checkboxHoverShadow = "0 0 0 3px rgba(59, 130, 246, 0.1)"
+checkboxHoverBg = "#374151"
+checkboxFocus = "#3b82f6"
+sliderAccent = "#3b82f6"
+sliderThumb = "#3b82f6"
+sliderTrack = "#374151"
+progressBg = "#374151"
+
+# Hit rate - Blue-Yellow-Magenta scale (no green)
+hitRateHighBg = "#1e3a5f"
+hitRateHighText = "#93c5fd"
+hitRateMediumBg = "#443d0c"
+hitRateMediumText = "#fef08a"
+hitRateLowBg = "#4c1d5c"
+hitRateLowText = "#f5d0fe"
+hitRateWarningBg = "#4c1d5c"
+hitRateWarningText = "#f5d0fe"
+
+# Action buttons - Yellow/Blue/Magenta (avoids green)
+actionResetBg = "#eab308"
+actionResetHover = "#ca8a04"
+actionProcessBg = "#3b82f6"
+actionProcessHover = "#2563eb"
+actionDeleteBg = "#e879f9"
+actionDeleteHover = "#d946ef"
+
+# Icon backgrounds - Distinguishable colors for deuteranopia
+iconBgBlue = "#3b82f6"
+iconBgGreen = "#0ea5e9"
+iconBgEmerald = "#06b6d4"
+iconBgPurple = "#c026d3"
+iconBgIndigo = "#6366f1"
+iconBgOrange = "#f59e0b"
+iconBgYellow = "#eab308"
+iconBgCyan = "#0ea5e9"
+iconBgRed = "#e879f9"
+
+# Chart colors - Distinguishable without green
+chartColor1 = "#3b82f6"
+chartColor2 = "#eab308"
+chartColor3 = "#0ea5e9"
+chartColor4 = "#e879f9"
+chartColor5 = "#c026d3"
+chartColor6 = "#facc15"
+chartColor7 = "#6366f1"
+chartColor8 = "#a855f7"
+chartBorderColor = "#1f2937"
+chartGridColor = "#374151"
+chartTextColor = "#9ca3af"
+chartCacheHitColor = "#3b82f6"
+chartCacheMissColor = "#eab308"
+
+# Scrollbar
+scrollbarTrack = "#374151"
+scrollbarThumb = "#6B7280"
+scrollbarHover = "#9CA3AF"
+
+# Access indicators - Blue for public, Yellow for secured
+publicAccessBg = "rgba(59, 130, 246, 0.2)"
+publicAccessText = "#93c5fd"
+publicAccessBorder = "rgba(59, 130, 246, 0.3)"
+securedAccessBg = "rgba(234, 179, 8, 0.2)"
+securedAccessText = "#fef08a"
+securedAccessBorder = "rgba(234, 179, 8, 0.3)"
+
+# Session colors
+userSessionColor = "#3b82f6"
+userSessionBg = "rgba(59, 130, 246, 0.15)"
+guestSessionColor = "#0ea5e9"
+guestSessionBg = "rgba(14, 165, 233, 0.15)"
+activeSessionColor = "#eab308"
+activeSessionBg = "rgba(234, 179, 8, 0.15)"
+
+[css]
+content = """
+/* Accessible Deuteranopia Theme */
+/* Designed for green-blindness - uses blue-yellow-magenta palette */
+
+.themed-card {
+  transition: all 0.2s ease;
+}
+
+.themed-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+/* Blue focus glow */
+*:focus-visible {
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
+  outline: none;
+}
+
+button {
+  transition: all 0.15s ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+}
+
+button:active {
+  transform: translateY(0);
+}
+"""

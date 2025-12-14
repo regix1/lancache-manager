@@ -112,34 +112,44 @@ const GrafanaEndpoints: React.FC = () => {
 
       <p className="text-themed-muted text-sm mb-4">
         {metricsSecured
-          ? 'These endpoints provide real-time metrics with API key authentication. Configure your API key in Grafana or Prometheus.'
-          : 'These endpoints provide real-time metrics without authentication. Use them directly in Grafana or Prometheus.'}
+          ? 'These endpoints require API key authentication. Configure your API key in Grafana or Prometheus.'
+          : 'These endpoints are publicly accessible. Use them directly in Grafana or Prometheus.'}
       </p>
 
-      <div className="space-y-3">
-        <div className="p-3 rounded-lg border" style={{ backgroundColor: 'var(--theme-card-bg)', borderColor: 'var(--theme-card-border)' }}>
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-sm font-medium text-themed-primary">Prometheus Metrics</span>
-            <Button
-              size="xs"
-              variant="default"
-              onClick={() => copyToClipboard(`${apiBaseUrl}/metrics`, 'prometheus')}
-              leftSection={
-                copiedEndpoint === 'prometheus' ? (
-                  <CheckCircle className="w-3 h-3" />
-                ) : (
-                  <Copy className="w-3 h-3" />
-                )
-              }
-            >
-              {copiedEndpoint === 'prometheus' ? 'Copied!' : 'Copy'}
-            </Button>
-          </div>
-          <code className="text-xs text-themed-muted block break-all">{apiBaseUrl}/metrics</code>
-          <p className="text-xs text-themed-muted mt-1">
-            OpenMetrics/Prometheus format for scraping
-          </p>
+      <div
+        className="p-4 rounded-lg"
+        style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+      >
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-medium text-themed-primary">Prometheus Metrics</span>
+          <Button
+            size="xs"
+            variant={copiedEndpoint === 'prometheus' ? 'filled' : 'default'}
+            color={copiedEndpoint === 'prometheus' ? 'green' : undefined}
+            onClick={() => copyToClipboard(`${apiBaseUrl}/metrics`, 'prometheus')}
+            leftSection={
+              copiedEndpoint === 'prometheus' ? (
+                <CheckCircle className="w-3 h-3" />
+              ) : (
+                <Copy className="w-3 h-3" />
+              )
+            }
+          >
+            {copiedEndpoint === 'prometheus' ? 'Copied!' : 'Copy'}
+          </Button>
         </div>
+        <code
+          className="text-xs block break-all px-3 py-2 rounded-md mb-2 font-mono"
+          style={{
+            backgroundColor: 'var(--theme-bg-secondary)',
+            color: 'var(--theme-text-secondary)'
+          }}
+        >
+          {apiBaseUrl}/metrics
+        </code>
+        <p className="text-xs text-themed-muted">
+          OpenMetrics/Prometheus format for scraping
+        </p>
       </div>
 
       {/* Security Configuration Info */}

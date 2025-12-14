@@ -1,5 +1,5 @@
 import React, { useState, use } from 'react';
-import { Cpu, Save, RefreshCw, Info, Play } from 'lucide-react';
+import { Cpu, Save, RefreshCw, Info, Play, Loader2 } from 'lucide-react';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -91,6 +91,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
   const [hasChanges, setHasChanges] = useState(false);
   const [triggering, setTriggering] = useState(false);
   const [triggerResult, setTriggerResult] = useState<GcTriggerResult | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Helper to show toast notifications
   const showToast = (type: 'success' | 'error' | 'info', message: string) => {
@@ -100,6 +101,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
   };
 
   const loadSettings = async () => {
+    setRefreshing(true);
     try {
       // Clear cache and refetch
       settingsPromise = null;
@@ -108,6 +110,8 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
       setHasChanges(false);
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Failed to load GC settings');
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -231,19 +235,23 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
         </div>
         <button
           onClick={loadSettings}
-          disabled={saving}
+          disabled={saving || refreshing}
           className="p-2 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center"
           style={{
             color: 'var(--theme-text-muted)',
             backgroundColor: 'transparent'
           }}
           onMouseEnter={(e) =>
-            !saving && (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
+            !saving && !refreshing && (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
           }
           onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
           title="Reset to saved settings"
         >
-          <RefreshCw className="w-4 h-4" />
+          {refreshing ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <RefreshCw className="w-4 h-4" />
+          )}
         </button>
       </div>
 
