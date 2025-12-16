@@ -59,9 +59,9 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
   // Use ref to ensure migration only happens once
   const hasMigratedRef = useRef(false);
 
-  // Refs to interact with LogAndCorruptionManager
-  const logAndCorruptionReloadRef = useRef<(() => Promise<void>) | null>(null);
-  const logAndCorruptionClearOpRef = useRef<(() => Promise<void>) | null>(null);
+  // Refs to interact with LogRemovalManager and CorruptionManager
+  const logRemovalReloadRef = useRef<(() => Promise<void>) | null>(null);
+  const corruptionReloadRef = useRef<(() => Promise<void>) | null>(null);
 
   // Notification management
   const addError = useCallback(
@@ -88,24 +88,33 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
     [addNotification]
   );
 
-  // Helper function to refresh log & corruption management
-  const refreshLogAndCorruption = useCallback(async () => {
-    if (logAndCorruptionReloadRef.current) {
-      await logAndCorruptionReloadRef.current();
+  // Helper function to refresh log removal data
+  const refreshLogRemoval = useCallback(async () => {
+    if (logRemovalReloadRef.current) {
+      await logRemovalReloadRef.current();
+    }
+  }, []);
+
+  // Helper function to refresh corruption data
+  const refreshCorruption = useCallback(async () => {
+    if (corruptionReloadRef.current) {
+      await corruptionReloadRef.current();
     }
   }, []);
 
   // Refs for callbacks to avoid dependency issues in SignalR subscriptions
   const addErrorRef = useRef(addError);
   const setSuccessRef = useRef(setSuccess);
-  const refreshLogAndCorruptionRef = useRef(refreshLogAndCorruption);
+  const refreshLogRemovalRef = useRef(refreshLogRemoval);
+  const refreshCorruptionRef = useRef(refreshCorruption);
 
   // Keep refs up to date
   useEffect(() => {
     addErrorRef.current = addError;
     setSuccessRef.current = setSuccess;
-    refreshLogAndCorruptionRef.current = refreshLogAndCorruption;
-  }, [addError, setSuccess, refreshLogAndCorruption]);
+    refreshLogRemovalRef.current = refreshLogRemoval;
+    refreshCorruptionRef.current = refreshCorruption;
+  }, [addError, setSuccess, refreshLogRemoval, refreshCorruption]);
 
   // Persist active section to localStorage
   useEffect(() => {
@@ -147,20 +156,14 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
 
     const handleLogRemovalComplete = async (payload: LogRemovalCompletePayload) => {
       if (payload.success) {
-        if (logAndCorruptionClearOpRef.current) {
-          await logAndCorruptionClearOpRef.current();
-        }
-        await refreshLogAndCorruptionRef.current();
-      } else {
-        if (logAndCorruptionClearOpRef.current) {
-          await logAndCorruptionClearOpRef.current();
-        }
+        await refreshLogRemovalRef.current();
       }
+      // State is derived from notifications, no need to clear operation state
     };
 
     const handleCorruptionRemovalComplete = async (payload: CorruptionRemovalCompletePayload) => {
       if (payload.success) {
-        await refreshLogAndCorruptionRef.current();
+        await refreshCorruptionRef.current();
       }
     };
 
@@ -230,8 +233,8 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
             onError={addError}
             onSuccess={setSuccess}
             onDataRefresh={refreshStats}
-            logAndCorruptionReloadRef={logAndCorruptionReloadRef}
-            logAndCorruptionClearOpRef={logAndCorruptionClearOpRef}
+            logRemovalReloadRef={logRemovalReloadRef}
+            corruptionReloadRef={corruptionReloadRef}
           />
         );
 

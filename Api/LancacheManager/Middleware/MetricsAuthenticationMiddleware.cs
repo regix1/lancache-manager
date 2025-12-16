@@ -1,3 +1,4 @@
+using LancacheManager.Infrastructure.Repositories.Interfaces;
 using LancacheManager.Security;
 
 namespace LancacheManager.Middleware;
@@ -5,9 +6,13 @@ namespace LancacheManager.Middleware;
 /// <summary>
 /// Middleware to optionally require API key authentication for Prometheus metrics endpoint (/metrics)
 ///
-/// Configuration:
-/// - Security:RequireAuthForMetrics = false (default): Metrics are PUBLIC - no authentication required
-/// - Security:RequireAuthForMetrics = true: Metrics require API Key in X-Api-Key header
+/// Configuration Priority:
+/// 1. UI Toggle (StateRepository) - if set via UI, takes precedence
+/// 2. Environment Variable / appsettings.json (Security:RequireAuthForMetrics) - default fallback
+///
+/// Values:
+/// - false (default): Metrics are PUBLIC - no authentication required
+/// - true: Metrics require API Key in X-Api-Key header
 ///
 /// Use Cases:
 /// - false: Prometheus/Grafana can scrape metrics without authentication (common setup)
@@ -29,7 +34,7 @@ public class MetricsAuthenticationMiddleware
         _logger = logger;
     }
 
-    public async Task InvokeAsync(HttpContext context, ApiKeyService apiKeyService)
+    public async Task InvokeAsync(HttpContext context, ApiKeyService apiKeyService, IStateRepository stateRepository)
     {
         // Only apply to /metrics endpoint - all other paths skip this middleware
         if (!context.Request.Path.StartsWithSegments("/metrics"))
@@ -38,9 +43,11 @@ public class MetricsAuthenticationMiddleware
             return;
         }
 
-        // Check if authentication is required for metrics (default: false - public access)
-        // This is SEPARATE from Security:EnableAuthentication - metrics can be public while app is secured
-        var requireAuth = _configuration.GetValue<bool>("Security:RequireAuthForMetrics", false);
+        // Check if authentication is required for metrics
+        // Priority: UI toggle (StateRepository) > env var/config (IConfiguration)
+        var uiToggleValue = stateRepository.GetRequireAuthForMetrics();
+        var configValue = _configuration.GetValue<bool>("Security:RequireAuthForMetrics", false);
+        var requireAuth = uiToggleValue ?? configValue;
 
         if (!requireAuth)
         {

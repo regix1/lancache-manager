@@ -82,4 +82,8 @@ public interface IStateRepository
     void SetLastSessionReplacement(DateTime? timestamp);
     void IncrementSessionReplacedCount(); // Convenience method that also sets timestamp
     void ResetSessionReplacedCount(); // Resets both count and timestamp
+
+    // Metrics Authentication Toggle Methods
+    bool? GetRequireAuthForMetrics();
+    void SetRequireAuthForMetrics(bool? value);
 }

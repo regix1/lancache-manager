@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { HardDrive, Loader2, Lock, FolderOpen } from 'lucide-react';
+import { HardDrive, Loader2, Lock, CheckCircle, XCircle, ScrollText, Database, Server } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
+import { AccordionSection } from '@components/ui/AccordionSection';
+import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { useNotifications } from '@contexts/NotificationsContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import GamesList from './GamesList';
@@ -43,8 +45,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [games, setGames] = useState<GameCacheInfo[]>([]);
   const [services, setServices] = useState<ServiceCacheInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [totalGames, setTotalGames] = useState<number>(0);
-  const [totalServices, setTotalServices] = useState<number>(0);
   const [gameToRemove, setGameToRemove] = useState<GameCacheInfo | null>(null);
   const [serviceToRemove, setServiceToRemove] = useState<ServiceCacheInfo | null>(null);
   const [cacheReadOnly, setCacheReadOnly] = useState(false);
@@ -56,6 +56,10 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [scanType, setScanType] = useState<'full' | 'incremental' | 'load' | null>(null);
   const [datasources, setDatasources] = useState<DatasourceInfo[]>([]);
   const [selectedDatasource, setSelectedDatasource] = useState<string | null>(null);
+
+  // Accordion state for Services and Games sections
+  const [servicesExpanded, setServicesExpanded] = useState(true);
+  const [gamesExpanded, setGamesExpanded] = useState(true);
 
   // Format last detection time with timezone awareness
   const formattedLastDetectionTime = useFormattedDateTime(lastDetectionTime);
@@ -69,6 +73,20 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     ? services.filter((s) => !s.datasources?.length || s.datasources.includes(selectedDatasource))
     : services;
 
+  // Auto-collapse sections if they have many items (> 10)
+  useEffect(() => {
+    if (filteredServices.length > 10) {
+      setServicesExpanded(false);
+    } else {
+      setServicesExpanded(true);
+    }
+    if (filteredGames.length > 10) {
+      setGamesExpanded(false);
+    } else {
+      setGamesExpanded(true);
+    }
+  }, [filteredServices.length, filteredGames.length]);
+
   // Load cached games and services from backend on mount and when refreshKey changes
   useEffect(() => {
     const loadCachedGames = async () => {
@@ -80,19 +98,15 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           // Load games if available
           if (result.games && result.totalGamesDetected) {
             setGames(result.games);
-            setTotalGames(result.totalGamesDetected);
           } else {
             setGames([]);
-            setTotalGames(0);
           }
 
           // Load services if available
           if (result.services && result.totalServicesDetected) {
             setServices(result.services);
-            setTotalServices(result.totalServicesDetected);
           } else {
             setServices([]);
-            setTotalServices(0);
           }
 
           // Store the last detection time
@@ -128,9 +142,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         } else {
           // No cached results - clear the display
           setGames([]);
-          setTotalGames(0);
           setServices([]);
-          setTotalServices(0);
           setLastDetectionTime(null);
         }
       } catch (err) {
@@ -212,11 +224,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       if (!gameAppId) return;
 
       // Remove from UI (backend already removed from database)
-      setGames((prev) => {
-        const newGames = prev.filter((g) => g.game_app_id !== gameAppId);
-        setTotalGames(newGames.length);
-        return newGames;
-      });
+      setGames((prev) => prev.filter((g) => g.game_app_id !== gameAppId));
     });
 
     // Handle completed service removals
@@ -228,11 +236,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       if (!serviceName) return;
 
       // Remove from UI (backend already removed from database)
-      setServices((prev) => {
-        const newServices = prev.filter((s) => s.service_name !== serviceName);
-        setTotalServices(newServices.length);
-        return newServices;
-      });
+      setServices((prev) => prev.filter((s) => s.service_name !== serviceName));
     });
 
     // Handle database reset completion
@@ -244,9 +248,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         '[GameCacheDetector] Database reset detected, clearing games/services and re-checking database LogEntries'
       );
       setGames([]);
-      setTotalGames(0);
       setServices([]);
-      setTotalServices(0);
       checkIfLogsProcessed();
     }
 
@@ -278,11 +280,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             if (result.hasCachedResults) {
               if (result.games && result.totalGamesDetected) {
                 setGames(result.games);
-                setTotalGames(result.totalGamesDetected);
               }
               if (result.services && result.totalServicesDetected) {
                 setServices(result.services);
-                setTotalServices(result.totalServicesDetected);
               }
               if (result.lastDetectionTime) {
                 setLastDetectionTime(result.lastDetectionTime);
@@ -325,9 +325,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     setError(null);
     setScanType(scanTypeLabel);
     setGames([]);
-    setTotalGames(0);
     setServices([]);
-    setTotalServices(0);
     setLastDetectionTime(null); // Clear previous detection time when starting new scan
 
     try {
@@ -366,19 +364,15 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         // Load games if available
         if (result.games && result.totalGamesDetected) {
           setGames(result.games);
-          setTotalGames(result.totalGamesDetected);
         } else {
           setGames([]);
-          setTotalGames(0);
         }
 
         // Load services if available
         if (result.services && result.totalServicesDetected) {
           setServices(result.services);
-          setTotalServices(result.totalServicesDetected);
         } else {
           setServices([]);
-          setTotalServices(0);
         }
 
         // Store the last detection time
@@ -412,9 +406,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         }
       } else {
         setGames([]);
-        setTotalGames(0);
         setServices([]);
-        setTotalServices(0);
         setLastDetectionTime(null);
         addNotification({
           type: 'generic',
@@ -556,40 +548,74 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     }
   };
 
+  // Expand/Collapse all handler
+  const handleExpandCollapseAll = () => {
+    const allExpanded = servicesExpanded && gamesExpanded;
+    setServicesExpanded(!allExpanded);
+    setGamesExpanded(!allExpanded);
+  };
+
+  const hasResults = filteredGames.length > 0 || filteredServices.length > 0;
+  const allExpanded = servicesExpanded && gamesExpanded;
+
   return (
     <>
       <Card>
         <div className="space-y-4">
-          {/* Header Section */}
-          {(cacheReadOnly || !dockerSocketAvailable) ? (
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
-                <HardDrive className="w-5 h-5 icon-purple" />
-              </div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-lg font-semibold text-themed-primary">Game Cache Detection</h3>
-                <HelpPopover position="left" width={340}>
-                  <HelpSection title="Removal">
-                    <div className="space-y-1.5">
-                      <HelpDefinition term="Game" termColor="green">
-                        Removes cache files, log entries, and database records
-                      </HelpDefinition>
-                      <HelpDefinition term="Service" termColor="purple">
-                        Cleans up non-game caches (Riot, Blizzard, Epic, WSUS)
-                      </HelpDefinition>
-                    </div>
-                  </HelpSection>
+          {/* Header Row 1: Title + Help + Permissions */}
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
+              <HardDrive className="w-5 h-5 icon-purple" />
+            </div>
+            <div className="flex items-center gap-2 flex-1">
+              <h3 className="text-lg font-semibold text-themed-primary">Game Cache Detection</h3>
+              <HelpPopover position="left" width={340}>
+                <HelpSection title="Removal">
+                  <div className="space-y-1.5">
+                    <HelpDefinition term="Game" termColor="green">
+                      Removes cache files, log entries, and database records
+                    </HelpDefinition>
+                    <HelpDefinition term="Service" termColor="purple">
+                      Cleans up non-game caches (Riot, Blizzard, Epic, WSUS)
+                    </HelpDefinition>
+                  </div>
+                </HelpSection>
 
-                  <HelpSection title="How It Works" variant="subtle">
-                    Scans database for games and services, verifies cache files exist on disk,
-                    then displays size and file count for each.
-                  </HelpSection>
+                <HelpSection title="How It Works" variant="subtle">
+                  Scans database for games and services, verifies cache files exist on disk,
+                  then displays size and file count for each.
+                </HelpSection>
 
-                  <HelpNote type="info">
-                    Access logs must be processed first to populate the database.
-                  </HelpNote>
-                </HelpPopover>
-              </div>
+                <HelpNote type="info">
+                  Access logs must be processed first to populate the database.
+                </HelpNote>
+              </HelpPopover>
+              {!checkingPermissions && (
+                <div className="flex items-center gap-2">
+                  <Tooltip content={datasources.some(ds => !ds.logsWritable) ? 'Logs are read-only' : 'Logs are writable'} position="top">
+                    <span className="flex items-center gap-0.5">
+                      <ScrollText className="w-3.5 h-3.5 text-themed-muted" />
+                      {datasources.some(ds => !ds.logsWritable) ? (
+                        <XCircle className="w-4 h-4" style={{ color: 'var(--theme-warning)' }} />
+                      ) : (
+                        <CheckCircle className="w-4 h-4" style={{ color: 'var(--theme-success-text)' }} />
+                      )}
+                    </span>
+                  </Tooltip>
+                  <Tooltip content={cacheReadOnly ? 'Cache is read-only (removal disabled)' : 'Cache is writable'} position="top">
+                    <span className="flex items-center gap-0.5">
+                      <HardDrive className="w-3.5 h-3.5 text-themed-muted" />
+                      {cacheReadOnly ? (
+                        <XCircle className="w-4 h-4" style={{ color: 'var(--theme-warning)' }} />
+                      ) : (
+                        <CheckCircle className="w-4 h-4" style={{ color: 'var(--theme-success-text)' }} />
+                      )}
+                    </span>
+                  </Tooltip>
+                </div>
+              )}
+            </div>
+            {(cacheReadOnly || !dockerSocketAvailable) && (
               <span
                 className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 border"
                 style={{
@@ -601,84 +627,31 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                 <Lock className="w-3 h-3" />
                 {cacheReadOnly ? 'Read-only' : 'Docker socket required'}
               </span>
-            </div>
-          ) : (
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
-                  <HardDrive className="w-5 h-5 icon-purple" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-lg font-semibold text-themed-primary">Game Cache Detection</h3>
-                    <HelpPopover position="left" width={340}>
-                      <HelpSection title="Removal">
-                        <div className="space-y-1.5">
-                          <HelpDefinition term="Game" termColor="green">
-                            Removes cache files, log entries, and database records
-                          </HelpDefinition>
-                          <HelpDefinition term="Service" termColor="purple">
-                            Cleans up non-game caches (Riot, Blizzard, Epic, WSUS)
-                          </HelpDefinition>
-                        </div>
-                      </HelpSection>
+            )}
+          </div>
 
-                      <HelpSection title="How It Works" variant="subtle">
-                        Scans database for games and services, verifies cache files exist on disk,
-                        then displays size and file count for each.
-                      </HelpSection>
+          {/* Header Row 2: Description */}
+          <p className="text-sm text-themed-secondary">
+            Scan cache to find games and services with stored files. Remove individual items to free up disk space.
+          </p>
 
-                      <HelpNote type="info">
-                        Access logs must be processed first to populate the database.
-                      </HelpNote>
-                    </HelpPopover>
-                  </div>
-                  <p className="text-sm text-themed-secondary mt-1">
-                    {datasources.length > 1
-                      ? `Scan ${datasources.length} cache directories to find which games have stored files`
-                      : 'Scan cache directory to find which games have stored files'}
-                  </p>
-                  {datasources.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-2 mt-2">
-                      {datasources.map((ds) => {
-                        const isSelected = selectedDatasource === ds.name;
-                        return (
-                          <Tooltip key={ds.name} content={isSelected ? `Click to show all` : `Click to filter by ${ds.name}`}>
-                            <button
-                              onClick={() => setSelectedDatasource(isSelected ? null : ds.name)}
-                              className="inline-flex items-center gap-1.5 px-2 py-0.5 text-xs rounded cursor-pointer transition-all hover:opacity-80"
-                              style={{
-                                backgroundColor: isSelected ? 'var(--theme-accent-muted)' : 'var(--theme-bg-tertiary)',
-                                color: isSelected ? 'var(--theme-accent)' : 'var(--theme-text-secondary)',
-                                border: isSelected ? '1px solid var(--theme-accent)' : '1px solid transparent'
-                              }}
-                            >
-                              <FolderOpen className="w-3 h-3" />
-                              {ds.name}
-                            </button>
-                          </Tooltip>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center gap-2 w-full lg:w-auto">
-                {/* Load Data Button */}
+          {/* Header Row 3: Actions + Datasource Filter */}
+          {!cacheReadOnly && (
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2 flex-1">
                 <Tooltip content="Load previous detection results from database">
                   <Button
                     onClick={handleLoadData}
-                    disabled={loading || mockMode || cacheReadOnly || checkingPermissions}
+                    disabled={loading || mockMode || checkingPermissions}
                     variant="default"
                     size="sm"
                     leftSection={loading && scanType === 'load' ? <Loader2 className="w-4 h-4 animate-spin" /> : undefined}
-                    className="flex-1 lg:flex-initial"
                   >
                     {loading && scanType === 'load' ? 'Loading...' : 'Load Data'}
                   </Button>
                 </Tooltip>
 
-                {/* Incremental Scan Button */}
                 {(() => {
                   const incrementalButton = (
                     <Button
@@ -686,7 +659,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                       disabled={
                         loading ||
                         mockMode ||
-                        cacheReadOnly ||
                         checkingPermissions ||
                         !hasProcessedLogs ||
                         checkingLogs
@@ -694,7 +666,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                       variant="default"
                       size="sm"
                       leftSection={loading && scanType === 'incremental' ? <Loader2 className="w-4 h-4 animate-spin" /> : undefined}
-                      className="flex-1 lg:flex-initial"
                     >
                       {loading && scanType === 'incremental' ? 'Scanning...' : 'Quick Scan'}
                     </Button>
@@ -711,7 +682,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   );
                 })()}
 
-                {/* Full Scan Button */}
                 {(() => {
                   const fullButton = (
                     <Button
@@ -719,7 +689,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                       disabled={
                         loading ||
                         mockMode ||
-                        cacheReadOnly ||
                         checkingPermissions ||
                         !hasProcessedLogs ||
                         checkingLogs
@@ -728,7 +697,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                       color="blue"
                       size="sm"
                       leftSection={loading && scanType === 'full' ? <Loader2 className="w-4 h-4 animate-spin" /> : undefined}
-                      className="flex-1 lg:flex-initial"
                     >
                       {loading && scanType === 'full' ? 'Scanning...' : 'Full Scan'}
                     </Button>
@@ -745,127 +713,172 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   );
                 })()}
               </div>
+
+              {/* Datasource Filter (dropdown style if multiple) */}
+              {datasources.length > 1 && (
+                <EnhancedDropdown
+                  options={[
+                    { value: '', label: 'All datasources' },
+                    ...datasources.map((ds): DropdownOption => ({
+                      value: ds.name,
+                      label: ds.name
+                    }))
+                  ]}
+                  value={selectedDatasource || ''}
+                  onChange={(value) => setSelectedDatasource(value || null)}
+                  placeholder="All datasources"
+                  compactMode
+                  cleanStyle
+                  prefix="Filter:"
+                />
+              )}
             </div>
           )}
 
-          {!cacheReadOnly && (
-            <>
-              {/* Loading State */}
-              {loading && (
-                <div className="flex flex-col items-center justify-center py-8 gap-3">
-                  <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
-                  <p className="text-sm text-themed-secondary">
-                    {datasources.length > 1
-                      ? `Scanning database and ${datasources.length} cache directories...`
-                      : 'Scanning database and cache directory...'}
-                  </p>
-                  <p className="text-xs text-themed-muted">
-                    This may take several minutes for large databases and cache directories
-                  </p>
-                </div>
-              )}
+          {/* Loading State */}
+          {loading && (
+            <div className="flex flex-col items-center justify-center py-8 gap-3">
+              <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
+              <p className="text-sm text-themed-secondary">
+                {datasources.length > 1
+                  ? `Scanning database and ${datasources.length} cache directories...`
+                  : 'Scanning database and cache directory...'}
+              </p>
+              <p className="text-xs text-themed-muted">
+                This may take several minutes for large databases and cache directories
+              </p>
+            </div>
+          )}
 
+          {!cacheReadOnly && !loading && (
+            <>
               {/* Previous Results Badge */}
-              {!loading && lastDetectionTime && (totalGames > 0 || totalServices > 0) && (
+              {lastDetectionTime && hasResults && (
                 <Alert color="blue">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">
-                      Showing results from previous scan
-                    </span>
-                    <span className="text-xs text-themed-muted">
-                      Detected {formattedLastDetectionTime}
-                    </span>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">
+                        Results from previous scan
+                      </span>
+                      <span className="text-xs text-themed-muted">
+                        {formattedLastDetectionTime}
+                      </span>
+                    </div>
+                    {/* Expand/Collapse All button */}
+                    {hasResults && (
+                      <Button
+                        variant="subtle"
+                        size="xs"
+                        onClick={handleExpandCollapseAll}
+                      >
+                        {allExpanded ? 'Collapse All' : 'Expand All'}
+                      </Button>
+                    )}
                   </div>
                 </Alert>
               )}
 
               {/* Filter indicator */}
-              {selectedDatasource && !loading && (totalGames > 0 || totalServices > 0) && (
+              {selectedDatasource && hasResults && (
                 <Alert color="blue">
                   <div className="flex items-center justify-between">
                     <span className="text-sm">
-                      Showing results from <strong>{selectedDatasource}</strong>: {filteredGames.length} game{filteredGames.length !== 1 ? 's' : ''}, {filteredServices.length} service{filteredServices.length !== 1 ? 's' : ''}
+                      Filtered by <strong>{selectedDatasource}</strong>: {filteredGames.length} game{filteredGames.length !== 1 ? 's' : ''}, {filteredServices.length} service{filteredServices.length !== 1 ? 's' : ''}
                     </span>
                     <Button
                       variant="subtle"
                       size="xs"
                       onClick={() => setSelectedDatasource(null)}
                     >
-                      Show all
+                      Clear filter
                     </Button>
                   </div>
                 </Alert>
               )}
 
-              {/* Services List - NOW APPEARS FIRST */}
-              {!loading && (
-                <ServicesList
-                  services={filteredServices}
-                  totalServices={filteredServices.length}
-                  notifications={notifications}
-                  isAuthenticated={isAuthenticated}
-                  cacheReadOnly={cacheReadOnly}
-                  dockerSocketAvailable={dockerSocketAvailable}
-                  checkingPermissions={checkingPermissions}
-                  onRemoveService={handleServiceRemoveClick}
-                />
+              {/* Services Section (Accordion) */}
+              {filteredServices.length > 0 && (
+                <AccordionSection
+                  title="Services"
+                  count={filteredServices.length}
+                  icon={Server}
+                  iconColor="var(--theme-accent)"
+                  isExpanded={servicesExpanded}
+                  onToggle={() => setServicesExpanded(!servicesExpanded)}
+                >
+                  <ServicesList
+                    services={filteredServices}
+                    totalServices={filteredServices.length}
+                    notifications={notifications}
+                    isAuthenticated={isAuthenticated}
+                    cacheReadOnly={cacheReadOnly}
+                    dockerSocketAvailable={dockerSocketAvailable}
+                    checkingPermissions={checkingPermissions}
+                    onRemoveService={handleServiceRemoveClick}
+                  />
+                </AccordionSection>
               )}
 
-              {/* Games List - NOW APPEARS AFTER SERVICES */}
-              {!loading && (
-                <GamesList
-                  games={filteredGames}
-                  totalGames={filteredGames.length}
-                  notifications={notifications}
-                  isAuthenticated={isAuthenticated}
-                  cacheReadOnly={cacheReadOnly}
-                  dockerSocketAvailable={dockerSocketAvailable}
-                  checkingPermissions={checkingPermissions}
-                  onRemoveGame={handleRemoveClick}
-                />
+              {/* Games Section (Accordion) */}
+              {filteredGames.length > 0 && (
+                <AccordionSection
+                  title="Games"
+                  count={filteredGames.length}
+                  icon={Database}
+                  iconColor="var(--theme-success-text)"
+                  isExpanded={gamesExpanded}
+                  onToggle={() => setGamesExpanded(!gamesExpanded)}
+                >
+                  <GamesList
+                    games={filteredGames}
+                    totalGames={filteredGames.length}
+                    notifications={notifications}
+                    isAuthenticated={isAuthenticated}
+                    cacheReadOnly={cacheReadOnly}
+                    dockerSocketAvailable={dockerSocketAvailable}
+                    checkingPermissions={checkingPermissions}
+                    onRemoveGame={handleRemoveClick}
+                  />
+                </AccordionSection>
               )}
 
               {/* Empty State */}
-              {!loading &&
-                filteredGames.length === 0 &&
-                filteredServices.length === 0 &&
-                !error && (
-                  <div className="text-center py-8 text-themed-muted">
-                    <HardDrive className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                    {selectedDatasource ? (
-                      <>
-                        <div className="mb-2">No games or services found in {selectedDatasource}</div>
-                        <Button
-                          variant="subtle"
-                          size="sm"
-                          onClick={() => setSelectedDatasource(null)}
-                        >
-                          Show all results
-                        </Button>
-                      </>
-                    ) : (
-                      <>
-                        <div className="mb-2">No games or services with cache files detected</div>
-                        {!hasProcessedLogs && !checkingLogs ? (
-                          <div className="text-xs space-y-1">
-                            <div className="text-themed-warning font-medium">
-                              Database has no LogEntries
-                            </div>
-                            <div>
-                              Process access logs to populate the database. Detection requires
-                              LogEntries to match cache files.
-                            </div>
+              {!hasResults && !error && (
+                <div className="text-center py-8 text-themed-muted">
+                  <HardDrive className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  {selectedDatasource ? (
+                    <>
+                      <div className="mb-2">No games or services found in {selectedDatasource}</div>
+                      <Button
+                        variant="subtle"
+                        size="sm"
+                        onClick={() => setSelectedDatasource(null)}
+                      >
+                        Clear filter
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="mb-2">No games or services with cache files detected</div>
+                      {!hasProcessedLogs && !checkingLogs ? (
+                        <div className="text-xs space-y-1">
+                          <div className="text-themed-warning font-medium">
+                            Database has no LogEntries
                           </div>
-                        ) : (
-                          <div className="text-xs">
-                            Click &ldquo;Detect Games&rdquo; to scan your cache directory
+                          <div>
+                            Process access logs to populate the database. Detection requires
+                            LogEntries to match cache files.
                           </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                )}
-
+                        </div>
+                      ) : (
+                        <div className="text-xs">
+                          Click &quot;Full Scan&quot; to scan your cache directory
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
             </>
           )}
         </div>

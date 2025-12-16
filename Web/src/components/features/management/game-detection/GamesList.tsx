@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Database, Search } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Pagination } from '@components/ui/Pagination';
 import GameCard from './GameCard';
@@ -86,25 +86,7 @@ const GamesList: React.FC<GamesListProps> = ({
   }
 
   return (
-    <>
-      <div
-        className="mb-3 p-3 rounded-lg border"
-        style={{
-          backgroundColor: 'var(--theme-bg-elevated)',
-          borderColor: 'var(--theme-border-secondary)'
-        }}
-      >
-        <div className="flex items-center gap-2 text-themed-primary font-medium">
-          <Database className="w-5 h-5 text-themed-accent" />
-          Found {totalGames} game{totalGames !== 1 ? 's' : ''} with cache files
-          {searchQuery && filteredAndSortedGames.length !== totalGames && (
-            <span className="text-sm text-themed-muted font-normal">
-              ({filteredAndSortedGames.length} matching)
-            </span>
-          )}
-        </div>
-      </div>
-
+    <div>
       {/* Search Bar */}
       <div className="mb-3">
         <div className="relative">
@@ -179,7 +161,7 @@ const GamesList: React.FC<GamesListProps> = ({
           />
         </>
       )}
-    </>
+    </div>
   );
 };
 

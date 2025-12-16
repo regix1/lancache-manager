@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Logs, FolderOpen, FileText, CheckCircle, XCircle, PlayCircle, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+import { Logs, PlayCircle, RefreshCw, CheckCircle, XCircle, ScrollText } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
-import { Tooltip } from '@components/ui/Tooltip';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
+import { Tooltip } from '@components/ui/Tooltip';
+import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { useSignalR } from '@contexts/SignalRContext';
 import type { FastProcessingCompletePayload } from '@contexts/SignalRContext/types';
 import { useNotifications } from '@contexts/NotificationsContext';
@@ -216,6 +217,9 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 
   const hasMultiple = datasources.length > 1;
 
+  // Check if any datasource has read-only logs
+  const logsReadOnly = datasources.some(ds => !ds.logsWritable);
+
   return (
     <>
       <Card>
@@ -245,6 +249,16 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
               Rust processor includes duplicate detection to avoid reimporting entries.
             </HelpNote>
           </HelpPopover>
+          <Tooltip content={logsReadOnly ? 'Logs are read-only' : 'Logs are writable'} position="top">
+            <span className="flex items-center gap-0.5">
+              <ScrollText className="w-3.5 h-3.5 text-themed-muted" />
+              {logsReadOnly ? (
+                <XCircle className="w-4 h-4" style={{ color: 'var(--theme-warning)' }} />
+              ) : (
+                <CheckCircle className="w-4 h-4" style={{ color: 'var(--theme-success-text)' }} />
+              )}
+            </span>
+          </Tooltip>
         </div>
 
         <p className="text-themed-muted text-sm mb-4">
@@ -286,128 +300,51 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
             const isExpanded = expandedDatasources.has(ds.name);
 
             return (
-              <div
+              <DatasourceListItem
                 key={ds.name}
-                className="rounded-lg border"
-                style={{
-                  backgroundColor: 'var(--theme-bg-secondary)',
-                  borderColor: ds.enabled ? 'var(--theme-border-primary)' : 'var(--theme-border-secondary)',
-                  opacity: ds.enabled ? 1 : 0.6
-                }}
+                name={ds.name}
+                path={ds.logsPath}
+                isExpanded={isExpanded}
+                onToggle={() => toggleExpanded(ds.name)}
+                enabled={ds.enabled}
+                statusBadge={`Position: ${formatPosition(position)}`}
               >
-                {/* Header - clickable to expand */}
-                <div
-                  className="p-3 cursor-pointer"
-                  onClick={() => toggleExpanded(ds.name)}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-themed-primary">{ds.name}</span>
-                      {!ds.enabled && (
-                        <span
-                          className="px-2 py-0.5 text-xs rounded font-medium"
-                          style={{
-                            backgroundColor: 'var(--theme-bg-tertiary)',
-                            color: 'var(--theme-text-muted)'
-                          }}
-                        >
-                          Disabled
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3">
-                      {/* Log position summary */}
-                      <span className="text-xs text-themed-muted hidden sm:inline">
-                        Position: {formatPosition(position)}
-                      </span>
-                      {/* Writable status icons */}
-                      <div className="flex items-center gap-2">
-                        <Tooltip content={ds.cacheWritable ? 'Cache is writable' : 'Cache is read-only'} position="top">
-                          <span className="flex items-center gap-1 text-xs">
-                            {ds.cacheWritable ? (
-                              <CheckCircle className="w-3.5 h-3.5" style={{ color: 'var(--theme-success-text)' }} />
-                            ) : (
-                              <XCircle className="w-3.5 h-3.5" style={{ color: 'var(--theme-warning)' }} />
-                            )}
-                          </span>
-                        </Tooltip>
-                        <Tooltip content={ds.logsWritable ? 'Logs are writable' : 'Logs are read-only'} position="top">
-                          <span className="flex items-center gap-1 text-xs">
-                            {ds.logsWritable ? (
-                              <CheckCircle className="w-3.5 h-3.5" style={{ color: 'var(--theme-success-text)' }} />
-                            ) : (
-                              <XCircle className="w-3.5 h-3.5" style={{ color: 'var(--theme-warning)' }} />
-                            )}
-                          </span>
-                        </Tooltip>
-                      </div>
-                      {/* Expand/collapse icon */}
-                      {isExpanded ? (
-                        <ChevronUp className="w-4 h-4 text-themed-muted" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4 text-themed-muted" />
-                      )}
-                    </div>
-                  </div>
+                {/* Expanded content */}
+                {/* Position info on mobile */}
+                <div className="sm:hidden text-xs text-themed-muted py-2">
+                  Position: {formatPosition(position)}
                 </div>
 
-                {/* Expanded details */}
-                {isExpanded && (
-                  <div className="px-3 pb-3 border-t" style={{ borderColor: 'var(--theme-border-secondary)' }}>
-                    {/* Paths */}
-                    <div className="py-2 space-y-1">
-                      <div className="flex items-center gap-2 text-xs">
-                        <FolderOpen className="w-3.5 h-3.5 text-themed-muted flex-shrink-0" />
-                        <span className="text-themed-muted">Cache:</span>
-                        <code className="bg-themed-tertiary px-1.5 py-0.5 rounded text-themed-secondary truncate">
-                          {ds.cachePath}
-                        </code>
-                      </div>
-                      <div className="flex items-center gap-2 text-xs">
-                        <FileText className="w-3.5 h-3.5 text-themed-muted flex-shrink-0" />
-                        <span className="text-themed-muted">Logs:</span>
-                        <code className="bg-themed-tertiary px-1.5 py-0.5 rounded text-themed-secondary truncate">
-                          {ds.logsPath}
-                        </code>
-                      </div>
-                      {/* Position info on mobile */}
-                      <div className="sm:hidden text-xs text-themed-muted pt-1">
-                        Position: {formatPosition(position)}
-                      </div>
-                    </div>
-
-                    {/* Actions */}
-                    <div className="grid grid-cols-2 gap-2 pt-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        leftSection={<RefreshCw className="w-3.5 h-3.5" />}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setResetModal({ datasource: ds.name, all: false });
-                        }}
-                        disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated || !ds.enabled}
-                      >
-                        Reset
-                      </Button>
-                      <Button
-                        variant="filled"
-                        color="green"
-                        size="sm"
-                        leftSection={<PlayCircle className="w-3.5 h-3.5" />}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleProcessDatasource(ds.name);
-                        }}
-                        disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated || !ds.enabled}
-                        loading={actionLoading === ds.name}
-                      >
-                        Process
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
+                {/* Actions */}
+                <div className="grid grid-cols-2 gap-2 pt-3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    leftSection={<RefreshCw className="w-3.5 h-3.5" />}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setResetModal({ datasource: ds.name, all: false });
+                    }}
+                    disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated || !ds.enabled}
+                  >
+                    Reset
+                  </Button>
+                  <Button
+                    variant="filled"
+                    color="green"
+                    size="sm"
+                    leftSection={<PlayCircle className="w-3.5 h-3.5" />}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleProcessDatasource(ds.name);
+                    }}
+                    disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated || !ds.enabled}
+                    loading={actionLoading === ds.name}
+                  >
+                    Process
+                  </Button>
+                </div>
+              </DatasourceListItem>
             );
           })}
         </div>

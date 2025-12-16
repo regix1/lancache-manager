@@ -76,6 +76,9 @@ public class StateRepository : IStateRepository
         public int SessionReplacedCount { get; set; } = 0; // Counter for session replacement errors
         public DateTime? LastSessionReplacement { get; set; } // When the last session replacement occurred
 
+        // Metrics authentication toggle (null = use env var default, true/false = UI override)
+        public bool? RequireAuthForMetrics { get; set; } = null;
+
         // LEGACY: SteamAuth has been migrated to separate file (data/steam_auth/credentials.json)
         // This property is kept temporarily for backward compatibility during migration
         public SteamAuthState? SteamAuth { get; set; }
@@ -121,6 +124,9 @@ public class StateRepository : IStateRepository
         // Steam session replacement tracking
         public int SessionReplacedCount { get; set; } = 0;
         public DateTime? LastSessionReplacement { get; set; }
+
+        // Metrics authentication toggle (null = use env var default)
+        public bool? RequireAuthForMetrics { get; set; } = null;
 
         // LEGACY: SteamAuth migrated to separate file - kept for reading old state.json during migration
         // JsonIgnore(Condition = WhenWritingNull) excludes it when saving (always null after migration)
@@ -791,6 +797,8 @@ public class StateRepository : IStateRepository
             // Steam session replacement tracking
             SessionReplacedCount = persisted.SessionReplacedCount,
             LastSessionReplacement = persisted.LastSessionReplacement,
+            // Metrics authentication toggle
+            RequireAuthForMetrics = persisted.RequireAuthForMetrics,
             // LEGACY: Only load SteamAuth if present (for migration from old state.json)
             SteamAuth = persisted.SteamAuth != null ? new SteamAuthState
             {
@@ -836,6 +844,8 @@ public class StateRepository : IStateRepository
             // Steam session replacement tracking
             SessionReplacedCount = state.SessionReplacedCount,
             LastSessionReplacement = state.LastSessionReplacement,
+            // Metrics authentication toggle
+            RequireAuthForMetrics = state.RequireAuthForMetrics,
             // LEGACY: Only persist SteamAuth if not null (will be null after migration)
             // JsonIgnore(WhenWritingNull) on property will exclude from JSON when null
             SteamAuth = state.SteamAuth != null ? new SteamAuthState
@@ -1038,5 +1048,16 @@ public class StateRepository : IStateRepository
             state.SessionReplacedCount = 0;
             state.LastSessionReplacement = null;
         });
+    }
+
+    // Metrics Authentication Toggle Methods
+    public bool? GetRequireAuthForMetrics()
+    {
+        return GetState().RequireAuthForMetrics;
+    }
+
+    public void SetRequireAuthForMetrics(bool? value)
+    {
+        UpdateState(state => state.RequireAuthForMetrics = value);
     }
 }

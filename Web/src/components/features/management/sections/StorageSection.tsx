@@ -2,8 +2,9 @@ import React, { Suspense } from 'react';
 import { Card } from '@components/ui/Card';
 import { type AuthMode } from '@services/auth.service';
 import DatasourcesManager from '../datasources/DatasourcesInfo';
+import LogRemovalManager from '../log-processing/LogRemovalManager';
 import CacheManager from '../cache/CacheManager';
-import LogAndCorruptionManager from '../log-processing/LogAndCorruptionManager';
+import CorruptionManager from '../cache/CorruptionManager';
 import GameCacheDetector from '../game-detection/GameCacheDetector';
 
 interface StorageSectionProps {
@@ -14,8 +15,8 @@ interface StorageSectionProps {
   onError: (message: string) => void;
   onSuccess: (message: string) => void;
   onDataRefresh: () => void;
-  logAndCorruptionReloadRef: React.MutableRefObject<(() => Promise<void>) | null>;
-  logAndCorruptionClearOpRef: React.MutableRefObject<(() => Promise<void>) | null>;
+  logRemovalReloadRef: React.MutableRefObject<(() => Promise<void>) | null>;
+  corruptionReloadRef: React.MutableRefObject<(() => Promise<void>) | null>;
 }
 
 const StorageSection: React.FC<StorageSectionProps> = ({
@@ -26,8 +27,8 @@ const StorageSection: React.FC<StorageSectionProps> = ({
   onError,
   onSuccess,
   onDataRefresh,
-  logAndCorruptionReloadRef,
-  logAndCorruptionClearOpRef
+  logRemovalReloadRef,
+  corruptionReloadRef
 }) => {
   return (
     <div
@@ -46,7 +47,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
         </p>
       </div>
 
-      {/* Subsection: Data Sources */}
+      {/* ==================== LOG OPERATIONS ==================== */}
       <div className="mb-8">
         <div className="flex items-center gap-2 mb-4">
           <div
@@ -54,25 +55,36 @@ const StorageSection: React.FC<StorageSectionProps> = ({
             style={{ backgroundColor: 'var(--theme-icon-blue)' }}
           />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            Data Sources
+            Log Operations
           </h3>
         </div>
 
-        <DatasourcesManager
-          isAuthenticated={isAuthenticated}
-          mockMode={mockMode}
-          onError={onError}
-          onSuccess={onSuccess}
-          onDataRefresh={onDataRefresh}
-        />
+        <div className="space-y-4">
+          {/* Log Processing */}
+          <DatasourcesManager
+            isAuthenticated={isAuthenticated}
+            mockMode={mockMode}
+            onError={onError}
+            onSuccess={onSuccess}
+            onDataRefresh={onDataRefresh}
+          />
+
+          {/* Log Removal */}
+          <LogRemovalManager
+            authMode={authMode}
+            mockMode={mockMode}
+            onError={onError}
+            onReloadRef={logRemovalReloadRef}
+          />
+        </div>
       </div>
 
-      {/* Subsection: Cache Operations */}
-      <div className="mb-8">
+      {/* ==================== CACHE OPERATIONS ==================== */}
+      <div>
         <div className="flex items-center gap-2 mb-4">
           <div
             className="w-1 h-5 rounded-full"
-            style={{ backgroundColor: 'var(--theme-icon-purple)' }}
+            style={{ backgroundColor: 'var(--theme-icon-green)' }}
           />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
             Cache Operations
@@ -80,6 +92,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
         </div>
 
         <div className="space-y-4">
+          {/* Cache Clearing */}
           <Suspense
             fallback={
               <Card>
@@ -97,48 +110,23 @@ const StorageSection: React.FC<StorageSectionProps> = ({
               onSuccess={onSuccess}
             />
           </Suspense>
-        </div>
-      </div>
 
-      {/* Subsection: Log & Corruption Management */}
-      <div className="mb-8">
-        <div className="flex items-center gap-2 mb-4">
-          <div
-            className="w-1 h-5 rounded-full"
-            style={{ backgroundColor: 'var(--theme-icon-orange)' }}
+          {/* Corruption Detection */}
+          <CorruptionManager
+            authMode={authMode}
+            mockMode={mockMode}
+            onError={onError}
+            onReloadRef={corruptionReloadRef}
           />
-          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            Log & Corruption Management
-          </h3>
-        </div>
 
-        <LogAndCorruptionManager
-          authMode={authMode}
-          mockMode={mockMode}
-          onError={onError}
-          onReloadRef={logAndCorruptionReloadRef}
-          onClearOperationRef={logAndCorruptionClearOpRef}
-        />
-      </div>
-
-      {/* Subsection: Game Detection */}
-      <div>
-        <div className="flex items-center gap-2 mb-4">
-          <div
-            className="w-1 h-5 rounded-full"
-            style={{ backgroundColor: 'var(--theme-icon-green)' }}
+          {/* Game Detection */}
+          <GameCacheDetector
+            mockMode={mockMode}
+            isAuthenticated={authMode === 'authenticated'}
+            onDataRefresh={onDataRefresh}
+            refreshKey={gameCacheRefreshKey}
           />
-          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            Game Detection
-          </h3>
         </div>
-
-        <GameCacheDetector
-          mockMode={mockMode}
-          isAuthenticated={authMode === 'authenticated'}
-          onDataRefresh={onDataRefresh}
-          refreshKey={gameCacheRefreshKey}
-        />
       </div>
     </div>
   );
