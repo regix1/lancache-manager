@@ -64,10 +64,11 @@ public class StatsRepository : IStatsRepository
         var cutoff = GetCutoffTime(period, DateTime.UtcNow);
 
         // Load data first, then group in memory to avoid EF Core translation issues
+        // Note: TotalBytes is a computed property, so we must use CacheHitBytes + CacheMissBytes directly
         var downloads = await _context.Downloads
             .AsNoTracking()
             .Where(d => d.StartTimeUtc >= cutoff && !string.IsNullOrEmpty(d.GameName))
-            .Select(d => new { d.GameName, d.GameAppId, d.TotalBytes, d.CacheHitBytes, d.CacheMissBytes, d.ClientIp })
+            .Select(d => new { d.GameName, d.GameAppId, d.CacheHitBytes, d.CacheMissBytes, d.ClientIp })
             .ToListAsync(cancellationToken);
 
         var groupedStats = downloads
@@ -77,7 +78,7 @@ public class StatsRepository : IStatsRepository
                 GameName = g.Key.GameName ?? "",
                 GameAppId = (int)(g.Key.GameAppId ?? 0),
                 TotalDownloads = g.Count(),
-                TotalBytes = g.Sum(d => d.TotalBytes),
+                TotalBytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
                 CacheHitBytes = g.Sum(d => d.CacheHitBytes),
                 CacheMissBytes = g.Sum(d => d.CacheMissBytes),
                 UniqueClients = g.Select(d => d.ClientIp).Distinct().Count()

@@ -1663,3 +1663,255 @@ input[type='number']::-webkit-outer-spin-button {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* ===== GLASSMORPHISM STYLES ===== */
+
+/* Glass card base - works with both dark and light themes */
+.glass-card {
+  background: rgba(30, 41, 59, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-card:hover {
+  background: rgba(30, 41, 59, 0.75);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transform: translateY(-2px);
+}
+
+/* Light theme glass adjustments */
+[data-theme="light-default"] .glass-card {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+[data-theme="light-default"] .glass-card:hover {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(0, 0, 0, 0.12);
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+/* ===== DASHBOARD CARD ANIMATIONS ===== */
+
+/* Card entrance animation */
+@keyframes cardEntrance {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-card-entrance {
+  animation: cardEntrance 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  opacity: 0;
+}
+
+/* Stagger delays for card entrance */
+.stagger-1 { animation-delay: 50ms; }
+.stagger-2 { animation-delay: 100ms; }
+.stagger-3 { animation-delay: 150ms; }
+.stagger-4 { animation-delay: 200ms; }
+.stagger-5 { animation-delay: 250ms; }
+.stagger-6 { animation-delay: 300ms; }
+.stagger-7 { animation-delay: 350ms; }
+.stagger-8 { animation-delay: 400ms; }
+.stagger-9 { animation-delay: 450ms; }
+.stagger-10 { animation-delay: 500ms; }
+.stagger-11 { animation-delay: 550ms; }
+.stagger-12 { animation-delay: 600ms; }
+
+/* Number counting animation pulse */
+@keyframes countPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.animate-count {
+  animation: countPulse 0.1s ease-out;
+}
+
+/* Sparkline container */
+.sparkline-container {
+  height: 32px;
+  margin-top: 8px;
+  opacity: 0.9;
+  transition: opacity 0.2s ease;
+}
+
+.sparkline-container:hover {
+  opacity: 1;
+}
+
+/* Sparkline grow animation */
+@keyframes sparklineGrow {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+.animate-sparkline {
+  animation: sparklineGrow 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* Trend indicators */
+.trend-up {
+  color: var(--theme-success, #22c55e);
+}
+
+.trend-down {
+  color: var(--theme-error, #ef4444);
+}
+
+.trend-stable {
+  color: var(--theme-text-muted, #9ca3af);
+}
+
+/* Widget card styles */
+.widget-card {
+  @apply rounded-lg p-4;
+  background: var(--theme-card-bg);
+  border: 1px solid var(--theme-card-border);
+}
+
+.widget-card.glass {
+  background: rgba(30, 41, 59, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.widget-card.glass:hover {
+  background: rgba(30, 41, 59, 0.75);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transform: translateY(-2px);
+}
+
+[data-theme="light-default"] .widget-card.glass {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+[data-theme="light-default"] .widget-card.glass:hover {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(0, 0, 0, 0.12);
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+/* Leaderboard rank badges - subtle styling */
+.rank-badge {
+  @apply flex items-center justify-center w-6 h-6 rounded-full text-xs font-medium;
+}
+
+.rank-badge.gold {
+  background: color-mix(in srgb, var(--theme-warning) 20%, transparent);
+  color: var(--theme-warning);
+  border: 1px solid color-mix(in srgb, var(--theme-warning) 30%, transparent);
+}
+
+.rank-badge.silver {
+  background: color-mix(in srgb, var(--theme-text-muted) 15%, transparent);
+  color: var(--theme-text-secondary);
+  border: 1px solid color-mix(in srgb, var(--theme-text-muted) 20%, transparent);
+}
+
+.rank-badge.bronze {
+  background: color-mix(in srgb, var(--theme-warning) 15%, transparent);
+  color: var(--theme-text-secondary);
+  border: 1px solid color-mix(in srgb, var(--theme-warning) 20%, transparent);
+}
+
+.rank-badge.default {
+  background: var(--theme-bg-tertiary);
+  color: var(--theme-text-muted);
+}
+
+/* Progress bar for widgets */
+.widget-progress {
+  @apply h-2 rounded-full overflow-hidden;
+  background: var(--theme-bg-tertiary, rgba(55, 65, 81, 0.5));
+}
+
+.widget-progress-fill {
+  @apply h-full rounded-full transition-all duration-500 ease-out;
+}
+
+/* Hour bar chart styles */
+.hour-bar {
+  @apply rounded-t transition-all duration-300;
+  min-height: 4px;
+}
+
+.hour-bar:hover {
+  filter: brightness(1.2);
+}
+
+.hour-bar.current-hour {
+  box-shadow: 0 0 8px currentColor;
+}
+
+.hour-bar.peak-hour {
+  position: relative;
+}
+
+.hour-bar.peak-hour::after {
+  content: '';
+  position: absolute;
+  top: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 6px;
+  height: 6px;
+  background: var(--theme-warning, #f59e0b);
+  border-radius: 50%;
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .animate-card-entrance,
+  .animate-sparkline,
+  .animate-count {
+    animation: none;
+    opacity: 1;
+    transform: none;
+    clip-path: none;
+  }
+
+  .glass-card,
+  .glass-card:hover,
+  .hour-bar,
+  .widget-progress-fill {
+    transition: none;
+  }
+}

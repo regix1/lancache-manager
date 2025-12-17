@@ -261,6 +261,259 @@ public class StatsController : ControllerBase
     }
 
 
+    /// <summary>
+    /// Get hourly activity data for peak usage hours widget
+    /// Groups downloads by hour of day to show activity patterns
+    /// </summary>
+    [HttpGet("hourly-activity")]
+    public async Task<IActionResult> GetHourlyActivity([FromQuery] string period = "7d")
+    {
+        try
+        {
+            var cutoffTime = ParseTimePeriod(period) ?? DateTime.UtcNow.AddDays(-7);
+
+            // Query downloads and group by hour of day
+            // Note: TotalBytes is a computed property, so we must use CacheHitBytes + CacheMissBytes directly
+            var hourlyData = await _context.Downloads
+                .AsNoTracking()
+                .Where(d => d.StartTimeUtc >= cutoffTime)
+                .GroupBy(d => d.StartTimeUtc.Hour)
+                .Select(g => new HourlyActivityItem
+                {
+                    Hour = g.Key,
+                    Downloads = g.Count(),
+                    BytesServed = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
+                    CacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                    CacheMissBytes = g.Sum(d => d.CacheMissBytes)
+                })
+                .ToListAsync();
+
+            // Fill in missing hours with zeros
+            var allHours = Enumerable.Range(0, 24)
+                .Select(h => hourlyData.FirstOrDefault(hd => hd.Hour == h) ?? new HourlyActivityItem { Hour = h })
+                .OrderBy(h => h.Hour)
+                .ToList();
+
+            // Find peak hour
+            var peakHour = allHours.OrderByDescending(h => h.Downloads).FirstOrDefault()?.Hour ?? 0;
+
+            return Ok(new HourlyActivityResponse
+            {
+                Hours = allHours,
+                PeakHour = peakHour,
+                TotalDownloads = allHours.Sum(h => h.Downloads),
+                TotalBytesServed = allHours.Sum(h => h.BytesServed),
+                Period = period
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting hourly activity data");
+            return Ok(new HourlyActivityResponse { Period = period });
+        }
+    }
+
+    /// <summary>
+    /// Get cache growth data over time
+    /// Shows how much new data has been added to the cache
+    /// </summary>
+    [HttpGet("cache-growth")]
+    public async Task<IActionResult> GetCacheGrowth([FromQuery] string period = "7d", [FromQuery] string interval = "daily")
+    {
+        try
+        {
+            var cutoffTime = ParseTimePeriod(period) ?? DateTime.UtcNow.AddDays(-7);
+            var intervalMinutes = ParseInterval(interval);
+
+            // Get cache info for current size/capacity
+            long currentCacheSize = 0;
+            long totalCapacity = 0;
+
+            // Try to get cache info from the system controller's cache service
+            // For now, we'll calculate from downloads data
+            var totalCacheMiss = await _context.Downloads
+                .AsNoTracking()
+                .SumAsync(d => (long?)d.CacheMissBytes) ?? 0;
+
+            currentCacheSize = totalCacheMiss; // Approximation: total cache misses = data added to cache
+
+            // Get daily cache growth data points
+            List<CacheGrowthDataPoint> dataPoints;
+
+            if (intervalMinutes >= 1440) // Daily or larger
+            {
+                // Group by date
+                dataPoints = await _context.Downloads
+                    .AsNoTracking()
+                    .Where(d => d.StartTimeUtc >= cutoffTime)
+                    .GroupBy(d => d.StartTimeUtc.Date)
+                    .OrderBy(g => g.Key)
+                    .Select(g => new CacheGrowthDataPoint
+                    {
+                        Timestamp = g.Key,
+                        CumulativeCacheMissBytes = 0, // Will calculate cumulative below
+                        GrowthFromPrevious = g.Sum(d => d.CacheMissBytes)
+                    })
+                    .ToListAsync();
+            }
+            else
+            {
+                // Group by hour for smaller intervals
+                var hourlyData = await _context.Downloads
+                    .AsNoTracking()
+                    .Where(d => d.StartTimeUtc >= cutoffTime)
+                    .GroupBy(d => new { d.StartTimeUtc.Date, d.StartTimeUtc.Hour })
+                    .OrderBy(g => g.Key.Date).ThenBy(g => g.Key.Hour)
+                    .Select(g => new CacheGrowthDataPoint
+                    {
+                        Timestamp = g.Key.Date.AddHours(g.Key.Hour),
+                        CumulativeCacheMissBytes = 0,
+                        GrowthFromPrevious = g.Sum(d => d.CacheMissBytes)
+                    })
+                    .ToListAsync();
+
+                dataPoints = hourlyData;
+            }
+
+            // Calculate cumulative values
+            long cumulative = 0;
+            foreach (var dp in dataPoints)
+            {
+                cumulative += dp.GrowthFromPrevious;
+                dp.CumulativeCacheMissBytes = cumulative;
+                dp.Timestamp = DateTime.SpecifyKind(dp.Timestamp, DateTimeKind.Utc);
+            }
+
+            // Calculate trend and statistics
+            var trend = "stable";
+            double percentChange = 0;
+            long avgDailyGrowth = 0;
+
+            if (dataPoints.Count >= 2)
+            {
+                var firstValue = dataPoints.First().CumulativeCacheMissBytes;
+                var lastValue = dataPoints.Last().CumulativeCacheMissBytes;
+
+                if (firstValue > 0)
+                {
+                    percentChange = ((double)(lastValue - firstValue) / firstValue) * 100;
+                }
+
+                var daysCovered = (dataPoints.Last().Timestamp - dataPoints.First().Timestamp).TotalDays;
+                if (daysCovered > 0)
+                {
+                    avgDailyGrowth = (long)((lastValue - firstValue) / daysCovered);
+                }
+
+                if (percentChange > 1) trend = "up";
+                else if (percentChange < -1) trend = "down";
+            }
+
+            // Estimate days until full (if we had capacity info)
+            int? daysUntilFull = null;
+            if (avgDailyGrowth > 0 && totalCapacity > 0)
+            {
+                var remainingSpace = totalCapacity - currentCacheSize;
+                if (remainingSpace > 0)
+                {
+                    daysUntilFull = (int)Math.Ceiling((double)remainingSpace / avgDailyGrowth);
+                }
+            }
+
+            return Ok(new CacheGrowthResponse
+            {
+                DataPoints = dataPoints,
+                CurrentCacheSize = currentCacheSize,
+                TotalCapacity = totalCapacity,
+                AverageDailyGrowth = avgDailyGrowth,
+                Trend = trend,
+                PercentChange = percentChange,
+                EstimatedDaysUntilFull = daysUntilFull,
+                Period = period
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting cache growth data");
+            return Ok(new CacheGrowthResponse { Period = period });
+        }
+    }
+
+    /// <summary>
+    /// Get sparkline data for dashboard stat cards
+    /// Returns daily aggregated data for bandwidth saved, cache hit ratio, total served, and added to cache
+    /// </summary>
+    [HttpGet("sparklines")]
+    public async Task<IActionResult> GetSparklineData([FromQuery] string period = "7d")
+    {
+        try
+        {
+            var cutoffTime = ParseTimePeriod(period) ?? DateTime.UtcNow.AddDays(-7);
+
+            // Query downloads grouped by date
+            var dailyData = await _context.Downloads
+                .AsNoTracking()
+                .Where(d => d.StartTimeUtc >= cutoffTime)
+                .GroupBy(d => d.StartTimeUtc.Date)
+                .OrderBy(g => g.Key)
+                .Select(g => new
+                {
+                    Date = g.Key,
+                    CacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                    CacheMissBytes = g.Sum(d => d.CacheMissBytes)
+                })
+                .ToListAsync();
+
+            // Build sparkline data for each metric
+            var bandwidthSavedData = dailyData.Select(d => (double)d.CacheHitBytes).ToList();
+            var addedToCacheData = dailyData.Select(d => (double)d.CacheMissBytes).ToList();
+            var totalServedData = dailyData.Select(d => (double)(d.CacheHitBytes + d.CacheMissBytes)).ToList();
+            var cacheHitRatioData = dailyData.Select(d =>
+            {
+                var total = d.CacheHitBytes + d.CacheMissBytes;
+                return total > 0 ? (d.CacheHitBytes * 100.0) / total : 0.0;
+            }).ToList();
+
+            return Ok(new SparklineDataResponse
+            {
+                BandwidthSaved = BuildSparklineMetric(bandwidthSavedData),
+                CacheHitRatio = BuildSparklineMetric(cacheHitRatioData),
+                TotalServed = BuildSparklineMetric(totalServedData),
+                AddedToCache = BuildSparklineMetric(addedToCacheData),
+                Period = period
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting sparkline data");
+            return Ok(new SparklineDataResponse { Period = period });
+        }
+    }
+
+    // Helper method to build sparkline metric with trend calculation
+    private static SparklineMetric BuildSparklineMetric(List<double> data)
+    {
+        if (data.Count < 2)
+        {
+            return new SparklineMetric { Data = data, Trend = "stable", PercentChange = 0 };
+        }
+
+        var firstValue = data.First();
+        var lastValue = data.Last();
+        var percentChange = firstValue > 0 ? ((lastValue - firstValue) / firstValue) * 100 : 0;
+
+        string trend = "stable";
+        if (percentChange > 1) trend = "up";
+        else if (percentChange < -1) trend = "down";
+
+        return new SparklineMetric
+        {
+            Data = data,
+            Trend = trend,
+            PercentChange = percentChange
+        };
+    }
+
     // Helper method to parse time period strings
     private DateTime? ParseTimePeriod(string period)
     {

@@ -22,13 +22,17 @@ import { useTimeFilter } from '@contexts/TimeFilterContext';
 import { useDraggableCards } from '@hooks/useDraggableCards';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { STORAGE_KEYS } from '@utils/constants';
-import { type StatCardData } from '../../../types';
+import { type StatCardData, type SparklineDataResponse } from '../../../types';
 import { storage } from '@utils/storage';
+import ApiService from '@services/api.service';
 import StatCard from '@components/common/StatCard';
 import { Tooltip } from '@components/ui/Tooltip';
 import EnhancedServiceChart from './EnhancedServiceChart';
 import RecentDownloadsPanel from './RecentDownloadsPanel';
 import TopClientsTable from './TopClientsTable';
+// Widget imports
+import PeakUsageHours from './widgets/PeakUsageHours';
+import CacheGrowthTrend from './widgets/CacheGrowthTrend';
 
 type CardVisibility = Record<string, boolean>;
 type AllStatCards = Record<string, StatCardData>;
@@ -72,6 +76,46 @@ const Dashboard: React.FC = () => {
   const { cacheInfo, clientStats, serviceStats, dashboardStats, loading } = useStats();
   const { activeDownloads, latestDownloads } = useDownloads();
   const { timeRange, getTimeRangeParams, customStartDate, customEndDate } = useTimeFilter();
+
+  // Track if initial card animations have completed - prevents re-animation on reorder
+  const initialAnimationCompleteRef = useRef(false);
+  const [initialAnimationComplete, setInitialAnimationComplete] = useState(false);
+
+  // Mark initial animation as complete after entrance animations finish
+  useEffect(() => {
+    if (!initialAnimationCompleteRef.current) {
+      const timer = setTimeout(() => {
+        initialAnimationCompleteRef.current = true;
+        setInitialAnimationComplete(true);
+      }, 800); // Allow time for staggered entrance animations to complete
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
+  // Sparkline data from API
+  const [sparklineData, setSparklineData] = useState<SparklineDataResponse | null>(null);
+
+  // Fetch sparkline data when time range changes
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const fetchSparklines = async () => {
+      try {
+        const period = timeRange === 'custom' ? '7d' : timeRange;
+        const data = await ApiService.getSparklineData(period, controller.signal);
+        setSparklineData(data);
+      } catch (err) {
+        // Ignore abort errors
+        if (!controller.signal.aborted) {
+          console.error('Failed to fetch sparkline data:', err);
+        }
+      }
+    };
+
+    fetchSparklines();
+
+    return () => controller.abort();
+  }, [timeRange]);
 
   // Filter out services with only small files (< 1MB) and 0-byte files from dashboard data
   const filteredLatestDownloads = useMemo(() => {
@@ -584,11 +628,9 @@ const Dashboard: React.FC = () => {
           {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
             <div
               key={i}
-              className="rounded-lg p-4 border animate-pulse"
+              className="rounded-lg p-4 border animate-pulse glass-card"
               style={{
-                backgroundColor: 'var(--theme-card-bg)',
-                borderColor: 'var(--theme-card-border)',
-                height: '120px'
+                height: '160px'
               }}
             >
               <div
@@ -603,15 +645,18 @@ const Dashboard: React.FC = () => {
                 className="h-3 rounded mt-2"
                 style={{ backgroundColor: 'var(--theme-bg-hover)', width: '40%' }}
               ></div>
+              <div
+                className="h-8 rounded mt-3"
+                style={{ backgroundColor: 'var(--theme-bg-hover)', width: '100%' }}
+              ></div>
             </div>
           ))}
         </div>
       ) : (
         <div
-          key={`stats-grid-${timeRange}-${customStartDate?.getTime()}-${customEndDate?.getTime()}`}
           className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeIn isolate"
         >
-          {visibleCards.map((card: StatCardData) => (
+          {visibleCards.map((card: StatCardData, visualIndex: number) => (
             <div
               key={card.key}
               data-card-key={card.key}
@@ -699,6 +744,30 @@ const Dashboard: React.FC = () => {
                 icon={card.icon}
                 color={card.color}
                 tooltip={card.tooltip}
+                glassmorphism={true}
+                animateValue={true}
+                sparklineData={
+                  card.key === 'bandwidthSaved' ? sparklineData?.bandwidthSaved?.data :
+                  card.key === 'cacheHitRatio' ? sparklineData?.cacheHitRatio?.data :
+                  card.key === 'totalServed' ? sparklineData?.totalServed?.data :
+                  card.key === 'addedToCache' ? sparklineData?.addedToCache?.data :
+                  undefined
+                }
+                trend={
+                  card.key === 'bandwidthSaved' ? sparklineData?.bandwidthSaved?.trend :
+                  card.key === 'cacheHitRatio' ? sparklineData?.cacheHitRatio?.trend :
+                  card.key === 'totalServed' ? sparklineData?.totalServed?.trend :
+                  card.key === 'addedToCache' ? sparklineData?.addedToCache?.trend :
+                  undefined
+                }
+                percentChange={
+                  card.key === 'bandwidthSaved' ? sparklineData?.bandwidthSaved?.percentChange :
+                  card.key === 'cacheHitRatio' ? sparklineData?.cacheHitRatio?.percentChange :
+                  card.key === 'totalServed' ? sparklineData?.totalServed?.percentChange :
+                  card.key === 'addedToCache' ? sparklineData?.addedToCache?.percentChange :
+                  undefined
+                }
+                staggerIndex={initialAnimationComplete ? undefined : visualIndex}
               />
 
               <Tooltip
@@ -733,10 +802,8 @@ const Dashboard: React.FC = () => {
           {[1, 2].map((i) => (
             <div
               key={i}
-              className="rounded-lg p-6 border animate-pulse"
+              className="rounded-lg p-6 border animate-pulse glass-card"
               style={{
-                backgroundColor: 'var(--theme-card-bg)',
-                borderColor: 'var(--theme-card-border)',
                 height: '400px'
               }}
             >
@@ -756,18 +823,62 @@ const Dashboard: React.FC = () => {
           key={`charts-${timeRange}-${customStartDate?.getTime()}-${customEndDate?.getTime()}`}
           className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fadeIn"
         >
-          <EnhancedServiceChart serviceStats={filteredServiceStats || []} timeRange={timeRange} />
-          <RecentDownloadsPanel downloads={filteredLatestDownloads || []} timeRange={timeRange} />
+          <EnhancedServiceChart serviceStats={filteredServiceStats || []} timeRange={timeRange} glassmorphism={true} />
+          <RecentDownloadsPanel downloads={filteredLatestDownloads || []} timeRange={timeRange} glassmorphism={true} />
+        </div>
+      )}
+
+      {/* Analytics Widgets Row */}
+      {showLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeIn">
+          {[1, 2, 3, 4].map((i) => (
+            <div
+              key={i}
+              className="rounded-lg p-4 border animate-pulse glass-card"
+              style={{
+                height: '200px'
+              }}
+            >
+              <div
+                className="h-5 rounded mb-3"
+                style={{ backgroundColor: 'var(--theme-bg-hover)', width: '50%' }}
+              ></div>
+              <div className="space-y-2">
+                {[1, 2, 3].map((j) => (
+                  <div
+                    key={j}
+                    className="h-8 rounded"
+                    style={{ backgroundColor: 'var(--theme-bg-hover)' }}
+                  ></div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div
+          className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fadeIn"
+        >
+          <PeakUsageHours
+            period={timeRange === 'custom' ? '7d' : timeRange}
+            glassmorphism={true}
+            staggerIndex={8}
+          />
+          <CacheGrowthTrend
+            usedCacheSize={cacheInfo?.usedCacheSize || 0}
+            totalCacheSize={cacheInfo?.totalCacheSize || 0}
+            period={timeRange === 'custom' ? '7d' : timeRange}
+            glassmorphism={true}
+            staggerIndex={9}
+          />
         </div>
       )}
 
       {/* Top Clients - Pass the filtered data arrays */}
       {showLoading ? (
         <div
-          className="rounded-lg p-6 border animate-pulse animate-fadeIn"
+          className="rounded-lg p-6 border animate-pulse animate-fadeIn glass-card"
           style={{
-            backgroundColor: 'var(--theme-card-bg)',
-            borderColor: 'var(--theme-card-border)',
             height: '400px'
           }}
         >
@@ -795,6 +906,7 @@ const Dashboard: React.FC = () => {
             timeRange={timeRange}
             customStartDate={customStartDate}
             customEndDate={customEndDate}
+            glassmorphism={true}
           />
         </div>
       )}

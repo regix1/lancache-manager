@@ -8,10 +8,11 @@ import type { ServiceStat } from '@/types';
 interface EnhancedServiceChartProps {
   serviceStats: ServiceStat[];
   timeRange?: string;
+  glassmorphism?: boolean;
 }
 
 const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
-  ({ serviceStats }) => {
+  ({ serviceStats, glassmorphism = false }) => {
     const [activeTab, setActiveTab] = useState(0);
     const [chartSize, setChartSize] = useState(100);
     const [, setThemeVersion] = useState(0); // Triggers re-render on theme change
@@ -403,7 +404,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
     const chartContainerHeight = 200 + (chartSize - 100) * 2;
 
     return (
-      <Card padding="none">
+      <Card padding="none" glassmorphism={glassmorphism}>
         <div
           ref={containerRef}
           onTouchStart={handleTouchStart}
@@ -613,6 +614,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
     // Re-render if timeRange changed or serviceStats data changed
     return (
       prevProps.timeRange === nextProps.timeRange &&
+      prevProps.glassmorphism === nextProps.glassmorphism &&
       JSON.stringify(prevProps.serviceStats) === JSON.stringify(nextProps.serviceStats)
     );
   }

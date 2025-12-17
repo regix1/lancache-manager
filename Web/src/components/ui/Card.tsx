@@ -4,9 +4,10 @@ interface CardProps {
   children: React.ReactNode;
   className?: string;
   padding?: 'none' | 'sm' | 'md' | 'lg';
+  glassmorphism?: boolean;
 }
 
-export const Card: React.FC<CardProps> = ({ children, className = '', padding = 'lg' }) => {
+export const Card: React.FC<CardProps> = ({ children, className = '', padding = 'lg', glassmorphism = false }) => {
   const paddings = {
     none: '',
     sm: 'p-3',
@@ -14,7 +15,9 @@ export const Card: React.FC<CardProps> = ({ children, className = '', padding = 
     lg: 'p-6'
   };
 
+  const baseClass = glassmorphism ? 'glass-card' : 'themed-card';
+
   return (
-    <div className={`themed-card rounded-lg border ${paddings[padding]} ${className}`}>{children}</div>
+    <div className={`${baseClass} rounded-lg border ${paddings[padding]} ${className}`}>{children}</div>
   );
 };

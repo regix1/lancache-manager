@@ -11,6 +11,7 @@ interface TopClientsTableProps {
   timeRange?: string;
   customStartDate?: Date | null;
   customEndDate?: Date | null;
+  glassmorphism?: boolean;
 }
 
 type SortOption = 'total' | 'hits' | 'misses' | 'hitRate';
@@ -60,7 +61,7 @@ const TopClientRow: React.FC<TopClientRowProps> = ({ client }) => {
 };
 
 const TopClientsTable: React.FC<TopClientsTableProps> = memo(
-  ({ clientStats = [], timeRange = 'live', customStartDate, customEndDate }) => {
+  ({ clientStats = [], timeRange = 'live', customStartDate, customEndDate, glassmorphism = false }) => {
     const [sortBy, setSortBy] = useState<SortOption>('total');
     const timeRangeLabel = useMemo(() => {
       if (timeRange === 'custom' && customStartDate && customEndDate) {
@@ -109,7 +110,7 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
     const displayClients = useMemo(() => sortedClients.slice(0, 10), [sortedClients]);
 
     return (
-      <Card>
+      <Card glassmorphism={glassmorphism}>
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <h3 className="text-lg font-semibold text-themed-primary flex items-center gap-2">
             Top Clients
@@ -160,10 +161,11 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
     );
   },
   (prevProps, nextProps) => {
-    // Only re-render if clientStats or timeRange changed
+    // Only re-render if clientStats, timeRange or glassmorphism changed
     return (
       JSON.stringify(prevProps.clientStats) === JSON.stringify(nextProps.clientStats) &&
       prevProps.timeRange === nextProps.timeRange &&
+      prevProps.glassmorphism === nextProps.glassmorphism &&
       prevProps.customStartDate?.getTime() === nextProps.customStartDate?.getTime() &&
       prevProps.customEndDate?.getTime() === nextProps.customEndDate?.getTime()
     );

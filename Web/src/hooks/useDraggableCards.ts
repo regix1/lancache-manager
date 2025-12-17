@@ -123,8 +123,8 @@ export const useDraggableCards = ({
           const newOrder = [...prevOrder];
           const draggedIndex = newOrder.indexOf(draggedCard);
           const targetIndex = newOrder.indexOf(targetCardKey);
-          newOrder.splice(draggedIndex, 1);
-          newOrder.splice(targetIndex, 0, draggedCard);
+          // True swap - exchange positions directly
+          [newOrder[draggedIndex], newOrder[targetIndex]] = [newOrder[targetIndex], newOrder[draggedIndex]];
           return newOrder;
         });
       }
@@ -141,13 +141,12 @@ export const useDraggableCards = ({
       const timeout = setTimeout(() => {
         // If we already have a selected card, swap them
         if (draggedCard && draggedCard !== cardKey) {
-          // Perform the swap
+          // Perform the swap - true swap, exchange positions directly
           setCardOrder((prevOrder: string[]) => {
             const newOrder = [...prevOrder];
             const draggedIndex = newOrder.indexOf(draggedCard);
             const targetIndex = newOrder.indexOf(cardKey);
-            newOrder.splice(draggedIndex, 1);
-            newOrder.splice(targetIndex, 0, draggedCard);
+            [newOrder[draggedIndex], newOrder[targetIndex]] = [newOrder[targetIndex], newOrder[draggedIndex]];
             return newOrder;
           });
 
@@ -185,13 +184,12 @@ export const useDraggableCards = ({
     (cardKey: string) => {
       if (isDragMode && draggedCard) {
         if (cardKey !== draggedCard) {
-          // Swap the cards
+          // Swap the cards - true swap, exchange positions directly
           setCardOrder((prevOrder: string[]) => {
             const newOrder = [...prevOrder];
             const draggedIndex = newOrder.indexOf(draggedCard);
             const targetIndex = newOrder.indexOf(cardKey);
-            newOrder.splice(draggedIndex, 1);
-            newOrder.splice(targetIndex, 0, draggedCard);
+            [newOrder[draggedIndex], newOrder[targetIndex]] = [newOrder[targetIndex], newOrder[draggedIndex]];
             return newOrder;
           });
 

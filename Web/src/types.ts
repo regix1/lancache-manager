@@ -109,6 +109,54 @@ export interface DashboardStats {
   lastUpdated?: Date;
 }
 
+// Dashboard Analytics Types
+export interface HourlyActivityItem {
+  hour: number;
+  downloads: number;
+  bytesServed: number;
+  cacheHitBytes: number;
+  cacheMissBytes: number;
+}
+
+export interface HourlyActivityResponse {
+  hours: HourlyActivityItem[];
+  peakHour: number;
+  totalDownloads: number;
+  totalBytesServed: number;
+  period: string;
+}
+
+export interface CacheGrowthDataPoint {
+  timestamp: string;
+  cumulativeCacheMissBytes: number;
+  growthFromPrevious: number;
+}
+
+export interface CacheGrowthResponse {
+  dataPoints: CacheGrowthDataPoint[];
+  currentCacheSize: number;
+  totalCapacity: number;
+  averageDailyGrowth: number;
+  trend: 'up' | 'down' | 'stable';
+  percentChange: number;
+  estimatedDaysUntilFull: number | null;
+  period: string;
+}
+
+export interface SparklineMetric {
+  data: number[];
+  trend: 'up' | 'down' | 'stable';
+  percentChange: number;
+}
+
+export interface SparklineDataResponse {
+  bandwidthSaved: SparklineMetric;
+  cacheHitRatio: SparklineMetric;
+  totalServed: SparklineMetric;
+  addedToCache: SparklineMetric;
+  period: string;
+}
+
 // API Response Types - matching api.service.ts
 export interface CacheClearStatus {
   operationId: string;

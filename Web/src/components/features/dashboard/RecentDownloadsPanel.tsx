@@ -26,6 +26,7 @@ interface DownloadGroup {
 interface RecentDownloadsPanelProps {
   downloads?: Download[]; // Keep for backward compatibility but won't be used
   timeRange?: string;
+  glassmorphism?: boolean;
 }
 
 interface ActiveDownloadRowProps {
@@ -228,7 +229,7 @@ const RecentDownloadRow: React.FC<RecentDownloadRowProps> = ({ item }) => {
 };
 
 const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
-  ({ timeRange = 'live' }) => {
+  ({ timeRange = 'live', glassmorphism = false }) => {
     const [selectedService, setSelectedService] = useState<string>('all');
     const [selectedClient, setSelectedClient] = useState<string>('all');
     const [viewMode, setViewMode] = useState<'recent' | 'active'>('recent');
@@ -477,7 +478,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
     }, []);
 
     return (
-      <Card>
+      <Card glassmorphism={glassmorphism}>
         <div
           ref={containerRef}
           onTouchStart={handleTouchStart}
@@ -656,8 +657,8 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
     );
   },
   (prevProps, nextProps) => {
-    // Only re-render if timeRange changed
-    return prevProps.timeRange === nextProps.timeRange;
+    // Only re-render if timeRange or glassmorphism changed
+    return prevProps.timeRange === nextProps.timeRange && prevProps.glassmorphism === nextProps.glassmorphism;
   }
 );
 

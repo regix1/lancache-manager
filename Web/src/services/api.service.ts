@@ -11,6 +11,9 @@ import type {
   ClearCacheResponse,
   Config,
   DashboardStats,
+  HourlyActivityResponse,
+  CacheGrowthResponse,
+  SparklineDataResponse,
   CorruptedChunkDetail,
   GameDetectionStatus,
   GameCacheInfo,
@@ -279,6 +282,50 @@ class ApiService {
     }
   }
 
+  // Hourly activity data for Peak Usage Hours widget
+  static async getHourlyActivity(period = '7d', signal?: AbortSignal): Promise<HourlyActivityResponse> {
+    try {
+      const res = await fetch(`${API_BASE}/stats/hourly-activity?period=${period}`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<HourlyActivityResponse>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getHourlyActivity error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // Cache growth data for Cache Growth widget
+  static async getCacheGrowth(period = '7d', interval = 'daily', signal?: AbortSignal): Promise<CacheGrowthResponse> {
+    try {
+      const res = await fetch(`${API_BASE}/stats/cache-growth?period=${period}&interval=${interval}`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<CacheGrowthResponse>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getCacheGrowth error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // Sparkline data for dashboard stat cards
+  static async getSparklineData(period = '7d', signal?: AbortSignal): Promise<SparklineDataResponse> {
+    try {
+      const res = await fetch(`${API_BASE}/stats/sparklines?period=${period}`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<SparklineDataResponse>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getSparklineData error:', error);
+      }
+      throw error;
+    }
+  }
 
   // Start async cache clearing operation for all datasources (requires auth)
   static async clearAllCache(): Promise<ClearCacheResponse> {
