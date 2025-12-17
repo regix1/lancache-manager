@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo, memo } from 'react';
 import { Clock, Loader2, TrendingUp, Zap } from 'lucide-react';
 import { formatBytes } from '@utils/formatters';
-import { type Download, type HourlyActivityItem } from '../../../../types';
+import { type HourlyActivityResponse, type HourlyActivityItem } from '../../../../types';
 import { Tooltip } from '@components/ui/Tooltip';
+import { HelpPopover, HelpDefinition } from '@components/ui/HelpPopover';
 import { useTimezone } from '@contexts/TimezoneContext';
-import { getServerTimezone } from '@utils/timezone';
 import ApiService from '@services/api.service';
 
 interface PeakUsageHoursProps {
@@ -19,55 +19,24 @@ interface PeakUsageHoursProps {
 /**
  * Widget showing download activity by hour of day
  * Displays a heatmap-style visualization with clear Peak and Now indicators
+ * Uses backend aggregation for efficiency
  */
 const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
   period = '7d',
   glassmorphism = true,
   staggerIndex,
 }) => {
-  const [downloads, setDownloads] = useState<Download[]>([]);
+  const [data, setData] = useState<HourlyActivityResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { useLocalTimezone, use24HourFormat } = useTimezone();
+  const { use24HourFormat } = useTimezone();
 
-  // Get current hour in the appropriate timezone
+  // Get current hour (server already returns data in configured timezone)
   const currentHour = useMemo(() => {
-    const now = new Date();
-    if (useLocalTimezone) {
-      return now.getHours();
-    }
-    // Use server timezone
-    const targetTimezone = getServerTimezone();
-    if (targetTimezone) {
-      const formatter = new Intl.DateTimeFormat('en-US', {
-        timeZone: targetTimezone,
-        hour: 'numeric',
-        hour12: false,
-      });
-      return parseInt(formatter.format(now), 10);
-    }
-    return now.getHours();
-  }, [useLocalTimezone]);
+    return new Date().getHours();
+  }, []);
 
-  // Calculate time range based on period
-  const getTimeRange = (period: string): { startTime?: number; endTime?: number } => {
-    const now = Math.floor(Date.now() / 1000);
-    const periodMap: Record<string, number> = {
-      '1h': 3600,
-      '6h': 6 * 3600,
-      '12h': 12 * 3600,
-      '24h': 24 * 3600,
-      '7d': 7 * 24 * 3600,
-      '30d': 30 * 24 * 3600,
-    };
-    const seconds = periodMap[period];
-    if (seconds) {
-      return { startTime: now - seconds, endTime: now };
-    }
-    return {};
-  };
-
-  // Fetch downloads from API
+  // Fetch hourly activity from backend API (already aggregated server-side)
   useEffect(() => {
     const controller = new AbortController();
 
@@ -75,9 +44,8 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
       try {
         setLoading(true);
         setError(null);
-        const { startTime, endTime } = getTimeRange(period);
-        const response = await ApiService.getLatestDownloads(controller.signal, 'unlimited', startTime, endTime);
-        setDownloads(response);
+        const response = await ApiService.getHourlyActivity(period, controller.signal);
+        setData(response);
       } catch (err) {
         if (!controller.signal.aborted) {
           setError('Failed to load hourly data');
@@ -95,51 +63,20 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
     return () => controller.abort();
   }, [period]);
 
-  // Group downloads by hour based on timezone preference
+  // Extract hourly data from API response (already includes all 24 hours)
   const hourlyData = useMemo((): HourlyActivityItem[] => {
-    const hourBuckets: Map<number, HourlyActivityItem> = new Map();
-    for (let i = 0; i < 24; i++) {
-      hourBuckets.set(i, {
+    if (!data?.hours?.length) {
+      // Return empty buckets if no data
+      return Array.from({ length: 24 }, (_, i) => ({
         hour: i,
         downloads: 0,
         bytesServed: 0,
         cacheHitBytes: 0,
         cacheMissBytes: 0,
-      });
+      }));
     }
-
-    if (downloads.length === 0) {
-      return Array.from(hourBuckets.values());
-    }
-
-    const targetTimezone = useLocalTimezone ? undefined : getServerTimezone();
-
-    downloads.forEach(download => {
-      if (!download.startTimeUtc) return;
-
-      const date = new Date(download.startTimeUtc);
-      let hour: number;
-
-      if (targetTimezone) {
-        const formatter = new Intl.DateTimeFormat('en-US', {
-          timeZone: targetTimezone,
-          hour: 'numeric',
-          hour12: false,
-        });
-        hour = parseInt(formatter.format(date), 10);
-      } else {
-        hour = date.getHours();
-      }
-
-      const bucket = hourBuckets.get(hour)!;
-      bucket.downloads += 1;
-      bucket.bytesServed += download.totalBytes || 0;
-      bucket.cacheHitBytes += download.cacheHitBytes || 0;
-      bucket.cacheMissBytes += download.cacheMissBytes || 0;
-    });
-
-    return Array.from(hourBuckets.values()).sort((a, b) => a.hour - b.hour);
-  }, [downloads, useLocalTimezone]);
+    return data.hours;
+  }, [data]);
 
   // Find max for scaling
   const maxDownloads = useMemo(() => {
@@ -147,15 +84,19 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
     return max || 1;
   }, [hourlyData]);
 
-  // Calculate peak hour
-  const peakHour = useMemo(() => {
-    const peak = hourlyData.reduce((max, h) => h.downloads > max.downloads ? h : max, hourlyData[0]);
-    return peak?.hour ?? 0;
-  }, [hourlyData]);
+  // Peak hour from API response
+  const peakHour = data?.peakHour ?? 0;
+  const totalDownloads = data?.totalDownloads ?? 0;
 
-  const totalDownloads = useMemo(() => {
-    return hourlyData.reduce((sum, h) => sum + h.downloads, 0);
-  }, [hourlyData]);
+  // Determine time-of-day category for the peak hour
+  const getTimeOfDayLabel = (hour: number): string => {
+    if (hour >= 5 && hour < 12) return 'Morning';
+    if (hour >= 12 && hour < 17) return 'Afternoon';
+    if (hour >= 17 && hour < 21) return 'Evening';
+    return 'Night';
+  };
+
+  const peakTimeOfDay = getTimeOfDayLabel(peakHour);
 
   // Format hour for display based on 12h/24h preference
   const formatHour = (hour: number, short: boolean = false): string => {
@@ -249,9 +190,19 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
           <h3 className="text-sm font-semibold" style={{ color: 'var(--theme-text-primary)' }}>
             Peak Usage Hours
           </h3>
+          <HelpPopover width={260}>
+            <div className="space-y-1.5">
+              <HelpDefinition term="Peak" termColor="orange">Hour with most downloads in period</HelpDefinition>
+              <HelpDefinition term="Now" termColor="blue">Current hour's activity</HelpDefinition>
+              <div className="text-[10px] mt-2 pt-2 border-t" style={{ borderColor: 'var(--theme-border)', color: 'var(--theme-text-muted)' }}>
+                Heatmap shows activity by hour. Brighter = more downloads.
+              </div>
+            </div>
+          </HelpPopover>
         </div>
-        <div className="text-xs min-w-[80px] text-right" style={{ color: 'var(--theme-text-muted)', fontVariantNumeric: 'tabular-nums' }}>
-          {totalDownloads.toLocaleString()} downloads
+        <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--theme-text-muted)' }}>
+          <span className="hidden sm:inline">Most active:</span>
+          <span className="font-medium" style={{ color: 'var(--theme-warning)' }}>{peakTimeOfDay}</span>
         </div>
       </div>
 
@@ -265,11 +216,13 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
             height: '76px'
           }}
         >
-          <div className="flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-warning)' }} />
-            <span className="text-xs font-medium" style={{ color: 'var(--theme-warning)' }}>
-              Peak
-            </span>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-warning)' }} />
+              <span className="text-xs font-medium" style={{ color: 'var(--theme-warning)' }}>
+                Peak
+              </span>
+            </div>
           </div>
           <div>
             <div className="text-lg font-bold leading-tight" style={{ color: 'var(--theme-text-primary)', fontVariantNumeric: 'tabular-nums' }}>
@@ -289,10 +242,15 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
             height: '76px'
           }}
         >
-          <div className="flex items-center gap-2">
-            <Zap className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-primary)' }} />
-            <span className="text-xs font-medium" style={{ color: 'var(--theme-primary)' }}>
-              Now
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Zap className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-primary)' }} />
+              <span className="text-xs font-medium" style={{ color: 'var(--theme-primary)' }}>
+                Now
+              </span>
+            </div>
+            <span className="text-[10px]" style={{ color: 'var(--theme-text-muted)' }}>
+              {totalDownloads.toLocaleString()} total
             </span>
           </div>
           <div>

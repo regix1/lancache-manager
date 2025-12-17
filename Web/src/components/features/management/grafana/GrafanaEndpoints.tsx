@@ -332,7 +332,23 @@ const GrafanaEndpoints: React.FC = () => {
           </div>
           <div className="bg-themed-secondary p-2 rounded">
             <p className="text-[10px] text-themed-muted mb-1"># Cache usage in GB</p>
-            <code className="text-[10px] font-mono text-themed-secondary">lancache_cache_size_bytes / 1024 / 1024 / 1024</code>
+            <code className="text-[10px] font-mono text-themed-secondary">lancache_cache_used_bytes / 1024 / 1024 / 1024</code>
+          </div>
+          <div className="bg-themed-secondary p-2 rounded">
+            <p className="text-[10px] text-themed-muted mb-1"># Peak usage hour (0-23)</p>
+            <code className="text-[10px] font-mono text-themed-secondary">lancache_peak_hour</code>
+          </div>
+          <div className="bg-themed-secondary p-2 rounded">
+            <p className="text-[10px] text-themed-muted mb-1"># Downloads by hour heatmap</p>
+            <code className="text-[10px] font-mono text-themed-secondary">lancache_hourly_downloads</code>
+          </div>
+          <div className="bg-themed-secondary p-2 rounded">
+            <p className="text-[10px] text-themed-muted mb-1"># Cache growth rate (GB/day)</p>
+            <code className="text-[10px] font-mono text-themed-secondary">lancache_cache_growth_daily_bytes / 1024 / 1024 / 1024</code>
+          </div>
+          <div className="bg-themed-secondary p-2 rounded">
+            <p className="text-[10px] text-themed-muted mb-1"># Days until cache full</p>
+            <code className="text-[10px] font-mono text-themed-secondary">lancache_cache_days_until_full</code>
           </div>
         </div>
       </div>

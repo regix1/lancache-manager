@@ -53,8 +53,27 @@ public class LancacheMetricsService : BackgroundService
     private long _averageDownloadSizeBytes;
     private long _largestDownloadBytes;
 
+    // Peak usage hour metrics
+    private int _peakHour;
+    private long _peakHourDownloads;
+    private long _currentHourDownloads;
+    private string _peakTimeOfDay = "Night";
+    private readonly ConcurrentDictionary<int, HourlyMetrics> _hourlyMetrics = new();
+
+    // Cache growth metrics
+    private long _cacheGrowthDailyBytes;
+    private int _cacheGrowthTrend; // -1=down, 0=stable, 1=up
+    private double _cacheGrowthPercentChange;
+    private int _estimatedDaysUntilFull;
+
     // Time tracking
     private long _lastUpdateTimestamp;
+
+    private class HourlyMetrics
+    {
+        public long Downloads;
+        public long BytesServed;
+    }
 
     // Configurable update interval (default 15 seconds)
     private int _updateIntervalSeconds = 15;
@@ -211,6 +230,73 @@ public class LancacheMetricsService : BackgroundService
         );
 
         // ============================================
+        // PEAK USAGE HOUR METRICS
+        // ============================================
+        _meter.CreateObservableGauge(
+            "lancache_peak_hour",
+            () => _peakHour,
+            description: "Hour of day with most downloads (0-23)"
+        );
+
+        _meter.CreateObservableGauge(
+            "lancache_peak_hour_downloads",
+            () => Interlocked.Read(ref _peakHourDownloads),
+            description: "Number of downloads in peak hour (7-day period)"
+        );
+
+        _meter.CreateObservableGauge(
+            "lancache_current_hour_downloads",
+            () => Interlocked.Read(ref _currentHourDownloads),
+            description: "Number of downloads in current hour (7-day period)"
+        );
+
+        _meter.CreateObservableGauge(
+            "lancache_peak_time_of_day",
+            () => new Measurement<int>(1, new KeyValuePair<string, object?>("period", _peakTimeOfDay)),
+            description: "Time of day category for peak hour (Morning/Afternoon/Evening/Night)"
+        );
+
+        // Per-hour activity metrics (with hour label)
+        _meter.CreateObservableGauge(
+            "lancache_hourly_downloads",
+            GetHourlyDownloadsMetrics,
+            description: "Downloads per hour of day (7-day period)"
+        );
+
+        _meter.CreateObservableGauge(
+            "lancache_hourly_bytes",
+            GetHourlyBytesMetrics,
+            description: "Bytes served per hour of day (7-day period)"
+        );
+
+        // ============================================
+        // CACHE GROWTH METRICS
+        // ============================================
+        _meter.CreateObservableGauge(
+            "lancache_cache_growth_daily_bytes",
+            () => Interlocked.Read(ref _cacheGrowthDailyBytes),
+            description: "Average daily cache growth in bytes (7-day period)"
+        );
+
+        _meter.CreateObservableGauge(
+            "lancache_cache_growth_trend",
+            () => _cacheGrowthTrend,
+            description: "Cache growth trend: -1=decreasing, 0=stable, 1=increasing"
+        );
+
+        _meter.CreateObservableGauge(
+            "lancache_cache_growth_percent_change",
+            () => _cacheGrowthPercentChange,
+            description: "Cache growth percent change (period over period)"
+        );
+
+        _meter.CreateObservableGauge(
+            "lancache_cache_days_until_full",
+            () => _estimatedDaysUntilFull,
+            description: "Estimated days until cache is full (0 if not calculable)"
+        );
+
+        // ============================================
         // PER-SERVICE METRICS (with labels)
         // ============================================
         _meter.CreateObservableGauge(
@@ -330,6 +416,29 @@ public class LancacheMetricsService : BackgroundService
             yield return new Measurement<long>(
                 Interlocked.Read(ref kvp.Value.ActiveDownloads),
                 new KeyValuePair<string, object?>("service", kvp.Key)
+            );
+        }
+    }
+
+    // Hourly metrics measurement providers
+    private IEnumerable<Measurement<long>> GetHourlyDownloadsMetrics()
+    {
+        foreach (var kvp in _hourlyMetrics)
+        {
+            yield return new Measurement<long>(
+                Interlocked.Read(ref kvp.Value.Downloads),
+                new KeyValuePair<string, object?>("hour", kvp.Key.ToString("D2"))
+            );
+        }
+    }
+
+    private IEnumerable<Measurement<long>> GetHourlyBytesMetrics()
+    {
+        foreach (var kvp in _hourlyMetrics)
+        {
+            yield return new Measurement<long>(
+                Interlocked.Read(ref kvp.Value.BytesServed),
+                new KeyValuePair<string, object?>("hour", kvp.Key.ToString("D2"))
             );
         }
     }
@@ -607,5 +716,126 @@ public class LancacheMetricsService : BackgroundService
             Interlocked.Exchange(ref metrics.MissBytes, client.MissBytes);
             Interlocked.Exchange(ref metrics.Downloads, client.Downloads);
         }
+
+        // ============================================
+        // PEAK USAGE HOUR METRICS (7-day period)
+        // ============================================
+        var sevenDaysAgo = DateTime.UtcNow.AddDays(-7);
+
+        var hourlyActivity = await context.Downloads
+            .Where(d => d.StartTimeUtc >= sevenDaysAgo)
+            .GroupBy(d => d.StartTimeLocal.Hour)
+            .Select(g => new
+            {
+                Hour = g.Key,
+                Downloads = g.LongCount(),
+                BytesServed = g.Sum(d => (long?)d.CacheHitBytes + d.CacheMissBytes) ?? 0
+            })
+            .ToListAsync(cancellationToken);
+
+        // Initialize all 24 hours
+        for (int hour = 0; hour < 24; hour++)
+        {
+            var hourMetrics = _hourlyMetrics.GetOrAdd(hour, _ => new HourlyMetrics());
+            var hourData = hourlyActivity.FirstOrDefault(h => h.Hour == hour);
+            Interlocked.Exchange(ref hourMetrics.Downloads, hourData?.Downloads ?? 0);
+            Interlocked.Exchange(ref hourMetrics.BytesServed, hourData?.BytesServed ?? 0);
+        }
+
+        // Find peak hour
+        var peakHourData = hourlyActivity.OrderByDescending(h => h.Downloads).FirstOrDefault();
+        if (peakHourData != null)
+        {
+            _peakHour = peakHourData.Hour;
+            Interlocked.Exchange(ref _peakHourDownloads, peakHourData.Downloads);
+            _peakTimeOfDay = GetTimeOfDayLabel(peakHourData.Hour);
+        }
+
+        // Current hour downloads
+        var currentHour = DateTime.Now.Hour;
+        var currentHourData = hourlyActivity.FirstOrDefault(h => h.Hour == currentHour);
+        Interlocked.Exchange(ref _currentHourDownloads, currentHourData?.Downloads ?? 0);
+
+        // ============================================
+        // CACHE GROWTH METRICS (7-day period)
+        // ============================================
+        var dailyGrowth = await context.Downloads
+            .Where(d => d.StartTimeUtc >= sevenDaysAgo)
+            .GroupBy(d => d.StartTimeUtc.Date)
+            .OrderBy(g => g.Key)
+            .Select(g => new
+            {
+                Date = g.Key,
+                GrowthBytes = g.Sum(d => (long?)d.CacheMissBytes) ?? 0
+            })
+            .ToListAsync(cancellationToken);
+
+        if (dailyGrowth.Count >= 2)
+        {
+            // Calculate average daily growth
+            var totalGrowth = dailyGrowth.Sum(d => d.GrowthBytes);
+            var daysCovered = (dailyGrowth.Last().Date - dailyGrowth.First().Date).TotalDays;
+            var avgDailyGrowth = daysCovered > 0 ? (long)(totalGrowth / daysCovered) : 0;
+            Interlocked.Exchange(ref _cacheGrowthDailyBytes, avgDailyGrowth);
+
+            // Period-over-period comparison for trend
+            var midpoint = dailyGrowth.Count / 2;
+            var olderHalf = dailyGrowth.Take(midpoint).ToList();
+            var recentHalf = dailyGrowth.Skip(midpoint).ToList();
+
+            var olderAvg = olderHalf.Count > 0 ? olderHalf.Average(d => d.GrowthBytes) : 0;
+            var recentAvg = recentHalf.Count > 0 ? recentHalf.Average(d => d.GrowthBytes) : 0;
+
+            double percentChange;
+            if (olderAvg == 0 && recentAvg == 0)
+            {
+                percentChange = 0;
+            }
+            else if (olderAvg == 0)
+            {
+                percentChange = recentAvg > 0 ? 100 : 0;
+            }
+            else
+            {
+                percentChange = ((recentAvg - olderAvg) / olderAvg) * 100;
+            }
+
+            // Cap percentage at reasonable bounds
+            percentChange = Math.Max(-999, Math.Min(999, percentChange));
+            _cacheGrowthPercentChange = Math.Round(percentChange, 1);
+
+            // Determine trend
+            if (percentChange > 5) _cacheGrowthTrend = 1; // Up
+            else if (percentChange < -5) _cacheGrowthTrend = -1; // Down
+            else _cacheGrowthTrend = 0; // Stable
+
+            // Estimate days until full
+            if (avgDailyGrowth > 0 && _cacheFreeBytes > 0)
+            {
+                _estimatedDaysUntilFull = (int)Math.Ceiling((double)Interlocked.Read(ref _cacheFreeBytes) / avgDailyGrowth);
+            }
+            else
+            {
+                _estimatedDaysUntilFull = 0;
+            }
+        }
+        else
+        {
+            Interlocked.Exchange(ref _cacheGrowthDailyBytes, 0);
+            _cacheGrowthPercentChange = 0;
+            _cacheGrowthTrend = 0;
+            _estimatedDaysUntilFull = 0;
+        }
+    }
+
+    /// <summary>
+    /// Get time of day label for an hour (0-23)
+    /// </summary>
+    private static string GetTimeOfDayLabel(int hour)
+    {
+        if (hour >= 5 && hour < 12) return "Morning";
+        if (hour >= 12 && hour < 17) return "Afternoon";
+        if (hour >= 17 && hour < 21) return "Evening";
+        return "Night";
     }
 }
