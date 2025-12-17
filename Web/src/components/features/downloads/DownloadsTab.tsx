@@ -6,7 +6,9 @@ import {
   Loader2,
   List,
   Grid3x3,
-  Table
+  Table,
+  Search,
+  X
 } from 'lucide-react';
 import { useDownloads } from '@contexts/DownloadsContext';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
@@ -32,6 +34,7 @@ import type { Download, DownloadGroup, Config } from '../../../types';
 const STORAGE_KEYS = {
   SERVICE_FILTER: 'lancache_downloads_service',
   CLIENT_FILTER: 'lancache_downloads_client',
+  SEARCH_QUERY: 'lancache_downloads_search',
   ITEMS_PER_PAGE: 'lancache_downloads_items',
   ITEMS_PER_PAGE_RETRO: 'lancache_downloads_items_retro',
   SHOW_METADATA: 'lancache_downloads_metadata',
@@ -278,6 +281,7 @@ const DownloadsTab: React.FC = () => {
       hideUnknownGames: storage.getItem(STORAGE_KEYS.HIDE_UNKNOWN_GAMES) === 'true',
       selectedService: storage.getItem(STORAGE_KEYS.SERVICE_FILTER) || 'all',
       selectedClient: storage.getItem(STORAGE_KEYS.CLIENT_FILTER) || 'all',
+      searchQuery: storage.getItem(STORAGE_KEYS.SEARCH_QUERY) || '',
       itemsPerPage: getItemsPerPage(savedViewMode),
       viewMode: savedViewMode,
       sortOrder: (storage.getItem(STORAGE_KEYS.SORT_ORDER) || 'latest') as
@@ -306,6 +310,7 @@ const DownloadsTab: React.FC = () => {
     storage.setItem(STORAGE_KEYS.HIDE_UNKNOWN_GAMES, settings.hideUnknownGames.toString());
     storage.setItem(STORAGE_KEYS.SERVICE_FILTER, settings.selectedService);
     storage.setItem(STORAGE_KEYS.CLIENT_FILTER, settings.selectedClient);
+    storage.setItem(STORAGE_KEYS.SEARCH_QUERY, settings.searchQuery);
     // Save items per page to the appropriate key based on view mode
     if (settings.viewMode === 'retro') {
       storage.setItem(STORAGE_KEYS.ITEMS_PER_PAGE_RETRO, settings.itemsPerPage.toString());
@@ -375,6 +380,7 @@ const DownloadsTab: React.FC = () => {
   }, [
     settings.selectedService,
     settings.selectedClient,
+    settings.searchQuery,
     settings.sortOrder,
     settings.showZeroBytes,
     settings.showSmallFiles,
@@ -517,6 +523,18 @@ const DownloadsTab: React.FC = () => {
       filtered = filtered.filter((d) => d.clientIp === settings.selectedClient);
     }
 
+    // Apply search filter
+    if (settings.searchQuery.trim()) {
+      const query = settings.searchQuery.toLowerCase().trim();
+      filtered = filtered.filter((d) =>
+        (d.gameName && d.gameName.toLowerCase().includes(query)) ||
+        d.service.toLowerCase().includes(query) ||
+        d.clientIp.toLowerCase().includes(query) ||
+        (d.depotId && String(d.depotId).includes(query)) ||
+        (d.gameAppId && String(d.gameAppId).includes(query))
+      );
+    }
+
     return filtered;
   }, [
     latestDownloads,
@@ -525,7 +543,8 @@ const DownloadsTab: React.FC = () => {
     settings.hideLocalhost,
     settings.hideUnknownGames,
     settings.selectedService,
-    settings.selectedClient
+    settings.selectedClient,
+    settings.searchQuery
   ]);
 
   // Removed serviceFilteredDownloads - now using latestDownloads.length directly for total count
@@ -876,6 +895,7 @@ const DownloadsTab: React.FC = () => {
   }, [
     settings.selectedService,
     settings.selectedClient,
+    settings.searchQuery,
     settings.sortOrder,
     settings.showZeroBytes,
     settings.showSmallFiles,
@@ -1045,6 +1065,30 @@ const DownloadsTab: React.FC = () => {
             >
               <Settings size={18} />
             </button>
+          </div>
+
+          {/* Search Input */}
+          <div className="relative w-full sm:max-w-xs">
+            <Search
+              size={16}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--theme-text-muted)]"
+            />
+            <input
+              type="text"
+              value={settings.searchQuery}
+              onChange={(e) => setSettings({ ...settings, searchQuery: e.target.value })}
+              placeholder="Search games, clients, depots..."
+              className="w-full pl-9 pr-8 py-2 text-sm rounded-lg border bg-[var(--theme-bg-primary)] text-[var(--theme-text-primary)] placeholder:text-[var(--theme-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--theme-primary)]/50 focus:border-[var(--theme-primary)] transition-all"
+              style={{ borderColor: 'var(--theme-border-primary)' }}
+            />
+            {settings.searchQuery && (
+              <button
+                onClick={() => setSettings({ ...settings, searchQuery: '' })}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-muted)] hover:text-[var(--theme-text-primary)] transition-colors"
+              >
+                <X size={14} />
+              </button>
+            )}
           </div>
 
           {/* Dropdowns and View Controls */}
@@ -1455,8 +1499,11 @@ const DownloadsTab: React.FC = () => {
                 )
               </span>
             </span>
-            {(settings.selectedService !== 'all' || settings.selectedClient !== 'all') && (
+            {(settings.selectedService !== 'all' || settings.selectedClient !== 'all' || settings.searchQuery) && (
               <span className="flex flex-wrap gap-1 text-xs sm:text-sm">
+                {settings.searchQuery && (
+                  <span className="whitespace-nowrap">• Search: "{settings.searchQuery}"</span>
+                )}
                 {settings.selectedService !== 'all' && (
                   <span className="whitespace-nowrap">• Service: {settings.selectedService}</span>
                 )}
@@ -1466,10 +1513,10 @@ const DownloadsTab: React.FC = () => {
               </span>
             )}
           </div>
-          {(settings.selectedService !== 'all' || settings.selectedClient !== 'all') && (
+          {(settings.selectedService !== 'all' || settings.selectedClient !== 'all' || settings.searchQuery) && (
             <button
               onClick={() =>
-                setSettings({ ...settings, selectedService: 'all', selectedClient: 'all' })
+                setSettings({ ...settings, selectedService: 'all', selectedClient: 'all', searchQuery: '' })
               }
               className="text-xs px-3 py-1.5 rounded bg-themed-accent text-white hover:opacity-80 transition-opacity whitespace-nowrap self-start sm:self-auto"
             >

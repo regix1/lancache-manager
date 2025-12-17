@@ -72,8 +72,8 @@ interface DepotGroupedData {
   cacheHitBytes: number;
   cacheMissBytes: number;
   totalBytes: number;
-  sessionCount: number;
-  clientCount: number;
+  requestCount: number;
+  clientsSet: Set<string>;
 }
 
 // Group items by depot ID for retro view display
@@ -101,8 +101,8 @@ const groupByDepot = (items: (Download | DownloadGroup)[], sortOrder: SortOrder 
             cacheHitBytes: 0,
             cacheMissBytes: 0,
             totalBytes: 0,
-            sessionCount: 0,
-            clientCount: 1
+            requestCount: 0,
+            clientsSet: new Set<string>()
           };
         }
 
@@ -110,7 +110,8 @@ const groupByDepot = (items: (Download | DownloadGroup)[], sortOrder: SortOrder 
         group.cacheHitBytes += download.cacheHitBytes || 0;
         group.cacheMissBytes += download.cacheMissBytes || 0;
         group.totalBytes += download.totalBytes || 0;
-        group.sessionCount += 1;
+        group.requestCount += 1;
+        group.clientsSet.add(download.clientIp);
 
         // Update time range
         if (download.startTimeUtc < group.startTimeUtc) {
@@ -141,8 +142,8 @@ const groupByDepot = (items: (Download | DownloadGroup)[], sortOrder: SortOrder 
           cacheHitBytes: 0,
           cacheMissBytes: 0,
           totalBytes: 0,
-          sessionCount: 0,
-          clientCount: 1
+          requestCount: 0,
+          clientsSet: new Set<string>()
         };
       }
 
@@ -150,7 +151,8 @@ const groupByDepot = (items: (Download | DownloadGroup)[], sortOrder: SortOrder 
       group.cacheHitBytes += download.cacheHitBytes || 0;
       group.cacheMissBytes += download.cacheMissBytes || 0;
       group.totalBytes += download.totalBytes || 0;
-      group.sessionCount += 1;
+      group.requestCount += 1;
+      group.clientsSet.add(download.clientIp);
 
       // Update time range
       if (download.startTimeUtc < group.startTimeUtc) {
@@ -191,7 +193,7 @@ const groupByDepot = (items: (Download | DownloadGroup)[], sortOrder: SortOrder 
         return aEffLow - bEffLow;
       }
       case 'sessions':
-        return b.sessionCount - a.sessionCount;
+        return b.requestCount - a.requestCount;
       case 'alphabetical':
         return a.gameName.localeCompare(b.gameName);
       case 'latest':
@@ -314,9 +316,9 @@ const RetroView: React.FC<RetroViewProps> = ({
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
                       {data.gameName || data.service}
-                      {data.sessionCount > 1 && (
+                      {data.requestCount > 1 && (
                         <span className="ml-2 text-xs text-[var(--theme-text-muted)]">
-                          ({data.sessionCount} sessions)
+                          ({data.clientsSet.size} client{data.clientsSet.size !== 1 ? 's' : ''} · {data.requestCount} request{data.requestCount !== 1 ? 's' : ''})
                         </span>
                       )}
                     </div>
@@ -446,10 +448,9 @@ const RetroView: React.FC<RetroViewProps> = ({
                     <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
                       {data.gameName || data.service}
                     </span>
-                    {data.sessionCount > 1 && (
+                    {data.requestCount > 1 && (
                       <span className="text-xs text-[var(--theme-text-muted)]">
-                        {data.sessionCount} sessions
-                        {data.clientCount > 1 && ` • ${data.clientCount} clients`}
+                        {data.clientsSet.size} client{data.clientsSet.size !== 1 ? 's' : ''} · {data.requestCount} request{data.requestCount !== 1 ? 's' : ''}
                       </span>
                     )}
                   </div>
@@ -473,7 +474,7 @@ const RetroView: React.FC<RetroViewProps> = ({
 
                 {/* Client IP */}
                 <div className="text-sm font-mono text-[var(--theme-text-primary)] truncate" title={data.clientIp}>
-                  {data.clientCount > 1 ? `${data.clientCount} clients` : data.clientIp}
+                  {data.clientsSet.size > 1 ? `${data.clientsSet.size} clients` : data.clientIp}
                 </div>
 
                 {/* Cache Hit - Progress bar style */}
