@@ -477,7 +477,7 @@ public class StatsController : ControllerBase
             return Ok(new SparklineDataResponse
             {
                 BandwidthSaved = BuildSparklineMetric(bandwidthSavedData),
-                CacheHitRatio = BuildSparklineMetric(cacheHitRatioData),
+                CacheHitRatio = BuildSparklineMetricForRatio(cacheHitRatioData), // Use absolute change for ratios
                 TotalServed = BuildSparklineMetric(totalServedData),
                 AddedToCache = BuildSparklineMetric(addedToCacheData),
                 Period = period
@@ -540,6 +540,45 @@ public class StatsController : ControllerBase
             Data = data,
             Trend = trend,
             PercentChange = percentChange
+        };
+    }
+
+    // Helper method for ratio metrics (like cache hit ratio) - uses absolute change, not percent change
+    // For ratios that are already percentages, showing "percent of percent" is confusing
+    private static SparklineMetric BuildSparklineMetricForRatio(List<double> data)
+    {
+        if (data.Count < 2)
+        {
+            return new SparklineMetric { Data = data, Trend = "stable", PercentChange = 0 };
+        }
+
+        // Remove trailing zeros (incomplete current period) for trend calculation
+        var trimmedData = data.ToList();
+        while (trimmedData.Count > 1 && trimmedData.Last() == 0)
+        {
+            trimmedData.RemoveAt(trimmedData.Count - 1);
+        }
+
+        if (trimmedData.Count < 2)
+        {
+            return new SparklineMetric { Data = data, Trend = "stable", PercentChange = 0 };
+        }
+
+        var firstValue = trimmedData.First();
+        var lastValue = trimmedData.Last();
+
+        // For ratios, use absolute point change (e.g., 20% -> 80% = +60 points)
+        var absoluteChange = lastValue - firstValue;
+
+        string trend = "stable";
+        if (absoluteChange > 1) trend = "up";
+        else if (absoluteChange < -1) trend = "down";
+
+        return new SparklineMetric
+        {
+            Data = data,
+            Trend = trend,
+            PercentChange = absoluteChange // This is now absolute points, not percent
         };
     }
 
