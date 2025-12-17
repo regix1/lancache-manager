@@ -27,6 +27,7 @@ import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
 import StatCard from '@components/common/StatCard';
 import { Tooltip } from '@components/ui/Tooltip';
+import { HelpDefinition } from '@components/ui/HelpPopover';
 import EnhancedServiceChart from './EnhancedServiceChart';
 import RecentDownloadsPanel from './RecentDownloadsPanel';
 import TopClientsTable from './TopClientsTable';
@@ -62,14 +63,52 @@ const DEFAULT_CARD_ORDER: string[] = [
 const StatTooltips: Record<string, string> = {
   totalCache: 'Total storage capacity of your LANCache system',
   usedSpace: 'Amount of storage currently occupied by cached content',
-  bandwidthSaved:
-    'Amount of internet bandwidth saved by serving files from local cache instead of downloading them again',
-  addedToCache: 'New content downloaded and stored in cache for future use',
-  totalServed: 'Total amount of data delivered to clients (cache hits + new downloads)',
+  bandwidthSaved: 'Internet bandwidth saved by serving from cache',
+  addedToCache: 'New content downloaded and cached',
+  totalServed: 'Total data delivered to clients',
   activeDownloads: 'Number of downloads currently in progress',
   activeClients: 'Number of unique client devices that have accessed the cache',
-  cacheHitRatio:
-    'Percentage of requests served from cache vs downloaded from internet. Higher is better!'
+  cacheHitRatio: 'Cache hits vs internet downloads. Higher is better!'
+};
+
+// Trend help content for cards with sparklines
+const TrendHelpContent: Record<string, React.ReactNode> = {
+  bandwidthSaved: (
+    <div className="space-y-1.5">
+      <HelpDefinition term="↑ Up" termColor="green">More bandwidth saved recently</HelpDefinition>
+      <HelpDefinition term="↓ Down" termColor="orange">Less bandwidth saved recently</HelpDefinition>
+      <div className="text-[10px] mt-2 pt-2 border-t" style={{ borderColor: 'var(--theme-border)', color: 'var(--theme-text-muted)' }}>
+        Compares recent activity to earlier in the selected time period
+      </div>
+    </div>
+  ),
+  addedToCache: (
+    <div className="space-y-1.5">
+      <HelpDefinition term="↑ Up" termColor="green">More new content being cached</HelpDefinition>
+      <HelpDefinition term="↓ Down" termColor="orange">Less new content being cached</HelpDefinition>
+      <div className="text-[10px] mt-2 pt-2 border-t" style={{ borderColor: 'var(--theme-border)', color: 'var(--theme-text-muted)' }}>
+        Compares recent activity to earlier in the selected time period
+      </div>
+    </div>
+  ),
+  totalServed: (
+    <div className="space-y-1.5">
+      <HelpDefinition term="↑ Up" termColor="green">More data served recently</HelpDefinition>
+      <HelpDefinition term="↓ Down" termColor="orange">Less data served recently</HelpDefinition>
+      <div className="text-[10px] mt-2 pt-2 border-t" style={{ borderColor: 'var(--theme-border)', color: 'var(--theme-text-muted)' }}>
+        Compares recent activity to earlier in the selected time period
+      </div>
+    </div>
+  ),
+  cacheHitRatio: (
+    <div className="space-y-1.5">
+      <HelpDefinition term="↑ Up" termColor="green">Hit ratio improving</HelpDefinition>
+      <HelpDefinition term="↓ Down" termColor="orange">Hit ratio declining</HelpDefinition>
+      <div className="text-[10px] mt-2 pt-2 border-t" style={{ borderColor: 'var(--theme-border)', color: 'var(--theme-text-muted)' }}>
+        Shows change in percentage points (not percent change)
+      </div>
+    </div>
+  ),
 };
 
 const Dashboard: React.FC = () => {
@@ -743,7 +782,6 @@ const Dashboard: React.FC = () => {
                 subtitle={card.subtitle}
                 icon={card.icon}
                 color={card.color}
-                tooltip={card.tooltip}
                 glassmorphism={true}
                 animateValue={true}
                 sparklineData={
@@ -767,6 +805,7 @@ const Dashboard: React.FC = () => {
                   card.key === 'addedToCache' ? sparklineData?.addedToCache?.percentChange :
                   undefined
                 }
+                trendHelp={TrendHelpContent[card.key]}
                 staggerIndex={initialAnimationComplete ? undefined : visualIndex}
               />
 

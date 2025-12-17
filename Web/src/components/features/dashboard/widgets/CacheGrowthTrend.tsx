@@ -4,6 +4,7 @@ import { formatBytes } from '@utils/formatters';
 import { type CacheGrowthResponse } from '../../../../types';
 import Sparkline from '../components/Sparkline';
 import ApiService from '@services/api.service';
+import { HelpPopover, HelpDefinition } from '@components/ui/HelpPopover';
 
 interface CacheGrowthTrendProps {
   /** Current used cache size in bytes (from cacheInfo) */
@@ -136,6 +137,15 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
           <h3 className="text-sm font-semibold" style={{ color: 'var(--theme-text-primary)' }}>
             Cache Growth
           </h3>
+          <HelpPopover width={240}>
+            <div className="space-y-1.5">
+              <HelpDefinition term="↑ Up" termColor="green">Cache growing faster recently</HelpDefinition>
+              <HelpDefinition term="↓ Down" termColor="orange">Cache growth slowing down</HelpDefinition>
+              <div className="text-[10px] mt-2 pt-2 border-t" style={{ borderColor: 'var(--theme-border)', color: 'var(--theme-text-muted)' }}>
+                Compares recent daily growth to earlier in the period
+              </div>
+            </div>
+          </HelpPopover>
         </div>
         {/* Only show percentage when meaningful (not 0) and not extreme (<=500%) */}
         {hasEnoughData && percentChange !== 0 && Math.abs(percentChange) <= 500 && (

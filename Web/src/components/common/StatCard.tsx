@@ -1,7 +1,7 @@
 // StatCard.tsx - Enhanced component with glassmorphism, sparklines, and animations
 import React, { useMemo } from 'react';
 import { type LucideIcon, TrendingUp, TrendingDown, Minus } from 'lucide-react';
-import { Tooltip } from '@components/ui/Tooltip';
+import { HelpPopover } from '@components/ui/HelpPopover';
 import Sparkline from '@components/features/dashboard/components/Sparkline';
 import AnimatedValue from '@components/features/dashboard/components/AnimatedValue';
 
@@ -13,18 +13,19 @@ interface StatCardProps {
   subtitle?: string;
   icon: LucideIcon;
   color: StatCardColor;
-  tooltip?: React.ReactNode;
-  // NEW: Sparkline props
+  // Sparkline props
   sparklineData?: number[];
   sparklineColor?: string;
-  // NEW: Trend props
+  // Trend props
   trend?: 'up' | 'down' | 'stable';
   percentChange?: number;
-  // NEW: Animation props
+  // Trend help content for HelpPopover (shown next to percentage)
+  trendHelp?: React.ReactNode;
+  // Animation props
   animateValue?: boolean;
-  // NEW: Glassmorphism
+  // Glassmorphism
   glassmorphism?: boolean;
-  // NEW: Stagger index for entrance animation
+  // Stagger index for entrance animation
   staggerIndex?: number;
 }
 
@@ -47,20 +48,15 @@ const StatCard: React.FC<StatCardProps> = ({
   subtitle,
   icon: Icon,
   color,
-  tooltip,
   sparklineData,
   sparklineColor,
   trend,
   percentChange,
+  trendHelp,
   animateValue = false,
   glassmorphism = false,
   staggerIndex,
 }) => {
-  // Check if tooltips are disabled globally
-  const tooltipsDisabled =
-    document.documentElement.getAttribute('data-disable-tooltips') === 'true';
-  const showTooltipIndicators = tooltip && !tooltipsDisabled;
-
   // Map color names to CSS variables
   const getIconBackground = (color: string): string => {
     const colorMap: Record<string, string> = {
@@ -120,21 +116,23 @@ const StatCard: React.FC<StatCardProps> = ({
       className={cardClasses}
       style={{
         backgroundColor: glassmorphism ? undefined : 'var(--theme-card-bg)',
-        borderColor: glassmorphism ? undefined : 'var(--theme-card-border)',
-        cursor: showTooltipIndicators ? 'help' : 'default'
+        borderColor: glassmorphism ? undefined : 'var(--theme-card-border)'
       }}
       data-stat-card={title.toLowerCase().replace(/\s+/g, '')}
     >
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
-          <p
-            className="text-sm font-medium inline-block transition-colors"
-            style={{
-              color: 'var(--theme-text-muted)'
-            }}
-          >
-            {title}
-          </p>
+          <div className="flex items-center gap-1">
+            <p
+              className="text-sm font-medium inline-block transition-colors"
+              style={{
+                color: 'var(--theme-text-muted)'
+              }}
+            >
+              {title}
+            </p>
+            {trendHelp && <HelpPopover width={240}>{trendHelp}</HelpPopover>}
+          </div>
 
           {/* Main value with optional animation */}
           <div className="flex items-baseline gap-2 mt-1">
@@ -194,14 +192,6 @@ const StatCard: React.FC<StatCardProps> = ({
       )}
     </div>
   );
-
-  if (tooltip) {
-    return (
-      <Tooltip content={tooltip} className="block w-full" position="top" strategy="overlay">
-        {cardContent}
-      </Tooltip>
-    );
-  }
 
   return cardContent;
 };
