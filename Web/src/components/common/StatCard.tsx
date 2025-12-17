@@ -28,17 +28,17 @@ interface StatCardProps {
   staggerIndex?: number;
 }
 
-// Color to sparkline color mapping
+// Color to sparkline color mapping using theme variables
 const colorToSparklineColor: Record<StatCardColor, string> = {
-  blue: 'rgba(59, 130, 246, 1)',
-  green: 'rgba(34, 197, 94, 1)',
-  emerald: 'rgba(16, 185, 129, 1)',
-  purple: 'rgba(168, 85, 247, 1)',
-  indigo: 'rgba(99, 102, 241, 1)',
-  orange: 'rgba(249, 115, 22, 1)',
-  yellow: 'rgba(234, 179, 8, 1)',
-  cyan: 'rgba(6, 182, 212, 1)',
-  red: 'rgba(239, 68, 68, 1)',
+  blue: 'var(--theme-icon-blue)',
+  green: 'var(--theme-icon-green)',
+  emerald: 'var(--theme-icon-emerald)',
+  purple: 'var(--theme-icon-purple)',
+  indigo: 'var(--theme-icon-indigo)',
+  orange: 'var(--theme-icon-orange)',
+  yellow: 'var(--theme-icon-yellow)',
+  cyan: 'var(--theme-icon-cyan)',
+  red: 'var(--theme-icon-red)',
 };
 
 const StatCard: React.FC<StatCardProps> = ({

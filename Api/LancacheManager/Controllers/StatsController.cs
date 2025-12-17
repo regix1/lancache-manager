@@ -491,6 +491,7 @@ public class StatsController : ControllerBase
     }
 
     // Helper method to build sparkline metric with trend calculation
+    // Compares first to last value, excluding trailing zeros (incomplete periods)
     private static SparklineMetric BuildSparklineMetric(List<double> data)
     {
         if (data.Count < 2)
@@ -498,9 +499,37 @@ public class StatsController : ControllerBase
             return new SparklineMetric { Data = data, Trend = "stable", PercentChange = 0 };
         }
 
-        var firstValue = data.First();
-        var lastValue = data.Last();
-        var percentChange = firstValue > 0 ? ((lastValue - firstValue) / firstValue) * 100 : 0;
+        // Remove trailing zeros (incomplete current period) for trend calculation
+        var trimmedData = data.ToList();
+        while (trimmedData.Count > 1 && trimmedData.Last() == 0)
+        {
+            trimmedData.RemoveAt(trimmedData.Count - 1);
+        }
+
+        if (trimmedData.Count < 2)
+        {
+            return new SparklineMetric { Data = data, Trend = "stable", PercentChange = 0 };
+        }
+
+        var firstValue = trimmedData.First();
+        var lastValue = trimmedData.Last();
+
+        // If no baseline data, stable
+        if (firstValue == 0 && lastValue == 0)
+        {
+            return new SparklineMetric { Data = data, Trend = "stable", PercentChange = 0 };
+        }
+
+        // Calculate percent change
+        double percentChange;
+        if (firstValue == 0)
+        {
+            percentChange = lastValue > 0 ? 100 : 0; // New activity
+        }
+        else
+        {
+            percentChange = ((lastValue - firstValue) / firstValue) * 100;
+        }
 
         string trend = "stable";
         if (percentChange > 1) trend = "up";

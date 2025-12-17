@@ -27,7 +27,7 @@ interface SparklineProps {
  */
 const Sparkline: React.FC<SparklineProps> = memo(({
   data,
-  color = 'rgba(59, 130, 246, 1)', // Default blue
+  color = 'var(--theme-primary)',
   height = 32,
   showArea = true,
   animated = true,
@@ -50,7 +50,10 @@ const Sparkline: React.FC<SparklineProps> = memo(({
       const varMatch = color.match(/var\((--[^)]+)\)/);
       if (varMatch && typeof document !== 'undefined') {
         const computedStyle = getComputedStyle(document.documentElement);
-        return computedStyle.getPropertyValue(varMatch[1]).trim() || '#3b82f6';
+        const resolved = computedStyle.getPropertyValue(varMatch[1]).trim();
+        if (resolved) return resolved;
+        // Try to get the primary theme color as fallback
+        return computedStyle.getPropertyValue('--theme-primary').trim() || color;
       }
     }
     return color;
@@ -82,11 +85,12 @@ const Sparkline: React.FC<SparklineProps> = memo(({
         fill: `rgba(${r}, ${g}, ${b}, 0.2)`,
       };
     }
-    // Fallback - use the resolved color directly
+    // Fallback - try to parse as named color or use as-is
+    // For CSS variables that resolved to named colors, we'll use a generic approach
     return {
       solid: resolvedColor,
-      transparent: 'rgba(59, 130, 246, 0)',
-      fill: 'rgba(59, 130, 246, 0.2)',
+      transparent: 'transparent',
+      fill: resolvedColor, // Will use opacity via CSS
     };
   }, [resolvedColor]);
 
