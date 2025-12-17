@@ -101,7 +101,7 @@ const Dashboard: React.FC = () => {
 
     const fetchSparklines = async () => {
       try {
-        const period = timeRange === 'custom' ? '7d' : timeRange;
+        const period = timeRange === 'custom' ? 'all' : timeRange;
         const data = await ApiService.getSparklineData(period, controller.signal);
         setSparklineData(data);
       } catch (err) {
@@ -860,14 +860,14 @@ const Dashboard: React.FC = () => {
           className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fadeIn"
         >
           <PeakUsageHours
-            period={timeRange === 'custom' ? '7d' : timeRange}
+            period={timeRange === 'custom' ? 'all' : timeRange}
             glassmorphism={true}
             staggerIndex={8}
           />
           <CacheGrowthTrend
             usedCacheSize={cacheInfo?.usedCacheSize || 0}
             totalCacheSize={cacheInfo?.totalCacheSize || 0}
-            period={timeRange === 'custom' ? '7d' : timeRange}
+            period={timeRange === 'custom' ? 'all' : timeRange}
             glassmorphism={true}
             staggerIndex={9}
           />

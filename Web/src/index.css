@@ -1668,40 +1668,23 @@ input[type='number']::-webkit-outer-spin-button {
 
 /* Glass card base - works with both dark and light themes */
 .glass-card {
-  background: rgba(30, 41, 59, 0.6);
+  background: color-mix(in srgb, var(--theme-card-bg) 85%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--theme-card-border);
   box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    0 8px 32px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 5%, transparent);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .glass-card:hover {
-  background: rgba(30, 41, 59, 0.75);
-  border-color: rgba(255, 255, 255, 0.12);
+  background: color-mix(in srgb, var(--theme-card-bg) 95%, transparent);
+  border-color: var(--theme-border-secondary);
   box-shadow:
-    0 12px 40px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    0 12px 40px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 8%, transparent);
   transform: translateY(-2px);
-}
-
-/* Light theme glass adjustments */
-[data-theme="light-default"] .glass-card {
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.5);
-}
-
-[data-theme="light-default"] .glass-card:hover {
-  background: rgba(255, 255, 255, 0.85);
-  border-color: rgba(0, 0, 0, 0.12);
-  box-shadow:
-    0 12px 40px rgba(0, 0, 0, 0.15),
-    inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
 /* ===== DASHBOARD CARD ANIMATIONS ===== */
@@ -1794,39 +1777,23 @@ input[type='number']::-webkit-outer-spin-button {
 }
 
 .widget-card.glass {
-  background: rgba(30, 41, 59, 0.6);
+  background: color-mix(in srgb, var(--theme-card-bg) 85%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--theme-card-border);
   box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    0 8px 32px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 5%, transparent);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .widget-card.glass:hover {
-  background: rgba(30, 41, 59, 0.75);
-  border-color: rgba(255, 255, 255, 0.12);
+  background: color-mix(in srgb, var(--theme-card-bg) 95%, transparent);
+  border-color: var(--theme-border-secondary);
   box-shadow:
-    0 12px 40px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    0 12px 40px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 8%, transparent);
   transform: translateY(-2px);
-}
-
-[data-theme="light-default"] .widget-card.glass {
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.5);
-}
-
-[data-theme="light-default"] .widget-card.glass:hover {
-  background: rgba(255, 255, 255, 0.85);
-  border-color: rgba(0, 0, 0, 0.12);
-  box-shadow:
-    0 12px 40px rgba(0, 0, 0, 0.15),
-    inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
 /* Leaderboard rank badges - subtle styling */
