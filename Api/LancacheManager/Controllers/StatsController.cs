@@ -272,12 +272,11 @@ public class StatsController : ControllerBase
         {
             var cutoffTime = ParseTimePeriod(period) ?? DateTime.UtcNow.AddDays(-7);
 
-            // Query downloads and group by hour of day
-            // Note: TotalBytes is a computed property, so we must use CacheHitBytes + CacheMissBytes directly
+            // Query downloads and group by local time hour (StartTimeLocal is already in configured timezone)
             var hourlyData = await _context.Downloads
                 .AsNoTracking()
                 .Where(d => d.StartTimeUtc >= cutoffTime)
-                .GroupBy(d => d.StartTimeUtc.Hour)
+                .GroupBy(d => d.StartTimeLocal.Hour)
                 .Select(g => new HourlyActivityItem
                 {
                     Hour = g.Key,

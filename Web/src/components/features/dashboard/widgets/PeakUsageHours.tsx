@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useMemo, memo } from 'react';
 import { Clock, Loader2 } from 'lucide-react';
 import { formatBytes } from '@utils/formatters';
-import { type HourlyActivityResponse } from '../../../../types';
+import { type Download, type HourlyActivityItem } from '../../../../types';
 import { Tooltip } from '@components/ui/Tooltip';
+import { useTimezone } from '@contexts/TimezoneContext';
+import { getServerTimezone } from '@utils/timezone';
 import ApiService from '@services/api.service';
 
 interface PeakUsageHoursProps {
@@ -16,19 +18,39 @@ interface PeakUsageHoursProps {
 
 /**
  * Widget showing download activity by hour of day
- * Uses real API data from /api/stats/hourly-activity
+ * Groups downloads by hour based on user's timezone preference
  */
 const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
   period = '7d',
   glassmorphism = true,
   staggerIndex,
 }) => {
-  const [data, setData] = useState<HourlyActivityResponse | null>(null);
+  const [downloads, setDownloads] = useState<Download[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { useLocalTimezone } = useTimezone();
   const currentHour = new Date().getHours();
 
-  // Fetch hourly activity data from API
+  // Calculate time range based on period
+  const getTimeRange = (period: string): { startTime?: number; endTime?: number } => {
+    const now = Math.floor(Date.now() / 1000);
+    const periodMap: Record<string, number> = {
+      '1h': 3600,
+      '6h': 6 * 3600,
+      '12h': 12 * 3600,
+      '24h': 24 * 3600,
+      '7d': 7 * 24 * 3600,
+      '30d': 30 * 24 * 3600,
+    };
+    const seconds = periodMap[period];
+    if (seconds) {
+      return { startTime: now - seconds, endTime: now };
+    }
+    // For 'all' or 'live', return no filter
+    return {};
+  };
+
+  // Fetch downloads from API
   useEffect(() => {
     const controller = new AbortController();
 
@@ -36,8 +58,9 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
       try {
         setLoading(true);
         setError(null);
-        const response = await ApiService.getHourlyActivity(period, controller.signal);
-        setData(response);
+        const { startTime, endTime } = getTimeRange(period);
+        const response = await ApiService.getLatestDownloads(controller.signal, 'unlimited', startTime, endTime);
+        setDownloads(response);
       } catch (err) {
         if (!controller.signal.aborted) {
           setError('Failed to load hourly data');
@@ -55,19 +78,56 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
     return () => controller.abort();
   }, [period]);
 
-  // Get hourly data from API response
-  const hourlyData = useMemo(() => {
-    if (!data?.hours) {
-      return Array.from({ length: 24 }, (_, i) => ({
+  // Group downloads by hour based on timezone preference
+  const hourlyData = useMemo((): HourlyActivityItem[] => {
+    // Initialize all 24 hours with zeros
+    const hourBuckets: Map<number, HourlyActivityItem> = new Map();
+    for (let i = 0; i < 24; i++) {
+      hourBuckets.set(i, {
         hour: i,
         downloads: 0,
         bytesServed: 0,
         cacheHitBytes: 0,
         cacheMissBytes: 0,
-      }));
+      });
     }
-    return data.hours;
-  }, [data]);
+
+    if (downloads.length === 0) {
+      return Array.from(hourBuckets.values());
+    }
+
+    // Get target timezone
+    const targetTimezone = useLocalTimezone ? undefined : getServerTimezone();
+
+    // Group each download by its hour in the target timezone
+    downloads.forEach(download => {
+      if (!download.startTimeUtc) return;
+
+      const date = new Date(download.startTimeUtc);
+      let hour: number;
+
+      if (targetTimezone) {
+        // Convert to server timezone and get hour
+        const formatter = new Intl.DateTimeFormat('en-US', {
+          timeZone: targetTimezone,
+          hour: 'numeric',
+          hour12: false,
+        });
+        hour = parseInt(formatter.format(date), 10);
+      } else {
+        // Use browser local time
+        hour = date.getHours();
+      }
+
+      const bucket = hourBuckets.get(hour)!;
+      bucket.downloads += 1;
+      bucket.bytesServed += download.totalBytes || 0;
+      bucket.cacheHitBytes += download.cacheHitBytes || 0;
+      bucket.cacheMissBytes += download.cacheMissBytes || 0;
+    });
+
+    return Array.from(hourBuckets.values()).sort((a, b) => a.hour - b.hour);
+  }, [downloads, useLocalTimezone]);
 
   // Find max for scaling
   const maxDownloads = useMemo(() => {
@@ -75,8 +135,15 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
     return max || 1;
   }, [hourlyData]);
 
-  const peakHour = data?.peakHour ?? 0;
-  const totalDownloads = data?.totalDownloads ?? 0;
+  // Calculate peak hour and total
+  const peakHour = useMemo(() => {
+    const peak = hourlyData.reduce((max, h) => h.downloads > max.downloads ? h : max, hourlyData[0]);
+    return peak?.hour ?? 0;
+  }, [hourlyData]);
+
+  const totalDownloads = useMemo(() => {
+    return hourlyData.reduce((sum, h) => sum + h.downloads, 0);
+  }, [hourlyData]);
 
   // Format hour for display
   const formatHour = (hour: number): string => {
