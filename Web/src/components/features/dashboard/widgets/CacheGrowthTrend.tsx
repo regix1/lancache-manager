@@ -137,7 +137,8 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
             Cache Growth
           </h3>
         </div>
-        {hasEnoughData && percentChange !== 0 && (
+        {/* Only show percentage when meaningful (not 0) and not extreme (<=500%) */}
+        {hasEnoughData && percentChange !== 0 && Math.abs(percentChange) <= 500 && (
           <div
             className="flex items-center gap-1 text-xs font-medium"
             style={{ color: getTrendColor() }}

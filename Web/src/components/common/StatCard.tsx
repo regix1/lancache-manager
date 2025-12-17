@@ -153,8 +153,8 @@ const StatCard: React.FC<StatCardProps> = ({
               </p>
             )}
 
-            {/* Trend indicator - only show when there's a meaningful change (not 0%) */}
-            {TrendIcon && percentChange !== undefined && Math.abs(percentChange) > 0.05 && (
+            {/* Trend indicator - only show when there's a meaningful change (>0.05%) and not extreme (<=500%) */}
+            {TrendIcon && percentChange !== undefined && Math.abs(percentChange) > 0.05 && Math.abs(percentChange) <= 500 && (
               <div className={`flex items-center gap-0.5 text-xs font-medium ${trendClass}`}>
                 <TrendIcon className="w-3 h-3" />
                 <span>{Math.abs(percentChange).toFixed(1)}%</span>

@@ -1,8 +1,17 @@
-import React, { useRef, useEffect, useMemo, memo } from 'react';
+import React, { useRef, useEffect, useMemo, memo, useState } from 'react';
 import { Chart, ChartConfiguration, registerables } from 'chart.js';
 
 // Register Chart.js components
 Chart.register(...registerables);
+
+// Helper to compare arrays for equality (avoids unnecessary re-renders)
+const arraysEqual = (a: number[], b: number[]): boolean => {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+};
 
 interface SparklineProps {
   /** Array of data points to display */
@@ -36,12 +45,17 @@ const Sparkline: React.FC<SparklineProps> = memo(({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartRef = useRef<Chart | null>(null);
+  const prevDataRef = useRef<number[]>([]);
+  const [hasAnimated, setHasAnimated] = useState(false);
 
   // Check for reduced motion preference
   const prefersReducedMotion = useMemo(() => {
     if (typeof window === 'undefined') return true;
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   }, []);
+
+  // Only animate on first render, not on data updates
+  const shouldAnimate = animated && !prefersReducedMotion && !hasAnimated;
 
   // Resolve CSS variable to actual color value
   const resolvedColor = useMemo(() => {
@@ -97,6 +111,12 @@ const Sparkline: React.FC<SparklineProps> = memo(({
   useEffect(() => {
     if (!canvasRef.current || data.length === 0) return;
 
+    // Skip update if data hasn't actually changed (prevents jumping)
+    if (chartRef.current && arraysEqual(prevDataRef.current, data)) {
+      return;
+    }
+    prevDataRef.current = [...data];
+
     const ctx = canvasRef.current.getContext('2d');
     if (!ctx) return;
 
@@ -109,6 +129,32 @@ const Sparkline: React.FC<SparklineProps> = memo(({
     const gradient = ctx.createLinearGradient(0, 0, 0, height);
     gradient.addColorStop(0, gradientColor.fill);
     gradient.addColorStop(1, gradientColor.transparent);
+
+    // Calculate stable min/max that handles edge cases
+    const minVal = Math.min(...data);
+    const maxVal = Math.max(...data);
+
+    // Handle flat line case (all values equal) or all zeros
+    let yMin: number;
+    let yMax: number;
+
+    if (minVal === maxVal) {
+      // Flat line - create artificial range around the value
+      if (minVal === 0) {
+        // All zeros - show line in middle
+        yMin = -1;
+        yMax = 1;
+      } else {
+        // Non-zero flat line - 10% padding
+        yMin = minVal * 0.9;
+        yMax = maxVal * 1.1;
+      }
+    } else {
+      // Normal case - add 10% padding
+      const range = maxVal - minVal;
+      yMin = minVal - range * 0.1;
+      yMax = maxVal + range * 0.1;
+    }
 
     const config: ChartConfiguration = {
       type: 'line',
@@ -130,12 +176,13 @@ const Sparkline: React.FC<SparklineProps> = memo(({
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        animation: prefersReducedMotion || !animated
-          ? false
-          : {
-              duration: 1000,
+        animation: shouldAnimate
+          ? {
+              duration: 800,
               easing: 'easeOutQuart',
-            },
+              onComplete: () => setHasAnimated(true),
+            }
+          : false,
         plugins: {
           legend: { display: false },
           tooltip: { enabled: false },
@@ -144,9 +191,8 @@ const Sparkline: React.FC<SparklineProps> = memo(({
           x: { display: false },
           y: {
             display: false,
-            // Add a little padding to prevent clipping
-            min: Math.min(...data) * 0.9,
-            max: Math.max(...data) * 1.1,
+            min: yMin,
+            max: yMax,
           },
         },
         elements: {
@@ -170,7 +216,7 @@ const Sparkline: React.FC<SparklineProps> = memo(({
         chartRef.current = null;
       }
     };
-  }, [data, gradientColor, height, showArea, animated, prefersReducedMotion]);
+  }, [data, gradientColor, height, showArea, shouldAnimate]);
 
   // Don't render if no data
   if (data.length === 0) {
@@ -179,7 +225,7 @@ const Sparkline: React.FC<SparklineProps> = memo(({
 
   return (
     <div
-      className={`sparkline-container ${animated && !prefersReducedMotion ? 'animate-sparkline' : ''} ${className}`}
+      className={`sparkline-container ${className}`}
       style={{ height }}
       role="img"
       aria-label={ariaLabel || `Sparkline chart showing ${data.length} data points`}

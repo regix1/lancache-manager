@@ -383,7 +383,8 @@ public class StatsController : ControllerBase
                 dp.Timestamp = DateTime.SpecifyKind(dp.Timestamp, DateTimeKind.Utc);
             }
 
-            // Calculate trend and statistics
+            // Calculate trend and statistics using period-over-period comparison
+            // Compare recent half growth to older half growth for meaningful trends
             var trend = "stable";
             double percentChange = 0;
             long avgDailyGrowth = 0;
@@ -393,19 +394,40 @@ public class StatsController : ControllerBase
                 var firstValue = dataPoints.First().CumulativeCacheMissBytes;
                 var lastValue = dataPoints.Last().CumulativeCacheMissBytes;
 
-                if (firstValue > 0)
-                {
-                    percentChange = ((double)(lastValue - firstValue) / firstValue) * 100;
-                }
-
                 var daysCovered = (dataPoints.Last().Timestamp - dataPoints.First().Timestamp).TotalDays;
                 if (daysCovered > 0)
                 {
                     avgDailyGrowth = (long)((lastValue - firstValue) / daysCovered);
                 }
 
-                if (percentChange > 1) trend = "up";
-                else if (percentChange < -1) trend = "down";
+                // Period-over-period comparison: compare recent half growth rate to older half
+                var growthValues = dataPoints.Select(d => (double)d.GrowthFromPrevious).ToList();
+                var midpoint = growthValues.Count / 2;
+                var olderHalf = growthValues.Take(midpoint).ToList();
+                var recentHalf = growthValues.Skip(midpoint).ToList();
+
+                var olderAvg = olderHalf.Count > 0 ? olderHalf.Average() : 0;
+                var recentAvg = recentHalf.Count > 0 ? recentHalf.Average() : 0;
+
+                if (olderAvg == 0 && recentAvg == 0)
+                {
+                    percentChange = 0;
+                }
+                else if (olderAvg == 0)
+                {
+                    percentChange = recentAvg > 0 ? 100 : 0; // New growth, cap at 100%
+                }
+                else
+                {
+                    percentChange = ((recentAvg - olderAvg) / olderAvg) * 100;
+                }
+
+                // Cap percentage at reasonable bounds (±999%)
+                percentChange = Math.Max(-999, Math.Min(999, percentChange));
+                percentChange = Math.Round(percentChange, 1);
+
+                if (percentChange > 5) trend = "up";
+                else if (percentChange < -5) trend = "down";
             }
 
             // Estimate days until full (if we had capacity info)
@@ -490,7 +512,9 @@ public class StatsController : ControllerBase
     }
 
     // Helper method to build sparkline metric with trend calculation
-    // Compares first to last value, excluding trailing zeros (incomplete periods)
+    // Uses period-over-period comparison (recent half avg vs older half avg) for meaningful trends
+    // Smooths out volatility by using averages instead of single data points
+    // Caps percentage at ±999% to avoid absurd display values
     private static SparklineMetric BuildSparklineMetric(List<double> data)
     {
         if (data.Count < 2)
@@ -510,40 +534,54 @@ public class StatsController : ControllerBase
             return new SparklineMetric { Data = data, Trend = "stable", PercentChange = 0 };
         }
 
-        var firstValue = trimmedData.First();
-        var lastValue = trimmedData.Last();
+        // Period-over-period comparison: split data into two halves and compare averages
+        // This approach is recommended by analytics tools (Amazon QuickSight, Tableau, etc.)
+        // and smooths out volatility from single-point comparisons
+        var midpoint = trimmedData.Count / 2;
+        var olderHalf = trimmedData.Take(midpoint).ToList();
+        var recentHalf = trimmedData.Skip(midpoint).ToList();
 
-        // If no baseline data, stable
-        if (firstValue == 0 && lastValue == 0)
+        var olderAvg = olderHalf.Count > 0 ? olderHalf.Average() : 0;
+        var recentAvg = recentHalf.Count > 0 ? recentHalf.Average() : 0;
+
+        // If no baseline data in both periods, stable
+        if (olderAvg == 0 && recentAvg == 0)
         {
             return new SparklineMetric { Data = data, Trend = "stable", PercentChange = 0 };
         }
 
-        // Calculate percent change
+        // Calculate percent change between period averages
         double percentChange;
-        if (firstValue == 0)
+        if (olderAvg == 0)
         {
-            percentChange = lastValue > 0 ? 100 : 0; // New activity
+            // New activity appeared - cap at 100% to indicate growth without extreme values
+            percentChange = recentAvg > 0 ? 100 : 0;
         }
         else
         {
-            percentChange = ((lastValue - firstValue) / firstValue) * 100;
+            percentChange = ((recentAvg - olderAvg) / olderAvg) * 100;
         }
 
+        // Cap percentage at reasonable bounds (±999%) to avoid absurd display values
+        // Per KPI best practices: bounds should be reasonable and contextual
+        percentChange = Math.Max(-999, Math.Min(999, percentChange));
+
+        // Use a 5% threshold for trend determination (more stable than 1%)
         string trend = "stable";
-        if (percentChange > 1) trend = "up";
-        else if (percentChange < -1) trend = "down";
+        if (percentChange > 5) trend = "up";
+        else if (percentChange < -5) trend = "down";
 
         return new SparklineMetric
         {
             Data = data,
             Trend = trend,
-            PercentChange = percentChange
+            PercentChange = Math.Round(percentChange, 1)
         };
     }
 
     // Helper method for ratio metrics (like cache hit ratio) - uses absolute change, not percent change
     // For ratios that are already percentages, showing "percent of percent" is confusing
+    // Uses period-over-period comparison with averages for stability
     private static SparklineMetric BuildSparklineMetricForRatio(List<double> data)
     {
         if (data.Count < 2)
@@ -563,21 +601,30 @@ public class StatsController : ControllerBase
             return new SparklineMetric { Data = data, Trend = "stable", PercentChange = 0 };
         }
 
-        var firstValue = trimmedData.First();
-        var lastValue = trimmedData.Last();
+        // Period-over-period comparison: split data into two halves and compare averages
+        var midpoint = trimmedData.Count / 2;
+        var olderHalf = trimmedData.Take(midpoint).ToList();
+        var recentHalf = trimmedData.Skip(midpoint).ToList();
 
-        // For ratios, use absolute point change (e.g., 20% -> 80% = +60 points)
-        var absoluteChange = lastValue - firstValue;
+        var olderAvg = olderHalf.Count > 0 ? olderHalf.Average() : 0;
+        var recentAvg = recentHalf.Count > 0 ? recentHalf.Average() : 0;
+
+        // For ratios, use absolute point change between period averages
+        // e.g., older avg 20% -> recent avg 80% = +60 points
+        var absoluteChange = recentAvg - olderAvg;
+
+        // Cap at reasonable bounds for ratio changes (ratios are 0-100, so ±100 is max meaningful)
+        absoluteChange = Math.Max(-100, Math.Min(100, absoluteChange));
 
         string trend = "stable";
-        if (absoluteChange > 1) trend = "up";
-        else if (absoluteChange < -1) trend = "down";
+        if (absoluteChange > 2) trend = "up";
+        else if (absoluteChange < -2) trend = "down";
 
         return new SparklineMetric
         {
             Data = data,
             Trend = trend,
-            PercentChange = absoluteChange // This is now absolute points, not percent
+            PercentChange = Math.Round(absoluteChange, 1) // This is absolute points, not percent
         };
     }
 
