@@ -53,6 +53,7 @@ export const SIGNALR_EVENTS = [
   'DefaultGuestThemeChanged',
   'UserSessionRevoked',
   'UserSessionCreated',
+  'SessionLastSeenUpdated',
   'GuestPollingRateUpdated',
   'DefaultGuestPollingRateChanged'
 ] as const;
