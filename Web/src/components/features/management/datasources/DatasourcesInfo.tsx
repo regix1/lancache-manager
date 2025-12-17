@@ -185,7 +185,16 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   const formatPosition = (pos: DatasourceLogPosition | undefined): string => {
     if (!pos) return 'Unknown';
     if (pos.totalLines === 0) return 'No log file';
-    const percent = pos.totalLines > 0 ? Math.round((pos.position / pos.totalLines) * 100) : 0;
+
+    // When position equals or exceeds totalLines, we're "caught up" to where the log was
+    // when last checked. The log may have grown since, so avoid showing misleading 100%.
+    if (pos.position >= pos.totalLines) {
+      return `${pos.position.toLocaleString()} (caught up)`;
+    }
+
+    // Cap at 99% when not fully caught up to avoid misleading 100% display
+    const rawPercent = (pos.position / pos.totalLines) * 100;
+    const percent = Math.min(Math.round(rawPercent), 99);
     return `${pos.position.toLocaleString()} / ${pos.totalLines.toLocaleString()} (${percent}%)`;
   };
 
