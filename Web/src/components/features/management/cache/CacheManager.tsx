@@ -253,8 +253,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                     enabled: true
                   }];
               const hasMultiple = datasources.length > 1;
-              // Auto-expand single datasource
-              const isExpanded = (name: string) => datasources.length === 1 || expandedDatasources.has(name);
+              const isExpanded = (name: string) => expandedDatasources.has(name);
 
               return (
                 <div className="mb-6">

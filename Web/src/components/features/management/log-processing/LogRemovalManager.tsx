@@ -118,9 +118,6 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
     try {
       const dsCounts = await ApiService.getServiceLogCountsByDatasource();
       setDatasourceCounts(dsCounts);
-      if (dsCounts.length === 1) {
-        setExpandedDatasources(new Set([dsCounts[0].datasource]));
-      }
       setLoadError(null);
       setHasInitiallyLoaded(true);
     } catch (err: unknown) {
@@ -352,7 +349,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
               <div className="space-y-3">
                 {datasourceCounts.map((ds) => {
                   const { other, displayed } = getServicesForDatasource(ds);
-                  const isExpanded = datasourceCounts.length === 1 || expandedDatasources.has(ds.datasource);
+                  const isExpanded = expandedDatasources.has(ds.datasource);
                   const totalEntries = Object.values(ds.serviceCounts).reduce((a, b) => a + b, 0);
                   const hasEntries = totalEntries > 0;
 
