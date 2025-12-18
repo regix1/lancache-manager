@@ -1,5 +1,6 @@
 import React from 'react';
 import { formatBytes, formatPercent, formatDateTime } from '@utils/formatters';
+import { Tooltip } from '@components/ui/Tooltip';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { WsusIcon } from '@components/ui/WsusIcon';
 import { RiotIcon } from '@components/ui/RiotIcon';
@@ -21,6 +22,8 @@ interface RetroViewProps {
   currentPage: number;
   onTotalPagesChange: (totalPages: number, totalItems: number) => void;
   sortOrder?: SortOrder;
+  showDatasourceLabels?: boolean;
+  hasMultipleDatasources?: boolean;
 }
 
 const getServiceIcon = (service: string, size: number = 24) => {
@@ -74,6 +77,7 @@ interface DepotGroupedData {
   totalBytes: number;
   requestCount: number;
   clientsSet: Set<string>;
+  datasource?: string;
 }
 
 // Group items by depot ID for retro view display
@@ -102,7 +106,8 @@ const groupByDepot = (items: (Download | DownloadGroup)[], sortOrder: SortOrder 
             cacheMissBytes: 0,
             totalBytes: 0,
             requestCount: 0,
-            clientsSet: new Set<string>()
+            clientsSet: new Set<string>(),
+            datasource: download.datasource
           };
         }
 
@@ -143,7 +148,8 @@ const groupByDepot = (items: (Download | DownloadGroup)[], sortOrder: SortOrder 
           cacheMissBytes: 0,
           totalBytes: 0,
           requestCount: 0,
-          clientsSet: new Set<string>()
+          clientsSet: new Set<string>(),
+          datasource: download.datasource
         };
       }
 
@@ -209,7 +215,9 @@ const RetroView: React.FC<RetroViewProps> = ({
   itemsPerPage,
   currentPage,
   onTotalPagesChange,
-  sortOrder = 'latest'
+  sortOrder = 'latest',
+  showDatasourceLabels = true,
+  hasMultipleDatasources = false
 }) => {
   const [imageErrors, setImageErrors] = React.useState<Set<string>>(new Set());
 
@@ -322,20 +330,36 @@ const RetroView: React.FC<RetroViewProps> = ({
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-[var(--theme-text-muted)]">
-                      {data.clientIp}
-                      {data.depotId && (
-                        <>
-                          {' • '}
-                          <a
-                            href={`https://steamdb.info/depot/${data.depotId}/`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-[var(--theme-primary)] hover:underline"
+                    <div className="flex items-center gap-2 text-xs text-[var(--theme-text-muted)]">
+                      <span>
+                        {data.clientIp}
+                        {data.depotId && (
+                          <>
+                            {' • '}
+                            <a
+                              href={`https://steamdb.info/depot/${data.depotId}/`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[var(--theme-primary)] hover:underline"
+                            >
+                              {data.depotId}
+                            </a>
+                          </>
+                        )}
+                      </span>
+                      {hasMultipleDatasources && showDatasourceLabels && data.datasource && (
+                        <Tooltip content={`Datasource: ${data.datasource}`}>
+                          <span
+                            className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0"
+                            style={{
+                              backgroundColor: 'var(--theme-bg-tertiary)',
+                              color: 'var(--theme-text-secondary)',
+                              border: '1px solid var(--theme-border-secondary)'
+                            }}
                           >
-                            {data.depotId}
-                          </a>
-                        </>
+                            {data.datasource}
+                          </span>
+                        </Tooltip>
                       )}
                     </div>
                   </div>
@@ -445,9 +469,25 @@ const RetroView: React.FC<RetroViewProps> = ({
                     </div>
                   )}
                   <div className="flex flex-col min-w-0">
-                    <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
-                      {data.gameName || data.service}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
+                        {data.gameName || data.service}
+                      </span>
+                      {hasMultipleDatasources && showDatasourceLabels && data.datasource && (
+                        <Tooltip content={`Datasource: ${data.datasource}`}>
+                          <span
+                            className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0"
+                            style={{
+                              backgroundColor: 'var(--theme-bg-tertiary)',
+                              color: 'var(--theme-text-secondary)',
+                              border: '1px solid var(--theme-border-secondary)'
+                            }}
+                          >
+                            {data.datasource}
+                          </span>
+                        </Tooltip>
+                      )}
+                    </div>
                     {data.requestCount > 1 && (
                       <span className="text-xs text-[var(--theme-text-muted)]">
                         {data.clientsSet.size} client{data.clientsSet.size !== 1 ? 's' : ''} · {data.requestCount} request{data.requestCount !== 1 ? 's' : ''}

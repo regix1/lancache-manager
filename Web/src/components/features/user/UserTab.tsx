@@ -800,9 +800,13 @@ const UserTab: React.FC = () => {
               <span
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all ${
                   !guestModeLocked
-                    ? 'bg-green-500/20 text-green-400 shadow-sm'
+                    ? 'shadow-sm'
                     : 'text-themed-muted'
                 }`}
+                style={!guestModeLocked ? {
+                  backgroundColor: 'color-mix(in srgb, var(--theme-success) 20%, transparent)',
+                  color: 'var(--theme-success-text)'
+                } : undefined}
               >
                 <Unlock className="w-3.5 h-3.5" />
                 Unlocked
@@ -810,9 +814,13 @@ const UserTab: React.FC = () => {
               <span
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all ${
                   guestModeLocked
-                    ? 'bg-red-500/20 text-red-400 shadow-sm'
+                    ? 'shadow-sm'
                     : 'text-themed-muted'
                 }`}
+                style={guestModeLocked ? {
+                  backgroundColor: 'color-mix(in srgb, var(--theme-error) 20%, transparent)',
+                  color: 'var(--theme-error-text)'
+                } : undefined}
               >
                 <Lock className="w-3.5 h-3.5" />
                 Locked

@@ -177,9 +177,13 @@ const GrafanaEndpoints: React.FC = () => {
           <span
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all ${
               metricsSecured
-                ? 'bg-green-500/20 text-green-400 shadow-sm'
+                ? 'shadow-sm'
                 : 'text-themed-muted'
             }`}
+            style={metricsSecured ? {
+              backgroundColor: 'color-mix(in srgb, var(--theme-success) 20%, transparent)',
+              color: 'var(--theme-success-text)'
+            } : undefined}
           >
             <Lock className="w-3.5 h-3.5" />
             Secured
@@ -295,24 +299,24 @@ const GrafanaEndpoints: React.FC = () => {
               <div className="ml-4">metrics_path: '/metrics'</div>
               {metricsSecured && (
                 <>
-                  <div className="ml-4 text-green-500">authorization:</div>
-                  <div className="ml-6 text-green-500">type: Bearer</div>
-                  <div className="ml-6 text-green-500">credentials: 'your-api-key-here'</div>
+                  <div className="ml-4" style={{ color: 'var(--theme-success-text)' }}>authorization:</div>
+                  <div className="ml-6" style={{ color: 'var(--theme-success-text)' }}>type: Bearer</div>
+                  <div className="ml-6" style={{ color: 'var(--theme-success-text)' }}>credentials: 'your-api-key-here'</div>
                 </>
               )}
             </div>
           </div>
           {metricsSecured && (
             <p className="text-xs text-themed-muted flex items-center gap-1.5">
-              <Lightbulb className="w-3 h-3 text-amber-500" />
+              <Lightbulb className="w-3 h-3" style={{ color: 'var(--theme-warning)' }} />
               Replace 'your-api-key-here' with the API key from your lancache-manager instance
             </p>
           )}
         </div>
 
         {parseInt(scrapeInterval) < parseInt(dataRefreshRate) && (
-          <p className="text-xs text-amber-500 mt-3 flex items-center gap-1.5">
-            <Lightbulb className="w-3 h-3" />
+          <p className="text-xs mt-3 flex items-center gap-1.5" style={{ color: 'var(--theme-warning-text)' }}>
+            <Lightbulb className="w-3 h-3" style={{ color: 'var(--theme-warning)' }} />
             Scrape interval is faster than data refresh - you may see stale data
           </p>
         )}

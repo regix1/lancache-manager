@@ -245,34 +245,34 @@ const GroupCard: React.FC<GroupCardProps> = ({
                 >
                   {group.service.toUpperCase()}
                 </span>
-                {hasMultipleDatasources && showDatasourceLabels && group.downloads[0]?.datasource && (
-                  <Tooltip content={`Datasource: ${group.downloads[0].datasource}`}>
-                    <span
-                      className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2 sm:px-2.5 py-0.5 sm:py-1 text-xs'} font-medium rounded-md`}
-                      style={{
-                        backgroundColor: 'var(--theme-bg-tertiary)',
-                        color: 'var(--theme-text-secondary)',
-                        border: '1px solid var(--theme-border-secondary)'
-                      }}
-                    >
-                      {group.downloads[0].datasource}
-                    </span>
-                  </Tooltip>
-                )}
-                {group.count > 1 && (
-                  <span
-                    className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2 sm:px-2.5 py-0.5 sm:py-1 text-xs'} font-semibold rounded-full bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)]`}
-                  >
-                    {group.clientsSet.size} client{group.clientsSet.size !== 1 ? 's' : ''} · {group.count} request{group.count !== 1 ? 's' : ''}
-                  </span>
-                )}
               </div>
               {group.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/)) && (
                 <h3
-                  className={`${fullHeightBanners ? 'text-base sm:text-lg' : 'text-lg sm:text-xl'} font-bold text-[var(--theme-text-primary)] truncate flex-1`}
+                  className={`${fullHeightBanners ? 'text-base sm:text-lg' : 'text-lg sm:text-xl'} font-bold text-[var(--theme-text-primary)] truncate`}
                 >
                   {group.name}
                 </h3>
+              )}
+              {hasMultipleDatasources && showDatasourceLabels && group.downloads[0]?.datasource && (
+                <Tooltip content={`Datasource: ${group.downloads[0].datasource}`}>
+                  <span
+                    className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2 sm:px-2.5 py-0.5 sm:py-1 text-xs'} font-medium rounded-md flex-shrink-0`}
+                    style={{
+                      backgroundColor: 'var(--theme-bg-tertiary)',
+                      color: 'var(--theme-text-secondary)',
+                      border: '1px solid var(--theme-border-secondary)'
+                    }}
+                  >
+                    {group.downloads[0].datasource}
+                  </span>
+                </Tooltip>
+              )}
+              {group.count > 1 && (
+                <span
+                  className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2 sm:px-2.5 py-0.5 sm:py-1 text-xs'} font-semibold rounded-full bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] flex-shrink-0`}
+                >
+                  {group.clientsSet.size} client{group.clientsSet.size !== 1 ? 's' : ''} · {group.count} request{group.count !== 1 ? 's' : ''}
+                </span>
               )}
             </div>
 

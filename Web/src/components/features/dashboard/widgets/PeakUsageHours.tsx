@@ -276,11 +276,11 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
                 key={hourData.hour}
                 content={
                   <div className="text-xs space-y-1">
-                    <div className="font-semibold">{formatHour(hourData.hour)}</div>
-                    <div>{hourData.downloads.toLocaleString()} downloads</div>
-                    <div>{formatBytes(hourData.bytesServed)} served</div>
+                    <div className="font-semibold" style={{ color: 'var(--theme-text-primary)' }}>{formatHour(hourData.hour)}</div>
+                    <div style={{ color: 'var(--theme-text-secondary)' }}>{hourData.downloads.toLocaleString()} downloads</div>
+                    <div style={{ color: 'var(--theme-text-secondary)' }}>{formatBytes(hourData.bytesServed)} served</div>
                     {hourData.cacheHitBytes > 0 && (
-                      <div className="text-green-400">
+                      <div style={{ color: 'var(--theme-success-text)' }}>
                         {formatBytes(hourData.cacheHitBytes)} from cache
                       </div>
                     )}

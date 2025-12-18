@@ -1620,6 +1620,8 @@ const DownloadsTab: React.FC = () => {
                 currentPage={currentPage}
                 onTotalPagesChange={handleRetroTotalPagesChange}
                 sortOrder={settings.sortOrder}
+                showDatasourceLabels={showDatasourceLabels}
+                hasMultipleDatasources={hasMultipleDatasources}
               />
             )}
           </div>

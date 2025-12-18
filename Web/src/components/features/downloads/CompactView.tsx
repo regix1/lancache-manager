@@ -140,6 +140,11 @@ const GroupRow: React.FC<GroupRowProps> = ({
                   >
                     {group.service.toUpperCase()}
                   </span>
+                  {group.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/)) && (
+                    <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate flex-1">
+                      {group.name}
+                    </span>
+                  )}
                   {shouldShowDatasource && (
                     <Tooltip content={`Datasource: ${primaryDatasource}`}>
                       <span
@@ -153,11 +158,6 @@ const GroupRow: React.FC<GroupRowProps> = ({
                         {primaryDatasource}
                       </span>
                     </Tooltip>
-                  )}
-                  {group.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/)) && (
-                    <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate flex-1">
-                      {group.name}
-                    </span>
                   )}
                 </div>
                 <div className="flex items-center justify-between pl-6 text-xs">
@@ -196,6 +196,11 @@ const GroupRow: React.FC<GroupRowProps> = ({
                   >
                     {group.service.toUpperCase()}
                   </span>
+                  {group.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/)) && (
+                    <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
+                      {group.name}
+                    </span>
+                  )}
                   {shouldShowDatasource && (
                     <Tooltip content={`Datasource: ${primaryDatasource}`}>
                       <span
@@ -209,11 +214,6 @@ const GroupRow: React.FC<GroupRowProps> = ({
                         {primaryDatasource}
                       </span>
                     </Tooltip>
-                  )}
-                  {group.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/)) && (
-                    <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
-                      {group.name}
-                    </span>
                   )}
                   <span className="text-xs text-themed-muted flex-shrink-0">
                     {group.clientsSet.size} client{group.clientsSet.size !== 1 ? 's' : ''} · {group.count} request{group.count !== 1 ? 's' : ''}
