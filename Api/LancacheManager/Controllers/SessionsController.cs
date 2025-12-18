@@ -227,6 +227,13 @@ public class SessionsController : ControllerBase
             return BadRequest(new ErrorResponse { Error = "Only guest session creation is supported. Use POST /api/devices for authenticated sessions." });
         }
 
+        // Check if guest mode is locked by admin
+        if (_stateService.GetGuestModeLocked())
+        {
+            _logger.LogWarning("Guest session creation rejected - guest mode is locked");
+            return StatusCode(403, new ErrorResponse { Error = "Guest mode is currently disabled by the administrator" });
+        }
+
         var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
         var session = _guestSessionService.CreateSession(
             new GuestSessionService.CreateGuestSessionRequest

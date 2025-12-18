@@ -3,6 +3,7 @@ import { useSignalR } from '@contexts/SignalRContext';
 
 interface GuestConfigContextType {
   guestDurationHours: number;
+  guestModeLocked: boolean;
   isLoading: boolean;
 }
 
@@ -23,13 +24,30 @@ interface GuestConfigProviderProps {
 export const GuestConfigProvider: React.FC<GuestConfigProviderProps> = ({ children }) => {
   const signalR = useSignalR();
   const [guestDurationHours, setGuestDurationHours] = useState<number>(6);
+  const [guestModeLocked, setGuestModeLocked] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Guest session duration endpoint was removed during REST API refactoring
-  // Using default value of 6 hours (can be updated via SignalR if backend sends updates)
+  // Fetch initial guest config from the public endpoint
   useEffect(() => {
-    // Immediately mark as loaded with default value
-    setIsLoading(false);
+    const fetchGuestConfig = async () => {
+      try {
+        // Use the public auth status endpoint which doesn't require auth
+        const response = await fetch('/api/auth/guest/status');
+        if (response.ok) {
+          const data = await response.json();
+          setGuestModeLocked(data.isLocked || false);
+          if (data.durationHours) {
+            setGuestDurationHours(data.durationHours);
+          }
+        }
+      } catch (err) {
+        console.error('[GuestConfig] Failed to fetch guest config:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchGuestConfig();
   }, []);
 
   // Listen for real-time guest duration updates via SignalR
@@ -39,15 +57,22 @@ export const GuestConfigProvider: React.FC<GuestConfigProviderProps> = ({ childr
       setGuestDurationHours(payload.durationHours);
     };
 
+    const handleLockUpdate = (payload: { isLocked: boolean }) => {
+      console.log('[GuestConfig] Lock status updated via SignalR:', payload.isLocked);
+      setGuestModeLocked(payload.isLocked);
+    };
+
     signalR.on('GuestDurationUpdated', handleDurationUpdate);
+    signalR.on('GuestModeLockChanged', handleLockUpdate);
 
     return () => {
       signalR.off('GuestDurationUpdated', handleDurationUpdate);
+      signalR.off('GuestModeLockChanged', handleLockUpdate);
     };
   }, [signalR]);
 
   return (
-    <GuestConfigContext.Provider value={{ guestDurationHours, isLoading }}>
+    <GuestConfigContext.Provider value={{ guestDurationHours, guestModeLocked, isLoading }}>
       {children}
     </GuestConfigContext.Provider>
   );

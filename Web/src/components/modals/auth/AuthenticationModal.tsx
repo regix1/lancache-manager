@@ -27,13 +27,19 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   subtitle = 'Please enter your API key to continue',
   allowGuestMode = true
 }) => {
-  const { guestDurationHours } = useGuestConfig();
+  const { guestDurationHours, guestModeLocked: contextGuestModeLocked } = useGuestConfig();
   const { on, off } = useSignalR();
   const [apiKey, setApiKey] = useState('');
   const [authenticating, setAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [dataAvailable, setDataAvailable] = useState(false);
   const [checkingDataAvailability, setCheckingDataAvailability] = useState(false);
+
+  // Local state for guest mode lock - synced via SignalR for fast updates
+  const [localGuestModeLocked, setLocalGuestModeLocked] = useState(contextGuestModeLocked);
+
+  // Use local state but sync with context
+  const guestModeLocked = localGuestModeLocked;
 
   // Database reset status
   const [resetStatus, setResetStatus] = useState<DatabaseResetStatus>({
@@ -107,6 +113,25 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
     };
   }, [on, off]);
 
+  // Subscribe directly to GuestModeLockChanged for fast updates
+  useEffect(() => {
+    const handleGuestModeLockChanged = (payload: { isLocked: boolean }) => {
+      console.log('[AuthModal] GuestModeLockChanged received:', payload.isLocked);
+      setLocalGuestModeLocked(payload.isLocked);
+    };
+
+    on('GuestModeLockChanged', handleGuestModeLockChanged);
+
+    return () => {
+      off('GuestModeLockChanged', handleGuestModeLockChanged);
+    };
+  }, [on, off]);
+
+  // Sync with context when it changes (initial load)
+  useEffect(() => {
+    setLocalGuestModeLocked(contextGuestModeLocked);
+  }, [contextGuestModeLocked]);
+
   const checkDataAvailability = async () => {
     setCheckingDataAvailability(true);
     try {
@@ -158,15 +183,27 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   };
 
   const handleStartGuestMode = async () => {
+    // Check if guest mode is locked first
+    if (guestModeLocked) {
+      setAuthError('Guest mode is currently disabled by the administrator.');
+      return;
+    }
+
     const hasData = await checkDataAvailability();
     if (!hasData) {
       setAuthError('Guest mode is not available. No data has been loaded yet.');
       return;
     }
 
-    await authService.startGuestMode();
-    onAuthChanged?.();
-    setTimeout(() => onAuthComplete(), 1000);
+    try {
+      await authService.startGuestMode();
+      onAuthChanged?.();
+      setTimeout(() => onAuthComplete(), 1000);
+    } catch (err: unknown) {
+      // Handle case where backend rejects (e.g., locked after button click)
+      const message = err instanceof Error ? err.message : 'Failed to start guest mode';
+      setAuthError(message.includes('disabled') ? message : 'Guest mode is currently unavailable.');
+    }
   };
 
   return (
@@ -286,9 +323,13 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
             {allowGuestMode && (
               <>
                 <br />
-                <span className="text-sm text-themed-muted">
-                  Or continue as guest to view data for {guestDurationHours} hour
-                  {guestDurationHours !== 1 ? 's' : ''}.
+                <span
+                  className="text-sm"
+                  style={{ color: guestModeLocked ? 'var(--theme-error)' : 'var(--theme-text-muted)' }}
+                >
+                  {guestModeLocked
+                    ? 'Guest mode is currently disabled by the administrator.'
+                    : `Or continue as guest to view data for ${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''}.`}
                 </span>
               </>
             )}
@@ -332,7 +373,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
                 {resetStatus.isResetting ? 'Please Wait...' : authenticating ? 'Authenticating...' : 'Authenticate'}
               </Button>
 
-              {/* Only show guest mode divider and button if allowed */}
+              {/* Show guest mode divider and button if allowed (disabled when locked) */}
               {allowGuestMode && (
                 <>
                   <div className="flex items-center gap-4">
@@ -351,15 +392,19 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
                     variant="default"
                     leftSection={<Eye className="w-4 h-4" />}
                     onClick={handleStartGuestMode}
-                    disabled={authenticating || checkingDataAvailability || !dataAvailable || resetStatus.isResetting}
+                    disabled={authenticating || checkingDataAvailability || !dataAvailable || resetStatus.isResetting || guestModeLocked}
                     fullWidth
                     title={
-                      !dataAvailable
+                      guestModeLocked
+                        ? 'Guest mode is disabled by the administrator'
+                        : !dataAvailable
                         ? 'No data available. Complete setup first.'
                         : `View data for ${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''}`
                     }
                   >
-                    {!dataAvailable
+                    {guestModeLocked
+                      ? 'Guest Mode (Disabled)'
+                      : !dataAvailable
                       ? 'Guest Mode (No Data Available)'
                       : `Continue as Guest (${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''})`}
                   </Button>

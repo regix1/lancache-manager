@@ -10,7 +10,9 @@ import {
   Network,
   Monitor,
   Globe,
-  Edit
+  Edit,
+  Lock,
+  Unlock
 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -98,6 +100,8 @@ const UserTab: React.FC = () => {
   const [pendingDeleteSession, setPendingDeleteSession] = useState<Session | null>(null);
   const [guestDurationHours, setGuestDurationHours] = useState<number>(6);
   const [updatingDuration, setUpdatingDuration] = useState(false);
+  const [guestModeLocked, setGuestModeLocked] = useState<boolean>(false);
+  const [updatingGuestLock, setUpdatingGuestLock] = useState(false);
   const [defaultGuestTheme, setDefaultGuestTheme] = useState<string>('dark-default');
   const [updatingGuestTheme, setUpdatingGuestTheme] = useState(false);
   const [availableThemes, setAvailableThemes] = useState<{ id: string; name: string }[]>([]);
@@ -158,14 +162,17 @@ const UserTab: React.FC = () => {
       if (response.ok) {
         const data = await response.json();
         setGuestDurationHours(data.durationHours || 6);
+        setGuestModeLocked(data.isLocked || false);
       } else {
         // Fallback to default if endpoint fails
         setGuestDurationHours(6);
+        setGuestModeLocked(false);
       }
     } catch (err) {
       console.error('Failed to load guest duration:', err);
       // Fallback to default on error
       setGuestDurationHours(6);
+      setGuestModeLocked(false);
     }
   };
 
@@ -178,6 +185,38 @@ const UserTab: React.FC = () => {
       showToast('error', getErrorMessage(err) || 'Failed to update guest session duration');
     } finally {
       setUpdatingDuration(false);
+    }
+  };
+
+  const handleToggleGuestLock = async () => {
+    try {
+      setUpdatingGuestLock(true);
+      const newLockState = !guestModeLocked;
+      const response = await fetch('/api/auth/guest/config/lock', {
+        method: 'POST',
+        headers: {
+          ...ApiService.getHeaders(),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ isLocked: newLockState })
+      });
+
+      if (response.ok) {
+        setGuestModeLocked(newLockState);
+        showToast(
+          'success',
+          newLockState
+            ? 'Guest mode locked. New guests cannot log in.'
+            : 'Guest mode unlocked. Guests can now log in.'
+        );
+      } else {
+        const errorData = await response.json();
+        showToast('error', errorData.error || 'Failed to update guest mode lock');
+      }
+    } catch (err: unknown) {
+      showToast('error', getErrorMessage(err) || 'Failed to update guest mode lock');
+    } finally {
+      setUpdatingGuestLock(false);
     }
   };
 
@@ -722,29 +761,63 @@ const UserTab: React.FC = () => {
       {/* Users Table */}
       <Card>
         <div className="p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <h2 className="text-lg font-semibold" style={{ color: 'var(--theme-text-primary)' }}>
-              All Sessions
-            </h2>
-            <HelpPopover
-              width={300}
-              sections={[
-                {
-                  title: 'Session Types',
-                  items: [
-                    { label: 'Authenticated', description: 'Full access, no expiration', color: 'var(--theme-user-session)' },
-                    { label: 'Guest', description: `Read-only for ${guestDurationHours} hours`, color: 'var(--theme-guest-session)' }
-                  ]
-                },
-                {
-                  title: 'Actions',
-                  items: [
-                    { label: 'Revoke', description: 'End a guest session immediately', color: 'var(--theme-warning)' },
-                    { label: 'Delete', description: 'Remove device from history', color: 'var(--theme-error)' }
-                  ]
-                }
-              ]}
-            />
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold" style={{ color: 'var(--theme-text-primary)' }}>
+                All Sessions
+              </h2>
+              <HelpPopover
+                width={300}
+                sections={[
+                  {
+                    title: 'Session Types',
+                    items: [
+                      { label: 'Authenticated', description: 'Full access, no expiration', color: 'var(--theme-user-session)' },
+                      { label: 'Guest', description: `Read-only for ${guestDurationHours} hours`, color: 'var(--theme-guest-session)' }
+                    ]
+                  },
+                  {
+                    title: 'Actions',
+                    items: [
+                      { label: 'Revoke', description: 'End a guest session immediately', color: 'var(--theme-warning)' },
+                      { label: 'Delete', description: 'Remove device from history', color: 'var(--theme-error)' }
+                    ]
+                  }
+                ]}
+              />
+            </div>
+
+            {/* Guest Mode Toggle Switch */}
+            <button
+              onClick={handleToggleGuestLock}
+              disabled={updatingGuestLock}
+              className={`flex items-center rounded-full text-xs font-medium transition-all ${
+                updatingGuestLock ? 'opacity-60 cursor-wait' : 'cursor-pointer'
+              }`}
+              style={{ backgroundColor: 'var(--theme-bg-secondary)' }}
+              title={guestModeLocked ? 'Guest mode is locked - new guests cannot log in' : 'Guest mode is unlocked - guests can log in'}
+            >
+              <span
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all ${
+                  !guestModeLocked
+                    ? 'bg-green-500/20 text-green-400 shadow-sm'
+                    : 'text-themed-muted'
+                }`}
+              >
+                <Unlock className="w-3.5 h-3.5" />
+                Unlocked
+              </span>
+              <span
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all ${
+                  guestModeLocked
+                    ? 'bg-red-500/20 text-red-400 shadow-sm'
+                    : 'text-themed-muted'
+                }`}
+              >
+                <Lock className="w-3.5 h-3.5" />
+                Locked
+              </span>
+            </button>
           </div>
 
           {loading && (

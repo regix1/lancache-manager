@@ -1,9 +1,11 @@
 using LancacheManager.Application.DTOs;
 using LancacheManager.Application.Services;
 using LancacheManager.Data;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Controllers;
 
@@ -25,6 +27,7 @@ public class AuthController : ControllerBase
     private readonly AppDbContext _dbContext;
     private readonly StateRepository _stateService;
     private readonly GuestSessionService _guestSessionService;
+    private readonly IHubContext<DownloadHub> _hubContext;
 
     public AuthController(
         ApiKeyService apiKeyService,
@@ -33,7 +36,8 @@ public class AuthController : ControllerBase
         ILogger<AuthController> logger,
         AppDbContext dbContext,
         StateRepository stateService,
-        GuestSessionService guestSessionService)
+        GuestSessionService guestSessionService,
+        IHubContext<DownloadHub> hubContext)
     {
         _apiKeyService = apiKeyService;
         _deviceAuthService = deviceAuthService;
@@ -42,6 +46,7 @@ public class AuthController : ControllerBase
         _dbContext = dbContext;
         _stateService = stateService;
         _guestSessionService = guestSessionService;
+        _hubContext = hubContext;
     }
 
     /// <summary>
@@ -246,10 +251,12 @@ public class AuthController : ControllerBase
     public IActionResult GetGuestConfig()
     {
         var durationHours = _guestSessionService.GetGuestSessionDurationHours();
+        var isLocked = _stateService.GetGuestModeLocked();
 
         return Ok(new GuestConfigResponse
         {
             DurationHours = durationHours,
+            IsLocked = isLocked,
             Message = "Guest configuration retrieved successfully"
         });
     }
@@ -283,8 +290,58 @@ public class AuthController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// POST /api/auth/guest/config/lock - Lock or unlock guest mode
+    /// RESTful: POST is used for configuration updates
+    /// </summary>
+    [HttpPost("guest/config/lock")]
+    [RequireAuth]
+    public async Task<IActionResult> SetGuestModeLock([FromBody] SetGuestLockRequest request)
+    {
+        _stateService.SetGuestModeLocked(request.IsLocked);
+
+        _logger.LogInformation("Guest mode {Action} by admin", request.IsLocked ? "locked" : "unlocked");
+
+        // Broadcast to all clients via SignalR so login modals update in real-time
+        await _hubContext.Clients.All.SendAsync("GuestModeLockChanged", new
+        {
+            isLocked = request.IsLocked
+        });
+
+        return Ok(new GuestLockResponse
+        {
+            Success = true,
+            IsLocked = request.IsLocked,
+            Message = request.IsLocked
+                ? "Guest mode has been locked. New guests cannot log in."
+                : "Guest mode has been unlocked. Guests can now log in."
+        });
+    }
+
+    /// <summary>
+    /// GET /api/auth/guest/status - Get guest mode status (public endpoint - no auth required)
+    /// Used by login modal to check if guest mode is available
+    /// </summary>
+    [HttpGet("guest/status")]
+    public IActionResult GetGuestStatus()
+    {
+        var durationHours = _guestSessionService.GetGuestSessionDurationHours();
+        var isLocked = _stateService.GetGuestModeLocked();
+
+        return Ok(new
+        {
+            isLocked = isLocked,
+            durationHours = durationHours
+        });
+    }
+
     public class SetGuestDurationRequest
     {
         public int DurationHours { get; set; }
+    }
+
+    public class SetGuestLockRequest
+    {
+        public bool IsLocked { get; set; }
     }
 }

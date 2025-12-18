@@ -46,6 +46,7 @@ export const SIGNALR_EVENTS = [
   'GameDetectionStarted',
   'GameDetectionComplete',
   'GuestDurationUpdated',
+  'GuestModeLockChanged',
   'AutomaticScanSkipped',
   'UserPreferencesUpdated',
   'UserPreferencesReset',

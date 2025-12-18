@@ -339,6 +339,7 @@ public class GcTriggerResponse
 public class GuestConfigResponse
 {
     public int DurationHours { get; set; }
+    public bool IsLocked { get; set; }
     public string? Message { get; set; }
 }
 
@@ -349,6 +350,16 @@ public class GuestDurationResponse
 {
     public bool Success { get; set; }
     public int DurationHours { get; set; }
+    public string Message { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Response for guest mode lock update
+/// </summary>
+public class GuestLockResponse
+{
+    public bool Success { get; set; }
+    public bool IsLocked { get; set; }
     public string Message { get; set; } = string.Empty;
 }
 

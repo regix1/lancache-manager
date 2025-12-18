@@ -150,36 +150,38 @@ class AuthService {
     // Use device ID directly as guest session ID
     const guestSessionId = this.deviceId;
 
-    // Guest session managed by backend via HttpOnly cookies
-    // Backend tracks session state and expiry
+    // Register guest session with backend FIRST
+    // RESTful endpoint: POST /api/sessions?type=guest
+    const response = await fetch(`${API_URL}/api/sessions?type=guest`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        deviceId: guestSessionId, // Send deviceId (browser fingerprint)
+        deviceName: this.getDeviceName(),
+        operatingSystem: this.getOperatingSystem(),
+        browser: this.getBrowser()
+      })
+    });
 
+    // Check if backend rejected the request (e.g., guest mode locked)
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const errorMessage = errorData.error || 'Failed to start guest session';
+      console.error('[Auth] Guest session registration failed:', response.status, errorMessage);
+      throw new Error(errorMessage);
+    }
+
+    // Only set auth mode AFTER successful registration
     this.authMode = 'guest';
     this.isAuthenticated = false; // Guest mode is not fully authenticated
     this.authChecked = true;
 
-    // Register guest session with backend
-    // RESTful endpoint: POST /api/sessions?type=guest
-    try {
-      await fetch(`${API_URL}/api/sessions?type=guest`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          deviceId: guestSessionId, // Send deviceId (browser fingerprint)
-          deviceName: this.getDeviceName(),
-          operatingSystem: this.getOperatingSystem(),
-          browser: this.getBrowser()
-        })
-      });
-      console.log('[Auth] Guest session registered with backend:', guestSessionId);
+    console.log('[Auth] Guest session registered with backend:', guestSessionId);
 
-      // Dispatch event to trigger preference reload now that guest session exists
-      window.dispatchEvent(new CustomEvent('guest-session-created'));
-    } catch (error) {
-      console.warn('[Auth] Failed to register guest session with backend:', error);
-      // Continue with guest mode even if backend registration fails
-    }
+    // Dispatch event to trigger preference reload now that guest session exists
+    window.dispatchEvent(new CustomEvent('guest-session-created'));
   }
 
   public getGuestTimeRemaining(): number {

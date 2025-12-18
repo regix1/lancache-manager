@@ -61,6 +61,7 @@ public class StateRepository : IStateRepository
         public bool HasDataLoaded { get; set; } = false;
         public bool HasProcessedLogs { get; set; } = false; // Track if logs have been processed at least once
         public int GuestSessionDurationHours { get; set; } = 6; // Default to 6 hours
+        public bool GuestModeLocked { get; set; } = false; // When true, guest mode login is disabled
         public string? SelectedTheme { get; set; } = "dark-default"; // Default theme for authenticated users
         public string? DefaultGuestTheme { get; set; } = "dark-default"; // Default theme for guest users
         public string PollingRate { get; set; } = "STANDARD"; // Default to 10 seconds (LIVE, ULTRA, REALTIME, STANDARD, RELAXED, SLOW)
@@ -110,6 +111,7 @@ public class StateRepository : IStateRepository
         public bool HasDataLoaded { get; set; } = false;
         public bool HasProcessedLogs { get; set; } = false;
         public int GuestSessionDurationHours { get; set; } = 6;
+        public bool GuestModeLocked { get; set; } = false;
         public string? SelectedTheme { get; set; } = "dark-default";
         public string? DefaultGuestTheme { get; set; } = "dark-default";
         public string PollingRate { get; set; } = "STANDARD";
@@ -939,6 +941,17 @@ public class StateRepository : IStateRepository
     public void SetGuestSessionDurationHours(int hours)
     {
         UpdateState(state => state.GuestSessionDurationHours = hours);
+    }
+
+    // Guest Mode Lock Methods
+    public bool GetGuestModeLocked()
+    {
+        return GetState().GuestModeLocked;
+    }
+
+    public void SetGuestModeLocked(bool locked)
+    {
+        UpdateState(state => state.GuestModeLocked = locked);
     }
 
     // Theme Preference Methods
