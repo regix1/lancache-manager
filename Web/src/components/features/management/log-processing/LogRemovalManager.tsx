@@ -232,6 +232,8 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
                 Cache files remain intact - only log entries are removed.
               </HelpNote>
             </HelpPopover>
+          </div>
+          <div className="flex items-center gap-3">
             {/* Permission status */}
             {!checkingPermissions && (
               <Tooltip content={logsReadOnly ? 'Logs are read-only' : 'Logs are writable'} position="top">
@@ -245,28 +247,28 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
                 </span>
               </Tooltip>
             )}
+            <button
+              onClick={() => loadData(true)}
+              disabled={isLoading || !!activeLogRemoval}
+              className="p-2 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center"
+              style={{
+                color: 'var(--theme-text-muted)',
+                backgroundColor: 'transparent'
+              }}
+              onMouseEnter={(e) =>
+                !isLoading && !activeLogRemoval &&
+                (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
+              }
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+              title="Refresh data"
+            >
+              {isLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
+            </button>
           </div>
-          <button
-            onClick={() => loadData(true)}
-            disabled={isLoading || !!activeLogRemoval}
-            className="p-2 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center"
-            style={{
-              color: 'var(--theme-text-muted)',
-              backgroundColor: 'transparent'
-            }}
-            onMouseEnter={(e) =>
-              !isLoading && !activeLogRemoval &&
-              (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
-            }
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-            title="Refresh data"
-          >
-            {isLoading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <RefreshCw className="w-4 h-4" />
-            )}
-          </button>
         </div>
 
         {/* Read-Only Warning */}

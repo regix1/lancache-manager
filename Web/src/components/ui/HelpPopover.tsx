@@ -88,6 +88,24 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const [popoverPos, setPopoverPos] = useState<{ x: number; y: number } | null>(null);
+  const [effectiveWidth, setEffectiveWidth] = useState(width);
+
+  // Calculate effective width based on viewport
+  useEffect(() => {
+    const calculateWidth = () => {
+      const viewportWidth = window.innerWidth;
+      // On mobile (<640px), use smaller width with more margin
+      if (viewportWidth < 640) {
+        setEffectiveWidth(Math.min(width, viewportWidth - 32));
+      } else {
+        setEffectiveWidth(width);
+      }
+    };
+
+    calculateWidth();
+    window.addEventListener('resize', calculateWidth);
+    return () => window.removeEventListener('resize', calculateWidth);
+  }, [width]);
 
   // Reset position when closing so stale position doesn't flash on reopen
   useEffect(() => {
@@ -147,12 +165,12 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
       // Start position: below trigger, aligned based on position prop
       let x = position === 'left'
         ? triggerRect.left
-        : triggerRect.right - width;
+        : triggerRect.right - effectiveWidth;
       let y = triggerRect.bottom + 8;
 
       // Clamp X to viewport bounds
-      if (x + width > window.innerWidth - viewportPadding) {
-        x = window.innerWidth - width - viewportPadding;
+      if (x + effectiveWidth > window.innerWidth - viewportPadding) {
+        x = window.innerWidth - effectiveWidth - viewportPadding;
       }
       if (x < viewportPadding) {
         x = viewportPadding;
@@ -171,7 +189,7 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
     }, 10);
 
     return () => clearTimeout(timer);
-  }, [isOpen, position, width]);
+  }, [isOpen, position, effectiveWidth]);
 
   return (
     <>
@@ -204,7 +222,7 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
           style={{
             left: popoverPos?.x ?? -9999,
             top: popoverPos?.y ?? -9999,
-            width: width,
+            width: effectiveWidth,
             maxWidth: `calc(100vw - 24px)`,
             maxHeight: maxHeight || `calc(100vh - 100px)`,
             visibility: popoverPos ? 'visible' : 'hidden',
@@ -215,12 +233,12 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
         >
           {maxHeight ? (
             <CustomScrollbar maxHeight={maxHeight}>
-              <div className="p-4">
+              <div className="p-3 sm:p-4">
                 <PopoverContent sections={sections} children={children} />
               </div>
             </CustomScrollbar>
           ) : (
-            <div className="p-4">
+            <div className="p-3 sm:p-4">
               <PopoverContent sections={sections} children={children} />
             </div>
           )}

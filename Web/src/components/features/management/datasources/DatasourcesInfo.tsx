@@ -232,49 +232,54 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   return (
     <>
       <Card>
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
-            <Logs className="w-5 h-5 icon-purple" />
-          </div>
-          <h3 className="text-lg font-semibold text-themed-primary">Log Processing</h3>
-          <HelpPopover position="left" width={320}>
-            <HelpSection title="Log Processing">
-              <div className="space-y-1.5">
-                <HelpDefinition term="Process" termColor="green">
-                  Import log entries into the database from current position
-                </HelpDefinition>
-                <HelpDefinition term="Reset Position" termColor="blue">
-                  Choose to start from beginning or end of log file
-                </HelpDefinition>
-                {hasMultiple && (
-                  <HelpDefinition term="Datasource" termColor="purple">
-                    A named cache/logs directory pair for separate LANCache instances
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
+              <Logs className="w-5 h-5 icon-purple" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-themed-primary">Log Processing</h3>
+              <p className="text-xs text-themed-muted">
+                {hasMultiple
+                  ? `${datasources.length} datasources configured`
+                  : 'Import historical data or monitor new downloads'}
+              </p>
+            </div>
+            <HelpPopover position="left" width={320}>
+              <HelpSection title="Log Processing">
+                <div className="space-y-1.5">
+                  <HelpDefinition term="Process" termColor="green">
+                    Import log entries into the database from current position
                   </HelpDefinition>
+                  <HelpDefinition term="Reset Position" termColor="blue">
+                    Choose to start from beginning or end of log file
+                  </HelpDefinition>
+                  {hasMultiple && (
+                    <HelpDefinition term="Datasource" termColor="purple">
+                      A named cache/logs directory pair for separate LANCache instances
+                    </HelpDefinition>
+                  )}
+                </div>
+              </HelpSection>
+
+              <HelpNote type="info">
+                Rust processor includes duplicate detection to avoid reimporting entries.
+              </HelpNote>
+            </HelpPopover>
+          </div>
+          <div className="flex items-center gap-2">
+            <Tooltip content={logsReadOnly ? 'Logs are read-only' : 'Logs are writable'} position="top">
+              <span className="flex items-center gap-0.5">
+                <ScrollText className="w-3.5 h-3.5 text-themed-muted" />
+                {logsReadOnly ? (
+                  <XCircle className="w-4 h-4" style={{ color: 'var(--theme-warning)' }} />
+                ) : (
+                  <CheckCircle className="w-4 h-4" style={{ color: 'var(--theme-success-text)' }} />
                 )}
-              </div>
-            </HelpSection>
-
-            <HelpNote type="info">
-              Rust processor includes duplicate detection to avoid reimporting entries.
-            </HelpNote>
-          </HelpPopover>
-          <Tooltip content={logsReadOnly ? 'Logs are read-only' : 'Logs are writable'} position="top">
-            <span className="flex items-center gap-0.5">
-              <ScrollText className="w-3.5 h-3.5 text-themed-muted" />
-              {logsReadOnly ? (
-                <XCircle className="w-4 h-4" style={{ color: 'var(--theme-warning)' }} />
-              ) : (
-                <CheckCircle className="w-4 h-4" style={{ color: 'var(--theme-success-text)' }} />
-              )}
-            </span>
-          </Tooltip>
+              </span>
+            </Tooltip>
+          </div>
         </div>
-
-        <p className="text-themed-muted text-sm mb-4">
-          {hasMultiple
-            ? `${datasources.length} datasources configured. Import historical data or reset to monitor only new downloads.`
-            : 'Import historical data or reset to monitor only new downloads.'}
-        </p>
 
         {/* Process All button */}
         <div className="mb-4">

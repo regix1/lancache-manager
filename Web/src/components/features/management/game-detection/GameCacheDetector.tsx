@@ -562,13 +562,16 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     <>
       <Card>
         <div className="space-y-4">
-          {/* Header Row 1: Title + Help + Permissions */}
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
-              <HardDrive className="w-5 h-5 icon-purple" />
-            </div>
-            <div className="flex items-center gap-2 flex-1">
-              <h3 className="text-lg font-semibold text-themed-primary">Game Cache Detection</h3>
+          {/* Header Row: Title + Help on left, Permissions on right */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
+                <HardDrive className="w-5 h-5 icon-purple" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-themed-primary">Game Cache Detection</h3>
+                <p className="text-xs text-themed-muted">Scan cache to find games and services with stored files</p>
+              </div>
               <HelpPopover position="left" width={340}>
                 <HelpSection title="Removal">
                   <div className="space-y-1.5">
@@ -590,6 +593,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   Access logs must be processed first to populate the database.
                 </HelpNote>
               </HelpPopover>
+            </div>
+            <div className="flex items-center gap-3">
               {!checkingPermissions && (
                 <div className="flex items-center gap-2">
                   <Tooltip content={datasources.some(ds => !ds.logsWritable) ? 'Logs are read-only' : 'Logs are writable'} position="top">
@@ -614,26 +619,21 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   </Tooltip>
                 </div>
               )}
+              {(cacheReadOnly || !dockerSocketAvailable) && (
+                <span
+                  className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 border"
+                  style={{
+                    backgroundColor: 'var(--theme-warning-bg)',
+                    color: 'var(--theme-warning)',
+                    borderColor: 'var(--theme-warning)'
+                  }}
+                >
+                  <Lock className="w-3 h-3" />
+                  {cacheReadOnly ? 'Read-only' : 'Docker socket required'}
+                </span>
+              )}
             </div>
-            {(cacheReadOnly || !dockerSocketAvailable) && (
-              <span
-                className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 border"
-                style={{
-                  backgroundColor: 'var(--theme-warning-bg)',
-                  color: 'var(--theme-warning)',
-                  borderColor: 'var(--theme-warning)'
-                }}
-              >
-                <Lock className="w-3 h-3" />
-                {cacheReadOnly ? 'Read-only' : 'Docker socket required'}
-              </span>
-            )}
           </div>
-
-          {/* Header Row 2: Description */}
-          <p className="text-sm text-themed-secondary">
-            Scan cache to find games and services with stored files. Remove individual items to free up disk space.
-          </p>
 
           {/* Header Row 3: Actions + Datasource Filter */}
           {!cacheReadOnly && (

@@ -191,7 +191,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
       <Card>
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-red">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-red flex-shrink-0">
               <AlertTriangle className="w-5 h-5 icon-red" />
             </div>
             <div>
@@ -216,7 +216,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
                 Removal affects both cache and logs - requires write access to both.
               </HelpNote>
             </HelpPopover>
-            {/* Permission status */}
+          </div>
+          <div className="flex items-center gap-3">
             {!checkingPermissions && (
               <div className="flex items-center gap-2">
                 <Tooltip content={logsReadOnly ? 'Logs are read-only' : 'Logs are writable'} position="top">
@@ -241,28 +242,28 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
                 </Tooltip>
               </div>
             )}
+            <button
+              onClick={() => loadData(true)}
+              disabled={isLoading || !!removingCorruption}
+              className="p-2 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center"
+              style={{
+                color: 'var(--theme-text-muted)',
+                backgroundColor: 'transparent'
+              }}
+              onMouseEnter={(e) =>
+                !isLoading && !removingCorruption &&
+                (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
+              }
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+              title="Refresh data"
+            >
+              {isLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
+            </button>
           </div>
-          <button
-            onClick={() => loadData(true)}
-            disabled={isLoading || !!removingCorruption}
-            className="p-2 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center"
-            style={{
-              color: 'var(--theme-text-muted)',
-              backgroundColor: 'transparent'
-            }}
-            onMouseEnter={(e) =>
-              !isLoading && !removingCorruption &&
-              (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
-            }
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-            title="Refresh data"
-          >
-            {isLoading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <RefreshCw className="w-4 h-4" />
-            )}
-          </button>
         </div>
 
         {/* Read-Only Warning */}

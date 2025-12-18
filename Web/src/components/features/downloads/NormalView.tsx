@@ -223,8 +223,8 @@ const GroupCard: React.FC<GroupCardProps> = ({
       <div
         className={`flex-1 ${
           fullHeightBanners
-            ? 'px-3 pt-3 pb-1 sm:px-3 sm:pt-3 sm:pb-2'
-            : 'px-4 pt-4 pb-2 sm:px-5 sm:pt-5 sm:pb-3'
+            ? 'px-3 pt-3 pb-3 sm:px-3 sm:pt-3 sm:pb-3'
+            : 'px-4 pt-4 pb-4 sm:px-5 sm:pt-5 sm:pb-4'
         }`}
       >
         <div className="flex items-start gap-3 sm:gap-4">
@@ -238,7 +238,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
             <div
               className={`flex flex-col sm:flex-row sm:items-center gap-2 ${fullHeightBanners ? 'sm:gap-2 mb-1.5 sm:mb-2' : 'sm:gap-3 mb-2 sm:mb-3'}`}
             >
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span
                   className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2 sm:px-2.5 py-0.5 sm:py-1 text-xs'} font-extrabold rounded-md shadow-sm`}
                   style={getServiceBadgeStyles(group.service)}
@@ -278,7 +278,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
 
             {/* Stats Grid - Better aligned */}
             <div
-              className={`grid grid-cols-1 sm:grid-cols-2 ${fullHeightBanners ? 'gap-x-4 gap-y-1' : 'gap-x-8 gap-y-1.5 sm:gap-y-2'}`}
+              className={`grid grid-cols-2 ${fullHeightBanners ? 'gap-x-4 gap-y-1' : 'gap-x-4 sm:gap-x-8 gap-y-1.5 sm:gap-y-2'}`}
             >
               <div className="flex items-baseline gap-2">
                 <span
@@ -379,14 +379,14 @@ const GroupCard: React.FC<GroupCardProps> = ({
 
       {isExpanded && (
         <div
-          className="border-t bg-gradient-to-b from-[var(--theme-bg-secondary)] to-[var(--theme-bg-primary)] px-6 pb-6 pt-5"
+          className="border-t bg-gradient-to-b from-[var(--theme-bg-secondary)] to-[var(--theme-bg-primary)] px-4 pb-4 pt-4 sm:px-6 sm:pb-6 sm:pt-5"
           style={{
             borderColor: 'var(--theme-primary)',
             animation: 'expandDown 0.4s cubic-bezier(0.4, 0, 0.2, 1)'
           }}
           onClick={(event) => event.stopPropagation()}
         >
-          <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-4 sm:gap-6">
             {/* Quick Actions Bar */}
             {storeLink && (
               <div className="flex justify-end">
@@ -409,10 +409,10 @@ const GroupCard: React.FC<GroupCardProps> = ({
 
             {/* Summary Stats Banner */}
             <div
-              className="rounded-xl border p-4 bg-[var(--theme-bg-tertiary)]/50"
+              className="rounded-xl border p-3 sm:p-4 bg-[var(--theme-bg-tertiary)]/50"
               style={{ borderColor: 'var(--theme-border-secondary)' }}
             >
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
                 <div className="text-center">
                   <div className="text-xs text-themed-muted mb-1 font-medium">Total Downloaded</div>
                   <div className="text-lg font-bold text-[var(--theme-text-primary)]">
@@ -441,10 +441,10 @@ const GroupCard: React.FC<GroupCardProps> = ({
             </div>
 
             {/* Detailed Statistics */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
               {/* Cache Performance Card */}
               <div
-                className="rounded-xl border p-5 bg-[var(--theme-bg-secondary)]"
+                className="rounded-xl border p-4 sm:p-5 bg-[var(--theme-bg-secondary)]"
                 style={{ borderColor: 'var(--theme-border-primary)' }}
               >
                 <h4
@@ -480,7 +480,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
 
               {/* Activity Card */}
               <div
-                className="rounded-xl border p-5 bg-[var(--theme-bg-secondary)]"
+                className="rounded-xl border p-4 sm:p-5 bg-[var(--theme-bg-secondary)]"
                 style={{ borderColor: 'var(--theme-border-primary)' }}
               >
                 <h4

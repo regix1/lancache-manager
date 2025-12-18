@@ -302,23 +302,23 @@ const RetroView: React.FC<RetroViewProps> = ({
               }}
             >
               {/* Mobile Layout */}
-              <div className="lg:hidden p-3 space-y-3">
+              <div className="lg:hidden p-3 space-y-2 sm:space-y-3">
                 {/* App image and name */}
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 sm:gap-3">
                   {hasGameImage && data.gameAppId ? (
                     <img
                       src={`${API_BASE}/game-images/${data.gameAppId}/header/`}
                       alt={data.gameName || 'Game'}
-                      className="w-[130px] h-[50px] rounded object-cover flex-shrink-0"
+                      className="w-[100px] h-[40px] sm:w-[130px] sm:h-[50px] rounded object-cover flex-shrink-0"
                       loading="lazy"
                       onError={() => handleImageError(String(data.gameAppId))}
                     />
                   ) : (
                     <div
-                      className="w-[130px] h-[50px] rounded flex items-center justify-center flex-shrink-0"
+                      className="w-[100px] h-[40px] sm:w-[130px] sm:h-[50px] rounded flex items-center justify-center flex-shrink-0"
                       style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
                     >
-                      {getServiceIcon(data.service, 28)}
+                      {getServiceIcon(data.service, 24)}
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
@@ -371,7 +371,7 @@ const RetroView: React.FC<RetroViewProps> = ({
                 </div>
 
                 {/* Cache bars and Overall */}
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-3 gap-1.5 sm:gap-3">
                   {/* Cache Hit */}
                   <div className="flex flex-col gap-1">
                     <div className="text-xs text-[var(--theme-text-muted)]">Hit</div>

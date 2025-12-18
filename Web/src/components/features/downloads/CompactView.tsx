@@ -115,7 +115,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
       <button
         type="button"
         onClick={() => onItemClick(group.id)}
-        className="w-full text-left px-3 py-2 focus:outline-none"
+        className="w-full text-left px-3 py-3 focus:outline-none"
         style={{ WebkitTapHighlightColor: 'transparent' }}
       >
         {/* Get datasource from primary download */}
@@ -145,25 +145,27 @@ const GroupRow: React.FC<GroupRowProps> = ({
                       {group.name}
                     </span>
                   )}
-                  {shouldShowDatasource && (
-                    <Tooltip content={`Datasource: ${primaryDatasource}`}>
-                      <span
-                        className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0"
-                        style={{
-                          backgroundColor: 'var(--theme-bg-tertiary)',
-                          color: 'var(--theme-text-secondary)',
-                          border: '1px solid var(--theme-border-secondary)'
-                        }}
-                      >
-                        {primaryDatasource}
-                      </span>
-                    </Tooltip>
-                  )}
                 </div>
                 <div className="flex items-center justify-between pl-6 text-xs">
-                  <span className="text-themed-muted">
-                    {group.clientsSet.size} client{group.clientsSet.size !== 1 ? 's' : ''} · {group.count} request{group.count !== 1 ? 's' : ''}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-themed-muted">
+                      {group.clientsSet.size} client{group.clientsSet.size !== 1 ? 's' : ''} · {group.count} request{group.count !== 1 ? 's' : ''}
+                    </span>
+                    {shouldShowDatasource && (
+                      <Tooltip content={`Datasource: ${primaryDatasource}`}>
+                        <span
+                          className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0"
+                          style={{
+                            backgroundColor: 'var(--theme-bg-tertiary)',
+                            color: 'var(--theme-text-secondary)',
+                            border: '1px solid var(--theme-border-secondary)'
+                          }}
+                        >
+                          {primaryDatasource}
+                        </span>
+                      </Tooltip>
+                    )}
+                  </div>
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-[var(--theme-text-primary)] font-mono">
                       {formatBytes(group.totalBytes)}
@@ -244,7 +246,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
 
       {isExpanded && (
         <div
-          className="px-3 pb-3"
+          className="px-3 pb-4"
           onClick={(event) => event.stopPropagation()}
         >
           {/* Compact layout: stacked on mobile, side-by-side on desktop */}
@@ -254,19 +256,19 @@ const GroupRow: React.FC<GroupRowProps> = ({
               <div className="flex-shrink-0">
                 {aestheticMode || imageErrors.has(String(primaryDownload.gameAppId)) ? (
                   <div
-                    className="w-full sm:w-[120px] h-[80px] sm:h-[56px] rounded border flex items-center justify-center"
+                    className="w-full sm:w-[120px] h-[60px] sm:h-[56px] rounded border flex items-center justify-center"
                     style={{
                       backgroundColor: 'var(--theme-bg-tertiary)',
                       borderColor: 'var(--theme-border-primary)'
                     }}
                   >
-                    <SteamIcon size={32} style={{ color: 'var(--theme-steam)', opacity: 0.6 }} />
+                    <SteamIcon size={28} style={{ color: 'var(--theme-steam)', opacity: 0.6 }} />
                   </div>
                 ) : (
                   <img
                     src={`${API_BASE}/game-images/${primaryDownload.gameAppId}/header/`}
                     alt={primaryDownload.gameName || group.name}
-                    className="w-full sm:w-[120px] h-[80px] sm:h-[56px] rounded object-cover"
+                    className="w-full sm:w-[120px] h-[60px] sm:h-[56px] rounded object-cover"
                     loading="lazy"
                     onError={() => handleImageError(String(primaryDownload.gameAppId))}
                   />
@@ -277,7 +279,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
             {/* Stats and info */}
             <div className="flex-1 min-w-0">
               {/* Stats - grid on mobile, flex on desktop */}
-              <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-x-4 gap-y-1 text-xs text-themed-muted mb-2">
+              <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-x-3 gap-y-2 text-xs text-themed-muted mb-2">
                 <span>
                   <span className="text-themed-secondary">Hit:</span>{' '}
                   <span className="text-[var(--theme-text-primary)]">

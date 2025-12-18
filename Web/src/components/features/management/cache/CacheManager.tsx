@@ -195,42 +195,48 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   return (
     <>
       <Card>
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-green">
-            <Server className="w-5 h-5 icon-green" />
-          </div>
-          <h3 className="text-lg font-semibold text-themed-primary">Disk Cache Management</h3>
-          <HelpPopover position="left" width={300}>
-                <HelpSection title="Deletion Methods">
-                  <div className="space-y-1.5">
-                    <HelpDefinition term="Safe Mode" termColor="blue">
-                      Individual file deletion — slower but keeps directory structure
-                    </HelpDefinition>
-                    <HelpDefinition term="Fast Mode" termColor="green">
-                      Full directory removal — faster for local storage
-                    </HelpDefinition>
-                    <HelpDefinition term="Rsync" termColor="purple">
-                      Sync with empty directory — best for network storage
-                    </HelpDefinition>
-                  </div>
-                </HelpSection>
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-green flex-shrink-0">
+              <Server className="w-5 h-5 icon-green" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-themed-primary">Disk Cache Management</h3>
+              <p className="text-xs text-themed-muted">Clear cached game files from disk</p>
+            </div>
+            <HelpPopover position="left" width={300}>
+              <HelpSection title="Deletion Methods">
+                <div className="space-y-1.5">
+                  <HelpDefinition term="Safe Mode" termColor="blue">
+                    Individual file deletion — slower but keeps directory structure
+                  </HelpDefinition>
+                  <HelpDefinition term="Fast Mode" termColor="green">
+                    Full directory removal — faster for local storage
+                  </HelpDefinition>
+                  <HelpDefinition term="Rsync" termColor="purple">
+                    Sync with empty directory — best for network storage
+                  </HelpDefinition>
+                </div>
+              </HelpSection>
 
-            <HelpNote type="warning">
-              Clearing cache deletes all cached game files.
-              Games will need to redownload content.
-            </HelpNote>
-          </HelpPopover>
-          {/* Permission status */}
-          <Tooltip content={cacheReadOnly ? 'Cache is read-only' : 'Cache is writable'} position="top">
-            <span className="flex items-center gap-0.5">
-              <HardDrive className="w-3.5 h-3.5 text-themed-muted" />
-              {cacheReadOnly ? (
-                <XCircle className="w-4 h-4" style={{ color: 'var(--theme-warning)' }} />
-              ) : (
-                <CheckCircle className="w-4 h-4" style={{ color: 'var(--theme-success-text)' }} />
-              )}
-            </span>
-          </Tooltip>
+              <HelpNote type="warning">
+                Clearing cache deletes all cached game files.
+                Games will need to redownload content.
+              </HelpNote>
+            </HelpPopover>
+          </div>
+          <div className="flex items-center gap-2">
+            <Tooltip content={cacheReadOnly ? 'Cache is read-only' : 'Cache is writable'} position="top">
+              <span className="flex items-center gap-0.5">
+                <HardDrive className="w-3.5 h-3.5 text-themed-muted" />
+                {cacheReadOnly ? (
+                  <XCircle className="w-4 h-4" style={{ color: 'var(--theme-warning)' }} />
+                ) : (
+                  <CheckCircle className="w-4 h-4" style={{ color: 'var(--theme-success-text)' }} />
+                )}
+              </span>
+            </Tooltip>
+          </div>
         </div>
 
         {cacheReadOnly ? (

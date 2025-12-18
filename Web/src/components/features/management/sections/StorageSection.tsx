@@ -38,7 +38,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
       aria-labelledby="tab-storage"
     >
       {/* Section Header */}
-      <div className="mb-6">
+      <div className="mb-4 sm:mb-6">
         <h2 className="text-xl font-semibold text-themed-primary mb-1">
           Storage Management
         </h2>
@@ -48,8 +48,8 @@ const StorageSection: React.FC<StorageSectionProps> = ({
       </div>
 
       {/* ==================== LOG OPERATIONS ==================== */}
-      <div className="mb-8">
-        <div className="flex items-center gap-2 mb-4">
+      <div className="mb-6 sm:mb-8">
+        <div className="flex items-center gap-2 mb-3 sm:mb-4">
           <div
             className="w-1 h-5 rounded-full"
             style={{ backgroundColor: 'var(--theme-icon-blue)' }}
@@ -81,7 +81,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
 
       {/* ==================== CACHE OPERATIONS ==================== */}
       <div>
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-3 sm:mb-4">
           <div
             className="w-1 h-5 rounded-full"
             style={{ backgroundColor: 'var(--theme-icon-green)' }}
