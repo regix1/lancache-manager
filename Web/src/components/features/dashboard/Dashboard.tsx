@@ -585,7 +585,7 @@ const Dashboard: React.FC = () => {
                               className="p-1.5 rounded-lg group-hover:scale-105 transition-transform"
                               style={getIconStyle(card.color)}
                             >
-                              <Icon className="w-4 h-4 text-white" />
+                              <Icon className="w-4 h-4 text-[var(--theme-button-text)]" />
                             </div>
                             <div className="flex-1 text-left min-w-0">
                               <div className="text-sm text-themed-primary font-medium truncate">
@@ -654,7 +654,7 @@ const Dashboard: React.FC = () => {
               </button>
             </div>
           ) : (
-            <div className="text-center py-2 px-4 rounded-lg bg-primary text-white text-sm animate-pulse">
+            <div className="text-center py-2 px-4 rounded-lg bg-primary text-[var(--theme-button-text)] text-sm animate-pulse">
               🔄 Drag mode active - Tap another card to move here, or tap anywhere to cancel
             </div>
           )}

@@ -55,12 +55,12 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
   const isMenuOpen = themeActionMenu === currentMenuId;
 
   const colorPreview = [
-    theme.colors.primaryColor || '#3b82f6',
-    theme.colors.secondaryColor || '#8b5cf6',
-    theme.colors.accentColor || '#06b6d4',
-    theme.colors.bgPrimary || '#111827',
-    theme.colors.textPrimary || '#ffffff'
-  ];
+    theme.colors.primaryColor,
+    theme.colors.secondaryColor,
+    theme.colors.accentColor,
+    theme.colors.bgPrimary,
+    theme.colors.textPrimary
+  ].filter(Boolean) as string[];
 
   return (
     <div

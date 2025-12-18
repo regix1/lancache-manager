@@ -1084,11 +1084,11 @@ class ThemeService {
       const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
       return result
         ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`
-        : '59, 130, 246'; // fallback to blue
+        : '0, 0, 0';
     };
 
-    const primaryRgb = hexToRgb(colors.primaryColor || '#3b82f6');
-    const secondaryRgb = hexToRgb(colors.secondaryColor || '#8b5cf6');
+    const primaryRgb = colors.primaryColor ? hexToRgb(colors.primaryColor) : '0, 0, 0';
+    const secondaryRgb = colors.secondaryColor ? hexToRgb(colors.secondaryColor) : '0, 0, 0';
 
     // Create clean theme styles with only CSS variables - no Tailwind overrides
     const themeStyles = `
@@ -1158,7 +1158,7 @@ class ThemeService {
       --theme-blizzard: ${colors.blizzardColor};
       --theme-wsus: ${colors.wsusColor};
       --theme-riot: ${colors.riotColor};
-      --theme-xbox: ${colors.xboxColor || '#107C10'};
+      --theme-xbox: ${colors.xboxColor};
 
       /* Card & Component Colors */
       --theme-card-bg: ${colors.cardBg};

@@ -436,7 +436,7 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
                         label={color.label}
                         description={color.description}
                         affects={color.affects}
-                        value={(editedTheme[color.key] as string) || '#000000'}
+                        value={(editedTheme[color.key] as string) || ''}
                         onChange={(value) => handleEditColorChange(color.key, value)}
                         onColorCommit={(previousColor) =>
                           handleEditColorCommit(color.key, previousColor)

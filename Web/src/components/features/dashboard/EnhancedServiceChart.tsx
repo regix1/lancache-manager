@@ -38,28 +38,28 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
 
       switch (serviceLower) {
         case 'steam':
-          return computedStyle.getPropertyValue('--theme-steam').trim() || '#10b981';
+          return computedStyle.getPropertyValue('--theme-steam').trim();
         case 'epic':
         case 'epicgames':
-          return computedStyle.getPropertyValue('--theme-epic').trim() || '#8b5cf6';
+          return computedStyle.getPropertyValue('--theme-epic').trim();
         case 'origin':
         case 'ea':
-          return computedStyle.getPropertyValue('--theme-origin').trim() || '#fb923c';
+          return computedStyle.getPropertyValue('--theme-origin').trim();
         case 'blizzard':
         case 'battle.net':
         case 'battlenet':
-          return computedStyle.getPropertyValue('--theme-blizzard').trim() || '#3b82f6';
+          return computedStyle.getPropertyValue('--theme-blizzard').trim();
         case 'wsus':
         case 'windows':
-          return computedStyle.getPropertyValue('--theme-wsus').trim() || '#06b6d4';
+          return computedStyle.getPropertyValue('--theme-wsus').trim();
         case 'riot':
         case 'riotgames':
-          return computedStyle.getPropertyValue('--theme-riot').trim() || '#ef4444';
+          return computedStyle.getPropertyValue('--theme-riot').trim();
         case 'xbox':
         case 'xboxlive':
-          return computedStyle.getPropertyValue('--theme-xbox').trim() || '#107C10';
+          return computedStyle.getPropertyValue('--theme-xbox').trim();
         default:
-          return computedStyle.getPropertyValue('--theme-text-secondary').trim() || '#6b7280';
+          return computedStyle.getPropertyValue('--theme-text-secondary').trim();
       }
     };
 
@@ -96,10 +96,8 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
       if (total === 0) return { labels: [], data: [], colors: [] };
 
       const computedStyle = getComputedStyle(document.documentElement);
-      const hitColor =
-        computedStyle.getPropertyValue('--theme-chart-cache-hit').trim() || '#10b981';
-      const missColor =
-        computedStyle.getPropertyValue('--theme-chart-cache-miss').trim() || '#f59e0b';
+      const hitColor = computedStyle.getPropertyValue('--theme-chart-cache-hit').trim();
+      const missColor = computedStyle.getPropertyValue('--theme-chart-cache-miss').trim();
 
       return {
         labels: ['Cache Hits', 'Cache Misses'],
@@ -241,10 +239,9 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
 
       // Get colors from CSS variables
       const computedStyle = getComputedStyle(document.documentElement);
-      const borderColor =
-        computedStyle.getPropertyValue('--theme-chart-border').trim() || '#1f2937';
-      const textColor = computedStyle.getPropertyValue('--theme-chart-text').trim() || '#9ca3af';
-      const titleColor = computedStyle.getPropertyValue('--theme-text-primary').trim() || '#ffffff';
+      const borderColor = computedStyle.getPropertyValue('--theme-chart-border').trim();
+      const textColor = computedStyle.getPropertyValue('--theme-chart-text').trim();
+      const titleColor = computedStyle.getPropertyValue('--theme-text-primary').trim();
 
       // Create new chart
       const ctx = chartRef.current.getContext('2d');
@@ -322,7 +319,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
               display: false
             },
             tooltip: {
-              backgroundColor: 'rgba(0, 0, 0, 0.9)',
+              backgroundColor: 'var(--theme-bg-primary)',
               titleColor: titleColor,
               bodyColor: textColor,
               borderColor: borderColor,

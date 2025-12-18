@@ -542,7 +542,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
                         label={color.label}
                         description={color.description}
                         affects={color.affects}
-                        value={(newTheme[color.key] as string) || '#ffffff'}
+                        value={(newTheme[color.key] as string) || ''}
                         onChange={(value) => handleColorChange(color.key, value)}
                         onColorCommit={(previousColor) =>
                           handleColorCommit(color.key, previousColor)

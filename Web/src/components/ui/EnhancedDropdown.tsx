@@ -303,7 +303,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
             borderColor: 'var(--theme-border-primary)',
             maxWidth: 'calc(100vw - 32px)', // Account for 16px padding on each side
             transform: horizontalOffset !== 0 ? `translateX(${horizontalOffset}px)` : 'none',
-            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05)',
+            boxShadow: '0 10px 25px -5px color-mix(in srgb, var(--theme-text-primary) 20%, transparent), 0 8px 10px -6px color-mix(in srgb, var(--theme-text-primary) 15%, transparent), 0 0 0 1px color-mix(in srgb, var(--theme-text-primary) 5%, transparent)',
             animation: openUpward ? 'dropdownSlideUp 0.15s cubic-bezier(0.16, 1, 0.3, 1)' : 'dropdownSlide 0.15s cubic-bezier(0.16, 1, 0.3, 1)'
           }}
         >

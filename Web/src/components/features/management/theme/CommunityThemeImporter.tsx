@@ -354,14 +354,14 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
   };
 
   const getColorPreview = (colors: ColorPreview | undefined) => {
-    if (!colors) return ['#3b82f6', '#8b5cf6', '#06b6d4', '#111827', '#ffffff'];
+    if (!colors) return [];
     return [
-      colors.primaryColor || '#3b82f6',
-      colors.secondaryColor || '#8b5cf6',
-      colors.accentColor || '#06b6d4',
-      colors.bgPrimary || '#111827',
-      colors.textPrimary || '#ffffff'
-    ];
+      colors.primaryColor,
+      colors.secondaryColor,
+      colors.accentColor,
+      colors.bgPrimary,
+      colors.textPrimary
+    ].filter(Boolean) as string[];
   };
 
   // Count themes that would be visible

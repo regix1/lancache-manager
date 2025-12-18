@@ -745,11 +745,11 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                         currentThemeData.colors.primaryColor,
                         currentThemeData.colors.secondaryColor,
                         currentThemeData.colors.accentColor
-                      ].map((color, i) => (
+                      ].filter(Boolean).map((color, i) => (
                         <div
                           key={i}
                           className="w-5 h-5 rounded"
-                          style={{ backgroundColor: color || '#666' }}
+                          style={{ backgroundColor: color }}
                         />
                       ))}
                     </div>

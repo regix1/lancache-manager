@@ -1689,36 +1689,38 @@ input[type='number']::-webkit-outer-spin-button {
 
 /* ===== DASHBOARD CARD ANIMATIONS ===== */
 
-/* Card entrance animation */
+/* Card entrance animation - subtle, professional reveal */
 @keyframes cardEntrance {
-  from {
+  0% {
     opacity: 0;
-    transform: translateY(20px) scale(0.95);
+    transform: translateY(12px);
+    filter: blur(3px);
   }
-  to {
+  100% {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
+    filter: blur(0);
   }
 }
 
 .animate-card-entrance {
-  animation: cardEntrance 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: cardEntrance 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
   opacity: 0;
 }
 
 /* Stagger delays for card entrance */
-.stagger-1 { animation-delay: 50ms; }
-.stagger-2 { animation-delay: 100ms; }
-.stagger-3 { animation-delay: 150ms; }
-.stagger-4 { animation-delay: 200ms; }
-.stagger-5 { animation-delay: 250ms; }
-.stagger-6 { animation-delay: 300ms; }
-.stagger-7 { animation-delay: 350ms; }
-.stagger-8 { animation-delay: 400ms; }
-.stagger-9 { animation-delay: 450ms; }
-.stagger-10 { animation-delay: 500ms; }
-.stagger-11 { animation-delay: 550ms; }
-.stagger-12 { animation-delay: 600ms; }
+.stagger-1 { animation-delay: 40ms; }
+.stagger-2 { animation-delay: 80ms; }
+.stagger-3 { animation-delay: 120ms; }
+.stagger-4 { animation-delay: 160ms; }
+.stagger-5 { animation-delay: 200ms; }
+.stagger-6 { animation-delay: 240ms; }
+.stagger-7 { animation-delay: 280ms; }
+.stagger-8 { animation-delay: 320ms; }
+.stagger-9 { animation-delay: 360ms; }
+.stagger-10 { animation-delay: 400ms; }
+.stagger-11 { animation-delay: 440ms; }
+.stagger-12 { animation-delay: 480ms; }
 
 /* Number counting animation pulse */
 @keyframes countPulse {

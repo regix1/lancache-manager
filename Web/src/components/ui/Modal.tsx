@@ -57,10 +57,11 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
 
   const modalContent = (
     <div
-      className={`modal-backdrop fixed inset-0 bg-black overflow-y-auto py-8 transition-all duration-250 ease-out ${
-        isAnimating ? 'bg-opacity-50' : 'bg-opacity-0'
-      }`}
-      style={{ zIndex: 100001 }}
+      className={`modal-backdrop fixed inset-0 overflow-y-auto py-8 transition-all duration-250 ease-out`}
+      style={{
+        zIndex: 100001,
+        backgroundColor: isAnimating ? 'color-mix(in srgb, var(--theme-text-primary) 50%, transparent)' : 'transparent'
+      }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div className="min-h-full flex items-center justify-center">

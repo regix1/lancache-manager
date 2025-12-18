@@ -1518,7 +1518,7 @@ const DownloadsTab: React.FC = () => {
               onClick={() =>
                 setSettings({ ...settings, selectedService: 'all', selectedClient: 'all', searchQuery: '' })
               }
-              className="text-xs px-3 py-1.5 rounded bg-themed-accent text-white hover:opacity-80 transition-opacity whitespace-nowrap self-start sm:self-auto"
+              className="text-xs px-3 py-1.5 rounded bg-themed-accent text-[var(--theme-button-text)] hover:opacity-80 transition-opacity whitespace-nowrap self-start sm:self-auto"
             >
               Clear Filters
             </button>

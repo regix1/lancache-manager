@@ -120,7 +120,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
               transition: 'none',
               backdropFilter: 'blur(8px)',
               border: '1px solid var(--theme-card-border)',
-              boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)'
+              boxShadow: '0 10px 40px color-mix(in srgb, var(--theme-text-primary) 30%, transparent)'
             }}
           >
             {content}
@@ -227,7 +227,7 @@ const EdgeTooltip: React.FC<{
         transition: 'none',
         backdropFilter: 'blur(8px)',
         border: '1px solid var(--theme-card-border)',
-        boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)'
+        boxShadow: '0 10px 40px color-mix(in srgb, var(--theme-text-primary) 30%, transparent)'
       }}
     >
       {content}

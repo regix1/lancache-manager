@@ -104,7 +104,7 @@ const Header: React.FC<HeaderProps> = ({
                       width: '28px',
                       height: '6px',
                       background:
-                        'radial-gradient(ellipse at center, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.3) 40%, rgba(0, 0, 0, 0) 70%)',
+                        'radial-gradient(ellipse at center, color-mix(in srgb, var(--theme-text-primary) 60%, transparent) 0%, color-mix(in srgb, var(--theme-text-primary) 30%, transparent) 40%, transparent 70%)',
                       borderRadius: '50%',
                       animation: 'shadow-pulse 2.5s ease-in-out infinite',
                       pointerEvents: 'none',
@@ -233,7 +233,7 @@ const Header: React.FC<HeaderProps> = ({
                         width: '28px',
                         height: '6px',
                         background:
-                          'radial-gradient(ellipse at center, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.3) 40%, rgba(0, 0, 0, 0) 70%)',
+                          'radial-gradient(ellipse at center, color-mix(in srgb, var(--theme-text-primary) 60%, transparent) 0%, color-mix(in srgb, var(--theme-text-primary) 30%, transparent) 40%, transparent 70%)',
                         borderRadius: '50%',
                         animation: 'shadow-pulse 2.5s ease-in-out infinite',
                         pointerEvents: 'none',

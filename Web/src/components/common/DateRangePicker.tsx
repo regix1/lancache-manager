@@ -272,7 +272,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
                           onClick={() => changeToMonth(index)}
                           className={`w-full text-left px-3 py-2 text-sm transition-colors whitespace-nowrap ${
                             index === currentMonth.getMonth()
-                              ? 'bg-[var(--theme-primary)] text-white font-medium'
+                              ? 'bg-[var(--theme-primary)] text-[var(--theme-button-text)] font-medium'
                               : 'text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-tertiary)]'
                           }`}
                         >
@@ -313,7 +313,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
                           onClick={() => changeYear(year)}
                           className={`w-full text-left px-3 py-2 text-sm transition-colors whitespace-nowrap ${
                             year === currentMonth.getFullYear()
-                              ? 'bg-[var(--theme-primary)] text-white font-medium'
+                              ? 'bg-[var(--theme-primary)] text-[var(--theme-button-text)] font-medium'
                               : 'text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-tertiary)]'
                           }`}
                         >
@@ -373,7 +373,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
             }
 
             if (isStart || isEnd) {
-              className += 'bg-[var(--theme-primary)] text-white font-semibold z-10 ';
+              className += 'bg-[var(--theme-primary)] text-[var(--theme-button-text)] font-semibold z-10 ';
             } else if (inRange) {
               className += 'bg-[var(--theme-primary)]/20 text-[var(--theme-text-primary)] ';
             } else if (isHovered && startDate && !endDate) {
@@ -530,7 +530,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
           </button>
           <button
             onClick={onClose}
-            className="flex-1 px-3 py-2 text-sm bg-[var(--theme-primary)] text-white rounded-lg hover:bg-[var(--theme-primary)]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 px-3 py-2 text-sm bg-[var(--theme-primary)] text-[var(--theme-button-text)] rounded-lg hover:bg-[var(--theme-primary)]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={!startDate || !endDate}
           >
             Apply

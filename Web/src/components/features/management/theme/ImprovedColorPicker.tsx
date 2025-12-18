@@ -34,7 +34,7 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
 }) => {
   const [showPicker, setShowPicker] = useState(false);
   const [pickerPosition, setPickerPosition] = useState({ left: 0, top: 0 });
-  const [hexValue, setHexValue] = useState('#000000');
+  const [hexValue, setHexValue] = useState('');
   const [alpha, setAlpha] = useState(1);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
@@ -264,7 +264,7 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
           onFocus={onStart}
           onChange={(e) => onChange(e.target.value)}
           className="w-24 px-2 py-1 text-xs rounded font-mono themed-input"
-          placeholder="#000000"
+          placeholder=""
         />
 
         {/* Action buttons */}

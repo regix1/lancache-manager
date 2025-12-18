@@ -591,7 +591,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
                       setSelectedService('all');
                       setSelectedClient('all');
                     }}
-                    className="text-xs px-3 py-2 rounded-lg bg-themed-accent text-white hover:opacity-80 transition-opacity w-full sm:w-auto"
+                    className="text-xs px-3 py-2 rounded-lg bg-themed-accent text-[var(--theme-button-text)] hover:opacity-80 transition-opacity w-full sm:w-auto"
                   >
                     Clear Filters
                   </button>
