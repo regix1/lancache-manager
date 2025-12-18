@@ -94,7 +94,7 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
               <Loader2 className={`${iconSizes[size]} animate-spin`} />
             ) : (
               option.icon && React.isValidElement(option.icon)
-                ? React.cloneElement(option.icon as React.ReactElement, { className: iconSizes[size] })
+                ? React.cloneElement(option.icon as React.ReactElement<{ className?: string }>, { className: iconSizes[size] })
                 : option.icon
             )}
             {option.label}
