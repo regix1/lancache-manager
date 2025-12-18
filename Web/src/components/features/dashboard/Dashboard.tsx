@@ -461,7 +461,7 @@ const Dashboard: React.FC = () => {
 
   return (
     <div
-      className="space-y-6"
+      className="space-y-4"
       onClick={(e) => {
         // Cancel drag mode if clicking outside of cards
         if (isDragMode && !(e.target as Element).closest('[data-card-key]')) {
@@ -699,7 +699,7 @@ const Dashboard: React.FC = () => {
             <div
               key={card.key}
               data-card-key={card.key}
-              className={`relative group transition-all duration-200 ${
+              className={`relative group transition-all duration-200 h-full ${
                 isDragMode && draggedCard === card.key ? 'scale-105 shadow-lg' : ''
               } ${isDragMode && dragOverCard === card.key ? 'transform translate-y-1' : ''}`}
               style={{
@@ -837,7 +837,7 @@ const Dashboard: React.FC = () => {
 
       {/* Charts Row - Pass the actual data arrays */}
       {showLoading ? (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fadeIn">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 animate-fadeIn">
           {[1, 2].map((i) => (
             <div
               key={i}
@@ -860,7 +860,7 @@ const Dashboard: React.FC = () => {
       ) : (
         <div
           key={`charts-${timeRange}-${customStartDate?.getTime()}-${customEndDate?.getTime()}`}
-          className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fadeIn"
+          className="grid grid-cols-1 lg:grid-cols-2 gap-4 animate-fadeIn"
         >
           <EnhancedServiceChart serviceStats={filteredServiceStats || []} timeRange={timeRange} glassmorphism={true} />
           <RecentDownloadsPanel downloads={filteredLatestDownloads || []} timeRange={timeRange} glassmorphism={true} />

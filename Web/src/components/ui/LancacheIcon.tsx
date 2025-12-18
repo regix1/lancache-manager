@@ -25,18 +25,18 @@ const LancacheIcon: React.FC<LancacheIconProps> = ({ className = '', size = 24, 
       {/* Shadow/depth */}
       <path
         d="m44.794 36.735a4.854 4.854 0 0 1 -1.606.265c-3.455 0-7.609-3.425-11.488-9.565h-15.4c-4.5 7.125-9.376 10.6-13.094 9.3a5.249 5.249 0 0 1 -2.567-2.035 11.421 11.421 0 0 0 .714 2 5.5 5.5 0 0 0 3.077 3.05c3.5 1.223 8.086-2.044 12.323-8.75h14.494c3.65 5.778 7.56 9 10.812 9a4.555 4.555 0 0 0 1.511-.252 5.5 5.5 0 0 0 3.077-3.056 11.421 11.421 0 0 0 .714-2 5.249 5.249 0 0 1 -2.567 2.043z"
-        fill="var(--theme-text-primary)"
+        fill="#000000"
         opacity="0.2"
       />
 
       {/* Center button divider */}
-      <path d="m26 25h-4a1 1 0 0 1 0-2h4a1 1 0 0 1 0 2z" fill="var(--theme-text-primary)" opacity="0.3" />
+      <path d="m26 25h-4a1 1 0 0 1 0-2h4a1 1 0 0 1 0 2z" fill="#000000" opacity="0.3" />
 
       {/* Right button circle (dark background) */}
-      <circle cx="36" cy="19" r="7.5" fill="var(--theme-text-primary)" opacity="0.3" />
+      <circle cx="36" cy="19" r="7.5" fill="#000000" opacity="0.3" />
 
       {/* Left D-pad circle (dark background) */}
-      <circle cx="12" cy="19" r="7" fill="var(--theme-text-primary)" opacity="0.3" />
+      <circle cx="12" cy="19" r="7" fill="#000000" opacity="0.3" />
 
       {/* Action buttons - colored */}
       <circle cx="36" cy="15.5" r="1.5" fill="var(--theme-icon-yellow)" />

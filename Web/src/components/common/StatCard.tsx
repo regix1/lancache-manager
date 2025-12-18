@@ -93,7 +93,7 @@ const StatCard: React.FC<StatCardProps> = ({
 
   // Build class names - animation classes only added when staggerIndex is provided
   const cardClasses = useMemo(() => {
-    const classes = ['rounded-lg', 'p-4', 'border', 'transition-all', 'relative', 'group'];
+    const classes = ['rounded-lg', 'p-4', 'border', 'transition-all', 'relative', 'group', 'h-full', 'flex', 'flex-col'];
 
     if (glassmorphism) {
       classes.push('glass-card');
@@ -176,20 +176,22 @@ const StatCard: React.FC<StatCardProps> = ({
         </div>
       </div>
 
-      {/* Sparkline or placeholder for consistent card height */}
-      {sparklineData && sparklineData.length >= 1 ? (
-        <Sparkline
-          data={sparklineData.length === 1 ? [sparklineData[0], sparklineData[0]] : sparklineData}
-          color={resolvedSparklineColor}
-          height={32}
-          showArea={true}
-          animated={true}
-          ariaLabel={`${title} trend over the last ${sparklineData.length} data points`}
-        />
-      ) : (
-        /* Empty spacer to maintain consistent card height when no sparkline */
-        <div className="sparkline-placeholder" style={{ height: '32px', marginTop: '8px' }} />
-      )}
+      {/* Sparkline or placeholder for consistent card height - mt-auto pushes to bottom */}
+      <div className="mt-auto">
+        {sparklineData && sparklineData.length >= 1 ? (
+          <Sparkline
+            data={sparklineData.length === 1 ? [sparklineData[0], sparklineData[0]] : sparklineData}
+            color={resolvedSparklineColor}
+            height={32}
+            showArea={true}
+            animated={true}
+            ariaLabel={`${title} trend over the last ${sparklineData.length} data points`}
+          />
+        ) : (
+          /* Empty spacer to maintain consistent card height when no sparkline */
+          <div className="sparkline-placeholder" style={{ height: '32px', marginTop: '8px' }} />
+        )}
+      </div>
     </div>
   );
 
