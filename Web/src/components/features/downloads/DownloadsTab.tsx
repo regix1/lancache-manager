@@ -240,8 +240,8 @@ const DownloadsTab: React.FC = () => {
     };
   }, []);
 
-  // Compute whether to show datasource labels
-  const hasMultipleDatasources = (config?.dataSources?.length ?? 0) > 1;
+  // Compute whether to show datasource labels (show if any datasources are configured)
+  const hasMultipleDatasources = (config?.dataSources?.length ?? 0) >= 1;
 
   // State management
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
