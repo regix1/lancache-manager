@@ -9,15 +9,18 @@ public class DownloadCleanupService : BackgroundService
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<DownloadCleanupService> _logger;
     private readonly CacheManagementService _cacheManagementService;
+    private readonly DatasourceService _datasourceService;
 
     public DownloadCleanupService(
         IServiceProvider serviceProvider,
         ILogger<DownloadCleanupService> logger,
-        CacheManagementService cacheManagementService)
+        CacheManagementService cacheManagementService,
+        DatasourceService datasourceService)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
         _cacheManagementService = cacheManagementService;
+        _datasourceService = datasourceService;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -151,6 +154,13 @@ public class DownloadCleanupService : BackgroundService
             // Note: Image URL backfilling is now handled automatically by PICS during incremental scans
             // No manual cleanup needed - PICS fills in missing GameImageUrl fields when processing downloads
 
+            // Normalize datasource mappings - fix inconsistent case and missing datasources
+            var datasourcesNormalized = await NormalizeDatasourceMappingsAsync(context, stoppingToken);
+            if (datasourcesNormalized > 0)
+            {
+                needsCacheInvalidation = true;
+            }
+
             // Clean up orphaned services (services in DB but not in log files)
             var orphanedServicesRemoved = await CleanupOrphanedServicesAsync(context, stoppingToken);
             if (orphanedServicesRemoved > 0)
@@ -266,6 +276,132 @@ public class DownloadCleanupService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error cleaning up orphaned services");
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// Normalizes datasource mappings for downloads.
+    /// Fixes issues like:
+    /// - Null or empty datasource values
+    /// - Inconsistent casing (e.g., "default" vs "Default")
+    /// - Datasource names that don't match any configured datasource
+    /// All invalid entries are remapped to the default datasource.
+    /// </summary>
+    private async Task<int> NormalizeDatasourceMappingsAsync(AppDbContext context, CancellationToken stoppingToken)
+    {
+        try
+        {
+            _logger.LogInformation("Checking for datasource mapping inconsistencies...");
+
+            // Get configured datasources
+            var datasources = _datasourceService.GetDatasources();
+            var defaultDatasource = _datasourceService.GetDefaultDatasource();
+
+            if (defaultDatasource == null)
+            {
+                _logger.LogWarning("No default datasource configured - skipping datasource normalization");
+                return 0;
+            }
+
+            var defaultName = defaultDatasource.Name;
+            var validNames = datasources.Select(d => d.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            _logger.LogInformation("Valid datasources: {Datasources}, Default: {Default}",
+                string.Join(", ", validNames), defaultName);
+
+            // Get all unique datasource values currently in the database
+            var currentDatasources = await context.Downloads
+                .Select(d => d.Datasource)
+                .Distinct()
+                .ToListAsync(stoppingToken);
+
+            _logger.LogInformation("Current datasource values in database: {Values}",
+                string.Join(", ", currentDatasources.Select(d => d ?? "(null)")));
+
+            var totalUpdated = 0;
+
+            // Process each unique datasource value
+            foreach (var datasourceValue in currentDatasources)
+            {
+                // Check if this datasource value needs normalization
+                bool needsNormalization = false;
+                string reason = "";
+
+                if (string.IsNullOrEmpty(datasourceValue))
+                {
+                    needsNormalization = true;
+                    reason = "null or empty";
+                }
+                else if (!validNames.Contains(datasourceValue))
+                {
+                    needsNormalization = true;
+                    reason = $"not a valid datasource name";
+                }
+                else if (datasourceValue != validNames.First(n => n.Equals(datasourceValue, StringComparison.OrdinalIgnoreCase)))
+                {
+                    // Case mismatch - normalize to the exact configured name
+                    needsNormalization = true;
+                    reason = "case mismatch";
+                }
+
+                if (needsNormalization)
+                {
+                    // Determine the correct normalized name
+                    string normalizedName;
+                    if (!string.IsNullOrEmpty(datasourceValue) && validNames.Contains(datasourceValue))
+                    {
+                        // It's a valid name but wrong case - use the exact configured name
+                        normalizedName = validNames.First(n => n.Equals(datasourceValue, StringComparison.OrdinalIgnoreCase));
+                    }
+                    else
+                    {
+                        // Invalid or missing - use default
+                        normalizedName = defaultName;
+                    }
+
+                    _logger.LogInformation("Normalizing datasource '{Old}' -> '{New}' (reason: {Reason})",
+                        datasourceValue ?? "(null)", normalizedName, reason);
+
+                    // Update all downloads with this datasource value
+                    int updated;
+                    if (string.IsNullOrEmpty(datasourceValue))
+                    {
+                        updated = await context.Downloads
+                            .Where(d => d.Datasource == null || d.Datasource == "")
+                            .ExecuteUpdateAsync(
+                                s => s.SetProperty(d => d.Datasource, normalizedName),
+                                stoppingToken);
+                    }
+                    else
+                    {
+                        updated = await context.Downloads
+                            .Where(d => d.Datasource == datasourceValue)
+                            .ExecuteUpdateAsync(
+                                s => s.SetProperty(d => d.Datasource, normalizedName),
+                                stoppingToken);
+                    }
+
+                    totalUpdated += updated;
+                    _logger.LogInformation("Updated {Count} downloads from '{Old}' to '{New}'",
+                        updated, datasourceValue ?? "(null)", normalizedName);
+                }
+            }
+
+            if (totalUpdated > 0)
+            {
+                _logger.LogInformation("Datasource normalization complete: updated {Total} downloads", totalUpdated);
+            }
+            else
+            {
+                _logger.LogInformation("No datasource normalization needed - all mappings are valid");
+            }
+
+            return totalUpdated;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error normalizing datasource mappings");
             return 0;
         }
     }
