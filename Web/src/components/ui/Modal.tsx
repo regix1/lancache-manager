@@ -60,7 +60,7 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
       className={`modal-backdrop fixed inset-0 overflow-y-auto py-8 transition-all duration-250 ease-out`}
       style={{
         zIndex: 100001,
-        backgroundColor: isAnimating ? 'color-mix(in srgb, var(--theme-text-primary) 50%, transparent)' : 'transparent'
+        backgroundColor: isAnimating ? 'rgba(0, 0, 0, 0.5)' : 'transparent'
       }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
@@ -70,7 +70,9 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
             isAnimating ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-90 translate-y-8'
           }`}
           style={{
-            transitionDelay: isAnimating ? '0.05s' : '0s'
+            transitionDelay: isAnimating ? '0.05s' : '0s',
+            backgroundColor: 'var(--theme-card-bg)',
+            borderColor: 'var(--theme-card-border)'
           }}
         >
           {title && (

@@ -32,8 +32,8 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
           ? 'var(--theme-bg-secondary)'
           : 'color-mix(in srgb, var(--theme-bg-secondary) 60%, transparent)',
         boxShadow: isOpen
-          ? '0 4px 16px color-mix(in srgb, var(--theme-text-primary) 15%, transparent), 0 1px 4px color-mix(in srgb, var(--theme-text-primary) 10%, transparent)'
-          : '0 1px 3px color-mix(in srgb, var(--theme-text-primary) 8%, transparent)',
+          ? '0 4px 16px rgba(0, 0, 0, 0.2), 0 1px 4px rgba(0, 0, 0, 0.12)'
+          : '0 1px 3px rgba(0, 0, 0, 0.1)',
         border: '1px solid',
         borderColor: isOpen
           ? 'var(--theme-border-primary)'

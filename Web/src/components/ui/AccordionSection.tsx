@@ -34,8 +34,8 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
           ? 'var(--theme-border-primary)'
           : 'var(--theme-border-secondary)',
         boxShadow: isExpanded
-          ? '0 4px 16px color-mix(in srgb, var(--theme-text-primary) 15%, transparent), 0 1px 4px color-mix(in srgb, var(--theme-text-primary) 10%, transparent)'
-          : '0 1px 3px color-mix(in srgb, var(--theme-text-primary) 8%, transparent)'
+          ? '0 4px 16px rgba(0, 0, 0, 0.2), 0 1px 4px rgba(0, 0, 0, 0.12)'
+          : '0 1px 3px rgba(0, 0, 0, 0.1)'
       }}
     >
       {/* Header Button */}
