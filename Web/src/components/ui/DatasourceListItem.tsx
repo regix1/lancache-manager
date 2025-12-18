@@ -37,8 +37,8 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
           : 'var(--theme-border-secondary)',
         opacity: enabled ? 1 : 0.65,
         boxShadow: isExpanded
-          ? '0 4px 16px color-mix(in srgb, var(--theme-text-primary) 12%, transparent), 0 1px 4px color-mix(in srgb, var(--theme-text-primary) 8%, transparent)'
-          : '0 1px 3px color-mix(in srgb, var(--theme-text-primary) 6%, transparent)'
+          ? '0 4px 16px rgba(0, 0, 0, 0.25), 0 1px 4px rgba(0, 0, 0, 0.15)'
+          : '0 1px 3px rgba(0, 0, 0, 0.12)'
       }}
     >
       {/* Header - clickable to expand */}
