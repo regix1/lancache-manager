@@ -21,6 +21,7 @@ import { Alert } from '@components/ui/Alert';
 import { HelpPopover } from '@components/ui/HelpPopover';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { Pagination } from '@components/ui/Pagination';
+import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 import ApiService from '@services/api.service';
 import themeService from '@services/theme.service';
 import authService from '@services/auth.service';
@@ -188,10 +189,10 @@ const UserTab: React.FC = () => {
     }
   };
 
-  const handleToggleGuestLock = async () => {
+  const handleToggleGuestLock = async (value?: string) => {
     try {
       setUpdatingGuestLock(true);
-      const newLockState = !guestModeLocked;
+      const newLockState = value ? value === 'locked' : !guestModeLocked;
       const response = await fetch('/api/auth/guest/config/lock', {
         method: 'POST',
         headers: {
@@ -788,44 +789,17 @@ const UserTab: React.FC = () => {
             </div>
 
             {/* Guest Mode Toggle Switch */}
-            <button
-              onClick={handleToggleGuestLock}
+            <ToggleSwitch
+              options={[
+                { value: 'unlocked', label: 'Unlocked', icon: <Unlock />, activeColor: 'success' },
+                { value: 'locked', label: 'Locked', icon: <Lock />, activeColor: 'error' }
+              ]}
+              value={guestModeLocked ? 'locked' : 'unlocked'}
+              onChange={handleToggleGuestLock}
               disabled={updatingGuestLock}
-              className={`flex items-center rounded-full text-xs font-medium transition-all ${
-                updatingGuestLock ? 'opacity-60 cursor-wait' : 'cursor-pointer'
-              }`}
-              style={{ backgroundColor: 'var(--theme-bg-secondary)' }}
+              loading={updatingGuestLock}
               title={guestModeLocked ? 'Guest mode is locked - new guests cannot log in' : 'Guest mode is unlocked - guests can log in'}
-            >
-              <span
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all ${
-                  !guestModeLocked
-                    ? 'shadow-sm'
-                    : 'text-themed-muted'
-                }`}
-                style={!guestModeLocked ? {
-                  backgroundColor: 'color-mix(in srgb, var(--theme-success) 20%, transparent)',
-                  color: 'var(--theme-success-text)'
-                } : undefined}
-              >
-                <Unlock className="w-3.5 h-3.5" />
-                Unlocked
-              </span>
-              <span
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all ${
-                  guestModeLocked
-                    ? 'shadow-sm'
-                    : 'text-themed-muted'
-                }`}
-                style={guestModeLocked ? {
-                  backgroundColor: 'color-mix(in srgb, var(--theme-error) 20%, transparent)',
-                  color: 'var(--theme-error-text)'
-                } : undefined}
-              >
-                <Lock className="w-3.5 h-3.5" />
-                Locked
-              </span>
-            </button>
+            />
           </div>
 
           {loading && (

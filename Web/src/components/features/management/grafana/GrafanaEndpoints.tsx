@@ -4,6 +4,7 @@ import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 
 const dataRefreshOptions = [
   { value: '5', label: '5 seconds', shortLabel: '5s', description: 'Very frequent updates', rightLabel: '5s', icon: RefreshCw },
@@ -68,10 +69,10 @@ const GrafanaEndpoints: React.FC = () => {
     setScrapeInterval(value);
   };
 
-  const handleToggleAuth = async () => {
+  const handleToggleAuth = async (value?: string) => {
     if (isToggling) return;
     setIsToggling(true);
-    const newValue = !metricsSecured;
+    const newValue = value ? value === 'secured' : !metricsSecured;
     setMetricsSecured(newValue); // Optimistic update
     try {
       const response = await fetch('/api/metrics/security', {
@@ -156,39 +157,19 @@ const GrafanaEndpoints: React.FC = () => {
           </HelpPopover>
         </div>
         {/* Connected toggle switch */}
-        <button
-          onClick={handleToggleAuth}
+        <ToggleSwitch
+          options={[
+            { value: 'public', label: 'Public', icon: <Unlock />, activeColor: 'default' },
+            { value: 'secured', label: 'Secured', icon: <Lock />, activeColor: 'success' }
+          ]}
+          value={metricsSecured ? 'secured' : 'public'}
+          onChange={handleToggleAuth}
           disabled={isToggling}
-          className={`flex items-center rounded-full text-xs font-medium transition-all ${
-            isToggling ? 'opacity-60 cursor-wait' : 'cursor-pointer'
-          }`}
-          style={{ backgroundColor: 'var(--theme-bg-secondary)' }}
-        >
-          <span
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all ${
-              !metricsSecured
-                ? 'bg-themed-tertiary text-themed-primary shadow-sm'
-                : 'text-themed-muted'
-            }`}
-          >
-            <Unlock className="w-3.5 h-3.5" />
-            Public
-          </span>
-          <span
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all ${
-              metricsSecured
-                ? 'shadow-sm'
-                : 'text-themed-muted'
-            }`}
-            style={metricsSecured ? {
-              backgroundColor: 'color-mix(in srgb, var(--theme-success) 20%, transparent)',
-              color: 'var(--theme-success-text)'
-            } : undefined}
-          >
-            <Lock className="w-3.5 h-3.5" />
-            Secured
-          </span>
-        </button>
+          loading={isToggling}
+          title={metricsSecured
+            ? 'Endpoints require API key authentication'
+            : 'Endpoints are publicly accessible'}
+        />
       </div>
 
       <p className="text-themed-muted text-sm mb-4">
