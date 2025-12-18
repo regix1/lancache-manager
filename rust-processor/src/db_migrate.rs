@@ -467,12 +467,12 @@ fn process_batch(
                 skipped += 1;
             }
         } else {
-            // Insert new record
+            // Insert new record (include Datasource column with "default" value)
             match tx.execute(
                 "INSERT INTO Downloads
                  (Service, ClientIp, StartTimeUtc, EndTimeUtc, StartTimeLocal, EndTimeLocal,
-                  CacheHitBytes, CacheMissBytes, IsActive, DepotId, GameAppId)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
+                  CacheHitBytes, CacheMissBytes, IsActive, DepotId, GameAppId, Datasource)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 'default')",
                 params![
                     service,
                     client_ip,
