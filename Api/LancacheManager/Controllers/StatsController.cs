@@ -149,28 +149,23 @@ public class StatsController : ControllerBase
 
     [HttpGet("dashboard")]
     public async Task<IActionResult> GetDashboardStats(
-        [FromQuery] string period = "24h",
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null)
     {
-        // Use Unix timestamps if provided (for consistency with other endpoints)
-        // Otherwise fall back to period string parsing
+        // Use Unix timestamps if provided, otherwise return ALL data (no time filter)
+        // This ensures consistency: frontend always provides timestamps for time-filtered queries
         DateTime? cutoffTime = null;
         DateTime? endDateTime = null;
 
         if (startTime.HasValue)
         {
-            // Use client-provided timestamps for consistency across all API calls
             cutoffTime = DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime;
-            endDateTime = endTime.HasValue
-                ? DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime
-                : DateTime.UtcNow;
         }
-        else if (period != "all")
+        if (endTime.HasValue)
         {
-            // Fall back to period string parsing
-            cutoffTime = ParseTimePeriod(period) ?? DateTime.UtcNow.AddHours(-24);
+            endDateTime = DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime;
         }
+        // If no timestamps provided, cutoffTime and endDateTime remain null = query ALL data
 
         // Get all service stats (these are all-time totals) - USE CACHE
         var serviceStats = await _statsService.GetServiceStatsAsync();
@@ -232,13 +227,16 @@ public class StatsController : ControllerBase
             ? (double)periodHitBytes / periodTotal
             : 0;
 
-        // For "all" period, period metrics should equal all-time metrics
-        if (period == "all")
+        // Determine period label for response
+        string periodLabel = "all";
+        if (cutoffTime.HasValue && endDateTime.HasValue)
         {
-            periodHitBytes = totalBandwidthSaved;
-            periodMissBytes = totalAddedToCache;
-            periodTotal = totalServed;
-            periodHitRatio = cacheHitRatio;
+            var duration = endDateTime.Value - cutoffTime.Value;
+            periodLabel = duration.TotalHours <= 24 ? $"{(int)duration.TotalHours}h" : $"{(int)duration.TotalDays}d";
+        }
+        else if (cutoffTime.HasValue)
+        {
+            periodLabel = "since " + cutoffTime.Value.ToString("yyyy-MM-dd");
         }
 
         return Ok(new DashboardStatsResponse
@@ -257,7 +255,7 @@ public class StatsController : ControllerBase
             // Period-specific metrics
             Period = new DashboardPeriodStats
             {
-                Duration = period,
+                Duration = periodLabel,
                 Since = cutoffTime,
                 BandwidthSaved = periodHitBytes,
                 AddedToCache = periodMissBytes,
