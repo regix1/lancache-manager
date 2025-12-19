@@ -350,11 +350,15 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     };
   }, [mockMode, fetchStats, currentPollingInterval]);
 
-  // Handle time range changes - fetch new data (stale data protection handles old results)
+  // Handle time range changes - fetch new data
   useEffect(() => {
     if (!mockMode && !isInitialLoad.current) {
-      // Don't clear old data - let new data atomically replace it to avoid visual flickering
-      // The stale data protection in fetchStats ensures old results don't overwrite new ones
+      // IMPORTANT: Clear stats immediately when time range changes to prevent showing
+      // stale data with wrong time range label. This shows loading state until new data arrives.
+      setDashboardStats(null);
+      setClientStats([]);
+      setServiceStats([]);
+
       // Use forceRefresh to bypass debounce - time range changes should always trigger immediate fetch
       fetchStats({ showLoading: true, forceRefresh: true });
     }
