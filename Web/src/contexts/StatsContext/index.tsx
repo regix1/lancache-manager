@@ -89,14 +89,14 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
 
   // Single unified fetch function that ALWAYS reads current timeRange from ref
   // This eliminates all stale closure issues - no timeRange is captured in closures
-  const fetchStats = useCallback(async (options: { showLoading?: boolean; isInitial?: boolean } = {}) => {
+  const fetchStats = useCallback(async (options: { showLoading?: boolean; isInitial?: boolean; forceRefresh?: boolean } = {}) => {
     if (mockModeRef.current) return;
 
-    const { showLoading = false, isInitial = false } = options;
+    const { showLoading = false, isInitial = false, forceRefresh = false } = options;
 
-    // Debounce rapid calls (min 250ms between fetches) - skip for initial load
+    // Debounce rapid calls (min 250ms between fetches) - skip for initial load or force refresh
     const now = Date.now();
-    if (!isInitial && now - lastFetchTime.current < 250) {
+    if (!isInitial && !forceRefresh && now - lastFetchTime.current < 250) {
       return;
     }
     lastFetchTime.current = now;
@@ -107,8 +107,8 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       abortControllerRef.current.abort();
     }
 
-    // Prevent concurrent fetches (except for initial load which should always proceed)
-    if (fetchInProgress.current && !isInitial) {
+    // Prevent concurrent fetches (except for initial load or force refresh which should always proceed)
+    if (fetchInProgress.current && !isInitial && !forceRefresh) {
       return;
     }
     fetchInProgress.current = true;
@@ -337,7 +337,8 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     if (!mockMode && !isInitialLoad.current) {
       // Don't clear old data - let new data atomically replace it to avoid visual flickering
       // The stale data protection in fetchStats ensures old results don't overwrite new ones
-      fetchStats({ showLoading: true });
+      // Use forceRefresh to bypass debounce - time range changes should always trigger immediate fetch
+      fetchStats({ showLoading: true, forceRefresh: true });
     }
   }, [timeRange, mockMode, fetchStats]);
 
