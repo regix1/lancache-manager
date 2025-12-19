@@ -66,84 +66,50 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastFetchTime = useRef<number>(0);
   const lastSignalRRefresh = useRef<number>(0);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // IMPORTANT: These refs are updated on every render BEFORE effects run
+  // This ensures that any function reading from these refs gets the current value
   const getTimeRangeParamsRef = useRef(getTimeRangeParams);
   const getPollingIntervalRef = useRef(getPollingInterval);
   const mockModeRef = useRef(mockMode);
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Update refs on each render (no useEffect needed)
+  // Update refs synchronously on every render
   getTimeRangeParamsRef.current = getTimeRangeParams;
   getPollingIntervalRef.current = getPollingInterval;
   mockModeRef.current = mockMode;
 
-  // Fetch downloads data (called by SignalR events)
-  const fetchDownloads = useCallback(async () => {
+  // Single unified fetch function that ALWAYS reads current timeRange from ref
+  // This eliminates all stale closure issues - no timeRange is captured in closures
+  const fetchDownloads = useCallback(async (options: { showLoading?: boolean; isInitial?: boolean } = {}) => {
     if (mockModeRef.current) return;
 
-    const { startTime, endTime } = getTimeRangeParamsRef.current();
-    const now = Date.now();
+    const { showLoading = false, isInitial = false } = options;
 
-    // Debounce rapid SignalR events (min 250ms between fetches)
-    if (now - lastFetchTime.current < 250) {
+    // Debounce rapid calls (min 250ms between fetches)
+    const now = Date.now();
+    if (!isInitial && now - lastFetchTime.current < 250) {
       return;
     }
     lastFetchTime.current = now;
 
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    abortControllerRef.current = new AbortController();
-
-    try {
-      const timeout = 10000;
-      const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), timeout);
-
-      const [active, latest] = await Promise.allSettled([
-        ApiService.getActiveDownloads(abortControllerRef.current.signal),
-        ApiService.getLatestDownloads(
-          abortControllerRef.current.signal,
-          'unlimited',
-          startTime,
-          endTime
-        )
-      ]);
-
-      if (active.status === 'fulfilled' && active.value !== undefined) {
-        setActiveDownloads(active.value);
-      }
-      if (latest.status === 'fulfilled' && latest.value !== undefined) {
-        setLatestDownloads(latest.value);
-        hasData.current = true;
-      }
-
-      clearTimeout(timeoutId);
-      setError(null);
-    } catch (err: unknown) {
-      if (!hasData.current && !isAbortError(err)) {
-        setError('Failed to fetch downloads');
-      }
-    }
-  }, []);
-
-  // Combined refresh for initial load or manual refresh
-  const refreshDownloads = useCallback(async () => {
-    if (mockModeRef.current) return;
-
-    const { startTime, endTime } = getTimeRangeParamsRef.current();
-
-    if (fetchInProgress.current && !isInitialLoad.current) {
+    // Prevent concurrent fetches (except for initial load)
+    if (fetchInProgress.current && !isInitial) {
       return;
     }
-
     fetchInProgress.current = true;
 
+    // Read current values from refs - these are always up-to-date
+    const { startTime, endTime } = getTimeRangeParamsRef.current();
+
+    // Abort any in-flight request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
     abortControllerRef.current = new AbortController();
 
     try {
-      if (isInitialLoad.current) {
+      if (showLoading) {
         setLoading(true);
       }
 
@@ -160,6 +126,8 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
         )
       ]);
 
+      clearTimeout(timeoutId);
+
       if (active.status === 'fulfilled' && active.value !== undefined) {
         setActiveDownloads(active.value);
       }
@@ -168,10 +136,9 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
         hasData.current = true;
       }
 
-      clearTimeout(timeoutId);
       setError(null);
     } catch (err: unknown) {
-      if (!hasData.current) {
+      if (!hasData.current && !isAbortError(err)) {
         if (isAbortError(err)) {
           setError('Request timeout - the server may be busy');
         } else {
@@ -179,22 +146,28 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
         }
       }
     } finally {
-      setLoading(false);
-      if (isInitialLoad.current) {
+      if (showLoading) {
+        setLoading(false);
+      }
+      if (isInitial) {
         isInitialLoad.current = false;
       }
       fetchInProgress.current = false;
     }
   }, []);
 
+  // Public refresh function for manual refreshes
+  const refreshDownloads = useCallback(async () => {
+    await fetchDownloads({ showLoading: true });
+  }, [fetchDownloads]);
+
   // Subscribe to SignalR events for real-time updates
-  // These events respect the user's polling rate preference (unless Live mode)
-  // Effect re-runs when timeRange changes to ensure correct time params are used
+  // IMPORTANT: Handlers read from refs, NOT closures - no stale data possible
   useEffect(() => {
     if (mockMode) return;
 
-    // Throttled handler that respects user's polling rate (or instant if Live mode)
-    const throttledFetchDownloads = () => {
+    // Handler that respects polling rate (or instant if Live mode)
+    const handleRefreshEvent = () => {
       const pollingInterval = getPollingIntervalRef.current();
 
       // Live mode (0) = instant updates, no throttling
@@ -203,10 +176,9 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
         return;
       }
 
+      // Throttle based on polling interval
       const now = Date.now();
       const timeSinceLastRefresh = now - lastSignalRRefresh.current;
-
-      // Only fetch if enough time has passed according to polling rate
       if (timeSinceLastRefresh >= pollingInterval) {
         lastSignalRRefresh.current = now;
         fetchDownloads();
@@ -217,19 +189,15 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
     const handleDatabaseResetProgress = (payload: { status?: string }) => {
       const status = (payload.status || '').toLowerCase();
       if (status === 'completed' || status === 'complete' || status === 'done') {
-        // Delay slightly to let backend finish cleanup
         setTimeout(() => fetchDownloads(), 500);
       }
     };
 
     // Immediate fetch handler for user-initiated actions
-    const immediateFetch = () => fetchDownloads();
+    const handleImmediateRefresh = () => fetchDownloads();
 
     // Events that trigger data refresh (throttled by polling rate, or instant if Live)
-    const refreshEvents = [
-      'DownloadsRefresh',
-      'FastProcessingComplete'
-    ];
+    const refreshEvents = ['DownloadsRefresh', 'FastProcessingComplete'];
 
     // Events that should always trigger immediate refresh (user-initiated actions)
     const immediateRefreshEvents = [
@@ -242,23 +210,22 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
       'CacheClearComplete'
     ];
 
-    refreshEvents.forEach(event => signalR.on(event, throttledFetchDownloads));
-    immediateRefreshEvents.forEach(event => signalR.on(event, immediateFetch));
+    refreshEvents.forEach(event => signalR.on(event, handleRefreshEvent));
+    immediateRefreshEvents.forEach(event => signalR.on(event, handleImmediateRefresh));
     signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
 
     return () => {
-      refreshEvents.forEach(event => signalR.off(event, throttledFetchDownloads));
-      immediateRefreshEvents.forEach(event => signalR.off(event, immediateFetch));
+      refreshEvents.forEach(event => signalR.off(event, handleRefreshEvent));
+      immediateRefreshEvents.forEach(event => signalR.off(event, handleImmediateRefresh));
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
     };
-  }, [mockMode, signalR, fetchDownloads, timeRange, getTimeRangeParams]);
+  }, [mockMode, signalR, fetchDownloads]);
 
   // Load mock data when mock mode is enabled
   useEffect(() => {
     if (mockMode) {
       setLoading(true);
 
-      // Generate mock data immediately
       const mockData = MockDataService.generateMockData('unlimited');
       setActiveDownloads(mockData.activeDownloads);
       setLatestDownloads(mockData.latestDownloads);
@@ -269,20 +236,19 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
     }
   }, [mockMode]);
 
-  // Initial load only - SignalR handles real-time updates
+  // Initial load
   useEffect(() => {
     if (!mockMode) {
-      refreshDownloads();
+      fetchDownloads({ showLoading: true, isInitial: true });
     }
 
     return () => {
       if (abortControllerRef.current) abortControllerRef.current.abort();
     };
-  }, [mockMode, refreshDownloads]);
+  }, [mockMode, fetchDownloads]);
 
   // Polling interval - fetch data at user-configured rate
   // Skipped in Live mode (0) since SignalR handles real-time updates
-  // Re-runs when pollingRate or timeRange changes to update the interval
   const currentPollingInterval = getPollingInterval();
   useEffect(() => {
     if (mockMode) return;
@@ -332,15 +298,14 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
         pollingIntervalRef.current = null;
       }
     };
-  }, [mockMode, fetchDownloads, currentPollingInterval, timeRange]);
+  }, [mockMode, fetchDownloads, currentPollingInterval]);
 
-  // Handle time range changes
+  // Handle time range changes - fetch new data when timeRange changes
   useEffect(() => {
     if (!mockMode && !isInitialLoad.current) {
-      setLoading(true);
-      refreshDownloads();
+      fetchDownloads({ showLoading: true });
     }
-  }, [timeRange, mockMode, refreshDownloads]);
+  }, [timeRange, mockMode, fetchDownloads]);
 
   // Debounced custom date changes
   useEffect(() => {
@@ -354,7 +319,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
           setLoading(true);
           const debounceTimer = setTimeout(() => {
             setLastCustomDates({ start: customStartDate, end: customEndDate });
-            refreshDownloads();
+            fetchDownloads({ showLoading: true });
           }, 50);
 
           return () => clearTimeout(debounceTimer);
@@ -363,7 +328,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
     } else if (timeRange !== 'custom') {
       setLastCustomDates({ start: null, end: null });
     }
-  }, [customStartDate, customEndDate, timeRange, mockMode, refreshDownloads]);
+  }, [customStartDate, customEndDate, timeRange, mockMode, fetchDownloads]);
 
   const updateDownloads = useCallback((updater: {
     activeDownloads?: (prev: Download[]) => Download[];

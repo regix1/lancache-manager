@@ -18,6 +18,18 @@ export const useStats = () => {
   return context;
 };
 
+// Map timeRange values to API period parameter
+const TIME_RANGE_TO_PERIOD: Record<string, string> = {
+  '1h': '1h',
+  '6h': '6h',
+  '12h': '12h',
+  '24h': '24h',
+  '7d': '7d',
+  '30d': '30d',
+  live: 'all',
+  custom: 'custom'
+};
+
 export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode = false }) => {
   const { getTimeRangeParams, timeRange, customStartDate, customEndDate } = useTimeFilter();
   const { getPollingInterval } = usePollingRate();
@@ -42,13 +54,16 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastFetchTime = useRef<number>(0);
   const lastSignalRRefresh = useRef<number>(0);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // IMPORTANT: These refs are updated on every render BEFORE effects run
+  // This ensures that any function reading from these refs gets the current value
   const currentTimeRangeRef = useRef<string>(timeRange);
   const getTimeRangeParamsRef = useRef(getTimeRangeParams);
   const getPollingIntervalRef = useRef(getPollingInterval);
   const mockModeRef = useRef(mockMode);
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Update refs on each render (no useEffect needed)
+  // Update refs synchronously on every render
   currentTimeRangeRef.current = timeRange;
   getTimeRangeParamsRef.current = getTimeRangeParams;
   getPollingIntervalRef.current = getPollingInterval;
@@ -84,93 +99,39 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     }
   };
 
-  // Fetch all stats (called by SignalR events)
-  // Takes currentTimeRange as parameter to avoid stale ref issues during callbacks
-  const fetchAllStats = useCallback(async (currentTimeRange: string) => {
+  // Single unified fetch function that ALWAYS reads current timeRange from ref
+  // This eliminates all stale closure issues - no timeRange is captured in closures
+  const fetchStats = useCallback(async (options: { showLoading?: boolean; isInitial?: boolean } = {}) => {
     if (mockModeRef.current) return;
 
+    const { showLoading = false, isInitial = false } = options;
+
+    // Debounce rapid calls (min 250ms between fetches)
     const now = Date.now();
-    // Debounce rapid SignalR events (min 250ms between fetches)
-    if (now - lastFetchTime.current < 250) {
+    if (!isInitial && now - lastFetchTime.current < 250) {
       return;
     }
     lastFetchTime.current = now;
 
-    const { startTime, endTime } = getTimeRangeParamsRef.current();
-
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    abortControllerRef.current = new AbortController();
-
-    try {
-      const isConnected = await checkConnectionStatus();
-      if (!isConnected) return;
-
-      const timeout = 10000;
-      const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), timeout);
-
-      const periodMap: Record<string, string> = {
-        '1h': '1h',
-        '6h': '6h',
-        '12h': '12h',
-        '24h': '24h',
-        '7d': '7d',
-        '30d': '30d',
-        live: 'all',
-        custom: 'custom'
-      };
-      const period = periodMap[currentTimeRange] || '24h';
-
-      const [cache, clients, services, dashboard] = await Promise.allSettled([
-        ApiService.getCacheInfo(abortControllerRef.current.signal),
-        ApiService.getClientStats(abortControllerRef.current.signal, startTime, endTime),
-        ApiService.getServiceStats(abortControllerRef.current.signal, null, startTime, endTime),
-        ApiService.getDashboardStats(period, abortControllerRef.current.signal)
-      ]);
-
-      if (cache.status === 'fulfilled' && cache.value !== undefined) {
-        setCacheInfo(cache.value);
-      }
-      if (clients.status === 'fulfilled' && clients.value !== undefined) {
-        setClientStats(clients.value);
-      }
-      if (services.status === 'fulfilled' && services.value !== undefined) {
-        setServiceStats(services.value);
-      }
-      if (dashboard.status === 'fulfilled' && dashboard.value !== undefined) {
-        setDashboardStats(dashboard.value);
-        hasData.current = true;
-      }
-
-      clearTimeout(timeoutId);
-      setError(null);
-    } catch (err: unknown) {
-      if (!hasData.current && !isAbortError(err)) {
-        setError('Failed to fetch stats');
-      }
-    }
-  }, []);
-
-  // Combined refresh for initial load or manual refresh
-  const refreshStats = useCallback(async () => {
-    if (mockModeRef.current) return;
-
-    const { startTime, endTime } = getTimeRangeParamsRef.current();
-
-    if (fetchInProgress.current && !isInitialLoad.current) {
+    // Prevent concurrent fetches (except for initial load)
+    if (fetchInProgress.current && !isInitial) {
       return;
     }
-
     fetchInProgress.current = true;
 
+    // Read current values from refs - these are always up-to-date
+    const currentTimeRange = currentTimeRangeRef.current;
+    const { startTime, endTime } = getTimeRangeParamsRef.current();
+    const period = TIME_RANGE_TO_PERIOD[currentTimeRange] || '24h';
+
+    // Abort any in-flight request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
     abortControllerRef.current = new AbortController();
 
     try {
-      if (isInitialLoad.current) {
+      if (showLoading) {
         setLoading(true);
       }
 
@@ -185,24 +146,14 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       const timeout = 10000;
       const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), timeout);
 
-      const periodMap: Record<string, string> = {
-        '1h': '1h',
-        '6h': '6h',
-        '12h': '12h',
-        '24h': '24h',
-        '7d': '7d',
-        '30d': '30d',
-        live: 'all',
-        custom: 'custom'
-      };
-      const period = periodMap[currentTimeRangeRef.current] || '24h';
-
       const [cache, clients, services, dashboard] = await Promise.allSettled([
         ApiService.getCacheInfo(abortControllerRef.current.signal),
         ApiService.getClientStats(abortControllerRef.current.signal, startTime, endTime),
         ApiService.getServiceStats(abortControllerRef.current.signal, null, startTime, endTime),
         ApiService.getDashboardStats(period, abortControllerRef.current.signal)
       ]);
+
+      clearTimeout(timeoutId);
 
       if (cache.status === 'fulfilled' && cache.value !== undefined) {
         setCacheInfo(cache.value);
@@ -218,10 +169,9 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
         hasData.current = true;
       }
 
-      clearTimeout(timeoutId);
       setError(null);
     } catch (err: unknown) {
-      if (!hasData.current) {
+      if (!hasData.current && !isAbortError(err)) {
         if (isAbortError(err)) {
           setError('Request timeout - the server may be busy');
         } else {
@@ -229,40 +179,42 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
         }
       }
     } finally {
-      setLoading(false);
-      if (isInitialLoad.current) {
+      if (showLoading) {
+        setLoading(false);
+      }
+      if (isInitial) {
         isInitialLoad.current = false;
       }
       fetchInProgress.current = false;
     }
   }, []);
 
+  // Public refresh function for manual refreshes
+  const refreshStats = useCallback(async () => {
+    await fetchStats({ showLoading: true });
+  }, [fetchStats]);
+
   // Subscribe to SignalR events for real-time updates
-  // These events respect the user's polling rate preference (unless Live mode)
-  // timeRange is captured from closure to ensure correct period is used
+  // IMPORTANT: Handlers read from refs, NOT closures - no stale data possible
   useEffect(() => {
     if (mockMode) return;
 
-    // Capture timeRange at effect setup - this will be correct when effect re-runs on timeRange change
-    const capturedTimeRange = timeRange;
-
-    // Throttled handler that respects user's polling rate (or instant if Live mode)
-    const throttledFetchAllStats = () => {
+    // Handler that respects polling rate (or instant if Live mode)
+    const handleRefreshEvent = () => {
       const pollingInterval = getPollingIntervalRef.current();
 
       // Live mode (0) = instant updates, no throttling
       if (pollingInterval === 0) {
-        fetchAllStats(capturedTimeRange);
+        fetchStats();
         return;
       }
 
+      // Throttle based on polling interval
       const now = Date.now();
       const timeSinceLastRefresh = now - lastSignalRRefresh.current;
-
-      // Only fetch if enough time has passed according to polling rate
       if (timeSinceLastRefresh >= pollingInterval) {
         lastSignalRRefresh.current = now;
-        fetchAllStats(capturedTimeRange);
+        fetchStats();
       }
     };
 
@@ -270,18 +222,15 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     const handleDatabaseResetProgress = (payload: { status?: string }) => {
       const status = (payload.status || '').toLowerCase();
       if (status === 'completed' || status === 'complete' || status === 'done') {
-        setTimeout(() => fetchAllStats(capturedTimeRange), 500);
+        setTimeout(() => fetchStats(), 500);
       }
     };
 
     // Immediate fetch handler for user-initiated actions
-    const immediateFetch = () => fetchAllStats(capturedTimeRange);
+    const handleImmediateRefresh = () => fetchStats();
 
     // Events that trigger data refresh (throttled by polling rate, or instant if Live)
-    const refreshEvents = [
-      'DownloadsRefresh',
-      'FastProcessingComplete'
-    ];
+    const refreshEvents = ['DownloadsRefresh', 'FastProcessingComplete'];
 
     // Events that should always trigger immediate refresh (user-initiated actions)
     const immediateRefreshEvents = [
@@ -294,16 +243,16 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       'CacheClearComplete'
     ];
 
-    refreshEvents.forEach(event => signalR.on(event, throttledFetchAllStats));
-    immediateRefreshEvents.forEach(event => signalR.on(event, immediateFetch));
+    refreshEvents.forEach(event => signalR.on(event, handleRefreshEvent));
+    immediateRefreshEvents.forEach(event => signalR.on(event, handleImmediateRefresh));
     signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
 
     return () => {
-      refreshEvents.forEach(event => signalR.off(event, throttledFetchAllStats));
-      immediateRefreshEvents.forEach(event => signalR.off(event, immediateFetch));
+      refreshEvents.forEach(event => signalR.off(event, handleRefreshEvent));
+      immediateRefreshEvents.forEach(event => signalR.off(event, handleImmediateRefresh));
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
     };
-  }, [mockMode, signalR, fetchAllStats, timeRange]);
+  }, [mockMode, signalR, fetchStats]);
 
   // Load mock data when mock mode is enabled
   useEffect(() => {
@@ -311,7 +260,6 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       setLoading(true);
       setConnectionStatus('connected');
 
-      // Generate mock data immediately
       const mockData = MockDataService.generateMockData('unlimited');
       setCacheInfo(mockData.cacheInfo);
       setClientStats(mockData.clientStats);
@@ -324,26 +272,22 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     }
   }, [mockMode]);
 
-  // Initial load only - SignalR handles real-time updates
+  // Initial load
   useEffect(() => {
     if (!mockMode) {
-      refreshStats();
+      fetchStats({ showLoading: true, isInitial: true });
     }
 
     return () => {
       if (abortControllerRef.current) abortControllerRef.current.abort();
     };
-  }, [mockMode, refreshStats]);
+  }, [mockMode, fetchStats]);
 
   // Polling interval - fetch data at user-configured rate
   // Skipped in Live mode (0) since SignalR handles real-time updates
-  // Re-runs when pollingRate or timeRange changes to update the interval
   const currentPollingInterval = getPollingInterval();
   useEffect(() => {
     if (mockMode) return;
-
-    // Capture timeRange for polling callbacks
-    const capturedTimeRange = timeRange;
 
     // Clear any existing polling interval
     if (pollingIntervalRef.current) {
@@ -359,7 +303,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     // Set up polling at the user's configured rate
     const setupPolling = () => {
       pollingIntervalRef.current = setInterval(() => {
-        fetchAllStats(capturedTimeRange);
+        fetchStats();
       }, currentPollingInterval);
     };
 
@@ -390,15 +334,14 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
         pollingIntervalRef.current = null;
       }
     };
-  }, [mockMode, fetchAllStats, currentPollingInterval, timeRange]);
+  }, [mockMode, fetchStats, currentPollingInterval]);
 
-  // Handle time range changes
+  // Handle time range changes - fetch new data when timeRange changes
   useEffect(() => {
     if (!mockMode && !isInitialLoad.current) {
-      setLoading(true);
-      refreshStats();
+      fetchStats({ showLoading: true });
     }
-  }, [timeRange, mockMode, refreshStats]);
+  }, [timeRange, mockMode, fetchStats]);
 
   // Debounced custom date changes
   useEffect(() => {
@@ -412,7 +355,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
           setLoading(true);
           const debounceTimer = setTimeout(() => {
             setLastCustomDates({ start: customStartDate, end: customEndDate });
-            refreshStats();
+            fetchStats({ showLoading: true });
           }, 50);
 
           return () => clearTimeout(debounceTimer);
@@ -421,7 +364,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     } else if (timeRange !== 'custom') {
       setLastCustomDates({ start: null, end: null });
     }
-  }, [customStartDate, customEndDate, timeRange, mockMode, refreshStats]);
+  }, [customStartDate, customEndDate, timeRange, mockMode, fetchStats]);
 
   const updateStats = useCallback((updater: {
     cacheInfo?: (prev: CacheInfo | null) => CacheInfo | null;
