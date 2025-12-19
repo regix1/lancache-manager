@@ -85,7 +85,8 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   };
 
   // Fetch all stats (called by SignalR events)
-  const fetchAllStats = useCallback(async () => {
+  // Takes currentTimeRange as parameter to avoid stale ref issues during callbacks
+  const fetchAllStats = useCallback(async (currentTimeRange: string) => {
     if (mockModeRef.current) return;
 
     const now = Date.now();
@@ -119,7 +120,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
         live: 'all',
         custom: 'custom'
       };
-      const period = periodMap[currentTimeRangeRef.current] || '24h';
+      const period = periodMap[currentTimeRange] || '24h';
 
       const [cache, clients, services, dashboard] = await Promise.allSettled([
         ApiService.getCacheInfo(abortControllerRef.current.signal),
@@ -238,8 +239,12 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
 
   // Subscribe to SignalR events for real-time updates
   // These events respect the user's polling rate preference (unless Live mode)
+  // timeRange is captured from closure to ensure correct period is used
   useEffect(() => {
     if (mockMode) return;
+
+    // Capture timeRange at effect setup - this will be correct when effect re-runs on timeRange change
+    const capturedTimeRange = timeRange;
 
     // Throttled handler that respects user's polling rate (or instant if Live mode)
     const throttledFetchAllStats = () => {
@@ -247,7 +252,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
 
       // Live mode (0) = instant updates, no throttling
       if (pollingInterval === 0) {
-        fetchAllStats();
+        fetchAllStats(capturedTimeRange);
         return;
       }
 
@@ -257,7 +262,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       // Only fetch if enough time has passed according to polling rate
       if (timeSinceLastRefresh >= pollingInterval) {
         lastSignalRRefresh.current = now;
-        fetchAllStats();
+        fetchAllStats(capturedTimeRange);
       }
     };
 
@@ -265,9 +270,12 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     const handleDatabaseResetProgress = (payload: { status?: string }) => {
       const status = (payload.status || '').toLowerCase();
       if (status === 'completed' || status === 'complete' || status === 'done') {
-        setTimeout(() => fetchAllStats(), 500);
+        setTimeout(() => fetchAllStats(capturedTimeRange), 500);
       }
     };
+
+    // Immediate fetch handler for user-initiated actions
+    const immediateFetch = () => fetchAllStats(capturedTimeRange);
 
     // Events that trigger data refresh (throttled by polling rate, or instant if Live)
     const refreshEvents = [
@@ -287,15 +295,15 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     ];
 
     refreshEvents.forEach(event => signalR.on(event, throttledFetchAllStats));
-    immediateRefreshEvents.forEach(event => signalR.on(event, fetchAllStats));
+    immediateRefreshEvents.forEach(event => signalR.on(event, immediateFetch));
     signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
 
     return () => {
       refreshEvents.forEach(event => signalR.off(event, throttledFetchAllStats));
-      immediateRefreshEvents.forEach(event => signalR.off(event, fetchAllStats));
+      immediateRefreshEvents.forEach(event => signalR.off(event, immediateFetch));
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
     };
-  }, [mockMode, signalR, fetchAllStats]);
+  }, [mockMode, signalR, fetchAllStats, timeRange]);
 
   // Load mock data when mock mode is enabled
   useEffect(() => {
@@ -329,10 +337,13 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
 
   // Polling interval - fetch data at user-configured rate
   // Skipped in Live mode (0) since SignalR handles real-time updates
-  // Re-runs when pollingRate changes to update the interval
+  // Re-runs when pollingRate or timeRange changes to update the interval
   const currentPollingInterval = getPollingInterval();
   useEffect(() => {
     if (mockMode) return;
+
+    // Capture timeRange for polling callbacks
+    const capturedTimeRange = timeRange;
 
     // Clear any existing polling interval
     if (pollingIntervalRef.current) {
@@ -348,7 +359,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     // Set up polling at the user's configured rate
     const setupPolling = () => {
       pollingIntervalRef.current = setInterval(() => {
-        fetchAllStats();
+        fetchAllStats(capturedTimeRange);
       }, currentPollingInterval);
     };
 
@@ -379,7 +390,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
         pollingIntervalRef.current = null;
       }
     };
-  }, [mockMode, fetchAllStats, currentPollingInterval]);
+  }, [mockMode, fetchAllStats, currentPollingInterval, timeRange]);
 
   // Handle time range changes
   useEffect(() => {

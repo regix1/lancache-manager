@@ -189,6 +189,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
 
   // Subscribe to SignalR events for real-time updates
   // These events respect the user's polling rate preference (unless Live mode)
+  // Effect re-runs when timeRange changes to ensure correct time params are used
   useEffect(() => {
     if (mockMode) return;
 
@@ -221,6 +222,9 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
       }
     };
 
+    // Immediate fetch handler for user-initiated actions
+    const immediateFetch = () => fetchDownloads();
+
     // Events that trigger data refresh (throttled by polling rate, or instant if Live)
     const refreshEvents = [
       'DownloadsRefresh',
@@ -239,15 +243,15 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
     ];
 
     refreshEvents.forEach(event => signalR.on(event, throttledFetchDownloads));
-    immediateRefreshEvents.forEach(event => signalR.on(event, fetchDownloads));
+    immediateRefreshEvents.forEach(event => signalR.on(event, immediateFetch));
     signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
 
     return () => {
       refreshEvents.forEach(event => signalR.off(event, throttledFetchDownloads));
-      immediateRefreshEvents.forEach(event => signalR.off(event, fetchDownloads));
+      immediateRefreshEvents.forEach(event => signalR.off(event, immediateFetch));
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
     };
-  }, [mockMode, signalR, fetchDownloads]);
+  }, [mockMode, signalR, fetchDownloads, timeRange, getTimeRangeParams]);
 
   // Load mock data when mock mode is enabled
   useEffect(() => {
@@ -278,7 +282,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
 
   // Polling interval - fetch data at user-configured rate
   // Skipped in Live mode (0) since SignalR handles real-time updates
-  // Re-runs when pollingRate changes to update the interval
+  // Re-runs when pollingRate or timeRange changes to update the interval
   const currentPollingInterval = getPollingInterval();
   useEffect(() => {
     if (mockMode) return;
@@ -328,7 +332,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
         pollingIntervalRef.current = null;
       }
     };
-  }, [mockMode, fetchDownloads, currentPollingInterval]);
+  }, [mockMode, fetchDownloads, currentPollingInterval, timeRange]);
 
   // Handle time range changes
   useEffect(() => {
