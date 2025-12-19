@@ -160,10 +160,6 @@ public class StatsController : ControllerBase
         }
         // If no timestamps provided, cutoffTime and endDateTime remain null = query ALL data
 
-        // DEBUG: Log the time range being queried
-        _logger.LogWarning("DEBUG GetDashboardStats: startTime={StartTime}, endTime={EndTime}, cutoffTime={CutoffTime}, endDateTime={EndDateTime}",
-            startTime, endTime, cutoffTime, endDateTime);
-
         // IMPORTANT: Calculate ALL metrics from Downloads table directly (no cache)
         // This ensures consistency - mixing cached ServiceStats with live Downloads caused fluctuating values
 
@@ -232,10 +228,6 @@ public class StatsController : ControllerBase
         var periodHitRatio = periodTotal > 0
             ? (double)periodHitBytes / periodTotal
             : 0;
-
-        // DEBUG: Log the calculated values
-        _logger.LogWarning("DEBUG GetDashboardStats RESULTS: AllTime(hit={AllTimeHit}, miss={AllTimeMiss}, total={AllTimeTotal}), Period(hit={PeriodHit}, miss={PeriodMiss}, total={PeriodTotal}, downloads={Downloads})",
-            totalBandwidthSaved, totalAddedToCache, totalServed, periodHitBytes, periodMissBytes, periodTotal, periodDownloadCount);
 
         // Determine period label for response
         string periodLabel = "all";

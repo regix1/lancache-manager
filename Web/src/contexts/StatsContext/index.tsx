@@ -160,6 +160,15 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
           setServiceStats(services.value);
         }
         if (dashboard.status === 'fulfilled' && dashboard.value !== undefined) {
+          // DEBUG: Log the raw API response
+          console.log('DEBUG StatsContext API response:', {
+            currentTimeRange,
+            startTime,
+            endTime,
+            'period.duration': dashboard.value.period?.duration,
+            'period.bandwidthSaved': dashboard.value.period?.bandwidthSaved,
+            'totalBandwidthSaved': dashboard.value.totalBandwidthSaved
+          });
           setDashboardStats(dashboard.value);
           hasData.current = true;
         }
