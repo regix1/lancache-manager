@@ -320,14 +320,6 @@ builder.Services.AddHostedService(provider => provider.GetRequiredService<Operat
 builder.Services.AddHostedService<LiveLogMonitorService>();
 builder.Services.AddHostedService<DownloadCleanupService>();
 
-// Add memory cache for storing stats - use expiration times to control memory
-builder.Services.AddMemoryCache(options =>
-{
-    options.CompactionPercentage = 0.25; // Remove 25% of entries during compaction
-    options.ExpirationScanFrequency = TimeSpan.FromSeconds(30); // Scan for expired entries frequently
-});
-builder.Services.AddSingleton<StatsCache>();
-
 // Add Output Caching for API endpoints
 builder.Services.AddOutputCache(options =>
 {
@@ -395,10 +387,6 @@ using (var scope = app.Services.CreateScope())
         {
             throw new Exception("Cannot connect to database after migration");
         }
-
-        // Load initial stats into cache
-        var statsCache = scope.ServiceProvider.GetRequiredService<StatsCache>();
-        await statsCache.RefreshFromDatabase(dbContext);
 
         // Note: LancacheMetricsService will start automatically as IHostedService
 

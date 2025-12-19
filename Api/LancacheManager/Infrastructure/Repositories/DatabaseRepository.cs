@@ -3,7 +3,6 @@ using LancacheManager.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Repositories.Interfaces;
 using LancacheManager.Infrastructure.Services.Interfaces;
-using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -17,7 +16,6 @@ public class DatabaseRepository : IDatabaseRepository
     private readonly IHubContext<DownloadHub> _hubContext;
     private readonly ILogger<DatabaseRepository> _logger;
     private readonly IPathResolver _pathResolver;
-    private readonly StatsCache _statsCache;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly SteamKit2Service _steamKit2Service;
     private static readonly ConcurrentDictionary<string, bool> _activeResetOperations = new();
@@ -38,7 +36,6 @@ public class DatabaseRepository : IDatabaseRepository
         IHubContext<DownloadHub> hubContext,
         ILogger<DatabaseRepository> logger,
         IPathResolver pathResolver,
-        StatsCache statsCache,
         IDbContextFactory<AppDbContext> dbContextFactory,
         SteamKit2Service steamKit2Service)
     {
@@ -46,7 +43,6 @@ public class DatabaseRepository : IDatabaseRepository
         _hubContext = hubContext;
         _logger = logger;
         _pathResolver = pathResolver;
-        _statsCache = statsCache;
         _dbContextFactory = dbContextFactory;
         _steamKit2Service = steamKit2Service;
     }
@@ -195,9 +191,6 @@ public class DatabaseRepository : IDatabaseRepository
 
             _logger.LogInformation($"Database reset completed successfully. Data directory: {dataDirectory}");
             _logger.LogInformation($"Preserved data: {cachedGameDetectionsCount:N0} game detections, {depotMappingsCount:N0} depot mappings");
-
-            // Invalidate all caches after full reset
-            _statsCache.InvalidateDownloads();
 
             // Send completion update
             await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
@@ -643,11 +636,6 @@ public class DatabaseRepository : IDatabaseRepository
                 timestamp = DateTime.UtcNow
             });
 
-                // Invalidate relevant caches
-                if (tablesToClear.Contains("Downloads") || tablesToClear.Contains("ClientStats") || tablesToClear.Contains("ServiceStats") || tablesToClear.Contains("CachedGameDetections") || tablesToClear.Contains("LogEntries"))
-                {
-                    _statsCache.InvalidateDownloads();
-                }
             }
             finally
             {
@@ -717,7 +705,6 @@ public class DatabaseRepository : IDatabaseRepository
             download.IsActive = false;
         }
         await _context.SaveChangesAsync();
-        _statsCache.InvalidateDownloads();
     }
 
     public async Task<List<Download>> GetDownloadsWithBadImageUrls()
@@ -740,7 +727,6 @@ public class DatabaseRepository : IDatabaseRepository
             }
 
             await _context.SaveChangesAsync();
-            _statsCache.InvalidateDownloads();
             return badImageUrls.Count;
         }
 
@@ -781,9 +767,6 @@ public class DatabaseRepository : IDatabaseRepository
                     _logger.LogWarning(ex, "Failed to delete PICS JSON file: {Path}", picsJsonPath);
                 }
             }
-
-            // Invalidate stats cache since download records changed
-            _statsCache.InvalidateDownloads();
 
             _logger.LogInformation("Cleared {Count} depot mappings from database and cleared game info from downloads table", count);
             return count;

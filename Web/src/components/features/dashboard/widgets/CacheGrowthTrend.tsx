@@ -5,14 +5,13 @@ import { type CacheGrowthResponse } from '../../../../types';
 import Sparkline from '../components/Sparkline';
 import ApiService from '@services/api.service';
 import { HelpPopover, HelpDefinition } from '@components/ui/HelpPopover';
+import { useTimeFilter } from '@contexts/TimeFilterContext';
 
 interface CacheGrowthTrendProps {
   /** Current used cache size in bytes (from cacheInfo) */
   usedCacheSize: number;
   /** Total cache capacity in bytes (from cacheInfo) */
   totalCacheSize: number;
-  /** Time period for growth data (default: 7d) */
-  period?: string;
   /** Whether to use glassmorphism style */
   glassmorphism?: boolean;
   /** Stagger index for entrance animation */
@@ -26,10 +25,10 @@ interface CacheGrowthTrendProps {
 const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
   usedCacheSize,
   totalCacheSize,
-  period = '7d',
   glassmorphism = true,
   staggerIndex,
 }) => {
+  const { timeRange, getTimeRangeParams } = useTimeFilter();
   const [data, setData] = useState<CacheGrowthResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +41,8 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
       try {
         setLoading(true);
         setError(null);
-        const response = await ApiService.getCacheGrowth(period, 'daily', controller.signal);
+        const { startTime, endTime } = getTimeRangeParams();
+        const response = await ApiService.getCacheGrowth(controller.signal, startTime, endTime, 'daily');
         setData(response);
       } catch (err) {
         if (!controller.signal.aborted) {
@@ -59,7 +59,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
     fetchData();
 
     return () => controller.abort();
-  }, [period]);
+  }, [timeRange, getTimeRangeParams]);
 
   // Extract sparkline data from API response
   const sparklineData = useMemo(() => {
@@ -202,7 +202,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
             height={40}
             showArea={true}
             animated={true}
-            ariaLabel={`Cache growth trend over ${period}`}
+            ariaLabel={`Cache growth trend over ${timeRange}`}
           />
         </div>
       )}

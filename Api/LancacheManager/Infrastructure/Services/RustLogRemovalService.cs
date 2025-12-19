@@ -23,7 +23,6 @@ public class RustLogRemovalService
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly NginxLogRotationService _nginxLogRotationService;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
-    private readonly StatsCache _statsCache;
     private Process? _rustProcess;
     private CancellationTokenSource? _cancellationTokenSource;
 
@@ -94,7 +93,6 @@ public class RustLogRemovalService
         RustProcessHelper rustProcessHelper,
         NginxLogRotationService nginxLogRotationService,
         IDbContextFactory<AppDbContext> dbContextFactory,
-        StatsCache statsCache,
         DatasourceService datasourceService)
     {
         _logger = logger;
@@ -105,7 +103,6 @@ public class RustLogRemovalService
         _rustProcessHelper = rustProcessHelper;
         _nginxLogRotationService = nginxLogRotationService;
         _dbContextFactory = dbContextFactory;
-        _statsCache = statsCache;
         _datasourceService = datasourceService;
     }
 
@@ -659,9 +656,6 @@ public class RustLogRemovalService
             result.TotalDeleted = result.LogEntriesDeleted + result.DownloadsDeleted + result.ServiceStatsDeleted;
             result.Success = true;
             result.Message = $"Deleted {result.DownloadsDeleted} downloads, {result.LogEntriesDeleted} log entries, {result.ServiceStatsDeleted} service stats";
-
-            // Invalidate caches so UI refreshes with new data
-            _statsCache.InvalidateDownloads();
 
             _logger.LogInformation("Database cleanup completed for service {Service}: {Message}", service, result.Message);
         }

@@ -1,7 +1,6 @@
 using LancacheManager.Application.DTOs;
 using LancacheManager.Data;
 using LancacheManager.Infrastructure.Repositories.Interfaces;
-using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,51 +8,148 @@ namespace LancacheManager.Infrastructure.Repositories;
 
 /// <summary>
 /// Repository for statistics database queries
-/// Uses StatsCache for performance on frequently accessed data
+/// Queries Downloads table directly for consistent data (no caching)
 /// </summary>
 public class StatsRepository : IStatsRepository
 {
     private readonly AppDbContext _context;
-    private readonly StatsCache _cache;
     private readonly ILogger<StatsRepository> _logger;
 
-    public StatsRepository(AppDbContext context, StatsCache cache, ILogger<StatsRepository> logger)
+    public StatsRepository(AppDbContext context, ILogger<StatsRepository> logger)
     {
         _context = context;
-        _cache = cache;
         _logger = logger;
     }
 
     /// <summary>
-    /// Get service statistics (cached for performance)
+    /// Get service statistics from Downloads table
     /// </summary>
     public async Task<List<ServiceStats>> GetServiceStatsAsync(CancellationToken cancellationToken = default)
     {
-        return await _cache.GetServiceStatsAsync(_context);
+        var stats = await _context.Downloads
+            .AsNoTracking()
+            .GroupBy(d => d.Service)
+            .Select(g => new ServiceStats
+            {
+                Service = g.Key,
+                TotalCacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
+                TotalDownloads = g.Count(),
+                LastActivityUtc = g.Max(d => d.StartTimeUtc),
+                LastActivityLocal = g.Max(d => d.StartTimeLocal)
+            })
+            .OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes)
+            .ToListAsync(cancellationToken);
+
+        // Fix timezone for proper JSON serialization
+        foreach (var stat in stats)
+        {
+            stat.LastActivityUtc = DateTime.SpecifyKind(stat.LastActivityUtc, DateTimeKind.Utc);
+        }
+
+        return stats;
     }
 
     /// <summary>
-    /// Get client statistics (cached for performance)
+    /// Get client statistics from Downloads table
     /// </summary>
     public async Task<List<ClientStats>> GetClientStatsAsync(CancellationToken cancellationToken = default)
     {
-        return await _cache.GetClientStatsAsync(_context);
+        var stats = await _context.Downloads
+            .AsNoTracking()
+            .GroupBy(d => d.ClientIp)
+            .Select(g => new ClientStats
+            {
+                ClientIp = g.Key,
+                TotalCacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
+                TotalDownloads = g.Count(),
+                LastActivityUtc = g.Max(d => d.StartTimeUtc),
+                LastActivityLocal = g.Max(d => d.StartTimeLocal)
+            })
+            .OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes)
+            .ToListAsync(cancellationToken);
+
+        // Fix timezone for proper JSON serialization
+        foreach (var stat in stats)
+        {
+            stat.LastActivityUtc = DateTime.SpecifyKind(stat.LastActivityUtc, DateTimeKind.Utc);
+        }
+
+        return stats;
     }
 
     /// <summary>
-    /// Get latest downloads with optional limit (cached for performance)
+    /// Get latest downloads with optional limit
     /// </summary>
     public async Task<List<Download>> GetLatestDownloadsAsync(int limit = int.MaxValue, CancellationToken cancellationToken = default)
     {
-        return await _cache.GetRecentDownloadsAsync(_context, limit);
+        var downloads = await _context.Downloads
+            .AsNoTracking()
+            .Where(d => !d.GameAppId.HasValue || d.GameAppId.Value != 0)
+            .OrderByDescending(d => d.StartTimeUtc)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+
+        // Fix timezone for proper JSON serialization
+        foreach (var download in downloads)
+        {
+            download.StartTimeUtc = DateTime.SpecifyKind(download.StartTimeUtc, DateTimeKind.Utc);
+            if (download.EndTimeUtc != default(DateTime))
+            {
+                download.EndTimeUtc = DateTime.SpecifyKind(download.EndTimeUtc, DateTimeKind.Utc);
+            }
+        }
+
+        return downloads;
     }
 
     /// <summary>
-    /// Get active downloads (cached with 2-second expiration)
+    /// Get active downloads grouped by game
     /// </summary>
     public async Task<List<Download>> GetActiveDownloadsAsync(CancellationToken cancellationToken = default)
     {
-        return await _cache.GetActiveDownloadsAsync(_context);
+        // Get all active downloads
+        var activeDownloads = await _context.Downloads
+            .AsNoTracking()
+            .Where(d => d.IsActive && (d.CacheHitBytes + d.CacheMissBytes) > 0 && (!d.GameAppId.HasValue || d.GameAppId.Value != 0))
+            .OrderByDescending(d => d.StartTimeUtc)
+            .ToListAsync(cancellationToken);
+
+        // Group chunks by game to show as single download
+        var grouped = activeDownloads
+            .GroupBy(d => new
+            {
+                GameKey = d.GameAppId.HasValue ? d.GameAppId.Value.ToString() : (d.DepotId?.ToString() ?? "unknown"),
+                ClientIp = d.ClientIp,
+                Service = d.Service
+            })
+            .Select(group =>
+            {
+                var first = group.OrderByDescending(d => !string.IsNullOrEmpty(d.GameName) && d.GameName != "Unknown Steam Game").First();
+
+                return new Download
+                {
+                    Id = first.Id,
+                    Service = first.Service,
+                    ClientIp = first.ClientIp,
+                    StartTimeUtc = DateTime.SpecifyKind(group.Min(d => d.StartTimeUtc), DateTimeKind.Utc),
+                    EndTimeUtc = default(DateTime),
+                    StartTimeLocal = group.Min(d => d.StartTimeLocal),
+                    EndTimeLocal = default(DateTime),
+                    CacheHitBytes = group.Sum(d => d.CacheHitBytes),
+                    CacheMissBytes = group.Sum(d => d.CacheMissBytes),
+                    IsActive = true,
+                    GameName = first.GameName,
+                    GameAppId = first.GameAppId,
+                    GameImageUrl = first.GameImageUrl,
+                    DepotId = first.DepotId
+                };
+            })
+            .OrderByDescending(d => d.StartTimeUtc)
+            .ToList();
+
+        return grouped;
     }
 
     /// <summary>
@@ -63,8 +159,6 @@ public class StatsRepository : IStatsRepository
     {
         var cutoff = GetCutoffTime(period, DateTime.UtcNow);
 
-        // Load data first, then group in memory to avoid EF Core translation issues
-        // Note: TotalBytes is a computed property, so we must use CacheHitBytes + CacheMissBytes directly
         var downloads = await _context.Downloads
             .AsNoTracking()
             .Where(d => d.StartTimeUtc >= cutoff && !string.IsNullOrEmpty(d.GameName))
@@ -84,7 +178,6 @@ public class StatsRepository : IStatsRepository
                 UniqueClients = g.Select(d => d.ClientIp).Distinct().Count()
             });
 
-        // Sort based on preference
         var sortedStats = sortBy.ToLower() switch
         {
             "bytes" => groupedStats.OrderByDescending(g => g.TotalBytes),
@@ -95,9 +188,6 @@ public class StatsRepository : IStatsRepository
         return sortedStats.Take(limit).ToList();
     }
 
-    /// <summary>
-    /// Helper method to calculate cutoff time based on period string
-    /// </summary>
     private DateTime GetCutoffTime(string period, DateTime now)
     {
         return period.ToLower() switch
@@ -109,7 +199,7 @@ public class StatsRepository : IStatsRepository
             "7d" => now.AddDays(-7),
             "30d" => now.AddDays(-30),
             "all" => DateTime.MinValue,
-            _ => now.AddHours(-24) // Default to 24h
+            _ => now.AddHours(-24)
         };
     }
 }

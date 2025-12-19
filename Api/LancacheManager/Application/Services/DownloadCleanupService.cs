@@ -1,5 +1,4 @@
 using LancacheManager.Data;
-using LancacheManager.Infrastructure.Utilities;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Application.Services;
@@ -83,11 +82,6 @@ public class DownloadCleanupService : BackgroundService
                 if (totalUpdated > 0)
                 {
                     _logger.LogInformation($"Marked {totalUpdated} downloads as complete (EndTime > 15 seconds old)");
-
-                    // Invalidate the active downloads cache so UI sees updated data immediately
-                    var statsCache = scope.ServiceProvider.GetRequiredService<StatsCache>();
-                    statsCache.InvalidateDownloads();
-                    _logger.LogInformation("Invalidated active downloads cache");
                 }
             }
             catch (Exception ex)
@@ -103,8 +97,6 @@ public class DownloadCleanupService : BackgroundService
     private async Task PerformInitialCleanup(AppDbContext context, CancellationToken stoppingToken)
     {
         _logger.LogInformation("Running initial database cleanup...");
-
-        var needsCacheInvalidation = false;
 
         try
         {
@@ -124,7 +116,6 @@ public class DownloadCleanupService : BackgroundService
                 }
                 await context.SaveChangesAsync(stoppingToken);
                 _logger.LogInformation($"Marked {app0Downloads.Count} 'App 0' downloads as inactive");
-                needsCacheInvalidation = true;
             }
             else
             {
@@ -148,34 +139,16 @@ public class DownloadCleanupService : BackgroundService
                 }
                 await context.SaveChangesAsync(stoppingToken);
                 _logger.LogInformation($"Marked {staleDownloads.Count} stale downloads as complete");
-                needsCacheInvalidation = true;
             }
 
             // Note: Image URL backfilling is now handled automatically by PICS during incremental scans
             // No manual cleanup needed - PICS fills in missing GameImageUrl fields when processing downloads
 
             // Normalize datasource mappings - fix inconsistent case and missing datasources
-            var datasourcesNormalized = await NormalizeDatasourceMappingsAsync(context, stoppingToken);
-            if (datasourcesNormalized > 0)
-            {
-                needsCacheInvalidation = true;
-            }
+            await NormalizeDatasourceMappingsAsync(context, stoppingToken);
 
             // Clean up orphaned services (services in DB but not in log files)
-            var orphanedServicesRemoved = await CleanupOrphanedServicesAsync(context, stoppingToken);
-            if (orphanedServicesRemoved > 0)
-            {
-                needsCacheInvalidation = true;
-            }
-
-            // Invalidate cache if we made any changes
-            if (needsCacheInvalidation)
-            {
-                using var scope = _serviceProvider.CreateScope();
-                var statsCache = scope.ServiceProvider.GetRequiredService<StatsCache>();
-                statsCache.InvalidateDownloads();
-                _logger.LogInformation("Invalidated downloads cache after cleanup - missing data will be backfilled during next PICS crawl");
-            }
+            await CleanupOrphanedServicesAsync(context, stoppingToken);
 
             _logger.LogInformation("Initial database cleanup complete");
         }

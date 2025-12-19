@@ -290,9 +290,18 @@ class ApiService {
   }
 
   // Hourly activity data for Peak Usage Hours widget
-  static async getHourlyActivity(period = '7d', signal?: AbortSignal): Promise<HourlyActivityResponse> {
+  static async getHourlyActivity(
+    signal?: AbortSignal,
+    startTime?: number,
+    endTime?: number
+  ): Promise<HourlyActivityResponse> {
     try {
-      const res = await fetch(`${API_BASE}/stats/hourly-activity?period=${period}`, this.getFetchOptions({ signal }));
+      let url = `${API_BASE}/stats/hourly-activity`;
+      const params = new URLSearchParams();
+      if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
+      if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
+      if (params.toString()) url += `?${params}`;
+      const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<HourlyActivityResponse>(res);
     } catch (error: unknown) {
       if (isAbortError(error)) {
@@ -305,9 +314,20 @@ class ApiService {
   }
 
   // Cache growth data for Cache Growth widget
-  static async getCacheGrowth(period = '7d', interval = 'daily', signal?: AbortSignal): Promise<CacheGrowthResponse> {
+  static async getCacheGrowth(
+    signal?: AbortSignal,
+    startTime?: number,
+    endTime?: number,
+    interval = 'daily'
+  ): Promise<CacheGrowthResponse> {
     try {
-      const res = await fetch(`${API_BASE}/stats/cache-growth?period=${period}&interval=${interval}`, this.getFetchOptions({ signal }));
+      let url = `${API_BASE}/stats/cache-growth`;
+      const params = new URLSearchParams();
+      if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
+      if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
+      params.append('interval', interval);
+      url += `?${params}`;
+      const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<CacheGrowthResponse>(res);
     } catch (error: unknown) {
       if (isAbortError(error)) {
@@ -320,9 +340,18 @@ class ApiService {
   }
 
   // Sparkline data for dashboard stat cards
-  static async getSparklineData(period = '7d', signal?: AbortSignal): Promise<SparklineDataResponse> {
+  static async getSparklineData(
+    signal?: AbortSignal,
+    startTime?: number,
+    endTime?: number
+  ): Promise<SparklineDataResponse> {
     try {
-      const res = await fetch(`${API_BASE}/stats/sparklines?period=${period}`, this.getFetchOptions({ signal }));
+      let url = `${API_BASE}/stats/sparklines`;
+      const params = new URLSearchParams();
+      if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
+      if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
+      if (params.toString()) url += `?${params}`;
+      const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<SparklineDataResponse>(res);
     } catch (error: unknown) {
       if (isAbortError(error)) {

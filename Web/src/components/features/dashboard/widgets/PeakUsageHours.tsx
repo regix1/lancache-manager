@@ -5,11 +5,10 @@ import { type HourlyActivityResponse, type HourlyActivityItem } from '../../../.
 import { Tooltip } from '@components/ui/Tooltip';
 import { HelpPopover, HelpDefinition } from '@components/ui/HelpPopover';
 import { useTimezone } from '@contexts/TimezoneContext';
+import { useTimeFilter } from '@contexts/TimeFilterContext';
 import ApiService from '@services/api.service';
 
 interface PeakUsageHoursProps {
-  /** Time period for data (default: 7d) */
-  period?: string;
   /** Whether to use glassmorphism style */
   glassmorphism?: boolean;
   /** Stagger index for entrance animation */
@@ -22,10 +21,10 @@ interface PeakUsageHoursProps {
  * Uses backend aggregation for efficiency
  */
 const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
-  period = '7d',
   glassmorphism = true,
   staggerIndex,
 }) => {
+  const { timeRange, getTimeRangeParams } = useTimeFilter();
   const [data, setData] = useState<HourlyActivityResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +43,8 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
       try {
         setLoading(true);
         setError(null);
-        const response = await ApiService.getHourlyActivity(period, controller.signal);
+        const { startTime, endTime } = getTimeRangeParams();
+        const response = await ApiService.getHourlyActivity(controller.signal, startTime, endTime);
         setData(response);
       } catch (err) {
         if (!controller.signal.aborted) {
@@ -61,7 +61,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
     fetchData();
 
     return () => controller.abort();
-  }, [period]);
+  }, [timeRange, getTimeRangeParams]);
 
   // Extract hourly data from API response (already includes all 24 hours)
   const hourlyData = useMemo((): HourlyActivityItem[] => {

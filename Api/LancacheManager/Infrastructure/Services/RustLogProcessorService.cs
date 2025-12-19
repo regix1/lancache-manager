@@ -575,12 +575,6 @@ public class RustLogProcessorService
             // Wait a moment to ensure all database writes are complete
             await Task.Delay(500);
 
-            using var scope = _serviceProvider.CreateScope();
-            var statsCache = scope.ServiceProvider.GetRequiredService<StatsCache>();
-
-            // Invalidate cache to refresh UI with newly imported downloads
-            statsCache.InvalidateDownloads();
-
             // In silent mode, send a refresh notification so the UI updates
             if (silentMode)
             {
@@ -592,7 +586,7 @@ public class RustLogProcessorService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error invalidating cache after log processing");
+            _logger.LogError(ex, "Error sending refresh notification after log processing");
         }
     }
 
@@ -652,10 +646,6 @@ public class RustLogProcessorService
             {
                 await context.SaveChangesAsync();
                 _logger.LogInformation("Updated {Count} downloads with game images", updated);
-
-                // Invalidate cache again to show the images
-                var statsCache = scope.ServiceProvider.GetRequiredService<StatsCache>();
-                statsCache.InvalidateDownloads();
 
                 await _hubContext.Clients.All.SendAsync("DownloadsRefresh", new
                 {
