@@ -173,7 +173,9 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
           setServiceStats(services.value);
         }
         if (dashboard.status === 'fulfilled' && dashboard.value !== undefined) {
-          console.log('DEBUG setDashboardStats:', dashboard.value);
+          console.log('DEBUG setDashboardStats FULL:', dashboard.value);
+          console.log('DEBUG setDashboardStats PERIOD:', dashboard.value.period);
+          console.log('DEBUG period.bandwidthSaved:', dashboard.value.period?.bandwidthSaved);
           setDashboardStats(dashboard.value);
           hasData.current = true;
         }

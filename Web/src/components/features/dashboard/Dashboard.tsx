@@ -320,6 +320,15 @@ const Dashboard: React.FC = () => {
       0
     );
 
+    // DEBUG: Log what values we're using
+    console.log('DEBUG Dashboard stats memo:', {
+      timeRange,
+      'dashboardStats?.period': dashboardStats?.period,
+      'period?.bandwidthSaved': dashboardStats?.period?.bandwidthSaved,
+      'period?.addedToCache': dashboardStats?.period?.addedToCache,
+      'period?.totalServed': dashboardStats?.period?.totalServed
+    });
+
     return {
       activeClients,
       totalActiveDownloads,
@@ -330,7 +339,7 @@ const Dashboard: React.FC = () => {
       cacheHitRatio: dashboardStats?.period?.hitRatio || 0,
       uniqueClients: dashboardStats?.uniqueClients || filteredClientStats.length
     };
-  }, [filteredActiveDownloads, filteredServiceStats, dashboardStats, filteredClientStats]);
+  }, [filteredActiveDownloads, filteredServiceStats, dashboardStats, filteredClientStats, timeRange]);
 
   const allStatCards = useMemo<AllStatCards>(
     () => ({
