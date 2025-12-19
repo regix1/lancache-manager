@@ -148,12 +148,27 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("dashboard")]
-    public async Task<IActionResult> GetDashboardStats([FromQuery] string period = "24h")
+    public async Task<IActionResult> GetDashboardStats(
+        [FromQuery] string period = "24h",
+        [FromQuery] long? startTime = null,
+        [FromQuery] long? endTime = null)
     {
-        // Parse the time period - handle "all" specially
+        // Use Unix timestamps if provided (for consistency with other endpoints)
+        // Otherwise fall back to period string parsing
         DateTime? cutoffTime = null;
-        if (period != "all")
+        DateTime? endDateTime = null;
+
+        if (startTime.HasValue)
         {
+            // Use client-provided timestamps for consistency across all API calls
+            cutoffTime = DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime;
+            endDateTime = endTime.HasValue
+                ? DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime
+                : DateTime.UtcNow;
+        }
+        else if (period != "all")
+        {
+            // Fall back to period string parsing
             cutoffTime = ParseTimePeriod(period) ?? DateTime.UtcNow.AddHours(-24);
         }
 
@@ -179,6 +194,10 @@ public class StatsController : ControllerBase
         {
             downloadsQuery = downloadsQuery.Where(d => d.StartTimeUtc >= cutoffTime.Value);
         }
+        if (endDateTime.HasValue)
+        {
+            downloadsQuery = downloadsQuery.Where(d => d.StartTimeUtc <= endDateTime.Value);
+        }
 
         // Run aggregates in parallel for better performance
         var periodHitBytesTask = downloadsQuery.SumAsync(d => (long?)d.CacheHitBytes);
@@ -188,12 +207,16 @@ public class StatsController : ControllerBase
             .AsNoTracking()
             .Where(d => d.IsActive && d.EndTimeUtc > DateTime.UtcNow.AddMinutes(-5))
             .CountAsync();
-        var uniqueClientsCountTask = cutoffTime.HasValue
-            ? _context.ClientStats
-                .AsNoTracking()
-                .Where(c => c.LastActivityUtc >= cutoffTime.Value)
-                .CountAsync()
-            : _context.ClientStats.AsNoTracking().CountAsync();
+        var uniqueClientsQuery = _context.ClientStats.AsNoTracking();
+        if (cutoffTime.HasValue)
+        {
+            uniqueClientsQuery = uniqueClientsQuery.Where(c => c.LastActivityUtc >= cutoffTime.Value);
+        }
+        if (endDateTime.HasValue)
+        {
+            uniqueClientsQuery = uniqueClientsQuery.Where(c => c.LastActivityUtc <= endDateTime.Value);
+        }
+        var uniqueClientsCountTask = uniqueClientsQuery.CountAsync();
 
         // Await all tasks in parallel
         await Task.WhenAll(periodHitBytesTask, periodMissBytesTask, periodDownloadCountTask, activeDownloadsTask, uniqueClientsCountTask);

@@ -244,14 +244,12 @@ class ApiService {
 
   static async getServiceStats(
     signal?: AbortSignal,
-    since: string | null = null,
     startTime?: number,
     endTime?: number
   ): Promise<ServiceStat[]> {
     try {
       let url = `${API_BASE}/stats/services`;
       const params = new URLSearchParams();
-      if (since) params.append('since', since);
       if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
       if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
       if (params.toString()) url += `?${params}`;
@@ -268,9 +266,18 @@ class ApiService {
   }
 
   // Dashboard aggregated stats
-  static async getDashboardStats(period = '24h', signal?: AbortSignal): Promise<DashboardStats> {
+  static async getDashboardStats(
+    signal?: AbortSignal,
+    startTime?: number,
+    endTime?: number
+  ): Promise<DashboardStats> {
     try {
-      const res = await fetch(`${API_BASE}/stats/dashboard?period=${period}`, this.getFetchOptions({ signal }));
+      let url = `${API_BASE}/stats/dashboard`;
+      const params = new URLSearchParams();
+      if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
+      if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
+      if (params.toString()) url += `?${params}`;
+      const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<DashboardStats>(res);
     } catch (error: unknown) {
       if (isAbortError(error)) {

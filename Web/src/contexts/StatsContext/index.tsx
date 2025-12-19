@@ -18,18 +18,6 @@ export const useStats = () => {
   return context;
 };
 
-// Map timeRange values to API period parameter
-const TIME_RANGE_TO_PERIOD: Record<string, string> = {
-  '1h': '1h',
-  '6h': '6h',
-  '12h': '12h',
-  '24h': '24h',
-  '7d': '7d',
-  '30d': '30d',
-  live: 'all',
-  custom: 'custom'
-};
-
 export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode = false }) => {
   const { getTimeRangeParams, timeRange, customStartDate, customEndDate } = useTimeFilter();
   const { getPollingInterval } = usePollingRate();
@@ -128,7 +116,6 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     // Read current values from refs - these are always up-to-date
     const currentTimeRange = currentTimeRangeRef.current;
     const { startTime, endTime } = getTimeRangeParamsRef.current();
-    const period = TIME_RANGE_TO_PERIOD[currentTimeRange] || '24h';
 
     abortControllerRef.current = new AbortController();
 
@@ -151,8 +138,8 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       const [cache, clients, services, dashboard] = await Promise.allSettled([
         ApiService.getCacheInfo(abortControllerRef.current.signal),
         ApiService.getClientStats(abortControllerRef.current.signal, startTime, endTime),
-        ApiService.getServiceStats(abortControllerRef.current.signal, null, startTime, endTime),
-        ApiService.getDashboardStats(period, abortControllerRef.current.signal)
+        ApiService.getServiceStats(abortControllerRef.current.signal, startTime, endTime),
+        ApiService.getDashboardStats(abortControllerRef.current.signal, startTime, endTime)
       ]);
 
       clearTimeout(timeoutId);
