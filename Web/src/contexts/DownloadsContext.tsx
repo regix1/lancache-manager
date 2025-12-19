@@ -70,11 +70,13 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
 
   // IMPORTANT: These refs are updated on every render BEFORE effects run
   // This ensures that any function reading from these refs gets the current value
+  const currentTimeRangeRef = useRef<string>(timeRange);
   const getTimeRangeParamsRef = useRef(getTimeRangeParams);
   const getPollingIntervalRef = useRef(getPollingInterval);
   const mockModeRef = useRef(mockMode);
 
   // Update refs synchronously on every render
+  currentTimeRangeRef.current = timeRange;
   getTimeRangeParamsRef.current = getTimeRangeParams;
   getPollingIntervalRef.current = getPollingInterval;
   mockModeRef.current = mockMode;
@@ -86,26 +88,29 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
 
     const { showLoading = false, isInitial = false } = options;
 
-    // Debounce rapid calls (min 250ms between fetches)
+    // Debounce rapid calls (min 250ms between fetches) - skip for initial load
     const now = Date.now();
     if (!isInitial && now - lastFetchTime.current < 250) {
       return;
     }
     lastFetchTime.current = now;
 
-    // Prevent concurrent fetches (except for initial load)
+    // Abort any in-flight request BEFORE checking concurrent flag
+    // This ensures time range changes always trigger new fetches
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    // Prevent concurrent fetches (except for initial load which should always proceed)
     if (fetchInProgress.current && !isInitial) {
       return;
     }
     fetchInProgress.current = true;
 
     // Read current values from refs - these are always up-to-date
+    const currentTimeRange = currentTimeRangeRef.current;
     const { startTime, endTime } = getTimeRangeParamsRef.current();
 
-    // Abort any in-flight request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
     abortControllerRef.current = new AbortController();
 
     try {
@@ -128,12 +133,16 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
 
       clearTimeout(timeoutId);
 
+      // Active downloads are not time-range dependent, always apply
       if (active.status === 'fulfilled' && active.value !== undefined) {
         setActiveDownloads(active.value);
       }
+      // Latest downloads are time-range dependent - only apply if timeRange hasn't changed
       if (latest.status === 'fulfilled' && latest.value !== undefined) {
-        setLatestDownloads(latest.value);
-        hasData.current = true;
+        if (currentTimeRangeRef.current === currentTimeRange) {
+          setLatestDownloads(latest.value);
+          hasData.current = true;
+        }
       }
 
       setError(null);
@@ -300,11 +309,11 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
     };
   }, [mockMode, fetchDownloads, currentPollingInterval]);
 
-  // Handle time range changes - clear old data and fetch new data
+  // Handle time range changes - fetch new data (stale data protection handles old results)
   useEffect(() => {
     if (!mockMode && !isInitialLoad.current) {
-      // Clear existing data to prevent showing stale values during load
-      setLatestDownloads([]);
+      // Don't clear old data - let new data atomically replace it to avoid visual flickering
+      // The stale data protection in fetchDownloads ensures old results don't overwrite new ones
       fetchDownloads({ showLoading: true });
     }
   }, [timeRange, mockMode, fetchDownloads]);

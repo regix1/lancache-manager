@@ -106,17 +106,21 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
 
     const { showLoading = false, isInitial = false } = options;
 
-    // Debounce rapid calls (min 250ms between fetches) - applies to ALL fetches including initial
+    // Debounce rapid calls (min 250ms between fetches) - skip for initial load
     const now = Date.now();
-    if (now - lastFetchTime.current < 250) {
-      console.log('[StatsContext] Fetch debounced - too soon');
+    if (!isInitial && now - lastFetchTime.current < 250) {
       return;
     }
     lastFetchTime.current = now;
 
-    // Prevent concurrent fetches
-    if (fetchInProgress.current) {
-      console.log('[StatsContext] Fetch skipped - already in progress');
+    // Abort any in-flight request BEFORE checking concurrent flag
+    // This ensures time range changes always trigger new fetches
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    // Prevent concurrent fetches (except for initial load which should always proceed)
+    if (fetchInProgress.current && !isInitial) {
       return;
     }
     fetchInProgress.current = true;
@@ -126,12 +130,6 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     const { startTime, endTime } = getTimeRangeParamsRef.current();
     const period = TIME_RANGE_TO_PERIOD[currentTimeRange] || '24h';
 
-    console.log('[StatsContext] Fetching stats:', { currentTimeRange, period, startTime, endTime, showLoading, isInitial });
-
-    // Abort any in-flight request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
     abortControllerRef.current = new AbortController();
 
     try {
@@ -159,23 +157,25 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
 
       clearTimeout(timeoutId);
 
+      // Only apply time-range-dependent results if timeRange hasn't changed during fetch
+      const timeRangeStillValid = currentTimeRangeRef.current === currentTimeRange;
+
+      // Cache info is not time-range dependent, always apply
       if (cache.status === 'fulfilled' && cache.value !== undefined) {
         setCacheInfo(cache.value);
       }
-      if (clients.status === 'fulfilled' && clients.value !== undefined) {
-        setClientStats(clients.value);
-      }
-      if (services.status === 'fulfilled' && services.value !== undefined) {
-        setServiceStats(services.value);
-      }
-      if (dashboard.status === 'fulfilled' && dashboard.value !== undefined) {
-        console.log('[StatsContext] Setting dashboard stats:', {
-          period: dashboard.value.period?.duration,
-          bandwidthSaved: dashboard.value.period?.bandwidthSaved,
-          totalServed: dashboard.value.period?.totalServed
-        });
-        setDashboardStats(dashboard.value);
-        hasData.current = true;
+      // Client/service/dashboard stats are time-range dependent
+      if (timeRangeStillValid) {
+        if (clients.status === 'fulfilled' && clients.value !== undefined) {
+          setClientStats(clients.value);
+        }
+        if (services.status === 'fulfilled' && services.value !== undefined) {
+          setServiceStats(services.value);
+        }
+        if (dashboard.status === 'fulfilled' && dashboard.value !== undefined) {
+          setDashboardStats(dashboard.value);
+          hasData.current = true;
+        }
       }
 
       setError(null);
@@ -345,15 +345,11 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     };
   }, [mockMode, fetchStats, currentPollingInterval]);
 
-  // Handle time range changes - clear old data and fetch new data
+  // Handle time range changes - fetch new data (stale data protection handles old results)
   useEffect(() => {
-    console.log('[StatsContext] Time range effect triggered:', { timeRange, isInitialLoad: isInitialLoad.current });
     if (!mockMode && !isInitialLoad.current) {
-      // Clear existing data to prevent showing stale values during load
-      console.log('[StatsContext] Clearing old data and fetching for new time range:', timeRange);
-      setDashboardStats(null);
-      setClientStats([]);
-      setServiceStats([]);
+      // Don't clear old data - let new data atomically replace it to avoid visual flickering
+      // The stale data protection in fetchStats ensures old results don't overwrite new ones
       fetchStats({ showLoading: true });
     }
   }, [timeRange, mockMode, fetchStats]);
