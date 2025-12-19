@@ -300,9 +300,11 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
     };
   }, [mockMode, fetchDownloads, currentPollingInterval]);
 
-  // Handle time range changes - fetch new data when timeRange changes
+  // Handle time range changes - clear old data and fetch new data
   useEffect(() => {
     if (!mockMode && !isInitialLoad.current) {
+      // Clear existing data to prevent showing stale values during load
+      setLatestDownloads([]);
       fetchDownloads({ showLoading: true });
     }
   }, [timeRange, mockMode, fetchDownloads]);

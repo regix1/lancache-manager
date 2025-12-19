@@ -106,15 +106,17 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
 
     const { showLoading = false, isInitial = false } = options;
 
-    // Debounce rapid calls (min 250ms between fetches)
+    // Debounce rapid calls (min 250ms between fetches) - applies to ALL fetches including initial
     const now = Date.now();
-    if (!isInitial && now - lastFetchTime.current < 250) {
+    if (now - lastFetchTime.current < 250) {
+      console.log('[StatsContext] Fetch debounced - too soon');
       return;
     }
     lastFetchTime.current = now;
 
-    // Prevent concurrent fetches (except for initial load)
-    if (fetchInProgress.current && !isInitial) {
+    // Prevent concurrent fetches
+    if (fetchInProgress.current) {
+      console.log('[StatsContext] Fetch skipped - already in progress');
       return;
     }
     fetchInProgress.current = true;
@@ -123,6 +125,8 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     const currentTimeRange = currentTimeRangeRef.current;
     const { startTime, endTime } = getTimeRangeParamsRef.current();
     const period = TIME_RANGE_TO_PERIOD[currentTimeRange] || '24h';
+
+    console.log('[StatsContext] Fetching stats:', { currentTimeRange, period, startTime, endTime, showLoading, isInitial });
 
     // Abort any in-flight request
     if (abortControllerRef.current) {
@@ -165,6 +169,11 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
         setServiceStats(services.value);
       }
       if (dashboard.status === 'fulfilled' && dashboard.value !== undefined) {
+        console.log('[StatsContext] Setting dashboard stats:', {
+          period: dashboard.value.period?.duration,
+          bandwidthSaved: dashboard.value.period?.bandwidthSaved,
+          totalServed: dashboard.value.period?.totalServed
+        });
         setDashboardStats(dashboard.value);
         hasData.current = true;
       }
@@ -336,9 +345,15 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     };
   }, [mockMode, fetchStats, currentPollingInterval]);
 
-  // Handle time range changes - fetch new data when timeRange changes
+  // Handle time range changes - clear old data and fetch new data
   useEffect(() => {
+    console.log('[StatsContext] Time range effect triggered:', { timeRange, isInitialLoad: isInitialLoad.current });
     if (!mockMode && !isInitialLoad.current) {
+      // Clear existing data to prevent showing stale values during load
+      console.log('[StatsContext] Clearing old data and fetching for new time range:', timeRange);
+      setDashboardStats(null);
+      setClientStats([]);
+      setServiceStats([]);
       fetchStats({ showLoading: true });
     }
   }, [timeRange, mockMode, fetchStats]);
