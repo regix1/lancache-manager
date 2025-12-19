@@ -320,24 +320,21 @@ const Dashboard: React.FC = () => {
       0
     );
 
-    // DEBUG: Log what values we're using
-    console.log('DEBUG Dashboard stats memo:', {
-      timeRange,
-      'dashboardStats?.period': dashboardStats?.period,
-      'period?.bandwidthSaved': dashboardStats?.period?.bandwidthSaved,
-      'period?.addedToCache': dashboardStats?.period?.addedToCache,
-      'period?.totalServed': dashboardStats?.period?.totalServed
-    });
+    // Validate that the period data matches the current timeRange
+    // This prevents showing stale data when switching time ranges
+    // 'live' mode corresponds to 'all' duration, other modes match directly
+    const expectedDuration = timeRange === 'live' ? 'all' : timeRange;
+    const periodMatchesTimeRange = dashboardStats?.period?.duration === expectedDuration;
 
     return {
       activeClients,
       totalActiveDownloads,
       totalDownloads,
-      bandwidthSaved: dashboardStats?.period?.bandwidthSaved || 0,
-      addedToCache: dashboardStats?.period?.addedToCache || 0,
-      totalServed: dashboardStats?.period?.totalServed || 0,
-      cacheHitRatio: dashboardStats?.period?.hitRatio || 0,
-      uniqueClients: dashboardStats?.uniqueClients || filteredClientStats.length
+      bandwidthSaved: periodMatchesTimeRange ? (dashboardStats?.period?.bandwidthSaved || 0) : 0,
+      addedToCache: periodMatchesTimeRange ? (dashboardStats?.period?.addedToCache || 0) : 0,
+      totalServed: periodMatchesTimeRange ? (dashboardStats?.period?.totalServed || 0) : 0,
+      cacheHitRatio: periodMatchesTimeRange ? (dashboardStats?.period?.hitRatio || 0) : 0,
+      uniqueClients: periodMatchesTimeRange ? (dashboardStats?.uniqueClients || filteredClientStats.length) : 0
     };
   }, [filteredActiveDownloads, filteredServiceStats, dashboardStats, filteredClientStats, timeRange]);
 

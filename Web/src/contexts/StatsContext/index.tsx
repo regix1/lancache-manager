@@ -117,9 +117,6 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     const currentTimeRange = currentTimeRangeRef.current;
     const { startTime, endTime } = getTimeRangeParamsRef.current();
 
-    // DEBUG: Log what we're fetching
-    console.log('DEBUG fetchStats: timeRange=', currentTimeRange, 'startTime=', startTime, 'endTime=', endTime, 'options=', options);
-
     abortControllerRef.current = new AbortController();
 
     try {
@@ -150,16 +147,6 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       // Only apply time-range-dependent results if timeRange hasn't changed during fetch
       const timeRangeStillValid = currentTimeRangeRef.current === currentTimeRange;
 
-      // DEBUG: Log received data
-      console.log('DEBUG fetchStats RECEIVED:', {
-        timeRangeStillValid,
-        currentTimeRange,
-        currentTimeRangeRef: currentTimeRangeRef.current,
-        dashboard: dashboard.status === 'fulfilled' ? dashboard.value : 'failed',
-        clients: clients.status === 'fulfilled' ? clients.value?.length : 'failed',
-        services: services.status === 'fulfilled' ? services.value?.length : 'failed'
-      });
-
       // Cache info is not time-range dependent, always apply
       if (cache.status === 'fulfilled' && cache.value !== undefined) {
         setCacheInfo(cache.value);
@@ -173,14 +160,9 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
           setServiceStats(services.value);
         }
         if (dashboard.status === 'fulfilled' && dashboard.value !== undefined) {
-          console.log('DEBUG setDashboardStats FULL:', dashboard.value);
-          console.log('DEBUG setDashboardStats PERIOD:', dashboard.value.period);
-          console.log('DEBUG period.bandwidthSaved:', dashboard.value.period?.bandwidthSaved);
           setDashboardStats(dashboard.value);
           hasData.current = true;
         }
-      } else {
-        console.log('DEBUG fetchStats: SKIPPED setting state because timeRange changed during fetch');
       }
 
       setError(null);
