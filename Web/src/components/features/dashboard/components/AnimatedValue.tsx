@@ -61,6 +61,15 @@ const AnimatedValue: React.FC<AnimatedValueProps> = ({
 }) => {
   const parsed = useMemo(() => parseFormattedValue(value), [value]);
 
+  // Track previous suffix to detect unit changes (e.g., GB → TB)
+  const prevSuffixRef = React.useRef(parsed.suffix);
+  const suffixChanged = prevSuffixRef.current !== parsed.suffix;
+
+  // Update the ref after checking
+  React.useEffect(() => {
+    prevSuffixRef.current = parsed.suffix;
+  }, [parsed.suffix]);
+
   // Determine decimal places from the original number
   const decimals = useMemo(() => {
     const str = parsed.number.toString();
@@ -68,10 +77,14 @@ const AnimatedValue: React.FC<AnimatedValueProps> = ({
     return decimalIndex >= 0 ? str.length - decimalIndex - 1 : 0;
   }, [parsed.number]);
 
+  // Don't animate when the unit/suffix changes (e.g., switching from GB to TB)
+  // This prevents showing nonsensical values like "537 TB" when switching time ranges
+  const shouldAnimate = animate && !suffixChanged;
+
   const { displayValue, isAnimating } = useAnimatedNumber({
     value: parsed.number,
     duration,
-    enabled: animate,
+    enabled: shouldAnimate,
     decimals,
     easing: 'easeOut',
   });
