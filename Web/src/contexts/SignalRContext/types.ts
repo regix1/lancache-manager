@@ -56,7 +56,11 @@ export const SIGNALR_EVENTS = [
   'UserSessionCreated',
   'SessionLastSeenUpdated',
   'GuestPollingRateUpdated',
-  'DefaultGuestPollingRateChanged'
+  'DefaultGuestPollingRateChanged',
+  'EventCreated',
+  'EventUpdated',
+  'EventDeleted',
+  'DownloadTagged'
 ] as const;
 
 export type SignalREvent = (typeof SIGNALR_EVENTS)[number];

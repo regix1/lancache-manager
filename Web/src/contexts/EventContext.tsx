@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
 import { useAuth } from '@contexts/AuthContext';
+import { useSignalR } from '@contexts/SignalRContext';
 import type { Event, CreateEventRequest, UpdateEventRequest, EventFilterMode, EventDataStackMode } from '../types';
 
 interface EventContextType {
@@ -47,10 +48,12 @@ interface EventProviderProps {
 
 export const EventProvider: React.FC<EventProviderProps> = ({ children }) => {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { on, off } = useSignalR();
   const [events, setEvents] = useState<Event[]>([]);
   const [activeEvents, setActiveEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const refreshEventsRef = useRef<(() => Promise<void>) | undefined>(undefined);
 
   // Restore selected event ID from localStorage
   const [selectedEventId, setSelectedEventIdState] = useState<number | null>(() => {
@@ -149,6 +152,44 @@ export const EventProvider: React.FC<EventProviderProps> = ({ children }) => {
     }
     await refreshEvents();
   }, [selectedEventId, setSelectedEventId, refreshEvents]);
+
+  // Keep ref updated for SignalR handlers
+  useEffect(() => {
+    refreshEventsRef.current = refreshEvents;
+  }, [refreshEvents]);
+
+  // Listen for SignalR events
+  useEffect(() => {
+    const handleEventCreated = () => {
+      refreshEventsRef.current?.();
+    };
+
+    const handleEventUpdated = () => {
+      refreshEventsRef.current?.();
+    };
+
+    const handleEventDeleted = () => {
+      refreshEventsRef.current?.();
+    };
+
+    const handleDownloadTagged = () => {
+      // Could trigger a refresh of download associations here if needed
+      // For now, just refresh events to update counts
+      refreshEventsRef.current?.();
+    };
+
+    on('EventCreated', handleEventCreated);
+    on('EventUpdated', handleEventUpdated);
+    on('EventDeleted', handleEventDeleted);
+    on('DownloadTagged', handleDownloadTagged);
+
+    return () => {
+      off('EventCreated', handleEventCreated);
+      off('EventUpdated', handleEventUpdated);
+      off('EventDeleted', handleEventDeleted);
+      off('DownloadTagged', handleDownloadTagged);
+    };
+  }, [on, off]);
 
   return (
     <EventContext.Provider

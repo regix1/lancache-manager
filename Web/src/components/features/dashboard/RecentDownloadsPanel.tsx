@@ -1,11 +1,13 @@
-import React, { memo, useMemo, useState, useCallback, useRef } from 'react';
+import React, { memo, useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import { Activity, Clock, Loader2 } from 'lucide-react';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { useDownloads } from '@contexts/DownloadsContext';
+import { useDownloadAssociations } from '@contexts/DownloadAssociationsContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
-import type { Download } from '@/types';
+import EventBadge from '../downloads/EventBadge';
+import type { Download, EventSummary } from '@/types';
 
 interface DownloadGroup {
   id: string;
@@ -31,9 +33,10 @@ interface RecentDownloadsPanelProps {
 
 interface ActiveDownloadRowProps {
   download: Download;
+  events?: EventSummary[];
 }
 
-const ActiveDownloadRow: React.FC<ActiveDownloadRowProps> = ({ download }) => {
+const ActiveDownloadRow: React.FC<ActiveDownloadRowProps> = ({ download, events = [] }) => {
   const formattedStartTime = useFormattedDateTime(download.startTimeUtc);
 
   return (
@@ -65,11 +68,14 @@ const ActiveDownloadRow: React.FC<ActiveDownloadRowProps> = ({ download }) => {
               />
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs px-2 py-0.5 rounded bg-themed-accent bg-opacity-10 text-themed-accent font-medium">
               {download.service}
             </span>
             <span className="text-xs text-themed-muted">{download.clientIp}</span>
+            {events.length > 0 && events.slice(0, 2).map(event => (
+              <EventBadge key={event.id} event={event} size="sm" />
+            ))}
           </div>
         </div>
         <span className="text-xs text-themed-muted whitespace-nowrap ml-2">
@@ -108,9 +114,10 @@ const ActiveDownloadRow: React.FC<ActiveDownloadRowProps> = ({ download }) => {
 
 interface RecentDownloadRowProps {
   item: DownloadGroup | Download;
+  events?: EventSummary[];
 }
 
-const RecentDownloadRow: React.FC<RecentDownloadRowProps> = ({ item }) => {
+const RecentDownloadRow: React.FC<RecentDownloadRowProps> = ({ item, events = [] }) => {
   const isGroup = 'downloads' in item;
   const display = isGroup
     ? {
@@ -182,7 +189,7 @@ const RecentDownloadRow: React.FC<RecentDownloadRowProps> = ({ item }) => {
               )}
             </div>
           )}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs px-2 py-0.5 rounded bg-themed-accent bg-opacity-10 text-themed-accent font-medium">
               {display.service}
             </span>
@@ -192,6 +199,9 @@ const RecentDownloadRow: React.FC<RecentDownloadRowProps> = ({ item }) => {
               </span>
             )}
             <span className="text-xs text-themed-muted">{display.clientIp}</span>
+            {events.length > 0 && events.slice(0, 2).map(event => (
+              <EventBadge key={event.id} event={event} size="sm" />
+            ))}
           </div>
         </div>
         <span className="text-xs text-themed-muted whitespace-nowrap ml-2">
@@ -234,11 +244,23 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
     const [selectedClient, setSelectedClient] = useState<string>('all');
     const [viewMode, setViewMode] = useState<'recent' | 'active'>('recent');
     const { activeDownloads, latestDownloads, loading } = useDownloads();
+    const { fetchAssociations, getAssociations } = useDownloadAssociations();
 
     // Touch/swipe handling
     const touchStartX = useRef<number>(0);
     const touchEndX = useRef<number>(0);
     const containerRef = useRef<HTMLDivElement>(null);
+
+    // Fetch associations for visible downloads
+    useEffect(() => {
+      const downloadIds = [
+        ...activeDownloads.map(d => d.id),
+        ...latestDownloads.slice(0, 20).map(d => d.id)
+      ].filter(Boolean);
+      if (downloadIds.length > 0) {
+        fetchAssociations(downloadIds);
+      }
+    }, [activeDownloads, latestDownloads, fetchAssociations]);
 
     // Grouping logic adapted from DownloadsTab
     const createGroups = useCallback(
@@ -605,7 +627,11 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
               // Active Downloads View - backend already grouped chunks by game
               groupedActiveDownloads.length > 0 ? (
                 groupedActiveDownloads.map((download, idx) => (
-                  <ActiveDownloadRow key={download.id || idx} download={download} />
+                  <ActiveDownloadRow
+                    key={download.id || idx}
+                    download={download}
+                    events={getAssociations(download.id).events}
+                  />
                 ))
               ) : (
                 <div className="flex flex-col items-center justify-center h-32 text-themed-muted">
@@ -623,8 +649,21 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
             ) : groupedItems.displayedItems.length > 0 ? (
               groupedItems.displayedItems.map((item, idx) => {
                 const isGroup = 'downloads' in item;
+                // Aggregate events for groups, or get events for individual downloads
+                const events = isGroup
+                  ? Array.from(
+                      item.downloads.reduce((acc, d) => {
+                        getAssociations(d.id).events.forEach(e => acc.set(e.id, e));
+                        return acc;
+                      }, new Map<number, EventSummary>())
+                    ).map(([, e]) => e)
+                  : getAssociations(item.id).events;
                 return (
-                  <RecentDownloadRow key={isGroup ? item.id : item.id || idx} item={item} />
+                  <RecentDownloadRow
+                    key={isGroup ? item.id : item.id || idx}
+                    item={item}
+                    events={events}
+                  />
                 );
               })
             ) : (

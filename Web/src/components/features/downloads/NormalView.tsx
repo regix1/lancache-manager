@@ -158,13 +158,26 @@ const GroupCard: React.FC<GroupCardProps> = ({
     }
   }, [isExpanded, enableScrollIntoView]);
 
-  // Fetch associations when group is expanded
+  // Fetch associations when group is rendered (not just when expanded)
+  // This allows us to show event badges at the group level
   React.useEffect(() => {
-    if (isExpanded) {
-      const downloadIds = group.downloads.map(d => d.id);
-      fetchAssociations(downloadIds);
-    }
-  }, [isExpanded, group.downloads, fetchAssociations]);
+    const downloadIds = group.downloads.map(d => d.id);
+    fetchAssociations(downloadIds);
+  }, [group.downloads, fetchAssociations]);
+
+  // Aggregate unique events from all downloads in the group
+  const groupEvents = React.useMemo(() => {
+    const eventsMap = new Map<number, { id: number; name: string; color: string; autoTagged: boolean }>();
+    group.downloads.forEach(d => {
+      const associations = getAssociations(d.id);
+      associations.events.forEach(event => {
+        if (!eventsMap.has(event.id)) {
+          eventsMap.set(event.id, { ...event, autoTagged: event.autoTagged ?? false });
+        }
+      });
+    });
+    return Array.from(eventsMap.values());
+  }, [group.downloads, getAssociations]);
 
   let bannerContent: React.ReactNode | null = null;
 
@@ -282,6 +295,15 @@ const GroupCard: React.FC<GroupCardProps> = ({
                     {group.downloads[0].datasource}
                   </span>
                 </Tooltip>
+              )}
+              {/* Event badges at group level */}
+              {groupEvents.length > 0 && (
+                <DownloadBadges
+                  tags={[]}
+                  events={groupEvents}
+                  maxVisible={2}
+                  size="sm"
+                />
               )}
               {group.count > 1 && (
                 <span
