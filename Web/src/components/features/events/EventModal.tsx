@@ -4,6 +4,7 @@ import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { useEvents } from '@contexts/EventContext';
 import { useTimezone } from '@contexts/TimezoneContext';
+import { getEffectiveTimezone } from '@utils/timezone';
 import DateTimePicker from '@components/common/DateTimePicker';
 import type { Event, CreateEventRequest, UpdateEventRequest } from '../../../types';
 
@@ -31,9 +32,10 @@ const getEventColors = (): string[] => {
 
 const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
   const { createEvent, updateEvent, deleteEvent } = useEvents();
-  const { use24HourFormat } = useTimezone();
+  const { use24HourFormat, useLocalTimezone } = useTimezone();
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [eventColors, setEventColors] = useState<string[]>([]);
   const [showStartPicker, setShowStartPicker] = useState(false);
@@ -74,13 +76,16 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
 
   // Format date/time for display
   const formatDateTime = (date: Date): string => {
+    const timezone = getEffectiveTimezone(useLocalTimezone);
     const dateStr = date.toLocaleDateString(undefined, {
+      timeZone: timezone,
       weekday: 'short',
       month: 'short',
       day: 'numeric',
       year: 'numeric'
     });
     const timeStr = date.toLocaleTimeString(undefined, {
+      timeZone: timezone,
       hour: 'numeric',
       minute: '2-digit',
       hour12: !use24HourFormat
@@ -145,12 +150,12 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
     }
   }, [name, description, startDateTime, endDateTime, color, event, createEvent, updateEvent, onSave]);
 
-  const handleDelete = useCallback(async () => {
-    if (!event) return;
+  const handleDeleteClick = useCallback(() => {
+    setShowDeleteConfirm(true);
+  }, []);
 
-    if (!confirm(`Are you sure you want to delete "${event.name}"? This cannot be undone.`)) {
-      return;
-    }
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!event) return;
 
     setDeleting(true);
     try {
@@ -158,6 +163,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
       onSave();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete event');
+      setShowDeleteConfirm(false);
     } finally {
       setDeleting(false);
     }
@@ -286,8 +292,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
                 type="button"
                 color="red"
                 variant="subtle"
-                onClick={handleDelete}
-                loading={deleting}
+                onClick={handleDeleteClick}
                 leftSection={<Trash2 className="w-4 h-4" />}
               >
                 Delete
@@ -340,6 +345,46 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
           onClose={() => setShowEndPicker(false)}
           title="Select End Date & Time"
         />
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <Modal
+          opened={true}
+          onClose={() => setShowDeleteConfirm(false)}
+          title={
+            <div className="flex items-center gap-2">
+              <Trash2 className="w-5 h-5 text-[var(--theme-status-error)]" />
+              <span>Delete Event</span>
+            </div>
+          }
+          size="sm"
+        >
+          <div className="space-y-4">
+            <p className="text-[var(--theme-text-secondary)]">
+              Are you sure you want to delete <strong className="text-[var(--theme-text-primary)]">"{event?.name}"</strong>?
+            </p>
+            <p className="text-sm text-[var(--theme-text-muted)]">
+              This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2 pt-4 border-t border-[var(--theme-border-primary)]">
+              <Button
+                variant="subtle"
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={deleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                color="red"
+                onClick={handleDeleteConfirm}
+                loading={deleting}
+              >
+                Delete Event
+              </Button>
+            </div>
+          </div>
+        </Modal>
       )}
     </Modal>
   );

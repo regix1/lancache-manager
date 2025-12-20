@@ -4,6 +4,8 @@ import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { CacheInfoTooltip } from '@components/ui/Tooltip';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import { useTimezone } from '@contexts/TimezoneContext';
+import { getEffectiveTimezone, formatShortDate } from '@utils/timezone';
 import type { ClientStat } from '@/types';
 
 interface TopClientsTableProps {
@@ -62,12 +64,13 @@ const TopClientRow: React.FC<TopClientRowProps> = ({ client }) => {
 
 const TopClientsTable: React.FC<TopClientsTableProps> = memo(
   ({ clientStats = [], timeRange = 'live', customStartDate, customEndDate, glassmorphism = false }) => {
+    const { useLocalTimezone } = useTimezone();
     const [sortBy, setSortBy] = useState<SortOption>('total');
     const timeRangeLabel = useMemo(() => {
       if (timeRange === 'custom' && customStartDate && customEndDate) {
-        const options: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
-        const start = customStartDate.toLocaleDateString(undefined, options);
-        const end = customEndDate.toLocaleDateString(undefined, options);
+        const timezone = getEffectiveTimezone(useLocalTimezone);
+        const start = formatShortDate(customStartDate, timezone);
+        const end = formatShortDate(customEndDate, timezone);
         return `${start} - ${end}`;
       }
 
@@ -84,7 +87,7 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
         live: 'Live Data'
       };
       return labels[timeRange] || 'Live Data';
-    }, [timeRange, customStartDate, customEndDate]);
+    }, [timeRange, customStartDate, customEndDate, useLocalTimezone]);
 
     const sortedClients = useMemo(() => {
       const sorted = [...clientStats];

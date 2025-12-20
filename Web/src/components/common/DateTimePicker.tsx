@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, Calendar, ChevronDown, Clock } from 'lucide-
 import { Modal } from '@components/ui/Modal';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { useTimezone } from '@contexts/TimezoneContext';
+import { getEffectiveTimezone, getDateInTimezone } from '@utils/timezone';
 
 interface DateTimePickerProps {
   value: Date | null;
@@ -17,7 +18,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
   onClose,
   title = 'Select Date & Time'
 }) => {
-  const { use24HourFormat } = useTimezone();
+  const { use24HourFormat, useLocalTimezone } = useTimezone();
 
   const [currentMonth, setCurrentMonth] = useState(() => {
     return value ? new Date(value.getFullYear(), value.getMonth(), 1) : new Date();
@@ -173,11 +174,12 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
   };
 
   const isToday = (day: number): boolean => {
-    const today = new Date();
+    const timezone = getEffectiveTimezone(useLocalTimezone);
+    const todayParts = getDateInTimezone(new Date(), timezone);
     return (
-      currentMonth.getFullYear() === today.getFullYear() &&
-      currentMonth.getMonth() === today.getMonth() &&
-      day === today.getDate()
+      currentMonth.getFullYear() === todayParts.year &&
+      currentMonth.getMonth() === todayParts.month &&
+      day === todayParts.day
     );
   };
 
@@ -492,7 +494,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
             <span className="text-sm text-[var(--theme-text-secondary)]">Selected: </span>
             <span className="text-[var(--theme-text-primary)] font-medium">
               {selectedDate
-                ? `${selectedDate.toLocaleDateString()} ${formatTime()}`
+                ? `${selectedDate.toLocaleDateString(undefined, { timeZone: getEffectiveTimezone(useLocalTimezone) })} ${formatTime()}`
                 : 'None'}
             </span>
           </div>

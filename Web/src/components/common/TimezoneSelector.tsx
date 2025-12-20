@@ -1,16 +1,15 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Globe, MapPin } from 'lucide-react';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import preferencesService from '@services/preferences.service';
 import { useTimezone } from '@contexts/TimezoneContext';
-import { getServerTimezone } from '@utils/timezone';
+import { getEffectiveTimezone, getTimeInTimezone } from '@utils/timezone';
 
 type TimeSettingValue = 'server-24h' | 'server-12h' | 'local-24h' | 'local-12h';
 
 const TimezoneSelector: React.FC = () => {
   const { useLocalTimezone, use24HourFormat, setPendingTimeSetting } = useTimezone();
   const [tick, setTick] = useState(0);
-  const serverTimezone = useMemo(() => getServerTimezone(), []);
 
   // Tick every second to trigger re-render for clock update
   useEffect(() => {
@@ -22,18 +21,8 @@ const TimezoneSelector: React.FC = () => {
 
   // Compute current time based on timezone/format preferences
   const computeTime = () => {
-    const now = new Date();
-    let hours: number;
-    let minutes: number;
-
-    if (useLocalTimezone) {
-      hours = now.getHours();
-      minutes = now.getMinutes();
-    } else {
-      const serverTime = new Date(now.toLocaleString('en-US', { timeZone: serverTimezone || 'UTC' }));
-      hours = serverTime.getHours();
-      minutes = serverTime.getMinutes();
-    }
+    const timezone = getEffectiveTimezone(useLocalTimezone);
+    const { hour: hours, minute: minutes } = getTimeInTimezone(new Date(), timezone);
 
     if (use24HourFormat) {
       return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;

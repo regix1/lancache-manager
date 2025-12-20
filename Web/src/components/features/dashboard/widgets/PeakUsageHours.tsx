@@ -6,6 +6,7 @@ import { Tooltip } from '@components/ui/Tooltip';
 import { HelpPopover, HelpDefinition } from '@components/ui/HelpPopover';
 import { useTimezone } from '@contexts/TimezoneContext';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
+import { getCurrentHour } from '@utils/timezone';
 import ApiService from '@services/api.service';
 
 interface PeakUsageHoursProps {
@@ -29,12 +30,12 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
   const [data, setData] = useState<HourlyActivityResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { use24HourFormat } = useTimezone();
+  const { use24HourFormat, useLocalTimezone } = useTimezone();
 
-  // Get current hour (server already returns data in configured timezone)
+  // Get current hour based on timezone preference
   const currentHour = useMemo(() => {
-    return new Date().getHours();
-  }, []);
+    return getCurrentHour(useLocalTimezone);
+  }, [useLocalTimezone]);
 
   // Check if today is within the period range
   const isTodayInRange = useMemo(() => {

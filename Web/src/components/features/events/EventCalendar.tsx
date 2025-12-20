@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { useTimezone } from '@contexts/TimezoneContext';
+import { getEffectiveTimezone, getDateInTimezone } from '@utils/timezone';
 import type { Event } from '../../../types';
 
 interface EventCalendarProps {
@@ -54,50 +55,42 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
 
   // Check if a day has events - respects timezone setting
   const getEventsForDay = useMemo(() => {
+    // Get the timezone to use for date comparisons
+    const timezone = getEffectiveTimezone(useLocalTimezone);
+
     return (day: number): Event[] => {
-      if (useLocalTimezone) {
-        // Local timezone: Compare using local dates
-        const checkDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
-        checkDate.setHours(0, 0, 0, 0);
-        const checkEnd = new Date(checkDate);
-        checkEnd.setHours(23, 59, 59, 999);
+      const year = currentMonth.getFullYear();
+      const month = currentMonth.getMonth();
 
-        return events.filter(event => {
-          const eventStart = new Date(event.startTimeUtc);
-          const eventEnd = new Date(event.endTimeUtc);
-          return eventStart <= checkEnd && eventEnd >= checkDate;
-        });
-      } else {
-        // Server/UTC timezone: Compare using UTC dates
-        const checkDateUtc = Date.UTC(currentMonth.getFullYear(), currentMonth.getMonth(), day, 0, 0, 0, 0);
-        const checkEndUtc = Date.UTC(currentMonth.getFullYear(), currentMonth.getMonth(), day, 23, 59, 59, 999);
+      return events.filter(event => {
+        const eventStart = new Date(event.startTimeUtc);
+        const eventEnd = new Date(event.endTimeUtc);
 
-        return events.filter(event => {
-          const eventStart = new Date(event.startTimeUtc).getTime();
-          const eventEnd = new Date(event.endTimeUtc).getTime();
-          return eventStart <= checkEndUtc && eventEnd >= checkDateUtc;
-        });
-      }
+        // Get date components in the target timezone
+        const startParts = getDateInTimezone(eventStart, timezone);
+        const endParts = getDateInTimezone(eventEnd, timezone);
+
+        // Create date objects for comparison (just dates, no time)
+        const checkDate = new Date(year, month, day);
+        const eventStartDate = new Date(startParts.year, startParts.month, startParts.day);
+        const eventEndDate = new Date(endParts.year, endParts.month, endParts.day);
+
+        // Check if this day falls within the event's date range (inclusive)
+        return checkDate >= eventStartDate && checkDate <= eventEndDate;
+      });
     };
   }, [events, currentMonth, useLocalTimezone]);
 
   const isToday = (day: number): boolean => {
     const now = new Date();
-    if (useLocalTimezone) {
-      // Local timezone
-      return (
-        currentMonth.getFullYear() === now.getFullYear() &&
-        currentMonth.getMonth() === now.getMonth() &&
-        day === now.getDate()
-      );
-    } else {
-      // Server/UTC timezone
-      return (
-        currentMonth.getFullYear() === now.getUTCFullYear() &&
-        currentMonth.getMonth() === now.getUTCMonth() &&
-        day === now.getUTCDate()
-      );
-    }
+    const timezone = getEffectiveTimezone(useLocalTimezone);
+    const todayParts = getDateInTimezone(now, timezone);
+
+    return (
+      currentMonth.getFullYear() === todayParts.year &&
+      currentMonth.getMonth() === todayParts.month &&
+      day === todayParts.day
+    );
   };
 
   const changeMonth = (increment: number) => {
