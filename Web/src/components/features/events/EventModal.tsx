@@ -170,223 +170,223 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
   }, [event, deleteEvent, onSave]);
 
   return (
-    <Modal
-      opened={true}
-      onClose={onClose}
-      title={
-        <div className="flex items-center gap-2">
-          <CalendarDays className="w-5 h-5 text-[var(--theme-primary)]" />
-          <span>{event ? 'Edit Event' : 'Create Event'}</span>
-        </div>
-      }
-      size="md"
-    >
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Error */}
-        {error && (
-          <div
-            className="p-3 rounded-lg"
-            style={{
-              backgroundColor: 'color-mix(in srgb, var(--theme-status-error) 10%, transparent)',
-              border: '1px solid color-mix(in srgb, var(--theme-status-error) 30%, transparent)'
-            }}
-          >
-            <p className="text-sm text-[var(--theme-status-error)]">{error}</p>
+    <>
+      <Modal
+        opened={true}
+        onClose={onClose}
+        title={
+          <div className="flex items-center gap-2">
+            <CalendarDays className="w-5 h-5 text-[var(--theme-primary)]" />
+            <span>{event ? 'Edit Event' : 'Create Event'}</span>
           </div>
-        )}
+        }
+        size="md"
+      >
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Error */}
+          {error && (
+            <div
+              className="p-3 rounded-lg"
+              style={{
+                backgroundColor: 'color-mix(in srgb, var(--theme-status-error) 10%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--theme-status-error) 30%, transparent)'
+              }}
+            >
+              <p className="text-sm text-[var(--theme-status-error)]">{error}</p>
+            </div>
+          )}
 
-        {/* Name */}
-        <div>
-          <label className="block text-sm font-medium text-[var(--theme-text-primary)] mb-1">
-            Event Name *
-          </label>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g., LAN Party 2024"
-            className="w-full px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] placeholder-[var(--theme-text-secondary)] focus:outline-none focus:border-[var(--theme-primary)]"
-            autoFocus
-          />
-        </div>
-
-        {/* Description */}
-        <div>
-          <label className="block text-sm font-medium text-[var(--theme-text-primary)] mb-1">
-            Description
-          </label>
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Optional description..."
-            rows={3}
-            className="w-full px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] placeholder-[var(--theme-text-secondary)] focus:outline-none focus:border-[var(--theme-primary)] resize-none"
-          />
-        </div>
-
-        {/* Date/Time */}
-        <div className="grid grid-cols-2 gap-4">
+          {/* Name */}
           <div>
             <label className="block text-sm font-medium text-[var(--theme-text-primary)] mb-1">
-              Start Date & Time *
+              Event Name *
             </label>
-            <button
-              type="button"
-              onClick={() => setShowStartPicker(true)}
-              className="w-full px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] text-left hover:border-[var(--theme-primary)] focus:outline-none focus:border-[var(--theme-primary)] transition-colors flex items-center gap-2"
-            >
-              <Calendar className="w-4 h-4 text-[var(--theme-text-secondary)] flex-shrink-0" />
-              <span className="truncate text-sm">{formatDateTime(startDateTime)}</span>
-            </button>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g., LAN Party 2024"
+              className="w-full px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] placeholder-[var(--theme-text-secondary)] focus:outline-none focus:border-[var(--theme-primary)]"
+              autoFocus
+            />
           </div>
+
+          {/* Description */}
           <div>
             <label className="block text-sm font-medium text-[var(--theme-text-primary)] mb-1">
-              End Date & Time *
+              Description
             </label>
-            <button
-              type="button"
-              onClick={() => setShowEndPicker(true)}
-              className="w-full px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] text-left hover:border-[var(--theme-primary)] focus:outline-none focus:border-[var(--theme-primary)] transition-colors flex items-center gap-2"
-            >
-              <Calendar className="w-4 h-4 text-[var(--theme-text-secondary)] flex-shrink-0" />
-              <span className="truncate text-sm">{formatDateTime(endDateTime)}</span>
-            </button>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Optional description..."
+              rows={3}
+              className="w-full px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] placeholder-[var(--theme-text-secondary)] focus:outline-none focus:border-[var(--theme-primary)] resize-none"
+            />
           </div>
-        </div>
 
-        {/* Color */}
-        <div>
-          <label className="block text-sm font-medium text-[var(--theme-text-primary)] mb-2">
-            Color
-          </label>
-          <div className="flex gap-2">
-            {eventColors.map((c, index) => {
-              const isSelected = color === c || (!color && index === 0);
-              return (
-                <button
-                  key={`${c}-${index}`}
+          {/* Date/Time */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-[var(--theme-text-primary)] mb-1">
+                Start Date & Time *
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowStartPicker(true)}
+                className="w-full px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] text-left hover:border-[var(--theme-primary)] focus:outline-none focus:border-[var(--theme-primary)] transition-colors flex items-center gap-2"
+              >
+                <Calendar className="w-4 h-4 text-[var(--theme-text-secondary)] flex-shrink-0" />
+                <span className="truncate text-sm">{formatDateTime(startDateTime)}</span>
+              </button>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-[var(--theme-text-primary)] mb-1">
+                End Date & Time *
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowEndPicker(true)}
+                className="w-full px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] text-left hover:border-[var(--theme-primary)] focus:outline-none focus:border-[var(--theme-primary)] transition-colors flex items-center gap-2"
+              >
+                <Calendar className="w-4 h-4 text-[var(--theme-text-secondary)] flex-shrink-0" />
+                <span className="truncate text-sm">{formatDateTime(endDateTime)}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Color */}
+          <div>
+            <label className="block text-sm font-medium text-[var(--theme-text-primary)] mb-2">
+              Color
+            </label>
+            <div className="flex gap-2">
+              {eventColors.map((c, index) => {
+                const isSelected = color === c || (!color && index === 0);
+                return (
+                  <button
+                    key={`${c}-${index}`}
+                    type="button"
+                    onClick={() => setColor(c)}
+                    className={`w-8 h-8 rounded-lg transition-all flex items-center justify-center ${
+                      isSelected ? 'scale-110' : 'hover:scale-105'
+                    }`}
+                    style={{
+                      backgroundColor: c,
+                      boxShadow: isSelected
+                        ? `0 0 0 2px var(--theme-bg-secondary), 0 0 0 4px var(--theme-primary)`
+                        : 'none'
+                    }}
+                  >
+                    {isSelected && <Check className="w-5 h-5 text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.5)]" />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex justify-between pt-4 border-t border-[var(--theme-border-primary)]">
+            <div>
+              {event && (
+                <Button
                   type="button"
-                  onClick={() => setColor(c)}
-                  className={`w-8 h-8 rounded-lg transition-all flex items-center justify-center ${
-                    isSelected ? 'scale-110' : 'hover:scale-105'
-                  }`}
-                  style={{
-                    backgroundColor: c,
-                    boxShadow: isSelected
-                      ? `0 0 0 2px var(--theme-bg-secondary), 0 0 0 4px var(--theme-primary)`
-                      : 'none'
-                  }}
+                  color="red"
+                  variant="subtle"
+                  onClick={handleDeleteClick}
+                  leftSection={<Trash2 className="w-4 h-4" />}
                 >
-                  {isSelected && <Check className="w-5 h-5 text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.5)]" />}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div className="flex justify-between pt-4 border-t border-[var(--theme-border-primary)]">
-          <div>
-            {event && (
+                  Delete
+                </Button>
+              )}
+            </div>
+            <div className="flex gap-2">
               <Button
                 type="button"
-                color="red"
                 variant="subtle"
-                onClick={handleDeleteClick}
-                leftSection={<Trash2 className="w-4 h-4" />}
-              >
-                Delete
-              </Button>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="subtle"
-              onClick={onClose}
-              disabled={saving || deleting}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              color="blue"
-              loading={saving}
-            >
-              {event ? 'Save Changes' : 'Create Event'}
-            </Button>
-          </div>
-        </div>
-      </form>
-
-      {/* Start DateTime Picker */}
-      {showStartPicker && (
-        <DateTimePicker
-          value={startDateTime}
-          onChange={(date) => {
-            setStartDateTime(date);
-            // If end time is before new start time, auto-adjust it
-            if (date >= endDateTime) {
-              const newEnd = new Date(date);
-              newEnd.setHours(newEnd.getHours() + 4);
-              setEndDateTime(newEnd);
-            }
-          }}
-          onClose={() => setShowStartPicker(false)}
-          title="Select Start Date & Time"
-        />
-      )}
-
-      {/* End DateTime Picker */}
-      {showEndPicker && (
-        <DateTimePicker
-          value={endDateTime}
-          onChange={setEndDateTime}
-          onClose={() => setShowEndPicker(false)}
-          title="Select End Date & Time"
-        />
-      )}
-
-      {/* Delete Confirmation Modal */}
-      {showDeleteConfirm && (
-        <Modal
-          opened={true}
-          onClose={() => setShowDeleteConfirm(false)}
-          title={
-            <div className="flex items-center gap-2">
-              <Trash2 className="w-5 h-5 text-[var(--theme-status-error)]" />
-              <span>Delete Event</span>
-            </div>
-          }
-          size="sm"
-        >
-          <div className="space-y-4">
-            <p className="text-[var(--theme-text-secondary)]">
-              Are you sure you want to delete <strong className="text-[var(--theme-text-primary)]">"{event?.name}"</strong>?
-            </p>
-            <p className="text-sm text-[var(--theme-text-muted)]">
-              This action cannot be undone.
-            </p>
-            <div className="flex justify-end gap-2 pt-4 border-t border-[var(--theme-border-primary)]">
-              <Button
-                variant="subtle"
-                onClick={() => setShowDeleteConfirm(false)}
-                disabled={deleting}
+                onClick={onClose}
+                disabled={saving || deleting}
               >
                 Cancel
               </Button>
               <Button
-                color="red"
-                onClick={handleDeleteConfirm}
-                loading={deleting}
+                type="submit"
+                color="blue"
+                loading={saving}
               >
-                Delete Event
+                {event ? 'Save Changes' : 'Create Event'}
               </Button>
             </div>
           </div>
-        </Modal>
-      )}
-    </Modal>
+        </form>
+
+        {/* Start DateTime Picker */}
+        {showStartPicker && (
+          <DateTimePicker
+            value={startDateTime}
+            onChange={(date) => {
+              setStartDateTime(date);
+              // If end time is before new start time, auto-adjust it
+              if (date >= endDateTime) {
+                const newEnd = new Date(date);
+                newEnd.setHours(newEnd.getHours() + 4);
+                setEndDateTime(newEnd);
+              }
+            }}
+            onClose={() => setShowStartPicker(false)}
+            title="Select Start Date & Time"
+          />
+        )}
+
+        {/* End DateTime Picker */}
+        {showEndPicker && (
+          <DateTimePicker
+            value={endDateTime}
+            onChange={setEndDateTime}
+            onClose={() => setShowEndPicker(false)}
+            title="Select End Date & Time"
+          />
+        )}
+      </Modal>
+
+      {/* Delete Confirmation Modal - rendered as sibling, not nested */}
+      <Modal
+        opened={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        title={
+          <div className="flex items-center gap-2">
+            <Trash2 className="w-5 h-5 text-[var(--theme-status-error)]" />
+            <span>Delete Event</span>
+          </div>
+        }
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-[var(--theme-text-secondary)]">
+            Are you sure you want to delete <strong className="text-[var(--theme-text-primary)]">"{event?.name}"</strong>?
+          </p>
+          <p className="text-sm text-[var(--theme-text-muted)]">
+            This action cannot be undone.
+          </p>
+          <div className="flex justify-end gap-2 pt-4 border-t border-[var(--theme-border-primary)]">
+            <Button
+              variant="subtle"
+              onClick={() => setShowDeleteConfirm(false)}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              color="red"
+              onClick={handleDeleteConfirm}
+              loading={deleting}
+            >
+              Delete Event
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </>
   );
 };
 

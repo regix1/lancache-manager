@@ -2,6 +2,11 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
+// Global modal tracking for nested modal support
+let modalStack: number[] = [];
+let modalIdCounter = 0;
+let savedScrollbarWidth = 0;
+
 interface ModalProps {
   opened: boolean;
   onClose: () => void;
@@ -13,6 +18,8 @@ interface ModalProps {
 export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, size = 'md' }) => {
   const [isVisible, setIsVisible] = React.useState(false);
   const [isAnimating, setIsAnimating] = React.useState(false);
+  const [zIndex, setZIndex] = React.useState(100001);
+  const modalId = React.useRef<number | null>(null);
 
   const sizes = {
     sm: 'max-w-md',
@@ -23,12 +30,21 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
 
   React.useEffect(() => {
     if (opened) {
-      // Calculate scrollbar width before hiding it
-      const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+      // Assign unique ID to this modal instance
+      modalId.current = ++modalIdCounter;
 
-      // Prevent scrolling and compensate for scrollbar width to prevent layout shift
-      document.body.style.overflow = 'hidden';
-      document.body.style.paddingRight = `${scrollbarWidth}px`;
+      // Only lock scroll and save scrollbar width for the first modal
+      if (modalStack.length === 0) {
+        savedScrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+        document.body.style.overflow = 'hidden';
+        document.body.style.paddingRight = `${savedScrollbarWidth}px`;
+      }
+
+      // Add this modal to the stack
+      modalStack.push(modalId.current);
+
+      // Set z-index based on stack position (each modal gets higher z-index)
+      setZIndex(100000 + modalStack.length);
 
       // Start animation with slight delay for smoother appearance
       setIsVisible(true);
@@ -40,16 +56,33 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
       setIsAnimating(false);
       setTimeout(() => {
         setIsVisible(false);
-        // Restore scrolling and remove padding compensation
-        document.body.style.overflow = '';
-        document.body.style.paddingRight = '';
+
+        // Remove this modal from the stack
+        if (modalId.current !== null) {
+          modalStack = modalStack.filter(id => id !== modalId.current);
+          modalId.current = null;
+        }
+
+        // Only restore scroll when all modals are closed
+        if (modalStack.length === 0) {
+          document.body.style.overflow = '';
+          document.body.style.paddingRight = '';
+        }
       }, 250); // Match transition duration
     }
 
     return () => {
-      // Cleanup: restore scrolling if component unmounts while modal is open
-      document.body.style.overflow = '';
-      document.body.style.paddingRight = '';
+      // Cleanup: remove from stack if component unmounts while open
+      if (modalId.current !== null) {
+        modalStack = modalStack.filter(id => id !== modalId.current);
+        modalId.current = null;
+
+        // Restore scroll if this was the last modal
+        if (modalStack.length === 0) {
+          document.body.style.overflow = '';
+          document.body.style.paddingRight = '';
+        }
+      }
     };
   }, [opened]);
 
@@ -59,7 +92,7 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
     <div
       className={`modal-backdrop fixed inset-0 overflow-y-auto py-8 transition-all duration-250 ease-out`}
       style={{
-        zIndex: 100001,
+        zIndex,
         backgroundColor: isAnimating ? 'rgba(0, 0, 0, 0.5)' : 'transparent'
       }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
