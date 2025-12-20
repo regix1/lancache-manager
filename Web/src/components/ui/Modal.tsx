@@ -93,7 +93,8 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
       className={`modal-backdrop fixed inset-0 overflow-y-auto py-8 transition-all duration-250 ease-out`}
       style={{
         zIndex,
-        backgroundColor: isAnimating ? 'rgba(0, 0, 0, 0.5)' : 'transparent'
+        backgroundColor: isAnimating ? 'rgba(0, 0, 0, 0.5)' : 'transparent',
+        pointerEvents: isAnimating ? 'auto' : 'none'
       }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
