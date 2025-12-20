@@ -300,15 +300,49 @@ public class StatsController : ControllerBase
             // Build query with optional time filtering
             var query = _context.Downloads.AsNoTracking();
 
+            DateTime? cutoffTime = null;
+            DateTime? endDateTime = null;
+
             if (startTime.HasValue)
             {
-                var cutoffTime = DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime;
+                cutoffTime = DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime;
                 query = query.Where(d => d.StartTimeUtc >= cutoffTime);
             }
             if (endTime.HasValue)
             {
-                var endDateTime = DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime;
+                endDateTime = DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime;
                 query = query.Where(d => d.StartTimeUtc <= endDateTime);
+            }
+
+            // Calculate number of distinct days in the period
+            int daysInPeriod = 1;
+            long? periodStartTimestamp = null;
+            long? periodEndTimestamp = null;
+
+            if (startTime.HasValue && endTime.HasValue)
+            {
+                // Use the provided time range
+                daysInPeriod = Math.Max(1, (int)Math.Ceiling((endDateTime!.Value - cutoffTime!.Value).TotalDays));
+                periodStartTimestamp = startTime.Value;
+                periodEndTimestamp = endTime.Value;
+            }
+            else
+            {
+                // For "all" data, count distinct days from the actual data
+                var dateRange = await query
+                    .Select(d => d.StartTimeLocal.Date)
+                    .Distinct()
+                    .ToListAsync();
+
+                daysInPeriod = Math.Max(1, dateRange.Count);
+
+                if (dateRange.Count > 0)
+                {
+                    var minDate = dateRange.Min();
+                    var maxDate = dateRange.Max();
+                    periodStartTimestamp = new DateTimeOffset(minDate, TimeSpan.Zero).ToUnixTimeSeconds();
+                    periodEndTimestamp = new DateTimeOffset(maxDate.AddDays(1).AddSeconds(-1), TimeSpan.Zero).ToUnixTimeSeconds();
+                }
             }
 
             // Query downloads and group by local time hour (StartTimeLocal is already in configured timezone)
@@ -324,13 +358,22 @@ public class StatsController : ControllerBase
                 })
                 .ToListAsync();
 
-            // Fill in missing hours with zeros
+            // Fill in missing hours with zeros and calculate averages
             var allHours = Enumerable.Range(0, 24)
-                .Select(h => hourlyData.FirstOrDefault(hd => hd.Hour == h) ?? new HourlyActivityItem { Hour = h })
+                .Select(h => {
+                    var existing = hourlyData.FirstOrDefault(hd => hd.Hour == h);
+                    if (existing != null)
+                    {
+                        existing.AvgDownloads = Math.Round((double)existing.Downloads / daysInPeriod, 1);
+                        existing.AvgBytesServed = existing.BytesServed / daysInPeriod;
+                        return existing;
+                    }
+                    return new HourlyActivityItem { Hour = h };
+                })
                 .OrderBy(h => h.Hour)
                 .ToList();
 
-            // Find peak hour
+            // Find peak hour (based on total downloads, not average)
             var peakHour = allHours.OrderByDescending(h => h.Downloads).FirstOrDefault()?.Hour ?? 0;
 
             return Ok(new HourlyActivityResponse
@@ -339,6 +382,9 @@ public class StatsController : ControllerBase
                 PeakHour = peakHour,
                 TotalDownloads = allHours.Sum(h => h.Downloads),
                 TotalBytesServed = allHours.Sum(h => h.BytesServed),
+                DaysInPeriod = daysInPeriod,
+                PeriodStart = periodStartTimestamp,
+                PeriodEnd = periodEndTimestamp,
                 Period = startTime.HasValue ? "filtered" : "all"
             });
         }

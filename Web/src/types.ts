@@ -102,7 +102,9 @@ export interface DashboardStats {
 export interface HourlyActivityItem {
   hour: number;
   downloads: number;
+  avgDownloads: number;
   bytesServed: number;
+  avgBytesServed: number;
   cacheHitBytes: number;
   cacheMissBytes: number;
 }
@@ -112,6 +114,9 @@ export interface HourlyActivityResponse {
   peakHour: number;
   totalDownloads: number;
   totalBytesServed: number;
+  daysInPeriod: number;
+  periodStart?: number;
+  periodEnd?: number;
   period: string;
 }
 

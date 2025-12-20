@@ -1023,6 +1023,21 @@ public class HourlyActivityResponse
     public long TotalBytesServed { get; set; }
 
     /// <summary>
+    /// Number of distinct days in the queried period
+    /// </summary>
+    public int DaysInPeriod { get; set; } = 1;
+
+    /// <summary>
+    /// Start of the data range (Unix timestamp)
+    /// </summary>
+    public long? PeriodStart { get; set; }
+
+    /// <summary>
+    /// End of the data range (Unix timestamp)
+    /// </summary>
+    public long? PeriodEnd { get; set; }
+
+    /// <summary>
     /// Time period for this data
     /// </summary>
     public string Period { get; set; } = string.Empty;
@@ -1039,14 +1054,24 @@ public class HourlyActivityItem
     public int Hour { get; set; }
 
     /// <summary>
-    /// Number of downloads that started in this hour
+    /// Number of downloads that started in this hour (total across all days in period)
     /// </summary>
     public int Downloads { get; set; }
 
     /// <summary>
-    /// Total bytes served in this hour
+    /// Average downloads per day for this hour (Downloads / DaysInPeriod)
+    /// </summary>
+    public double AvgDownloads { get; set; }
+
+    /// <summary>
+    /// Total bytes served in this hour (total across all days in period)
     /// </summary>
     public long BytesServed { get; set; }
+
+    /// <summary>
+    /// Average bytes served per day for this hour
+    /// </summary>
+    public long AvgBytesServed { get; set; }
 
     /// <summary>
     /// Cache hit bytes in this hour
