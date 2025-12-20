@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo } from 'react';
 import { Calendar, Clock, ChevronRight } from 'lucide-react';
 import { useTimezone } from '@contexts/TimezoneContext';
 import type { Event } from '../../../types';
