@@ -86,7 +86,7 @@ const AnimatedValue: React.FC<AnimatedValueProps> = ({
     duration,
     enabled: shouldAnimate,
     decimals,
-    easing: 'easeOut',
+    easing: 'smooth',
   });
 
   const displayString = useMemo(() => {

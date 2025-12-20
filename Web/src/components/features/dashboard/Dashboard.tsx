@@ -219,13 +219,22 @@ const Dashboard: React.FC = () => {
     });
   }, [clientStats, timeRange, getTimeRangeParams]);
   const [showLoading, setShowLoading] = useState(false); // Delayed loading state
+  const [hasInitialData, setHasInitialData] = useState(false); // Track if we've loaded data at least once
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Delay showing loading state to avoid flashing for quick API responses
+  // Track when we first get data - after that, never show skeletons again
   useEffect(() => {
-    if (loading) {
+    if (dashboardStats && !hasInitialData) {
+      setHasInitialData(true);
+    }
+  }, [dashboardStats, hasInitialData]);
+
+  // Delay showing loading state to avoid flashing for quick API responses
+  // Only show skeleton loading on initial load - subsequent loads use subtle opacity
+  useEffect(() => {
+    if (loading && !hasInitialData) {
       const timer = setTimeout(() => {
         setShowLoading(true);
       }, 200); // Wait 200ms before showing skeleton
@@ -233,7 +242,7 @@ const Dashboard: React.FC = () => {
     } else {
       setShowLoading(false); // Hide immediately when done
     }
-  }, [loading]);
+  }, [loading, hasInitialData]);
 
   // Use drag-and-drop hook for card reordering
   const {
@@ -337,17 +346,22 @@ const Dashboard: React.FC = () => {
       periodMatchesTimeRange = dashboardStats?.period?.duration === timeRange;
     }
 
+    // While loading, show old values to allow smooth animation transitions
+    // Once loading completes, validation ensures correct data is shown
+    const showOldValuesWhileLoading = loading && dashboardStats?.period;
+    const shouldShowValues = periodMatchesTimeRange || showOldValuesWhileLoading;
+
     return {
       activeClients,
       totalActiveDownloads,
       totalDownloads,
-      bandwidthSaved: periodMatchesTimeRange ? (dashboardStats?.period?.bandwidthSaved || 0) : 0,
-      addedToCache: periodMatchesTimeRange ? (dashboardStats?.period?.addedToCache || 0) : 0,
-      totalServed: periodMatchesTimeRange ? (dashboardStats?.period?.totalServed || 0) : 0,
-      cacheHitRatio: periodMatchesTimeRange ? (dashboardStats?.period?.hitRatio || 0) : 0,
-      uniqueClients: periodMatchesTimeRange ? (dashboardStats?.uniqueClients || filteredClientStats.length) : 0
+      bandwidthSaved: shouldShowValues ? (dashboardStats?.period?.bandwidthSaved || 0) : 0,
+      addedToCache: shouldShowValues ? (dashboardStats?.period?.addedToCache || 0) : 0,
+      totalServed: shouldShowValues ? (dashboardStats?.period?.totalServed || 0) : 0,
+      cacheHitRatio: shouldShowValues ? (dashboardStats?.period?.hitRatio || 0) : 0,
+      uniqueClients: shouldShowValues ? (dashboardStats?.uniqueClients || filteredClientStats.length) : 0
     };
-  }, [filteredActiveDownloads, filteredServiceStats, dashboardStats, filteredClientStats, timeRange]);
+  }, [filteredActiveDownloads, filteredServiceStats, dashboardStats, filteredClientStats, timeRange, loading]);
 
   const allStatCards = useMemo<AllStatCards>(
     () => ({
@@ -710,7 +724,8 @@ const Dashboard: React.FC = () => {
         </div>
       ) : (
         <div
-          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeIn isolate"
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeIn isolate transition-opacity duration-300"
+          style={{ opacity: loading ? 0.7 : 1 }}
         >
           {visibleCards.map((card: StatCardData, visualIndex: number) => (
             <div

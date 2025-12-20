@@ -3,10 +3,10 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 interface UseAnimatedNumberOptions {
   /** The target value to animate to */
   value: number;
-  /** Animation duration in milliseconds (default: 800) */
+  /** Animation duration in milliseconds (default: 600) */
   duration?: number;
   /** Easing function type */
-  easing?: 'linear' | 'easeOut' | 'easeInOut';
+  easing?: 'linear' | 'easeOut' | 'easeInOut' | 'smooth';
   /** Number of decimal places to show */
   decimals?: number;
   /** Whether to animate (respects prefers-reduced-motion) */
@@ -20,11 +20,15 @@ interface UseAnimatedNumberResult {
   isAnimating: boolean;
 }
 
-// Easing functions
+// Easing functions - using smoother curves for number animations
 const easingFunctions = {
   linear: (t: number) => t,
-  easeOut: (t: number) => 1 - Math.pow(1 - t, 3),
-  easeInOut: (t: number) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2,
+  // Quadratic ease out - gentler deceleration than cubic
+  easeOut: (t: number) => 1 - Math.pow(1 - t, 2),
+  // Smooth ease in-out with gradual start and end
+  easeInOut: (t: number) => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2,
+  // Extra smooth for large value changes - sine-based
+  smooth: (t: number) => -(Math.cos(Math.PI * t) - 1) / 2,
 };
 
 /**
@@ -32,8 +36,8 @@ const easingFunctions = {
  */
 export const useAnimatedNumber = ({
   value,
-  duration = 800,
-  easing = 'easeOut',
+  duration = 600,
+  easing = 'smooth',
   decimals = 0,
   enabled = true,
 }: UseAnimatedNumberOptions): UseAnimatedNumberResult => {

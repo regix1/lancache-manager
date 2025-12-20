@@ -335,12 +335,9 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   // Handle time range changes - fetch new data
   useEffect(() => {
     if (!mockMode && !isInitialLoad.current) {
-      // IMPORTANT: Clear stats immediately when time range changes to prevent showing
-      // stale data with wrong time range label. This shows loading state until new data arrives.
-      setDashboardStats(null);
-      setClientStats([]);
-      setServiceStats([]);
-
+      // Don't clear stats - let new data atomically replace old data
+      // This allows AnimatedValue to smoothly transition from old values to new values
+      // The Dashboard's periodMatchesTimeRange validation prevents showing mismatched data
       // Use forceRefresh to bypass debounce - time range changes should always trigger immediate fetch
       fetchStats({ showLoading: true, forceRefresh: true });
     }

@@ -459,8 +459,9 @@ app.UseSwaggerUI(c =>
     c.SwaggerEndpoint("/swagger/v1/swagger.json", "LancacheManager API V1");
     c.RoutePrefix = "swagger"; // Access at /swagger
 
-    // Enable "Authorize" button and persist authorization in browser
-    c.EnablePersistAuthorization();
+    // Note: We intentionally do NOT call EnablePersistAuthorization()
+    // This prevents storing API keys in browser localStorage (security risk)
+    // Users must re-enter the API key on each page load, but it's more secure
 });
 
 // Map endpoints
