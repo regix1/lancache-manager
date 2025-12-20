@@ -339,16 +339,27 @@ fn remove_service_from_logs(
                             0.0
                         };
 
+                        let current_removed = total_lines_removed + lines_removed;
+                        let current_processed = total_lines_processed + lines_processed;
+                        let message = if current_removed > 0 {
+                            format!(
+                                "File {}/{}: {} lines processed, {} removed",
+                                file_index + 1, log_files.len(), current_processed, current_removed
+                            )
+                        } else {
+                            format!(
+                                "File {}/{}: {} lines processed",
+                                file_index + 1, log_files.len(), current_processed
+                            )
+                        };
+
                         let progress = ProgressData::new(
                             true,
                             percent,
                             "removing".to_string(),
-                            format!(
-                                "File {}/{}: {} lines processed, {} removed",
-                                file_index + 1, log_files.len(), total_lines_processed + lines_processed, total_lines_removed + lines_removed
-                            ),
-                            total_lines_processed + lines_processed,
-                            total_lines_removed + lines_removed,
+                            message,
+                            current_processed,
+                            current_removed,
                             file_index + 1,
                             None,
                             ds_name.clone(),
