@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useCallback, useRef, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect, ReactNode } from 'react';
 import ApiService from '@services/api.service';
+import { useSignalR } from '@contexts/SignalRContext';
 import type { TagSummary, EventSummary, Tag } from '../types';
 
 interface DownloadAssociations {
@@ -27,6 +28,7 @@ interface DownloadAssociationsProviderProps {
 }
 
 export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProviderProps> = ({ children }) => {
+  const { on, off } = useSignalR();
   const [associations, setAssociations] = useState<AssociationsCache>({});
   const [loading, setLoading] = useState(false);
   const fetchedIds = useRef<Set<number>>(new Set());
@@ -90,6 +92,33 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
     setAssociations({});
     fetchedIds.current.clear();
   }, []);
+
+  // Remove a specific event from all cached associations
+  const removeEventFromCache = useCallback((eventId: number) => {
+    setAssociations(prev => {
+      const updated: AssociationsCache = {};
+      for (const [downloadId, assoc] of Object.entries(prev)) {
+        updated[Number(downloadId)] = {
+          ...assoc,
+          events: assoc.events.filter((e: EventSummary) => e.id !== eventId)
+        };
+      }
+      return updated;
+    });
+  }, []);
+
+  // Listen for SignalR events to keep cache in sync
+  useEffect(() => {
+    const handleEventDeleted = (eventId: number) => {
+      removeEventFromCache(eventId);
+    };
+
+    on('EventDeleted', handleEventDeleted);
+
+    return () => {
+      off('EventDeleted', handleEventDeleted);
+    };
+  }, [on, off, removeEventFromCache]);
 
   return (
     <DownloadAssociationsContext.Provider
