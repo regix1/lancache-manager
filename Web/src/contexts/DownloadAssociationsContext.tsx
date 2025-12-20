@@ -113,10 +113,18 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
       removeEventFromCache(eventId);
     };
 
+    // Clear cache when downloads are refreshed (new downloads may have been auto-tagged)
+    const handleDownloadsRefresh = () => {
+      // Clear the fetched IDs so downloads will be re-fetched with updated associations
+      fetchedIds.current.clear();
+    };
+
     on('EventDeleted', handleEventDeleted);
+    on('DownloadsRefresh', handleDownloadsRefresh);
 
     return () => {
       off('EventDeleted', handleEventDeleted);
+      off('DownloadsRefresh', handleDownloadsRefresh);
     };
   }, [on, off, removeEventFromCache]);
 

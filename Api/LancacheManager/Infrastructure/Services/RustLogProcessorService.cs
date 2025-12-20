@@ -398,24 +398,25 @@ public class RustLogProcessorService
                     }
                 }
 
-                // Invalidate cache for new entries (start in background)
+                // Invalidate cache for new entries
                 // Rust processor automatically maps depots during processing (auto_map_depots = 1)
                 // We still need to fetch game images from Steam API after processing
                 if (finalProgress?.EntriesSaved > 0)
                 {
+                    // Auto-tag new downloads to active events IMMEDIATELY for live monitoring
+                    // This must happen BEFORE the UI refresh so downloads show with their event tags
+                    if (silentMode)
+                    {
+                        await AutoTagNewDownloadsAsync();
+                    }
+
+                    // These can run in background as they're not critical for the UI refresh
                     _ = Task.Run(async () =>
                     {
                         await InvalidateCacheAsync(silentMode);
 
                         // Rust mapped the depot IDs to game names during processing, but we still need to fetch images
                         await FetchMissingGameImagesAsync();
-
-                        // Auto-tag new downloads to active events - only for live monitoring (silent mode)
-                        // Don't auto-tag during manual log processing to avoid tagging old downloads
-                        if (silentMode)
-                        {
-                            await AutoTagNewDownloadsAsync();
-                        }
                     });
                 }
 
