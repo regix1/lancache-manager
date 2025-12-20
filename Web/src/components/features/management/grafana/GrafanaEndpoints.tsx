@@ -293,6 +293,10 @@ const GrafanaEndpoints: React.FC = () => {
               Replace 'your-api-key-here' with the API key from your lancache-manager instance
             </p>
           )}
+          <p className="text-xs text-themed-muted flex items-center gap-1.5">
+            <Lightbulb className="w-3 h-3" style={{ color: 'var(--theme-info)' }} />
+            Port 80 is the internal container port. External access uses your mapped port (e.g., 8080:80)
+          </p>
         </div>
 
         {parseInt(scrapeInterval) < parseInt(dataRefreshRate) && (
