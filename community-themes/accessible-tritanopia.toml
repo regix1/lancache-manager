@@ -3,7 +3,7 @@ name = "Accessible - Tritanopia"
 id = "accessible-tritanopia"
 description = "Color blind accessible theme for Tritanopia (blue-yellow blindness) - Uses red-green-pink palette"
 author = "System"
-version = "1.0.0"
+version = "1.1.0"
 isDark = true
 sharpCorners = false
 basedOn = "dark-default"
@@ -156,6 +156,16 @@ guestSessionColor = "#10b981"
 guestSessionBg = "rgba(16, 185, 129, 0.15)"
 activeSessionColor = "#ec4899"
 activeSessionBg = "rgba(236, 72, 153, 0.15)"
+
+# Event colors - Accessible teal-green-pink-red (no blue-yellow)
+eventColor1 = "#14b8a6"
+eventColor2 = "#10b981"
+eventColor3 = "#ec4899"
+eventColor4 = "#ef4444"
+eventColor5 = "#a855f7"
+eventColor6 = "#f97316"
+eventColor7 = "#22c55e"
+eventColor8 = "#db2777"
 
 [css]
 content = """

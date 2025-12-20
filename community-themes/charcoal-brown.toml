@@ -3,7 +3,7 @@ name = "Timber & Stone"
 id = "charcoal-brown"
 description = "Warm browns, rich charcoals, and soft taupes - sophisticated earth tones"
 author = "Nature"
-version = "3.0.0"
+version = "3.1.0"
 isDark = true
 sharpCorners = false
 
@@ -160,6 +160,16 @@ activeSessionBg = "rgba(212, 145, 92, 0.15)"
 # Drag handle
 dragHandleColor = "#706b65"
 dragHandleHover = "#c9a67a"
+
+# Event colors - Warm earth tones
+eventColor1 = "#a67c52"
+eventColor2 = "#c9a67a"
+eventColor3 = "#d4915c"
+eventColor4 = "#b57161"
+eventColor5 = "#8b7355"
+eventColor6 = "#a8a095"
+eventColor7 = "#c98a50"
+eventColor8 = "#b5a48f"
 
 [css]
 content = """

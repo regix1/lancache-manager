@@ -19,7 +19,14 @@ import type {
   GameCacheInfo,
   ServiceCacheInfo,
   DatasourceLogPosition,
-  DatasourceServiceCounts
+  DatasourceServiceCounts,
+  Event,
+  CreateEventRequest,
+  UpdateEventRequest,
+  Tag,
+  CreateTagRequest,
+  UpdateTagRequest,
+  DownloadWithAssociations
 } from '../types';
 
 // Response types for API operations
@@ -993,6 +1000,364 @@ class ApiService {
       }>(res);
     } catch (error) {
       console.error('setGuestSessionDuration error:', error);
+      throw error;
+    }
+  }
+
+  // ==================== Events API ====================
+
+  // Get all events
+  static async getEvents(signal?: AbortSignal): Promise<Event[]> {
+    try {
+      const res = await fetch(`${API_BASE}/events`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<Event[]>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getEvents error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // Get currently active events
+  static async getActiveEvents(signal?: AbortSignal): Promise<Event[]> {
+    try {
+      const res = await fetch(`${API_BASE}/events/active`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<Event[]>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getActiveEvents error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // Get a single event by ID
+  static async getEvent(id: number, signal?: AbortSignal): Promise<Event> {
+    try {
+      const res = await fetch(`${API_BASE}/events/${id}`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<Event>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getEvent error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // Get events for calendar view (by date range)
+  static async getCalendarEvents(startTime: number, endTime: number, signal?: AbortSignal): Promise<Event[]> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/events/calendar?start=${startTime}&end=${endTime}`,
+        this.getFetchOptions({ signal })
+      );
+      return await this.handleResponse<Event[]>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getCalendarEvents error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // Create a new event
+  static async createEvent(data: CreateEventRequest): Promise<Event> {
+    try {
+      const res = await fetch(`${API_BASE}/events`, this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      }));
+      return await this.handleResponse<Event>(res);
+    } catch (error) {
+      console.error('createEvent error:', error);
+      throw error;
+    }
+  }
+
+  // Update an existing event
+  static async updateEvent(id: number, data: UpdateEventRequest): Promise<Event> {
+    try {
+      const res = await fetch(`${API_BASE}/events/${id}`, this.getFetchOptions({
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      }));
+      return await this.handleResponse<Event>(res);
+    } catch (error) {
+      console.error('updateEvent error:', error);
+      throw error;
+    }
+  }
+
+  // Delete an event
+  static async deleteEvent(id: number): Promise<void> {
+    try {
+      const res = await fetch(`${API_BASE}/events/${id}`, this.getFetchOptions({
+        method: 'DELETE'
+      }));
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status}: ${errorText || res.statusText}`);
+      }
+    } catch (error) {
+      console.error('deleteEvent error:', error);
+      throw error;
+    }
+  }
+
+  // Get downloads for an event
+  static async getEventDownloads(eventId: number, taggedOnly: boolean = false, signal?: AbortSignal): Promise<Download[]> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/events/${eventId}/downloads?taggedOnly=${taggedOnly}`,
+        this.getFetchOptions({ signal })
+      );
+      return await this.handleResponse<Download[]>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getEventDownloads error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // Manually tag a download to an event
+  static async tagDownloadToEvent(eventId: number, downloadId: number): Promise<void> {
+    try {
+      const res = await fetch(`${API_BASE}/events/${eventId}/downloads/${downloadId}`, this.getFetchOptions({
+        method: 'POST'
+      }));
+      await this.handleResponse(res);
+    } catch (error) {
+      console.error('tagDownloadToEvent error:', error);
+      throw error;
+    }
+  }
+
+  // Remove a download tag from an event
+  static async untagDownloadFromEvent(eventId: number, downloadId: number): Promise<void> {
+    try {
+      const res = await fetch(`${API_BASE}/events/${eventId}/downloads/${downloadId}`, this.getFetchOptions({
+        method: 'DELETE'
+      }));
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status}: ${errorText || res.statusText}`);
+      }
+    } catch (error) {
+      console.error('untagDownloadFromEvent error:', error);
+      throw error;
+    }
+  }
+
+  // ==================== Tags API ====================
+
+  // Get all tags
+  static async getTags(signal?: AbortSignal): Promise<Tag[]> {
+    try {
+      const res = await fetch(`${API_BASE}/tags`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<Tag[]>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getTags error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // Get a single tag by ID
+  static async getTag(id: number, signal?: AbortSignal): Promise<Tag> {
+    try {
+      const res = await fetch(`${API_BASE}/tags/${id}`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<Tag>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getTag error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // Create a new tag
+  static async createTag(data: CreateTagRequest): Promise<Tag> {
+    try {
+      const res = await fetch(`${API_BASE}/tags`, this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      }));
+      return await this.handleResponse<Tag>(res);
+    } catch (error) {
+      console.error('createTag error:', error);
+      throw error;
+    }
+  }
+
+  // Update an existing tag
+  static async updateTag(id: number, data: UpdateTagRequest): Promise<Tag> {
+    try {
+      const res = await fetch(`${API_BASE}/tags/${id}`, this.getFetchOptions({
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      }));
+      return await this.handleResponse<Tag>(res);
+    } catch (error) {
+      console.error('updateTag error:', error);
+      throw error;
+    }
+  }
+
+  // Delete a tag
+  static async deleteTag(id: number): Promise<void> {
+    try {
+      const res = await fetch(`${API_BASE}/tags/${id}`, this.getFetchOptions({
+        method: 'DELETE'
+      }));
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status}: ${errorText || res.statusText}`);
+      }
+    } catch (error) {
+      console.error('deleteTag error:', error);
+      throw error;
+    }
+  }
+
+  // Get downloads with a specific tag
+  static async getDownloadsWithTag(tagId: number, signal?: AbortSignal): Promise<Download[]> {
+    try {
+      const res = await fetch(`${API_BASE}/tags/${tagId}/downloads`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<Download[]>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getDownloadsWithTag error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // Add a tag to a download
+  static async addTagToDownload(tagId: number, downloadId: number): Promise<void> {
+    try {
+      const res = await fetch(`${API_BASE}/tags/${tagId}/downloads/${downloadId}`, this.getFetchOptions({
+        method: 'POST'
+      }));
+      await this.handleResponse(res);
+    } catch (error) {
+      console.error('addTagToDownload error:', error);
+      throw error;
+    }
+  }
+
+  // Remove a tag from a download
+  static async removeTagFromDownload(tagId: number, downloadId: number): Promise<void> {
+    try {
+      const res = await fetch(`${API_BASE}/tags/${tagId}/downloads/${downloadId}`, this.getFetchOptions({
+        method: 'DELETE'
+      }));
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status}: ${errorText || res.statusText}`);
+      }
+    } catch (error) {
+      console.error('removeTagFromDownload error:', error);
+      throw error;
+    }
+  }
+
+  // Get tags for a specific download
+  static async getTagsForDownload(downloadId: number, signal?: AbortSignal): Promise<Tag[]> {
+    try {
+      const res = await fetch(`${API_BASE}/tags/download/${downloadId}`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<Tag[]>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getTagsForDownload error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // Get tag usage count
+  static async getTagUsageCount(tagId: number, signal?: AbortSignal): Promise<{ tagId: number; usageCount: number }> {
+    try {
+      const res = await fetch(`${API_BASE}/tags/${tagId}/usage`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<{ tagId: number; usageCount: number }>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getTagUsageCount error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // ==================== Downloads with Associations ====================
+
+  // Get downloads with their tags and events
+  static async getDownloadsWithAssociations(
+    count: number = 100,
+    startTime?: number,
+    endTime?: number,
+    signal?: AbortSignal
+  ): Promise<DownloadWithAssociations[]> {
+    try {
+      const params = new URLSearchParams();
+      params.append('count', count.toString());
+      if (startTime) params.append('startTime', startTime.toString());
+      if (endTime) params.append('endTime', endTime.toString());
+
+      const res = await fetch(
+        `${API_BASE}/downloads/with-associations?${params}`,
+        this.getFetchOptions({ signal })
+      );
+      return await this.handleResponse<DownloadWithAssociations[]>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getDownloadsWithAssociations error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // Get a single download with its tags and events
+  static async getDownloadWithAssociations(
+    downloadId: number,
+    signal?: AbortSignal
+  ): Promise<{ download: Download; tags: Tag[]; events: Array<{ id: number; name: string; color: string; startTimeUtc: string; endTimeUtc: string; autoTagged: boolean; taggedAtUtc: string }> }> {
+    try {
+      const res = await fetch(`${API_BASE}/downloads/${downloadId}`, this.getFetchOptions({ signal }));
+      return await this.handleResponse(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getDownloadWithAssociations error:', error);
+      }
       throw error;
     }
   }

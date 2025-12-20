@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { storage } from '@utils/storage';
 
-export type TimeRange = '1h' | '6h' | '12h' | '24h' | '7d' | '30d' | 'live' | 'custom';
+export type TimeRange = '1h' | '6h' | '12h' | '24h' | '7d' | '30d' | 'live' | 'custom' | 'event';
 
 interface TimeFilterContextType {
   timeRange: TimeRange;
@@ -10,6 +10,10 @@ interface TimeFilterContextType {
   customEndDate: Date | null;
   setCustomStartDate: (date: Date | null) => void;
   setCustomEndDate: (date: Date | null) => void;
+  // Event time range (set by TimeFilter when event is selected)
+  eventStartTime: number | null;
+  eventEndTime: number | null;
+  setEventTimeRange: (startTime: number | null, endTime: number | null) => void;
   getTimeRangeInHours: () => number;
   getTimeRangeParams: () => { startTime?: number; endTime?: number };
 }
@@ -65,6 +69,17 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
     return null;
   });
 
+  // Event time range (Unix timestamps)
+  const [eventStartTime, setEventStartTime] = useState<number | null>(() => {
+    const saved = storage.getItem('lancache_event_start_time');
+    return saved ? parseInt(saved, 10) : null;
+  });
+
+  const [eventEndTime, setEventEndTime] = useState<number | null>(() => {
+    const saved = storage.getItem('lancache_event_end_time');
+    return saved ? parseInt(saved, 10) : null;
+  });
+
   // Persist timeRange to localStorage
   useEffect(() => {
     storage.setItem('lancache_time_range', timeRange);
@@ -86,6 +101,29 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
       storage.removeItem('lancache_custom_end_date');
     }
   }, [customEndDate]);
+
+  // Persist event time range
+  useEffect(() => {
+    if (eventStartTime !== null) {
+      storage.setItem('lancache_event_start_time', eventStartTime.toString());
+    } else {
+      storage.removeItem('lancache_event_start_time');
+    }
+  }, [eventStartTime]);
+
+  useEffect(() => {
+    if (eventEndTime !== null) {
+      storage.setItem('lancache_event_end_time', eventEndTime.toString());
+    } else {
+      storage.removeItem('lancache_event_end_time');
+    }
+  }, [eventEndTime]);
+
+  // Set event time range (called by TimeFilter when selecting an event)
+  const setEventTimeRange = (startTime: number | null, endTime: number | null) => {
+    setEventStartTime(startTime);
+    setEventEndTime(endTime);
+  };
 
   const getTimeRangeInHours = (): number => {
     switch (timeRange) {
@@ -109,6 +147,12 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
           return Math.ceil(diffMs / (1000 * 60 * 60));
         }
         return 24;
+      case 'event':
+        if (eventStartTime !== null && eventEndTime !== null) {
+          const diffSeconds = eventEndTime - eventStartTime;
+          return Math.ceil(diffSeconds / 3600);
+        }
+        return 24;
       default:
         return 24;
     }
@@ -122,16 +166,12 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
       endDate.setHours(23, 59, 59, 999);
       const endTime = Math.floor(endDate.getTime() / 1000);
 
-      // Debug logging - uncomment if needed for debugging
-      // console.log('📅 Custom Range Selected:', {
-      //   startDate: customStartDate.toLocaleString(),
-      //   endDate: endDate.toLocaleString(),
-      //   startTime,
-      //   endTime,
-      //   daysDiff: Math.ceil((endDate.getTime() - customStartDate.getTime()) / (1000 * 60 * 60 * 24))
-      // });
-
       return { startTime, endTime };
+    }
+
+    // Return event time range when event is selected
+    if (timeRange === 'event' && eventStartTime !== null && eventEndTime !== null) {
+      return { startTime: eventStartTime, endTime: eventEndTime };
     }
 
     // Return empty params for 'live' time to fetch everything
@@ -167,6 +207,9 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
         customEndDate,
         setCustomStartDate: setCustomStartDateWithLogging,
         setCustomEndDate: setCustomEndDateWithLogging,
+        eventStartTime,
+        eventEndTime,
+        setEventTimeRange,
         getTimeRangeInHours,
         getTimeRangeParams
       }}

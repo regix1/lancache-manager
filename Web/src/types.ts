@@ -275,3 +275,97 @@ export interface GameDetectionStatus {
   totalServicesDetected?: number;
   error?: string;
 }
+
+// Event Types
+export interface Event {
+  id: number;
+  name: string;
+  description?: string;
+  startTimeUtc: string;
+  endTimeUtc: string;
+  startTimeLocal: string;
+  endTimeLocal: string;
+  color: string;
+  createdAtUtc: string;
+  updatedAtUtc?: string;
+}
+
+export interface EventDownload {
+  id: number;
+  eventId: number;
+  downloadId: number;
+  taggedAtUtc: string;
+  autoTagged: boolean;
+}
+
+export interface CreateEventRequest {
+  name: string;
+  description?: string;
+  startTime: number; // Unix timestamp
+  endTime: number; // Unix timestamp
+  startTimeLocal?: string;
+  endTimeLocal?: string;
+  color?: string;
+}
+
+export interface UpdateEventRequest {
+  name: string;
+  description?: string;
+  startTime: number; // Unix timestamp
+  endTime: number; // Unix timestamp
+  startTimeLocal?: string;
+  endTimeLocal?: string;
+  color?: string;
+}
+
+export type EventFilterMode = 'timeWindow' | 'tagged';
+export type EventDataStackMode = 'eventOnly' | 'eventAndCurrent';
+
+// Freeform Tag Types
+export interface Tag {
+  id: number;
+  name: string;
+  color: string;
+  description?: string;
+  createdAtUtc: string;
+}
+
+export interface DownloadTag {
+  id: number;
+  tagId: number;
+  downloadId: number;
+  taggedAtUtc: string;
+}
+
+export interface CreateTagRequest {
+  name: string;
+  color?: string;
+  description?: string;
+}
+
+export interface UpdateTagRequest {
+  name: string;
+  color?: string;
+  description?: string;
+}
+
+// Extended Download type with associations
+export interface DownloadWithAssociations {
+  download: Download;
+  tags: TagSummary[];
+  events: EventSummary[];
+}
+
+export interface TagSummary {
+  id: number;
+  name: string;
+  color: string;
+  description?: string;
+}
+
+export interface EventSummary {
+  id: number;
+  name: string;
+  color: string;
+  autoTagged: boolean;
+}

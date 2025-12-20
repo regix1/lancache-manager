@@ -3,7 +3,7 @@ name = "Sage & Wood"
 id = "sage-wood"
 description = "Earthy sage green with warm wood browns on charcoal"
 author = "Nature"
-version = "2.0.4"
+version = "2.1.0"
 isDark = true
 sharpCorners = false
 
@@ -124,6 +124,16 @@ guestSessionColor = "#7a9a9f"
 guestSessionBg = "rgba(122, 154, 159, 0.15)"
 dragHandleColor = "#808080"
 dragHandleHover = "#a8c090"
+
+# Event colors - Sage green and wood brown tones
+eventColor1 = "#8AA968"
+eventColor2 = "#7a9960"
+eventColor3 = "#d4a574"
+eventColor4 = "#c07860"
+eventColor5 = "#8b6f47"
+eventColor6 = "#7a9a9f"
+eventColor7 = "#9b8b7a"
+eventColor8 = "#8fa4c4"
 
 [css]
 content = """

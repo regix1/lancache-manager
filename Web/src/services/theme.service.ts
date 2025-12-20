@@ -153,6 +153,17 @@ interface ThemeColors {
   guestSessionBg?: string;
   activeSessionColor?: string;
   activeSessionBg?: string;
+
+  // Event colors (for Events tab)
+  eventColor1?: string;
+  eventColor2?: string;
+  eventColor3?: string;
+  eventColor4?: string;
+  eventColor5?: string;
+  eventColor6?: string;
+  eventColor7?: string;
+  eventColor8?: string;
+
   // Index signature for dynamic color access
   [key: string]: string | undefined;
 }
@@ -551,7 +562,17 @@ class ThemeService {
           guestSessionColor: '#06b6d4', // Cyan for guest users
           guestSessionBg: 'rgba(6, 182, 212, 0.15)', // Cyan with 15% opacity
           activeSessionColor: '#f97316', // Orange for active sessions
-          activeSessionBg: 'rgba(249, 115, 22, 0.15)' // Orange with 15% opacity
+          activeSessionBg: 'rgba(249, 115, 22, 0.15)', // Orange with 15% opacity
+
+          // Event colors (for calendar events)
+          eventColor1: '#3b82f6', // Blue
+          eventColor2: '#10b981', // Green
+          eventColor3: '#f59e0b', // Amber
+          eventColor4: '#ef4444', // Red
+          eventColor5: '#8b5cf6', // Purple
+          eventColor6: '#ec4899', // Pink
+          eventColor7: '#06b6d4', // Cyan
+          eventColor8: '#f97316' // Orange
         }
       },
       // Modern, clean light theme inspired by Linear/Stripe
@@ -716,7 +737,17 @@ class ThemeService {
           guestSessionColor: '#0891b2',
           guestSessionBg: '#ecfeff',
           activeSessionColor: '#ea580c',
-          activeSessionBg: '#fff7ed'
+          activeSessionBg: '#fff7ed',
+
+          // Event colors (for calendar events)
+          eventColor1: '#2563eb', // Blue
+          eventColor2: '#059669', // Green
+          eventColor3: '#d97706', // Amber
+          eventColor4: '#dc2626', // Red
+          eventColor5: '#7c3aed', // Purple
+          eventColor6: '#db2777', // Pink
+          eventColor7: '#0891b2', // Cyan
+          eventColor8: '#ea580c' // Orange
         }
       }
     ];
@@ -995,6 +1026,16 @@ class ThemeService {
         --theme-active-session: #f97316;
         --theme-active-session-bg: rgba(249, 115, 22, 0.15);
 
+        /* Event Colors */
+        --theme-event-1: #3b82f6;
+        --theme-event-2: #10b981;
+        --theme-event-3: #f59e0b;
+        --theme-event-4: #ef4444;
+        --theme-event-5: #8b5cf6;
+        --theme-event-6: #ec4899;
+        --theme-event-7: #06b6d4;
+        --theme-event-8: #f97316;
+
         /* Muted aliases */
         --theme-muted: #9ca3af;
         --theme-muted-bg: #313e52;
@@ -1258,6 +1299,16 @@ class ThemeService {
       --theme-guest-session-bg: ${colors.guestSessionBg || colors.infoBg};
       --theme-active-session: ${colors.activeSessionColor || colors.iconBgOrange};
       --theme-active-session-bg: ${colors.activeSessionBg || 'rgba(249, 115, 22, 0.15)'};
+
+      /* Event Colors */
+      --theme-event-1: ${colors.eventColor1 || colors.primaryColor};
+      --theme-event-2: ${colors.eventColor2 || colors.success};
+      --theme-event-3: ${colors.eventColor3 || colors.warning};
+      --theme-event-4: ${colors.eventColor4 || colors.error};
+      --theme-event-5: ${colors.eventColor5 || colors.secondaryColor};
+      --theme-event-6: ${colors.eventColor6 || '#ec4899'};
+      --theme-event-7: ${colors.eventColor7 || colors.accentColor};
+      --theme-event-8: ${colors.eventColor8 || colors.iconBgOrange};
 
       /* Alias Variables for Compatibility */
       --theme-muted: ${colors.textMuted};

@@ -1,0 +1,530 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { ChevronLeft, ChevronRight, Calendar, ChevronDown, Clock } from 'lucide-react';
+import { Modal } from '@components/ui/Modal';
+import { CustomScrollbar } from '@components/ui/CustomScrollbar';
+import { useTimezone } from '@contexts/TimezoneContext';
+
+interface DateTimePickerProps {
+  value: Date | null;
+  onChange: (date: Date) => void;
+  onClose: () => void;
+  title?: string;
+}
+
+const DateTimePicker: React.FC<DateTimePickerProps> = ({
+  value,
+  onChange,
+  onClose,
+  title = 'Select Date & Time'
+}) => {
+  const { use24HourFormat } = useTimezone();
+
+  const [currentMonth, setCurrentMonth] = useState(() => {
+    return value ? new Date(value.getFullYear(), value.getMonth(), 1) : new Date();
+  });
+  const [selectedDate, setSelectedDate] = useState<Date | null>(value);
+  const [hours, setHours] = useState(() => value ? value.getHours() : new Date().getHours());
+  const [minutes, setMinutes] = useState(() => value ? value.getMinutes() : 0);
+  const [showYearDropdown, setShowYearDropdown] = useState(false);
+  const [showMonthDropdown, setShowMonthDropdown] = useState(false);
+  const [showHourDropdown, setShowHourDropdown] = useState(false);
+  const [showMinuteDropdown, setShowMinuteDropdown] = useState(false);
+  const [amPm, setAmPm] = useState<'AM' | 'PM'>(() => {
+    const h = value ? value.getHours() : new Date().getHours();
+    return h >= 12 ? 'PM' : 'AM';
+  });
+
+  const monthDropdownRef = useRef<HTMLDivElement>(null);
+  const yearDropdownRef = useRef<HTMLDivElement>(null);
+  const hourDropdownRef = useRef<HTMLDivElement>(null);
+  const minuteDropdownRef = useRef<HTMLDivElement>(null);
+  const monthButtonRef = useRef<HTMLButtonElement>(null);
+  const yearButtonRef = useRef<HTMLButtonElement>(null);
+  const hourButtonRef = useRef<HTMLButtonElement>(null);
+  const minuteButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Click outside handler for dropdowns
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+
+      if (showMonthDropdown && monthDropdownRef.current &&
+          !monthDropdownRef.current.contains(target) &&
+          monthButtonRef.current && !monthButtonRef.current.contains(target)) {
+        setShowMonthDropdown(false);
+      }
+      if (showYearDropdown && yearDropdownRef.current &&
+          !yearDropdownRef.current.contains(target) &&
+          yearButtonRef.current && !yearButtonRef.current.contains(target)) {
+        setShowYearDropdown(false);
+      }
+      if (showHourDropdown && hourDropdownRef.current &&
+          !hourDropdownRef.current.contains(target) &&
+          hourButtonRef.current && !hourButtonRef.current.contains(target)) {
+        setShowHourDropdown(false);
+      }
+      if (showMinuteDropdown && minuteDropdownRef.current &&
+          !minuteDropdownRef.current.contains(target) &&
+          minuteButtonRef.current && !minuteButtonRef.current.contains(target)) {
+        setShowMinuteDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showMonthDropdown, showYearDropdown, showHourDropdown, showMinuteDropdown]);
+
+  const closeAllDropdowns = () => {
+    setShowYearDropdown(false);
+    setShowMonthDropdown(false);
+    setShowHourDropdown(false);
+    setShowMinuteDropdown(false);
+  };
+
+  const getDaysInMonth = (date: Date): number => {
+    return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  };
+
+  const getFirstDayOfMonth = (date: Date): number => {
+    return new Date(date.getFullYear(), date.getMonth(), 1).getDay();
+  };
+
+  const handleDateClick = (day: number) => {
+    closeAllDropdowns();
+    const newDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
+    newDate.setHours(hours, minutes, 0, 0);
+    setSelectedDate(newDate);
+  };
+
+  const changeMonth = (increment: number) => {
+    closeAllDropdowns();
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + increment, 1));
+  };
+
+  const changeYear = (year: number) => {
+    setCurrentMonth(new Date(year, currentMonth.getMonth(), 1));
+    setShowYearDropdown(false);
+  };
+
+  const changeToMonth = (month: number) => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), month, 1));
+    setShowMonthDropdown(false);
+  };
+
+  const handleHourChange = (hour: number) => {
+    if (use24HourFormat) {
+      setHours(hour);
+    } else {
+      // Convert 12h to 24h
+      if (amPm === 'PM' && hour !== 12) {
+        setHours(hour + 12);
+      } else if (amPm === 'AM' && hour === 12) {
+        setHours(0);
+      } else {
+        setHours(hour);
+      }
+    }
+    setShowHourDropdown(false);
+  };
+
+  const handleMinuteChange = (minute: number) => {
+    setMinutes(minute);
+    setShowMinuteDropdown(false);
+  };
+
+  const handleAmPmChange = (value: 'AM' | 'PM') => {
+    setAmPm(value);
+    // Adjust hours based on AM/PM
+    if (value === 'PM' && hours < 12) {
+      setHours(hours + 12);
+    } else if (value === 'AM' && hours >= 12) {
+      setHours(hours - 12);
+    }
+  };
+
+  const handleApply = () => {
+    if (selectedDate) {
+      const finalDate = new Date(selectedDate);
+      finalDate.setHours(hours, minutes, 0, 0);
+      onChange(finalDate);
+    }
+    onClose();
+  };
+
+  const currentYear = new Date().getFullYear();
+  const startYear = currentYear - 5;
+  const endYear = currentYear + 5;
+  const yearOptions = Array.from({ length: endYear - startYear + 1 }, (_, i) => startYear + i);
+
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+
+  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  const isSelectedDate = (day: number): boolean => {
+    if (!selectedDate) return false;
+    return (
+      selectedDate.getFullYear() === currentMonth.getFullYear() &&
+      selectedDate.getMonth() === currentMonth.getMonth() &&
+      selectedDate.getDate() === day
+    );
+  };
+
+  const isToday = (day: number): boolean => {
+    const today = new Date();
+    return (
+      currentMonth.getFullYear() === today.getFullYear() &&
+      currentMonth.getMonth() === today.getMonth() &&
+      day === today.getDate()
+    );
+  };
+
+  const daysInMonth = getDaysInMonth(currentMonth);
+  const firstDayOfMonth = getFirstDayOfMonth(currentMonth);
+
+  // Display hours for dropdown
+  const displayHour = use24HourFormat
+    ? hours
+    : hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
+
+  const hourOptions = use24HourFormat
+    ? Array.from({ length: 24 }, (_, i) => i)
+    : Array.from({ length: 12 }, (_, i) => i === 0 ? 12 : i);
+
+  const minuteOptions = Array.from({ length: 60 }, (_, i) => i);
+
+  const formatTime = (): string => {
+    const h = use24HourFormat ? hours : displayHour;
+    const suffix = use24HourFormat ? '' : ` ${amPm}`;
+    return `${h.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}${suffix}`;
+  };
+
+  return (
+    <Modal
+      opened={true}
+      onClose={onClose}
+      title={
+        <div className="flex items-center gap-2">
+          <Calendar className="w-5 h-5 text-[var(--theme-primary)]" />
+          <span>{title}</span>
+        </div>
+      }
+      size="md"
+    >
+      <div>
+        {/* Month/Year Navigation */}
+        <div className="mb-4 flex items-center justify-between">
+          <button
+            onClick={() => changeMonth(-1)}
+            className="p-2 hover:bg-[var(--theme-bg-tertiary)] rounded-lg transition-colors"
+          >
+            <ChevronLeft className="w-5 h-5 text-[var(--theme-text-primary)]" />
+          </button>
+
+          <div className="flex items-center gap-2">
+            {/* Month Dropdown */}
+            <div className="relative">
+              <button
+                ref={monthButtonRef}
+                onClick={() => {
+                  setShowMonthDropdown(!showMonthDropdown);
+                  setShowYearDropdown(false);
+                  setShowHourDropdown(false);
+                  setShowMinuteDropdown(false);
+                }}
+                className="flex items-center gap-1 px-3 py-1.5 text-[var(--theme-text-primary)] font-medium hover:bg-[var(--theme-bg-tertiary)] rounded-lg transition-colors border border-transparent hover:border-[var(--theme-border-primary)]"
+              >
+                {monthNames[currentMonth.getMonth()]}
+                <ChevronDown className={`w-4 h-4 transition-transform ${showMonthDropdown ? 'rotate-180' : ''}`} />
+              </button>
+
+              {showMonthDropdown && (
+                <div
+                  ref={monthDropdownRef}
+                  className="absolute top-full left-0 mt-1 bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)] rounded-lg shadow-lg overflow-hidden"
+                  style={{ zIndex: 100003 }}
+                >
+                  <CustomScrollbar maxHeight="200px" paddingMode="none">
+                    <div className="py-1">
+                      {monthNames.map((month, index) => (
+                        <button
+                          key={month}
+                          onClick={() => changeToMonth(index)}
+                          className={`w-full text-left px-3 py-2 text-sm transition-colors whitespace-nowrap ${
+                            index === currentMonth.getMonth()
+                              ? 'bg-[var(--theme-primary)] text-[var(--theme-button-text)] font-medium'
+                              : 'text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-tertiary)]'
+                          }`}
+                        >
+                          {month}
+                        </button>
+                      ))}
+                    </div>
+                  </CustomScrollbar>
+                </div>
+              )}
+            </div>
+
+            {/* Year Dropdown */}
+            <div className="relative">
+              <button
+                ref={yearButtonRef}
+                onClick={() => {
+                  setShowYearDropdown(!showYearDropdown);
+                  setShowMonthDropdown(false);
+                  setShowHourDropdown(false);
+                  setShowMinuteDropdown(false);
+                }}
+                className="flex items-center gap-1 px-3 py-1.5 text-[var(--theme-text-primary)] font-medium hover:bg-[var(--theme-bg-tertiary)] rounded-lg transition-colors border border-transparent hover:border-[var(--theme-border-primary)]"
+              >
+                {currentMonth.getFullYear()}
+                <ChevronDown className={`w-4 h-4 transition-transform ${showYearDropdown ? 'rotate-180' : ''}`} />
+              </button>
+
+              {showYearDropdown && (
+                <div
+                  ref={yearDropdownRef}
+                  className="absolute top-full right-0 mt-1 bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)] rounded-lg shadow-lg overflow-hidden"
+                  style={{ zIndex: 100003 }}
+                >
+                  <CustomScrollbar maxHeight="200px" paddingMode="none">
+                    <div className="py-1">
+                      {yearOptions.map((year) => (
+                        <button
+                          key={year}
+                          onClick={() => changeYear(year)}
+                          className={`w-full text-left px-3 py-2 text-sm transition-colors whitespace-nowrap ${
+                            year === currentMonth.getFullYear()
+                              ? 'bg-[var(--theme-primary)] text-[var(--theme-button-text)] font-medium'
+                              : 'text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-tertiary)]'
+                          }`}
+                        >
+                          {year}
+                        </button>
+                      ))}
+                    </div>
+                  </CustomScrollbar>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <button
+            onClick={() => changeMonth(1)}
+            className="p-2 hover:bg-[var(--theme-bg-tertiary)] rounded-lg transition-colors"
+          >
+            <ChevronRight className="w-5 h-5 text-[var(--theme-text-primary)]" />
+          </button>
+        </div>
+
+        {/* Week Days Header */}
+        <div className="grid grid-cols-7 gap-1 mb-2">
+          {weekDays.map((day) => (
+            <div
+              key={day}
+              className="text-center text-xs font-medium text-[var(--theme-text-secondary)] py-2"
+            >
+              {day}
+            </div>
+          ))}
+        </div>
+
+        {/* Calendar Grid */}
+        <div className="grid grid-cols-7 gap-1">
+          {Array.from({ length: firstDayOfMonth }).map((_, index) => (
+            <div key={`empty-${index}`} />
+          ))}
+          {Array.from({ length: daysInMonth }).map((_, index) => {
+            const day = index + 1;
+            const selected = isSelectedDate(day);
+            const today = isToday(day);
+
+            let className = 'relative p-2 text-sm transition-all cursor-pointer rounded-lg ';
+
+            if (selected) {
+              className += 'bg-[var(--theme-primary)] text-[var(--theme-button-text)] font-semibold ';
+            } else if (today) {
+              className += 'ring-2 ring-[var(--theme-primary)]/50 text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-tertiary)] ';
+            } else {
+              className += 'hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] ';
+            }
+
+            return (
+              <button
+                key={day}
+                onClick={() => handleDateClick(day)}
+                className={className}
+              >
+                {day}
+                {today && !selected && (
+                  <div className="absolute bottom-0.5 left-1/2 transform -translate-x-1/2 w-1 h-1 bg-[var(--theme-primary)] rounded-full" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Time Selection */}
+        <div className="mt-4 pt-4 border-t border-[var(--theme-border-primary)]">
+          <div className="flex items-center justify-center gap-2">
+            <Clock className="w-4 h-4 text-[var(--theme-text-secondary)]" />
+            <span className="text-sm text-[var(--theme-text-secondary)]">Time:</span>
+
+            {/* Hour Dropdown */}
+            <div className="relative">
+              <button
+                ref={hourButtonRef}
+                onClick={() => {
+                  setShowHourDropdown(!showHourDropdown);
+                  setShowMinuteDropdown(false);
+                  setShowMonthDropdown(false);
+                  setShowYearDropdown(false);
+                }}
+                className="px-3 py-1.5 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg border border-[var(--theme-border-primary)] hover:border-[var(--theme-primary)] transition-colors min-w-[60px] text-center"
+              >
+                {displayHour.toString().padStart(2, '0')}
+              </button>
+
+              {showHourDropdown && (
+                <div
+                  ref={hourDropdownRef}
+                  className="absolute top-full left-0 mt-1 bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)] rounded-lg shadow-lg overflow-hidden"
+                  style={{ zIndex: 100003 }}
+                >
+                  <CustomScrollbar maxHeight="200px" paddingMode="none">
+                    <div className="py-1">
+                      {hourOptions.map((hour) => (
+                        <button
+                          key={hour}
+                          onClick={() => handleHourChange(hour)}
+                          className={`w-full text-center px-4 py-2 text-sm transition-colors ${
+                            (use24HourFormat ? hours === hour : displayHour === hour)
+                              ? 'bg-[var(--theme-primary)] text-[var(--theme-button-text)] font-medium'
+                              : 'text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-tertiary)]'
+                          }`}
+                        >
+                          {hour.toString().padStart(2, '0')}
+                        </button>
+                      ))}
+                    </div>
+                  </CustomScrollbar>
+                </div>
+              )}
+            </div>
+
+            <span className="text-[var(--theme-text-primary)] font-medium">:</span>
+
+            {/* Minute Dropdown */}
+            <div className="relative">
+              <button
+                ref={minuteButtonRef}
+                onClick={() => {
+                  setShowMinuteDropdown(!showMinuteDropdown);
+                  setShowHourDropdown(false);
+                  setShowMonthDropdown(false);
+                  setShowYearDropdown(false);
+                }}
+                className="px-3 py-1.5 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg border border-[var(--theme-border-primary)] hover:border-[var(--theme-primary)] transition-colors min-w-[60px] text-center"
+              >
+                {minutes.toString().padStart(2, '0')}
+              </button>
+
+              {showMinuteDropdown && (
+                <div
+                  ref={minuteDropdownRef}
+                  className="absolute top-full left-0 mt-1 bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)] rounded-lg shadow-lg overflow-hidden"
+                  style={{ zIndex: 100003 }}
+                >
+                  <CustomScrollbar maxHeight="200px" paddingMode="none">
+                    <div className="py-1">
+                      {minuteOptions.map((minute) => (
+                        <button
+                          key={minute}
+                          onClick={() => handleMinuteChange(minute)}
+                          className={`w-full text-center px-4 py-2 text-sm transition-colors ${
+                            minutes === minute
+                              ? 'bg-[var(--theme-primary)] text-[var(--theme-button-text)] font-medium'
+                              : 'text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-tertiary)]'
+                          }`}
+                        >
+                          {minute.toString().padStart(2, '0')}
+                        </button>
+                      ))}
+                    </div>
+                  </CustomScrollbar>
+                </div>
+              )}
+            </div>
+
+            {/* AM/PM Toggle (only for 12h format) */}
+            {!use24HourFormat && (
+              <div className="flex rounded-lg overflow-hidden border border-[var(--theme-border-primary)]">
+                <button
+                  onClick={() => handleAmPmChange('AM')}
+                  className={`px-3 py-1.5 text-sm transition-colors ${
+                    amPm === 'AM'
+                      ? 'bg-[var(--theme-primary)] text-[var(--theme-button-text)] font-medium'
+                      : 'bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-primary)]'
+                  }`}
+                >
+                  AM
+                </button>
+                <button
+                  onClick={() => handleAmPmChange('PM')}
+                  className={`px-3 py-1.5 text-sm transition-colors ${
+                    amPm === 'PM'
+                      ? 'bg-[var(--theme-primary)] text-[var(--theme-button-text)] font-medium'
+                      : 'bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-primary)]'
+                  }`}
+                >
+                  PM
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Selected Value Display */}
+        <div className="mt-4 pt-4 border-t border-[var(--theme-border-primary)]">
+          <div className="text-center">
+            <span className="text-sm text-[var(--theme-text-secondary)]">Selected: </span>
+            <span className="text-[var(--theme-text-primary)] font-medium">
+              {selectedDate
+                ? `${selectedDate.toLocaleDateString()} ${formatTime()}`
+                : 'None'}
+            </span>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex gap-2 mt-4">
+          <button
+            onClick={() => {
+              const now = new Date();
+              now.setSeconds(0, 0);
+              setSelectedDate(now);
+              setHours(now.getHours());
+              setMinutes(now.getMinutes());
+              setAmPm(now.getHours() >= 12 ? 'PM' : 'AM');
+              setCurrentMonth(new Date(now.getFullYear(), now.getMonth(), 1));
+            }}
+            className="flex-1 px-3 py-2 text-sm bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg hover:bg-[var(--theme-bg-primary)] transition-colors border border-[var(--theme-border-primary)]"
+          >
+            Now
+          </button>
+          <button
+            onClick={handleApply}
+            disabled={!selectedDate}
+            className="flex-1 px-3 py-2 text-sm bg-[var(--theme-primary)] text-[var(--theme-button-text)] rounded-lg hover:bg-[var(--theme-primary)]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Apply
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+};
+
+export default DateTimePicker;

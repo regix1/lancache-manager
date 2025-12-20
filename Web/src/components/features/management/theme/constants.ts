@@ -16,7 +16,8 @@ import {
   Server,
   Settings,
   BarChart3,
-  Layers
+  Layers,
+  CalendarDays
 } from 'lucide-react';
 import { type ColorGroup, type PageGroup } from './types';
 
@@ -61,6 +62,13 @@ export const pageDefinitions: PageGroup[] = [
     icon: Users,
     description:
       'Session management for authenticated users and guests - USER/GUEST badges, user icons, IP addresses, device info, last seen timestamps, revoke/delete actions, and session statistics'
+  },
+  {
+    name: 'events',
+    label: 'Events',
+    icon: CalendarDays,
+    description:
+      'Event scheduling calendar, event cards with customizable colors, event list with active/upcoming/past status, and event time range filtering'
   },
   {
     name: 'management',
@@ -830,7 +838,81 @@ export const colorGroups: ColorGroup[] = [
     ]
   },
 
-  // 11. PLATFORM SERVICES - Brand-specific colors
+  // 11. EVENT COLORS - Calendar event colors
+  {
+    name: 'events',
+    icon: CalendarDays,
+    description:
+      'Calendar event colors - 8 customizable colors for events in the Events tab calendar and list views',
+    colors: [
+      {
+        key: 'eventColor1',
+        label: 'Event Color 1',
+        description: 'First event color option',
+        affects: ['Event calendar dots', 'Event cards', 'Event list items'],
+        supportsAlpha: true,
+        pages: ['events']
+      },
+      {
+        key: 'eventColor2',
+        label: 'Event Color 2',
+        description: 'Second event color option',
+        affects: ['Event calendar dots', 'Event cards', 'Event list items'],
+        supportsAlpha: true,
+        pages: ['events']
+      },
+      {
+        key: 'eventColor3',
+        label: 'Event Color 3',
+        description: 'Third event color option',
+        affects: ['Event calendar dots', 'Event cards', 'Event list items'],
+        supportsAlpha: true,
+        pages: ['events']
+      },
+      {
+        key: 'eventColor4',
+        label: 'Event Color 4',
+        description: 'Fourth event color option',
+        affects: ['Event calendar dots', 'Event cards', 'Event list items'],
+        supportsAlpha: true,
+        pages: ['events']
+      },
+      {
+        key: 'eventColor5',
+        label: 'Event Color 5',
+        description: 'Fifth event color option',
+        affects: ['Event calendar dots', 'Event cards', 'Event list items'],
+        supportsAlpha: true,
+        pages: ['events']
+      },
+      {
+        key: 'eventColor6',
+        label: 'Event Color 6',
+        description: 'Sixth event color option',
+        affects: ['Event calendar dots', 'Event cards', 'Event list items'],
+        supportsAlpha: true,
+        pages: ['events']
+      },
+      {
+        key: 'eventColor7',
+        label: 'Event Color 7',
+        description: 'Seventh event color option',
+        affects: ['Event calendar dots', 'Event cards', 'Event list items'],
+        supportsAlpha: true,
+        pages: ['events']
+      },
+      {
+        key: 'eventColor8',
+        label: 'Event Color 8',
+        description: 'Eighth event color option',
+        affects: ['Event calendar dots', 'Event cards', 'Event list items'],
+        supportsAlpha: true,
+        pages: ['events']
+      }
+    ]
+  },
+
+  // 12. PLATFORM SERVICES - Brand-specific colors
   {
     name: 'platforms',
     icon: Gamepad2,

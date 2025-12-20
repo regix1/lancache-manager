@@ -1,6 +1,8 @@
 using LancacheManager.Data;
 using LancacheManager.Infrastructure.Repositories;
+using LancacheManager.Infrastructure.Repositories.Interfaces;
 using LancacheManager.Models;
+using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -16,12 +18,18 @@ public class DownloadsController : ControllerBase
 {
     private readonly AppDbContext _context;
     private readonly StatsRepository _statsService;
+    private readonly ITagsRepository _tagsRepository;
     private readonly ILogger<DownloadsController> _logger;
 
-    public DownloadsController(AppDbContext context, StatsRepository statsService, ILogger<DownloadsController> logger)
+    public DownloadsController(
+        AppDbContext context,
+        StatsRepository statsService,
+        ITagsRepository tagsRepository,
+        ILogger<DownloadsController> logger)
     {
         _context = context;
         _statsService = statsService;
+        _tagsRepository = tagsRepository;
         _logger = logger;
     }
 
@@ -107,6 +115,165 @@ public class DownloadsController : ControllerBase
         {
             _logger.LogError(ex, "Error getting active downloads");
             return Ok(new List<Download>());
+        }
+    }
+
+    /// <summary>
+    /// Get a download by ID with its tags and events
+    /// </summary>
+    [HttpGet("{id:int}")]
+    [RequireAuth]
+    public async Task<IActionResult> GetById(int id)
+    {
+        try
+        {
+            var download = await _context.Downloads
+                .AsNoTracking()
+                .FirstOrDefaultAsync(d => d.Id == id);
+
+            if (download == null)
+            {
+                return NotFound(new { error = "Download not found" });
+            }
+
+            // Fix timezone
+            download.StartTimeUtc = DateTime.SpecifyKind(download.StartTimeUtc, DateTimeKind.Utc);
+            if (download.EndTimeUtc != default)
+            {
+                download.EndTimeUtc = DateTime.SpecifyKind(download.EndTimeUtc, DateTimeKind.Utc);
+            }
+
+            // Get tags for this download
+            var tags = await _tagsRepository.GetTagsForDownloadAsync(id);
+
+            // Get events for this download
+            var eventDownloads = await _context.EventDownloads
+                .AsNoTracking()
+                .Include(ed => ed.Event)
+                .Where(ed => ed.DownloadId == id)
+                .ToListAsync();
+
+            var events = eventDownloads.Select(ed => new
+            {
+                ed.Event.Id,
+                ed.Event.Name,
+                ed.Event.Color,
+                ed.Event.StartTimeUtc,
+                ed.Event.EndTimeUtc,
+                ed.AutoTagged,
+                ed.TaggedAtUtc
+            }).ToList();
+
+            return Ok(new
+            {
+                download,
+                tags,
+                events
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting download {Id}", id);
+            return StatusCode(500, new { error = "Failed to get download" });
+        }
+    }
+
+    /// <summary>
+    /// Get downloads with their tags and events for a time range
+    /// </summary>
+    [HttpGet("with-associations")]
+    [RequireAuth]
+    [ResponseCache(Duration = 5)]
+    public async Task<IActionResult> GetWithAssociations(
+        [FromQuery] int count = 100,
+        [FromQuery] long? startTime = null,
+        [FromQuery] long? endTime = null)
+    {
+        try
+        {
+            var startDate = startTime.HasValue
+                ? DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime
+                : DateTime.MinValue;
+            var endDate = endTime.HasValue
+                ? DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime
+                : DateTime.UtcNow;
+
+            // Get downloads
+            var downloads = await _context.Downloads
+                .AsNoTracking()
+                .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
+                .OrderByDescending(d => d.StartTimeUtc)
+                .Take(count)
+                .ToListAsync();
+
+            if (downloads.Count == 0)
+            {
+                return Ok(new List<object>());
+            }
+
+            var downloadIds = downloads.Select(d => d.Id).ToList();
+
+            // Get all tags for these downloads
+            var downloadTags = await _context.DownloadTags
+                .AsNoTracking()
+                .Include(dt => dt.Tag)
+                .Where(dt => downloadIds.Contains(dt.DownloadId))
+                .ToListAsync();
+
+            // Get all events for these downloads
+            var eventDownloads = await _context.EventDownloads
+                .AsNoTracking()
+                .Include(ed => ed.Event)
+                .Where(ed => downloadIds.Contains(ed.DownloadId))
+                .ToListAsync();
+
+            // Group by download ID
+            var tagsLookup = downloadTags
+                .GroupBy(dt => dt.DownloadId)
+                .ToDictionary(g => g.Key, g => g.Select(dt => new
+                {
+                    dt.Tag.Id,
+                    dt.Tag.Name,
+                    dt.Tag.Color,
+                    dt.Tag.Description
+                }).ToList());
+
+            var eventsLookup = eventDownloads
+                .GroupBy(ed => ed.DownloadId)
+                .ToDictionary(g => g.Key, g => g.Select(ed => new
+                {
+                    ed.Event.Id,
+                    ed.Event.Name,
+                    ed.Event.Color,
+                    ed.AutoTagged
+                }).ToList());
+
+            // Build response
+            var result = downloads.Select(d =>
+            {
+                d.StartTimeUtc = DateTime.SpecifyKind(d.StartTimeUtc, DateTimeKind.Utc);
+                if (d.EndTimeUtc != default)
+                {
+                    d.EndTimeUtc = DateTime.SpecifyKind(d.EndTimeUtc, DateTimeKind.Utc);
+                }
+
+                tagsLookup.TryGetValue(d.Id, out var downloadTags);
+                eventsLookup.TryGetValue(d.Id, out var downloadEvents);
+
+                return new
+                {
+                    download = d,
+                    tags = downloadTags ?? (object)Array.Empty<object>(),
+                    events = downloadEvents ?? (object)Array.Empty<object>()
+                };
+            }).ToList();
+
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting downloads with associations");
+            return Ok(new List<object>());
         }
     }
 }

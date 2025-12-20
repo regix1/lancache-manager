@@ -3,6 +3,9 @@ import { NotificationsProvider } from '@contexts/NotificationsContext';
 import { StatsProvider, useStats } from '@contexts/StatsContext';
 import { DownloadsProvider } from '@contexts/DownloadsContext';
 import { TimeFilterProvider } from '@contexts/TimeFilterContext';
+import { EventProvider } from '@contexts/EventContext';
+import { TagProvider } from '@contexts/TagContext';
+import { DownloadAssociationsProvider } from '@contexts/DownloadAssociationsContext';
 import { PollingRateProvider } from '@contexts/PollingRateContext';
 import { SignalRProvider, useSignalR } from '@contexts/SignalRContext';
 import { MockModeProvider, useMockMode } from '@contexts/MockModeContext';
@@ -39,6 +42,7 @@ const ClientsTab = lazy(() => import('@components/features/clients/ClientsTab'))
 const ServicesTab = lazy(() => import('@components/features/services/ServicesTab'));
 const AuthenticateTab = lazy(() => import('@components/features/auth/AuthenticateTab'));
 const UserTab = lazy(() => import('@components/features/user/UserTab'));
+const EventsTab = lazy(() => import('@components/features/events'));
 const ManagementTab = lazy(() => import('@components/features/management/ManagementTab'));
 const MemoryDiagnostics = lazy(() => import('@components/features/memory/MemoryDiagnostics'));
 
@@ -515,6 +519,8 @@ const AppContent: React.FC = () => {
           return AuthenticateTab;
         case 'users':
           return UserTab;
+        case 'events':
+          return EventsTab;
         case 'management':
           return ManagementTab;
         default:
@@ -731,7 +737,13 @@ const App: React.FC = () => {
                             <NotificationsProvider>
                               <StatsProviderWithMockMode>
                                 <DownloadsProviderWithMockMode>
-                                  <AppContent />
+                                  <EventProvider>
+                                    <TagProvider>
+                                      <DownloadAssociationsProvider>
+                                        <AppContent />
+                                      </DownloadAssociationsProvider>
+                                    </TagProvider>
+                                  </EventProvider>
                                 </DownloadsProviderWithMockMode>
                               </StatsProviderWithMockMode>
                             </NotificationsProvider>

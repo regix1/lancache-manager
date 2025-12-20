@@ -3,6 +3,7 @@ using System;
 using LancacheManager.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace LancacheManager.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20251220155113_AddEventsSupport")]
+    partial class AddEventsSupport
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.10");
@@ -218,36 +221,6 @@ namespace LancacheManager.Migrations
                         .HasDatabaseName("IX_Downloads_Client_Service_Active");
 
                     b.ToTable("Downloads");
-                });
-
-            modelBuilder.Entity("LancacheManager.Models.DownloadTag", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("DownloadId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("TagId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime>("TaggedAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("DownloadId")
-                        .HasDatabaseName("IX_DownloadTags_DownloadId");
-
-                    b.HasIndex("TaggedAtUtc")
-                        .HasDatabaseName("IX_DownloadTags_TaggedAtUtc");
-
-                    b.HasIndex("TagId", "DownloadId")
-                        .IsUnique()
-                        .HasDatabaseName("IX_DownloadTags_TagId_DownloadId");
-
-                    b.ToTable("DownloadTags");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.Event", b =>
@@ -474,38 +447,6 @@ namespace LancacheManager.Migrations
                     b.ToTable("SteamDepotMappings");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.Tag", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Color")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Description")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CreatedAtUtc")
-                        .HasDatabaseName("IX_Tags_CreatedAtUtc");
-
-                    b.HasIndex("Name")
-                        .IsUnique()
-                        .HasDatabaseName("IX_Tags_Name");
-
-                    b.ToTable("Tags");
-                });
-
             modelBuilder.Entity("LancacheManager.Models.UserPreferences", b =>
                 {
                     b.Property<int>("Id")
@@ -620,25 +561,6 @@ namespace LancacheManager.Migrations
                     b.ToTable("UserSessions");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.DownloadTag", b =>
-                {
-                    b.HasOne("LancacheManager.Models.Download", "Download")
-                        .WithMany()
-                        .HasForeignKey("DownloadId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("LancacheManager.Models.Tag", "Tag")
-                        .WithMany("DownloadTags")
-                        .HasForeignKey("TagId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Download");
-
-                    b.Navigation("Tag");
-                });
-
             modelBuilder.Entity("LancacheManager.Models.EventDownload", b =>
                 {
                     b.HasOne("LancacheManager.Models.Download", "Download")
@@ -681,11 +603,6 @@ namespace LancacheManager.Migrations
             modelBuilder.Entity("LancacheManager.Models.Event", b =>
                 {
                     b.Navigation("EventDownloads");
-                });
-
-            modelBuilder.Entity("LancacheManager.Models.Tag", b =>
-                {
-                    b.Navigation("DownloadTags");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.UserSession", b =>

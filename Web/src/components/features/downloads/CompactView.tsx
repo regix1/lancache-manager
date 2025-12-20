@@ -1,11 +1,15 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ChevronRight, ExternalLink, ChevronLeft } from 'lucide-react';
 import { formatBytes, formatPercent, formatRelativeTime } from '@utils/formatters';
 import { getServiceBadgeStyles } from '@utils/serviceColors';
 import { Tooltip } from '@components/ui/Tooltip';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { useHoldTimer } from '@hooks/useHoldTimer';
-import type { Download, DownloadGroup } from '../../../types';
+import { useDownloadAssociations } from '@contexts/DownloadAssociationsContext';
+import DownloadBadges from './DownloadBadges';
+import TagPicker from './TagPicker';
+import TagModal from './TagModal';
+import type { Download, DownloadGroup, Tag } from '../../../types';
 
 const API_BASE = '/api';
 
@@ -53,6 +57,7 @@ interface GroupRowProps {
   enableScrollIntoView: boolean;
   showDatasourceLabels: boolean;
   hasMultipleDatasources: boolean;
+  onTagModalOpen: (downloadId: number) => void;
 }
 
 const GroupRow: React.FC<GroupRowProps> = ({
@@ -69,11 +74,21 @@ const GroupRow: React.FC<GroupRowProps> = ({
   SESSIONS_PER_PAGE,
   enableScrollIntoView,
   showDatasourceLabels,
-  hasMultipleDatasources
+  hasMultipleDatasources,
+  onTagModalOpen
 }) => {
+  const { fetchAssociations, getAssociations, updateTagInCache } = useDownloadAssociations();
   const isExpanded = expandedItem === group.id;
   const rowRef = React.useRef<HTMLDivElement>(null);
   const prevExpandedRef = React.useRef<boolean>(false);
+
+  // Fetch associations when group is expanded
+  React.useEffect(() => {
+    if (isExpanded) {
+      const downloadIds = group.downloads.map(d => d.id);
+      fetchAssociations(downloadIds);
+    }
+  }, [isExpanded, group.downloads, fetchAssociations]);
 
   React.useEffect(() => {
     if (!enableScrollIntoView) return;
@@ -411,6 +426,13 @@ const GroupRow: React.FC<GroupRowProps> = ({
                         const totalBytes = download.totalBytes || 0;
                         const cachePercent =
                           totalBytes > 0 ? ((download.cacheHitBytes || 0) / totalBytes) * 100 : 0;
+                        const associations = getAssociations(download.id);
+                        const existingTags = associations.tags.map(t => ({
+                          id: t.id,
+                          name: t.name,
+                          color: t.color,
+                          createdAtUtc: ''
+                        })) as Tag[];
 
                         return (
                           <div
@@ -440,8 +462,27 @@ const GroupRow: React.FC<GroupRowProps> = ({
                                   )}
                                 </div>
                               </div>
-                              <div className="text-themed-muted mt-0.5">
-                                {formatRelativeTime(download.startTimeUtc)}
+                              <div className="flex items-center justify-between mt-1">
+                                <div className="text-themed-muted">
+                                  {formatRelativeTime(download.startTimeUtc)}
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  {(associations.tags.length > 0 || associations.events.length > 0) && (
+                                    <DownloadBadges
+                                      tags={associations.tags}
+                                      events={associations.events}
+                                      maxVisible={2}
+                                      size="sm"
+                                    />
+                                  )}
+                                  <TagPicker
+                                    downloadId={download.id}
+                                    existingTags={existingTags}
+                                    onTagAdded={(tag) => updateTagInCache(download.id, tag, 'add')}
+                                    onTagRemoved={(tag) => updateTagInCache(download.id, tag, 'remove')}
+                                    onCreateTag={() => onTagModalOpen(download.id)}
+                                  />
+                                </div>
                               </div>
                             </div>
 
@@ -454,6 +495,14 @@ const GroupRow: React.FC<GroupRowProps> = ({
                                 <span className="text-themed-muted">
                                   {formatRelativeTime(download.startTimeUtc)}
                                 </span>
+                                {(associations.tags.length > 0 || associations.events.length > 0) && (
+                                  <DownloadBadges
+                                    tags={associations.tags}
+                                    events={associations.events}
+                                    maxVisible={3}
+                                    size="sm"
+                                  />
+                                )}
                               </div>
                               <div className="flex items-center gap-3">
                                 <span className="font-medium text-[var(--theme-text-primary)] font-mono text-right min-w-[65px]">
@@ -471,6 +520,13 @@ const GroupRow: React.FC<GroupRowProps> = ({
                                     0%
                                   </span>
                                 )}
+                                <TagPicker
+                                  downloadId={download.id}
+                                  existingTags={existingTags}
+                                  onTagAdded={(tag) => updateTagInCache(download.id, tag, 'add')}
+                                  onTagRemoved={(tag) => updateTagInCache(download.id, tag, 'remove')}
+                                  onCreateTag={() => onTagModalOpen(download.id)}
+                                />
                               </div>
                             </div>
                           </div>
@@ -502,12 +558,29 @@ const CompactView: React.FC<CompactViewProps> = ({
   const labels = { ...DEFAULT_SECTION_LABELS, ...sectionLabels };
   const [imageErrors, setImageErrors] = React.useState<Set<string>>(new Set());
   const [groupPages, setGroupPages] = React.useState<Record<string, number>>({});
+  const [showTagModal, setShowTagModal] = useState(false);
+  const [selectedDownloadForTag, setSelectedDownloadForTag] = useState<number | null>(null);
   const { startHoldTimer, stopHoldTimer } = useHoldTimer();
+  const { updateTagInCache } = useDownloadAssociations();
 
   const SESSIONS_PER_PAGE = 10;
 
   const handleImageError = (gameAppId: string) => {
     setImageErrors((prev) => new Set(prev).add(gameAppId));
+  };
+
+  const handleTagModalOpen = (downloadId: number) => {
+    setSelectedDownloadForTag(downloadId);
+    setShowTagModal(true);
+  };
+
+  const handleTagCreated = (tag: Tag) => {
+    // Update the cache with the new tag
+    if (selectedDownloadForTag !== null) {
+      updateTagInCache(selectedDownloadForTag, tag, 'add');
+    }
+    setShowTagModal(false);
+    setSelectedDownloadForTag(null);
   };
 
   const renderGroupRow = (group: DownloadGroup) => (
@@ -527,6 +600,7 @@ const CompactView: React.FC<CompactViewProps> = ({
       enableScrollIntoView={enableScrollIntoView}
       showDatasourceLabels={showDatasourceLabels}
       hasMultipleDatasources={hasMultipleDatasources}
+      onTagModalOpen={handleTagModalOpen}
     />
   );
 
@@ -611,6 +685,17 @@ const CompactView: React.FC<CompactViewProps> = ({
           );
         })}
       </div>
+
+      {/* Tag Creation Modal */}
+      {showTagModal && (
+        <TagModal
+          onClose={() => {
+            setShowTagModal(false);
+            setSelectedDownloadForTag(null);
+          }}
+          onSave={handleTagCreated}
+        />
+      )}
     </div>
   );
 };

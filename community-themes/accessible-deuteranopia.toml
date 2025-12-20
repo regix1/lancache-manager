@@ -3,7 +3,7 @@ name = "Accessible - Deuteranopia"
 id = "accessible-deuteranopia"
 description = "Color blind accessible theme for Deuteranopia (green-blindness) - Uses blue-yellow-magenta palette"
 author = "System"
-version = "1.0.0"
+version = "1.1.0"
 isDark = true
 sharpCorners = false
 basedOn = "dark-default"
@@ -156,6 +156,16 @@ guestSessionColor = "#0ea5e9"
 guestSessionBg = "rgba(14, 165, 233, 0.15)"
 activeSessionColor = "#eab308"
 activeSessionBg = "rgba(234, 179, 8, 0.15)"
+
+# Event colors - Accessible blue-yellow-magenta (no green)
+eventColor1 = "#3b82f6"
+eventColor2 = "#eab308"
+eventColor3 = "#0ea5e9"
+eventColor4 = "#e879f9"
+eventColor5 = "#c026d3"
+eventColor6 = "#facc15"
+eventColor7 = "#6366f1"
+eventColor8 = "#a855f7"
 
 [css]
 content = """

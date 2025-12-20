@@ -4,6 +4,7 @@ using LancacheManager.Application.Services;
 using LancacheManager.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Repositories;
+using LancacheManager.Infrastructure.Repositories.Interfaces;
 using LancacheManager.Infrastructure.Services.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using Microsoft.AspNetCore.SignalR;
@@ -408,6 +409,13 @@ public class RustLogProcessorService
 
                         // Rust mapped the depot IDs to game names during processing, but we still need to fetch images
                         await FetchMissingGameImagesAsync();
+
+                        // Auto-tag new downloads to active events - only for live monitoring (silent mode)
+                        // Don't auto-tag during manual log processing to avoid tagging old downloads
+                        if (silentMode)
+                        {
+                            await AutoTagNewDownloadsAsync();
+                        }
                     });
                 }
 
@@ -658,6 +666,34 @@ public class RustLogProcessorService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error fetching missing game images - this is non-critical");
+        }
+    }
+
+    /// <summary>
+    /// Auto-tag newly processed downloads to any currently active events
+    /// </summary>
+    private async Task AutoTagNewDownloadsAsync()
+    {
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var eventsRepository = scope.ServiceProvider.GetRequiredService<IEventsRepository>();
+
+            var taggedCount = await eventsRepository.AutoTagDownloadsForActiveEventsAsync();
+            if (taggedCount > 0)
+            {
+                _logger.LogInformation("Auto-tagged {Count} downloads to active events", taggedCount);
+
+                // Notify clients that downloads have been updated with event tags
+                await _hubContext.Clients.All.SendAsync("DownloadsRefresh", new
+                {
+                    timestamp = DateTime.UtcNow
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error auto-tagging downloads to events - this is non-critical");
         }
     }
 

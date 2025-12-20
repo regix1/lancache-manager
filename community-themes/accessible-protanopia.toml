@@ -3,7 +3,7 @@ name = "Accessible - Protanopia"
 id = "accessible-protanopia"
 description = "Color blind accessible theme for Protanopia (red-blindness) - Uses blue-yellow-orange palette"
 author = "System"
-version = "1.0.0"
+version = "1.1.0"
 isDark = true
 sharpCorners = false
 basedOn = "dark-default"
@@ -156,6 +156,16 @@ guestSessionColor = "#06b6d4"
 guestSessionBg = "rgba(6, 182, 212, 0.15)"
 activeSessionColor = "#f59e0b"
 activeSessionBg = "rgba(245, 158, 11, 0.15)"
+
+# Event colors - Accessible blue-yellow-orange (no red-green)
+eventColor1 = "#3b82f6"
+eventColor2 = "#f59e0b"
+eventColor3 = "#06b6d4"
+eventColor4 = "#f97316"
+eventColor5 = "#a855f7"
+eventColor6 = "#eab308"
+eventColor7 = "#8b5cf6"
+eventColor8 = "#0ea5e9"
 
 [css]
 content = """

@@ -3,7 +3,7 @@ name = "LANCache Unofficial"
 id = "lancache-unofficial"
 description = "Lava-inspired theme - bold reds and warm ambers on deep charcoal"
 author = "Regix"
-version = "2.0.0"
+version = "2.1.0"
 isDark = true
 sharpCorners = false
 
@@ -160,6 +160,16 @@ activeSessionBg = "rgba(230, 126, 34, 0.15)"
 # Drag handle
 dragHandleColor = "#707070"
 dragHandleHover = "#dc3545"
+
+# Event colors - Warm lava palette (reds, oranges, yellows)
+eventColor1 = "#dc3545"
+eventColor2 = "#f39c12"
+eventColor3 = "#e67e22"
+eventColor4 = "#c0392b"
+eventColor5 = "#f1c40f"
+eventColor6 = "#e74c3c"
+eventColor7 = "#d35400"
+eventColor8 = "#f5b041"
 
 [css]
 content = """

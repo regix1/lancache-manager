@@ -896,7 +896,7 @@
     top: 2px;
     width: 6px;
     height: 10px;
-    border: solid white;
+    border: solid var(--theme-checkbox-checkmark);
     border-width: 0 2px 2px 0;
     transform: rotate(45deg);
   }

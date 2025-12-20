@@ -186,6 +186,8 @@ builder.Services.AddSingleton<ISteamAuthRepository, SteamAuthRepository>();
 builder.Services.AddSingleton<IStateRepository, StateRepository>();
 builder.Services.AddScoped<IDatabaseRepository, DatabaseRepository>();
 builder.Services.AddScoped<IStatsRepository, StatsRepository>();
+builder.Services.AddScoped<IEventsRepository, EventsRepository>();
+builder.Services.AddScoped<ITagsRepository, TagsRepository>();
 builder.Services.AddSingleton<ISettingsRepository, SettingsRepository>();
 
 // Register image caching service
@@ -196,6 +198,8 @@ builder.Services.AddSingleton(sp => (SteamAuthRepository)sp.GetRequiredService<I
 builder.Services.AddSingleton(sp => (StateRepository)sp.GetRequiredService<IStateRepository>());
 builder.Services.AddScoped(sp => (DatabaseRepository)sp.GetRequiredService<IDatabaseRepository>());
 builder.Services.AddScoped(sp => (StatsRepository)sp.GetRequiredService<IStatsRepository>());
+builder.Services.AddScoped(sp => (EventsRepository)sp.GetRequiredService<IEventsRepository>());
+builder.Services.AddScoped(sp => (TagsRepository)sp.GetRequiredService<ITagsRepository>());
 builder.Services.AddSingleton(sp => (SettingsRepository)sp.GetRequiredService<ISettingsRepository>());
 
 // Database configuration (now can use IPathResolver)

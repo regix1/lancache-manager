@@ -1,11 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   ChevronRight,
   Clock,
   ExternalLink,
   CheckCircle,
   AlertCircle,
-  ChevronLeft
+  ChevronLeft,
+  Tags
 } from 'lucide-react';
 import { formatBytes, formatPercent, formatRelativeTime } from '@utils/formatters';
 import { getServiceBadgeStyles } from '@utils/serviceColors';
@@ -19,7 +20,11 @@ import { XboxIcon } from '@components/ui/XboxIcon';
 import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
 import { Tooltip } from '@components/ui/Tooltip';
 import { useHoldTimer } from '@hooks/useHoldTimer';
-import type { Download, DownloadGroup } from '../../../types';
+import { useDownloadAssociations } from '@contexts/DownloadAssociationsContext';
+import DownloadBadges from './DownloadBadges';
+import TagPicker from './TagPicker';
+import TagModal from './TagModal';
+import type { Download, DownloadGroup, Tag } from '../../../types';
 
 const API_BASE = '/api';
 
@@ -64,6 +69,7 @@ interface GroupCardProps {
   enableScrollIntoView: boolean;
   showDatasourceLabels: boolean;
   hasMultipleDatasources: boolean;
+  onTagModalOpen: (downloadId: number) => void;
 }
 
 const GroupCard: React.FC<GroupCardProps> = ({
@@ -81,8 +87,10 @@ const GroupCard: React.FC<GroupCardProps> = ({
   SESSIONS_PER_PAGE,
   enableScrollIntoView,
   showDatasourceLabels,
-  hasMultipleDatasources
+  hasMultipleDatasources,
+  onTagModalOpen
 }) => {
+  const { fetchAssociations, getAssociations, updateTagInCache } = useDownloadAssociations();
   const isExpanded = expandedItem === group.id;
   const cardRef = React.useRef<HTMLDivElement>(null);
   const prevExpandedRef = React.useRef<boolean>(false);
@@ -149,6 +157,14 @@ const GroupCard: React.FC<GroupCardProps> = ({
       return () => clearTimeout(timeoutId);
     }
   }, [isExpanded, enableScrollIntoView]);
+
+  // Fetch associations when group is expanded
+  React.useEffect(() => {
+    if (isExpanded) {
+      const downloadIds = group.downloads.map(d => d.id);
+      fetchAssociations(downloadIds);
+    }
+  }, [isExpanded, group.downloads, fetchAssociations]);
 
   let bannerContent: React.ReactNode | null = null;
 
@@ -631,6 +647,13 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                 totalBytes > 0
                                   ? ((download.cacheHitBytes || 0) / totalBytes) * 100
                                   : 0;
+                              const associations = getAssociations(download.id);
+                              const existingTags = associations.tags.map(t => ({
+                                id: t.id,
+                                name: t.name,
+                                color: t.color,
+                                createdAtUtc: ''
+                              })) as Tag[];
 
                               return (
                                 <div
@@ -698,6 +721,30 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                         </div>
                                       )}
                                     </div>
+                                  </div>
+
+                                  {/* Tags and Events Section */}
+                                  <div className="mt-3 pt-3 border-t border-[var(--theme-border-secondary)] flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                                      <Tags size={14} className="text-[var(--theme-text-muted)] flex-shrink-0" />
+                                      {associations.tags.length > 0 || associations.events.length > 0 ? (
+                                        <DownloadBadges
+                                          tags={associations.tags}
+                                          events={associations.events}
+                                          maxVisible={5}
+                                          size="sm"
+                                        />
+                                      ) : (
+                                        <span className="text-xs text-[var(--theme-text-muted)]">No tags</span>
+                                      )}
+                                    </div>
+                                    <TagPicker
+                                      downloadId={download.id}
+                                      existingTags={existingTags}
+                                      onTagAdded={(tag) => updateTagInCache(download.id, tag, 'add')}
+                                      onTagRemoved={(tag) => updateTagInCache(download.id, tag, 'remove')}
+                                      onCreateTag={() => onTagModalOpen(download.id)}
+                                    />
                                   </div>
                                 </div>
                               );
@@ -782,12 +829,29 @@ const NormalView: React.FC<NormalViewProps> = ({
   const labels = { ...DEFAULT_SECTION_LABELS, ...sectionLabels };
   const [imageErrors, setImageErrors] = React.useState<Set<string>>(new Set());
   const [groupPages, setGroupPages] = React.useState<Record<string, number>>({});
+  const [showTagModal, setShowTagModal] = useState(false);
+  const [selectedDownloadForTag, setSelectedDownloadForTag] = useState<number | null>(null);
   const { startHoldTimer, stopHoldTimer } = useHoldTimer();
+  const { updateTagInCache } = useDownloadAssociations();
 
   const SESSIONS_PER_PAGE = 10;
 
   const handleImageError = (gameAppId: string) => {
     setImageErrors((prev) => new Set(prev).add(gameAppId));
+  };
+
+  const handleTagModalOpen = (downloadId: number) => {
+    setSelectedDownloadForTag(downloadId);
+    setShowTagModal(true);
+  };
+
+  const handleTagCreated = (tag: Tag) => {
+    // Update the cache with the new tag
+    if (selectedDownloadForTag !== null) {
+      updateTagInCache(selectedDownloadForTag, tag, 'add');
+    }
+    setShowTagModal(false);
+    setSelectedDownloadForTag(null);
   };
 
   const renderGroupCard = (group: DownloadGroup) => (
@@ -807,6 +871,7 @@ const NormalView: React.FC<NormalViewProps> = ({
       enableScrollIntoView={enableScrollIntoView}
       showDatasourceLabels={showDatasourceLabels}
       hasMultipleDatasources={hasMultipleDatasources}
+      onTagModalOpen={handleTagModalOpen}
     />
   );
 
@@ -905,6 +970,17 @@ const NormalView: React.FC<NormalViewProps> = ({
           </React.Fragment>
         );
       })}
+
+      {/* Tag Creation Modal */}
+      {showTagModal && (
+        <TagModal
+          onClose={() => {
+            setShowTagModal(false);
+            setSelectedDownloadForTag(null);
+          }}
+          onSave={handleTagCreated}
+        />
+      )}
     </div>
   );
 };
