@@ -1,15 +1,27 @@
-import React, { useMemo } from 'react';
-import { Calendar, Clock, ChevronRight, Zap, History, CalendarClock } from 'lucide-react';
+import React, { useMemo, useState, useCallback } from 'react';
+import { Calendar, Clock, ChevronRight, Zap, History, CalendarClock, Loader2 } from 'lucide-react';
 import { useTimezone } from '@contexts/TimezoneContext';
-import type { Event } from '../../../types';
+import { formatBytes } from '@utils/formatters';
+import ApiService from '@services/api.service';
+import type { Event, Download } from '../../../types';
 
 interface EventListProps {
   events: Event[];
   onEventClick: (event: Event) => void;
 }
 
+interface EventDownloadsCache {
+  [eventId: number]: {
+    downloads: Download[];
+    loading: boolean;
+    loaded: boolean;
+  };
+}
+
 const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
   const { use24HourFormat } = useTimezone();
+  const [expandedEventId, setExpandedEventId] = useState<number | null>(null);
+  const [downloadsCache, setDownloadsCache] = useState<EventDownloadsCache>({});
 
   // Group events by status: active, upcoming, past
   const groupedEvents = useMemo(() => {
@@ -68,109 +80,241 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
     return `${hours} hour${hours !== 1 ? 's' : ''}`;
   };
 
-  const EventCard: React.FC<{ event: Event; status: 'active' | 'upcoming' | 'past'; index: number }> = ({ event, status, index }) => (
-    <button
-      onClick={() => onEventClick(event)}
-      className="w-full text-left rounded-lg border transition-all duration-200 group overflow-hidden"
-      style={{
-        backgroundColor: 'var(--theme-bg-secondary)',
-        borderColor: status === 'active' ? event.color : 'var(--theme-border-primary)',
-        borderWidth: status === 'active' ? '2px' : '1px',
-        opacity: status === 'past' ? 0.65 : 1,
-        animationDelay: `${index * 50}ms`
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)';
-        e.currentTarget.style.transform = 'translateY(-1px)';
-        e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)';
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)';
-        e.currentTarget.style.transform = 'translateY(0)';
-        e.currentTarget.style.boxShadow = 'none';
-      }}
-    >
-      {/* Active indicator bar */}
-      {status === 'active' && (
-        <div
-          className="h-1"
-          style={{
-            background: `linear-gradient(90deg, ${event.color}, ${event.color}80)`
-          }}
-        />
-      )}
+  const fetchEventDownloads = useCallback(async (eventId: number) => {
+    // Already loading or loaded
+    if (downloadsCache[eventId]?.loading || downloadsCache[eventId]?.loaded) {
+      return;
+    }
 
-      <div className="p-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex-1 min-w-0">
-            {/* Header row with badge and name */}
-            <div className="flex items-center gap-2.5 mb-2">
-              {/* Event color badge - pill style */}
-              <span
-                className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-semibold rounded-full uppercase tracking-wide"
-                style={{
-                  backgroundColor: `${event.color}20`,
-                  color: event.color,
-                  border: `1px solid ${event.color}40`
-                }}
-              >
-                {status === 'active' && (
-                  <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: event.color }} />
-                )}
-                {status === 'active' ? 'Live' : status === 'upcoming' ? 'Upcoming' : 'Ended'}
-              </span>
+    setDownloadsCache(prev => ({
+      ...prev,
+      [eventId]: { downloads: [], loading: true, loaded: false }
+    }));
 
-              <h3
-                className="font-semibold truncate"
-                style={{ color: 'var(--theme-text-primary)' }}
-              >
-                {event.name}
-              </h3>
-            </div>
+    try {
+      const response = await fetch(`/api/events/${eventId}/downloads`, {
+        headers: ApiService.getHeaders()
+      });
+      const downloads = await response.json();
+      setDownloadsCache(prev => ({
+        ...prev,
+        [eventId]: { downloads, loading: false, loaded: true }
+      }));
+    } catch (error) {
+      console.error('Failed to fetch event downloads:', error);
+      setDownloadsCache(prev => ({
+        ...prev,
+        [eventId]: { downloads: [], loading: false, loaded: true }
+      }));
+    }
+  }, [downloadsCache]);
 
-            {/* Description */}
-            {event.description && (
-              <p
-                className="text-sm mb-3 line-clamp-2"
-                style={{ color: 'var(--theme-text-secondary)' }}
-              >
-                {event.description}
-              </p>
-            )}
+  const handleExpandClick = useCallback((e: React.MouseEvent, eventId: number) => {
+    e.stopPropagation();
+    if (expandedEventId === eventId) {
+      setExpandedEventId(null);
+    } else {
+      setExpandedEventId(eventId);
+      fetchEventDownloads(eventId);
+    }
+  }, [expandedEventId, fetchEventDownloads]);
 
-            {/* Meta info row */}
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-              <div
-                className="flex items-center gap-1.5 text-xs"
-                style={{ color: 'var(--theme-text-muted)' }}
-              >
-                <Calendar className="w-3.5 h-3.5" />
-                <span>{formatDateTime(event.startTimeUtc)}</span>
-              </div>
-              <div
-                className="flex items-center gap-1.5 text-xs"
-                style={{ color: 'var(--theme-text-muted)' }}
-              >
-                <Clock className="w-3.5 h-3.5" />
-                <span>{formatDuration(event.startTimeUtc, event.endTimeUtc)}</span>
-              </div>
-            </div>
-          </div>
+  // Group downloads by game name
+  const groupDownloadsByGame = (downloads: Download[]) => {
+    const grouped: { [key: string]: { name: string; service: string; totalBytes: number; count: number } } = {};
 
-          {/* Arrow indicator */}
+    downloads.forEach(d => {
+      const key = `${d.service}-${d.gameName || 'Unknown'}`;
+      if (!grouped[key]) {
+        grouped[key] = {
+          name: d.gameName || 'Unknown',
+          service: d.service,
+          totalBytes: 0,
+          count: 0
+        };
+      }
+      grouped[key].totalBytes += d.totalBytes || 0;
+      grouped[key].count += 1;
+    });
+
+    return Object.values(grouped).sort((a, b) => b.totalBytes - a.totalBytes);
+  };
+
+  const EventCard: React.FC<{ event: Event; status: 'active' | 'upcoming' | 'past'; index: number }> = ({ event, status, index }) => {
+    const isExpanded = expandedEventId === event.id;
+    const cacheEntry = downloadsCache[event.id];
+    const downloads = cacheEntry?.downloads || [];
+    const isLoading = cacheEntry?.loading || false;
+    const groupedDownloads = groupDownloadsByGame(downloads);
+
+    return (
+      <div
+        className="rounded-lg border transition-all duration-200 overflow-hidden"
+        style={{
+          backgroundColor: 'var(--theme-bg-secondary)',
+          borderColor: isExpanded ? event.color : (status === 'active' ? event.color : 'var(--theme-border-primary)'),
+          borderWidth: status === 'active' || isExpanded ? '2px' : '1px',
+          opacity: status === 'past' ? 0.65 : 1,
+          animationDelay: `${index * 50}ms`
+        }}
+      >
+        {/* Active indicator bar */}
+        {status === 'active' && (
           <div
-            className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200"
-            style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-          >
-            <ChevronRight
-              className="w-4 h-4 transition-transform group-hover:translate-x-0.5"
-              style={{ color: 'var(--theme-text-secondary)' }}
-            />
+            className="h-1"
+            style={{
+              background: `linear-gradient(90deg, ${event.color}, ${event.color}80)`
+            }}
+          />
+        )}
+
+        <div className="p-4">
+          <div className="flex items-start justify-between gap-4">
+            <button
+              onClick={() => onEventClick(event)}
+              className="flex-1 min-w-0 text-left"
+            >
+              {/* Header row with badge and name */}
+              <div className="flex items-center gap-2.5 mb-2">
+                {/* Event color badge - pill style */}
+                <span
+                  className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-semibold rounded-full uppercase tracking-wide"
+                  style={{
+                    backgroundColor: `${event.color}20`,
+                    color: event.color,
+                    border: `1px solid ${event.color}40`
+                  }}
+                >
+                  {status === 'active' && (
+                    <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: event.color }} />
+                  )}
+                  {status === 'active' ? 'Live' : status === 'upcoming' ? 'Upcoming' : 'Ended'}
+                </span>
+
+                <h3
+                  className="font-semibold truncate"
+                  style={{ color: 'var(--theme-text-primary)' }}
+                >
+                  {event.name}
+                </h3>
+              </div>
+
+              {/* Description */}
+              {event.description && (
+                <p
+                  className="text-sm mb-3 line-clamp-2"
+                  style={{ color: 'var(--theme-text-secondary)' }}
+                >
+                  {event.description}
+                </p>
+              )}
+
+              {/* Meta info row */}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                <div
+                  className="flex items-center gap-1.5 text-xs"
+                  style={{ color: 'var(--theme-text-muted)' }}
+                >
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>{formatDateTime(event.startTimeUtc)}</span>
+                </div>
+                <div
+                  className="flex items-center gap-1.5 text-xs"
+                  style={{ color: 'var(--theme-text-muted)' }}
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>{formatDuration(event.startTimeUtc, event.endTimeUtc)}</span>
+                </div>
+              </div>
+            </button>
+
+            {/* Expand arrow */}
+            <button
+              onClick={(e) => handleExpandClick(e, event.id)}
+              className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200 hover:bg-[var(--theme-bg-hover)]"
+              style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+              title={isExpanded ? 'Hide downloads' : 'Show downloads'}
+            >
+              <ChevronRight
+                className={`w-4 h-4 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
+                style={{ color: 'var(--theme-text-secondary)' }}
+              />
+            </button>
           </div>
         </div>
+
+        {/* Expanded downloads section */}
+        {isExpanded && (
+          <div
+            className="border-t px-4 py-3"
+            style={{
+              borderColor: 'var(--theme-border-secondary)',
+              backgroundColor: 'var(--theme-bg-tertiary)'
+            }}
+          >
+            {isLoading ? (
+              <div className="flex items-center justify-center py-4 gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'var(--theme-primary)' }} />
+                <span className="text-sm" style={{ color: 'var(--theme-text-secondary)' }}>
+                  Loading downloads...
+                </span>
+              </div>
+            ) : groupedDownloads.length === 0 ? (
+              <p className="text-sm text-center py-4" style={{ color: 'var(--theme-text-muted)' }}>
+                No downloads recorded during this event
+              </p>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-medium" style={{ color: 'var(--theme-text-secondary)' }}>
+                    Games downloaded during event
+                  </span>
+                  <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--theme-bg-secondary)', color: 'var(--theme-text-muted)' }}>
+                    {groupedDownloads.length} game{groupedDownloads.length !== 1 ? 's' : ''}
+                  </span>
+                </div>
+                {groupedDownloads.slice(0, 10).map((game, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between py-2 px-3 rounded-lg"
+                    style={{ backgroundColor: 'var(--theme-bg-secondary)' }}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className="px-1.5 py-0.5 text-[10px] font-bold rounded"
+                        style={{
+                          backgroundColor: 'var(--theme-bg-tertiary)',
+                          color: 'var(--theme-text-secondary)'
+                        }}
+                      >
+                        {game.service.toUpperCase()}
+                      </span>
+                      <span className="text-sm font-medium truncate" style={{ color: 'var(--theme-text-primary)' }}>
+                        {game.name}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      <span className="text-xs" style={{ color: 'var(--theme-text-muted)' }}>
+                        {game.count}x
+                      </span>
+                      <span className="text-sm font-semibold" style={{ color: 'var(--theme-text-primary)' }}>
+                        {formatBytes(game.totalBytes)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+                {groupedDownloads.length > 10 && (
+                  <p className="text-xs text-center pt-2" style={{ color: 'var(--theme-text-muted)' }}>
+                    +{groupedDownloads.length - 10} more games
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
-    </button>
-  );
+    );
+  };
 
   // Section header component
   const SectionHeader: React.FC<{

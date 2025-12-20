@@ -180,7 +180,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
             <span>{event ? 'Edit Event' : 'Create Event'}</span>
           </div>
         }
-        size="md"
+        size="lg"
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Error */}
