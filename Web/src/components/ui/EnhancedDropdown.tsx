@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronDown, Check } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { ChevronDown, ChevronRight, Check } from 'lucide-react';
 import { CustomScrollbar } from './CustomScrollbar';
 
 /** Props interface for icon components used in dropdowns */
@@ -7,6 +8,15 @@ interface IconComponentProps {
   size?: number;
   className?: string;
   style?: React.CSSProperties;
+}
+
+export interface SubmenuOption {
+  value: string;
+  label: string;
+  description?: string;
+  color?: string; // Optional color indicator
+  badge?: string; // Optional badge text (e.g., "Live")
+  badgeColor?: string; // Badge color
 }
 
 export interface DropdownOption {
@@ -17,6 +27,8 @@ export interface DropdownOption {
   icon?: React.ComponentType<IconComponentProps>;
   disabled?: boolean;
   rightLabel?: string; // Right-aligned badge/label (e.g., "10s", "1m")
+  submenu?: SubmenuOption[]; // Optional submenu items
+  submenuTitle?: string; // Optional title for submenu
 }
 
 interface EnhancedDropdownProps {
@@ -58,10 +70,22 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
   const [openUpward, setOpenUpward] = useState(false);
   const [horizontalPosition, setHorizontalPosition] = useState<'left' | 'right' | 'center'>('left');
   const [horizontalOffset, setHorizontalOffset] = useState(0);
+  const [expandedSubmenu, setExpandedSubmenu] = useState<string | null>(null);
+  const [submenuPosition, setSubmenuPosition] = useState<{ top: number; left: number; openLeft: boolean } | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const submenuRef = useRef<HTMLDivElement>(null);
 
-  const selectedOption = options.find((opt) => opt.value === value);
+  // Find selected option - also check for parent option when submenu item is selected
+  const selectedOption = options.find((opt) => opt.value === value) ||
+    (value.includes(':') ? options.find((opt) => opt.submenu && value.startsWith(opt.value + ':')) : undefined);
+
+  // Reset expanded submenu when dropdown closes
+  useEffect(() => {
+    if (!isOpen) {
+      setExpandedSubmenu(null);
+    }
+  }, [isOpen]);
 
   // Check if dropdown should open upward and handle horizontal positioning
   useEffect(() => {
@@ -132,12 +156,12 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node) &&
-        buttonRef.current &&
-        !buttonRef.current.contains(event.target as Node)
-      ) {
+      const target = event.target as Node;
+      const isInsideDropdown = dropdownRef.current?.contains(target);
+      const isInsideButton = buttonRef.current?.contains(target);
+      const isInsideSubmenu = submenuRef.current?.contains(target);
+
+      if (!isInsideDropdown && !isInsideButton && !isInsideSubmenu) {
         setIsOpen(false);
       }
     };
@@ -212,6 +236,30 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
     setIsOpen(false);
   };
 
+  const handleSubmenuToggle = (optionValue: string, triggerElement: HTMLButtonElement) => {
+    if (expandedSubmenu === optionValue) {
+      setExpandedSubmenu(null);
+      setSubmenuPosition(null);
+    } else {
+      // Calculate position based on trigger element
+      const rect = triggerElement.getBoundingClientRect();
+      const submenuWidth = 256; // w-64 = 16rem = 256px
+      const viewportWidth = window.innerWidth;
+
+      // Determine if submenu should open to the left or right
+      const spaceOnRight = viewportWidth - rect.right;
+      const spaceOnLeft = rect.left;
+      const openLeft = spaceOnRight < submenuWidth && spaceOnLeft > submenuWidth;
+
+      setSubmenuPosition({
+        top: rect.top,
+        left: openLeft ? rect.left - submenuWidth - 4 : rect.right + 4,
+        openLeft
+      });
+      setExpandedSubmenu(optionValue);
+    }
+  };
+
   return (
     <>
       <style>{`
@@ -233,6 +281,16 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
           to {
             opacity: 1;
             transform: translateY(0) scale(1);
+          }
+        }
+        @keyframes submenuExpand {
+          from {
+            opacity: 0;
+            max-height: 0;
+          }
+          to {
+            opacity: 1;
+            max-height: 300px;
           }
         }
       `}</style>
@@ -334,6 +392,146 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                   >
                     {option.label}
                   </div>
+                ) : option.submenu && option.submenu.length > 0 ? (
+                  // Option with submenu - click to expand as side panel
+                  <React.Fragment key={option.value}>
+                    <button
+                      type="button"
+                      onClick={(e) => handleSubmenuToggle(option.value, e.currentTarget)}
+                      className={`w-full px-3 py-2.5 text-left text-sm transition-all duration-150 hover:bg-[var(--theme-bg-tertiary)] cursor-pointer ${
+                        value.startsWith(option.value + ':') || expandedSubmenu === option.value
+                          ? 'bg-[var(--theme-bg-tertiary)]'
+                          : ''
+                      }`}
+                      title={option.description || option.label}
+                    >
+                      <div className="flex items-start gap-3">
+                        {!cleanStyle && option.icon && (
+                          <option.icon
+                            className="flex-shrink-0 mt-0.5"
+                            size={16}
+                            style={{ color: value.startsWith(option.value + ':') ? 'var(--theme-primary)' : 'var(--theme-text-secondary)' }}
+                          />
+                        )}
+                        <div className="flex flex-col flex-1 min-w-0">
+                          <span className={`font-medium truncate ${value.startsWith(option.value + ':') ? 'text-[var(--theme-primary)]' : 'text-[var(--theme-text-primary)]'}`}>
+                            {option.label}
+                          </span>
+                          {option.description && (
+                            <span className="text-xs mt-0.5 leading-relaxed" style={{ color: 'var(--theme-text-secondary)' }}>
+                              {option.description}
+                            </span>
+                          )}
+                        </div>
+                        {option.rightLabel && (
+                          <span
+                            className="flex-shrink-0 text-xs font-medium mr-1"
+                            style={{ color: value.startsWith(option.value + ':') ? 'var(--theme-primary)' : 'var(--theme-text-secondary)' }}
+                          >
+                            {option.rightLabel}
+                          </span>
+                        )}
+                        <ChevronRight
+                          size={16}
+                          className={`flex-shrink-0 mt-0.5 transition-transform duration-200 ${expandedSubmenu === option.value ? (submenuPosition?.openLeft ? '-rotate-90' : 'rotate-90') : ''}`}
+                          style={{ color: 'var(--theme-text-muted)' }}
+                        />
+                      </div>
+                    </button>
+
+                    {/* Submenu rendered via portal to escape overflow clipping */}
+                    {expandedSubmenu === option.value && submenuPosition && createPortal(
+                      <div
+                        ref={submenuRef}
+                        className="fixed w-64 rounded-lg border overflow-hidden z-[10001]"
+                        style={{
+                          top: submenuPosition.top,
+                          left: submenuPosition.left,
+                          backgroundColor: 'var(--theme-bg-secondary)',
+                          borderColor: 'var(--theme-border-primary)',
+                          boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2)',
+                          animation: 'dropdownSlide 0.15s cubic-bezier(0.16, 1, 0.3, 1)'
+                        }}
+                      >
+                        {option.submenuTitle && (
+                          <div
+                            className="px-3 py-2 text-xs font-semibold border-b"
+                            style={{
+                              color: 'var(--theme-text-secondary)',
+                              borderColor: 'var(--theme-border-primary)',
+                              backgroundColor: 'var(--theme-bg-tertiary)'
+                            }}
+                          >
+                            {option.submenuTitle}
+                          </div>
+                        )}
+                        <CustomScrollbar maxHeight="240px" paddingMode="none">
+                          <div className="py-1">
+                            {option.submenu.map((subItem) => {
+                              const isSubSelected = value === `${option.value}:${subItem.value}`;
+                              return (
+                                <button
+                                  key={subItem.value}
+                                  type="button"
+                                  onClick={() => handleSelect(`${option.value}:${subItem.value}`)}
+                                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm transition-colors"
+                                  style={{
+                                    backgroundColor: isSubSelected ? 'var(--theme-primary)' : 'transparent',
+                                    color: isSubSelected ? 'var(--theme-button-text)' : 'var(--theme-text-primary)'
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    if (!isSubSelected) e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    if (!isSubSelected) e.currentTarget.style.backgroundColor = 'transparent';
+                                  }}
+                                >
+                                  {subItem.color && (
+                                    <div
+                                      className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                                      style={{ backgroundColor: subItem.color }}
+                                    />
+                                  )}
+                                  <div className="flex-1 min-w-0 text-left">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="font-medium truncate">{subItem.label}</span>
+                                      {subItem.badge && (
+                                        <span
+                                          className="px-1.5 py-0.5 text-[10px] rounded-full font-medium"
+                                          style={{
+                                            backgroundColor: isSubSelected ? 'rgba(255,255,255,0.2)' : `color-mix(in srgb, ${subItem.badgeColor || 'var(--theme-status-success)'} 20%, transparent)`,
+                                            color: isSubSelected ? 'var(--theme-button-text)' : (subItem.badgeColor || 'var(--theme-status-success)')
+                                          }}
+                                        >
+                                          {subItem.badge}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {subItem.description && (
+                                      <div
+                                        className="text-xs truncate"
+                                        style={{ color: isSubSelected ? 'rgba(255,255,255,0.7)' : 'var(--theme-text-muted)' }}
+                                      >
+                                        {subItem.description}
+                                      </div>
+                                    )}
+                                  </div>
+                                  {isSubSelected && (
+                                    <Check
+                                      size={14}
+                                      className="flex-shrink-0"
+                                      style={{ color: 'var(--theme-button-text)' }}
+                                    />
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </CustomScrollbar>
+                      </div>,
+                      document.body
+                    )}
+                  </React.Fragment>
                 ) : (
                   <button
                     key={option.value}
