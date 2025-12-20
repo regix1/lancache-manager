@@ -89,21 +89,6 @@ public class ConnectionTrackingService
         return deviceId;
     }
 
-    /// <summary>
-    /// Check if a device is currently connected.
-    /// </summary>
-    public bool IsDeviceConnected(string deviceId)
-    {
-        return !string.IsNullOrEmpty(deviceId) && _deviceToConnection.ContainsKey(deviceId);
-    }
-
-    /// <summary>
-    /// Get all currently connected device IDs.
-    /// </summary>
-    public IEnumerable<string> GetConnectedDeviceIds()
-    {
-        return _deviceToConnection.Keys.ToList();
-    }
 
     /// <summary>
     /// Get the count of connected devices.

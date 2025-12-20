@@ -33,17 +33,6 @@ export interface Download {
   datasource?: string;
 }
 
-export interface DownloadSettings {
-  showZeroBytes: boolean;
-  showSmallFiles: boolean;
-  hideLocalhost: boolean;
-  selectedService: string;
-  itemsPerPage?: number | 'all';
-  groupGames: boolean;
-  viewMode: 'compact' | 'normal';
-  sortOrder: 'latest' | 'oldest' | 'largest' | 'smallest' | 'service';
-}
-
 export interface DownloadGroup {
   id: string;
   name: string;
@@ -280,22 +269,4 @@ export interface GameDetectionStatus {
   totalGamesDetected?: number;
   totalServicesDetected?: number;
   error?: string;
-}
-
-export interface GameCacheRemovalReport {
-  game_app_id: number;
-  game_name: string;
-  cache_files_deleted: number;
-  total_bytes_freed: number;
-  empty_dirs_removed: number;
-  log_entries_removed: number;
-  depot_ids: number[];
-}
-
-export interface ServiceCacheRemovalReport {
-  service_name: string;
-  cache_files_deleted: number;
-  total_bytes_freed: number;
-  log_entries_removed: number;
-  database_entries_deleted: number;
 }

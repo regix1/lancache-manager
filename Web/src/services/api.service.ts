@@ -473,23 +473,6 @@ class ApiService {
     }
   }
 
-  // Reset database (requires auth)
-  // Note: Triggered through resetSelectedTables when all tables selected
-  // Also monitored via SignalR for progress notifications
-  static async resetDatabase(): Promise<OperationResponse> {
-    try {
-      const res = await fetch(`${API_BASE}/database/tables`, this.getFetchOptions({
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' }
-        // No timeout - Rust backend handles efficiently
-      }));
-      return await this.handleResponse<OperationResponse>(res);
-    } catch (error: unknown) {
-      console.error('resetDatabase error:', error);
-      throw error;
-    }
-  }
-
   // Reset selected database tables (requires auth)
   static async resetSelectedTables(tableNames: string[]): Promise<OperationResponse> {
     try {
@@ -989,74 +972,6 @@ class ApiService {
       return await this.handleResponse(res);
     } catch (error) {
       console.error('getActiveRemovals error:', error);
-      throw error;
-    }
-  }
-
-  // Get game removal status (for restoring progress on page refresh)
-  static async getGameRemovalStatus(appId: number): Promise<{
-    isProcessing: boolean;
-    status?: string;
-    message?: string;
-    gameName?: string;
-    filesDeleted?: number;
-    bytesFreed?: number;
-    startedAt?: string;
-    error?: string;
-  }> {
-    try {
-      const res = await fetch(`${API_BASE}/games/${appId}/removal-status`, this.getFetchOptions());
-      return await this.handleResponse(res);
-    } catch (error) {
-      console.error('getGameRemovalStatus error:', error);
-      throw error;
-    }
-  }
-
-  // Get service removal status (for restoring progress on page refresh)
-  static async getServiceRemovalStatus(serviceName: string): Promise<{
-    isProcessing: boolean;
-    status?: string;
-    message?: string;
-    filesDeleted?: number;
-    bytesFreed?: number;
-    startedAt?: string;
-    error?: string;
-  }> {
-    try {
-      const res = await fetch(`${API_BASE}/cache/services/${encodeURIComponent(serviceName)}/removal-status`, this.getFetchOptions());
-      return await this.handleResponse(res);
-    } catch (error) {
-      console.error('getServiceRemovalStatus error:', error);
-      throw error;
-    }
-  }
-
-  // Get corruption removal status (for restoring progress on page refresh)
-  static async getCorruptionRemovalStatus(serviceName: string): Promise<{
-    isProcessing: boolean;
-    status?: string;
-    message?: string;
-    operationId?: string;
-    startedAt?: string;
-    error?: string;
-  }> {
-    try {
-      const res = await fetch(`${API_BASE}/cache/services/${encodeURIComponent(serviceName)}/corruption/status`, this.getFetchOptions());
-      return await this.handleResponse(res);
-    } catch (error) {
-      console.error('getCorruptionRemovalStatus error:', error);
-      throw error;
-    }
-  }
-
-  // Get guest session duration configuration
-  static async getGuestSessionDuration(): Promise<{ durationHours: number }> {
-    try {
-      const res = await fetch(`${API_BASE}/auth/guest/config/duration`, this.getFetchOptions());
-      return await this.handleResponse<{ durationHours: number }>(res);
-    } catch (error) {
-      console.error('getGuestSessionDuration error:', error);
       throw error;
     }
   }

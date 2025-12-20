@@ -173,10 +173,6 @@ public class CacheManagementService
         return "/";
     }
 
-    public string GetCachePath()
-    {
-        return _cachePath;
-    }
 
     /// <summary>
     /// Invalidate the service counts cache - call this after modifying logs

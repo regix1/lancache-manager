@@ -545,19 +545,6 @@ public class GameCacheDetectionService
         return _operations.TryGetValue(operationId, out var operation) ? operation : null;
     }
 
-    public void CleanupOldOperations(TimeSpan maxAge)
-    {
-        var cutoff = DateTime.UtcNow - maxAge;
-        var oldOperations = _operations
-            .Where(kvp => kvp.Value.StartTime < cutoff && kvp.Value.Status != "running")
-            .Select(kvp => kvp.Key)
-            .ToList();
-
-        foreach (var operationId in oldOperations)
-        {
-            _operations.TryRemove(operationId, out _);
-        }
-    }
 
     public DetectionOperation? GetActiveOperation()
     {
