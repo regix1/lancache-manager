@@ -206,22 +206,24 @@ public class LogsController : ControllerBase
         }
 
         // Otherwise (position is null or not specified), reset to end of file
-        // Count lines in each datasource's log file and set position to that
+        // Count lines across ALL log files (access.log, access.log.1, access.log.2.gz, etc.)
+        // This matches the Rust processor behavior which processes all rotated logs
         long totalLines = 0;
         foreach (var ds in datasources)
         {
-            var logFile = Path.Combine(ds.LogPath, "access.log");
-            if (System.IO.File.Exists(logFile))
+            var lineCount = CountLinesInAllLogFiles(ds.LogPath);
+            // Save both position AND totalLines so they stay in sync
+            _stateRepository.SetLogPosition(ds.Name, lineCount);
+            _stateRepository.SetLogTotalLines(ds.Name, lineCount);
+            totalLines += lineCount;
+
+            if (lineCount > 0)
             {
-                var lineCount = CountLinesInFile(logFile);
-                _stateRepository.SetLogPosition(ds.Name, lineCount);
-                totalLines += lineCount;
                 _logger.LogInformation("Datasource '{Name}': Log position set to end (line {LineCount})", ds.Name, lineCount);
             }
             else
             {
-                _stateRepository.SetLogPosition(ds.Name, 0);
-                _logger.LogInformation("Datasource '{Name}': Log file not found, position set to 0", ds.Name);
+                _logger.LogInformation("Datasource '{Name}': No log files found, position set to 0", ds.Name);
             }
         }
 
@@ -250,6 +252,81 @@ public class LogsController : ControllerBase
     }
 
     /// <summary>
+    /// Count lines in a gzip-compressed file
+    /// </summary>
+    private static long CountLinesInGzipFile(string filePath)
+    {
+        long lineCount = 0;
+        using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var gzipStream = new System.IO.Compression.GZipStream(stream, System.IO.Compression.CompressionMode.Decompress);
+        using var reader = new StreamReader(gzipStream);
+        while (reader.ReadLine() != null)
+        {
+            lineCount++;
+        }
+        return lineCount;
+    }
+
+    /// <summary>
+    /// Count total lines across all log files in a directory (matching Rust processor behavior)
+    /// Includes access.log, access.log.1, access.log.2, and compressed variants (.gz)
+    /// </summary>
+    private long CountLinesInAllLogFiles(string logDirectory)
+    {
+        long totalLines = 0;
+
+        if (!Directory.Exists(logDirectory))
+        {
+            return 0;
+        }
+
+        try
+        {
+            // Find all files matching access.log* pattern (same as Rust processor)
+            var logFiles = Directory.GetFiles(logDirectory, "access.log*")
+                .OrderBy(f => f) // Sort for consistent ordering
+                .ToList();
+
+            foreach (var logFile in logFiles)
+            {
+                try
+                {
+                    var fileName = Path.GetFileName(logFile).ToLowerInvariant();
+
+                    // Skip .zst files (not commonly used and would require additional library)
+                    if (fileName.EndsWith(".zst"))
+                    {
+                        _logger.LogDebug("Skipping .zst file (not supported): {File}", logFile);
+                        continue;
+                    }
+
+                    if (fileName.EndsWith(".gz"))
+                    {
+                        // Handle gzip-compressed files
+                        totalLines += CountLinesInGzipFile(logFile);
+                    }
+                    else
+                    {
+                        // Handle plain text files
+                        totalLines += CountLinesInFile(logFile);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Skip corrupted files (same as Rust processor behavior)
+                    _logger.LogWarning("Skipping corrupted log file {File}: {Error}", logFile, ex.Message);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error enumerating log files in {Directory}", logDirectory);
+        }
+
+        return totalLines;
+    }
+
+    /// <summary>
     /// GET /api/logs/positions - Get log positions for all datasources
     /// </summary>
     [HttpGet("positions")]
@@ -261,12 +338,14 @@ public class LogsController : ControllerBase
         foreach (var ds in datasources)
         {
             var position = _stateRepository.GetLogPosition(ds.Name);
-            var logFile = Path.Combine(ds.LogPath, "access.log");
-            long totalLines = 0;
 
-            if (System.IO.File.Exists(logFile))
+            // Use saved totalLines from Rust processor (avoids C# recounting)
+            // Falls back to counting if no saved value (e.g., first run before processing)
+            var totalLines = _stateRepository.GetLogTotalLines(ds.Name);
+            if (totalLines == 0 && position == 0)
             {
-                totalLines = CountLinesInFile(logFile);
+                // No saved value and position is 0 - count files as fallback
+                totalLines = CountLinesInAllLogFiles(ds.LogPath);
             }
 
             positions.Add(new
@@ -309,15 +388,13 @@ public class LogsController : ControllerBase
         }
 
         // Otherwise reset to end of file
-        var logFile = Path.Combine(datasource.LogPath, "access.log");
-        long lineCount = 0;
+        // Count lines across ALL log files (access.log, access.log.1, access.log.2.gz, etc.)
+        // This matches the Rust processor behavior which processes all rotated logs
+        long lineCount = CountLinesInAllLogFiles(datasource.LogPath);
 
-        if (System.IO.File.Exists(logFile))
-        {
-            lineCount = CountLinesInFile(logFile);
-        }
-
+        // Save both position AND totalLines so they stay in sync
         _stateRepository.SetLogPosition(datasourceName, lineCount);
+        _stateRepository.SetLogTotalLines(datasourceName, lineCount);
         _logger.LogInformation("Datasource '{Name}': Log position set to end (line {LineCount})", datasourceName, lineCount);
 
         return Ok(new LogPositionResponse

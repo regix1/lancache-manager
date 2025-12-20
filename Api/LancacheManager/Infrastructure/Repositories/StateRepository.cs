@@ -145,9 +145,15 @@ public class StateRepository : IStateRepository
         public long Position { get; set; } = 0;
 
         /// <summary>
-        /// Per-datasource log positions. Key is datasource name, value is byte offset.
+        /// Per-datasource log positions. Key is datasource name, value is line number.
         /// </summary>
         public Dictionary<string, long> DatasourcePositions { get; set; } = new();
+
+        /// <summary>
+        /// Per-datasource total line counts. Key is datasource name, value is total lines.
+        /// Populated by Rust processor to avoid C# recounting.
+        /// </summary>
+        public Dictionary<string, long> DatasourceTotalLines { get; set; } = new();
 
         public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
     }
@@ -403,6 +409,44 @@ public class StateRepository : IStateRepository
         }
 
         return positions;
+    }
+
+    /// <summary>
+    /// Gets the total line count for a specific datasource.
+    /// Returns 0 if not set (caller should count files as fallback).
+    /// </summary>
+    public long GetLogTotalLines(string datasourceName)
+    {
+        var state = GetState();
+
+        if (state.LogProcessing.DatasourceTotalLines.TryGetValue(datasourceName, out var totalLines))
+        {
+            return totalLines;
+        }
+
+        return 0;
+    }
+
+    /// <summary>
+    /// Sets the total line count for a specific datasource.
+    /// Called by Rust processor after counting all log files.
+    /// </summary>
+    public void SetLogTotalLines(string datasourceName, long totalLines)
+    {
+        UpdateState(state =>
+        {
+            state.LogProcessing.DatasourceTotalLines[datasourceName] = totalLines;
+            state.LogProcessing.LastUpdated = DateTime.UtcNow;
+        });
+    }
+
+    /// <summary>
+    /// Gets all datasource total line counts.
+    /// </summary>
+    public Dictionary<string, long> GetAllLogTotalLines()
+    {
+        var state = GetState();
+        return new Dictionary<string, long>(state.LogProcessing.DatasourceTotalLines);
     }
 
     // Cache Clear Operations Methods - now use separate file (data/operations/cache_operations.json)

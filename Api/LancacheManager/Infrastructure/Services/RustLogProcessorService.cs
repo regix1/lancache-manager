@@ -363,8 +363,10 @@ public class RustLogProcessorService
                 // Normal completion - send completion with actual data
                 if (finalProgress != null)
                 {
-                    // Save position per-datasource for multi-datasource support
+                    // Save position AND total lines per-datasource for multi-datasource support
+                    // Total lines comes from Rust to avoid C# recounting all log files
                     _stateService.SetLogPosition(datasourceName!, finalProgress.LinesParsed);
+                    _stateService.SetLogTotalLines(datasourceName!, finalProgress.TotalLines);
 
                     // Mark that logs have been processed at least once to enable guest mode
                     _stateService.SetHasProcessedLogs(true);
