@@ -78,10 +78,11 @@ public class ApiKeysController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/api-keys/current - Get the current API key (localhost only)
+    /// GET /api/api-keys/current - Get the current API key (localhost only, admin only)
     /// RESTful: GET is proper method for retrieving resources
     /// </summary>
     [HttpGet("current")]
+    [RequireAuth]
     public IActionResult GetCurrentApiKey()
     {
         // Only allow from localhost
@@ -89,7 +90,12 @@ public class ApiKeysController : ControllerBase
         if (remoteIp == null || (!remoteIp.ToString().StartsWith("127.") && !remoteIp.ToString().StartsWith("::1")))
         {
             _logger.LogWarning("API key request denied from non-localhost IP: {IP}", remoteIp);
-            return Forbid("This endpoint is only accessible from localhost");
+            return StatusCode(403, new
+            {
+                error = "This endpoint is only accessible from localhost",
+                details = "API key retrieval is restricted to localhost for security. Check container logs for the API key.",
+                statusCode = 403
+            });
         }
 
         var key = _apiKeyService.GetOrCreateApiKey();
