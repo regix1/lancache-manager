@@ -1255,35 +1255,6 @@ class ApiService {
     }
   }
 
-  // Add a tag to a download
-  static async addTagToDownload(tagId: number, downloadId: number): Promise<void> {
-    try {
-      const res = await fetch(`${API_BASE}/tags/${tagId}/downloads/${downloadId}`, this.getFetchOptions({
-        method: 'POST'
-      }));
-      await this.handleResponse(res);
-    } catch (error) {
-      console.error('addTagToDownload error:', error);
-      throw error;
-    }
-  }
-
-  // Remove a tag from a download
-  static async removeTagFromDownload(tagId: number, downloadId: number): Promise<void> {
-    try {
-      const res = await fetch(`${API_BASE}/tags/${tagId}/downloads/${downloadId}`, this.getFetchOptions({
-        method: 'DELETE'
-      }));
-      if (!res.ok) {
-        const errorText = await res.text().catch(() => '');
-        throw new Error(`HTTP ${res.status}: ${errorText || res.statusText}`);
-      }
-    } catch (error) {
-      console.error('removeTagFromDownload error:', error);
-      throw error;
-    }
-  }
-
   // Get tags for a specific download
   static async getTagsForDownload(downloadId: number, signal?: AbortSignal): Promise<Tag[]> {
     try {

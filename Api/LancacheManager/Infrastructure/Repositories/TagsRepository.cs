@@ -140,43 +140,6 @@ public class TagsRepository : ITagsRepository
         return tags;
     }
 
-    public async Task AddTagToDownloadAsync(int tagId, int downloadId, CancellationToken cancellationToken = default)
-    {
-        // Check if already tagged
-        var existing = await _context.DownloadTags
-            .FirstOrDefaultAsync(dt => dt.TagId == tagId && dt.DownloadId == downloadId, cancellationToken);
-
-        if (existing != null)
-        {
-            return; // Already tagged
-        }
-
-        var downloadTag = new DownloadTag
-        {
-            TagId = tagId,
-            DownloadId = downloadId,
-            TaggedAtUtc = DateTime.UtcNow
-        };
-
-        _context.DownloadTags.Add(downloadTag);
-        await _context.SaveChangesAsync(cancellationToken);
-
-        _logger.LogDebug("Added tag {TagId} to download {DownloadId}", tagId, downloadId);
-    }
-
-    public async Task RemoveTagFromDownloadAsync(int tagId, int downloadId, CancellationToken cancellationToken = default)
-    {
-        var downloadTag = await _context.DownloadTags
-            .FirstOrDefaultAsync(dt => dt.TagId == tagId && dt.DownloadId == downloadId, cancellationToken);
-
-        if (downloadTag != null)
-        {
-            _context.DownloadTags.Remove(downloadTag);
-            await _context.SaveChangesAsync(cancellationToken);
-            _logger.LogDebug("Removed tag {TagId} from download {DownloadId}", tagId, downloadId);
-        }
-    }
-
     public async Task<int> GetTagUsageCountAsync(int tagId, CancellationToken cancellationToken = default)
     {
         return await _context.DownloadTags

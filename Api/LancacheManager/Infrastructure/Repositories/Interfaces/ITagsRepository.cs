@@ -12,7 +12,5 @@ public interface ITagsRepository
     Task DeleteTagAsync(int id, CancellationToken cancellationToken = default);
     Task<List<Download>> GetDownloadsWithTagAsync(int tagId, CancellationToken cancellationToken = default);
     Task<List<Tag>> GetTagsForDownloadAsync(int downloadId, CancellationToken cancellationToken = default);
-    Task AddTagToDownloadAsync(int tagId, int downloadId, CancellationToken cancellationToken = default);
-    Task RemoveTagFromDownloadAsync(int tagId, int downloadId, CancellationToken cancellationToken = default);
     Task<int> GetTagUsageCountAsync(int tagId, CancellationToken cancellationToken = default);
 }

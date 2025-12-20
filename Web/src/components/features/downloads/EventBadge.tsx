@@ -25,7 +25,7 @@ const EventBadge: React.FC<EventBadgeProps> = ({
         border: '1px solid var(--theme-border-secondary)'
       }}
       onClick={onClick}
-      title={`${event.name}${event.autoTagged ? ' (auto-tagged)' : ' (manually tagged)'}`}
+      title={event.name}
     >
       {/* Color indicator dot */}
       <span
@@ -33,9 +33,6 @@ const EventBadge: React.FC<EventBadgeProps> = ({
         style={{ backgroundColor: event.color }}
       />
       <span className="truncate max-w-[100px]">{event.name}</span>
-      {event.autoTagged && (
-        <span className="opacity-60">auto</span>
-      )}
     </span>
   );
 };

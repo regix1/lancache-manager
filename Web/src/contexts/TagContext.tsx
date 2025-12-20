@@ -15,9 +15,7 @@ interface TagContextType {
   deleteTag: (id: number) => Promise<void>;
   refreshTags: () => Promise<void>;
 
-  // Tag-Download operations
-  addTagToDownload: (tagId: number, downloadId: number) => Promise<void>;
-  removeTagFromDownload: (tagId: number, downloadId: number) => Promise<void>;
+  // Tag-Download operations (read-only - tags are auto-assigned)
   getTagsForDownload: (downloadId: number) => Promise<Tag[]>;
 
   // Helper to get tag by ID
@@ -85,15 +83,7 @@ export const TagProvider: React.FC<TagProviderProps> = ({ children }) => {
     await refreshTags();
   }, [refreshTags]);
 
-  // Tag-Download operations
-  const addTagToDownload = useCallback(async (tagId: number, downloadId: number): Promise<void> => {
-    await ApiService.addTagToDownload(tagId, downloadId);
-  }, []);
-
-  const removeTagFromDownload = useCallback(async (tagId: number, downloadId: number): Promise<void> => {
-    await ApiService.removeTagFromDownload(tagId, downloadId);
-  }, []);
-
+  // Tag-Download operations (read-only - tags are auto-assigned)
   const getTagsForDownload = useCallback(async (downloadId: number): Promise<Tag[]> => {
     return await ApiService.getTagsForDownload(downloadId);
   }, []);
@@ -113,8 +103,6 @@ export const TagProvider: React.FC<TagProviderProps> = ({ children }) => {
         updateTag,
         deleteTag,
         refreshTags,
-        addTagToDownload,
-        removeTagFromDownload,
         getTagsForDownload,
         getTagById
       }}

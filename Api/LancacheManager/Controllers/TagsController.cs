@@ -215,58 +215,6 @@ public class TagsController : ControllerBase
     }
 
     /// <summary>
-    /// Add a tag to a download
-    /// </summary>
-    [HttpPost("{tagId:int}/downloads/{downloadId:int}")]
-    [RequireAuth]
-    public async Task<IActionResult> AddTagToDownload(int tagId, int downloadId)
-    {
-        try
-        {
-            var tag = await _tagsRepository.GetTagByIdAsync(tagId);
-            if (tag == null)
-            {
-                return NotFound(new { error = "Tag not found" });
-            }
-
-            await _tagsRepository.AddTagToDownloadAsync(tagId, downloadId);
-
-            // Notify clients via SignalR
-            await _hubContext.Clients.All.SendAsync("DownloadTagAdded", new { tagId, downloadId, tag });
-
-            return Ok(new { message = "Tag added to download" });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error adding tag {TagId} to download {DownloadId}", tagId, downloadId);
-            return StatusCode(500, new { error = "Failed to add tag to download" });
-        }
-    }
-
-    /// <summary>
-    /// Remove a tag from a download
-    /// </summary>
-    [HttpDelete("{tagId:int}/downloads/{downloadId:int}")]
-    [RequireAuth]
-    public async Task<IActionResult> RemoveTagFromDownload(int tagId, int downloadId)
-    {
-        try
-        {
-            await _tagsRepository.RemoveTagFromDownloadAsync(tagId, downloadId);
-
-            // Notify clients via SignalR
-            await _hubContext.Clients.All.SendAsync("DownloadTagRemoved", new { tagId, downloadId });
-
-            return NoContent();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error removing tag {TagId} from download {DownloadId}", tagId, downloadId);
-            return StatusCode(500, new { error = "Failed to remove tag from download" });
-        }
-    }
-
-    /// <summary>
     /// Get tags for a specific download
     /// </summary>
     [HttpGet("download/{downloadId:int}")]
