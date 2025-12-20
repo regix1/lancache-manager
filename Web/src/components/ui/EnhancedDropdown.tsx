@@ -300,7 +300,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         type="button"
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
-        className={`${compactMode ? 'w-auto' : 'w-full'} px-3 py-2 rounded-lg border text-[var(--theme-text-primary)] text-left transition-all flex items-center justify-between text-sm focus:outline-none focus:ring-0 focus:shadow-none active:outline-none active:ring-0 ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+        className={`w-full px-3 py-2 rounded-lg border text-[var(--theme-text-primary)] text-left transition-all flex items-center justify-between text-sm focus:outline-none focus:ring-0 focus:shadow-none active:outline-none active:ring-0 ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
         style={{
           backgroundColor: 'var(--theme-bg-secondary)',
           borderColor: isOpen ? 'var(--theme-border-focus)' : 'var(--theme-border-primary)',

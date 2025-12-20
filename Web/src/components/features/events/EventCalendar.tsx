@@ -131,13 +131,14 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
             <ChevronLeft className="w-4 h-4" />
           </Button>
 
-          <div className="flex items-center gap-2 min-w-[180px] justify-center">
+          <div className="flex items-center gap-2">
             <EnhancedDropdown
               options={monthOptions}
               value={String(currentMonth.getMonth())}
               onChange={handleMonthChange}
               compactMode
               cleanStyle
+              className="w-[120px]"
             />
             <EnhancedDropdown
               options={yearOptions}
@@ -145,6 +146,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
               onChange={handleYearChange}
               compactMode
               cleanStyle
+              className="w-[80px]"
             />
           </div>
 
