@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { useAnimatedNumber } from '../hooks/useAnimatedNumber';
+import NumberFlow from '@number-flow/react';
 
 interface AnimatedValueProps {
   /** The value to display - can be a number or formatted string like "1.5 GB" */
@@ -8,18 +8,14 @@ interface AnimatedValueProps {
   className?: string;
   /** Whether to animate the value (default: true) */
   animate?: boolean;
-  /** Animation duration in ms (default: 800) */
-  duration?: number;
-  /** Custom formatter for the animated number */
-  formatter?: (value: number) => string;
 }
 
 /**
  * Parses a formatted string like "1.5 GB" into { number: 1.5, suffix: " GB" }
  */
-const parseFormattedValue = (value: string | number): { number: number; suffix: string } => {
+const parseFormattedValue = (value: string | number): { number: number; suffix: string; decimals: number } => {
   if (typeof value === 'number') {
-    return { number: value, suffix: '' };
+    return { number: value, suffix: '', decimals: 0 };
   }
 
   // Match number at the start, possibly with decimals, and capture the rest as suffix
@@ -30,78 +26,76 @@ const parseFormattedValue = (value: string | number): { number: number; suffix: 
     const num = parseFloat(numStr);
     const suffix = match[2] ? ` ${match[2]}` : '';
 
+    // Count decimal places
+    const decimalIndex = numStr.indexOf('.');
+    const decimals = decimalIndex >= 0 ? numStr.length - decimalIndex - 1 : 0;
+
     if (!isNaN(num)) {
-      return { number: num, suffix };
+      return { number: num, suffix, decimals };
     }
   }
 
   // If parsing fails, return 0 with the original value as suffix
-  return { number: 0, suffix: value };
+  return { number: 0, suffix: value, decimals: 0 };
 };
 
 /**
- * Formats a number with commas for thousands
- */
-const formatWithCommas = (num: number, decimals: number): string => {
-  return num.toLocaleString('en-US', {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
-};
-
-/**
- * Component that displays a value with a counting animation
+ * Component that displays a value with smooth digit-spinning animation
+ * Uses NumberFlow for buttery smooth transitions
  */
 const AnimatedValue: React.FC<AnimatedValueProps> = ({
   value,
   className = '',
   animate = true,
-  duration = 800,
-  formatter,
 }) => {
   const parsed = useMemo(() => parseFormattedValue(value), [value]);
 
-  // Track previous suffix to detect unit changes (e.g., GB → TB)
-  const prevSuffixRef = React.useRef(parsed.suffix);
-  const suffixChanged = prevSuffixRef.current !== parsed.suffix;
-
-  // Update the ref after checking
-  React.useEffect(() => {
-    prevSuffixRef.current = parsed.suffix;
-  }, [parsed.suffix]);
-
-  // Determine decimal places from the original number
-  const decimals = useMemo(() => {
-    const str = parsed.number.toString();
-    const decimalIndex = str.indexOf('.');
-    return decimalIndex >= 0 ? str.length - decimalIndex - 1 : 0;
-  }, [parsed.number]);
-
-  // Don't animate when the unit/suffix changes (e.g., switching from GB to TB)
-  // This prevents showing nonsensical values like "537 TB" when switching time ranges
-  const shouldAnimate = animate && !suffixChanged;
-
-  const { displayValue, isAnimating } = useAnimatedNumber({
-    value: parsed.number,
-    duration,
-    enabled: shouldAnimate,
-    decimals,
-    easing: 'smooth',
-  });
-
-  const displayString = useMemo(() => {
-    if (formatter) {
-      return formatter(displayValue);
-    }
-    return formatWithCommas(displayValue, decimals) + parsed.suffix;
-  }, [displayValue, decimals, parsed.suffix, formatter]);
+  // If animation is disabled, just show the raw value
+  if (!animate) {
+    return (
+      <span
+        className={className}
+        style={{
+          fontVariantNumeric: 'tabular-nums',
+          color: 'var(--theme-text-primary)'
+        }}
+      >
+        {typeof value === 'string' ? value : value.toLocaleString()}
+      </span>
+    );
+  }
 
   return (
     <span
-      className={`${className} ${isAnimating ? 'animate-count' : ''}`}
-      style={{ fontVariantNumeric: 'tabular-nums' }}
+      className={className}
+      style={{
+        fontVariantNumeric: 'tabular-nums',
+        color: 'var(--theme-text-primary)',
+        display: 'inline-flex',
+        alignItems: 'baseline'
+      }}
     >
-      {displayString}
+      <NumberFlow
+        value={parsed.number}
+        format={{
+          minimumFractionDigits: parsed.decimals,
+          maximumFractionDigits: parsed.decimals,
+        }}
+        transformTiming={{
+          duration: 500,
+          easing: 'cubic-bezier(0.16, 1, 0.3, 1)' // Smooth ease-out expo
+        }}
+        spinTiming={{
+          duration: 500,
+          easing: 'cubic-bezier(0.16, 1, 0.3, 1)'
+        }}
+        opacityTiming={{
+          duration: 350,
+          easing: 'ease-out'
+        }}
+        willChange
+      />
+      {parsed.suffix && <span>{parsed.suffix}</span>}
     </span>
   );
 };
