@@ -18,6 +18,8 @@ public class DatabaseRepository : IDatabaseRepository
     private readonly IPathResolver _pathResolver;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly SteamKit2Service _steamKit2Service;
+    private readonly StateRepository _stateRepository;
+    private readonly DatasourceService _datasourceService;
     private static readonly ConcurrentDictionary<string, bool> _activeResetOperations = new();
     private static ResetProgressInfo _currentResetProgress = new();
 
@@ -37,7 +39,9 @@ public class DatabaseRepository : IDatabaseRepository
         ILogger<DatabaseRepository> logger,
         IPathResolver pathResolver,
         IDbContextFactory<AppDbContext> dbContextFactory,
-        SteamKit2Service steamKit2Service)
+        SteamKit2Service steamKit2Service,
+        StateRepository stateRepository,
+        DatasourceService datasourceService)
     {
         _context = context;
         _hubContext = hubContext;
@@ -45,6 +49,8 @@ public class DatabaseRepository : IDatabaseRepository
         _pathResolver = pathResolver;
         _dbContextFactory = dbContextFactory;
         _steamKit2Service = steamKit2Service;
+        _stateRepository = stateRepository;
+        _datasourceService = datasourceService;
     }
 
     public bool IsResetOperationRunning => _activeResetOperations.Any();
@@ -111,6 +117,16 @@ public class DatabaseRepository : IDatabaseRepository
             });
             var deletedLogEntries = await _context.LogEntries.ExecuteDeleteAsync();
             _logger.LogInformation($"Cleared {deletedLogEntries:N0} log entries");
+
+            // Reset log positions for all datasources so the log processor knows to start from beginning
+            _logger.LogInformation("Resetting log positions for all datasources");
+            foreach (var ds in _datasourceService.GetDatasources())
+            {
+                _stateRepository.SetLogPosition(ds.Name, 0);
+                _stateRepository.SetLogTotalLines(ds.Name, 0);
+            }
+            // Also reset legacy position
+            _stateRepository.SetLogPosition(0);
 
             // Delete Downloads
             await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
@@ -405,6 +421,16 @@ public class DatabaseRepository : IDatabaseRepository
 
                         _logger.LogInformation($"Cleared {logEntriesDeleted:N0} log entries");
                         deletedRows += logEntriesDeleted;
+
+                        // Reset log positions for all datasources so the log processor knows to start from beginning
+                        _logger.LogInformation("Resetting log positions for all datasources");
+                        foreach (var ds in _datasourceService.GetDatasources())
+                        {
+                            _stateRepository.SetLogPosition(ds.Name, 0);
+                            _stateRepository.SetLogTotalLines(ds.Name, 0);
+                        }
+                        // Also reset legacy position
+                        _stateRepository.SetLogPosition(0);
 
                         await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
                         {
