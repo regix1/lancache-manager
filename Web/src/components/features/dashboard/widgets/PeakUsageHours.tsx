@@ -210,10 +210,11 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
       <div className="grid grid-cols-2 gap-3 mb-4" style={{ minHeight: '76px' }}>
         {/* Peak Hour */}
         <div
-          className="rounded-lg p-3 flex flex-col justify-between"
+          className="p-3 flex flex-col justify-between"
           style={{
             backgroundColor: 'color-mix(in srgb, var(--theme-warning) 10%, transparent)',
-            height: '76px'
+            height: '76px',
+            borderRadius: 'var(--theme-border-radius-lg, 0.75rem)'
           }}
         >
           <div className="flex items-center justify-between">
@@ -236,10 +237,11 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
 
         {/* Current Hour */}
         <div
-          className="rounded-lg p-3 flex flex-col justify-between"
+          className="p-3 flex flex-col justify-between"
           style={{
             backgroundColor: 'color-mix(in srgb, var(--theme-primary) 10%, transparent)',
-            height: '76px'
+            height: '76px',
+            borderRadius: 'var(--theme-border-radius-lg, 0.75rem)'
           }}
         >
           <div className="flex items-center justify-between">

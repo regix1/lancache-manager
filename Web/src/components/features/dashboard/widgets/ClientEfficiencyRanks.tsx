@@ -153,10 +153,11 @@ const ClientEfficiencyRanks: React.FC<ClientEfficiencyRanksProps> = memo(({
         {rankedClients.map((client, index) => (
           <div
             key={client.clientIp}
-            className="flex items-center gap-3 p-2 rounded-lg transition-colors"
+            className="flex items-center gap-3 p-2 transition-colors"
             style={{
               backgroundColor: client.rank <= 3 ? 'color-mix(in srgb, var(--theme-primary) 8%, var(--theme-bg-secondary))' : 'transparent',
               animationDelay: `${index * 50}ms`,
+              borderRadius: 'var(--theme-border-radius-lg, 0.75rem)',
             }}
           >
             {/* Rank badge */}
