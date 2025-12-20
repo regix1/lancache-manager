@@ -323,8 +323,19 @@ const Dashboard: React.FC = () => {
     // Validate that the period data matches the current timeRange
     // This prevents showing stale data when switching time ranges
     // 'live' mode corresponds to 'all' duration, other modes match directly
-    const expectedDuration = timeRange === 'live' ? 'all' : timeRange;
-    const periodMatchesTimeRange = dashboardStats?.period?.duration === expectedDuration;
+    // For 'custom' mode, the backend returns dynamic durations like "12h" or "5d",
+    // so we just check that we have period data (not 'all' which means no filter)
+    let periodMatchesTimeRange = false;
+    if (timeRange === 'live') {
+      periodMatchesTimeRange = dashboardStats?.period?.duration === 'all';
+    } else if (timeRange === 'custom') {
+      // For custom ranges, accept any duration that's not 'all' (since custom always has time bounds)
+      // The duration will be dynamically calculated like "12h" or "5d"
+      periodMatchesTimeRange = !!dashboardStats?.period?.duration && dashboardStats.period.duration !== 'all';
+    } else {
+      // For preset ranges (1h, 6h, 24h, 7d, 30d), match exactly
+      periodMatchesTimeRange = dashboardStats?.period?.duration === timeRange;
+    }
 
     return {
       activeClients,
