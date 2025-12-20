@@ -619,7 +619,22 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   </Tooltip>
                 </div>
               )}
-              {(cacheReadOnly || !dockerSocketAvailable) && (
+            </div>
+          </div>
+
+          {/* Read-Only Warning */}
+          {cacheReadOnly && (
+            <>
+              <Alert color="orange" className="mb-2">
+                <div>
+                  <p className="font-medium">Cache directory is read-only</p>
+                  <p className="text-sm mt-1">
+                    Remove <code className="bg-themed-tertiary px-1 rounded">:ro</code> from your
+                    docker-compose volume mounts to enable game cache detection.
+                  </p>
+                </div>
+              </Alert>
+              <div className="flex items-center justify-center py-4">
                 <span
                   className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 border"
                   style={{
@@ -629,11 +644,11 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   }}
                 >
                   <Lock className="w-3 h-3" />
-                  {cacheReadOnly ? 'Read-only' : 'Docker socket required'}
+                  Read-only
                 </span>
-              )}
-            </div>
-          </div>
+              </div>
+            </>
+          )}
 
           {/* Header Row 3: Actions + Datasource Filter */}
           {!cacheReadOnly && (

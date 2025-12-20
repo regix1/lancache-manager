@@ -1,5 +1,5 @@
 import React, { useState, useEffect, use, useRef } from 'react';
-import { Server, AlertTriangle, FolderOpen, CheckCircle, XCircle, HardDrive } from 'lucide-react';
+import { Server, AlertTriangle, FolderOpen, CheckCircle, XCircle, HardDrive, Lock } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useSignalR } from '@contexts/SignalRContext';
@@ -239,9 +239,32 @@ const CacheManager: React.FC<CacheManagerProps> = ({
           </div>
         </div>
 
+        {/* Read-Only Warning */}
+        {cacheReadOnly && (
+          <Alert color="orange" className="mb-6">
+            <div>
+              <p className="font-medium">Cache directory is read-only</p>
+              <p className="text-sm mt-1">
+                Remove <code className="bg-themed-tertiary px-1 rounded">:ro</code> from your
+                docker-compose volume mounts to enable cache clearing.
+              </p>
+            </div>
+          </Alert>
+        )}
+
         {cacheReadOnly ? (
-          <div className="text-center py-4 text-themed-muted">
-            <p>Cache directory is mounted read-only. Remove <code className="bg-themed-tertiary px-1 rounded">:ro</code> from your docker-compose volume mounts to enable cache clearing.</p>
+          <div className="flex items-center justify-center py-4">
+            <span
+              className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 border"
+              style={{
+                backgroundColor: 'var(--theme-warning-bg)',
+                color: 'var(--theme-warning)',
+                borderColor: 'var(--theme-warning)'
+              }}
+            >
+              <Lock className="w-3 h-3" />
+              Read-only
+            </span>
           </div>
         ) : (
           <>
