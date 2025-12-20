@@ -22,6 +22,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
   const { use24HourFormat } = useTimezone();
   const [expandedEventId, setExpandedEventId] = useState<number | null>(null);
   const [downloadsCache, setDownloadsCache] = useState<EventDownloadsCache>({});
+  const fetchingRef = React.useRef<Set<number>>(new Set());
 
   // Group events by status: active, upcoming, past
   const groupedEvents = useMemo(() => {
@@ -81,10 +82,11 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
   };
 
   const fetchEventDownloads = useCallback(async (eventId: number) => {
-    // Already loading or loaded
-    if (downloadsCache[eventId]?.loading || downloadsCache[eventId]?.loaded) {
+    // Already fetching or fetched
+    if (fetchingRef.current.has(eventId)) {
       return;
     }
+    fetchingRef.current.add(eventId);
 
     setDownloadsCache(prev => ({
       ...prev,
@@ -92,22 +94,25 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
     }));
 
     try {
-      const response = await fetch(`/api/events/${eventId}/downloads`, {
-        headers: ApiService.getHeaders()
-      });
+      const response = await fetch(`/api/events/${eventId}/downloads`, ApiService.getFetchOptions());
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
       const downloads = await response.json();
+      console.log(`Event ${eventId} downloads:`, downloads);
       setDownloadsCache(prev => ({
         ...prev,
-        [eventId]: { downloads, loading: false, loaded: true }
+        [eventId]: { downloads: Array.isArray(downloads) ? downloads : [], loading: false, loaded: true }
       }));
     } catch (error) {
       console.error('Failed to fetch event downloads:', error);
+      fetchingRef.current.delete(eventId); // Allow retry on error
       setDownloadsCache(prev => ({
         ...prev,
         [eventId]: { downloads: [], loading: false, loaded: true }
       }));
     }
-  }, [downloadsCache]);
+  }, []);
 
   const handleExpandClick = useCallback((e: React.MouseEvent, eventId: number) => {
     e.stopPropagation();
