@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, type ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { storage } from '@utils/storage';
 
 export type TimeRange = '1h' | '6h' | '12h' | '24h' | '7d' | '30d' | 'live' | 'custom';
 
@@ -28,11 +29,63 @@ interface TimeFilterProviderProps {
 }
 
 export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children }) => {
-  // NOTE: Removed localStorage persistence to fix cross-tab sync issues
-  // Each browser tab now has independent time range state (default: 'live')
-  const [timeRange, setTimeRange] = useState<TimeRange>('live');
-  const [customStartDate, setCustomStartDate] = useState<Date | null>(null);
-  const [customEndDate, setCustomEndDate] = useState<Date | null>(null);
+  // Restore time range from localStorage on initial load
+  const [timeRange, setTimeRange] = useState<TimeRange>(() => {
+    const saved = storage.getItem('lancache_time_range');
+    const savedStartDate = storage.getItem('lancache_custom_start_date');
+    const savedEndDate = storage.getItem('lancache_custom_end_date');
+
+    // If saved timeRange is 'custom' but dates are missing, fall back to 'live'
+    if (saved === 'custom' && (!savedStartDate || !savedEndDate)) {
+      return 'live';
+    }
+
+    return (saved as TimeRange) || 'live';
+  });
+
+  const [customStartDate, setCustomStartDate] = useState<Date | null>(() => {
+    const saved = storage.getItem('lancache_custom_start_date');
+    if (saved) {
+      const date = new Date(saved);
+      if (!isNaN(date.getTime())) {
+        return date;
+      }
+    }
+    return null;
+  });
+
+  const [customEndDate, setCustomEndDate] = useState<Date | null>(() => {
+    const saved = storage.getItem('lancache_custom_end_date');
+    if (saved) {
+      const date = new Date(saved);
+      if (!isNaN(date.getTime())) {
+        return date;
+      }
+    }
+    return null;
+  });
+
+  // Persist timeRange to localStorage
+  useEffect(() => {
+    storage.setItem('lancache_time_range', timeRange);
+  }, [timeRange]);
+
+  // Persist custom dates to localStorage
+  useEffect(() => {
+    if (customStartDate) {
+      storage.setItem('lancache_custom_start_date', customStartDate.toISOString());
+    } else {
+      storage.removeItem('lancache_custom_start_date');
+    }
+  }, [customStartDate]);
+
+  useEffect(() => {
+    if (customEndDate) {
+      storage.setItem('lancache_custom_end_date', customEndDate.toISOString());
+    } else {
+      storage.removeItem('lancache_custom_end_date');
+    }
+  }, [customEndDate]);
 
   const getTimeRangeInHours = (): number => {
     switch (timeRange) {

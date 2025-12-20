@@ -326,17 +326,6 @@ const Dashboard: React.FC = () => {
     const expectedDuration = timeRange === 'live' ? 'all' : timeRange;
     const periodMatchesTimeRange = dashboardStats?.period?.duration === expectedDuration;
 
-    // DEBUG: Trace exact values being used
-    console.log('DEBUG stats calculation:', {
-      timeRange,
-      expectedDuration,
-      actualDuration: dashboardStats?.period?.duration,
-      periodMatchesTimeRange,
-      'dashboardStats.period.bandwidthSaved': dashboardStats?.period?.bandwidthSaved,
-      'dashboardStats.totalBandwidthSaved': dashboardStats?.totalBandwidthSaved,
-      'will use value': periodMatchesTimeRange ? dashboardStats?.period?.bandwidthSaved : 0
-    });
-
     return {
       activeClients,
       totalActiveDownloads,
