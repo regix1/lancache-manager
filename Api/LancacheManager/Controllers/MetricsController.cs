@@ -1,6 +1,7 @@
 using LancacheManager.Application.DTOs;
 using LancacheManager.Application.Services;
 using LancacheManager.Infrastructure.Repositories.Interfaces;
+using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -56,6 +57,7 @@ public class MetricsController : ControllerBase
     /// Set the metrics update interval (5-60 seconds)
     /// </summary>
     [HttpPost("interval")]
+    [RequireAuth]
     public IActionResult SetInterval([FromBody] SetIntervalRequest request)
     {
         if (request.Interval < 5 || request.Interval > 60)
@@ -97,6 +99,7 @@ public class MetricsController : ControllerBase
     /// Set metrics authentication requirement via UI toggle
     /// </summary>
     [HttpPost("security")]
+    [RequireAuth]
     public IActionResult SetSecurity([FromBody] SetSecurityRequest request)
     {
         _stateRepository.SetRequireAuthForMetrics(request.Enabled);

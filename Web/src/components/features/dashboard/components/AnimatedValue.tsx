@@ -82,15 +82,15 @@ const AnimatedValue: React.FC<AnimatedValueProps> = ({
           maximumFractionDigits: parsed.decimals,
         }}
         transformTiming={{
-          duration: 500,
+          duration: 700,
           easing: 'cubic-bezier(0.16, 1, 0.3, 1)' // Smooth ease-out expo
         }}
         spinTiming={{
-          duration: 500,
+          duration: 700,
           easing: 'cubic-bezier(0.16, 1, 0.3, 1)'
         }}
         opacityTiming={{
-          duration: 350,
+          duration: 450,
           easing: 'ease-out'
         }}
         willChange
