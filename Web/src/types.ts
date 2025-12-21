@@ -62,6 +62,8 @@ export interface ClientStat {
   downloadCount?: number;
   lastActivityUtc: string;
   lastActivityLocal: string;
+  /** Average download speed in bytes per second across all sessions. */
+  averageBytesPerSecond?: number;
 }
 
 export interface ServiceStat {

@@ -55,26 +55,44 @@ public class StatsRepository : IStatsRepository
     /// </summary>
     public async Task<List<ClientStats>> GetClientStatsAsync(CancellationToken cancellationToken = default)
     {
-        var stats = await _context.Downloads
+        // Fetch downloads with timing data for duration calculation
+        var downloads = await _context.Downloads
             .AsNoTracking()
-            .GroupBy(d => d.ClientIp)
-            .Select(g => new ClientStats
+            .Select(d => new
             {
-                ClientIp = g.Key,
-                TotalCacheHitBytes = g.Sum(d => d.CacheHitBytes),
-                TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
-                TotalDownloads = g.Count(),
-                LastActivityUtc = g.Max(d => d.StartTimeUtc),
-                LastActivityLocal = g.Max(d => d.StartTimeLocal)
+                d.ClientIp,
+                d.CacheHitBytes,
+                d.CacheMissBytes,
+                d.StartTimeUtc,
+                d.EndTimeUtc
             })
-            .OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes)
             .ToListAsync(cancellationToken);
 
-        // Fix timezone for proper JSON serialization
-        foreach (var stat in stats)
-        {
-            stat.LastActivityUtc = DateTime.SpecifyKind(stat.LastActivityUtc, DateTimeKind.Utc);
-        }
+        // Group in memory to calculate duration
+        var stats = downloads
+            .GroupBy(d => d.ClientIp)
+            .Select(g =>
+            {
+                // Calculate total duration across all downloads for this client
+                var totalDuration = g.Sum(d =>
+                {
+                    var duration = (d.EndTimeUtc - d.StartTimeUtc).TotalSeconds;
+                    return duration > 0 ? duration : 0;
+                });
+
+                return new ClientStats
+                {
+                    ClientIp = g.Key,
+                    TotalCacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                    TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
+                    TotalDownloads = g.Count(),
+                    TotalDurationSeconds = totalDuration,
+                    LastActivityUtc = DateTime.SpecifyKind(g.Max(d => d.StartTimeUtc), DateTimeKind.Utc),
+                    LastActivityLocal = g.Max(d => d.StartTimeUtc) // Will be set properly below
+                };
+            })
+            .OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes)
+            .ToList();
 
         return stats;
     }

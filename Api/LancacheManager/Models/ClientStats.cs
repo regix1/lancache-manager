@@ -14,6 +14,19 @@ public class ClientStats
     public double CacheHitPercent => TotalBytes > 0 ? (TotalCacheHitBytes * 100.0) / TotalBytes : 0;
     public int TotalDownloads { get; set; }
 
+    /// <summary>
+    /// Total download duration in seconds across all sessions.
+    /// Used to calculate average speed.
+    /// </summary>
+    public double TotalDurationSeconds { get; set; }
+
+    /// <summary>
+    /// Average download speed in bytes per second.
+    /// Calculated as TotalBytes / TotalDurationSeconds.
+    /// </summary>
+    [JsonInclude]
+    public double AverageBytesPerSecond => TotalDurationSeconds > 0 ? TotalBytes / TotalDurationSeconds : 0;
+
     // UTC timestamps - always stored in UTC for consistent querying
     public DateTime LastActivityUtc { get; set; }
 

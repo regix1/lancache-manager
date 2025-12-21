@@ -1,13 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { useStats } from '@contexts/StatsContext';
-import { formatBytes, formatPercent } from '@utils/formatters';
+import { formatBytes, formatPercent, formatSpeed } from '@utils/formatters';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { Card } from '@components/ui/Card';
 import { CacheInfoTooltip } from '@components/ui/Tooltip';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { ArrowUpDown } from 'lucide-react';
 
-type SortOption = 'ip' | 'downloads' | 'totalData' | 'hits' | 'misses' | 'hitRate' | 'lastActivity';
+type SortOption = 'ip' | 'downloads' | 'totalData' | 'hits' | 'misses' | 'hitRate' | 'avgSpeed' | 'lastActivity';
 type SortDirection = 'asc' | 'desc';
 
 interface ClientData {
@@ -18,6 +18,7 @@ interface ClientData {
   totalCacheMissBytes: number;
   cacheHitPercent: number;
   lastActivityUtc: string;
+  averageBytesPerSecond?: number;
 }
 
 interface ClientRowProps {
@@ -37,6 +38,9 @@ const ClientRow: React.FC<ClientRowProps> = ({ client }) => {
       </td>
       <td className="py-3 text-themed-secondary text-sm whitespace-nowrap">
         {formatBytes(client.totalBytes)}
+      </td>
+      <td className="py-3 text-themed-secondary text-sm hidden lg:table-cell whitespace-nowrap">
+        {formatSpeed(client.averageBytesPerSecond)}
       </td>
       <td className="py-3 cache-hit hidden md:table-cell text-sm whitespace-nowrap">
         {formatBytes(client.totalCacheHitBytes)}
@@ -99,8 +103,8 @@ const ClientCard: React.FC<ClientRowProps> = ({ client }) => {
           <p className="text-themed-secondary">{formatBytes(client.totalBytes)}</p>
         </div>
         <div>
-          <span className="text-themed-muted text-xs">Downloads</span>
-          <p className="text-themed-secondary">{client.totalDownloads}</p>
+          <span className="text-themed-muted text-xs">Avg Speed</span>
+          <p className="text-themed-secondary">{formatSpeed(client.averageBytesPerSecond)}</p>
         </div>
         <div>
           <span className="text-themed-muted text-xs">Cache Hits</span>
@@ -122,6 +126,7 @@ const ClientCard: React.FC<ClientRowProps> = ({ client }) => {
 
 const sortOptions = [
   { value: 'totalData', label: 'Total Data' },
+  { value: 'avgSpeed', label: 'Avg Speed' },
   { value: 'downloads', label: 'Total Downloads' },
   { value: 'hits', label: 'Cache Hits' },
   { value: 'misses', label: 'Cache Misses' },
@@ -152,6 +157,8 @@ const ClientsTab: React.FC = () => {
           return multiplier * ((a.totalDownloads || 0) - (b.totalDownloads || 0));
         case 'totalData':
           return multiplier * ((a.totalBytes || 0) - (b.totalBytes || 0));
+        case 'avgSpeed':
+          return multiplier * ((a.averageBytesPerSecond || 0) - (b.averageBytesPerSecond || 0));
         case 'hits':
           return multiplier * ((a.totalCacheHitBytes || 0) - (b.totalCacheHitBytes || 0));
         case 'misses':
@@ -219,6 +226,7 @@ const ClientsTab: React.FC = () => {
                 <th className="pb-3">Client IP</th>
                 <th className="pb-3">Total Downloads</th>
                 <th className="pb-3">Total Data</th>
+                <th className="pb-3 hidden lg:table-cell">Avg Speed</th>
                 <th className="pb-3">Cache Hits</th>
                 <th className="pb-3">Cache Misses</th>
                 <th className="pb-3">Hit Rate</th>
@@ -232,7 +240,7 @@ const ClientsTab: React.FC = () => {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={7} className="py-8 text-center text-themed-muted">
+                  <td colSpan={8} className="py-8 text-center text-themed-muted">
                     No client data available
                   </td>
                 </tr>
