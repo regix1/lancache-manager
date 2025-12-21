@@ -21,6 +21,7 @@ RUN cargo build --release && \
     mkdir -p /build/output && \
     cp target/release/log_processor /build/output/ && \
     cp target/release/log_service_manager /build/output/ && \
+    cp target/release/speed_tracker /build/output/ && \
     cp target/release/cache_clear /build/output/ && \
     cp target/release/cache_corruption /build/output/ && \
     cp target/release/cache_game_detect /build/output/ && \

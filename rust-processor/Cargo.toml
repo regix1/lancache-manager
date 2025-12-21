@@ -19,6 +19,11 @@ edition = "2021"
 name = "log_processor"
 path = "src/log_processor.rs"
 
+# Real-time speed tracker - tails logs and outputs JSON speed snapshots
+[[bin]]
+name = "speed_tracker"
+path = "src/speed_tracker.rs"
+
 # Count services in logs OR remove service entries from log files
 [[bin]]
 name = "log_service_manager"

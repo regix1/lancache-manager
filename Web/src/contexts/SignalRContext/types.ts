@@ -27,8 +27,8 @@ export const SIGNALR_EVENTS = [
   'DownloadsRefresh',
   'ProcessingProgress',
   'FastProcessingComplete',
-  'StreamProcessingProgress',
-  'StreamProcessingComplete',
+  'DownloadSpeedUpdate',
+  'NetworkBandwidthUpdate',
   'DepotMappingStarted',
   'DepotMappingProgress',
   'DepotMappingComplete',
@@ -87,19 +87,43 @@ export interface FastProcessingCompletePayload {
   elapsed?: number;
 }
 
-export interface StreamProcessingProgressPayload {
-  totalLines: number;
-  linesParsed: number;
-  entriesSaved: number;
-  percentComplete: number;
-  status: string;
-  message: string;
+export interface DownloadSpeedUpdatePayload {
+  timestampUtc: string;
+  totalBytesPerSecond: number;
+  gameSpeeds: {
+    depotId: number;
+    gameName?: string;
+    gameAppId?: number;
+    service: string;
+    bytesPerSecond: number;
+    totalBytes: number;
+    requestCount: number;
+    cacheHitBytes: number;
+    cacheMissBytes: number;
+    cacheHitPercent: number;
+  }[];
+  clientSpeeds: {
+    clientIp: string;
+    bytesPerSecond: number;
+    totalBytes: number;
+    activeGames: number;
+    cacheHitBytes: number;
+    cacheMissBytes: number;
+  }[];
+  windowSeconds: number;
+  entriesInWindow: number;
+  hasActiveDownloads: boolean;
 }
 
-export interface StreamProcessingCompletePayload {
-  success: boolean;
-  message: string;
-  entriesProcessed: number;
+export interface NetworkBandwidthUpdatePayload {
+  timestampUtc: string;
+  interfaceName: string;
+  downloadBytesPerSecond: number;
+  uploadBytesPerSecond: number;
+  totalBytesReceived: number;
+  totalBytesSent: number;
+  isAvailable: boolean;
+  errorMessage?: string;
 }
 
 export interface LogRemovalProgressPayload {

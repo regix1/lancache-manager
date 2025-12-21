@@ -114,6 +114,11 @@ public interface IPathResolver
     string GetRustDataMigratorPath();
 
     /// <summary>
+    /// Gets the path to the Rust speed tracker executable
+    /// </summary>
+    string GetRustSpeedTrackerPath();
+
+    /// <summary>
     /// Gets the path to the database file
     /// </summary>
     string GetDatabasePath();

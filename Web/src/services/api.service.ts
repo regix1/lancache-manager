@@ -26,7 +26,13 @@ import type {
   Tag,
   CreateTagRequest,
   UpdateTagRequest,
-  DownloadWithAssociations
+  DownloadWithAssociations,
+  DownloadSpeedSnapshot,
+  GameSpeedInfo,
+  ClientSpeedInfo,
+  NetworkBandwidthSnapshot,
+  CombinedSpeedSnapshot,
+  SpeedHistorySnapshot
 } from '../types';
 
 // Response types for API operations
@@ -1328,6 +1334,100 @@ class ApiService {
         // Silently ignore abort errors
       } else if (!this.isGuestSessionError(error)) {
         console.error('getDownloadWithAssociations error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // =====================================================
+  // Real-time Download Speed API
+  // =====================================================
+
+  // Get current download speeds snapshot
+  static async getCurrentSpeeds(signal?: AbortSignal): Promise<DownloadSpeedSnapshot> {
+    try {
+      const res = await fetch(`${API_BASE}/speeds/current`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<DownloadSpeedSnapshot>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getCurrentSpeeds error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // Get current per-game download speeds
+  static async getGameSpeeds(signal?: AbortSignal): Promise<GameSpeedInfo[]> {
+    try {
+      const res = await fetch(`${API_BASE}/speeds/games`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<GameSpeedInfo[]>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getGameSpeeds error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // Get current per-client download speeds
+  static async getClientSpeeds(signal?: AbortSignal): Promise<ClientSpeedInfo[]> {
+    try {
+      const res = await fetch(`${API_BASE}/speeds/clients`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<ClientSpeedInfo[]>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getClientSpeeds error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // Get current network interface bandwidth (upload/download)
+  static async getNetworkBandwidth(signal?: AbortSignal): Promise<NetworkBandwidthSnapshot> {
+    try {
+      const res = await fetch(`${API_BASE}/speeds/network`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<NetworkBandwidthSnapshot>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getNetworkBandwidth error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // Get combined speed data (network bandwidth + per-game breakdown)
+  static async getCombinedSpeeds(signal?: AbortSignal): Promise<CombinedSpeedSnapshot> {
+    try {
+      const res = await fetch(`${API_BASE}/speeds/combined`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<CombinedSpeedSnapshot>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getCombinedSpeeds error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // Get historical download speeds for a time period
+  static async getSpeedHistory(minutes: number = 60, signal?: AbortSignal): Promise<SpeedHistorySnapshot> {
+    try {
+      const res = await fetch(`${API_BASE}/speeds/history?minutes=${minutes}`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<SpeedHistorySnapshot>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getSpeedHistory error:', error);
       }
       throw error;
     }

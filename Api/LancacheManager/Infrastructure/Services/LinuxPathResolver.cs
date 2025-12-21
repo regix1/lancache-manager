@@ -165,6 +165,9 @@ public class LinuxPathResolver : IPathResolver
     public string GetRustDataMigratorPath() =>
         Path.Combine(AppContext.BaseDirectory, "rust-processor", "db_migrate");
 
+    public string GetRustSpeedTrackerPath() =>
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "speed_tracker");
+
     public string GetDatabasePath() =>
         Path.Combine(GetDataDirectory(), "LancacheManager.db");
 

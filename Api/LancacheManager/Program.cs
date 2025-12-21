@@ -324,6 +324,14 @@ builder.Services.AddHostedService(provider => provider.GetRequiredService<Operat
 builder.Services.AddHostedService<LiveLogMonitorService>();
 builder.Services.AddHostedService<DownloadCleanupService>();
 
+// Register RustSpeedTrackerService for real-time per-game download speed monitoring (uses Rust for faster parsing)
+builder.Services.AddSingleton<RustSpeedTrackerService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<RustSpeedTrackerService>());
+
+// Register NetworkBandwidthService for real-time network interface monitoring
+builder.Services.AddSingleton<NetworkBandwidthService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<NetworkBandwidthService>());
+
 // Add Output Caching for API endpoints
 builder.Services.AddOutputCache(options =>
 {

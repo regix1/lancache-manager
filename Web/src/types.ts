@@ -369,3 +369,93 @@ export interface EventSummary {
   color: string;
   autoTagged: boolean;
 }
+
+// Real-time download speed types
+export interface GameSpeedInfo {
+  depotId: number;
+  gameName?: string;
+  gameAppId?: number;
+  service: string;
+  bytesPerSecond: number;
+  totalBytes: number;
+  requestCount: number;
+  cacheHitBytes: number;
+  cacheMissBytes: number;
+  cacheHitPercent: number;
+}
+
+export interface ClientSpeedInfo {
+  clientIp: string;
+  bytesPerSecond: number;
+  totalBytes: number;
+  activeGames: number;
+  cacheHitBytes: number;
+  cacheMissBytes: number;
+}
+
+export interface DownloadSpeedSnapshot {
+  timestampUtc: string;
+  totalBytesPerSecond: number;
+  gameSpeeds: GameSpeedInfo[];
+  clientSpeeds: ClientSpeedInfo[];
+  windowSeconds: number;
+  entriesInWindow: number;
+  hasActiveDownloads: boolean;
+}
+
+export interface NetworkBandwidthSnapshot {
+  timestampUtc: string;
+  interfaceName: string;
+  downloadBytesPerSecond: number;
+  uploadBytesPerSecond: number;
+  totalBytesReceived: number;
+  totalBytesSent: number;
+  isAvailable: boolean;
+  errorMessage?: string;
+}
+
+export interface CombinedSpeedSnapshot {
+  networkBandwidth: NetworkBandwidthSnapshot;
+  gameSpeeds: DownloadSpeedSnapshot;
+}
+
+// Historical speed types
+export interface GameSpeedHistoryInfo {
+  gameAppId?: number;
+  gameName?: string;
+  gameImageUrl?: string;
+  service: string;
+  totalBytes: number;
+  cacheHitBytes: number;
+  cacheMissBytes: number;
+  cacheHitPercent: number;
+  averageBytesPerSecond: number;
+  sessionCount: number;
+  firstSeenUtc: string;
+  lastSeenUtc: string;
+  totalDurationSeconds: number;
+  uniqueClients: number;
+}
+
+export interface ClientSpeedHistoryInfo {
+  clientIp: string;
+  totalBytes: number;
+  cacheHitBytes: number;
+  cacheMissBytes: number;
+  averageBytesPerSecond: number;
+  gamesDownloaded: number;
+  sessionCount: number;
+  firstSeenUtc: string;
+  lastSeenUtc: string;
+}
+
+export interface SpeedHistorySnapshot {
+  periodStartUtc: string;
+  periodEndUtc: string;
+  periodMinutes: number;
+  totalBytes: number;
+  averageBytesPerSecond: number;
+  gameSpeeds: GameSpeedHistoryInfo[];
+  clientSpeeds: ClientSpeedHistoryInfo[];
+  totalSessions: number;
+}
