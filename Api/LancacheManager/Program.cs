@@ -300,9 +300,6 @@ builder.Services.AddHostedService(provider => provider.GetRequiredService<Lancac
 // Register Rust log processor service (replaces old C# LogProcessingService and LogWatcherService)
 builder.Services.AddSingleton<RustLogProcessorService>();
 
-// Register Rust stream processor service (processes stream-access.log for bandwidth/speed data)
-builder.Services.AddSingleton<RustStreamProcessorService>();
-
 // Register Rust database reset service
 builder.Services.AddSingleton<RustDatabaseResetService>();
 

@@ -19,11 +19,6 @@ edition = "2021"
 name = "log_processor"
 path = "src/log_processor.rs"
 
-# Stream log processor - parses stream-access.log for speed/timing data
-[[bin]]
-name = "stream_processor"
-path = "src/stream_processor.rs"
-
 # Count services in logs OR remove service entries from log files
 [[bin]]
 name = "log_service_manager"

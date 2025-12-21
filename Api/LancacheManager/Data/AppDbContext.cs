@@ -19,7 +19,6 @@ public class AppDbContext : DbContext
     public DbSet<EventDownload> EventDownloads { get; set; }
     public DbSet<Tag> Tags { get; set; }
     public DbSet<DownloadTag> DownloadTags { get; set; }
-    public DbSet<StreamSession> StreamSessions { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -220,57 +219,5 @@ public class AppDbContext : DbContext
             .WithMany()
             .HasForeignKey(dt => dt.DownloadId)
             .OnDelete(DeleteBehavior.Cascade);
-
-        // StreamSession indexes for performance
-        modelBuilder.Entity<StreamSession>()
-            .HasIndex(s => s.ClientIp)
-            .HasDatabaseName("IX_StreamSessions_ClientIp");
-
-        modelBuilder.Entity<StreamSession>()
-            .HasIndex(s => s.SessionEndUtc)
-            .HasDatabaseName("IX_StreamSessions_SessionEndUtc");
-
-        modelBuilder.Entity<StreamSession>()
-            .HasIndex(s => s.DownloadId)
-            .HasDatabaseName("IX_StreamSessions_DownloadId");
-
-        modelBuilder.Entity<StreamSession>()
-            .HasIndex(s => s.Datasource)
-            .HasDatabaseName("IX_StreamSessions_Datasource");
-
-        // Composite index for correlation queries
-        modelBuilder.Entity<StreamSession>()
-            .HasIndex(s => new { s.ClientIp, s.SessionStartUtc, s.SessionEndUtc, s.UpstreamHost })
-            .HasDatabaseName("IX_StreamSessions_Correlation");
-
-        // Index for duplicate detection
-        modelBuilder.Entity<StreamSession>()
-            .HasIndex(s => new { s.ClientIp, s.SessionEndUtc, s.BytesSent, s.BytesReceived, s.DurationSeconds, s.UpstreamHost, s.Datasource })
-            .HasDatabaseName("IX_StreamSessions_DuplicateCheck");
-
-        // Configure relationship with Download
-        modelBuilder.Entity<StreamSession>()
-            .HasOne(s => s.Download)
-            .WithMany()
-            .HasForeignKey(s => s.DownloadId)
-            .OnDelete(DeleteBehavior.SetNull);
-
-        // Configure property lengths
-        modelBuilder.Entity<StreamSession>()
-            .Property(s => s.ClientIp)
-            .HasMaxLength(45);
-
-        modelBuilder.Entity<StreamSession>()
-            .Property(s => s.Protocol)
-            .HasMaxLength(10);
-
-        modelBuilder.Entity<StreamSession>()
-            .Property(s => s.UpstreamHost)
-            .HasMaxLength(255);
-
-        modelBuilder.Entity<StreamSession>()
-            .Property(s => s.Datasource)
-            .HasMaxLength(100)
-            .HasDefaultValue("default");
     }
 }

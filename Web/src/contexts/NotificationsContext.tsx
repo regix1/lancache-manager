@@ -48,7 +48,6 @@ const isErrorStatus = (status?: string): boolean => {
 // Unified notification type for all background operations
 export type NotificationType =
   | 'log_processing'
-  | 'stream_processing'  // Processing stream-access.log for speed data
   | 'cache_clearing'
   | 'log_removal'      // Removing log entries for a service
   | 'service_removal'  // Removing cache files for a service
@@ -392,71 +391,6 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       });
 
       // Schedule auto-dismiss - use fixed ID so we don't depend on callback timing
-      scheduleAutoDismiss(fixedNotificationId);
-    };
-
-    // Stream processing handlers (for stream-access.log speed data)
-    const handleStreamProcessingProgress = (payload: {
-      totalLines: number;
-      linesParsed: number;
-      entriesSaved: number;
-      percentComplete: number;
-      status: string;
-      message: string;
-    }) => {
-      const fixedNotificationId = 'stream_processing';
-
-      setNotifications((prev) => {
-        const existing = prev.find((n) => n.id === fixedNotificationId);
-        if (existing) {
-          return prev.map((n) =>
-            n.id === fixedNotificationId
-              ? {
-                  ...n,
-                  progress: payload.percentComplete,
-                  detailMessage: payload.message || `Processing stream logs: ${payload.entriesSaved} sessions saved`
-                }
-              : n
-          );
-        }
-        return [
-          ...prev,
-          {
-            id: fixedNotificationId,
-            type: 'stream_processing' as const,
-            status: 'running' as const,
-            message: 'Processing Stream Logs',
-            detailMessage: payload.message || 'Starting stream log processing...',
-            progress: payload.percentComplete,
-            startedAt: new Date()
-          }
-        ];
-      });
-    };
-
-    const handleStreamProcessingComplete = (payload: {
-      success: boolean;
-      message: string;
-      entriesProcessed: number;
-    }) => {
-      const fixedNotificationId = 'stream_processing';
-
-      setNotifications((prev) => {
-        const filtered = prev.filter((n) => n.id !== fixedNotificationId);
-        return [
-          ...filtered,
-          {
-            id: fixedNotificationId,
-            type: 'stream_processing' as const,
-            status: payload.success ? 'completed' as const : 'failed' as const,
-            message: payload.success ? 'Stream Processing Complete!' : 'Stream Processing Failed',
-            detailMessage: payload.message || `Processed ${payload.entriesProcessed} stream sessions`,
-            progress: 100,
-            startedAt: new Date()
-          }
-        ];
-      });
-
       scheduleAutoDismiss(fixedNotificationId);
     };
 
@@ -1441,8 +1375,6 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     // Subscribe to events
     signalR.on('ProcessingProgress', handleProcessingProgress);
     signalR.on('FastProcessingComplete', handleFastProcessingComplete);
-    signalR.on('StreamProcessingProgress', handleStreamProcessingProgress);
-    signalR.on('StreamProcessingComplete', handleStreamProcessingComplete);
     signalR.on('LogRemovalProgress', handleLogRemovalProgress);
     signalR.on('LogRemovalComplete', handleLogRemovalComplete);
     signalR.on('GameRemovalProgress', handleGameRemovalProgress);
@@ -1465,8 +1397,6 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     return () => {
       signalR.off('ProcessingProgress', handleProcessingProgress);
       signalR.off('FastProcessingComplete', handleFastProcessingComplete);
-      signalR.off('StreamProcessingProgress', handleStreamProcessingProgress);
-      signalR.off('StreamProcessingComplete', handleStreamProcessingComplete);
       signalR.off('LogRemovalProgress', handleLogRemovalProgress);
       signalR.off('LogRemovalComplete', handleLogRemovalComplete);
       signalR.off('GameRemovalProgress', handleGameRemovalProgress);

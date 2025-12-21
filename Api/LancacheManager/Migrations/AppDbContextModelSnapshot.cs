@@ -168,9 +168,6 @@ namespace LancacheManager.Migrations
                     b.Property<uint?>("DepotId")
                         .HasColumnType("INTEGER");
 
-                    b.Property<double?>("DownloadSpeedBps")
-                        .HasColumnType("REAL");
-
                     b.Property<DateTime>("EndTimeLocal")
                         .HasColumnType("TEXT");
 
@@ -196,20 +193,11 @@ namespace LancacheManager.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<double?>("SessionDurationSeconds")
-                        .HasColumnType("REAL");
-
                     b.Property<DateTime>("StartTimeLocal")
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime>("StartTimeUtc")
                         .HasColumnType("TEXT");
-
-                    b.Property<int?>("StreamSessionCount")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<double?>("UploadSpeedBps")
-                        .HasColumnType("REAL");
 
                     b.HasKey("Id");
 
@@ -486,84 +474,6 @@ namespace LancacheManager.Migrations
                     b.ToTable("SteamDepotMappings");
                 });
 
-            modelBuilder.Entity("LancacheManager.Models.StreamSession", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<long>("BytesReceived")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<long>("BytesSent")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("ClientIp")
-                        .IsRequired()
-                        .HasMaxLength(45)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Datasource")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(100)
-                        .HasColumnType("TEXT")
-                        .HasDefaultValue("default");
-
-                    b.Property<int?>("DownloadId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<double>("DurationSeconds")
-                        .HasColumnType("REAL");
-
-                    b.Property<string>("Protocol")
-                        .IsRequired()
-                        .HasMaxLength(10)
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("SessionEndLocal")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("SessionEndUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("SessionStartLocal")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("SessionStartUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("UpstreamHost")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ClientIp")
-                        .HasDatabaseName("IX_StreamSessions_ClientIp");
-
-                    b.HasIndex("Datasource")
-                        .HasDatabaseName("IX_StreamSessions_Datasource");
-
-                    b.HasIndex("DownloadId")
-                        .HasDatabaseName("IX_StreamSessions_DownloadId");
-
-                    b.HasIndex("SessionEndUtc")
-                        .HasDatabaseName("IX_StreamSessions_SessionEndUtc");
-
-                    b.HasIndex("ClientIp", "SessionStartUtc", "SessionEndUtc", "UpstreamHost")
-                        .HasDatabaseName("IX_StreamSessions_Correlation");
-
-                    b.HasIndex("ClientIp", "SessionEndUtc", "BytesSent", "BytesReceived", "DurationSeconds", "UpstreamHost", "Datasource")
-                        .HasDatabaseName("IX_StreamSessions_DuplicateCheck");
-
-                    b.ToTable("StreamSessions");
-                });
-
             modelBuilder.Entity("LancacheManager.Models.Tag", b =>
                 {
                     b.Property<int>("Id")
@@ -753,16 +663,6 @@ namespace LancacheManager.Migrations
                     b.HasOne("LancacheManager.Models.Download", "Download")
                         .WithMany()
                         .HasForeignKey("DownloadId");
-
-                    b.Navigation("Download");
-                });
-
-            modelBuilder.Entity("LancacheManager.Models.StreamSession", b =>
-                {
-                    b.HasOne("LancacheManager.Models.Download", "Download")
-                        .WithMany()
-                        .HasForeignKey("DownloadId")
-                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Download");
                 });

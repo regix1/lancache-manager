@@ -114,11 +114,6 @@ public interface IPathResolver
     string GetRustDataMigratorPath();
 
     /// <summary>
-    /// Gets the path to the Rust stream processor executable
-    /// </summary>
-    string GetRustStreamProcessorPath();
-
-    /// <summary>
     /// Gets the path to the database file
     /// </summary>
     string GetDatabasePath();
