@@ -16,11 +16,12 @@ COPY rust-processor/Cargo.toml rust-processor/Cargo.lock* ./
 COPY rust-processor/src ./src
 
 # Build for native platform
-# Binary naming: log_* (log ops), cache_* (cache ops), db_* (database ops)
+# Binary naming: log_* (log ops), stream_* (stream ops), cache_* (cache ops), db_* (database ops)
 RUN cargo build --release && \
     mkdir -p /build/output && \
     cp target/release/log_processor /build/output/ && \
     cp target/release/log_service_manager /build/output/ && \
+    cp target/release/stream_processor /build/output/ && \
     cp target/release/cache_clear /build/output/ && \
     cp target/release/cache_corruption /build/output/ && \
     cp target/release/cache_game_detect /build/output/ && \
