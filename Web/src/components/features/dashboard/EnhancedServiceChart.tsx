@@ -317,6 +317,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
             display: flex;
             gap: 1rem;
             min-height: 0;
+            padding-bottom: 0.75rem;
           }
 
           /* Horizontal layout for wider containers */

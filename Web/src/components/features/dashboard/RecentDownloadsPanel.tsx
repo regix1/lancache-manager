@@ -177,12 +177,17 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     }
   }, []);
 
-  // Fetch speeds when in active mode
+  // Fetch speeds on mount to show the badge, then poll when in active mode
+  useEffect(() => {
+    // Always fetch once on mount to show the active count badge
+    fetchSpeeds();
+  }, [fetchSpeeds]);
+
+  // Poll for speeds when in active mode
   useEffect(() => {
     if (viewMode !== 'active') return;
 
-    fetchSpeeds();
-
+    // Already fetched on mount, just set up polling
     if (pollingRef.current) {
       clearInterval(pollingRef.current);
     }
