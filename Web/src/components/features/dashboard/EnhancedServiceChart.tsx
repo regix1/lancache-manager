@@ -433,7 +433,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
             flex: 1;
             display: flex;
             flex-direction: column;
-            justify-content: center;
+            justify-content: flex-start;
             gap: 0.5rem;
             min-width: 0;
           }
