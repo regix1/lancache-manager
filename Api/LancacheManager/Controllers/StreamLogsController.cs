@@ -222,29 +222,43 @@ public class StreamLogsController : ControllerBase
         }
 
         var totalCount = await query.CountAsync();
+
+        // Left join with Downloads to get game/service info for correlated sessions
         var sessions = await query
             .OrderByDescending(s => s.SessionEndUtc)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(s => new
-            {
-                s.Id,
-                s.ClientIp,
-                s.SessionStartUtc,
-                s.SessionEndUtc,
-                s.Protocol,
-                s.Status,
-                s.BytesSent,
-                s.BytesReceived,
-                s.DurationSeconds,
-                s.UpstreamHost,
-                s.DownloadId,
-                s.Datasource,
-                downloadSpeedBps = s.DurationSeconds > 0 ? s.BytesSent / s.DurationSeconds : 0,
-                uploadSpeedBps = s.DurationSeconds > 0 ? s.BytesReceived / s.DurationSeconds : 0,
-                downloadSpeedFormatted = FormatSpeed(s.DurationSeconds > 0 ? s.BytesSent / s.DurationSeconds : 0),
-                uploadSpeedFormatted = FormatSpeed(s.DurationSeconds > 0 ? s.BytesReceived / s.DurationSeconds : 0)
-            })
+            .GroupJoin(
+                _context.Downloads,
+                s => s.DownloadId,
+                d => d.Id,
+                (s, downloads) => new { Session = s, Downloads = downloads })
+            .SelectMany(
+                x => x.Downloads.DefaultIfEmpty(),
+                (x, download) => new
+                {
+                    x.Session.Id,
+                    x.Session.ClientIp,
+                    x.Session.SessionStartUtc,
+                    x.Session.SessionEndUtc,
+                    x.Session.Protocol,
+                    x.Session.Status,
+                    x.Session.BytesSent,
+                    x.Session.BytesReceived,
+                    x.Session.DurationSeconds,
+                    x.Session.UpstreamHost,
+                    x.Session.DownloadId,
+                    x.Session.Datasource,
+                    downloadSpeedBps = x.Session.DurationSeconds > 0 ? x.Session.BytesSent / x.Session.DurationSeconds : 0,
+                    uploadSpeedBps = x.Session.DurationSeconds > 0 ? x.Session.BytesReceived / x.Session.DurationSeconds : 0,
+                    downloadSpeedFormatted = FormatSpeed(x.Session.DurationSeconds > 0 ? x.Session.BytesSent / x.Session.DurationSeconds : 0),
+                    uploadSpeedFormatted = FormatSpeed(x.Session.DurationSeconds > 0 ? x.Session.BytesReceived / x.Session.DurationSeconds : 0),
+                    // Include game/service info from correlated download
+                    gameName = download != null ? download.GameName : null,
+                    service = download != null ? download.Service : null,
+                    gameAppId = download != null ? download.GameAppId : null,
+                    gameImageUrl = download != null ? download.GameImageUrl : null
+                })
             .ToListAsync();
 
         return Ok(new

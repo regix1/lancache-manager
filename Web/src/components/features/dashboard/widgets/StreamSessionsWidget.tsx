@@ -34,6 +34,11 @@ interface StreamSession {
   uploadSpeedBps: number;
   downloadSpeedFormatted: string;
   uploadSpeedFormatted: string;
+  // Game/service info from correlated download
+  gameName: string | null;
+  service: string | null;
+  gameAppId: number | null;
+  gameImageUrl: string | null;
 }
 
 interface StreamSessionsWidgetProps {
@@ -157,11 +162,21 @@ const StreamSessionsWidget: React.FC<StreamSessionsWidgetProps> = ({ glassmorphi
                     key={session.id}
                     className="flex items-center justify-between p-2 rounded-lg bg-themed-tertiary text-sm"
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="text-themed-muted font-mono text-xs">
-                        {session.clientIp}
-                      </div>
-                      <div className="text-themed-primary">
+                    <div className="flex items-center gap-3 min-w-0">
+                      {session.gameName ? (
+                        <div className="text-themed-primary truncate max-w-[140px]" title={session.gameName}>
+                          {session.gameName}
+                        </div>
+                      ) : session.service ? (
+                        <div className="text-themed-secondary capitalize">
+                          {session.service}
+                        </div>
+                      ) : (
+                        <div className="text-themed-muted font-mono text-xs">
+                          {session.clientIp}
+                        </div>
+                      )}
+                      <div className="text-themed-primary font-medium">
                         {session.downloadSpeedFormatted}
                       </div>
                     </div>

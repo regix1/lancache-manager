@@ -1449,6 +1449,11 @@ class ApiService {
       uploadSpeedBps: number;
       downloadSpeedFormatted: string;
       uploadSpeedFormatted: string;
+      // Game/service info from correlated download
+      gameName: string | null;
+      service: string | null;
+      gameAppId: number | null;
+      gameImageUrl: string | null;
     }>;
     totalCount: number;
     page: number;
