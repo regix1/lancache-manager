@@ -27,6 +27,8 @@ export const SIGNALR_EVENTS = [
   'DownloadsRefresh',
   'ProcessingProgress',
   'FastProcessingComplete',
+  'StreamProcessingProgress',
+  'StreamProcessingComplete',
   'DepotMappingStarted',
   'DepotMappingProgress',
   'DepotMappingComplete',
@@ -83,6 +85,21 @@ export interface FastProcessingCompletePayload {
   entriesProcessed?: number;
   linesProcessed?: number;
   elapsed?: number;
+}
+
+export interface StreamProcessingProgressPayload {
+  totalLines: number;
+  linesParsed: number;
+  entriesSaved: number;
+  percentComplete: number;
+  status: string;
+  message: string;
+}
+
+export interface StreamProcessingCompletePayload {
+  success: boolean;
+  message: string;
+  entriesProcessed: number;
 }
 
 export interface LogRemovalProgressPayload {
