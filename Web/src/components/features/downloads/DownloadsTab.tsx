@@ -27,6 +27,8 @@ import { Pagination } from '@components/ui/Pagination';
 import CompactView from './CompactView';
 import NormalView from './NormalView';
 import RetroView from './RetroView';
+import DownloadsHeader from './DownloadsHeader';
+import ActiveDownloadsView from './ActiveDownloadsView';
 
 import type { Download, DownloadGroup, Config } from '../../../types';
 
@@ -206,6 +208,9 @@ const convertDownloadsToCSV = (downloads: Download[]): string => {
 const DownloadsTab: React.FC = () => {
   const { latestDownloads = [], loading } = useDownloads();
   const { timeRange } = useTimeFilter();
+
+  // Active/Recent tab state
+  const [activeTab, setActiveTab] = useState<'active' | 'recent'>('recent');
 
   // Datasource display state
   const [config, setConfig] = useState<Config | null>(null);
@@ -1040,17 +1045,33 @@ const DownloadsTab: React.FC = () => {
     );
   }
 
-  // Empty state
-  if (latestDownloads.length === 0) {
+  // Empty state (only show for Recent tab when no data)
+  if (latestDownloads.length === 0 && activeTab === 'recent') {
     return (
-      <Alert color="blue" icon={<Database className="w-5 h-5" />}>
-        No downloads recorded yet. Downloads will appear here as clients request content.
-      </Alert>
+      <div className="space-y-4 animate-fade-in">
+        <DownloadsHeader activeTab={activeTab} onTabChange={setActiveTab} />
+        <Alert color="blue" icon={<Database className="w-5 h-5" />}>
+          No downloads recorded yet. Downloads will appear here as clients request content.
+        </Alert>
+      </div>
     );
   }
 
   return (
     <div className="space-y-4 animate-fade-in">
+      {/* Downloads Header with Speed Display and Tab Toggle */}
+      <DownloadsHeader activeTab={activeTab} onTabChange={setActiveTab} />
+
+      {/* Active Downloads View */}
+      {activeTab === 'active' && (
+        <Card padding="md">
+          <ActiveDownloadsView />
+        </Card>
+      )}
+
+      {/* Recent Downloads View */}
+      {activeTab === 'recent' && (
+        <>
       {/* Controls */}
       <Card padding="sm" className="transition-all duration-300">
         <div className="flex flex-col gap-3">
@@ -1646,6 +1667,8 @@ const DownloadsTab: React.FC = () => {
         <Alert color="yellow">
           Loading {itemsToDisplay.length} items. Consider using pagination for better performance.
         </Alert>
+      )}
+        </>
       )}
     </div>
   );

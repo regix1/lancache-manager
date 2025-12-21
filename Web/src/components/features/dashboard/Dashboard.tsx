@@ -34,7 +34,6 @@ import TopClientsTable from './TopClientsTable';
 // Widget imports
 import PeakUsageHours from './widgets/PeakUsageHours';
 import CacheGrowthTrend from './widgets/CacheGrowthTrend';
-import DownloadSpeedsWidget from './widgets/DownloadSpeedsWidget';
 
 type CardVisibility = Record<string, boolean>;
 type AllStatCards = Record<string, StatCardData>;
@@ -929,21 +928,17 @@ const Dashboard: React.FC = () => {
         </div>
       ) : (
         <div
-          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-fadeIn"
+          className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fadeIn"
         >
-          <DownloadSpeedsWidget
-            glassmorphism={true}
-            staggerIndex={8}
-          />
           <PeakUsageHours
             glassmorphism={true}
-            staggerIndex={9}
+            staggerIndex={8}
           />
           <CacheGrowthTrend
             usedCacheSize={cacheInfo?.usedCacheSize || 0}
             totalCacheSize={cacheInfo?.totalCacheSize || 0}
             glassmorphism={true}
-            staggerIndex={10}
+            staggerIndex={9}
           />
         </div>
       )}
