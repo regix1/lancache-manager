@@ -24,6 +24,11 @@ public class NetworkBandwidthService : BackgroundService
     private long _lastBytesReceived;
     private long _lastBytesSent;
     private DateTime _lastSampleTime;
+    private long _linkSpeedBps;
+
+    // Peak tracking (reset on service restart)
+    private double _peakDownloadBytesPerSecond;
+    private double _peakUploadBytesPerSecond;
 
     // Current snapshot (thread-safe access)
     private NetworkBandwidthSnapshot _currentSnapshot = new();
@@ -165,8 +170,11 @@ public class NetworkBandwidthService : BackgroundService
                 }
             }
 
-            _logger.LogDebug("Selected network interface: {Name} ({Type})",
-                _interfaceName, _primaryInterface.NetworkInterfaceType);
+            // Get link speed
+            _linkSpeedBps = _primaryInterface.Speed;
+
+            _logger.LogDebug("Selected network interface: {Name} ({Type}) - Link speed: {Speed} bps",
+                _interfaceName, _primaryInterface.NetworkInterfaceType, _linkSpeedBps);
 
             return true;
         }
@@ -244,6 +252,12 @@ public class NetworkBandwidthService : BackgroundService
             if (downloadRate < 0) downloadRate = 0;
             if (uploadRate < 0) uploadRate = 0;
 
+            // Track peak speeds
+            if (downloadRate > _peakDownloadBytesPerSecond)
+                _peakDownloadBytesPerSecond = downloadRate;
+            if (uploadRate > _peakUploadBytesPerSecond)
+                _peakUploadBytesPerSecond = uploadRate;
+
             // Update for next sample
             _lastBytesReceived = bytesReceived;
             _lastBytesSent = bytesSent;
@@ -257,7 +271,10 @@ public class NetworkBandwidthService : BackgroundService
                 UploadBytesPerSecond = uploadRate,
                 TotalBytesReceived = bytesReceived,
                 TotalBytesSent = bytesSent,
-                IsAvailable = true
+                IsAvailable = true,
+                LinkSpeedBps = _linkSpeedBps,
+                PeakDownloadBytesPerSecond = _peakDownloadBytesPerSecond,
+                PeakUploadBytesPerSecond = _peakUploadBytesPerSecond
             });
         }
         catch (Exception ex)

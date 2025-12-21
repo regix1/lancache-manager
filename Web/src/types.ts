@@ -412,6 +412,12 @@ export interface NetworkBandwidthSnapshot {
   totalBytesSent: number;
   isAvailable: boolean;
   errorMessage?: string;
+  /** Interface link speed in bits per second (e.g., 1 Gbps = 1000000000) */
+  linkSpeedBps: number;
+  /** Peak download speed observed this session (bytes per second) */
+  peakDownloadBytesPerSecond: number;
+  /** Peak upload speed observed this session (bytes per second) */
+  peakUploadBytesPerSecond: number;
 }
 
 export interface CombinedSpeedSnapshot {

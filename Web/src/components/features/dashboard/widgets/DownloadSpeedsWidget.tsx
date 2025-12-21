@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, memo, useCallback, useRef } from 'react';
-import { Activity, Gauge, Users, Monitor, Loader2, ArrowDown, ArrowUp, Wifi, History, Zap, Clock } from 'lucide-react';
+import { Activity, Gauge, Users, Monitor, Loader2, ArrowDown, ArrowUp, Wifi, History, Zap, Clock, TrendingUp } from 'lucide-react';
 import { formatBytes } from '@utils/formatters';
 import { useSignalR } from '@contexts/SignalRContext';
 import { usePollingRate } from '@contexts/PollingRateContext';
@@ -16,13 +16,11 @@ import type {
 import type { NetworkBandwidthUpdatePayload } from '@contexts/SignalRContext/types';
 
 interface DownloadSpeedsWidgetProps {
-  /** Whether to use glassmorphism style */
   glassmorphism?: boolean;
-  /** Stagger index for entrance animation */
   staggerIndex?: number;
 }
 
-// Format speed to human-readable string
+// Format speed to human-readable string (bytes per second)
 const formatSpeed = (bytesPerSecond: number): string => {
   if (bytesPerSecond === 0) return '0 B/s';
   if (bytesPerSecond < 0) return '0 B/s';
@@ -32,7 +30,18 @@ const formatSpeed = (bytesPerSecond: number): string => {
   return `${value.toFixed(1)} ${units[exp]}`;
 };
 
-// Format duration to human-readable string
+// Format link speed (bits per second) to human-readable
+const formatLinkSpeed = (bitsPerSecond: number): string => {
+  if (bitsPerSecond === 0) return 'Unknown';
+  if (bitsPerSecond < 0) return 'Unknown';
+  const units = ['bps', 'Kbps', 'Mbps', 'Gbps'];
+  const exp = Math.min(Math.floor(Math.log(bitsPerSecond) / Math.log(1000)), units.length - 1);
+  const value = bitsPerSecond / Math.pow(1000, exp);
+  // For clean numbers like 1000000000, show as "1 Gbps" not "1.0 Gbps"
+  return value % 1 === 0 ? `${value} ${units[exp]}` : `${value.toFixed(1)} ${units[exp]}`;
+};
+
+// Format duration
 const formatDuration = (seconds: number): string => {
   if (seconds < 60) return `${Math.round(seconds)}s`;
   if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
@@ -53,13 +62,10 @@ const formatRelativeTime = (dateStr: string): string => {
 };
 
 /**
- * Widget showing real-time network bandwidth and download activity.
+ * Network & Downloads Widget
  *
- * Active mode: Shows accurate network interface speeds (upload/download)
- * and lists currently active games/clients.
- *
- * History mode: Shows historical download data with accurate average speeds
- * calculated from actual session durations.
+ * Shows real-time network bandwidth with link speed context,
+ * current/peak usage, and active download activity.
  */
 const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
   glassmorphism = true,
@@ -77,7 +83,6 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
   const { pollingRate, getPollingInterval } = usePollingRate();
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Fetch speeds from API
   const fetchSpeeds = useCallback(async () => {
     try {
       const [gameData, networkData] = await Promise.all([
@@ -93,7 +98,6 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
     }
   }, []);
 
-  // Fetch history data
   const fetchHistory = useCallback(async () => {
     setHistoryLoading(true);
     try {
@@ -106,25 +110,21 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
     }
   }, [historyMinutes]);
 
-  // Initial fetch
   useEffect(() => {
     fetchSpeeds();
   }, [fetchSpeeds]);
 
-  // Fetch history when switching to history mode or changing time period
   useEffect(() => {
     if (dataMode === 'history') {
       fetchHistory();
     }
   }, [dataMode, historyMinutes, fetchHistory]);
 
-  // Subscribe to SignalR updates (only in LIVE mode and active data mode)
   const handleNetworkUpdate = useCallback((payload: NetworkBandwidthUpdatePayload) => {
     setNetworkSnapshot(payload as NetworkBandwidthSnapshot);
   }, []);
 
   useEffect(() => {
-    // Clear any existing polling interval
     if (pollingIntervalRef.current) {
       clearInterval(pollingIntervalRef.current);
       pollingIntervalRef.current = null;
@@ -132,10 +132,7 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
 
     if (dataMode === 'active') {
       if (pollingRate === 'LIVE') {
-        // LIVE mode: Use SignalR for real-time network updates
         signalR.on('NetworkBandwidthUpdate', handleNetworkUpdate);
-
-        // Still poll for game activity (just for the list, not speeds)
         pollingIntervalRef.current = setInterval(fetchSpeeds, 2000);
 
         return () => {
@@ -146,7 +143,6 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
           }
         };
       } else {
-        // Polling mode: Use API polling at configured interval
         const interval = getPollingInterval();
         pollingIntervalRef.current = setInterval(fetchSpeeds, interval);
 
@@ -158,7 +154,6 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
         };
       }
     } else {
-      // History mode: Poll for updates (use same interval, minimum 10s for history)
       const interval = Math.max(getPollingInterval(), 10000);
       pollingIntervalRef.current = setInterval(fetchHistory, interval);
 
@@ -171,31 +166,24 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
     }
   }, [signalR, pollingRate, getPollingInterval, handleNetworkUpdate, fetchSpeeds, fetchHistory, dataMode]);
 
-  // Get top 5 items based on view mode and data mode
   const topItems = useMemo(() => {
     if (dataMode === 'history') {
       if (!historySnapshot) return [];
-      if (viewMode === 'games') {
-        return historySnapshot.gameSpeeds.slice(0, 5);
-      } else {
-        return historySnapshot.clientSpeeds.slice(0, 5);
-      }
+      return viewMode === 'games'
+        ? historySnapshot.gameSpeeds.slice(0, 5)
+        : historySnapshot.clientSpeeds.slice(0, 5);
     } else {
       if (!gameSnapshot) return [];
-      if (viewMode === 'games') {
-        return gameSnapshot.gameSpeeds.slice(0, 5);
-      } else {
-        return gameSnapshot.clientSpeeds.slice(0, 5);
-      }
+      return viewMode === 'games'
+        ? gameSnapshot.gameSpeeds.slice(0, 5)
+        : gameSnapshot.clientSpeeds.slice(0, 5);
     }
   }, [gameSnapshot, historySnapshot, viewMode, dataMode]);
 
-  // Build animation classes
   const animationClasses = staggerIndex !== undefined
     ? `animate-card-entrance stagger-${Math.min(staggerIndex + 1, 12)}`
     : '';
 
-  // Loading state
   if (loading) {
     return (
       <div className={`widget-card ${glassmorphism ? 'glass' : ''} ${animationClasses}`}>
@@ -215,6 +203,11 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
   const hasNetworkData = networkSnapshot?.isAvailable;
   const hasGameData = dataMode === 'active' ? gameSnapshot?.hasActiveDownloads : (historySnapshot?.totalSessions ?? 0) > 0;
 
+  // Calculate usage percentages (convert link speed from bits to bytes for comparison)
+  const linkSpeedBytes = (networkSnapshot?.linkSpeedBps || 0) / 8;
+  const downloadPercent = linkSpeedBytes > 0 ? Math.min((networkSnapshot?.downloadBytesPerSecond || 0) / linkSpeedBytes * 100, 100) : 0;
+  const uploadPercent = linkSpeedBytes > 0 ? Math.min((networkSnapshot?.uploadBytesPerSecond || 0) / linkSpeedBytes * 100, 100) : 0;
+
   return (
     <div className={`widget-card ${glassmorphism ? 'glass' : ''} ${animationClasses}`}>
       {/* Header */}
@@ -226,7 +219,6 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
           </h3>
         </div>
 
-        {/* Active/History Toggle */}
         <div className="flex items-center gap-1 p-0.5 rounded-lg" style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}>
           <button
             onClick={() => setDataMode('active')}
@@ -253,56 +245,95 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
         </div>
       </div>
 
-      {/* Network Interface Bandwidth - only show in active mode */}
+      {/* Network Bandwidth - Active mode */}
       {dataMode === 'active' && (
         <div
-          className="grid grid-cols-2 gap-2 p-3 mb-3 rounded-lg"
+          className="p-3 mb-3 rounded-lg space-y-3"
           style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
         >
-          {/* Download (from internet) */}
-          <div className="flex items-center gap-2">
-            <div
-              className="p-1.5 rounded-lg"
-              style={{ backgroundColor: 'color-mix(in srgb, var(--theme-success) 20%, transparent)' }}
-            >
-              <ArrowDown className="w-4 h-4" style={{ color: 'var(--theme-success)' }} />
-            </div>
-            <div>
-              <div className="text-xs" style={{ color: 'var(--theme-text-muted)' }}>From Internet</div>
-              <div className="text-sm font-bold" style={{ color: 'var(--theme-success)' }}>
-                {hasNetworkData ? formatSpeed(networkSnapshot.downloadBytesPerSecond) : '--'}
-              </div>
-            </div>
-          </div>
-
-          {/* Upload (to clients) */}
-          <div className="flex items-center gap-2">
-            <div
-              className="p-1.5 rounded-lg"
-              style={{ backgroundColor: 'color-mix(in srgb, var(--theme-primary) 20%, transparent)' }}
-            >
-              <ArrowUp className="w-4 h-4" style={{ color: 'var(--theme-primary)' }} />
-            </div>
-            <div>
-              <div className="text-xs" style={{ color: 'var(--theme-text-muted)' }}>To Clients</div>
-              <div className="text-sm font-bold" style={{ color: 'var(--theme-primary)' }}>
-                {hasNetworkData ? formatSpeed(networkSnapshot.uploadBytesPerSecond) : '--'}
-              </div>
-            </div>
-          </div>
-
-          {/* Interface name */}
+          {/* Interface info */}
           {hasNetworkData && (
-            <div className="col-span-2 flex items-center gap-1 mt-1">
-              <Wifi className="w-3 h-3" style={{ color: 'var(--theme-text-muted)' }} />
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Wifi className="w-3.5 h-3.5" style={{ color: 'var(--theme-text-muted)' }} />
+                <span className="text-xs font-medium" style={{ color: 'var(--theme-text-secondary)' }}>
+                  {networkSnapshot.interfaceName}
+                </span>
+              </div>
               <span className="text-xs" style={{ color: 'var(--theme-text-muted)' }}>
-                {networkSnapshot.interfaceName}
+                {formatLinkSpeed(networkSnapshot.linkSpeedBps)}
               </span>
             </div>
           )}
 
+          {/* Download - From Internet */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <ArrowDown className="w-3.5 h-3.5" style={{ color: 'var(--theme-success)' }} />
+                <span className="text-xs" style={{ color: 'var(--theme-text-muted)' }}>From Internet</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold" style={{ color: 'var(--theme-success)' }}>
+                  {hasNetworkData ? formatSpeed(networkSnapshot.downloadBytesPerSecond) : '--'}
+                </span>
+                {hasNetworkData && networkSnapshot.peakDownloadBytesPerSecond > 0 && (
+                  <span className="text-[10px] flex items-center gap-0.5" style={{ color: 'var(--theme-text-muted)' }}>
+                    <TrendingUp className="w-2.5 h-2.5" />
+                    {formatSpeed(networkSnapshot.peakDownloadBytesPerSecond)}
+                  </span>
+                )}
+              </div>
+            </div>
+            {hasNetworkData && linkSpeedBytes > 0 && (
+              <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--theme-bg-secondary)' }}>
+                <div
+                  className="h-full rounded-full transition-all duration-300"
+                  style={{
+                    width: `${Math.max(downloadPercent, 0.5)}%`,
+                    backgroundColor: 'var(--theme-success)',
+                    opacity: downloadPercent < 1 ? 0.3 : 1,
+                  }}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Upload - To Clients */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <ArrowUp className="w-3.5 h-3.5" style={{ color: 'var(--theme-primary)' }} />
+                <span className="text-xs" style={{ color: 'var(--theme-text-muted)' }}>To Clients</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold" style={{ color: 'var(--theme-primary)' }}>
+                  {hasNetworkData ? formatSpeed(networkSnapshot.uploadBytesPerSecond) : '--'}
+                </span>
+                {hasNetworkData && networkSnapshot.peakUploadBytesPerSecond > 0 && (
+                  <span className="text-[10px] flex items-center gap-0.5" style={{ color: 'var(--theme-text-muted)' }}>
+                    <TrendingUp className="w-2.5 h-2.5" />
+                    {formatSpeed(networkSnapshot.peakUploadBytesPerSecond)}
+                  </span>
+                )}
+              </div>
+            </div>
+            {hasNetworkData && linkSpeedBytes > 0 && (
+              <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--theme-bg-secondary)' }}>
+                <div
+                  className="h-full rounded-full transition-all duration-300"
+                  style={{
+                    width: `${Math.max(uploadPercent, 0.5)}%`,
+                    backgroundColor: 'var(--theme-primary)',
+                    opacity: uploadPercent < 1 ? 0.3 : 1,
+                  }}
+                />
+              </div>
+            )}
+          </div>
+
           {!hasNetworkData && networkSnapshot?.errorMessage && (
-            <div className="col-span-2 text-xs mt-1" style={{ color: 'var(--theme-warning)' }}>
+            <div className="text-xs" style={{ color: 'var(--theme-warning)' }}>
               {networkSnapshot.errorMessage}
             </div>
           )}
@@ -339,7 +370,7 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
         </div>
       )}
 
-      {/* Games/Clients toggle - show when we have data */}
+      {/* Games/Clients toggle */}
       {hasGameData && !historyLoading && (
         <div className="flex items-center justify-center mb-2">
           <div className="flex items-center gap-1 p-0.5 rounded-lg" style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}>
@@ -379,25 +410,11 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
         </div>
       )}
 
-      {/* Active mode content - show activity without per-item speeds */}
+      {/* Active mode - Activity list */}
       {dataMode === 'active' && hasGameData && (
         <>
-          {/* Activity header */}
-          <div
-            className="flex items-center justify-between p-2 mb-2 rounded-lg"
-            style={{ backgroundColor: 'color-mix(in srgb, var(--theme-primary) 10%, var(--theme-bg-secondary))' }}
-          >
-            <span className="text-xs font-medium" style={{ color: 'var(--theme-text-secondary)' }}>
-              Active Downloads
-            </span>
-            <span className="text-xs" style={{ color: 'var(--theme-text-muted)' }}>
-              {gameSnapshot?.entriesInWindow || 0} requests/2s
-            </span>
-          </div>
-
           <div className="space-y-1.5">
             {viewMode === 'games' ? (
-              // Game activity list
               (topItems as GameSpeedInfo[]).map((game, index) => (
                 <div
                   key={game.depotId}
@@ -406,7 +423,6 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
                     backgroundColor: index === 0 ? 'color-mix(in srgb, var(--theme-success) 8%, var(--theme-bg-secondary))' : 'transparent',
                   }}
                 >
-                  {/* Game info */}
                   <div className="flex-1 min-w-0">
                     <div
                       className="text-xs font-medium truncate"
@@ -429,22 +445,15 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
                       >
                         {game.cacheHitPercent.toFixed(0)}% hit
                       </span>
-                      <span>•</span>
-                      <span>{game.requestCount} req</span>
                     </div>
                   </div>
-
-                  {/* Activity indicator */}
-                  <div className="flex items-center gap-1">
-                    <div
-                      className="w-2 h-2 rounded-full animate-pulse"
-                      style={{ backgroundColor: 'var(--theme-success)' }}
-                    />
-                  </div>
+                  <div
+                    className="w-2 h-2 rounded-full animate-pulse"
+                    style={{ backgroundColor: 'var(--theme-success)' }}
+                  />
                 </div>
               ))
             ) : (
-              // Client activity list
               (topItems as ClientSpeedInfo[]).map((client, index) => (
                 <div
                   key={client.clientIp}
@@ -453,7 +462,6 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
                     backgroundColor: index === 0 ? 'color-mix(in srgb, var(--theme-success) 8%, var(--theme-bg-secondary))' : 'transparent',
                   }}
                 >
-                  {/* Client info */}
                   <div className="flex-1 min-w-0">
                     <div
                       className="text-xs font-medium truncate"
@@ -468,20 +476,15 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
                       <span>{client.activeGames} game{client.activeGames !== 1 ? 's' : ''}</span>
                     </div>
                   </div>
-
-                  {/* Activity indicator */}
-                  <div className="flex items-center gap-1">
-                    <div
-                      className="w-2 h-2 rounded-full animate-pulse"
-                      style={{ backgroundColor: 'var(--theme-success)' }}
-                    />
-                  </div>
+                  <div
+                    className="w-2 h-2 rounded-full animate-pulse"
+                    style={{ backgroundColor: 'var(--theme-success)' }}
+                  />
                 </div>
               ))
             )}
           </div>
 
-          {/* Footer with stats */}
           <div
             className="flex items-center justify-between mt-2 pt-2 text-[10px]"
             style={{
@@ -495,16 +498,15 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
         </>
       )}
 
-      {/* History mode content - shows accurate average speeds */}
+      {/* History mode - Accurate speeds */}
       {dataMode === 'history' && hasGameData && !historyLoading && historySnapshot && (
         <>
-          {/* Period summary */}
           <div
             className="flex items-center justify-between p-2 mb-2 rounded-lg"
             style={{ backgroundColor: 'color-mix(in srgb, var(--theme-primary) 10%, var(--theme-bg-secondary))' }}
           >
             <span className="text-xs font-medium" style={{ color: 'var(--theme-text-secondary)' }}>
-              Avg Speed (last {historyMinutes < 60 ? `${historyMinutes}m` : historyMinutes < 1440 ? `${historyMinutes / 60}h` : '24h'})
+              Avg Speed
             </span>
             <span className="text-sm font-bold" style={{ color: 'var(--theme-primary)' }}>
               {formatSpeed(historySnapshot.averageBytesPerSecond)}
@@ -513,7 +515,6 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
 
           <div className="space-y-1.5">
             {viewMode === 'games' ? (
-              // Historical game speeds
               (topItems as GameSpeedHistoryInfo[]).map((game, index) => (
                 <div
                   key={`${game.gameAppId || 'unknown'}-${game.service}-${index}`}
@@ -522,7 +523,6 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
                     backgroundColor: index === 0 ? 'color-mix(in srgb, var(--theme-success) 8%, var(--theme-bg-secondary))' : 'transparent',
                   }}
                 >
-                  {/* Game image */}
                   {game.gameImageUrl && (
                     <img
                       src={game.gameImageUrl}
@@ -531,8 +531,6 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
                       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                     />
                   )}
-
-                  {/* Game info */}
                   <div className="flex-1 min-w-0">
                     <div
                       className="text-xs font-medium truncate"
@@ -559,13 +557,8 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
                       <span>{formatDuration(game.totalDurationSeconds)}</span>
                     </div>
                   </div>
-
-                  {/* Average speed */}
                   <div className="text-right">
-                    <div
-                      className="text-xs font-bold"
-                      style={{ color: 'var(--theme-success)' }}
-                    >
+                    <div className="text-xs font-bold" style={{ color: 'var(--theme-success)' }}>
                       {formatSpeed(game.averageBytesPerSecond)}
                     </div>
                     <div className="text-[10px]" style={{ color: 'var(--theme-text-muted)' }}>
@@ -575,7 +568,6 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
                 </div>
               ))
             ) : (
-              // Historical client speeds
               (topItems as ClientSpeedHistoryInfo[]).map((client, index) => (
                 <div
                   key={client.clientIp}
@@ -584,7 +576,6 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
                     backgroundColor: index === 0 ? 'color-mix(in srgb, var(--theme-success) 8%, var(--theme-bg-secondary))' : 'transparent',
                   }}
                 >
-                  {/* Client info */}
                   <div className="flex-1 min-w-0">
                     <div
                       className="text-xs font-medium truncate"
@@ -601,13 +592,8 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
                       <span>{client.sessionCount} session{client.sessionCount !== 1 ? 's' : ''}</span>
                     </div>
                   </div>
-
-                  {/* Average speed */}
                   <div className="text-right">
-                    <div
-                      className="text-xs font-bold"
-                      style={{ color: 'var(--theme-success)' }}
-                    >
+                    <div className="text-xs font-bold" style={{ color: 'var(--theme-success)' }}>
                       {formatSpeed(client.averageBytesPerSecond)}
                     </div>
                     <div className="text-[10px]" style={{ color: 'var(--theme-text-muted)' }}>
@@ -619,7 +605,6 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
             )}
           </div>
 
-          {/* Footer with stats */}
           <div
             className="flex items-center justify-between mt-2 pt-2 text-[10px]"
             style={{

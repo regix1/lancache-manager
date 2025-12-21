@@ -192,6 +192,21 @@ public class NetworkBandwidthSnapshot
     /// Error message if monitoring is not available
     /// </summary>
     public string? ErrorMessage { get; set; }
+
+    /// <summary>
+    /// Interface link speed in bits per second (physical capacity, e.g., 1 Gbps = 1000000000)
+    /// </summary>
+    public long LinkSpeedBps { get; set; }
+
+    /// <summary>
+    /// Peak download speed observed this session (bytes per second)
+    /// </summary>
+    public double PeakDownloadBytesPerSecond { get; set; }
+
+    /// <summary>
+    /// Peak upload speed observed this session (bytes per second)
+    /// </summary>
+    public double PeakUploadBytesPerSecond { get; set; }
 }
 
 /// <summary>
