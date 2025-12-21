@@ -117,9 +117,19 @@ public class SpeedsController : ControllerBase
             });
         }
 
-        // Calculate per-game statistics
+        // Calculate per-game/service statistics (filter out 0-byte entries)
+        // For Steam: group by GameAppId/GameName
+        // For other services (wsus, riot, epic, etc.): group by Service
         var gameGroups = downloads
-            .GroupBy(d => new { d.GameAppId, d.GameName, d.Service })
+            .Where(d => d.TotalBytes > 0) // Only include downloads with actual data
+            .GroupBy(d => new
+            {
+                // For Steam games with AppId, group by game; otherwise group by service
+                GroupKey = d.GameAppId.HasValue ? $"game:{d.GameAppId}" : $"service:{d.Service}",
+                d.GameAppId,
+                d.GameName,
+                d.Service
+            })
             .Select(g =>
             {
                 var totalBytes = g.Sum(d => d.TotalBytes);
@@ -128,10 +138,16 @@ public class SpeedsController : ControllerBase
                 var totalDurationSeconds = g.Sum(d => (d.EndTimeUtc - d.StartTimeUtc).TotalSeconds);
                 var uniqueClients = g.Select(d => d.ClientIp).Distinct().Count();
 
+                // Use game name if available, otherwise capitalize service name
+                var displayName = g.Key.GameName
+                    ?? (g.Key.Service != null
+                        ? char.ToUpper(g.Key.Service[0]) + g.Key.Service.Substring(1)
+                        : "Unknown");
+
                 return new GameSpeedHistoryInfo
                 {
                     GameAppId = (int?)g.Key.GameAppId,
-                    GameName = g.Key.GameName,
+                    GameName = displayName,
                     GameImageUrl = g.Key.GameAppId.HasValue
                         ? $"https://cdn.cloudflare.steamstatic.com/steam/apps/{g.Key.GameAppId}/header.jpg"
                         : null,
@@ -150,8 +166,10 @@ public class SpeedsController : ControllerBase
             .OrderByDescending(g => g.TotalBytes)
             .ToList();
 
-        // Calculate per-client statistics
-        var clientGroups = downloads
+        // Calculate per-client statistics (filter out 0-byte entries)
+        var downloadsWithData = downloads.Where(d => d.TotalBytes > 0).ToList();
+
+        var clientGroups = downloadsWithData
             .GroupBy(d => d.ClientIp)
             .Select(g =>
             {
@@ -159,7 +177,11 @@ public class SpeedsController : ControllerBase
                 var cacheHitBytes = g.Sum(d => d.CacheHitBytes);
                 var cacheMissBytes = g.Sum(d => d.CacheMissBytes);
                 var totalDurationSeconds = g.Sum(d => (d.EndTimeUtc - d.StartTimeUtc).TotalSeconds);
-                var gamesDownloaded = g.Select(d => d.GameAppId).Distinct().Count();
+
+                // Count unique games (by GameAppId) + unique services (for non-game downloads)
+                var uniqueGames = g.Where(d => d.GameAppId.HasValue).Select(d => d.GameAppId).Distinct().Count();
+                var uniqueServices = g.Where(d => !d.GameAppId.HasValue).Select(d => d.Service).Distinct().Count();
+                var totalDownloaded = uniqueGames + uniqueServices;
 
                 return new ClientSpeedHistoryInfo
                 {
@@ -168,7 +190,7 @@ public class SpeedsController : ControllerBase
                     CacheHitBytes = cacheHitBytes,
                     CacheMissBytes = cacheMissBytes,
                     AverageBytesPerSecond = totalDurationSeconds > 0 ? totalBytes / totalDurationSeconds : 0,
-                    GamesDownloaded = gamesDownloaded,
+                    GamesDownloaded = totalDownloaded,
                     SessionCount = g.Count(),
                     FirstSeenUtc = g.Min(d => d.StartTimeUtc),
                     LastSeenUtc = g.Max(d => d.EndTimeUtc)
@@ -177,7 +199,7 @@ public class SpeedsController : ControllerBase
             .OrderByDescending(c => c.TotalBytes)
             .ToList();
 
-        var totalBytes = downloads.Sum(d => d.TotalBytes);
+        var totalBytes = downloadsWithData.Sum(d => d.TotalBytes);
         var totalDuration = (periodEnd - periodStart).TotalSeconds;
 
         return Ok(new SpeedHistorySnapshot
@@ -189,7 +211,7 @@ public class SpeedsController : ControllerBase
             AverageBytesPerSecond = totalDuration > 0 ? totalBytes / totalDuration : 0,
             GameSpeeds = gameGroups,
             ClientSpeeds = clientGroups,
-            TotalSessions = downloads.Count
+            TotalSessions = downloadsWithData.Count
         });
     }
 }

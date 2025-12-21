@@ -578,7 +578,7 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
                     <div className="flex items-center gap-1.5 text-[10px]" style={{ color: 'var(--theme-text-muted)' }}>
                       <span>{formatBytes(client.totalBytes)}</span>
                       <span>•</span>
-                      <span>{client.gamesDownloaded} game{client.gamesDownloaded !== 1 ? 's' : ''}</span>
+                      <span>{client.gamesDownloaded} item{client.gamesDownloaded !== 1 ? 's' : ''}</span>
                       <span>•</span>
                       <span>{client.sessionCount} session{client.sessionCount !== 1 ? 's' : ''}</span>
                     </div>
@@ -609,7 +609,7 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
               color: 'var(--theme-text-muted)',
             }}
           >
-            <span>{historySnapshot.gameSpeeds.length} game{historySnapshot.gameSpeeds.length !== 1 ? 's' : ''}</span>
+            <span>{historySnapshot.gameSpeeds.length} item{historySnapshot.gameSpeeds.length !== 1 ? 's' : ''}</span>
             <span>{historySnapshot.totalSessions} session{historySnapshot.totalSessions !== 1 ? 's' : ''}</span>
             <span>{formatBytes(historySnapshot.totalBytes)} total</span>
           </div>
