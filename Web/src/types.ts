@@ -31,6 +31,8 @@ export interface Download {
   displayName?: string;
   /** The datasource this download belongs to (for multi-datasource support). */
   datasource?: string;
+  /** Duration in seconds calculated from LogEntries (more accurate than EndTime - StartTime). */
+  durationSeconds?: number;
   /** Average download speed in bytes per second, calculated from total bytes and duration. */
   averageBytesPerSecond?: number;
 }

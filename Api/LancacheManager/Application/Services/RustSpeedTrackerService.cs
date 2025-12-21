@@ -21,6 +21,7 @@ public class RustSpeedTrackerService : BackgroundService
     private Process? _rustProcess;
     private DownloadSpeedSnapshot _currentSnapshot = new() { WindowSeconds = 2 };
     private readonly object _snapshotLock = new();
+    private bool _previousHadActivity = false;
 
     public RustSpeedTrackerService(
         ILogger<RustSpeedTrackerService> logger,
@@ -173,11 +174,23 @@ public class RustSpeedTrackerService : BackgroundService
                             _currentSnapshot = snapshot;
                         }
 
-                        // Broadcast via SignalR if there's activity
-                        if (snapshot.HasActiveDownloads || snapshot.TotalBytesPerSecond > 0)
+                        var hasActivity = snapshot.HasActiveDownloads || snapshot.TotalBytesPerSecond > 0;
+
+                        // Broadcast via SignalR if there's activity OR if we just transitioned to no activity
+                        // This ensures the frontend gets the "zero" state when downloads stop
+                        if (hasActivity || _previousHadActivity)
                         {
                             await _hubContext.Clients.All.SendAsync("DownloadSpeedUpdate", snapshot, stoppingToken);
+
+                            // Also send DownloadsRefresh when transitioning to no activity
+                            // so the frontend refreshes the active downloads list
+                            if (_previousHadActivity && !hasActivity)
+                            {
+                                await _hubContext.Clients.All.SendAsync("DownloadsRefresh", stoppingToken);
+                            }
                         }
+
+                        _previousHadActivity = hasActivity;
                     }
                 }
                 catch (JsonException ex)

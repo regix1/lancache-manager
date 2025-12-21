@@ -55,29 +55,52 @@ public class StatsRepository : IStatsRepository
     /// </summary>
     public async Task<List<ClientStats>> GetClientStatsAsync(CancellationToken cancellationToken = default)
     {
-        // Fetch downloads with timing data for duration calculation
+        // Calculate duration from LogEntries (more accurate than Download start/end times)
+        // Groups log entries by DownloadId and calculates duration as max - min timestamp
+        var downloadDurations = await _context.LogEntries
+            .AsNoTracking()
+            .Where(e => e.DownloadId != null)
+            .GroupBy(e => e.DownloadId)
+            .Select(g => new
+            {
+                DownloadId = g.Key,
+                MinTimestamp = g.Min(e => e.Timestamp),
+                MaxTimestamp = g.Max(e => e.Timestamp)
+            })
+            .ToListAsync(cancellationToken);
+
+        // Create a lookup for duration by DownloadId
+        var durationLookup = downloadDurations.ToDictionary(
+            d => d.DownloadId!.Value,
+            d => (d.MaxTimestamp - d.MinTimestamp).TotalSeconds
+        );
+
+        // Fetch downloads with client info
         var downloads = await _context.Downloads
             .AsNoTracking()
             .Select(d => new
             {
+                d.Id,
                 d.ClientIp,
                 d.CacheHitBytes,
                 d.CacheMissBytes,
-                d.StartTimeUtc,
-                d.EndTimeUtc
+                d.StartTimeUtc
             })
             .ToListAsync(cancellationToken);
 
-        // Group in memory to calculate duration
+        // Group in memory to calculate stats
         var stats = downloads
             .GroupBy(d => d.ClientIp)
             .Select(g =>
             {
-                // Calculate total duration across all downloads for this client
+                // Calculate total duration from log entries for all downloads of this client
                 var totalDuration = g.Sum(d =>
                 {
-                    var duration = (d.EndTimeUtc - d.StartTimeUtc).TotalSeconds;
-                    return duration > 0 ? duration : 0;
+                    if (durationLookup.TryGetValue(d.Id, out var duration) && duration > 0)
+                    {
+                        return duration;
+                    }
+                    return 0;
                 });
 
                 return new ClientStats
@@ -88,7 +111,7 @@ public class StatsRepository : IStatsRepository
                     TotalDownloads = g.Count(),
                     TotalDurationSeconds = totalDuration,
                     LastActivityUtc = DateTime.SpecifyKind(g.Max(d => d.StartTimeUtc), DateTimeKind.Utc),
-                    LastActivityLocal = g.Max(d => d.StartTimeUtc) // Will be set properly below
+                    LastActivityLocal = g.Max(d => d.StartTimeUtc)
                 };
             })
             .OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes)
@@ -109,13 +132,40 @@ public class StatsRepository : IStatsRepository
             .Take(limit)
             .ToListAsync(cancellationToken);
 
-        // Fix timezone for proper JSON serialization
+        // Get download IDs to calculate durations
+        var downloadIds = downloads.Select(d => d.Id).ToList();
+
+        // Calculate duration from LogEntries for each download
+        var downloadDurations = await _context.LogEntries
+            .AsNoTracking()
+            .Where(e => e.DownloadId != null && downloadIds.Contains(e.DownloadId.Value))
+            .GroupBy(e => e.DownloadId)
+            .Select(g => new
+            {
+                DownloadId = g.Key,
+                MinTimestamp = g.Min(e => e.Timestamp),
+                MaxTimestamp = g.Max(e => e.Timestamp)
+            })
+            .ToListAsync(cancellationToken);
+
+        var durationLookup = downloadDurations.ToDictionary(
+            d => d.DownloadId!.Value,
+            d => (d.MaxTimestamp - d.MinTimestamp).TotalSeconds
+        );
+
+        // Fix timezone and populate duration for proper JSON serialization
         foreach (var download in downloads)
         {
             download.StartTimeUtc = DateTime.SpecifyKind(download.StartTimeUtc, DateTimeKind.Utc);
             if (download.EndTimeUtc != default(DateTime))
             {
                 download.EndTimeUtc = DateTime.SpecifyKind(download.EndTimeUtc, DateTimeKind.Utc);
+            }
+
+            // Populate duration from LogEntries
+            if (durationLookup.TryGetValue(download.Id, out var duration))
+            {
+                download.DurationSeconds = duration;
             }
         }
 

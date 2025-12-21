@@ -34,6 +34,14 @@ public class Download
     /// </summary>
     public string Datasource { get; set; } = "default";
 
+    /// <summary>
+    /// Duration in seconds calculated from LogEntries (more accurate than EndTime - StartTime).
+    /// This is populated by the repository when fetching downloads.
+    /// Not stored in the database - marked with NotMapped.
+    /// </summary>
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public double? DurationSeconds { get; set; }
+
     // Computed properties need [JsonInclude] to be serialized
     [JsonInclude]
     public long TotalBytes => CacheHitBytes + CacheMissBytes;
@@ -43,6 +51,7 @@ public class Download
 
     /// <summary>
     /// Average download speed in bytes per second, calculated from total bytes and duration.
+    /// Uses DurationSeconds from LogEntries if available, otherwise falls back to EndTime - StartTime.
     /// Returns 0 if duration is zero or negative.
     /// </summary>
     [JsonInclude]
@@ -50,7 +59,8 @@ public class Download
     {
         get
         {
-            var duration = (EndTimeUtc - StartTimeUtc).TotalSeconds;
+            // Prefer duration calculated from LogEntries (more accurate)
+            var duration = DurationSeconds ?? (EndTimeUtc - StartTimeUtc).TotalSeconds;
             return duration > 0 ? TotalBytes / duration : 0;
         }
     }

@@ -514,7 +514,6 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
 
           .stats-footer {
             display: flex;
-            justify-content: space-between;
             gap: 0.75rem;
             padding-top: 0.75rem;
             margin-top: auto;
