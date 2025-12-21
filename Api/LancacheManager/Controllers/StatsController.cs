@@ -31,11 +31,9 @@ public class StatsController : ControllerBase
     {
         try
         {
-            // ALWAYS query Downloads table directly to ensure consistency with dashboard stats
-            // Previously used cached ClientStats table which caused fluctuating values
+            // Build base query with time filtering
             var query = _context.Downloads.AsNoTracking();
 
-            // Apply time filtering if provided
             if (startTime.HasValue)
             {
                 var startDate = DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime;
@@ -46,29 +44,55 @@ public class StatsController : ControllerBase
                 var endDate = DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime;
                 query = query.Where(d => d.StartTimeUtc <= endDate);
             }
-            // No filter = all data (consistent with dashboard)
 
-            // Aggregate by client IP from Downloads table
-            var stats = await query
-                .GroupBy(d => d.ClientIp)
-                .Select(g => new ClientStats
+            // Get filtered downloads
+            var downloads = await query
+                .Select(d => new { d.Id, d.ClientIp, d.CacheHitBytes, d.CacheMissBytes, d.StartTimeUtc })
+                .ToListAsync();
+
+            // Get download IDs for duration calculation
+            var downloadIds = downloads.Select(d => d.Id).ToList();
+
+            // Calculate duration from LogEntries for each download (more accurate than EndTime - StartTime)
+            var downloadDurations = await _context.LogEntries
+                .AsNoTracking()
+                .Where(e => e.DownloadId != null && downloadIds.Contains(e.DownloadId.Value))
+                .GroupBy(e => e.DownloadId)
+                .Select(g => new
                 {
-                    ClientIp = g.Key,
-                    TotalCacheHitBytes = g.Sum(d => d.CacheHitBytes),
-                    TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
-                    TotalDownloads = g.Count(),
-                    LastActivityUtc = g.Max(d => d.StartTimeUtc),
-                    LastActivityLocal = g.Max(d => d.StartTimeLocal)
+                    DownloadId = g.Key,
+                    MinTimestamp = g.Min(e => e.Timestamp),
+                    MaxTimestamp = g.Max(e => e.Timestamp)
+                })
+                .ToListAsync();
+
+            var durationLookup = downloadDurations.ToDictionary(
+                d => d.DownloadId!.Value,
+                d => (d.MaxTimestamp - d.MinTimestamp).TotalSeconds
+            );
+
+            // Group by client and calculate totals including duration
+            var stats = downloads
+                .GroupBy(d => d.ClientIp)
+                .Select(g =>
+                {
+                    var totalDuration = g.Sum(d =>
+                        durationLookup.TryGetValue(d.Id, out var dur) && dur > 0 ? dur : 0);
+
+                    return new ClientStats
+                    {
+                        ClientIp = g.Key,
+                        TotalCacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                        TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
+                        TotalDownloads = g.Count(),
+                        TotalDurationSeconds = totalDuration,
+                        LastActivityUtc = DateTime.SpecifyKind(g.Max(d => d.StartTimeUtc), DateTimeKind.Utc),
+                        LastActivityLocal = g.Max(d => d.StartTimeUtc)
+                    };
                 })
                 .OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes)
                 .Take(100)
-                .ToListAsync();
-
-            // Fix timezone for proper JSON serialization
-            foreach (var stat in stats)
-            {
-                stat.LastActivityUtc = DateTime.SpecifyKind(stat.LastActivityUtc, DateTimeKind.Utc);
-            }
+                .ToList();
 
             return Ok(stats);
         }
