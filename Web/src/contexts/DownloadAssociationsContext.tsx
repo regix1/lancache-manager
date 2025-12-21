@@ -107,10 +107,50 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
     });
   }, []);
 
+  // Update event color in all cached associations when an event is updated
+  const updateEventInCache = useCallback((event: { id: number; name: string; colorIndex: number }) => {
+    setAssociations(prev => {
+      const updated: AssociationsCache = {};
+      for (const [downloadId, assoc] of Object.entries(prev)) {
+        updated[Number(downloadId)] = {
+          ...assoc,
+          events: assoc.events.map((e: EventSummary) =>
+            e.id === event.id ? { ...e, name: event.name, colorIndex: event.colorIndex } : e
+          )
+        };
+      }
+      return updated;
+    });
+  }, []);
+
+  // Update tag color in all cached associations when a tag is updated
+  const updateTagInCacheFromSignalR = useCallback((tag: { id: number; name: string; colorIndex: number }) => {
+    setAssociations(prev => {
+      const updated: AssociationsCache = {};
+      for (const [downloadId, assoc] of Object.entries(prev)) {
+        updated[Number(downloadId)] = {
+          ...assoc,
+          tags: assoc.tags.map((t: TagSummary) =>
+            t.id === tag.id ? { ...t, name: tag.name, colorIndex: tag.colorIndex } : t
+          )
+        };
+      }
+      return updated;
+    });
+  }, []);
+
   // Listen for SignalR events to keep cache in sync
   useEffect(() => {
     const handleEventDeleted = (eventId: number) => {
       removeEventFromCache(eventId);
+    };
+
+    const handleEventUpdated = (event: { id: number; name: string; colorIndex: number }) => {
+      updateEventInCache(event);
+    };
+
+    const handleTagUpdated = (tag: { id: number; name: string; colorIndex: number }) => {
+      updateTagInCacheFromSignalR(tag);
     };
 
     // Clear cache when downloads are refreshed (new downloads may have been auto-tagged)
@@ -120,13 +160,17 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
     };
 
     on('EventDeleted', handleEventDeleted);
+    on('EventUpdated', handleEventUpdated);
+    on('TagUpdated', handleTagUpdated);
     on('DownloadsRefresh', handleDownloadsRefresh);
 
     return () => {
       off('EventDeleted', handleEventDeleted);
+      off('EventUpdated', handleEventUpdated);
+      off('TagUpdated', handleTagUpdated);
       off('DownloadsRefresh', handleDownloadsRefresh);
     };
-  }, [on, off, removeEventFromCache]);
+  }, [on, off, removeEventFromCache, updateEventInCache, updateTagInCacheFromSignalR]);
 
   return (
     <DownloadAssociationsContext.Provider

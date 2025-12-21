@@ -83,6 +83,21 @@ export function formatBytes(bytes: number, decimals = 2): string {
 }
 
 /**
+ * Format speed (bytes per second) to human-readable string
+ */
+export function formatSpeed(bytesPerSecond: number | undefined | null, decimals = 1): string {
+  if (!bytesPerSecond || bytesPerSecond <= 0) return 'N/A';
+
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+
+  const i = Math.floor(Math.log(bytesPerSecond) / Math.log(k));
+  const unit = FILE_SIZE_UNITS[i] || 'B';
+
+  return parseFloat((bytesPerSecond / Math.pow(k, i)).toFixed(dm)) + ' ' + unit + '/s';
+}
+
+/**
  * Format percentage
  */
 export function formatPercent(value: number, decimals = 1): string {

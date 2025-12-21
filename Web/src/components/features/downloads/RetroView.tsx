@@ -1,5 +1,5 @@
 import React from 'react';
-import { formatBytes, formatPercent, formatDateTime } from '@utils/formatters';
+import { formatBytes, formatPercent, formatDateTime, formatSpeed } from '@utils/formatters';
 import { Tooltip } from '@components/ui/Tooltip';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { WsusIcon } from '@components/ui/WsusIcon';
@@ -78,11 +78,12 @@ interface DepotGroupedData {
   requestCount: number;
   clientsSet: Set<string>;
   datasource?: string;
+  averageBytesPerSecond: number;
 }
 
 // Group items by depot ID for retro view display
 const groupByDepot = (items: (Download | DownloadGroup)[], sortOrder: SortOrder = 'latest'): DepotGroupedData[] => {
-  const depotGroups: Record<string, DepotGroupedData> = {};
+  const depotGroups: Record<string, DepotGroupedData & { _weightedSpeedSum: number; _speedBytesSum: number }> = {};
 
   items.forEach((item) => {
     if (isDownloadGroup(item)) {
@@ -107,7 +108,10 @@ const groupByDepot = (items: (Download | DownloadGroup)[], sortOrder: SortOrder 
             totalBytes: 0,
             requestCount: 0,
             clientsSet: new Set<string>(),
-            datasource: download.datasource
+            datasource: download.datasource,
+            averageBytesPerSecond: 0,
+            _weightedSpeedSum: 0,
+            _speedBytesSum: 0
           };
         }
 
@@ -117,6 +121,14 @@ const groupByDepot = (items: (Download | DownloadGroup)[], sortOrder: SortOrder 
         group.totalBytes += download.totalBytes || 0;
         group.requestCount += 1;
         group.clientsSet.add(download.clientIp);
+
+        // Track weighted average speed
+        const speed = download.averageBytesPerSecond || 0;
+        const bytes = download.totalBytes || 0;
+        if (speed > 0 && bytes > 0) {
+          group._weightedSpeedSum += speed * bytes;
+          group._speedBytesSum += bytes;
+        }
 
         // Update time range
         if (download.startTimeUtc < group.startTimeUtc) {
@@ -149,7 +161,10 @@ const groupByDepot = (items: (Download | DownloadGroup)[], sortOrder: SortOrder 
           totalBytes: 0,
           requestCount: 0,
           clientsSet: new Set<string>(),
-          datasource: download.datasource
+          datasource: download.datasource,
+          averageBytesPerSecond: 0,
+          _weightedSpeedSum: 0,
+          _speedBytesSum: 0
         };
       }
 
@@ -159,6 +174,14 @@ const groupByDepot = (items: (Download | DownloadGroup)[], sortOrder: SortOrder 
       group.totalBytes += download.totalBytes || 0;
       group.requestCount += 1;
       group.clientsSet.add(download.clientIp);
+
+      // Track weighted average speed
+      const speed = download.averageBytesPerSecond || 0;
+      const bytes = download.totalBytes || 0;
+      if (speed > 0 && bytes > 0) {
+        group._weightedSpeedSum += speed * bytes;
+        group._speedBytesSum += bytes;
+      }
 
       // Update time range
       if (download.startTimeUtc < group.startTimeUtc) {
@@ -171,8 +194,12 @@ const groupByDepot = (items: (Download | DownloadGroup)[], sortOrder: SortOrder 
     }
   });
 
-  // Sort based on sortOrder
-  const grouped = Object.values(depotGroups);
+  // Calculate final average speed for each group and remove internal tracking fields
+  const grouped = Object.values(depotGroups).map((group) => {
+    const { _weightedSpeedSum, _speedBytesSum, ...cleanGroup } = group;
+    cleanGroup.averageBytesPerSecond = _speedBytesSum > 0 ? _weightedSpeedSum / _speedBytesSum : 0;
+    return cleanGroup as DepotGroupedData;
+  });
 
   return grouped.sort((a, b) => {
     switch (sortOrder) {
@@ -253,7 +280,7 @@ const RetroView: React.FC<RetroViewProps> = ({
     <div className="rounded-lg border overflow-hidden" style={{ borderColor: 'var(--theme-border-primary)' }}>
       {/* Desktop Table Header - hidden on mobile */}
       <div
-        className="hidden lg:grid grid-cols-[minmax(260px,auto)_minmax(200px,2fr)_100px_120px_minmax(130px,1fr)_minmax(130px,1fr)_100px] gap-2 px-4 py-3 text-xs font-semibold uppercase tracking-wide border-b"
+        className="hidden lg:grid grid-cols-[minmax(260px,auto)_minmax(200px,2fr)_100px_120px_90px_minmax(130px,1fr)_minmax(130px,1fr)_100px] gap-2 px-4 py-3 text-xs font-semibold uppercase tracking-wide border-b"
         style={{
           backgroundColor: 'var(--theme-bg-tertiary)',
           borderColor: 'var(--theme-border-secondary)',
@@ -264,6 +291,7 @@ const RetroView: React.FC<RetroViewProps> = ({
         <div>App</div>
         <div>Depot</div>
         <div>Client</div>
+        <div>Avg Speed</div>
         <div>Cache Hit</div>
         <div>Cache Miss</div>
         <div className="text-center">Overall</div>
@@ -365,9 +393,12 @@ const RetroView: React.FC<RetroViewProps> = ({
                   </div>
                 </div>
 
-                {/* Timestamp */}
-                <div className="text-xs text-[var(--theme-text-secondary)]">
-                  {timeRange}
+                {/* Timestamp and Speed */}
+                <div className="flex items-center justify-between text-xs text-[var(--theme-text-secondary)]">
+                  <span>{timeRange}</span>
+                  <span className="text-[var(--theme-text-primary)]">
+                    Avg: {formatSpeed(data.averageBytesPerSecond)}
+                  </span>
                 </div>
 
                 {/* Cache bars and Overall */}
@@ -444,7 +475,7 @@ const RetroView: React.FC<RetroViewProps> = ({
               </div>
 
               {/* Desktop Layout */}
-              <div className="hidden lg:grid grid-cols-[minmax(260px,auto)_minmax(200px,2fr)_100px_120px_minmax(130px,1fr)_minmax(130px,1fr)_100px] gap-2 px-4 py-3 items-center">
+              <div className="hidden lg:grid grid-cols-[minmax(260px,auto)_minmax(200px,2fr)_100px_120px_90px_minmax(130px,1fr)_minmax(130px,1fr)_100px] gap-2 px-4 py-3 items-center">
                 {/* Timestamp */}
                 <div className="text-xs text-[var(--theme-text-secondary)] whitespace-nowrap">
                   {timeRange}
@@ -515,6 +546,11 @@ const RetroView: React.FC<RetroViewProps> = ({
                 {/* Client IP */}
                 <div className="text-sm font-mono text-[var(--theme-text-primary)] truncate" title={data.clientIp}>
                   {data.clientsSet.size > 1 ? `${data.clientsSet.size} clients` : data.clientIp}
+                </div>
+
+                {/* Avg Speed */}
+                <div className="text-sm text-[var(--theme-text-primary)]">
+                  {formatSpeed(data.averageBytesPerSecond)}
                 </div>
 
                 {/* Cache Hit - Progress bar style */}

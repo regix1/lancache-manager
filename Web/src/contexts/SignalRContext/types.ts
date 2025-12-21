@@ -62,6 +62,7 @@ export const SIGNALR_EVENTS = [
   'EventCreated',
   'EventUpdated',
   'EventDeleted',
+  'TagUpdated',
   'DownloadTagged'
 ] as const;
 

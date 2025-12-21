@@ -40,4 +40,18 @@ public class Download
 
     [JsonInclude]
     public double CacheHitPercent => TotalBytes > 0 ? (CacheHitBytes * 100.0) / TotalBytes : 0;
+
+    /// <summary>
+    /// Average download speed in bytes per second, calculated from total bytes and duration.
+    /// Returns 0 if duration is zero or negative.
+    /// </summary>
+    [JsonInclude]
+    public double AverageBytesPerSecond
+    {
+        get
+        {
+            var duration = (EndTimeUtc - StartTimeUtc).TotalSeconds;
+            return duration > 0 ? TotalBytes / duration : 0;
+        }
+    }
 }
