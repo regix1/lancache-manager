@@ -81,7 +81,10 @@ const ActiveDownloadsView: React.FC = () => {
     }
   }, [signalR, pollingRate, getPollingInterval, handleSpeedUpdate, fetchSpeeds]);
 
-  const hasActiveDownloads = speedSnapshot?.hasActiveDownloads || activeDownloads.length > 0;
+  // Trust speedSnapshot when available (fresh data from API), only use activeDownloads as initial fallback
+  const hasActiveDownloads = speedSnapshot
+    ? speedSnapshot.hasActiveDownloads
+    : activeDownloads.length > 0;
   const games = speedSnapshot?.gameSpeeds || [];
   const clients = speedSnapshot?.clientSpeeds || [];
 

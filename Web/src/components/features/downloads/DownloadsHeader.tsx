@@ -101,10 +101,17 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
     }
   }, [signalR, pollingRate, getPollingInterval, handleSpeedUpdate, fetchSpeeds, fetchHistory]);
 
-  const isActive = speedSnapshot?.hasActiveDownloads || activeDownloads.length > 0;
+  // Trust speedSnapshot when available (fresh data from API), only use activeDownloads as initial fallback
+  const isActive = speedSnapshot
+    ? speedSnapshot.hasActiveDownloads
+    : activeDownloads.length > 0;
   const totalSpeed = speedSnapshot?.totalBytesPerSecond || 0;
-  const activeGamesCount = speedSnapshot?.gameSpeeds?.length || activeDownloads.length;
-  const activeClientsCount = speedSnapshot?.clientSpeeds?.length || new Set(activeDownloads.map(d => d.clientIp)).size;
+  const activeGamesCount = speedSnapshot
+    ? speedSnapshot.gameSpeeds?.length || 0
+    : activeDownloads.length;
+  const activeClientsCount = speedSnapshot
+    ? speedSnapshot.clientSpeeds?.length || 0
+    : new Set(activeDownloads.map(d => d.clientIp)).size;
   const todayTotal = historySnapshot?.totalBytes || 0;
   const { value: speedValue, unit: speedUnit } = formatSpeed(totalSpeed);
 

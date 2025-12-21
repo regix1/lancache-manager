@@ -312,12 +312,12 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
             </div>
             <div className="text-[11px] leading-tight" style={{ color: 'var(--theme-text-muted)', fontVariantNumeric: 'tabular-nums' }}>
               {isMultiDayPeriod
-                ? `~${(peakHourData?.avgDownloads ?? 0).toFixed(1)} downloads/day`
+                ? `${(peakHourData?.avgDownloads ?? 0).toFixed(1)} downloads/day`
                 : `${(peakHourData?.downloads ?? 0).toLocaleString()} downloads`}
             </div>
             <div className="text-[11px] leading-tight" style={{ color: 'var(--theme-text-muted)', fontVariantNumeric: 'tabular-nums' }}>
               {isMultiDayPeriod
-                ? `~${formatBytes(peakHourData?.avgBytesServed ?? 0)}/day`
+                ? `${formatBytes(peakHourData?.avgBytesServed ?? 0)}/day`
                 : `${formatBytes(peakHourData?.bytesServed ?? 0)} served`}
             </div>
           </div>
@@ -366,12 +366,12 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
               </div>
               <div className="text-[11px] leading-tight" style={{ color: 'var(--theme-text-muted)', fontVariantNumeric: 'tabular-nums' }}>
                 {isMultiDayPeriod
-                  ? `~${(currentHourData?.avgDownloads ?? 0).toFixed(1)} downloads/day`
+                  ? `${(currentHourData?.avgDownloads ?? 0).toFixed(1)} downloads/day`
                   : `${(currentHourData?.downloads ?? 0).toLocaleString()} downloads`}
               </div>
               <div className="text-[11px] leading-tight" style={{ color: 'var(--theme-text-muted)', fontVariantNumeric: 'tabular-nums' }}>
                 {isMultiDayPeriod
-                  ? `~${formatBytes(currentHourData?.avgBytesServed ?? 0)}/day`
+                  ? `${formatBytes(currentHourData?.avgBytesServed ?? 0)}/day`
                   : `${formatBytes(currentHourData?.bytesServed ?? 0)} served`}
               </div>
             </div>
