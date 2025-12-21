@@ -14,8 +14,8 @@ public class Event
     public DateTime StartTimeLocal { get; set; }
     public DateTime EndTimeLocal { get; set; }
 
-    // UI customization - color provided by frontend from theme variables
-    public string Color { get; set; } = string.Empty;
+    // UI customization - index (1-8) referencing theme event colors
+    public int ColorIndex { get; set; } = 1;
 
     // Audit fields
     public DateTime CreatedAtUtc { get; set; }

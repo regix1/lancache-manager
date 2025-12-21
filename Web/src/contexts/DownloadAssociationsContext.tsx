@@ -50,8 +50,8 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
         if (result) {
           fetchedIds.current.add(result.download.id);
           newAssociations[result.download.id] = {
-            tags: result.tags,
-            events: result.events
+            tags: result.tags.map(t => ({ id: t.id, name: t.name, colorIndex: t.colorIndex })),
+            events: result.events.map(e => ({ id: e.id, name: e.name, colorIndex: e.colorIndex, autoTagged: e.autoTagged }))
           };
         }
       }
@@ -74,7 +74,7 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
       const tagSummary: TagSummary = {
         id: tag.id,
         name: tag.name,
-        color: tag.color
+        colorIndex: tag.colorIndex
       };
 
       const newTags = action === 'add'

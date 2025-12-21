@@ -290,9 +290,6 @@ builder.Services.AddSingleton<CacheManagementService>();
 builder.Services.AddSingleton<RemovalOperationTracker>();
 builder.Services.AddSingleton<PicsDataService>();
 
-// Depot data initialization service disabled - user must manually download depot data
-// builder.Services.AddHostedService<DepotDataInitializationService>();
-
 // Register metrics service for Prometheus/Grafana as both singleton and hosted service
 builder.Services.AddSingleton<LancacheMetricsService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<LancacheMetricsService>());
@@ -327,10 +324,6 @@ builder.Services.AddHostedService<DownloadCleanupService>();
 // Register RustSpeedTrackerService for real-time per-game download speed monitoring (uses Rust for faster parsing)
 builder.Services.AddSingleton<RustSpeedTrackerService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<RustSpeedTrackerService>());
-
-// Register NetworkBandwidthService for real-time network interface monitoring
-builder.Services.AddSingleton<NetworkBandwidthService>();
-builder.Services.AddHostedService(provider => provider.GetRequiredService<NetworkBandwidthService>());
 
 // Add Output Caching for API endpoints
 builder.Services.AddOutputCache(options =>

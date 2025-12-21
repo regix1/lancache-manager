@@ -4,7 +4,7 @@ public class Tag
 {
     public int Id { get; set; }
     public string Name { get; set; } = string.Empty;
-    public string Color { get; set; } = "#6b7280"; // Default gray
+    public int ColorIndex { get; set; } = 1; // Index (1-8) referencing theme event colors
     public string? Description { get; set; }
     public DateTime CreatedAtUtc { get; set; }
 

@@ -1,5 +1,6 @@
 import React from 'react';
 import type { EventSummary } from '../../../types';
+import { getEventColorVar } from '@utils/eventColors';
 
 interface EventBadgeProps {
   event: EventSummary;
@@ -30,7 +31,7 @@ const EventBadge: React.FC<EventBadgeProps> = ({
       {/* Color indicator dot */}
       <span
         className="w-2 h-2 rounded-full flex-shrink-0"
-        style={{ backgroundColor: event.color }}
+        style={{ backgroundColor: getEventColorVar(event.colorIndex) }}
       />
       <span className="truncate max-w-[100px]">{event.name}</span>
     </span>

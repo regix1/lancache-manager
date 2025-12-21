@@ -2,6 +2,7 @@ import React, { useMemo, useState, useCallback } from 'react';
 import { Calendar, Clock, ChevronRight, Zap, History, CalendarClock, Loader2, Pencil } from 'lucide-react';
 import { useTimezone } from '@contexts/TimezoneContext';
 import { formatBytes } from '@utils/formatters';
+import { getEventColorStyles, getEventColorVar } from '@utils/eventColors';
 import ApiService from '@services/api.service';
 import type { Event, Download } from '../../../types';
 
@@ -62,12 +63,14 @@ const EventCard: React.FC<EventCardProps> = ({
   const isLoading = cacheEntry?.loading || false;
   const groupedDownloads = groupDownloadsByGame(downloads);
 
+  const colorVar = getEventColorVar(event.colorIndex);
+
   return (
     <div
       className="rounded-lg border transition-all duration-200 overflow-hidden cursor-pointer"
       style={{
         backgroundColor: 'var(--theme-bg-secondary)',
-        borderColor: isExpanded ? event.color : (status === 'active' ? event.color : 'var(--theme-border-primary)'),
+        borderColor: isExpanded ? colorVar : (status === 'active' ? colorVar : 'var(--theme-border-primary)'),
         borderWidth: status === 'active' || isExpanded ? '2px' : '1px',
         opacity: status === 'past' ? 0.65 : 1,
         animationDelay: `${index * 50}ms`
@@ -79,7 +82,7 @@ const EventCard: React.FC<EventCardProps> = ({
         <div
           className="h-1"
           style={{
-            background: `linear-gradient(90deg, ${event.color}, ${event.color}80)`
+            background: `linear-gradient(90deg, ${colorVar}, color-mix(in srgb, ${colorVar} 80%, transparent))`
           }}
         />
       )}
@@ -98,14 +101,10 @@ const EventCard: React.FC<EventCardProps> = ({
               {/* Event color badge - pill style */}
               <span
                 className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-semibold rounded-full uppercase tracking-wide"
-                style={{
-                  backgroundColor: `${event.color}20`,
-                  color: event.color,
-                  border: `1px solid ${event.color}40`
-                }}
+                style={getEventColorStyles(event.colorIndex)}
               >
                 {status === 'active' && (
-                  <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: event.color }} />
+                  <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: colorVar }} />
                 )}
                 {status === 'active' ? 'Live' : status === 'upcoming' ? 'Upcoming' : 'Ended'}
               </span>

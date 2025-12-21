@@ -133,7 +133,7 @@ public class EventsRepository : IEventsRepository
         existing.EndTimeUtc = evt.EndTimeUtc;
         existing.StartTimeLocal = evt.StartTimeLocal;
         existing.EndTimeLocal = evt.EndTimeLocal;
-        existing.Color = evt.Color;
+        existing.ColorIndex = evt.ColorIndex;
         existing.UpdatedAtUtc = DateTime.UtcNow;
 
         await _context.SaveChangesAsync(cancellationToken);

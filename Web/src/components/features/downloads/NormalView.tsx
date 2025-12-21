@@ -162,7 +162,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
 
   // Aggregate unique events from all downloads in the group
   const groupEvents = React.useMemo(() => {
-    const eventsMap = new Map<number, { id: number; name: string; color: string; autoTagged: boolean }>();
+    const eventsMap = new Map<number, { id: number; name: string; colorIndex: number; autoTagged: boolean }>();
     group.downloads.forEach(d => {
       const associations = getAssociations(d.id);
       associations.events.forEach(event => {

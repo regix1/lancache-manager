@@ -26,12 +26,7 @@ import type {
   Tag,
   CreateTagRequest,
   UpdateTagRequest,
-  DownloadWithAssociations,
   DownloadSpeedSnapshot,
-  GameSpeedInfo,
-  ClientSpeedInfo,
-  NetworkBandwidthSnapshot,
-  CombinedSpeedSnapshot,
   SpeedHistorySnapshot
 } from '../types';
 
@@ -587,21 +582,6 @@ class ApiService {
     }
   }
 
-  // Remove specific service entries from log file (requires auth)
-  static async removeServiceFromLogs(service: string): Promise<OperationResponse> {
-    try {
-      const res = await fetch(`${API_BASE}/logs/services/${encodeURIComponent(service)}`, this.getFetchOptions({
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' }
-        // No timeout - Rust log filtering handles large files efficiently
-      }));
-      return await this.handleResponse<OperationResponse>(res);
-    } catch (error: unknown) {
-      console.error('removeServiceFromLogs error:', error);
-      throw error;
-    }
-  }
-
   // Get log removal status
   static async getLogRemovalStatus(): Promise<LogRemovalStatus> {
     try {
@@ -609,20 +589,6 @@ class ApiService {
       return await this.handleResponse<LogRemovalStatus>(res);
     } catch (error: unknown) {
       console.error('getLogRemovalStatus error:', error);
-      throw error;
-    }
-  }
-
-  // Get counts of log entries per service (from log files) - aggregated from all datasources
-  static async getServiceLogCounts(forceRefresh = false): Promise<Record<string, number>> {
-    try {
-      const url = `${API_BASE}/logs/service-counts${forceRefresh ? '?forceRefresh=true' : ''}`;
-      const res = await fetch(url, this.getFetchOptions({
-        // No timeout - can take hours for massive log files
-      }));
-      return await this.handleResponse<Record<string, number>>(res);
-    } catch (error) {
-      console.error('getServiceLogCounts error:', error);
       throw error;
     }
   }
@@ -1057,24 +1023,6 @@ class ApiService {
     }
   }
 
-  // Get events for calendar view (by date range)
-  static async getCalendarEvents(startTime: number, endTime: number, signal?: AbortSignal): Promise<Event[]> {
-    try {
-      const res = await fetch(
-        `${API_BASE}/events/calendar?start=${startTime}&end=${endTime}`,
-        this.getFetchOptions({ signal })
-      );
-      return await this.handleResponse<Event[]>(res);
-    } catch (error: unknown) {
-      if (isAbortError(error)) {
-        // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
-        console.error('getCalendarEvents error:', error);
-      }
-      throw error;
-    }
-  }
-
   // Create a new event
   static async createEvent(data: CreateEventRequest): Promise<Event> {
     try {
@@ -1139,35 +1087,6 @@ class ApiService {
     }
   }
 
-  // Manually tag a download to an event
-  static async tagDownloadToEvent(eventId: number, downloadId: number): Promise<void> {
-    try {
-      const res = await fetch(`${API_BASE}/events/${eventId}/downloads/${downloadId}`, this.getFetchOptions({
-        method: 'POST'
-      }));
-      await this.handleResponse(res);
-    } catch (error) {
-      console.error('tagDownloadToEvent error:', error);
-      throw error;
-    }
-  }
-
-  // Remove a download tag from an event
-  static async untagDownloadFromEvent(eventId: number, downloadId: number): Promise<void> {
-    try {
-      const res = await fetch(`${API_BASE}/events/${eventId}/downloads/${downloadId}`, this.getFetchOptions({
-        method: 'DELETE'
-      }));
-      if (!res.ok) {
-        const errorText = await res.text().catch(() => '');
-        throw new Error(`HTTP ${res.status}: ${errorText || res.statusText}`);
-      }
-    } catch (error) {
-      console.error('untagDownloadFromEvent error:', error);
-      throw error;
-    }
-  }
-
   // ==================== Tags API ====================
 
   // Get all tags
@@ -1180,21 +1099,6 @@ class ApiService {
         // Silently ignore abort errors
       } else if (!this.isGuestSessionError(error)) {
         console.error('getTags error:', error);
-      }
-      throw error;
-    }
-  }
-
-  // Get a single tag by ID
-  static async getTag(id: number, signal?: AbortSignal): Promise<Tag> {
-    try {
-      const res = await fetch(`${API_BASE}/tags/${id}`, this.getFetchOptions({ signal }));
-      return await this.handleResponse<Tag>(res);
-    } catch (error: unknown) {
-      if (isAbortError(error)) {
-        // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
-        console.error('getTag error:', error);
       }
       throw error;
     }
@@ -1246,21 +1150,6 @@ class ApiService {
     }
   }
 
-  // Get downloads with a specific tag
-  static async getDownloadsWithTag(tagId: number, signal?: AbortSignal): Promise<Download[]> {
-    try {
-      const res = await fetch(`${API_BASE}/tags/${tagId}/downloads`, this.getFetchOptions({ signal }));
-      return await this.handleResponse<Download[]>(res);
-    } catch (error: unknown) {
-      if (isAbortError(error)) {
-        // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
-        console.error('getDownloadsWithTag error:', error);
-      }
-      throw error;
-    }
-  }
-
   // Get tags for a specific download
   static async getTagsForDownload(downloadId: number, signal?: AbortSignal): Promise<Tag[]> {
     try {
@@ -1276,56 +1165,13 @@ class ApiService {
     }
   }
 
-  // Get tag usage count
-  static async getTagUsageCount(tagId: number, signal?: AbortSignal): Promise<{ tagId: number; usageCount: number }> {
-    try {
-      const res = await fetch(`${API_BASE}/tags/${tagId}/usage`, this.getFetchOptions({ signal }));
-      return await this.handleResponse<{ tagId: number; usageCount: number }>(res);
-    } catch (error: unknown) {
-      if (isAbortError(error)) {
-        // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
-        console.error('getTagUsageCount error:', error);
-      }
-      throw error;
-    }
-  }
-
   // ==================== Downloads with Associations ====================
-
-  // Get downloads with their tags and events
-  static async getDownloadsWithAssociations(
-    count: number = 100,
-    startTime?: number,
-    endTime?: number,
-    signal?: AbortSignal
-  ): Promise<DownloadWithAssociations[]> {
-    try {
-      const params = new URLSearchParams();
-      params.append('count', count.toString());
-      if (startTime) params.append('startTime', startTime.toString());
-      if (endTime) params.append('endTime', endTime.toString());
-
-      const res = await fetch(
-        `${API_BASE}/downloads/with-associations?${params}`,
-        this.getFetchOptions({ signal })
-      );
-      return await this.handleResponse<DownloadWithAssociations[]>(res);
-    } catch (error: unknown) {
-      if (isAbortError(error)) {
-        // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
-        console.error('getDownloadsWithAssociations error:', error);
-      }
-      throw error;
-    }
-  }
 
   // Get a single download with its tags and events
   static async getDownloadWithAssociations(
     downloadId: number,
     signal?: AbortSignal
-  ): Promise<{ download: Download; tags: Tag[]; events: Array<{ id: number; name: string; color: string; startTimeUtc: string; endTimeUtc: string; autoTagged: boolean; taggedAtUtc: string }> }> {
+  ): Promise<{ download: Download; tags: Tag[]; events: Array<{ id: number; name: string; colorIndex: number; startTimeUtc: string; endTimeUtc: string; autoTagged: boolean; taggedAtUtc: string }> }> {
     try {
       const res = await fetch(`${API_BASE}/downloads/${downloadId}`, this.getFetchOptions({ signal }));
       return await this.handleResponse(res);
@@ -1353,66 +1199,6 @@ class ApiService {
         // Silently ignore abort errors
       } else if (!this.isGuestSessionError(error)) {
         console.error('getCurrentSpeeds error:', error);
-      }
-      throw error;
-    }
-  }
-
-  // Get current per-game download speeds
-  static async getGameSpeeds(signal?: AbortSignal): Promise<GameSpeedInfo[]> {
-    try {
-      const res = await fetch(`${API_BASE}/speeds/games`, this.getFetchOptions({ signal }));
-      return await this.handleResponse<GameSpeedInfo[]>(res);
-    } catch (error: unknown) {
-      if (isAbortError(error)) {
-        // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
-        console.error('getGameSpeeds error:', error);
-      }
-      throw error;
-    }
-  }
-
-  // Get current per-client download speeds
-  static async getClientSpeeds(signal?: AbortSignal): Promise<ClientSpeedInfo[]> {
-    try {
-      const res = await fetch(`${API_BASE}/speeds/clients`, this.getFetchOptions({ signal }));
-      return await this.handleResponse<ClientSpeedInfo[]>(res);
-    } catch (error: unknown) {
-      if (isAbortError(error)) {
-        // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
-        console.error('getClientSpeeds error:', error);
-      }
-      throw error;
-    }
-  }
-
-  // Get current network interface bandwidth (upload/download)
-  static async getNetworkBandwidth(signal?: AbortSignal): Promise<NetworkBandwidthSnapshot> {
-    try {
-      const res = await fetch(`${API_BASE}/speeds/network`, this.getFetchOptions({ signal }));
-      return await this.handleResponse<NetworkBandwidthSnapshot>(res);
-    } catch (error: unknown) {
-      if (isAbortError(error)) {
-        // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
-        console.error('getNetworkBandwidth error:', error);
-      }
-      throw error;
-    }
-  }
-
-  // Get combined speed data (network bandwidth + per-game breakdown)
-  static async getCombinedSpeeds(signal?: AbortSignal): Promise<CombinedSpeedSnapshot> {
-    try {
-      const res = await fetch(`${API_BASE}/speeds/combined`, this.getFetchOptions({ signal }));
-      return await this.handleResponse<CombinedSpeedSnapshot>(res);
-    } catch (error: unknown) {
-      if (isAbortError(error)) {
-        // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
-        console.error('getCombinedSpeeds error:', error);
       }
       throw error;
     }

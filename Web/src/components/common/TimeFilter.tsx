@@ -107,7 +107,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
             value: String(event.id),
             label: event.name,
             description: formatEventDateRange(event.startTimeUtc, event.endTimeUtc),
-            color: event.color,
+            colorIndex: event.colorIndex,
             badge: status === 'active' ? 'Live' : undefined,
             badgeColor: 'var(--theme-status-success)'
           };

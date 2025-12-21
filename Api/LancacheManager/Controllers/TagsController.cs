@@ -96,7 +96,7 @@ public class TagsController : ControllerBase
             var tag = new Tag
             {
                 Name = request.Name.Trim(),
-                Color = request.Color ?? "#6b7280",
+                ColorIndex = Math.Clamp(request.ColorIndex ?? 1, 1, 8),
                 Description = request.Description
             };
 
@@ -142,7 +142,7 @@ public class TagsController : ControllerBase
             }
 
             existing.Name = request.Name.Trim();
-            existing.Color = request.Color ?? existing.Color;
+            existing.ColorIndex = Math.Clamp(request.ColorIndex ?? existing.ColorIndex, 1, 8);
             existing.Description = request.Description;
 
             var updated = await _tagsRepository.UpdateTagAsync(existing);
@@ -265,7 +265,7 @@ public class TagsController : ControllerBase
 public class CreateTagRequest
 {
     public string Name { get; set; } = string.Empty;
-    public string? Color { get; set; }
+    public int? ColorIndex { get; set; } // 1-8, references theme event colors
     public string? Description { get; set; }
 }
 
@@ -275,6 +275,6 @@ public class CreateTagRequest
 public class UpdateTagRequest
 {
     public string Name { get; set; } = string.Empty;
-    public string? Color { get; set; }
+    public int? ColorIndex { get; set; } // 1-8, references theme event colors
     public string? Description { get; set; }
 }

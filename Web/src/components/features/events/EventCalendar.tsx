@@ -4,6 +4,7 @@ import { Button } from '@components/ui/Button';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { useTimezone } from '@contexts/TimezoneContext';
 import { getEffectiveTimezone, getDateInTimezone } from '@utils/timezone';
+import { getEventColorStyles } from '@utils/eventColors';
 import type { Event } from '../../../types';
 
 interface EventCalendarProps {
@@ -266,11 +267,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                       onEventClick(event);
                     }}
                     className="w-full text-left px-1.5 py-0.5 text-[10px] sm:text-xs rounded-full truncate transition-all hover:scale-[1.02] font-medium"
-                    style={{
-                      backgroundColor: `${event.color}20`,
-                      color: event.color,
-                      border: `1px solid ${event.color}40`
-                    }}
+                    style={getEventColorStyles(event.colorIndex)}
                     title={event.name}
                   >
                     {event.name}

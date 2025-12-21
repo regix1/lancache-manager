@@ -1,6 +1,7 @@
 import React from 'react';
 import { X } from 'lucide-react';
 import type { TagSummary } from '../../../types';
+import { getEventColorStyles } from '@utils/eventColors';
 
 interface TagBadgeProps {
   tag: TagSummary;
@@ -29,11 +30,7 @@ const TagBadge: React.FC<TagBadgeProps> = ({
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-full font-medium transition-all ${sizeClasses} ${onClick ? 'cursor-pointer hover:opacity-80' : ''}`}
-      style={{
-        backgroundColor: `${tag.color}20`,
-        color: tag.color,
-        border: `1px solid ${tag.color}40`
-      }}
+      style={getEventColorStyles(tag.colorIndex)}
       onClick={onClick}
       title={tag.description || tag.name}
     >

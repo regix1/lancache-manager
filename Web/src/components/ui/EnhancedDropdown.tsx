@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronRight, Check } from 'lucide-react';
 import { CustomScrollbar } from './CustomScrollbar';
+import { getEventColorVar } from '@utils/eventColors';
 
 /** Props interface for icon components used in dropdowns */
 interface IconComponentProps {
@@ -14,7 +15,8 @@ export interface SubmenuOption {
   value: string;
   label: string;
   description?: string;
-  color?: string; // Optional color indicator
+  color?: string; // Optional color indicator (deprecated, use colorIndex)
+  colorIndex?: number; // Theme-aware color index (1-8)
   badge?: string; // Optional badge text (e.g., "Live")
   badgeColor?: string; // Badge color
 }
@@ -486,10 +488,10 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                                     if (!isSubSelected) e.currentTarget.style.backgroundColor = 'transparent';
                                   }}
                                 >
-                                  {subItem.color && (
+                                  {(subItem.colorIndex || subItem.color) && (
                                     <div
                                       className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                                      style={{ backgroundColor: subItem.color }}
+                                      style={{ backgroundColor: subItem.colorIndex ? getEventColorVar(subItem.colorIndex) : subItem.color }}
                                     />
                                   )}
                                   <div className="flex-1 min-w-0 text-left">

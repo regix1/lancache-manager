@@ -1,10 +1,11 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { CalendarDays, Trash2, Calendar, Check } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { useEvents } from '@contexts/EventContext';
 import { useTimezone } from '@contexts/TimezoneContext';
 import { getEffectiveTimezone } from '@utils/timezone';
+import { getEventColorVar } from '@utils/eventColors';
 import DateTimePicker from '@components/common/DateTimePicker';
 import type { Event, CreateEventRequest, UpdateEventRequest } from '../../../types';
 
@@ -14,21 +15,8 @@ interface EventModalProps {
   onSave: () => void;
 }
 
-// Get event colors from theme CSS variables
-const getEventColors = (): string[] => {
-  const root = document.documentElement;
-  const style = getComputedStyle(root);
-  return [
-    style.getPropertyValue('--theme-event-1').trim(),
-    style.getPropertyValue('--theme-event-2').trim(),
-    style.getPropertyValue('--theme-event-3').trim(),
-    style.getPropertyValue('--theme-event-4').trim(),
-    style.getPropertyValue('--theme-event-5').trim(),
-    style.getPropertyValue('--theme-event-6').trim(),
-    style.getPropertyValue('--theme-event-7').trim(),
-    style.getPropertyValue('--theme-event-8').trim(),
-  ].filter(c => c); // Filter out empty values
-};
+// Color indexes 1-8 for event colors
+const COLOR_INDEXES = [1, 2, 3, 4, 5, 6, 7, 8];
 
 const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
   const { createEvent, updateEvent, deleteEvent } = useEvents();
@@ -37,19 +25,8 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [eventColors, setEventColors] = useState<string[]>([]);
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
-
-  // Load theme colors on mount and when theme changes
-  useEffect(() => {
-    const loadColors = () => setEventColors(getEventColors());
-    loadColors();
-
-    // Listen for theme changes
-    window.addEventListener('themechange', loadColors);
-    return () => window.removeEventListener('themechange', loadColors);
-  }, []);
 
   // Form state - using Date objects now
   const [name, setName] = useState(event?.name || '');
@@ -74,6 +51,9 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
     return later;
   });
 
+  // Use existing event colorIndex, or default to 1
+  const [colorIndex, setColorIndex] = useState(event?.colorIndex ?? 1);
+
   // Format date/time for display
   const formatDateTime = (date: Date): string => {
     const timezone = getEffectiveTimezone(useLocalTimezone);
@@ -92,21 +72,6 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
     });
     return `${dateStr} at ${timeStr}`;
   };
-
-  // Use existing event color, or default to first theme color
-  const defaultColor = useMemo(() => {
-    if (event?.color) return event.color;
-    return eventColors[0] || '';
-  }, [event?.color, eventColors]);
-
-  const [color, setColor] = useState(defaultColor);
-
-  // Update color if default changes (e.g., theme colors loaded)
-  useEffect(() => {
-    if (!color && defaultColor) {
-      setColor(defaultColor);
-    }
-  }, [color, defaultColor]);
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
@@ -127,14 +92,12 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
 
     setSaving(true);
     try {
-      // Use selected color, or default to first theme color
-      const finalColor = color || eventColors[0] || '';
       const data: CreateEventRequest | UpdateEventRequest = {
         name: name.trim(),
         description: description.trim() || undefined,
         startTime,
         endTime,
-        color: finalColor
+        colorIndex
       };
 
       if (event) {
@@ -148,7 +111,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
     } finally {
       setSaving(false);
     }
-  }, [name, description, startDateTime, endDateTime, color, event, createEvent, updateEvent, onSave]);
+  }, [name, description, startDateTime, endDateTime, colorIndex, event, createEvent, updateEvent, onSave]);
 
   const handleDeleteClick = useCallback(() => {
     setShowDeleteConfirm(true);
@@ -261,18 +224,18 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
               Color
             </label>
             <div className="flex gap-2">
-              {eventColors.map((c, index) => {
-                const isSelected = color === c || (!color && index === 0);
+              {COLOR_INDEXES.map((idx) => {
+                const isSelected = colorIndex === idx;
                 return (
                   <button
-                    key={`${c}-${index}`}
+                    key={idx}
                     type="button"
-                    onClick={() => setColor(c)}
+                    onClick={() => setColorIndex(idx)}
                     className={`w-8 h-8 rounded-lg transition-all flex items-center justify-center ${
                       isSelected ? 'scale-110' : 'hover:scale-105'
                     }`}
                     style={{
-                      backgroundColor: c,
+                      backgroundColor: getEventColorVar(idx),
                       boxShadow: isSelected
                         ? `0 0 0 2px var(--theme-bg-secondary), 0 0 0 4px var(--theme-primary)`
                         : 'none'

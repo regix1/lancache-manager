@@ -157,7 +157,7 @@ public class DownloadsController : ControllerBase
             {
                 ed.Event.Id,
                 ed.Event.Name,
-                ed.Event.Color,
+                ed.Event.ColorIndex,
                 ed.Event.StartTimeUtc,
                 ed.Event.EndTimeUtc,
                 ed.AutoTagged,
@@ -234,7 +234,7 @@ public class DownloadsController : ControllerBase
                 {
                     dt.Tag.Id,
                     dt.Tag.Name,
-                    dt.Tag.Color,
+                    dt.Tag.ColorIndex,
                     dt.Tag.Description
                 }).ToList());
 
@@ -244,7 +244,7 @@ public class DownloadsController : ControllerBase
                 {
                     ed.Event.Id,
                     ed.Event.Name,
-                    ed.Event.Color,
+                    ed.Event.ColorIndex,
                     ed.AutoTagged
                 }).ToList());
 

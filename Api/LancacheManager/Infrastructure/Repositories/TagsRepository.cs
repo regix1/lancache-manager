@@ -80,7 +80,7 @@ public class TagsRepository : ITagsRepository
         }
 
         existing.Name = tag.Name;
-        existing.Color = tag.Color;
+        existing.ColorIndex = tag.ColorIndex;
         existing.Description = tag.Description;
 
         await _context.SaveChangesAsync(cancellationToken);

@@ -285,7 +285,7 @@ export interface Event {
   endTimeUtc: string;
   startTimeLocal: string;
   endTimeLocal: string;
-  color: string;
+  colorIndex: number; // 1-8, references theme event colors
   createdAtUtc: string;
   updatedAtUtc?: string;
 }
@@ -305,7 +305,7 @@ export interface CreateEventRequest {
   endTime: number; // Unix timestamp
   startTimeLocal?: string;
   endTimeLocal?: string;
-  color?: string;
+  colorIndex?: number; // 1-8, references theme event colors
 }
 
 export interface UpdateEventRequest {
@@ -315,7 +315,7 @@ export interface UpdateEventRequest {
   endTime: number; // Unix timestamp
   startTimeLocal?: string;
   endTimeLocal?: string;
-  color?: string;
+  colorIndex?: number; // 1-8, references theme event colors
 }
 
 export type EventFilterMode = 'timeWindow' | 'tagged';
@@ -325,7 +325,7 @@ export type EventDataStackMode = 'eventOnly' | 'eventAndCurrent';
 export interface Tag {
   id: number;
   name: string;
-  color: string;
+  colorIndex: number; // 1-8, references theme event colors
   description?: string;
   createdAtUtc: string;
 }
@@ -339,34 +339,27 @@ export interface DownloadTag {
 
 export interface CreateTagRequest {
   name: string;
-  color?: string;
+  colorIndex?: number; // 1-8, references theme event colors
   description?: string;
 }
 
 export interface UpdateTagRequest {
   name: string;
-  color?: string;
+  colorIndex?: number; // 1-8, references theme event colors
   description?: string;
-}
-
-// Extended Download type with associations
-export interface DownloadWithAssociations {
-  download: Download;
-  tags: TagSummary[];
-  events: EventSummary[];
 }
 
 export interface TagSummary {
   id: number;
   name: string;
-  color: string;
+  colorIndex: number; // 1-8, references theme event colors
   description?: string;
 }
 
 export interface EventSummary {
   id: number;
   name: string;
-  color: string;
+  colorIndex: number; // 1-8, references theme event colors
   autoTagged: boolean;
 }
 
@@ -403,65 +396,11 @@ export interface DownloadSpeedSnapshot {
   hasActiveDownloads: boolean;
 }
 
-export interface NetworkBandwidthSnapshot {
-  timestampUtc: string;
-  interfaceName: string;
-  downloadBytesPerSecond: number;
-  uploadBytesPerSecond: number;
-  totalBytesReceived: number;
-  totalBytesSent: number;
-  isAvailable: boolean;
-  errorMessage?: string;
-  /** Interface link speed in bits per second (e.g., 1 Gbps = 1000000000) */
-  linkSpeedBps: number;
-  /** Peak download speed observed this session (bytes per second) */
-  peakDownloadBytesPerSecond: number;
-  /** Peak upload speed observed this session (bytes per second) */
-  peakUploadBytesPerSecond: number;
-}
-
-export interface CombinedSpeedSnapshot {
-  networkBandwidth: NetworkBandwidthSnapshot;
-  gameSpeeds: DownloadSpeedSnapshot;
-}
-
-// Historical speed types
-export interface GameSpeedHistoryInfo {
-  gameAppId?: number;
-  gameName?: string;
-  gameImageUrl?: string;
-  service: string;
-  totalBytes: number;
-  cacheHitBytes: number;
-  cacheMissBytes: number;
-  cacheHitPercent: number;
-  averageBytesPerSecond: number;
-  sessionCount: number;
-  firstSeenUtc: string;
-  lastSeenUtc: string;
-  totalDurationSeconds: number;
-  uniqueClients: number;
-}
-
-export interface ClientSpeedHistoryInfo {
-  clientIp: string;
-  totalBytes: number;
-  cacheHitBytes: number;
-  cacheMissBytes: number;
-  averageBytesPerSecond: number;
-  gamesDownloaded: number;
-  sessionCount: number;
-  firstSeenUtc: string;
-  lastSeenUtc: string;
-}
-
 export interface SpeedHistorySnapshot {
   periodStartUtc: string;
   periodEndUtc: string;
   periodMinutes: number;
   totalBytes: number;
   averageBytesPerSecond: number;
-  gameSpeeds: GameSpeedHistoryInfo[];
-  clientSpeeds: ClientSpeedHistoryInfo[];
   totalSessions: number;
 }

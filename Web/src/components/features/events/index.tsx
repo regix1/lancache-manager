@@ -3,6 +3,7 @@ import { CalendarDays, Plus, List, LayoutGrid, Loader2, Sparkles } from 'lucide-
 import { useEvents } from '@contexts/EventContext';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
+import { getEventColorStyles, getEventColorVar } from '@utils/eventColors';
 import EventCalendar from './EventCalendar';
 import EventModal from './EventModal';
 import EventList from './EventList';
@@ -145,13 +146,9 @@ const EventsTab: React.FC = () => {
                     key={event.id}
                     onClick={() => handleEditEvent(event)}
                     className="inline-flex items-center gap-1.5 px-2.5 py-1 text-sm rounded-full font-medium transition-all hover:scale-105"
-                    style={{
-                      backgroundColor: `${event.color}20`,
-                      color: event.color,
-                      border: `1px solid ${event.color}40`
-                    }}
+                    style={getEventColorStyles(event.colorIndex)}
                   >
-                    <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: event.color }} />
+                    <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: getEventColorVar(event.colorIndex) }} />
                     {event.name}
                   </button>
                 ))}

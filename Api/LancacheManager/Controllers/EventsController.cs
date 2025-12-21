@@ -145,7 +145,7 @@ public class EventsController : ControllerBase
                 EndTimeUtc = endUtc,
                 StartTimeLocal = request.StartTimeLocal ?? startUtc,
                 EndTimeLocal = request.EndTimeLocal ?? endUtc,
-                Color = request.Color ?? string.Empty // Color comes from frontend theme variables
+                ColorIndex = Math.Clamp(request.ColorIndex ?? 1, 1, 8)
             };
 
             var created = await _eventsRepository.CreateEventAsync(evt);
@@ -196,7 +196,7 @@ public class EventsController : ControllerBase
             existing.EndTimeUtc = endUtc;
             existing.StartTimeLocal = request.StartTimeLocal ?? startUtc;
             existing.EndTimeLocal = request.EndTimeLocal ?? endUtc;
-            existing.Color = request.Color ?? existing.Color;
+            existing.ColorIndex = Math.Clamp(request.ColorIndex ?? existing.ColorIndex, 1, 8);
 
             var updated = await _eventsRepository.UpdateEventAsync(existing);
 
@@ -327,7 +327,7 @@ public class CreateEventRequest
     public long EndTime { get; set; } // Unix timestamp
     public DateTime? StartTimeLocal { get; set; }
     public DateTime? EndTimeLocal { get; set; }
-    public string? Color { get; set; }
+    public int? ColorIndex { get; set; } // 1-8, references theme event colors
 }
 
 /// <summary>
@@ -341,5 +341,5 @@ public class UpdateEventRequest
     public long EndTime { get; set; } // Unix timestamp
     public DateTime? StartTimeLocal { get; set; }
     public DateTime? EndTimeLocal { get; set; }
-    public string? Color { get; set; }
+    public int? ColorIndex { get; set; } // 1-8, references theme event colors
 }
