@@ -113,6 +113,7 @@ CLAUDE.md
 nul
 
 # Documentation and reference files (local only)
+docs/
 notification_code.md
 
 # Development tools and temporary files
