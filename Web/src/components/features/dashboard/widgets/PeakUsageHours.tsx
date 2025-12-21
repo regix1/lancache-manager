@@ -258,18 +258,26 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
 
       {/* Period Totals - Aggregate stats for entire time range */}
       <div
-        className="flex items-center justify-between px-3 py-2 mb-3 rounded-lg text-xs"
+        className="flex flex-col sm:flex-row sm:items-center sm:justify-between px-3 py-2 mb-3 rounded-lg text-xs gap-1 sm:gap-0"
         style={{ backgroundColor: 'var(--theme-bg-secondary)' }}
       >
         <div className="flex items-center gap-2">
           {isMultiDayPeriod && (
-            <Calendar className="w-3.5 h-3.5" style={{ color: 'var(--theme-text-muted)' }} />
+            <Calendar className="w-3.5 h-3.5 hidden sm:block" style={{ color: 'var(--theme-text-muted)' }} />
           )}
           <span style={{ color: 'var(--theme-text-muted)' }}>
-            {isMultiDayPeriod ? `${daysInPeriod} days of history` : 'Selected Period'}
+            {isMultiDayPeriod ? `${daysInPeriod} days` : 'Selected Period'}
+          </span>
+          <span className="sm:hidden" style={{ color: 'var(--theme-text-secondary)' }}>•</span>
+          <span className="sm:hidden" style={{ color: 'var(--theme-text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
+            {totalDownloads.toLocaleString()} downloads
+          </span>
+          <span className="sm:hidden" style={{ color: 'var(--theme-text-secondary)' }}>•</span>
+          <span className="sm:hidden" style={{ color: 'var(--theme-text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
+            {formatBytes(totalBytesServed)}
           </span>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="hidden sm:flex items-center gap-4">
           <span style={{ color: 'var(--theme-text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
             {totalDownloads.toLocaleString()} total downloads
           </span>
@@ -279,18 +287,18 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
         </div>
       </div>
 
-      {/* Stats Summary - Responsive grid based on whether we show This Hour */}
-      <div className={`grid ${isTodayInRange ? 'grid-cols-2' : 'grid-cols-1'} gap-3 mb-4`} style={{ minHeight: '88px' }}>
+      {/* Stats Summary - Single column on mobile, two columns on desktop */}
+      <div className={`grid grid-cols-1 ${isTodayInRange ? 'sm:grid-cols-2' : ''} gap-3 mb-4`}>
         {/* Peak Hour */}
         <div
           className="p-3 flex flex-col justify-between"
           style={{
             backgroundColor: 'color-mix(in srgb, var(--theme-warning) 10%, transparent)',
-            height: '88px',
+            minHeight: '72px',
             borderRadius: 'var(--theme-border-radius-lg, 0.75rem)'
           }}
         >
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between mb-1">
             <div className="flex items-center gap-2">
               <TrendingUp className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-warning)' }} />
               <span className="text-xs font-medium" style={{ color: 'var(--theme-warning)' }}>
@@ -306,34 +314,34 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
               </span>
             )}
           </div>
-          <div>
+          <div className="flex items-baseline gap-3">
             <div className="text-lg font-bold leading-tight" style={{ color: 'var(--theme-text-primary)', fontVariantNumeric: 'tabular-nums' }}>
               {formatHour(peakHour)}
             </div>
             <div className="text-[11px] leading-tight" style={{ color: 'var(--theme-text-muted)', fontVariantNumeric: 'tabular-nums' }}>
               {isMultiDayPeriod
-                ? `${(peakHourData?.avgDownloads ?? 0).toFixed(1)} downloads/day`
+                ? `${(peakHourData?.avgDownloads ?? 0).toFixed(1)}/day`
                 : `${(peakHourData?.downloads ?? 0).toLocaleString()} downloads`}
             </div>
             <div className="text-[11px] leading-tight" style={{ color: 'var(--theme-text-muted)', fontVariantNumeric: 'tabular-nums' }}>
               {isMultiDayPeriod
                 ? `${formatBytes(peakHourData?.avgBytesServed ?? 0)}/day`
-                : `${formatBytes(peakHourData?.bytesServed ?? 0)} served`}
+                : formatBytes(peakHourData?.bytesServed ?? 0)}
             </div>
           </div>
         </div>
 
-        {/* Current Hour - Only show if today is in the selected range AND not the same as peak hour */}
+        {/* Current Hour - Hidden on mobile, only show on sm+ if today is in range */}
         {isTodayInRange && (
           <div
-            className="p-3 flex flex-col justify-between"
+            className="hidden sm:flex p-3 flex-col justify-between"
             style={{
               backgroundColor: 'color-mix(in srgb, var(--theme-primary) 10%, transparent)',
-              height: '88px',
+              minHeight: '72px',
               borderRadius: 'var(--theme-border-radius-lg, 0.75rem)'
             }}
           >
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-2">
                 <Zap className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-primary)' }} />
                 <span className="text-xs font-medium" style={{ color: 'var(--theme-primary)' }}>
@@ -360,19 +368,19 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
                 </span>
               )}
             </div>
-            <div>
+            <div className="flex items-baseline gap-3">
               <div className="text-lg font-bold leading-tight" style={{ color: 'var(--theme-text-primary)', fontVariantNumeric: 'tabular-nums' }}>
                 {formatHour(currentHour)}
               </div>
               <div className="text-[11px] leading-tight" style={{ color: 'var(--theme-text-muted)', fontVariantNumeric: 'tabular-nums' }}>
                 {isMultiDayPeriod
-                  ? `${(currentHourData?.avgDownloads ?? 0).toFixed(1)} downloads/day`
+                  ? `${(currentHourData?.avgDownloads ?? 0).toFixed(1)}/day`
                   : `${(currentHourData?.downloads ?? 0).toLocaleString()} downloads`}
               </div>
               <div className="text-[11px] leading-tight" style={{ color: 'var(--theme-text-muted)', fontVariantNumeric: 'tabular-nums' }}>
                 {isMultiDayPeriod
                   ? `${formatBytes(currentHourData?.avgBytesServed ?? 0)}/day`
-                  : `${formatBytes(currentHourData?.bytesServed ?? 0)} served`}
+                  : formatBytes(currentHourData?.bytesServed ?? 0)}
               </div>
             </div>
           </div>

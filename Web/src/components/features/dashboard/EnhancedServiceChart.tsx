@@ -129,6 +129,40 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
       }
     }, [activeTab, getServiceDistributionData, getCacheHitRatioData, getBandwidthSavedData]);
 
+    // Inflate small segments for visual display (minimum 2.5% visual size)
+    const displayData = useMemo(() => {
+      if (chartData.data.length === 0) return chartData.data;
+
+      const total = chartData.data.reduce((a, b) => a + b, 0);
+      if (total === 0) return chartData.data;
+
+      const minPercent = 2.5; // Minimum visual percentage for small segments
+      const minValue = (minPercent / 100) * total;
+
+      // Find segments that need inflation
+      const inflated = chartData.data.map(value => {
+        const percent = (value / total) * 100;
+        if (percent > 0 && percent < minPercent) {
+          return minValue; // Inflate to minimum
+        }
+        return value;
+      });
+
+      // Calculate how much we inflated
+      const inflatedTotal = inflated.reduce((a, b) => a + b, 0);
+      const excess = inflatedTotal - total;
+
+      if (excess <= 0) return inflated;
+
+      // Find the largest segment and reduce it to compensate
+      const largestIndex = chartData.data.indexOf(Math.max(...chartData.data));
+      if (largestIndex >= 0 && inflated[largestIndex] > excess) {
+        inflated[largestIndex] -= excess;
+      }
+
+      return inflated;
+    }, [chartData.data]);
+
     // Theme change listener
     useEffect(() => {
       const handleThemeChange = () => {
@@ -165,12 +199,15 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
       const ctx = chartRef.current.getContext('2d');
       if (!ctx) return;
 
+      // Store original data for tooltips
+      const originalData = chartData.data;
+
       chartInstance.current = new Chart(ctx, {
         type: 'doughnut',
         data: {
           labels: chartData.labels,
           datasets: [{
-            data: chartData.data,
+            data: displayData, // Use inflated data for visual display
             backgroundColor: chartData.colors,
             borderColor: borderColor,
             borderWidth: 2,
@@ -203,10 +240,11 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
               boxPadding: 6,
               callbacks: {
                 label: (context) => {
-                  const value = context.raw as number;
-                  const total = context.dataset.data.reduce((a, b) => (a as number) + (b as number), 0) as number;
-                  const percentage = ((value / total) * 100).toFixed(1);
-                  return `${context.label}: ${formatBytes(value)} (${percentage}%)`;
+                  // Use original data for accurate tooltip
+                  const realValue = originalData[context.dataIndex];
+                  const total = originalData.reduce((a, b) => a + b, 0);
+                  const percentage = total > 0 ? ((realValue / total) * 100).toFixed(1) : '0';
+                  return `${context.label}: ${formatBytes(realValue)} (${percentage}%)`;
                 }
               }
             }
@@ -221,7 +259,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
           chartInstance.current.destroy();
         }
       };
-    }, [chartData, activeTab]);
+    }, [chartData, displayData, activeTab]);
 
     const totalValue = chartData.data.reduce((a, b) => a + b, 0);
     const totalHits = serviceStats.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);
