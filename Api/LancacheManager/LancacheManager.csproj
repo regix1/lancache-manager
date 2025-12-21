@@ -48,6 +48,7 @@
     Copy Rust executables to output directory.
     Binary naming convention (consistent prefix-based):
       - log_*           : Log file operations (log_processor, log_service_manager)
+      - stream_*        : Stream log operations (stream_processor)
       - cache_*         : Cache file operations (cache_clear, cache_corruption, cache_game_detect, cache_game_remove, cache_service_remove)
       - db_*            : Database operations (db_reset, db_migrate)
   -->
@@ -60,6 +61,10 @@
     <None Include="..\..\rust-processor\target\release\log_service_manager.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\log_service_manager.exe</Link>
+    </None>
+    <None Include="..\..\rust-processor\target\release\stream_processor.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\stream_processor.exe</Link>
     </None>
     <None Include="..\..\rust-processor\target\release\cache_clear.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -101,6 +106,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\log_service_manager.exe</Link>
     </None>
+    <None Include="..\..\rust-processor\bin\win-x64\stream_processor.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\stream_processor.exe</Link>
+    </None>
     <None Include="..\..\rust-processor\bin\win-x64\cache_clear.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\cache_clear.exe</Link>
@@ -140,6 +149,10 @@
     <None Include="..\..\rust-processor\bin\linux-x64\log_service_manager">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\log_service_manager</Link>
+    </None>
+    <None Include="..\..\rust-processor\bin\linux-x64\stream_processor">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\stream_processor</Link>
     </None>
     <None Include="..\..\rust-processor\bin\linux-x64\cache_clear">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -181,6 +194,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\log_service_manager</Link>
     </None>
+    <None Include="..\..\rust-processor\bin\linux-arm64\stream_processor">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\stream_processor</Link>
+    </None>
     <None Include="..\..\rust-processor\bin\linux-arm64\cache_clear">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\cache_clear</Link>
@@ -220,6 +237,10 @@
     <None Include="../../rust-processor/target/release/log_service_manager">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor/log_service_manager</Link>
+    </None>
+    <None Include="../../rust-processor/target/release/stream_processor">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor/stream_processor</Link>
     </None>
     <None Include="../../rust-processor/target/release/cache_clear">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

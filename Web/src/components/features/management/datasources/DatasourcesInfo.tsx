@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Logs, PlayCircle, RefreshCw, CheckCircle, XCircle, ScrollText } from 'lucide-react';
+import { Logs, PlayCircle, RefreshCw, CheckCircle, XCircle, ScrollText, Activity } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -11,6 +11,14 @@ import { useSignalR } from '@contexts/SignalRContext';
 import type { FastProcessingCompletePayload } from '@contexts/SignalRContext/types';
 import { useNotifications } from '@contexts/NotificationsContext';
 import type { Config, DatasourceInfo, DatasourceLogPosition } from '../../../../types';
+
+interface StreamLogPosition {
+  datasource: string;
+  position: number;
+  totalLines: number;
+  logPath: string;
+  enabled: boolean;
+}
 
 interface DatasourcesManagerProps {
   isAuthenticated: boolean;
@@ -39,10 +47,11 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 }) => {
   const [config, setConfig] = useState<Config | null>(null);
   const [logPositions, setLogPositions] = useState<DatasourceLogPosition[]>([]);
+  const [streamLogPositions, setStreamLogPositions] = useState<StreamLogPosition[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [expandedDatasources, setExpandedDatasources] = useState<Set<string>>(new Set());
-  const [resetModal, setResetModal] = useState<{ datasource: string | null; all: boolean } | null>(null);
+  const [resetModal, setResetModal] = useState<{ datasource: string | null; all: boolean; type: 'access' | 'stream' } | null>(null);
 
   const { notifications } = useNotifications();
   const signalR = useSignalR();
@@ -54,12 +63,14 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [configData, positionsData] = await Promise.all([
+        const [configData, positionsData, streamPositionsData] = await Promise.all([
           fetchConfig(),
-          fetchLogPositions()
+          fetchLogPositions(),
+          ApiService.getStreamLogPositions()
         ]);
         setConfig(configData);
         setLogPositions(positionsData);
+        setStreamLogPositions(streamPositionsData);
       } catch (err) {
         console.error('Failed to load datasource data:', err);
       } finally {
@@ -80,8 +91,12 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 
     const refreshPositions = async () => {
       try {
-        const positions = await fetchLogPositions();
+        const [positions, streamPositions] = await Promise.all([
+          fetchLogPositions(),
+          ApiService.getStreamLogPositions()
+        ]);
         setLogPositions(positions);
+        setStreamLogPositions(streamPositions);
       } catch (err) {
         console.error('Failed to refresh log positions:', err);
       }
@@ -97,8 +112,12 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     const handleProcessingComplete = async (_payload: FastProcessingCompletePayload) => {
       console.log('[DatasourcesManager] Processing complete, refreshing positions');
       try {
-        const positions = await fetchLogPositions();
+        const [positions, streamPositions] = await Promise.all([
+          fetchLogPositions(),
+          ApiService.getStreamLogPositions()
+        ]);
         setLogPositions(positions);
+        setStreamLogPositions(streamPositions);
       } catch (err) {
         console.error('Failed to refresh log positions after processing:', err);
       }
@@ -128,7 +147,14 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 
     setActionLoading('all');
     try {
-      await ApiService.processAllLogs();
+      // Process both access.log and stream-access.log
+      await Promise.all([
+        ApiService.processAllLogs(),
+        ApiService.startStreamProcessing().catch(err => {
+          // Stream processing might fail if no stream logs exist - that's OK
+          console.log('Stream processing:', err);
+        })
+      ]);
       // Note: Progress/completion notifications are handled via SignalR in NotificationsContext
       onDataRefresh?.();
     } catch (err: unknown) {
@@ -141,7 +167,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   const handleProcessDatasource = async (datasourceName: string) => {
     if (!isAuthenticated || isProcessing) return;
 
-    setActionLoading(datasourceName);
+    setActionLoading(`access-${datasourceName}`);
     try {
       await ApiService.processDatasourceLogs(datasourceName);
       // Note: Progress/completion notifications are handled via SignalR in NotificationsContext
@@ -153,22 +179,52 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     }
   };
 
-  const handleResetPosition = async (datasourceName: string | null, position: 'top' | 'bottom') => {
+  const handleProcessStreamLogs = async () => {
+    if (!isAuthenticated || isProcessing) return;
+
+    setActionLoading('stream-all');
+    try {
+      await ApiService.startStreamProcessing();
+      onSuccess?.('Stream log processing started');
+      onDataRefresh?.();
+    } catch (err: unknown) {
+      onError?.((err instanceof Error ? err.message : String(err)) || 'Failed to start stream processing');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleResetPosition = async (datasourceName: string | null, position: 'top' | 'bottom', type: 'access' | 'stream') => {
     if (!isAuthenticated) return;
 
     const targetName = datasourceName || 'all';
-    setActionLoading(`reset-${targetName}`);
+    const typeLabel = type === 'stream' ? 'Stream log' : 'Log';
+    setActionLoading(`reset-${type}-${targetName}`);
     try {
-      if (datasourceName) {
-        await ApiService.resetDatasourceLogPosition(datasourceName, position);
-        onSuccess?.(`Log position reset for ${datasourceName}`);
+      const toBeginning = position === 'top';
+      if (type === 'stream') {
+        if (datasourceName) {
+          await ApiService.resetStreamLogPositionForDatasource(datasourceName, toBeginning);
+          onSuccess?.(`Stream log position reset for ${datasourceName}`);
+        } else {
+          await ApiService.resetStreamLogPosition(toBeginning);
+          onSuccess?.('Stream log position reset for all datasources');
+        }
+        // Refresh stream positions
+        const streamPositions = await ApiService.getStreamLogPositions();
+        setStreamLogPositions(streamPositions);
       } else {
-        await ApiService.resetLogPosition(position);
-        onSuccess?.('Log position reset for all datasources');
+        if (datasourceName) {
+          await ApiService.resetDatasourceLogPosition(datasourceName, position);
+          onSuccess?.(`${typeLabel} position reset for ${datasourceName}`);
+        } else {
+          await ApiService.resetLogPosition(position);
+          onSuccess?.(`${typeLabel} position reset for all datasources`);
+        }
+        // Refresh positions
+        const positions = await fetchLogPositions();
+        setLogPositions(positions);
       }
-      // Refresh positions
-      const positions = await fetchLogPositions();
-      setLogPositions(positions);
       onDataRefresh?.();
     } catch (err: unknown) {
       onError?.((err instanceof Error ? err.message : String(err)) || 'Failed to reset position');
@@ -182,6 +238,10 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     return logPositions.find(p => p.datasource === name);
   };
 
+  const getStreamPositionForDatasource = (name: string): StreamLogPosition | undefined => {
+    return streamLogPositions.find(p => p.datasource === name);
+  };
+
   const formatPosition = (pos: DatasourceLogPosition | undefined): string => {
     if (!pos) return 'Unknown';
     if (pos.totalLines === 0) return 'No log file';
@@ -193,6 +253,19 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     }
 
     // Cap at 99% when not fully caught up to avoid misleading 100% display
+    const rawPercent = (pos.position / pos.totalLines) * 100;
+    const percent = Math.min(Math.round(rawPercent), 99);
+    return `${pos.position.toLocaleString()} / ${pos.totalLines.toLocaleString()} (${percent}%)`;
+  };
+
+  const formatStreamPosition = (pos: StreamLogPosition | undefined): string => {
+    if (!pos) return 'Unknown';
+    if (pos.totalLines === 0) return 'No log file';
+
+    if (pos.position >= pos.totalLines) {
+      return `${pos.position.toLocaleString()} (caught up)`;
+    }
+
     const rawPercent = (pos.position / pos.totalLines) * 100;
     const percent = Math.min(Math.round(rawPercent), 99);
     return `${pos.position.toLocaleString()} / ${pos.totalLines.toLocaleString()} (${percent}%)`;
@@ -283,15 +356,24 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 
         {/* Process All button */}
         <div className="mb-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <Button
               variant="default"
               leftSection={<RefreshCw className="w-4 h-4" />}
-              onClick={() => setResetModal({ datasource: null, all: true })}
+              onClick={() => setResetModal({ datasource: null, all: true, type: 'access' })}
               disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated}
               fullWidth
             >
-              Reset All Positions
+              Reset All access.log(s)
+            </Button>
+            <Button
+              variant="default"
+              leftSection={<RefreshCw className="w-4 h-4" />}
+              onClick={() => setResetModal({ datasource: null, all: true, type: 'stream' })}
+              disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated}
+              fullWidth
+            >
+              Reset All stream-access.log(s)
             </Button>
             <Button
               variant="filled"
@@ -311,6 +393,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
         <div className="space-y-3">
           {datasources.map((ds) => {
             const position = getPositionForDatasource(ds.name);
+            const streamPosition = getStreamPositionForDatasource(ds.name);
             const isExpanded = expandedDatasources.has(ds.name);
 
             return (
@@ -321,42 +404,86 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                 isExpanded={isExpanded}
                 onToggle={() => toggleExpanded(ds.name)}
                 enabled={ds.enabled}
-                statusBadge={`Position: ${formatPosition(position)}`}
               >
-                {/* Expanded content */}
-                {/* Position info on mobile */}
-                <div className="sm:hidden text-xs text-themed-muted py-2">
-                  Position: {formatPosition(position)}
-                </div>
+                {/* Expanded content - Position info */}
+                <div className="pt-3 space-y-4">
+                  {/* Access Log Section */}
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-themed-tertiary">
+                    <div className="flex items-center gap-3">
+                      <Logs className="w-4 h-4 text-themed-muted" />
+                      <div>
+                        <div className="text-sm font-medium text-themed-primary">access.log</div>
+                        <div className="text-xs text-themed-muted">{formatPosition(position)}</div>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        leftSection={<RefreshCw className="w-3 h-3" />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setResetModal({ datasource: ds.name, all: false, type: 'access' });
+                        }}
+                        disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated || !ds.enabled}
+                      >
+                        Reset
+                      </Button>
+                      <Button
+                        variant="filled"
+                        color="green"
+                        size="sm"
+                        leftSection={<PlayCircle className="w-3 h-3" />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleProcessDatasource(ds.name);
+                        }}
+                        disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated || !ds.enabled || position?.totalLines === 0}
+                        loading={actionLoading === `access-${ds.name}`}
+                      >
+                        Process
+                      </Button>
+                    </div>
+                  </div>
 
-                {/* Actions */}
-                <div className="grid grid-cols-2 gap-2 pt-3">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    leftSection={<RefreshCw className="w-3.5 h-3.5" />}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setResetModal({ datasource: ds.name, all: false });
-                    }}
-                    disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated || !ds.enabled}
-                  >
-                    Reset
-                  </Button>
-                  <Button
-                    variant="filled"
-                    color="green"
-                    size="sm"
-                    leftSection={<PlayCircle className="w-3.5 h-3.5" />}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleProcessDatasource(ds.name);
-                    }}
-                    disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated || !ds.enabled}
-                    loading={actionLoading === ds.name}
-                  >
-                    Process
-                  </Button>
+                  {/* Stream Log Section */}
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-themed-tertiary">
+                    <div className="flex items-center gap-3">
+                      <Activity className="w-4 h-4 text-themed-muted" />
+                      <div>
+                        <div className="text-sm font-medium text-themed-primary">stream-access.log</div>
+                        <div className="text-xs text-themed-muted">{formatStreamPosition(streamPosition)}</div>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        leftSection={<RefreshCw className="w-3 h-3" />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setResetModal({ datasource: ds.name, all: false, type: 'stream' });
+                        }}
+                        disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated || !ds.enabled}
+                      >
+                        Reset
+                      </Button>
+                      <Button
+                        variant="filled"
+                        color="green"
+                        size="sm"
+                        leftSection={<PlayCircle className="w-3 h-3" />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleProcessStreamLogs();
+                        }}
+                        disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated || !ds.enabled || streamPosition?.totalLines === 0}
+                        loading={actionLoading === 'stream-all'}
+                      >
+                        Process
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               </DatasourceListItem>
             );
@@ -368,18 +495,22 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       <Modal
         opened={resetModal !== null}
         onClose={() => setResetModal(null)}
-        title={resetModal?.all ? 'Reset All Log Positions' : `Reset Position: ${resetModal?.datasource}`}
+        title={
+          resetModal?.all
+            ? `Reset All ${resetModal?.type === 'stream' ? 'Stream Log' : 'Log'} Positions`
+            : `Reset ${resetModal?.type === 'stream' ? 'Stream Log' : 'Log'}: ${resetModal?.datasource}`
+        }
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            Choose where to start processing logs from:
+            Choose where to start processing {resetModal?.type === 'stream' ? 'stream logs' : 'logs'} from:
           </p>
 
           <div className="p-3 bg-themed-tertiary rounded-lg">
             <p className="text-xs text-themed-muted leading-relaxed">
               <strong>Start from Beginning:</strong> Process entire log history (duplicate detection prevents reimporting)
               <br />
-              <strong>Start from End:</strong> Monitor only new downloads going forward
+              <strong>Start from End:</strong> Monitor only new {resetModal?.type === 'stream' ? 'speed data' : 'downloads'} going forward
             </p>
           </div>
 
@@ -387,7 +518,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
             <Button
               variant="filled"
               color="blue"
-              onClick={() => handleResetPosition(resetModal?.datasource || null, 'top')}
+              onClick={() => handleResetPosition(resetModal?.datasource || null, 'top', resetModal?.type || 'access')}
               loading={actionLoading?.startsWith('reset-')}
               fullWidth
             >
@@ -395,7 +526,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
             </Button>
             <Button
               variant="default"
-              onClick={() => handleResetPosition(resetModal?.datasource || null, 'bottom')}
+              onClick={() => handleResetPosition(resetModal?.datasource || null, 'bottom', resetModal?.type || 'access')}
               loading={actionLoading?.startsWith('reset-')}
               fullWidth
             >

@@ -449,6 +449,57 @@ public class StateRepository : IStateRepository
         return new Dictionary<string, long>(state.LogProcessing.DatasourceTotalLines);
     }
 
+    // Stream Log Processing Methods
+
+    /// <summary>
+    /// Gets the legacy single stream log position (for backward compatibility).
+    /// </summary>
+    public long GetStreamLogPosition()
+    {
+        return GetState().LogProcessing.DatasourcePositions.GetValueOrDefault("stream_default", 0);
+    }
+
+    /// <summary>
+    /// Sets the legacy single stream log position (for backward compatibility).
+    /// </summary>
+    public void SetStreamLogPosition(long position)
+    {
+        UpdateState(state =>
+        {
+            state.LogProcessing.DatasourcePositions["stream_default"] = position;
+            state.LogProcessing.LastUpdated = DateTime.UtcNow;
+        });
+    }
+
+    /// <summary>
+    /// Gets the stream log position for a specific datasource.
+    /// </summary>
+    public long GetStreamLogPosition(string datasourceName)
+    {
+        var state = GetState();
+        var key = $"stream_{datasourceName}";
+
+        if (state.LogProcessing.DatasourcePositions.TryGetValue(key, out var position))
+        {
+            return position;
+        }
+
+        return 0;
+    }
+
+    /// <summary>
+    /// Sets the stream log position for a specific datasource.
+    /// </summary>
+    public void SetStreamLogPosition(string datasourceName, long position)
+    {
+        UpdateState(state =>
+        {
+            var key = $"stream_{datasourceName}";
+            state.LogProcessing.DatasourcePositions[key] = position;
+            state.LogProcessing.LastUpdated = DateTime.UtcNow;
+        });
+    }
+
     // Cache Clear Operations Methods - now use separate file (data/operations/cache_operations.json)
     public List<CacheClearOperation> GetCacheClearOperations()
     {

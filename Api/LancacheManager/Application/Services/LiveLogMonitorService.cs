@@ -1,5 +1,6 @@
 using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Infrastructure.Services;
+
 namespace LancacheManager.Application.Services;
 
 /// <summary>
@@ -13,10 +14,13 @@ public class LiveLogMonitorService : BackgroundService
     private readonly ILogger<LiveLogMonitorService> _logger;
     private readonly RustLogProcessorService _rustLogProcessorService;
     private readonly RustLogRemovalService _rustLogRemovalService;
+    private readonly RustStreamProcessorService _rustStreamProcessorService;
     private readonly StateRepository _stateService;
     private readonly DatasourceService _datasourceService;
     private readonly Dictionary<string, long> _lastFileSizes = new(); // Per-datasource file sizes
+    private readonly Dictionary<string, long> _lastStreamFileSizes = new(); // Per-datasource stream log file sizes
     private bool _isProcessing = false;
+    private bool _isStreamProcessing = false;
 
     // Static pause mechanism for log file operations (corruption removal, etc.)
     private static readonly SemaphoreSlim _pauseLock = new SemaphoreSlim(1, 1);
@@ -64,12 +68,14 @@ public class LiveLogMonitorService : BackgroundService
         ILogger<LiveLogMonitorService> logger,
         RustLogProcessorService rustLogProcessorService,
         RustLogRemovalService rustLogRemovalService,
+        RustStreamProcessorService rustStreamProcessorService,
         StateRepository stateService,
         DatasourceService datasourceService)
     {
         _logger = logger;
         _rustLogProcessorService = rustLogProcessorService;
         _rustLogRemovalService = rustLogRemovalService;
+        _rustStreamProcessorService = rustStreamProcessorService;
         _stateService = stateService;
         _datasourceService = datasourceService;
     }
@@ -133,15 +139,16 @@ public class LiveLogMonitorService : BackgroundService
         // Check if logs have been processed before (to distinguish fresh install from manual reset)
         var hasProcessedLogs = _stateService.GetHasProcessedLogs();
 
-        // Initialize file sizes for each datasource
+        // Initialize file sizes for each datasource (access.log and stream-access.log)
         foreach (var ds in datasources)
         {
+            // Initialize access.log monitoring
             var logFile = Path.Combine(ds.LogPath, "access.log");
             if (File.Exists(logFile))
             {
                 var fileInfo = new FileInfo(logFile);
                 _lastFileSizes[ds.Name] = fileInfo.Length;
-                _logger.LogInformation("Datasource '{Name}': Initial log file size: {Size:N0} bytes", ds.Name, fileInfo.Length);
+                _logger.LogInformation("Datasource '{Name}': Initial access.log size: {Size:N0} bytes", ds.Name, fileInfo.Length);
 
                 // Only auto-initialize to end of file on fresh install (never processed logs before)
                 // If position is 0 but logs have been processed, user intentionally reset to beginning
@@ -156,6 +163,28 @@ public class LiveLogMonitorService : BackgroundService
             else
             {
                 _lastFileSizes[ds.Name] = 0;
+            }
+
+            // Initialize stream-access.log monitoring
+            var streamLogFile = Path.Combine(ds.LogPath, "stream-access.log");
+            if (File.Exists(streamLogFile))
+            {
+                var streamFileInfo = new FileInfo(streamLogFile);
+                _lastStreamFileSizes[ds.Name] = streamFileInfo.Length;
+                _logger.LogInformation("Datasource '{Name}': Initial stream-access.log size: {Size:N0} bytes", ds.Name, streamFileInfo.Length);
+
+                // Initialize stream log position to end of file on fresh install
+                var currentStreamPosition = _stateService.GetStreamLogPosition(ds.Name);
+                if (currentStreamPosition == 0 && !hasProcessedLogs)
+                {
+                    var streamLineCount = CountLinesWithSharing(streamLogFile);
+                    _stateService.SetStreamLogPosition(ds.Name, streamLineCount);
+                    _logger.LogInformation("Datasource '{Name}': Fresh install - initialized stream log position to end of file (line {LineCount})", ds.Name, streamLineCount);
+                }
+            }
+            else
+            {
+                _lastStreamFileSizes[ds.Name] = 0;
             }
         }
 
@@ -179,11 +208,12 @@ public class LiveLogMonitorService : BackgroundService
 
                 if (!shouldSkip)
                 {
-                    // Monitor each datasource
+                    // Monitor each datasource for both access.log and stream-access.log
                     foreach (var ds in datasources)
                     {
                         if (!ds.Enabled) continue;
                         await MonitorAndProcessDatasource(ds, stoppingToken);
+                        await MonitorAndProcessStreamLogs(ds, stoppingToken);
                     }
                 }
             }
@@ -323,6 +353,115 @@ public class LiveLogMonitorService : BackgroundService
         {
             _logger.LogError(ex, "Error checking log file size for datasource '{Name}'", datasource.Name);
             _isProcessing = false;
+        }
+    }
+
+    /// <summary>
+    /// Monitors stream-access.log for changes and processes them for speed data
+    /// </summary>
+    private async Task MonitorAndProcessStreamLogs(ResolvedDatasource datasource, CancellationToken stoppingToken)
+    {
+        // Skip if already processing stream logs
+        if (_isStreamProcessing)
+        {
+            return;
+        }
+
+        var streamLogPath = Path.Combine(datasource.LogPath, "stream-access.log");
+
+        // Check if stream log file exists
+        if (!File.Exists(streamLogPath))
+        {
+            // Only log once per service start to avoid spam
+            if (!_lastStreamFileSizes.ContainsKey(datasource.Name) || _lastStreamFileSizes[datasource.Name] == 0)
+            {
+                _lastStreamFileSizes[datasource.Name] = -1; // Mark as logged
+            }
+            return;
+        }
+
+        // Reset size tracker if file reappeared after being missing
+        if (_lastStreamFileSizes.TryGetValue(datasource.Name, out var lastSize) && lastSize == -1)
+        {
+            _lastStreamFileSizes[datasource.Name] = 0;
+            _logger.LogInformation("Datasource '{Name}': Stream log file now exists. Resuming live monitoring.", datasource.Name);
+        }
+
+        try
+        {
+            // Check file size (very fast operation)
+            var fileInfo = new FileInfo(streamLogPath);
+            var currentFileSize = fileInfo.Length;
+
+            // Get last known file size for this datasource
+            _lastStreamFileSizes.TryGetValue(datasource.Name, out var lastFileSize);
+
+            // Calculate size increase
+            var sizeIncrease = currentFileSize - lastFileSize;
+
+            // Only process if file has grown by at least the threshold
+            if (sizeIncrease >= _minFileSizeIncrease)
+            {
+                // Check if manual stream processing is already running
+                if (_rustStreamProcessorService.IsProcessing)
+                {
+                    _logger.LogDebug("Manual stream processing is already running, skipping live update for '{Name}'", datasource.Name);
+                    return;
+                }
+
+                // Check if log removal is in progress
+                if (_rustLogRemovalService.IsProcessing)
+                {
+                    _logger.LogDebug("Log removal is in progress, skipping stream log live update for '{Name}'", datasource.Name);
+                    return;
+                }
+
+                // Start processing
+                _isStreamProcessing = true;
+
+                try
+                {
+                    // Get the stored position for this datasource
+                    var lastPosition = _stateService.GetStreamLogPosition(datasource.Name);
+
+                    // Count total lines in the file to get the current end position
+                    var currentLineCount = CountLinesWithSharing(streamLogPath);
+
+                    // If stored position is less than current file size, use stored position
+                    // Otherwise use current line count (file might have been truncated/rotated)
+                    var startPosition = Math.Min(lastPosition, currentLineCount);
+
+                    // Start Rust stream processor from last processed position in SILENT MODE
+                    var success = await _rustStreamProcessorService.StartProcessingAsync(
+                        datasource.LogPath,
+                        startPosition,
+                        silentMode: true,
+                        datasourceName: datasource.Name);
+
+                    if (success)
+                    {
+                        // Update file size tracker after successful processing
+                        _lastStreamFileSizes[datasource.Name] = currentFileSize;
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Live stream log processing for datasource '{Name}' did not complete successfully, will retry on next interval", datasource.Name);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error during live stream log processing for datasource '{Name}'", datasource.Name);
+                }
+                finally
+                {
+                    _isStreamProcessing = false;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error checking stream log file size for datasource '{Name}'", datasource.Name);
+            _isStreamProcessing = false;
         }
     }
 }

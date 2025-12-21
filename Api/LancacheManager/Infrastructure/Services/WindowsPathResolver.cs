@@ -154,6 +154,9 @@ public class WindowsPathResolver : IPathResolver
     public string GetRustDataMigratorPath() =>
         Path.Combine(AppContext.BaseDirectory, "rust-processor", "db_migrate.exe");
 
+    public string GetRustStreamProcessorPath() =>
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "stream_processor.exe");
+
     public string GetDatabasePath() =>
         Path.Combine(GetDataDirectory(), "LancacheManager.db");
 
