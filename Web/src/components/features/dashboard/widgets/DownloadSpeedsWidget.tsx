@@ -129,7 +129,6 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
       pollingIntervalRef.current = null;
     }
 
-    // Only poll/subscribe when in active mode
     if (dataMode === 'active') {
       if (pollingRate === 'LIVE') {
         // LIVE mode: Use SignalR for real-time updates
@@ -152,8 +151,19 @@ const DownloadSpeedsWidget: React.FC<DownloadSpeedsWidgetProps> = memo(({
           }
         };
       }
+    } else {
+      // History mode: Poll for updates (use same interval, minimum 10s for history)
+      const interval = Math.max(getPollingInterval(), 10000);
+      pollingIntervalRef.current = setInterval(fetchHistory, interval);
+
+      return () => {
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
+      };
     }
-  }, [signalR, pollingRate, getPollingInterval, handleSpeedUpdate, handleNetworkUpdate, fetchSpeeds, dataMode]);
+  }, [signalR, pollingRate, getPollingInterval, handleSpeedUpdate, handleNetworkUpdate, fetchSpeeds, fetchHistory, dataMode]);
 
   // Get top 5 items based on view mode and data mode
   const topItems = useMemo(() => {
