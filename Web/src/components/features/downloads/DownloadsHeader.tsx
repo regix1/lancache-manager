@@ -170,23 +170,13 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
           width: 72px;
           height: 72px;
           border-radius: 16px;
-          background: linear-gradient(
-            145deg,
-            var(--theme-bg-tertiary),
-            var(--theme-bg-primary)
-          );
+          background: var(--theme-bg-tertiary);
           border: 1px solid var(--theme-border-secondary);
-          box-shadow:
-            inset 0 1px 0 color-mix(in srgb, white 5%, transparent),
-            0 4px 12px color-mix(in srgb, black 15%, transparent);
         }
 
         .speed-indicator.active {
-          border-color: var(--theme-success);
-          box-shadow:
-            inset 0 1px 0 color-mix(in srgb, white 5%, transparent),
-            0 4px 12px color-mix(in srgb, black 15%, transparent),
-            0 0 20px color-mix(in srgb, var(--theme-success) 20%, transparent);
+          border-color: color-mix(in srgb, var(--theme-success) 50%, var(--theme-border-secondary));
+          background: color-mix(in srgb, var(--theme-success) 8%, var(--theme-bg-tertiary));
         }
 
         .speed-ring {

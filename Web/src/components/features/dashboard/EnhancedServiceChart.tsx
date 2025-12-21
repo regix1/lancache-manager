@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Info } from 'lucide-react';
+import { PieChart, Zap, Database } from 'lucide-react';
 import { formatBytes } from '@utils/formatters';
 import { Card } from '@components/ui/Card';
 import Chart from 'chart.js/auto';
@@ -11,72 +11,69 @@ interface EnhancedServiceChartProps {
   glassmorphism?: boolean;
 }
 
+type TabId = 'service' | 'hit-ratio' | 'bandwidth';
+
+interface TabConfig {
+  id: TabId;
+  name: string;
+  shortName: string;
+  icon: React.ElementType;
+}
+
+const TABS: TabConfig[] = [
+  { id: 'service', name: 'Service Distribution', shortName: 'Services', icon: PieChart },
+  { id: 'hit-ratio', name: 'Cache Hit Ratio', shortName: 'Cache', icon: Database },
+  { id: 'bandwidth', name: 'Bandwidth Saved', shortName: 'Saved', icon: Zap }
+];
+
 const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
   ({ serviceStats, glassmorphism = false }) => {
-    const [activeTab, setActiveTab] = useState(0);
-    const [chartSize, setChartSize] = useState(100);
-    const [, setThemeVersion] = useState(0); // Triggers re-render on theme change
+    const [activeTab, setActiveTab] = useState<TabId>('service');
+    const [, setThemeVersion] = useState(0);
     const chartRef = useRef<HTMLCanvasElement>(null);
     const chartInstance = useRef<Chart | null>(null);
     const prevDataRef = useRef<string>('');
 
-    // Touch/swipe handling
-    const touchStartX = useRef<number>(0);
-    const touchEndX = useRef<number>(0);
-    const containerRef = useRef<HTMLDivElement>(null);
-
-    const tabs = [
-      { name: 'Service Distribution', id: 'service' },
-      { name: 'Cache Hit Ratio', id: 'hit-ratio' },
-      { name: 'Bandwidth Saved', id: 'bandwidth' }
-    ];
-
-    // Helper to get service color from theme CSS variables
-    const getServiceColor = (serviceName: string) => {
+    // Get service color from theme
+    const getServiceColor = useCallback((serviceName: string) => {
       const computedStyle = getComputedStyle(document.documentElement);
       const serviceLower = serviceName.toLowerCase();
 
-      switch (serviceLower) {
-        case 'steam':
-          return computedStyle.getPropertyValue('--theme-steam').trim();
-        case 'epic':
-        case 'epicgames':
-          return computedStyle.getPropertyValue('--theme-epic').trim();
-        case 'origin':
-        case 'ea':
-          return computedStyle.getPropertyValue('--theme-origin').trim();
-        case 'blizzard':
-        case 'battle.net':
-        case 'battlenet':
-          return computedStyle.getPropertyValue('--theme-blizzard').trim();
-        case 'wsus':
-        case 'windows':
-          return computedStyle.getPropertyValue('--theme-wsus').trim();
-        case 'riot':
-        case 'riotgames':
-          return computedStyle.getPropertyValue('--theme-riot').trim();
-        case 'xbox':
-        case 'xboxlive':
-          return computedStyle.getPropertyValue('--theme-xbox').trim();
-        default:
-          return computedStyle.getPropertyValue('--theme-text-secondary').trim();
-      }
-    };
+      const colorMap: Record<string, string> = {
+        'steam': '--theme-steam',
+        'epic': '--theme-epic',
+        'epicgames': '--theme-epic',
+        'origin': '--theme-origin',
+        'ea': '--theme-origin',
+        'blizzard': '--theme-blizzard',
+        'battle.net': '--theme-blizzard',
+        'battlenet': '--theme-blizzard',
+        'wsus': '--theme-wsus',
+        'windows': '--theme-wsus',
+        'riot': '--theme-riot',
+        'riotgames': '--theme-riot',
+        'xbox': '--theme-xbox',
+        'xboxlive': '--theme-xbox',
+        'ubisoft': '--theme-ubisoft',
+        'uplay': '--theme-ubisoft',
+        'gog': '--theme-text-secondary',
+        'rockstar': '--theme-warning'
+      };
 
-    const getServiceDistributionData = () => {
-      if (!serviceStats || serviceStats.length === 0) {
-        return { labels: [], data: [], colors: [] };
-      }
+      const varName = colorMap[serviceLower] || '--theme-text-secondary';
+      return computedStyle.getPropertyValue(varName).trim() || '#888888';
+    }, []);
+
+    // Chart data generators
+    const getServiceDistributionData = useCallback(() => {
+      if (!serviceStats?.length) return { labels: [], data: [], colors: [] };
 
       const totalBytes = serviceStats.reduce((sum, s) => sum + (s.totalBytes || 0), 0);
       if (totalBytes === 0) return { labels: [], data: [], colors: [] };
 
       const sorted = serviceStats
-        .map((s) => ({
-          name: s.service,
-          value: s.totalBytes,
-          percentage: (s.totalBytes / totalBytes) * 100
-        }))
+        .map((s) => ({ name: s.service, value: s.totalBytes }))
+        .filter((s) => s.value > 0)
         .sort((a, b) => b.value - a.value);
 
       return {
@@ -84,134 +81,62 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
         data: sorted.map((s) => s.value),
         colors: sorted.map((s) => getServiceColor(s.name))
       };
-    };
+    }, [serviceStats, getServiceColor]);
 
-    const getCacheHitRatioData = () => {
-      if (!serviceStats || serviceStats.length === 0) return { labels: [], data: [], colors: [] };
+    const getCacheHitRatioData = useCallback(() => {
+      if (!serviceStats?.length) return { labels: [], data: [], colors: [] };
 
       const totalHits = serviceStats.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);
       const totalMisses = serviceStats.reduce((sum, s) => sum + (s.totalCacheMissBytes || 0), 0);
-      const total = totalHits + totalMisses;
 
-      if (total === 0) return { labels: [], data: [], colors: [] };
+      if (totalHits + totalMisses === 0) return { labels: [], data: [], colors: [] };
 
       const computedStyle = getComputedStyle(document.documentElement);
-      const hitColor = computedStyle.getPropertyValue('--theme-chart-cache-hit').trim();
-      const missColor = computedStyle.getPropertyValue('--theme-chart-cache-miss').trim();
+      const hitColor = computedStyle.getPropertyValue('--theme-chart-cache-hit').trim() || '#22c55e';
+      const missColor = computedStyle.getPropertyValue('--theme-chart-cache-miss').trim() || '#ef4444';
 
       return {
         labels: ['Cache Hits', 'Cache Misses'],
         data: [totalHits, totalMisses],
         colors: [hitColor, missColor]
       };
-    };
+    }, [serviceStats]);
 
-    const getBandwidthSavedData = () => {
-      if (!serviceStats || serviceStats.length === 0) return { labels: [], data: [], colors: [] };
+    const getBandwidthSavedData = useCallback(() => {
+      if (!serviceStats?.length) return { labels: [], data: [], colors: [] };
 
-      // Calculate bandwidth saved per service (cache hits only)
       const servicesWithSavings = serviceStats
-        .map((s) => ({
-          name: s.service,
-          value: s.totalCacheHitBytes || 0,
-          percentage: 0
-        }))
+        .map((s) => ({ name: s.service, value: s.totalCacheHitBytes || 0 }))
         .filter((s) => s.value > 0)
         .sort((a, b) => b.value - a.value);
 
-      const totalSaved = servicesWithSavings.reduce((sum, s) => sum + s.value, 0);
-
-      if (totalSaved === 0) return { labels: [], data: [], colors: [] };
-
-      // Update percentages
-      servicesWithSavings.forEach((s) => {
-        s.percentage = (s.value / totalSaved) * 100;
-      });
+      if (!servicesWithSavings.length) return { labels: [], data: [], colors: [] };
 
       return {
         labels: servicesWithSavings.map((s) => s.name),
         data: servicesWithSavings.map((s) => s.value),
         colors: servicesWithSavings.map((s) => getServiceColor(s.name))
       };
-    };
+    }, [serviceStats, getServiceColor]);
 
-    // Get chart data based on active tab - recalculates on every render to pick up theme changes
-    const chartData = (() => {
-      switch (tabs[activeTab]?.id) {
-        case 'service':
-          return getServiceDistributionData();
-        case 'hit-ratio':
-          return getCacheHitRatioData();
-        case 'bandwidth':
-          return getBandwidthSavedData();
-        default:
-          return getServiceDistributionData();
+    // Get current chart data
+    const chartData = useMemo(() => {
+      switch (activeTab) {
+        case 'service': return getServiceDistributionData();
+        case 'hit-ratio': return getCacheHitRatioData();
+        case 'bandwidth': return getBandwidthSavedData();
+        default: return getServiceDistributionData();
       }
-    })();
+    }, [activeTab, getServiceDistributionData, getCacheHitRatioData, getBandwidthSavedData]);
 
-    // Get chart description and stats based on active tab
-    const getChartInfo = useMemo(() => {
-      const tabId = tabs[activeTab]?.id;
-      const totalBytes = serviceStats.reduce((sum, s) => sum + (s.totalBytes || 0), 0);
-      const totalHits = serviceStats.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);
-      const totalMisses = serviceStats.reduce((sum, s) => sum + (s.totalCacheMissBytes || 0), 0);
-      const hitRatio = totalBytes > 0 ? ((totalHits / totalBytes) * 100).toFixed(1) : '0';
-
-      switch (tabId) {
-        case 'service':
-          return {
-            title: 'Total Data by Service',
-            description:
-              'Shows the distribution of all data transferred across different gaming services',
-            stats: [
-              { label: 'Total Data', value: formatBytes(totalBytes) },
-              { label: 'Services', value: serviceStats.length },
-              { label: 'Hit Ratio', value: `${hitRatio}%` }
-            ]
-          };
-        case 'hit-ratio':
-          return {
-            title: 'Cache Performance',
-            description:
-              'Ratio of data served from cache (hits) vs downloaded from internet (misses)',
-            stats: [
-              { label: 'Cache Hits', value: formatBytes(totalHits) },
-              { label: 'Cache Misses', value: formatBytes(totalMisses) },
-              { label: 'Efficiency', value: `${hitRatio}%` }
-            ]
-          };
-        case 'bandwidth':
-          return {
-            title: 'Internet Bandwidth Saved',
-            description: 'Amount of internet bandwidth saved by serving cached content locally',
-            stats: [
-              { label: 'Total Saved', value: formatBytes(totalHits) },
-              {
-                label: 'Downloads Avoided',
-                value: Math.round(totalHits / (50 * 1024 * 1024 * 1024)) || '0'
-              }, // Rough estimate assuming 50GB average game size
-              { label: 'Cache Efficiency', value: `${hitRatio}%` }
-            ]
-          };
-        default:
-          return {
-            title: '',
-            description: '',
-            stats: []
-          };
-      }
-    }, [activeTab, serviceStats]);
-
-    // Listen for theme changes to trigger re-render with new colors
+    // Theme change listener
     useEffect(() => {
       const handleThemeChange = () => {
-        // Delay slightly to ensure CSS variables are updated
         setTimeout(() => {
           if (chartInstance.current) {
             chartInstance.current.destroy();
             chartInstance.current = null;
           }
-          // Trigger re-render to pick up new theme colors
           setThemeVersion((v) => v + 1);
         }, 50);
       };
@@ -220,30 +145,23 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
       return () => window.removeEventListener('themechange', handleThemeChange);
     }, []);
 
+    // Chart rendering
     useEffect(() => {
       if (!chartRef.current || chartData.labels.length === 0) return;
 
-      // Check if data actually changed to prevent unnecessary animations
-      const currentDataString = JSON.stringify({
-        labels: chartData.labels,
-        data: chartData.data
-      });
-
+      const currentDataString = JSON.stringify({ labels: chartData.labels, data: chartData.data });
       const dataChanged = currentDataString !== prevDataRef.current;
       prevDataRef.current = currentDataString;
 
-      // Destroy existing chart
       if (chartInstance.current) {
         chartInstance.current.destroy();
       }
 
-      // Get colors from CSS variables
       const computedStyle = getComputedStyle(document.documentElement);
-      const borderColor = computedStyle.getPropertyValue('--theme-chart-border').trim();
-      const textColor = computedStyle.getPropertyValue('--theme-chart-text').trim();
-      const titleColor = computedStyle.getPropertyValue('--theme-text-primary').trim();
+      const borderColor = computedStyle.getPropertyValue('--theme-chart-border').trim() || '#1a1a2e';
+      const textColor = computedStyle.getPropertyValue('--theme-chart-text').trim() || '#a0aec0';
+      const titleColor = computedStyle.getPropertyValue('--theme-text-primary').trim() || '#ffffff';
 
-      // Create new chart
       const ctx = chartRef.current.getContext('2d');
       if (!ctx) return;
 
@@ -251,110 +169,50 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
         type: 'doughnut',
         data: {
           labels: chartData.labels,
-          datasets: [
-            {
-              data: chartData.data,
-              backgroundColor: chartData.colors,
-              borderColor: borderColor,
-              borderWidth: 2,
-              borderRadius: 0,
-              spacing: 0
-            }
-          ]
+          datasets: [{
+            data: chartData.data,
+            backgroundColor: chartData.colors,
+            borderColor: borderColor,
+            borderWidth: 2,
+            borderRadius: 6,
+            spacing: 3
+          }]
         },
         options: {
           responsive: true,
           maintainAspectRatio: true,
           aspectRatio: 1,
-          layout: {
-            padding: 0
-          },
+          layout: { padding: 0 },
           animation: {
-            // Smooth animations for all transitions
             animateRotate: true,
             animateScale: dataChanged,
-            duration: 1200,
-            easing: 'easeInOutQuart',
-            delay: (context) => {
-              // Stagger animation for each segment
-              return context.dataIndex * 50;
-            }
-          },
-          transitions: {
-            active: {
-              animation: {
-                duration: 400,
-                easing: 'easeOutQuart'
-              }
-            },
-            resize: {
-              animation: {
-                duration: 400,
-                easing: 'easeInOutQuart'
-              }
-            },
-            show: {
-              animations: {
-                colors: {
-                  from: 'transparent'
-                },
-                visible: {
-                  duration: 400
-                }
-              }
-            },
-            hide: {
-              animations: {
-                colors: {
-                  to: 'transparent'
-                },
-                visible: {
-                  duration: 200
-                }
-              }
-            }
+            duration: 800,
+            easing: 'easeOutQuart'
           },
           plugins: {
-            legend: {
-              display: false
-            },
+            legend: { display: false },
             tooltip: {
-              backgroundColor: 'var(--theme-bg-primary)',
+              backgroundColor: 'rgba(0,0,0,0.9)',
               titleColor: titleColor,
               bodyColor: textColor,
               borderColor: borderColor,
               borderWidth: 1,
-              cornerRadius: 8,
-              padding: 12,
+              cornerRadius: 10,
+              padding: 14,
               displayColors: true,
-              animation: {
-                duration: 200,
-                easing: 'easeOutQuart'
-              },
+              boxPadding: 6,
               callbacks: {
                 label: (context) => {
                   const value = context.raw as number;
-                  const total = context.dataset.data.reduce(
-                    (a, b) => (a as number) + (b as number),
-                    0
-                  ) as number;
+                  const total = context.dataset.data.reduce((a, b) => (a as number) + (b as number), 0) as number;
                   const percentage = ((value / total) * 100).toFixed(1);
-
-                  // Different labels based on the chart type
-                  const tabId = tabs[activeTab]?.id;
-                  if (tabId === 'bandwidth') {
-                    return `${context.label}: ${formatBytes(value)} saved (${percentage}%)`;
-                  } else if (tabId === 'hit-ratio') {
-                    return `${context.label}: ${formatBytes(value)} (${percentage}%)`;
-                  } else {
-                    return `${context.label}: ${formatBytes(value)} (${percentage}%)`;
-                  }
+                  return `${context.label}: ${formatBytes(value)} (${percentage}%)`;
                 }
               }
             }
           },
-          cutout: '50%', // Makes the donut hole consistent
-          radius: '90%' // Ensures the chart uses most of the available space
+          cutout: '70%',
+          radius: '100%'
         }
       });
 
@@ -363,252 +221,465 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
           chartInstance.current.destroy();
         }
       };
-    }, [chartData, chartSize, activeTab]);
+    }, [chartData, activeTab]);
 
-    // Swipe handlers
-    const handleTouchStart = useCallback((e: React.TouchEvent) => {
-      touchEndX.current = 0; // Reset touchEnd to detect if movement occurred
-      touchStartX.current = e.touches[0].clientX;
-    }, []);
+    const totalValue = chartData.data.reduce((a, b) => a + b, 0);
+    const totalHits = serviceStats.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);
+    const totalBytes = serviceStats.reduce((sum, s) => sum + (s.totalBytes || 0), 0);
+    const hitRatio = totalBytes > 0 ? (totalHits / totalBytes) * 100 : 0;
 
-    const handleTouchMove = useCallback((e: React.TouchEvent) => {
-      touchEndX.current = e.touches[0].clientX;
-    }, []);
-
-    const handleTouchEnd = useCallback(() => {
-      // Only trigger swipe if there was actual movement (touchEnd was set by touchMove)
-      if (!touchStartX.current || !touchEndX.current) return;
-
-      const minSwipeDistance = 50;
-      const swipeDistance = touchStartX.current - touchEndX.current;
-
-      if (Math.abs(swipeDistance) > minSwipeDistance) {
-        if (swipeDistance > 0) {
-          // Swiped left - go to next tab
-          setActiveTab((prev) => (prev + 1) % tabs.length);
-        } else {
-          // Swiped right - go to previous tab
-          setActiveTab((prev) => (prev - 1 + tabs.length) % tabs.length);
-        }
+    // Get center label based on tab
+    const getCenterLabel = () => {
+      switch (activeTab) {
+        case 'bandwidth': return 'Saved';
+        case 'hit-ratio': return 'Total';
+        default: return 'Total';
       }
-
-      // Reset
-      touchStartX.current = 0;
-      touchEndX.current = 0;
-    }, [tabs.length]);
-
-    // Calculate the actual chart container height
-    const chartContainerHeight = 200 + (chartSize - 100) * 2;
+    };
 
     return (
-      <Card padding="none" glassmorphism={glassmorphism}>
-        <div
-          ref={containerRef}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-        >
-          <div className="p-6 pb-4">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center">
-                <button
-                  onClick={() => setActiveTab((prev) => (prev - 1 + tabs.length) % tabs.length)}
-                  className="p-1 rounded-lg transition-colors mr-2"
-                  style={{ color: 'var(--theme-text-muted)' }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
-                  }
-                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
+      <Card glassmorphism={glassmorphism} className="service-chart-panel">
+        <style>{`
+          .service-chart-panel {
+            container-type: inline-size;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+          }
 
-                <div className="w-48 text-center">
-                  <h3 className="text-lg font-semibold text-themed-primary truncate">
-                    {tabs[activeTab]?.name}
-                  </h3>
-                </div>
+          .chart-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+            margin-bottom: 0.75rem;
+            flex-shrink: 0;
+          }
 
-                <button
-                  onClick={() => setActiveTab((prev) => (prev + 1) % tabs.length)}
-                  className="p-1 rounded-lg transition-colors ml-2"
-                  style={{ color: 'var(--theme-text-muted)' }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
-                  }
-                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
+          .header-title h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--theme-text-primary);
+            margin: 0;
+          }
 
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => setChartSize(Math.max(60, chartSize - 10))}
-                  className="p-1 rounded-lg transition-colors"
-                  style={{ color: 'var(--theme-text-muted)' }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
-                  }
-                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                >
-                  <Minimize2 className="w-4 h-4" />
-                </button>
+          .tab-toggle {
+            display: flex;
+            padding: 3px;
+            border-radius: 10px;
+            background: var(--theme-bg-tertiary);
+            border: 1px solid var(--theme-border-secondary);
+          }
 
-                <span className="text-xs text-themed-muted">{chartSize}%</span>
+          .tab-btn {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.35rem 0.55rem;
+            font-size: 0.68rem;
+            font-weight: 600;
+            color: var(--theme-text-muted);
+            background: transparent;
+            border: none;
+            border-radius: 7px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+          }
 
-                <button
-                  onClick={() => setChartSize(Math.min(140, chartSize + 10))}
-                  className="p-1 rounded-lg transition-colors"
-                  style={{ color: 'var(--theme-text-muted)' }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
-                  }
-                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                >
-                  <Maximize2 className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
+          .tab-btn:hover:not(.active) {
+            color: var(--theme-text-secondary);
+            background: color-mix(in srgb, var(--theme-bg-secondary) 50%, transparent);
+          }
 
-            <div className="flex space-x-1">
-              {tabs.map((_, index) => (
-                <button
-                  key={index}
-                  onClick={() => setActiveTab(index)}
-                  className="h-1 flex-1 rounded-full transition-all duration-300 ease-out hover:h-1.5"
-                  style={{
-                    backgroundColor:
-                      index === activeTab ? 'var(--theme-primary)' : 'var(--theme-bg-hover)',
-                    transform: index === activeTab ? 'scaleY(1.5)' : 'scaleY(1)',
-                    opacity: index === activeTab ? 1 : 0.5
-                  }}
-                />
-              ))}
-            </div>
+          .tab-btn.active {
+            color: var(--theme-button-text);
+            background: var(--theme-primary);
+            box-shadow: 0 2px 4px color-mix(in srgb, var(--theme-primary) 25%, transparent);
+          }
+
+          .tab-btn svg {
+            width: 12px;
+            height: 12px;
+          }
+
+          @container (max-width: 380px) {
+            .tab-btn span {
+              display: none;
+            }
+            .tab-btn {
+              padding: 0.45rem;
+            }
+          }
+
+          .chart-body {
+            flex: 1;
+            display: flex;
+            gap: 1rem;
+            min-height: 0;
+          }
+
+          /* Horizontal layout for wider containers */
+          @container (min-width: 420px) {
+            .chart-body {
+              flex-direction: row;
+              align-items: center;
+            }
+          }
+
+          /* Vertical layout for narrow containers */
+          @container (max-width: 419px) {
+            .chart-body {
+              flex-direction: column;
+            }
+          }
+
+          .chart-side {
+            position: relative;
+            flex-shrink: 0;
+          }
+
+          @container (min-width: 420px) {
+            .chart-side {
+              width: 55%;
+              max-width: 260px;
+            }
+          }
+
+          @container (max-width: 419px) {
+            .chart-side {
+              width: 100%;
+              max-width: 220px;
+              margin: 0 auto;
+            }
+          }
+
+          .chart-wrapper {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 1;
+          }
+
+          .chart-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            pointer-events: none;
+          }
+
+          .chart-center-value {
+            font-size: 1.35rem;
+            font-weight: 700;
+            color: var(--theme-text-primary);
+            line-height: 1.1;
+          }
+
+          @container (min-width: 500px) {
+            .chart-center-value {
+              font-size: 1.5rem;
+            }
+          }
+
+          .chart-center-label {
+            font-size: 0.65rem;
+            color: var(--theme-text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-top: 0.2rem;
+          }
+
+          .data-side {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 0.5rem;
+            min-width: 0;
+          }
+
+          @container (max-width: 419px) {
+            .data-side {
+              padding-top: 0.5rem;
+            }
+          }
+
+          .legend-item {
+            display: flex;
+            flex-direction: column;
+            gap: 0.3rem;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid var(--theme-border-secondary);
+            animation: fade-in 0.3s ease forwards;
+            opacity: 0;
+          }
+
+          .legend-item:last-child {
+            border-bottom: none;
+          }
+
+          @keyframes fade-in {
+            to { opacity: 1; }
+          }
+
+          .legend-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+          }
+
+          .legend-label {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            min-width: 0;
+          }
+
+          .legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 3px;
+            flex-shrink: 0;
+          }
+
+          .legend-name {
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--theme-text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+
+          .legend-value {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--theme-text-secondary);
+            white-space: nowrap;
+          }
+
+          .legend-bar-track {
+            height: 4px;
+            background: var(--theme-bg-tertiary);
+            border-radius: 2px;
+            overflow: hidden;
+          }
+
+          .legend-bar-fill {
+            height: 100%;
+            border-radius: 2px;
+            transition: width 0.6s ease;
+          }
+
+          .stats-footer {
+            display: flex;
+            justify-content: space-between;
+            gap: 0.75rem;
+            padding-top: 0.75rem;
+            margin-top: auto;
+            border-top: 1px solid var(--theme-border-secondary);
+            flex-shrink: 0;
+          }
+
+          .stat-box {
+            flex: 1;
+            text-align: center;
+            padding: 0.5rem 0.25rem;
+            border-radius: 8px;
+            background: var(--theme-bg-secondary);
+            transition: all 0.2s ease;
+          }
+
+          .stat-box:hover {
+            background: var(--theme-bg-tertiary);
+          }
+
+          .stat-box.primary {
+            background: color-mix(in srgb, var(--theme-primary) 12%, var(--theme-bg-secondary));
+            border: 1px solid color-mix(in srgb, var(--theme-primary) 25%, transparent);
+          }
+
+          .stat-box-value {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--theme-text-primary);
+            line-height: 1.2;
+          }
+
+          .stat-box.primary .stat-box-value {
+            color: var(--theme-primary);
+          }
+
+          .stat-box-label {
+            font-size: 0.6rem;
+            color: var(--theme-text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-top: 0.15rem;
+          }
+
+          .empty-state {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem 1rem;
+            text-align: center;
+          }
+
+          .empty-icon {
+            position: relative;
+            width: 56px;
+            height: 56px;
+            margin-bottom: 1rem;
+          }
+
+          .empty-icon-bg {
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            border: 2px dashed var(--theme-border-secondary);
+            animation: rotate-slow 15s linear infinite;
+          }
+
+          @keyframes rotate-slow {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+          }
+
+          .empty-icon svg {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: var(--theme-text-muted);
+            opacity: 0.5;
+          }
+
+          .empty-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--theme-text-primary);
+            margin-bottom: 0.25rem;
+          }
+
+          .empty-desc {
+            font-size: 0.75rem;
+            color: var(--theme-text-muted);
+          }
+        `}</style>
+
+        {/* Header */}
+        <div className="chart-header">
+          <div className="header-title">
+            <h3>Service Analytics</h3>
           </div>
 
-          <div className="px-6 pb-6">
-            {chartData.labels.length > 0 ? (
-              <>
-                <div
-                  className="flex justify-center items-center transition-all duration-500 ease-in-out"
-                  style={{
-                    height: `${chartContainerHeight}px`,
-                    width: '100%',
-                    touchAction: 'pan-y' // Allow vertical scrolling but capture horizontal swipes
-                  }}
-                  onTouchStart={handleTouchStart}
-                  onTouchMove={handleTouchMove}
-                  onTouchEnd={handleTouchEnd}
+          <div className="tab-toggle">
+            {TABS.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  className={`tab-btn ${activeTab === tab.id ? 'active' : ''}`}
+                  onClick={() => setActiveTab(tab.id)}
                 >
-                  <div
-                    className="transition-all duration-500 ease-in-out"
-                    style={{
-                      width: `${Math.min(chartContainerHeight, 400)}px`,
-                      height: `${Math.min(chartContainerHeight, 400)}px`,
-                      transform: 'scale(1)',
-                      opacity: 1
-                    }}
-                  >
-                    <canvas
-                      ref={chartRef}
-                      className="transition-opacity duration-300"
-                      style={{
-                        maxHeight: '100%',
-                        maxWidth: '100%',
-                        opacity: 1
-                      }}
-                    />
-                  </div>
-                </div>
-
-                {chartData.labels.length > 0 && (
-                  <div
-                    className="mt-4 flex flex-wrap justify-center gap-3"
-                    onTouchStart={handleTouchStart}
-                    onTouchMove={handleTouchMove}
-                    onTouchEnd={handleTouchEnd}
-                  >
-                    {chartData.labels.map((label, index) => {
-                      const value = chartData.data[index];
-                      const total = chartData.data.reduce((a, b) => a + b, 0);
-                      const percentage = ((value / total) * 100).toFixed(1);
-
-                      return (
-                        <div
-                          key={label}
-                          className="flex items-center space-x-1 transition-all duration-300 hover:scale-105"
-                          style={{
-                            animation: `fadeInUp 0.5s ease-out ${index * 0.1}s both`
-                          }}
-                        >
-                          <div
-                            className="w-3 h-3 rounded transition-transform duration-300 hover:scale-125"
-                            style={{ backgroundColor: chartData.colors[index] }}
-                          />
-                          <span className="text-xs text-themed-muted">{label}:</span>
-                          <span className="text-xs text-themed-primary font-medium">
-                            {percentage}%
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* Chart description and stats */}
-                <div
-                  className="mt-6 pt-4 border-t"
-                  style={{ borderColor: 'var(--theme-border-primary)' }}
-                  onTouchStart={handleTouchStart}
-                  onTouchMove={handleTouchMove}
-                  onTouchEnd={handleTouchEnd}
-                >
-                  <div className="flex items-start gap-2 mb-3">
-                    <Info className="w-4 h-4 text-themed-muted mt-0.5 flex-shrink-0" />
-                    <div className="flex-1">
-                      <h4 className="text-sm font-medium text-themed-secondary mb-1">
-                        {getChartInfo.title}
-                      </h4>
-                      <p className="text-xs text-themed-muted leading-relaxed">
-                        {getChartInfo.description}
-                      </p>
-                    </div>
-                  </div>
-
-                  {getChartInfo.stats.length > 0 && (
-                    <div className="grid grid-cols-3 gap-4 mt-4">
-                      {getChartInfo.stats.map((stat, index) => (
-                        <div
-                          key={index}
-                          className="text-center transition-all duration-300 hover:transform hover:scale-110"
-                          style={{
-                            animation: `fadeIn 0.6s ease-out ${0.4 + index * 0.1}s both`
-                          }}
-                        >
-                          <div className="text-xs text-themed-muted mb-0.5">{stat.label}</div>
-                          <div className="text-sm font-semibold text-themed-secondary transition-colors duration-200 hover:text-themed-primary">
-                            {stat.value}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="flex items-center justify-center h-48">
-                <p className="text-themed-muted">No data available</p>
-              </div>
-            )}
+                  <Icon />
+                  <span>{tab.shortName}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
+
+        {chartData.labels.length > 0 ? (
+          <>
+            {/* Main content - side by side */}
+            <div className="chart-body">
+              {/* Chart */}
+              <div className="chart-side">
+                <div className="chart-wrapper">
+                  <canvas ref={chartRef} />
+                  <div className="chart-center">
+                    <div className="chart-center-value">
+                      {formatBytes(totalValue)}
+                    </div>
+                    <div className="chart-center-label">
+                      {getCenterLabel()}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Legend with progress bars */}
+              <div className="data-side">
+                {chartData.labels.map((label, index) => {
+                  const value = chartData.data[index];
+                  const percentage = totalValue > 0 ? (value / totalValue) * 100 : 0;
+                  return (
+                    <div
+                      key={label}
+                      className="legend-item"
+                      style={{ animationDelay: `${index * 80}ms` }}
+                    >
+                      <div className="legend-row">
+                        <div className="legend-label">
+                          <span
+                            className="legend-dot"
+                            style={{ backgroundColor: chartData.colors[index] }}
+                          />
+                          <span className="legend-name">{label}</span>
+                        </div>
+                        <span className="legend-value">{percentage.toFixed(1)}%</span>
+                      </div>
+                      <div className="legend-bar-track">
+                        <div
+                          className="legend-bar-fill"
+                          style={{
+                            width: `${percentage}%`,
+                            backgroundColor: chartData.colors[index]
+                          }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Stats footer */}
+            <div className="stats-footer">
+              <div className="stat-box primary">
+                <div className="stat-box-value">{formatBytes(totalBytes)}</div>
+                <div className="stat-box-label">Total Data</div>
+              </div>
+              <div className="stat-box">
+                <div className="stat-box-value">{serviceStats.length}</div>
+                <div className="stat-box-label">Services</div>
+              </div>
+              <div className="stat-box">
+                <div className="stat-box-value">{hitRatio.toFixed(1)}%</div>
+                <div className="stat-box-label">Hit Rate</div>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="empty-state">
+            <div className="empty-icon">
+              <div className="empty-icon-bg" />
+              <PieChart size={24} />
+            </div>
+            <div className="empty-title">No Data Available</div>
+            <div className="empty-desc">Service statistics will appear here</div>
+          </div>
+        )}
       </Card>
     );
   },
   (prevProps, nextProps) => {
-    // Re-render if timeRange changed or serviceStats data changed
     return (
       prevProps.timeRange === nextProps.timeRange &&
       prevProps.glassmorphism === nextProps.glassmorphism &&

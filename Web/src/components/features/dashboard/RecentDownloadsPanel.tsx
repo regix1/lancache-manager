@@ -1,13 +1,16 @@
-import React, { memo, useMemo, useState, useCallback, useRef, useEffect } from 'react';
-import { Activity, Clock, Loader2 } from 'lucide-react';
+import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
+import { Activity, Clock, Loader2, HardDrive, TrendingUp, RefreshCw } from 'lucide-react';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { useDownloads } from '@contexts/DownloadsContext';
 import { useDownloadAssociations } from '@contexts/DownloadAssociationsContext';
+import { useSignalR } from '@contexts/SignalRContext';
+import { usePollingRate } from '@contexts/PollingRateContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
+import ApiService from '@services/api.service';
 import EventBadge from '../downloads/EventBadge';
-import type { Download, EventSummary } from '@/types';
+import type { Download, EventSummary, DownloadSpeedSnapshot, GameSpeedInfo } from '@/types';
 
 interface DownloadGroup {
   id: string;
@@ -15,8 +18,8 @@ interface DownloadGroup {
   type: 'game' | 'metadata' | 'content';
   service: string;
   downloads: Download[];
-  totalBytes: number; // Size of the game/content (largest single download)
-  totalDownloaded: number; // Total bytes downloaded across all sessions
+  totalBytes: number;
+  totalDownloaded: number;
   cacheHitBytes: number;
   cacheMissBytes: number;
   clientsSet: Set<string>;
@@ -26,680 +29,1031 @@ interface DownloadGroup {
 }
 
 interface RecentDownloadsPanelProps {
-  downloads?: Download[]; // Keep for backward compatibility but won't be used
+  downloads?: Download[];
   timeRange?: string;
   glassmorphism?: boolean;
 }
 
-interface ActiveDownloadRowProps {
-  download: Download;
-  events?: EventSummary[];
-}
+// Format speed
+const formatSpeed = (bytesPerSecond: number): string => {
+  if (bytesPerSecond === 0) return '0 B/s';
+  if (bytesPerSecond < 1024) return `${bytesPerSecond.toFixed(0)} B/s`;
+  if (bytesPerSecond < 1024 * 1024) return `${(bytesPerSecond / 1024).toFixed(1)} KB/s`;
+  if (bytesPerSecond < 1024 * 1024 * 1024) return `${(bytesPerSecond / (1024 * 1024)).toFixed(1)} MB/s`;
+  return `${(bytesPerSecond / (1024 * 1024 * 1024)).toFixed(2)} GB/s`;
+};
 
-const ActiveDownloadRow: React.FC<ActiveDownloadRowProps> = ({ download, events = [] }) => {
-  const formattedStartTime = useFormattedDateTime(download.startTimeUtc);
-
+// Active download item component using real-time speed data
+const ActiveDownloadItem: React.FC<{ game: GameSpeedInfo; index: number }> = ({ game, index }) => {
   return (
     <div
-      className="rounded-lg p-3 border transition-all duration-200 themed-card hover:shadow-lg"
-      style={{
-        backgroundColor: 'var(--theme-bg-primary)',
-        borderColor: 'var(--theme-border-primary)'
-      }}
-      onMouseEnter={(e) =>
-        (e.currentTarget.style.borderColor = 'var(--theme-border-secondary)')
-      }
-      onMouseLeave={(e) =>
-        (e.currentTarget.style.borderColor = 'var(--theme-border-primary)')
-      }
+      className="download-item active-item"
+      style={{ animationDelay: `${index * 50}ms` }}
     >
-      <div className="flex justify-between items-start mb-2">
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-1">
-            <span
-              className="inline-block w-2 h-2 rounded-full animate-pulse"
-              style={{ backgroundColor: 'var(--theme-success)' }}
-            ></span>
-            <div className="text-sm font-medium text-themed-primary truncate flex items-center gap-2">
-              <span>{download.displayName || download.gameName || download.service}</span>
-              <Loader2
-                className="w-4 h-4 animate-spin"
-                style={{ color: 'var(--theme-primary)' }}
-              />
-            </div>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs px-2 py-0.5 rounded bg-themed-accent bg-opacity-10 text-themed-accent font-medium">
-              {download.service}
-            </span>
-            <span className="text-xs text-themed-muted">{download.clientIp}</span>
-            {events.length > 0 && events.slice(0, 2).map(event => (
-              <EventBadge key={event.id} event={event} size="sm" />
-            ))}
+      <div className="item-left">
+        <div className="item-indicator">
+          <div className="pulse-ring" />
+          <div className="pulse-dot" />
+        </div>
+        <div className="item-info">
+          <div className="item-name">{game.gameName || `Depot ${game.depotId}`}</div>
+          <div className="item-meta">
+            <span className="service-badge">{game.service}</span>
+            <span className="meta-separator">•</span>
+            <span className="meta-text">{formatBytes(game.totalBytes)}</span>
+            <span className="meta-separator">•</span>
+            <span className="meta-text">{game.requestCount} req</span>
           </div>
         </div>
-        <span className="text-xs text-themed-muted whitespace-nowrap ml-2">
-          {formattedStartTime}
-        </span>
       </div>
-      <div className="flex justify-between items-center mt-2">
-        <div className="flex items-center gap-3">
-          <span className="text-themed-primary text-sm">
-            {formatBytes(download.totalBytes)}
-          </span>
-          <div className="flex gap-2 text-xs">
-            <span className="cache-hit">↓ {formatBytes(download.cacheHitBytes)}</span>
-            <span className="cache-miss">
-              ↑ {formatBytes(download.cacheMissBytes)}
-            </span>
-          </div>
+      <div className="item-right">
+        <div className="speed-display">
+          <span className="speed-value">{formatSpeed(game.bytesPerSecond)}</span>
+          <Loader2 className="speed-spinner" size={12} />
         </div>
-        <span
-          className={`text-xs px-2 py-1 rounded hit-rate-badge ${
-            download.cacheHitPercent > 75
-              ? 'high'
-              : download.cacheHitPercent > 50
-                ? 'medium'
-                : download.cacheHitPercent > 25
-                  ? 'low'
-                  : 'warning'
-          }`}
-        >
-          {formatPercent(download.cacheHitPercent)} Hit
-        </span>
+        <div className={`hit-badge ${game.cacheHitPercent >= 80 ? 'high' : game.cacheHitPercent >= 50 ? 'medium' : 'low'}`}>
+          {game.cacheHitPercent.toFixed(0)}%
+        </div>
       </div>
     </div>
   );
 };
 
-interface RecentDownloadRowProps {
+// Recent download item component
+interface RecentDownloadItemProps {
   item: DownloadGroup | Download;
   events?: EventSummary[];
+  index: number;
 }
 
-const RecentDownloadRow: React.FC<RecentDownloadRowProps> = ({ item, events = [] }) => {
+const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = [], index }) => {
   const isGroup = 'downloads' in item;
   const display = isGroup
     ? {
         service: item.service,
         name: item.name,
         totalBytes: item.totalBytes,
-        totalDownloaded: item.totalDownloaded,
-        cacheHitBytes: item.cacheHitBytes,
-        cacheMissBytes: item.cacheMissBytes,
-        cacheHitPercent:
-          item.totalDownloaded > 0
-            ? (item.cacheHitBytes / item.totalDownloaded) * 100
-            : 0,
+        cacheHitPercent: item.totalDownloaded > 0 ? (item.cacheHitBytes / item.totalDownloaded) * 100 : 0,
         startTime: item.lastSeen,
-        clientIp: `${item.clientsSet.size} client${item.clientsSet.size !== 1 ? 's' : ''}`,
+        clientInfo: `${item.clientsSet.size} client${item.clientsSet.size !== 1 ? 's' : ''}`,
         count: item.count,
-        type: item.type,
         hasGameName: item.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/))
       }
     : {
         service: item.service,
-        name:
-          item.gameName &&
-          item.gameName !== 'Unknown Steam Game' &&
-          !item.gameName.match(/^Steam App \d+$/)
-            ? item.gameName
-            : item.service,
+        name: item.gameName && item.gameName !== 'Unknown Steam Game' && !item.gameName.match(/^Steam App \d+$/)
+          ? item.gameName
+          : item.service,
         totalBytes: item.totalBytes,
-        totalDownloaded: item.totalBytes,
-        cacheHitBytes: item.cacheHitBytes,
-        cacheMissBytes: item.cacheMissBytes,
         cacheHitPercent: item.cacheHitPercent,
         startTime: item.startTimeUtc,
-        clientIp: item.clientIp,
+        clientInfo: item.clientIp,
         count: 1,
-        type: 'individual',
-        hasGameName: item.gameName &&
-          item.gameName !== 'Unknown Steam Game' &&
-          !item.gameName.match(/^Steam App \d+$/)
+        hasGameName: item.gameName && item.gameName !== 'Unknown Steam Game' && !item.gameName.match(/^Steam App \d+$/)
       };
 
-  const formattedStartTime = useFormattedDateTime(display.startTime);
+  const formattedTime = useFormattedDateTime(display.startTime);
 
   return (
     <div
-      className="rounded-lg p-3 border transition-all duration-200 themed-card hover:shadow-lg"
-      style={{
-        backgroundColor: 'var(--theme-bg-primary)',
-        borderColor: 'var(--theme-border-primary)'
-      }}
-      onMouseEnter={(e) =>
-        (e.currentTarget.style.borderColor = 'var(--theme-border-secondary)')
-      }
-      onMouseLeave={(e) =>
-        (e.currentTarget.style.borderColor = 'var(--theme-border-primary)')
-      }
+      className="download-item recent-item"
+      style={{ animationDelay: `${index * 30}ms` }}
     >
-      <div className="flex justify-between items-start mb-2">
-        <div className="flex-1">
-          {('hasGameName' in display && display.hasGameName) && (
-            <div className="flex items-center gap-2 mb-1">
-              <div className="text-sm font-medium text-themed-primary truncate">
-                {display.name}
-              </div>
-              {isGroup && (
-                <span className="text-xs px-2 py-0.5 rounded bg-themed-tertiary text-themed-secondary">
-                  {display.count}×
-                </span>
-              )}
-            </div>
-          )}
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs px-2 py-0.5 rounded bg-themed-accent bg-opacity-10 text-themed-accent font-medium">
-              {display.service}
-            </span>
-            {isGroup && !('hasGameName' in display && display.hasGameName) && (
-              <span className="text-xs px-2 py-0.5 rounded bg-themed-tertiary text-themed-secondary">
-                {display.count}×
-              </span>
+      <div className="item-left">
+        <div className="item-icon">
+          <HardDrive size={16} />
+        </div>
+        <div className="item-info">
+          <div className="item-name">
+            {display.hasGameName ? display.name : display.service}
+            {isGroup && display.count > 1 && (
+              <span className="count-badge">{display.count}×</span>
             )}
-            <span className="text-xs text-themed-muted">{display.clientIp}</span>
-            {events.length > 0 && events.slice(0, 2).map(event => (
+          </div>
+          <div className="item-meta">
+            <span className="service-badge">{display.service}</span>
+            <span className="meta-separator">•</span>
+            <span className="meta-text">{display.clientInfo}</span>
+            {events.length > 0 && events.slice(0, 1).map(event => (
               <EventBadge key={event.id} event={event} size="sm" />
             ))}
           </div>
         </div>
-        <span className="text-xs text-themed-muted whitespace-nowrap ml-2">
-          {formattedStartTime}
-        </span>
       </div>
-      <div className="flex justify-between items-center mt-2">
-        <div className="flex items-center gap-3">
-          <span className="text-themed-primary text-sm">
-            {formatBytes(display.totalBytes)}
-          </span>
-          <div className="flex gap-2 text-xs">
-            <span className="cache-hit">↓ {formatBytes(display.cacheHitBytes)}</span>
-            <span className="cache-miss">
-              ↑ {formatBytes(display.cacheMissBytes)}
-            </span>
-          </div>
+      <div className="item-right">
+        <div className="size-time">
+          <span className="size-value">{formatBytes(display.totalBytes)}</span>
+          <span className="time-value">{formattedTime}</span>
         </div>
-        <span
-          className={`text-xs px-2 py-1 rounded hit-rate-badge ${
-            display.cacheHitPercent > 75
-              ? 'high'
-              : display.cacheHitPercent > 50
-                ? 'medium'
-                : display.cacheHitPercent > 25
-                  ? 'low'
-                  : 'warning'
-          }`}
-        >
-          {formatPercent(display.cacheHitPercent)} Hit
-        </span>
+        <div className={`hit-badge ${display.cacheHitPercent >= 75 ? 'high' : display.cacheHitPercent >= 50 ? 'medium' : display.cacheHitPercent >= 25 ? 'low' : 'critical'}`}>
+          {formatPercent(display.cacheHitPercent)}
+        </div>
       </div>
     </div>
   );
 };
 
-const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
-  ({ timeRange = 'live', glassmorphism = false }) => {
-    const [selectedService, setSelectedService] = useState<string>('all');
-    const [selectedClient, setSelectedClient] = useState<string>('all');
-    const [viewMode, setViewMode] = useState<'recent' | 'active'>('recent');
-    const { activeDownloads, latestDownloads, loading } = useDownloads();
-    const { fetchAssociations, getAssociations } = useDownloadAssociations();
+const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
+  timeRange = 'live',
+  glassmorphism = false
+}) => {
+  const [selectedService, setSelectedService] = useState<string>('all');
+  const [selectedClient, setSelectedClient] = useState<string>('all');
+  const [viewMode, setViewMode] = useState<'recent' | 'active'>('recent');
+  const [speedSnapshot, setSpeedSnapshot] = useState<DownloadSpeedSnapshot | null>(null);
+  const { latestDownloads, loading } = useDownloads();
+  const { fetchAssociations, getAssociations } = useDownloadAssociations();
+  const signalR = useSignalR();
+  const { pollingRate, getPollingInterval } = usePollingRate();
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
-    // Touch/swipe handling
-    const touchStartX = useRef<number>(0);
-    const touchEndX = useRef<number>(0);
-    const containerRef = useRef<HTMLDivElement>(null);
+  // Fetch real-time speeds for active view
+  const fetchSpeeds = useCallback(async () => {
+    try {
+      const data = await ApiService.getCurrentSpeeds();
+      setSpeedSnapshot(data);
+    } catch (err) {
+      console.error('Failed to fetch speeds:', err);
+    }
+  }, []);
 
-    // Fetch associations for visible downloads
-    useEffect(() => {
-      const downloadIds = [
-        ...activeDownloads.map(d => d.id),
-        ...latestDownloads.slice(0, 20).map(d => d.id)
-      ].filter(Boolean);
-      if (downloadIds.length > 0) {
-        fetchAssociations(downloadIds);
+  // Fetch speeds when in active mode
+  useEffect(() => {
+    if (viewMode !== 'active') return;
+
+    fetchSpeeds();
+
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+    }
+
+    const interval = pollingRate === 'LIVE' ? 2000 : Math.min(getPollingInterval(), 5000);
+    pollingRef.current = setInterval(fetchSpeeds, interval);
+
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
       }
-    }, [activeDownloads, latestDownloads, fetchAssociations]);
+    };
+  }, [viewMode, pollingRate, getPollingInterval, fetchSpeeds]);
 
-    // Grouping logic adapted from DownloadsTab
-    const createGroups = useCallback(
-      (downloads: Download[]): { groups: DownloadGroup[]; individuals: Download[] } => {
-        const groups: Record<string, DownloadGroup> = {};
-        const individuals: Download[] = [];
+  // SignalR for real-time updates
+  useEffect(() => {
+    if (viewMode !== 'active' || pollingRate !== 'LIVE') return;
 
-        downloads.forEach((download) => {
-          let groupKey: string;
-          let groupName: string;
-          let groupType: 'game' | 'metadata' | 'content';
+    const handleSpeedUpdate = (payload: DownloadSpeedSnapshot) => {
+      setSpeedSnapshot(payload);
+    };
 
-          if (
-            download.gameName &&
-            download.gameName !== 'Unknown Steam Game' &&
-            !download.gameName.match(/^Steam App \d+$/)
-          ) {
-            groupKey = `game-${download.gameName}`;
-            groupName = download.gameName;
-            groupType = 'game';
-          } else if (download.gameName && download.gameName.match(/^Steam App \d+$/)) {
-            groupKey = 'unmapped-steam-apps';
-            groupName = 'Unmapped Steam Apps';
-            groupType = 'content';
-          } else if (download.service.toLowerCase() !== 'steam') {
-            groupKey = `service-${download.service.toLowerCase()}`;
-            groupName = `${download.service} Downloads`;
-            groupType = download.totalBytes === 0 ? 'metadata' : 'content';
-          } else {
-            individuals.push(download);
-            return;
-          }
+    signalR.on('DownloadSpeedUpdate', handleSpeedUpdate);
+    return () => signalR.off('DownloadSpeedUpdate', handleSpeedUpdate);
+  }, [viewMode, pollingRate, signalR]);
 
-          if (!groups[groupKey]) {
-            groups[groupKey] = {
-              id: groupKey,
-              name: groupName,
-              type: groupType,
-              service: download.service,
-              downloads: [],
-              totalBytes: 0,
-              totalDownloaded: 0,
-              cacheHitBytes: 0,
-              cacheMissBytes: 0,
-              clientsSet: new Set<string>(),
-              firstSeen: download.startTimeUtc,
-              lastSeen: download.startTimeUtc,
-              count: 0
-            };
-          }
+  // Fetch associations for visible downloads
+  useEffect(() => {
+    const downloadIds = latestDownloads.slice(0, 20).map(d => d.id).filter(Boolean);
+    if (downloadIds.length > 0) {
+      fetchAssociations(downloadIds);
+    }
+  }, [latestDownloads, fetchAssociations]);
 
-          groups[groupKey].downloads.push(download);
-          // Track total downloaded across all sessions
-          groups[groupKey].totalBytes += download.totalBytes || 0;
-          groups[groupKey].totalDownloaded += download.totalBytes || 0;
-          groups[groupKey].cacheHitBytes += download.cacheHitBytes || 0;
-          groups[groupKey].cacheMissBytes += download.cacheMissBytes || 0;
-          groups[groupKey].clientsSet.add(download.clientIp);
-          groups[groupKey].count++;
+  // Grouping logic
+  const createGroups = useCallback((downloads: Download[]): { groups: DownloadGroup[]; individuals: Download[] } => {
+    const groups: Record<string, DownloadGroup> = {};
+    const individuals: Download[] = [];
 
-          if (download.startTimeUtc < groups[groupKey].firstSeen) {
-            groups[groupKey].firstSeen = download.startTimeUtc;
-          }
-          if (download.startTimeUtc > groups[groupKey].lastSeen) {
-            groups[groupKey].lastSeen = download.startTimeUtc;
-          }
-        });
+    downloads.forEach((download) => {
+      let groupKey: string;
+      let groupName: string;
+      let groupType: 'game' | 'metadata' | 'content';
 
-        return { groups: Object.values(groups), individuals };
-      },
-      []
-    );
+      if (download.gameName && download.gameName !== 'Unknown Steam Game' && !download.gameName.match(/^Steam App \d+$/)) {
+        groupKey = `game-${download.gameName}`;
+        groupName = download.gameName;
+        groupType = 'game';
+      } else if (download.gameName && download.gameName.match(/^Steam App \d+$/)) {
+        groupKey = 'unmapped-steam-apps';
+        groupName = 'Unmapped Steam Apps';
+        groupType = 'content';
+      } else if (download.service.toLowerCase() !== 'steam') {
+        groupKey = `service-${download.service.toLowerCase()}`;
+        groupName = `${download.service} Downloads`;
+        groupType = download.totalBytes === 0 ? 'metadata' : 'content';
+      } else {
+        individuals.push(download);
+        return;
+      }
 
-    // Backend now groups chunks by game, so we just need to display them
-    // No frontend grouping needed - backend handles grouping via GameAppId + ClientIp
-    const groupedActiveDownloads = useMemo(() => {
-      // Don't filter out unmapped downloads - show all active downloads
-      // Transform each download to have a valid display name
-      const transformed = activeDownloads.map((download) => {
-        // Check if game name is valid for display
-        const hasValidName = download.gameName &&
-          !download.gameName.toLowerCase().includes('unknown') &&
-          !/^steam app \d+$/i.test(download.gameName.trim());
-
-        // If no valid name, use service as fallback display name
-        // The actual gameName is preserved for future mapping
-        return {
-          ...download,
-          displayName: hasValidName ? download.gameName : download.service
+      if (!groups[groupKey]) {
+        groups[groupKey] = {
+          id: groupKey,
+          name: groupName,
+          type: groupType,
+          service: download.service,
+          downloads: [],
+          totalBytes: 0,
+          totalDownloaded: 0,
+          cacheHitBytes: 0,
+          cacheMissBytes: 0,
+          clientsSet: new Set<string>(),
+          firstSeen: download.startTimeUtc,
+          lastSeen: download.startTimeUtc,
+          count: 0
         };
-      });
-
-      // Backend already grouped by game, just sort and limit
-      const sorted = [...transformed].sort(
-        (a, b) => new Date(b.startTimeUtc).getTime() - new Date(a.startTimeUtc).getTime()
-      );
-      return sorted.slice(0, 10);
-    }, [activeDownloads]);
-
-    // Count total active downloads (backend already grouped by game)
-    // Show all active downloads, not just mapped ones
-    const activeDownloadCount = useMemo(() => {
-      return groupedActiveDownloads.length;
-    }, [groupedActiveDownloads]);
-
-    const getTimeRangeLabel = useMemo(() => {
-      const labels: Record<string, string> = {
-        '15m': 'Last 15 Minutes',
-        '30m': 'Last 30 Minutes',
-        '1h': 'Last Hour',
-        '6h': 'Last 6 Hours',
-        '12h': 'Last 12 Hours',
-        '24h': 'Last 24 Hours',
-        '7d': 'Last 7 Days',
-        '30d': 'Last 30 Days',
-        '90d': 'Last 90 Days',
-        live: 'Live Data'
-      };
-      return labels[timeRange] || 'Recent';
-    }, [timeRange]);
-
-    const availableServices = useMemo(() => {
-      const services = new Set(latestDownloads.map((d) => d.service));
-      return ['all', ...Array.from(services).sort()];
-    }, [latestDownloads]);
-
-    const availableClients = useMemo(() => {
-      const clients = new Set(latestDownloads.map((d) => d.clientIp));
-      return ['all', ...Array.from(clients).sort()];
-    }, [latestDownloads]);
-
-    const filteredDownloads = useMemo(() => {
-      return latestDownloads.filter((download) => {
-        if (selectedService !== 'all' && download.service !== selectedService) {
-          return false;
-        }
-        if (selectedClient !== 'all' && download.clientIp !== selectedClient) {
-          return false;
-        }
-        return true;
-      });
-    }, [latestDownloads, selectedService, selectedClient]);
-
-    const displayCount = 10;
-    const groupedItems = useMemo(() => {
-      const { groups, individuals } = createGroups(filteredDownloads);
-
-      // Filter out unmapped/unknown individual downloads - only show grouped items
-      // Individual downloads without proper game names will be hidden until they're mapped
-      const filteredIndividuals = individuals.filter((download) => {
-        // Show if it has a valid game name (not Unknown or Steam App pattern)
-        if (
-          download.gameName &&
-          download.gameName !== 'Unknown Steam Game' &&
-          !download.gameName.match(/^Steam App \d+$/)
-        ) {
-          return true;
-        }
-        // Show non-Steam services
-        if (download.service.toLowerCase() !== 'steam') {
-          return true;
-        }
-        // Hide unmapped Steam downloads
-        return false;
-      });
-
-      const allItems: (DownloadGroup | Download)[] = [...groups, ...filteredIndividuals];
-
-      allItems.sort((a, b) => {
-        const aTime =
-          'downloads' in a
-            ? Math.max(...a.downloads.map((d: Download) => new Date(d.startTimeUtc).getTime()))
-            : new Date(a.startTimeUtc).getTime();
-        const bTime =
-          'downloads' in b
-            ? Math.max(...b.downloads.map((d: Download) => new Date(d.startTimeUtc).getTime()))
-            : new Date(b.startTimeUtc).getTime();
-        return bTime - aTime;
-      });
-
-      return {
-        displayedItems: allItems.slice(0, displayCount),
-        totalGroups: allItems.length
-      };
-    }, [filteredDownloads, createGroups]);
-
-    const stats = useMemo(() => {
-      // Count downloads in the displayed groups only
-      const displayedDownloads = groupedItems.displayedItems.reduce((count, item) => {
-        if ('downloads' in item) {
-          // It's a group, count all downloads in the group
-          return count + item.downloads.length;
-        } else {
-          // It's an individual download
-          return count + 1;
-        }
-      }, 0);
-
-      const totalDownloads = filteredDownloads.length;
-      const totalBytes = filteredDownloads.reduce((sum, d) => sum + (d.totalBytes || 0), 0);
-      const totalCacheHits = filteredDownloads.reduce((sum, d) => sum + (d.cacheHitBytes || 0), 0);
-      const overallHitRate = totalBytes > 0 ? (totalCacheHits / totalBytes) * 100 : 0;
-
-      return { displayedDownloads, totalDownloads, totalBytes, totalCacheHits, overallHitRate };
-    }, [filteredDownloads, groupedItems]);
-
-    // Swipe handlers for switching between Recent and Active views
-    const handleTouchStart = useCallback((e: React.TouchEvent) => {
-      touchEndX.current = 0; // Reset touchEnd to detect if movement occurred
-      touchStartX.current = e.touches[0].clientX;
-    }, []);
-
-    const handleTouchMove = useCallback((e: React.TouchEvent) => {
-      touchEndX.current = e.touches[0].clientX;
-    }, []);
-
-    const handleTouchEnd = useCallback(() => {
-      // Only trigger swipe if there was actual movement (touchEnd was set by touchMove)
-      if (!touchStartX.current || !touchEndX.current) return;
-
-      const minSwipeDistance = 50;
-      const swipeDistance = touchStartX.current - touchEndX.current;
-
-      if (Math.abs(swipeDistance) > minSwipeDistance) {
-        if (swipeDistance > 0) {
-          // Swiped left - go to active view
-          setViewMode('active');
-        } else {
-          // Swiped right - go to recent view
-          setViewMode('recent');
-        }
       }
 
-      // Reset
-      touchStartX.current = 0;
-      touchEndX.current = 0;
-    }, []);
+      groups[groupKey].downloads.push(download);
+      groups[groupKey].totalBytes += download.totalBytes || 0;
+      groups[groupKey].totalDownloaded += download.totalBytes || 0;
+      groups[groupKey].cacheHitBytes += download.cacheHitBytes || 0;
+      groups[groupKey].cacheMissBytes += download.cacheMissBytes || 0;
+      groups[groupKey].clientsSet.add(download.clientIp);
+      groups[groupKey].count++;
 
-    return (
-      <Card glassmorphism={glassmorphism}>
-        <div
-          ref={containerRef}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-        >
-          <div className="mb-4">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
-              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                <h3 className="text-lg font-semibold text-themed-primary">Downloads</h3>
+      if (download.startTimeUtc < groups[groupKey].firstSeen) {
+        groups[groupKey].firstSeen = download.startTimeUtc;
+      }
+      if (download.startTimeUtc > groups[groupKey].lastSeen) {
+        groups[groupKey].lastSeen = download.startTimeUtc;
+      }
+    });
 
-                {/* View Mode Toggle */}
-                <div className="flex items-center gap-1 p-1 rounded-lg bg-themed-tertiary w-full sm:w-auto">
-                  <button
-                    onClick={() => setViewMode('recent')}
-                    className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors flex-1 sm:flex-initial ${
-                      viewMode === 'recent' ? 'bg-primary' : 'text-themed-secondary hover:text-themed-primary'
-                    }`}
-                    style={{
-                      color: viewMode === 'recent' ? 'var(--theme-button-text)' : undefined
-                    }}
-                  >
-                    <Clock className="w-4 h-4" />
-                    Recent
-                  </button>
-                  <button
-                    onClick={() => setViewMode('active')}
-                    className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors flex-1 sm:flex-initial ${
-                      viewMode === 'active' ? 'bg-primary' : 'text-themed-secondary hover:text-themed-primary'
-                    }`}
-                    style={{
-                      color: viewMode === 'active' ? 'var(--theme-button-text)' : undefined
-                    }}
-                  >
-                    <Activity className="w-4 h-4" />
-                    Active
-                    {activeDownloadCount > 0 && (
-                      <span
-                        className="ml-1 px-1.5 py-0.5 rounded-full text-xs font-bold"
-                        style={{
-                          backgroundColor: 'var(--theme-error)',
-                          color: 'white'
-                        }}
-                      >
-                        {activeDownloadCount}
-                      </span>
-                    )}
-                  </button>
-                </div>
-              </div>
-              <div className="flex items-center flex-wrap gap-2 sm:gap-3 w-full sm:w-auto justify-start sm:justify-end">
-                {viewMode === 'active' ? (
-                  <>
-                    {activeDownloadCount > 0 && (
-                      <span className="text-xs text-themed-muted whitespace-nowrap">
-                        {activeDownloadCount} active
-                      </span>
-                    )}
-                    <span className="text-xs text-themed-muted whitespace-nowrap">Live</span>
-                  </>
-                ) : (
-                  <>
-                    {!loading && latestDownloads.length > 0 && (
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded whitespace-nowrap ${
-                          stats.overallHitRate > 50 ? 'hit-rate-high' : 'hit-rate-warning'
-                        }`}
-                      >
-                        {formatPercent(stats.overallHitRate)} hit
-                      </span>
-                    )}
-                    <span className="text-xs text-themed-muted whitespace-nowrap">
-                      {getTimeRangeLabel}
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
+    return { groups: Object.values(groups), individuals };
+  }, []);
 
-            {!loading && latestDownloads.length > 0 && viewMode === 'recent' && (
-              <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center justify-between w-full">
-                <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center flex-1 w-full sm:w-auto">
-                  <EnhancedDropdown
-                    options={availableServices.map((service) => ({
-                      value: service,
-                      label:
-                        service === 'all'
-                          ? 'All Services'
-                          : service.charAt(0).toUpperCase() + service.slice(1)
-                    }))}
-                    value={selectedService}
-                    onChange={setSelectedService}
-                    className="w-full sm:w-40"
-                  />
+  const getTimeRangeLabel = useMemo(() => {
+    const labels: Record<string, string> = {
+      '15m': 'Last 15 Min',
+      '30m': 'Last 30 Min',
+      '1h': 'Last Hour',
+      '6h': 'Last 6 Hours',
+      '12h': 'Last 12 Hours',
+      '24h': 'Last 24 Hours',
+      '7d': 'Last 7 Days',
+      '30d': 'Last 30 Days',
+      '90d': 'Last 90 Days',
+      live: 'All Time'
+    };
+    return labels[timeRange] || 'Recent';
+  }, [timeRange]);
 
-                  <EnhancedDropdown
-                    options={availableClients.map((client) => ({
-                      value: client,
-                      label: client === 'all' ? 'All Clients' : client
-                    }))}
-                    value={selectedClient}
-                    onChange={setSelectedClient}
-                    className="w-full sm:w-48"
-                  />
-                </div>
+  const availableServices = useMemo(() => {
+    const services = new Set(latestDownloads.map((d) => d.service));
+    return ['all', ...Array.from(services).sort()];
+  }, [latestDownloads]);
 
-                {(selectedService !== 'all' || selectedClient !== 'all') && (
-                  <button
-                    onClick={() => {
-                      setSelectedService('all');
-                      setSelectedClient('all');
-                    }}
-                    className="text-xs px-3 py-2 rounded-lg bg-themed-accent text-[var(--theme-button-text)] hover:opacity-80 transition-opacity w-full sm:w-auto"
-                  >
-                    Clear Filters
-                  </button>
-                )}
-              </div>
-            )}
+  const availableClients = useMemo(() => {
+    const clients = new Set(latestDownloads.map((d) => d.clientIp));
+    return ['all', ...Array.from(clients).sort()];
+  }, [latestDownloads]);
+
+  const filteredDownloads = useMemo(() => {
+    return latestDownloads.filter((download) => {
+      if (selectedService !== 'all' && download.service !== selectedService) return false;
+      if (selectedClient !== 'all' && download.clientIp !== selectedClient) return false;
+      return true;
+    });
+  }, [latestDownloads, selectedService, selectedClient]);
+
+  const displayCount = 10;
+  const groupedItems = useMemo(() => {
+    const { groups, individuals } = createGroups(filteredDownloads);
+
+    const filteredIndividuals = individuals.filter((download) => {
+      if (download.gameName && download.gameName !== 'Unknown Steam Game' && !download.gameName.match(/^Steam App \d+$/)) {
+        return true;
+      }
+      if (download.service.toLowerCase() !== 'steam') return true;
+      return false;
+    });
+
+    const allItems: (DownloadGroup | Download)[] = [...groups, ...filteredIndividuals];
+
+    allItems.sort((a, b) => {
+      const aTime = 'downloads' in a
+        ? Math.max(...a.downloads.map((d: Download) => new Date(d.startTimeUtc).getTime()))
+        : new Date(a.startTimeUtc).getTime();
+      const bTime = 'downloads' in b
+        ? Math.max(...b.downloads.map((d: Download) => new Date(d.startTimeUtc).getTime()))
+        : new Date(b.startTimeUtc).getTime();
+      return bTime - aTime;
+    });
+
+    return {
+      displayedItems: allItems.slice(0, displayCount),
+      totalGroups: allItems.length
+    };
+  }, [filteredDownloads, createGroups]);
+
+  const stats = useMemo(() => {
+    const totalDownloads = filteredDownloads.length;
+    const totalBytes = filteredDownloads.reduce((sum, d) => sum + (d.totalBytes || 0), 0);
+    const totalCacheHits = filteredDownloads.reduce((sum, d) => sum + (d.cacheHitBytes || 0), 0);
+    const overallHitRate = totalBytes > 0 ? (totalCacheHits / totalBytes) * 100 : 0;
+
+    return { totalDownloads, totalBytes, overallHitRate };
+  }, [filteredDownloads]);
+
+  // Active downloads data from speed snapshot
+  const activeGames = speedSnapshot?.gameSpeeds || [];
+  const activeCount = activeGames.length;
+  const totalSpeed = speedSnapshot?.totalBytesPerSecond || 0;
+  const hasActiveDownloads = speedSnapshot?.hasActiveDownloads || false;
+
+  return (
+    <Card glassmorphism={glassmorphism} className="downloads-panel-redesign">
+      <style>{`
+        .downloads-panel-redesign {
+          container-type: inline-size;
+        }
+
+        .panel-header {
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+          margin-bottom: 1rem;
+        }
+
+        .header-top {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 1rem;
+        }
+
+        .header-title {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+        }
+
+        .header-title h3 {
+          font-size: 1rem;
+          font-weight: 600;
+          color: var(--theme-text-primary);
+          margin: 0;
+        }
+
+        .tab-toggle {
+          display: flex;
+          padding: 3px;
+          border-radius: 10px;
+          background: var(--theme-bg-tertiary);
+          border: 1px solid var(--theme-border-secondary);
+        }
+
+        .tab-btn {
+          display: flex;
+          align-items: center;
+          gap: 0.4rem;
+          padding: 0.4rem 0.75rem;
+          font-size: 0.75rem;
+          font-weight: 600;
+          color: var(--theme-text-muted);
+          background: transparent;
+          border: none;
+          border-radius: 7px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .tab-btn:hover:not(.active) {
+          color: var(--theme-text-secondary);
+          background: color-mix(in srgb, var(--theme-bg-secondary) 50%, transparent);
+        }
+
+        .tab-btn.active {
+          color: var(--theme-button-text);
+          background: var(--theme-primary);
+          box-shadow: 0 2px 4px color-mix(in srgb, var(--theme-primary) 25%, transparent);
+        }
+
+        .tab-btn svg {
+          width: 14px;
+          height: 14px;
+        }
+
+        .tab-badge {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 18px;
+          height: 18px;
+          padding: 0 5px;
+          font-size: 0.65rem;
+          font-weight: 700;
+          border-radius: 9px;
+          background: var(--theme-success);
+          color: white;
+          animation: badge-glow 2s ease-in-out infinite;
+        }
+
+        @keyframes badge-glow {
+          0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--theme-success) 40%, transparent); }
+          50% { box-shadow: 0 0 8px 2px color-mix(in srgb, var(--theme-success) 30%, transparent); }
+        }
+
+        .header-stats {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          font-size: 0.7rem;
+        }
+
+        .stat-item {
+          display: flex;
+          align-items: center;
+          gap: 0.35rem;
+          color: var(--theme-text-muted);
+        }
+
+        .stat-item svg {
+          width: 12px;
+          height: 12px;
+        }
+
+        .stat-value {
+          font-weight: 600;
+          color: var(--theme-text-secondary);
+        }
+
+        .stat-value.speed {
+          color: var(--theme-success);
+        }
+
+        .stat-value.hit-high {
+          color: var(--theme-success);
+        }
+
+        .stat-value.hit-medium {
+          color: var(--theme-warning);
+        }
+
+        .stat-value.hit-low {
+          color: var(--theme-error);
+        }
+
+        .filters-row {
+          display: flex;
+          gap: 0.5rem;
+          flex-wrap: wrap;
+        }
+
+        .filters-row > * {
+          flex: 1;
+          min-width: 120px;
+        }
+
+        @container (min-width: 400px) {
+          .filters-row > * {
+            flex: 0 1 auto;
+            min-width: 140px;
+          }
+        }
+
+        .clear-filters-btn {
+          padding: 0.5rem 0.75rem;
+          font-size: 0.7rem;
+          font-weight: 500;
+          color: var(--theme-button-text);
+          background: var(--theme-primary);
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          transition: opacity 0.2s ease;
+          white-space: nowrap;
+        }
+
+        .clear-filters-btn:hover {
+          opacity: 0.9;
+        }
+
+        .downloads-list {
+          display: flex;
+          flex-direction: column;
+          gap: 0.5rem;
+          max-height: 380px;
+          overflow-y: auto;
+          padding-right: 4px;
+        }
+
+        .downloads-list::-webkit-scrollbar {
+          width: 4px;
+        }
+
+        .downloads-list::-webkit-scrollbar-track {
+          background: transparent;
+        }
+
+        .downloads-list::-webkit-scrollbar-thumb {
+          background: var(--theme-border-secondary);
+          border-radius: 2px;
+        }
+
+        .download-item {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.75rem;
+          padding: 0.75rem;
+          border-radius: 10px;
+          background: var(--theme-bg-secondary);
+          border: 1px solid var(--theme-border-secondary);
+          transition: all 0.2s ease;
+          animation: item-slide-in 0.3s ease forwards;
+          opacity: 0;
+          transform: translateY(8px);
+        }
+
+        @keyframes item-slide-in {
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        .download-item:hover {
+          border-color: var(--theme-border-primary);
+          background: color-mix(in srgb, var(--theme-bg-secondary) 80%, var(--theme-bg-tertiary));
+        }
+
+        .download-item.active-item {
+          background: linear-gradient(
+            135deg,
+            color-mix(in srgb, var(--theme-success) 8%, var(--theme-bg-secondary)) 0%,
+            var(--theme-bg-secondary) 100%
+          );
+          border-color: color-mix(in srgb, var(--theme-success) 25%, var(--theme-border-secondary));
+        }
+
+        .item-left {
+          display: flex;
+          align-items: center;
+          gap: 0.65rem;
+          flex: 1;
+          min-width: 0;
+        }
+
+        .item-indicator {
+          position: relative;
+          width: 32px;
+          height: 32px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .pulse-ring {
+          position: absolute;
+          inset: 0;
+          border-radius: 50%;
+          border: 2px solid var(--theme-success);
+          animation: pulse-expand 1.5s ease-out infinite;
+        }
+
+        @keyframes pulse-expand {
+          0% { transform: scale(0.8); opacity: 1; }
+          100% { transform: scale(1.4); opacity: 0; }
+        }
+
+        .pulse-dot {
+          width: 10px;
+          height: 10px;
+          border-radius: 50%;
+          background: var(--theme-success);
+          box-shadow: 0 0 8px var(--theme-success);
+        }
+
+        .item-icon {
+          width: 32px;
+          height: 32px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 8px;
+          background: var(--theme-bg-tertiary);
+          color: var(--theme-text-muted);
+        }
+
+        .item-info {
+          flex: 1;
+          min-width: 0;
+        }
+
+        .item-name {
+          font-size: 0.8rem;
+          font-weight: 600;
+          color: var(--theme-text-primary);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          display: flex;
+          align-items: center;
+          gap: 0.4rem;
+        }
+
+        .count-badge {
+          font-size: 0.65rem;
+          font-weight: 600;
+          padding: 0.1rem 0.35rem;
+          border-radius: 4px;
+          background: var(--theme-bg-tertiary);
+          color: var(--theme-text-muted);
+        }
+
+        .item-meta {
+          display: flex;
+          align-items: center;
+          gap: 0.4rem;
+          margin-top: 0.2rem;
+          font-size: 0.7rem;
+          color: var(--theme-text-muted);
+          flex-wrap: wrap;
+        }
+
+        .service-badge {
+          padding: 0.15rem 0.4rem;
+          border-radius: 4px;
+          background: color-mix(in srgb, var(--theme-primary) 15%, transparent);
+          color: var(--theme-primary);
+          font-weight: 600;
+          font-size: 0.65rem;
+          text-transform: uppercase;
+          letter-spacing: 0.02em;
+        }
+
+        .meta-separator {
+          color: var(--theme-border-secondary);
+        }
+
+        .meta-text {
+          color: var(--theme-text-muted);
+        }
+
+        .item-right {
+          display: flex;
+          align-items: center;
+          gap: 0.65rem;
+          flex-shrink: 0;
+        }
+
+        .speed-display {
+          display: flex;
+          align-items: center;
+          gap: 0.35rem;
+        }
+
+        .speed-value {
+          font-size: 0.8rem;
+          font-weight: 700;
+          color: var(--theme-success);
+          font-variant-numeric: tabular-nums;
+        }
+
+        .speed-spinner {
+          color: var(--theme-primary);
+          animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+
+        .size-time {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          gap: 0.1rem;
+        }
+
+        .size-value {
+          font-size: 0.75rem;
+          font-weight: 600;
+          color: var(--theme-text-primary);
+        }
+
+        .time-value {
+          font-size: 0.65rem;
+          color: var(--theme-text-muted);
+        }
+
+        .hit-badge {
+          padding: 0.25rem 0.5rem;
+          border-radius: 6px;
+          font-size: 0.7rem;
+          font-weight: 700;
+          min-width: 42px;
+          text-align: center;
+        }
+
+        .hit-badge.high {
+          background: color-mix(in srgb, var(--theme-success) 15%, transparent);
+          color: var(--theme-success);
+        }
+
+        .hit-badge.medium {
+          background: color-mix(in srgb, var(--theme-warning) 15%, transparent);
+          color: var(--theme-warning);
+        }
+
+        .hit-badge.low {
+          background: color-mix(in srgb, var(--theme-warning) 10%, transparent);
+          color: color-mix(in srgb, var(--theme-warning) 80%, var(--theme-error));
+        }
+
+        .hit-badge.critical {
+          background: color-mix(in srgb, var(--theme-error) 15%, transparent);
+          color: var(--theme-error);
+        }
+
+        .empty-state {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          padding: 2.5rem 1rem;
+          text-align: center;
+        }
+
+        .empty-icon {
+          position: relative;
+          width: 56px;
+          height: 56px;
+          margin-bottom: 1rem;
+        }
+
+        .empty-icon-bg {
+          position: absolute;
+          inset: 0;
+          border-radius: 50%;
+          border: 2px dashed var(--theme-border-secondary);
+          animation: rotate-slow 15s linear infinite;
+        }
+
+        @keyframes rotate-slow {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+
+        .empty-icon svg {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          color: var(--theme-text-muted);
+          opacity: 0.5;
+        }
+
+        .empty-title {
+          font-size: 0.9rem;
+          font-weight: 600;
+          color: var(--theme-text-primary);
+          margin-bottom: 0.25rem;
+        }
+
+        .empty-desc {
+          font-size: 0.75rem;
+          color: var(--theme-text-muted);
+        }
+
+        .panel-footer {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-top: 0.75rem;
+          padding-top: 0.75rem;
+          border-top: 1px solid var(--theme-border-secondary);
+          font-size: 0.7rem;
+          color: var(--theme-text-muted);
+        }
+
+        .footer-stat {
+          display: flex;
+          align-items: center;
+          gap: 0.25rem;
+        }
+
+        .footer-stat strong {
+          color: var(--theme-text-secondary);
+        }
+
+        .refresh-btn {
+          display: flex;
+          align-items: center;
+          gap: 0.35rem;
+          padding: 0.35rem 0.5rem;
+          font-size: 0.65rem;
+          font-weight: 500;
+          color: var(--theme-text-muted);
+          background: var(--theme-bg-tertiary);
+          border: 1px solid var(--theme-border-secondary);
+          border-radius: 6px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .refresh-btn:hover {
+          color: var(--theme-text-primary);
+          border-color: var(--theme-border-primary);
+        }
+
+        .refresh-btn svg {
+          width: 12px;
+          height: 12px;
+        }
+
+        .loading-state {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 3rem 1rem;
+          color: var(--theme-text-muted);
+          gap: 0.5rem;
+          font-size: 0.8rem;
+        }
+
+        .loading-state svg {
+          animation: spin 1s linear infinite;
+        }
+      `}</style>
+
+      {/* Header */}
+      <div className="panel-header">
+        <div className="header-top">
+          <div className="header-title">
+            <h3>Downloads</h3>
           </div>
 
-          <div className="space-y-3 max-h-[400px] overflow-y-auto">
-            {viewMode === 'active' ? (
-              // Active Downloads View - backend already grouped chunks by game
-              groupedActiveDownloads.length > 0 ? (
-                groupedActiveDownloads.map((download, idx) => (
-                  <ActiveDownloadRow
-                    key={download.id || idx}
-                    download={download}
-                    events={getAssociations(download.id).events}
-                  />
-                ))
-              ) : (
-                <div className="flex flex-col items-center justify-center h-32 text-themed-muted">
-                  <Activity className="w-12 h-12 mb-2 opacity-30" />
-                  <span>No active downloads</span>
-                </div>
-              )
-            ) : loading ? (
-              <div className="flex items-center justify-center h-32 text-themed-muted">
-                <div className="flex items-center gap-2">
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-themed-accent"></div>
-                  <span>Loading all downloads...</span>
-                </div>
-              </div>
-            ) : groupedItems.displayedItems.length > 0 ? (
-              groupedItems.displayedItems.map((item, idx) => {
-                const isGroup = 'downloads' in item;
-                // Aggregate events for groups, or get events for individual downloads
-                const events = isGroup
-                  ? Array.from(
-                      item.downloads.reduce((acc, d) => {
-                        getAssociations(d.id).events.forEach(e => acc.set(e.id, e));
-                        return acc;
-                      }, new Map<number, EventSummary>())
-                    ).map(([, e]) => e)
-                  : getAssociations(item.id).events;
-                return (
-                  <RecentDownloadRow
-                    key={isGroup ? item.id : item.id || idx}
-                    item={item}
-                    events={events}
-                  />
-                );
-              })
-            ) : (
-              <div className="flex items-center justify-center h-32 text-themed-muted">
-                No downloads in the {getTimeRangeLabel.toLowerCase()}
-              </div>
-            )}
-          </div>
-
-          {(groupedItems.totalGroups > displayCount ||
-            selectedService !== 'all' ||
-            selectedClient !== 'all') && (
-            <div
-              className="mt-3 pt-3 border-t text-center"
-              style={{ borderColor: 'var(--theme-border-primary)' }}
+          <div className="tab-toggle">
+            <button
+              className={`tab-btn ${viewMode === 'recent' ? 'active' : ''}`}
+              onClick={() => setViewMode('recent')}
             >
-              <span className="text-xs text-themed-muted">
-                {groupedItems.totalGroups > displayCount && (
-                  <>
-                    Showing {Math.min(displayCount, groupedItems.displayedItems.length)} of{' '}
-                    {groupedItems.totalGroups} groups •{' '}
-                  </>
-                )}
-                {stats.displayedDownloads} of {stats.totalDownloads} downloads
-              </span>
-            </div>
+              <Clock size={14} />
+              Recent
+            </button>
+            <button
+              className={`tab-btn ${viewMode === 'active' ? 'active' : ''}`}
+              onClick={() => setViewMode('active')}
+            >
+              <Activity size={14} />
+              Active
+              {activeCount > 0 && (
+                <span className="tab-badge">{activeCount}</span>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Stats row */}
+        <div className="header-stats">
+          {viewMode === 'active' ? (
+            <>
+              {hasActiveDownloads && (
+                <div className="stat-item">
+                  <TrendingUp />
+                  <span className="stat-value speed">{formatSpeed(totalSpeed)}</span>
+                </div>
+              )}
+              <div className="stat-item">
+                <HardDrive />
+                <span className="stat-value">{activeCount}</span> game{activeCount !== 1 ? 's' : ''}
+              </div>
+              <div className="stat-item">
+                <span>Live</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="stat-item">
+                <span className={`stat-value ${stats.overallHitRate >= 75 ? 'hit-high' : stats.overallHitRate >= 50 ? 'hit-medium' : 'hit-low'}`}>
+                  {formatPercent(stats.overallHitRate)}
+                </span>
+                <span>hit rate</span>
+              </div>
+              <div className="stat-item">
+                <span>{getTimeRangeLabel}</span>
+              </div>
+            </>
           )}
         </div>
-      </Card>
-    );
-  },
-  (prevProps, nextProps) => {
-    // Only re-render if timeRange or glassmorphism changed
-    return prevProps.timeRange === nextProps.timeRange && prevProps.glassmorphism === nextProps.glassmorphism;
-  }
-);
+
+        {/* Filters (only for recent view) */}
+        {viewMode === 'recent' && latestDownloads.length > 0 && (
+          <div className="filters-row">
+            <EnhancedDropdown
+              options={availableServices.map((service) => ({
+                value: service,
+                label: service === 'all' ? 'All Services' : service.charAt(0).toUpperCase() + service.slice(1)
+              }))}
+              value={selectedService}
+              onChange={setSelectedService}
+            />
+            <EnhancedDropdown
+              options={availableClients.map((client) => ({
+                value: client,
+                label: client === 'all' ? 'All Clients' : client
+              }))}
+              value={selectedClient}
+              onChange={setSelectedClient}
+            />
+            {(selectedService !== 'all' || selectedClient !== 'all') && (
+              <button
+                className="clear-filters-btn"
+                onClick={() => {
+                  setSelectedService('all');
+                  setSelectedClient('all');
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Downloads List */}
+      <div className="downloads-list">
+        {viewMode === 'active' ? (
+          hasActiveDownloads && activeGames.length > 0 ? (
+            activeGames.map((game, idx) => (
+              <ActiveDownloadItem key={game.depotId} game={game} index={idx} />
+            ))
+          ) : (
+            <div className="empty-state">
+              <div className="empty-icon">
+                <div className="empty-icon-bg" />
+                <Activity size={24} />
+              </div>
+              <div className="empty-title">No Active Downloads</div>
+              <div className="empty-desc">Downloads will appear here in real-time</div>
+            </div>
+          )
+        ) : loading ? (
+          <div className="loading-state">
+            <Loader2 size={18} />
+            <span>Loading downloads...</span>
+          </div>
+        ) : groupedItems.displayedItems.length > 0 ? (
+          groupedItems.displayedItems.map((item, idx) => {
+            const isGroup = 'downloads' in item;
+            const events = isGroup
+              ? Array.from(
+                  item.downloads.reduce((acc, d) => {
+                    getAssociations(d.id).events.forEach(e => acc.set(e.id, e));
+                    return acc;
+                  }, new Map<number, EventSummary>())
+                ).map(([, e]) => e)
+              : getAssociations(item.id).events;
+            return (
+              <RecentDownloadItem
+                key={isGroup ? item.id : item.id || idx}
+                item={item}
+                events={events}
+                index={idx}
+              />
+            );
+          })
+        ) : (
+          <div className="empty-state">
+            <div className="empty-icon">
+              <div className="empty-icon-bg" />
+              <Clock size={24} />
+            </div>
+            <div className="empty-title">No Downloads</div>
+            <div className="empty-desc">No downloads in the {getTimeRangeLabel.toLowerCase()}</div>
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      {viewMode === 'active' && hasActiveDownloads && (
+        <div className="panel-footer">
+          <div className="footer-stat">
+            <strong>{activeGames.length}</strong> game{activeGames.length !== 1 ? 's' : ''} downloading
+          </div>
+          <button className="refresh-btn" onClick={fetchSpeeds}>
+            <RefreshCw />
+            Refresh
+          </button>
+        </div>
+      )}
+
+      {viewMode === 'recent' && groupedItems.totalGroups > displayCount && (
+        <div className="panel-footer">
+          <div className="footer-stat">
+            Showing <strong>{Math.min(displayCount, groupedItems.displayedItems.length)}</strong> of <strong>{groupedItems.totalGroups}</strong>
+          </div>
+          <div className="footer-stat">
+            <strong>{stats.totalDownloads}</strong> total downloads
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+};
 
 RecentDownloadsPanel.displayName = 'RecentDownloadsPanel';
 
