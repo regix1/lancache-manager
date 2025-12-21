@@ -290,7 +290,7 @@ public class DatabaseRepository : IDatabaseRepository
             });
 
             // Validate table names to prevent SQL injection
-            var validTables = new HashSet<string> { "LogEntries", "Downloads", "ClientStats", "ServiceStats", "SteamDepotMappings", "CachedGameDetections", "UserSessions", "UserPreferences" };
+            var validTables = new HashSet<string> { "LogEntries", "Downloads", "ClientStats", "ServiceStats", "SteamDepotMappings", "CachedGameDetections", "UserSessions", "UserPreferences", "Events", "EventDownloads" };
             var tablesToClear = tableNames.Where(t => validTables.Contains(t)).ToList();
 
             if (tablesToClear.Count == 0)
@@ -321,6 +321,8 @@ public class DatabaseRepository : IDatabaseRepository
                     "CachedGameDetections" => await context.CachedGameDetections.CountAsync(),
                     "UserSessions" => await context.UserSessions.CountAsync(),
                     "UserPreferences" => await context.UserPreferences.CountAsync(),
+                    "Events" => await context.Events.CountAsync(),
+                    "EventDownloads" => await context.EventDownloads.CountAsync(),
                     _ => 0
                 };
                 totalRows += count;
@@ -352,9 +354,11 @@ public class DatabaseRepository : IDatabaseRepository
                 var orderedTables = tablesToClear.OrderBy(t =>
                     t == "UserSessions" ? 0 :      // HIGHEST PRIORITY - invalidate sessions first
                     t == "UserPreferences" ? 1 :   // Second - FK dependency on UserSessions
-                    t == "LogEntries" ? 2 :        // Third - FK dependency from Downloads
-                    t == "Downloads" ? 3 :         // Fourth - depends on LogEntries
-                    4).ToList();
+                    t == "EventDownloads" ? 2 :    // Third - FK dependency from Events and Downloads
+                    t == "LogEntries" ? 3 :        // Fourth - FK dependency from Downloads
+                    t == "Downloads" ? 4 :         // Fifth - depends on LogEntries
+                    t == "Events" ? 5 :            // Sixth - EventDownloads depend on this
+                    6).ToList();
 
                 // Special case: If deleting Downloads but NOT LogEntries, we must null out the foreign keys first
                 if (tablesToClear.Contains("Downloads") && !tablesToClear.Contains("LogEntries"))
@@ -609,6 +613,39 @@ public class DatabaseRepository : IDatabaseRepository
                         });
 
                         _logger.LogInformation("All users have been logged out. Continuing with remaining table deletions in background...");
+                        break;
+
+                    case "Events":
+                        // Use ExecuteDeleteAsync for direct deletion
+                        // Note: EventDownloads will be cascade deleted due to FK constraint
+                        var eventsCount = await context.Events.ExecuteDeleteAsync();
+                        _logger.LogInformation($"Cleared {eventsCount:N0} events (and associated event downloads via cascade)");
+                        deletedRows += eventsCount;
+
+                        await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+                        {
+                            isProcessing = true,
+                            percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
+                            status = "deleting",
+                            message = $"Cleared events ({eventsCount:N0} rows)",
+                            timestamp = DateTime.UtcNow
+                        });
+                        break;
+
+                    case "EventDownloads":
+                        // Use ExecuteDeleteAsync for direct deletion
+                        var eventDownloadsCount = await context.EventDownloads.ExecuteDeleteAsync();
+                        _logger.LogInformation($"Cleared {eventDownloadsCount:N0} event download associations");
+                        deletedRows += eventDownloadsCount;
+
+                        await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+                        {
+                            isProcessing = true,
+                            percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
+                            status = "deleting",
+                            message = $"Cleared event download links ({eventDownloadsCount:N0} rows)",
+                            timestamp = DateTime.UtcNow
+                        });
                         break;
                 }
 

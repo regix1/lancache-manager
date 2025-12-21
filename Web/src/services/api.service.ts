@@ -23,9 +23,6 @@ import type {
   Event,
   CreateEventRequest,
   UpdateEventRequest,
-  Tag,
-  CreateTagRequest,
-  UpdateTagRequest,
   DownloadSpeedSnapshot,
   SpeedHistorySnapshot
 } from '../types';
@@ -1087,91 +1084,13 @@ class ApiService {
     }
   }
 
-  // ==================== Tags API ====================
-
-  // Get all tags
-  static async getTags(signal?: AbortSignal): Promise<Tag[]> {
-    try {
-      const res = await fetch(`${API_BASE}/tags`, this.getFetchOptions({ signal }));
-      return await this.handleResponse<Tag[]>(res);
-    } catch (error: unknown) {
-      if (isAbortError(error)) {
-        // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
-        console.error('getTags error:', error);
-      }
-      throw error;
-    }
-  }
-
-  // Create a new tag
-  static async createTag(data: CreateTagRequest): Promise<Tag> {
-    try {
-      const res = await fetch(`${API_BASE}/tags`, this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      }));
-      return await this.handleResponse<Tag>(res);
-    } catch (error) {
-      console.error('createTag error:', error);
-      throw error;
-    }
-  }
-
-  // Update an existing tag
-  static async updateTag(id: number, data: UpdateTagRequest): Promise<Tag> {
-    try {
-      const res = await fetch(`${API_BASE}/tags/${id}`, this.getFetchOptions({
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      }));
-      return await this.handleResponse<Tag>(res);
-    } catch (error) {
-      console.error('updateTag error:', error);
-      throw error;
-    }
-  }
-
-  // Delete a tag
-  static async deleteTag(id: number): Promise<void> {
-    try {
-      const res = await fetch(`${API_BASE}/tags/${id}`, this.getFetchOptions({
-        method: 'DELETE'
-      }));
-      if (!res.ok) {
-        const errorText = await res.text().catch(() => '');
-        throw new Error(`HTTP ${res.status}: ${errorText || res.statusText}`);
-      }
-    } catch (error) {
-      console.error('deleteTag error:', error);
-      throw error;
-    }
-  }
-
-  // Get tags for a specific download
-  static async getTagsForDownload(downloadId: number, signal?: AbortSignal): Promise<Tag[]> {
-    try {
-      const res = await fetch(`${API_BASE}/tags/download/${downloadId}`, this.getFetchOptions({ signal }));
-      return await this.handleResponse<Tag[]>(res);
-    } catch (error: unknown) {
-      if (isAbortError(error)) {
-        // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
-        console.error('getTagsForDownload error:', error);
-      }
-      throw error;
-    }
-  }
-
   // ==================== Downloads with Associations ====================
 
-  // Get a single download with its tags and events
+  // Get a single download with its events
   static async getDownloadWithAssociations(
     downloadId: number,
     signal?: AbortSignal
-  ): Promise<{ download: Download; tags: Tag[]; events: Array<{ id: number; name: string; colorIndex: number; startTimeUtc: string; endTimeUtc: string; autoTagged: boolean; taggedAtUtc: string }> }> {
+  ): Promise<{ download: Download; events: Array<{ id: number; name: string; colorIndex: number; startTimeUtc: string; endTimeUtc: string; autoTagged: boolean; taggedAtUtc: string }> }> {
     try {
       const res = await fetch(`${API_BASE}/downloads/${downloadId}`, this.getFetchOptions({ signal }));
       return await this.handleResponse(res);

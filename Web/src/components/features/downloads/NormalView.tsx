@@ -294,7 +294,6 @@ const GroupCard: React.FC<GroupCardProps> = ({
               {/* Event badges at group level */}
               {groupEvents.length > 0 && (
                 <DownloadBadges
-                  tags={[]}
                   events={groupEvents}
                   maxVisible={2}
                   size="sm"
@@ -738,7 +737,6 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                   {associations.events.length > 0 && (
                                     <div className="mt-3 pt-3 border-t border-[var(--theme-border-secondary)] flex items-center gap-2">
                                       <DownloadBadges
-                                        tags={[]}
                                         events={associations.events}
                                         maxVisible={5}
                                         size="sm"

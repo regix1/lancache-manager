@@ -327,41 +327,6 @@ export interface UpdateEventRequest {
 export type EventFilterMode = 'timeWindow' | 'tagged';
 export type EventDataStackMode = 'eventOnly' | 'eventAndCurrent';
 
-// Freeform Tag Types
-export interface Tag {
-  id: number;
-  name: string;
-  colorIndex: number; // 1-8, references theme event colors
-  description?: string;
-  createdAtUtc: string;
-}
-
-export interface DownloadTag {
-  id: number;
-  tagId: number;
-  downloadId: number;
-  taggedAtUtc: string;
-}
-
-export interface CreateTagRequest {
-  name: string;
-  colorIndex?: number; // 1-8, references theme event colors
-  description?: string;
-}
-
-export interface UpdateTagRequest {
-  name: string;
-  colorIndex?: number; // 1-8, references theme event colors
-  description?: string;
-}
-
-export interface TagSummary {
-  id: number;
-  name: string;
-  colorIndex: number; // 1-8, references theme event colors
-  description?: string;
-}
-
 export interface EventSummary {
   id: number;
   name: string;

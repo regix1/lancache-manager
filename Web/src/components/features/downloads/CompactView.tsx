@@ -456,9 +456,8 @@ const GroupRow: React.FC<GroupRowProps> = ({
                                 <div className="text-themed-muted">
                                   {formatRelativeTime(download.startTimeUtc)}
                                 </div>
-                                {(associations.tags.length > 0 || associations.events.length > 0) && (
+                                {associations.events.length > 0 && (
                                   <DownloadBadges
-                                    tags={associations.tags}
                                     events={associations.events}
                                     maxVisible={2}
                                     size="sm"
@@ -476,9 +475,8 @@ const GroupRow: React.FC<GroupRowProps> = ({
                                 <span className="text-themed-muted">
                                   {formatRelativeTime(download.startTimeUtc)}
                                 </span>
-                                {(associations.tags.length > 0 || associations.events.length > 0) && (
+                                {associations.events.length > 0 && (
                                   <DownloadBadges
-                                    tags={associations.tags}
                                     events={associations.events}
                                     maxVisible={3}
                                     size="sm"

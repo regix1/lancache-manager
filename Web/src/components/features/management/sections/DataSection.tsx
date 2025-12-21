@@ -64,6 +64,18 @@ const tables = [
     details: 'Pre-computed game and service detections from cache files to speed up dashboard loading'
   },
   {
+    name: 'Events',
+    label: 'Events',
+    description: 'Custom events for tracking LAN parties and gaming sessions',
+    details: 'User-created events with date ranges. Clears associated download links via cascade.'
+  },
+  {
+    name: 'EventDownloads',
+    label: 'Event Download Links',
+    description: 'Associations between events and downloads',
+    details: 'Links connecting downloads to events (both auto-tagged and manual)'
+  },
+  {
     name: 'UserSessions',
     label: 'User Sessions',
     description: 'Active and historical user session records',
@@ -368,6 +380,9 @@ const DataSection: React.FC<DataSectionProps> = ({
                 <li>Historical reports may be affected</li>
                 {selectedTables.includes('SteamDepotMappings') && (
                   <li>Games will show as "Unknown" until mappings are rebuilt</li>
+                )}
+                {selectedTables.includes('Events') && (
+                  <li>All events and their download associations will be permanently deleted</li>
                 )}
                 {selectedTables.includes('UserSessions') && (
                   <li className="font-semibold">All devices will be logged out and the application will reload</li>

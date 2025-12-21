@@ -4,7 +4,6 @@ import { StatsProvider, useStats } from '@contexts/StatsContext';
 import { DownloadsProvider } from '@contexts/DownloadsContext';
 import { TimeFilterProvider } from '@contexts/TimeFilterContext';
 import { EventProvider } from '@contexts/EventContext';
-import { TagProvider } from '@contexts/TagContext';
 import { DownloadAssociationsProvider } from '@contexts/DownloadAssociationsContext';
 import { PollingRateProvider } from '@contexts/PollingRateContext';
 import { SignalRProvider, useSignalR } from '@contexts/SignalRContext';
@@ -738,11 +737,9 @@ const App: React.FC = () => {
                               <StatsProviderWithMockMode>
                                 <DownloadsProviderWithMockMode>
                                   <EventProvider>
-                                    <TagProvider>
-                                      <DownloadAssociationsProvider>
-                                        <AppContent />
-                                      </DownloadAssociationsProvider>
-                                    </TagProvider>
+                                    <DownloadAssociationsProvider>
+                                      <AppContent />
+                                    </DownloadAssociationsProvider>
                                   </EventProvider>
                                 </DownloadsProviderWithMockMode>
                               </StatsProviderWithMockMode>

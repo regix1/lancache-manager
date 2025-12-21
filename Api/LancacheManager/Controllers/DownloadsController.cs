@@ -18,18 +18,15 @@ public class DownloadsController : ControllerBase
 {
     private readonly AppDbContext _context;
     private readonly StatsRepository _statsService;
-    private readonly ITagsRepository _tagsRepository;
     private readonly ILogger<DownloadsController> _logger;
 
     public DownloadsController(
         AppDbContext context,
         StatsRepository statsService,
-        ITagsRepository tagsRepository,
         ILogger<DownloadsController> logger)
     {
         _context = context;
         _statsService = statsService;
-        _tagsRepository = tagsRepository;
         _logger = logger;
     }
 
@@ -143,9 +140,6 @@ public class DownloadsController : ControllerBase
                 download.EndTimeUtc = DateTime.SpecifyKind(download.EndTimeUtc, DateTimeKind.Utc);
             }
 
-            // Get tags for this download
-            var tags = await _tagsRepository.GetTagsForDownloadAsync(id);
-
             // Get events for this download
             var eventDownloads = await _context.EventDownloads
                 .AsNoTracking()
@@ -167,7 +161,6 @@ public class DownloadsController : ControllerBase
             return Ok(new
             {
                 download,
-                tags,
                 events
             });
         }
@@ -213,13 +206,6 @@ public class DownloadsController : ControllerBase
 
             var downloadIds = downloads.Select(d => d.Id).ToList();
 
-            // Get all tags for these downloads
-            var downloadTags = await _context.DownloadTags
-                .AsNoTracking()
-                .Include(dt => dt.Tag)
-                .Where(dt => downloadIds.Contains(dt.DownloadId))
-                .ToListAsync();
-
             // Get all events for these downloads
             var eventDownloads = await _context.EventDownloads
                 .AsNoTracking()
@@ -228,16 +214,6 @@ public class DownloadsController : ControllerBase
                 .ToListAsync();
 
             // Group by download ID
-            var tagsLookup = downloadTags
-                .GroupBy(dt => dt.DownloadId)
-                .ToDictionary(g => g.Key, g => g.Select(dt => new
-                {
-                    dt.Tag.Id,
-                    dt.Tag.Name,
-                    dt.Tag.ColorIndex,
-                    dt.Tag.Description
-                }).ToList());
-
             var eventsLookup = eventDownloads
                 .GroupBy(ed => ed.DownloadId)
                 .ToDictionary(g => g.Key, g => g.Select(ed => new
@@ -257,13 +233,11 @@ public class DownloadsController : ControllerBase
                     d.EndTimeUtc = DateTime.SpecifyKind(d.EndTimeUtc, DateTimeKind.Utc);
                 }
 
-                tagsLookup.TryGetValue(d.Id, out var downloadTags);
                 eventsLookup.TryGetValue(d.Id, out var downloadEvents);
 
                 return new
                 {
                     download = d,
-                    tags = downloadTags ?? (object)Array.Empty<object>(),
                     events = downloadEvents ?? (object)Array.Empty<object>()
                 };
             }).ToList();

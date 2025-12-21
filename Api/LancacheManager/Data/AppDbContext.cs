@@ -17,8 +17,6 @@ public class AppDbContext : DbContext
     public DbSet<UserPreferences> UserPreferences { get; set; }
     public DbSet<Event> Events { get; set; }
     public DbSet<EventDownload> EventDownloads { get; set; }
-    public DbSet<Tag> Tags { get; set; }
-    public DbSet<DownloadTag> DownloadTags { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -181,43 +179,6 @@ public class AppDbContext : DbContext
             .HasOne(ed => ed.Download)
             .WithMany()
             .HasForeignKey(ed => ed.DownloadId)
-            .OnDelete(DeleteBehavior.Cascade);
-
-        // Tag indexes
-        modelBuilder.Entity<Tag>()
-            .HasIndex(t => t.Name)
-            .HasDatabaseName("IX_Tags_Name")
-            .IsUnique();
-
-        modelBuilder.Entity<Tag>()
-            .HasIndex(t => t.CreatedAtUtc)
-            .HasDatabaseName("IX_Tags_CreatedAtUtc");
-
-        // DownloadTag configuration - many-to-many junction table
-        modelBuilder.Entity<DownloadTag>()
-            .HasIndex(dt => new { dt.TagId, dt.DownloadId })
-            .HasDatabaseName("IX_DownloadTags_TagId_DownloadId")
-            .IsUnique();
-
-        modelBuilder.Entity<DownloadTag>()
-            .HasIndex(dt => dt.DownloadId)
-            .HasDatabaseName("IX_DownloadTags_DownloadId");
-
-        modelBuilder.Entity<DownloadTag>()
-            .HasIndex(dt => dt.TaggedAtUtc)
-            .HasDatabaseName("IX_DownloadTags_TaggedAtUtc");
-
-        // Configure relationships
-        modelBuilder.Entity<DownloadTag>()
-            .HasOne(dt => dt.Tag)
-            .WithMany(t => t.DownloadTags)
-            .HasForeignKey(dt => dt.TagId)
-            .OnDelete(DeleteBehavior.Cascade);
-
-        modelBuilder.Entity<DownloadTag>()
-            .HasOne(dt => dt.Download)
-            .WithMany()
-            .HasForeignKey(dt => dt.DownloadId)
             .OnDelete(DeleteBehavior.Cascade);
     }
 }
