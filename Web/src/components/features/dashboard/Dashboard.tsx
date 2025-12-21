@@ -19,10 +19,12 @@ import {
 import { useStats } from '@contexts/StatsContext';
 import { useDownloads } from '@contexts/DownloadsContext';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
+import { useSignalR } from '@contexts/SignalRContext';
+import { usePollingRate } from '@contexts/PollingRateContext';
 import { useDraggableCards } from '@hooks/useDraggableCards';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { STORAGE_KEYS } from '@utils/constants';
-import { type StatCardData, type SparklineDataResponse } from '../../../types';
+import { type StatCardData, type SparklineDataResponse, type DownloadSpeedSnapshot } from '../../../types';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
 import StatCard from '@components/common/StatCard';
@@ -115,10 +117,15 @@ const Dashboard: React.FC = () => {
   const { cacheInfo, clientStats, serviceStats, dashboardStats, loading } = useStats();
   const { activeDownloads, latestDownloads } = useDownloads();
   const { timeRange, getTimeRangeParams, customStartDate, customEndDate } = useTimeFilter();
+  const signalR = useSignalR();
+  const { pollingRate, getPollingInterval } = usePollingRate();
 
   // Track if initial card animations have completed - prevents re-animation on reorder
   const initialAnimationCompleteRef = useRef(false);
   const [initialAnimationComplete, setInitialAnimationComplete] = useState(false);
+
+  // Real-time speed snapshot for accurate active downloads count
+  const [speedSnapshot, setSpeedSnapshot] = useState<DownloadSpeedSnapshot | null>(null);
 
   // Mark initial animation as complete after entrance animations finish
   useEffect(() => {
@@ -155,6 +162,44 @@ const Dashboard: React.FC = () => {
 
     return () => controller.abort();
   }, [timeRange, getTimeRangeParams]);
+
+  // Fetch real-time speeds for accurate active downloads count
+  const pollingInterval = getPollingInterval();
+  useEffect(() => {
+    const fetchSpeeds = async () => {
+      try {
+        const data = await ApiService.getCurrentSpeeds();
+        setSpeedSnapshot(data);
+      } catch (err) {
+        console.error('Failed to fetch speeds:', err);
+      }
+    };
+
+    // Initial fetch
+    fetchSpeeds();
+
+    // LIVE mode (0) uses SignalR only, no polling needed
+    if (pollingInterval === 0) {
+      return;
+    }
+
+    // Poll at user's configured interval
+    const timer = setInterval(fetchSpeeds, pollingInterval);
+
+    return () => clearInterval(timer);
+  }, [pollingInterval]);
+
+  // SignalR subscription for real-time speed updates (when in LIVE mode)
+  useEffect(() => {
+    if (pollingRate !== 'LIVE') return;
+
+    const handleSpeedUpdate = (payload: DownloadSpeedSnapshot) => {
+      setSpeedSnapshot(payload);
+    };
+
+    signalR.on('DownloadSpeedUpdate', handleSpeedUpdate);
+    return () => signalR.off('DownloadSpeedUpdate', handleSpeedUpdate);
+  }, [pollingRate, signalR]);
 
   // Filter out services with only small files (< 1MB) and 0-byte files from dashboard data
   const filteredLatestDownloads = useMemo(() => {
@@ -323,7 +368,9 @@ const Dashboard: React.FC = () => {
 
   const stats = useMemo(() => {
     const activeClients = [...new Set(filteredActiveDownloads.map((d) => d.clientIp))].length;
-    const totalActiveDownloads = filteredActiveDownloads.length;
+    // Use speed snapshot for real-time accurate active downloads count
+    // This syncs with RecentDownloadsPanel's Active tab which uses the same source
+    const totalActiveDownloads = speedSnapshot?.gameSpeeds?.length ?? 0;
     const totalDownloads = filteredServiceStats.reduce(
       (sum, service) => sum + (service.totalDownloads || 0),
       0
@@ -361,7 +408,7 @@ const Dashboard: React.FC = () => {
       cacheHitRatio: shouldShowValues ? (dashboardStats?.period?.hitRatio || 0) : 0,
       uniqueClients: shouldShowValues ? (dashboardStats?.uniqueClients || filteredClientStats.length) : 0
     };
-  }, [filteredActiveDownloads, filteredServiceStats, dashboardStats, filteredClientStats, timeRange, loading]);
+  }, [filteredActiveDownloads, filteredServiceStats, dashboardStats, filteredClientStats, timeRange, loading, speedSnapshot]);
 
   const allStatCards = useMemo<AllStatCards>(
     () => ({

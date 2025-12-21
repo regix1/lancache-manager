@@ -203,9 +203,10 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     };
   }, [viewMode, pollingRate, getPollingInterval, fetchSpeeds]);
 
-  // SignalR for real-time updates
+  // SignalR for real-time updates - always listen regardless of viewMode
+  // so the badge count stays accurate even when viewing Recent tab
   useEffect(() => {
-    if (viewMode !== 'active' || pollingRate !== 'LIVE') return;
+    if (pollingRate !== 'LIVE') return;
 
     const handleSpeedUpdate = (payload: DownloadSpeedSnapshot) => {
       setSpeedSnapshot(payload);
@@ -213,7 +214,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
 
     signalR.on('DownloadSpeedUpdate', handleSpeedUpdate);
     return () => signalR.off('DownloadSpeedUpdate', handleSpeedUpdate);
-  }, [viewMode, pollingRate, signalR]);
+  }, [pollingRate, signalR]);
 
   // Fetch associations for visible downloads
   useEffect(() => {

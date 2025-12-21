@@ -211,8 +211,9 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
             backgroundColor: chartData.colors,
             borderColor: borderColor,
             borderWidth: 2,
-            borderRadius: 6,
-            spacing: 3
+            borderRadius: 4,
+            borderAlign: 'inner',
+            spacing: 0
           }]
         },
         options: {
