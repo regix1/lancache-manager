@@ -13,6 +13,13 @@ interface EventCalendarProps {
   onDayClick: (date: Date) => void;
 }
 
+type EventPosition = 'single' | 'start' | 'middle' | 'end';
+
+interface EventWithPosition {
+  event: Event;
+  position: EventPosition;
+}
+
 const EventCalendar: React.FC<EventCalendarProps> = ({
   events,
   onEventClick,
@@ -55,30 +62,63 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
   };
 
   // Check if a day has events - respects timezone setting
+  // Returns events with position info for connected multi-day rendering
   const getEventsForDay = useMemo(() => {
     // Get the timezone to use for date comparisons
     const timezone = getEffectiveTimezone(useLocalTimezone);
 
-    return (day: number): Event[] => {
+    return (day: number, dayOfWeek: number): EventWithPosition[] => {
       const year = currentMonth.getFullYear();
       const month = currentMonth.getMonth();
+      const checkDate = new Date(year, month, day);
 
-      return events.filter(event => {
-        const eventStart = new Date(event.startTimeUtc);
-        const eventEnd = new Date(event.endTimeUtc);
+      return events
+        .filter(event => {
+          const eventStart = new Date(event.startTimeUtc);
+          const eventEnd = new Date(event.endTimeUtc);
 
-        // Get date components in the target timezone
-        const startParts = getDateInTimezone(eventStart, timezone);
-        const endParts = getDateInTimezone(eventEnd, timezone);
+          // Get date components in the target timezone
+          const startParts = getDateInTimezone(eventStart, timezone);
+          const endParts = getDateInTimezone(eventEnd, timezone);
 
-        // Create date objects for comparison (just dates, no time)
-        const checkDate = new Date(year, month, day);
-        const eventStartDate = new Date(startParts.year, startParts.month, startParts.day);
-        const eventEndDate = new Date(endParts.year, endParts.month, endParts.day);
+          // Create date objects for comparison (just dates, no time)
+          const eventStartDate = new Date(startParts.year, startParts.month, startParts.day);
+          const eventEndDate = new Date(endParts.year, endParts.month, endParts.day);
 
-        // Check if this day falls within the event's date range (inclusive)
-        return checkDate >= eventStartDate && checkDate <= eventEndDate;
-      });
+          // Check if this day falls within the event's date range (inclusive)
+          return checkDate >= eventStartDate && checkDate <= eventEndDate;
+        })
+        .map(event => {
+          const eventStart = new Date(event.startTimeUtc);
+          const eventEnd = new Date(event.endTimeUtc);
+
+          const startParts = getDateInTimezone(eventStart, timezone);
+          const endParts = getDateInTimezone(eventEnd, timezone);
+
+          const eventStartDate = new Date(startParts.year, startParts.month, startParts.day);
+          const eventEndDate = new Date(endParts.year, endParts.month, endParts.day);
+
+          // Determine position
+          const isStart = checkDate.getTime() === eventStartDate.getTime() || dayOfWeek === 0;
+          const isEnd = checkDate.getTime() === eventEndDate.getTime() || dayOfWeek === 6;
+          const isSingleDay = eventStartDate.getTime() === eventEndDate.getTime();
+
+          let position: EventPosition;
+          if (isSingleDay) {
+            position = 'single';
+          } else if (isStart && isEnd) {
+            // Event spans across week boundary but this is both start of week and end of event (or vice versa)
+            position = checkDate.getTime() === eventStartDate.getTime() ? 'start' : 'end';
+          } else if (isStart) {
+            position = 'start';
+          } else if (isEnd) {
+            position = 'end';
+          } else {
+            position = 'middle';
+          }
+
+          return { event, position };
+        });
     };
   }, [events, currentMonth, useLocalTimezone]);
 
@@ -203,14 +243,36 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
         {/* Day cells */}
         {Array.from({ length: daysInMonth }).map((_, index) => {
           const day = index + 1;
-          const dayEvents = getEventsForDay(day);
+          // Calculate day of week (0-6, Sunday = 0)
+          const dayOfWeek = (firstDayOfMonth + index) % 7;
+          const dayEvents = getEventsForDay(day, dayOfWeek);
           const today = isToday(day);
+
+          // Get border radius based on event position
+          const getEventBorderRadius = (position: EventPosition): string => {
+            switch (position) {
+              case 'single': return '9999px'; // rounded-full
+              case 'start': return '9999px 0 0 9999px'; // rounded left only
+              case 'end': return '0 9999px 9999px 0'; // rounded right only
+              case 'middle': return '0'; // no rounding
+            }
+          };
+
+          // Get margin based on position for connected look
+          const getEventMargin = (position: EventPosition): string => {
+            switch (position) {
+              case 'start': return '0 -6px 0 0'; // extend to the right
+              case 'end': return '0 0 0 -6px'; // extend to the left
+              case 'middle': return '0 -6px 0 -6px'; // extend both sides
+              default: return '0';
+            }
+          };
 
           return (
             <div
               key={day}
               onClick={() => onDayClick(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day))}
-              className="min-h-[90px] sm:min-h-[100px] p-1.5 sm:p-2 rounded-lg border transition-all duration-200 cursor-pointer group"
+              className="min-h-[90px] sm:min-h-[100px] p-1.5 sm:p-2 rounded-lg border transition-all duration-200 cursor-pointer group overflow-hidden"
               style={{
                 backgroundColor: today
                   ? 'color-mix(in srgb, var(--theme-primary) 8%, transparent)'
@@ -259,18 +321,23 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
 
               {/* Events */}
               <div className="space-y-0.5">
-                {dayEvents.slice(0, 3).map((event) => (
+                {dayEvents.slice(0, 3).map(({ event, position }) => (
                   <button
                     key={event.id}
                     onClick={(e) => {
                       e.stopPropagation();
                       onEventClick(event);
                     }}
-                    className="w-full text-left px-1.5 py-0.5 text-[10px] sm:text-xs rounded-full truncate transition-all hover:scale-[1.02] font-medium"
-                    style={getEventColorStyles(event.colorIndex)}
+                    className="w-full text-left px-1.5 py-0.5 text-[10px] sm:text-xs truncate transition-all hover:brightness-110 font-medium"
+                    style={{
+                      ...getEventColorStyles(event.colorIndex),
+                      borderRadius: getEventBorderRadius(position),
+                      margin: getEventMargin(position),
+                      width: position === 'middle' ? 'calc(100% + 12px)' : position === 'start' || position === 'end' ? 'calc(100% + 6px)' : '100%'
+                    }}
                     title={event.name}
                   >
-                    {event.name}
+                    {position === 'start' || position === 'single' ? event.name : ''}
                   </button>
                 ))}
                 {dayEvents.length > 3 && (
