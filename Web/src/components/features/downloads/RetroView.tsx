@@ -291,7 +291,7 @@ const RetroView: React.FC<RetroViewProps> = ({
         <div>App</div>
         <div>Depot</div>
         <div>Client</div>
-        <div>Avg Speed</div>
+        <div>Avg Download Speed</div>
         <div>Cache Hit</div>
         <div>Cache Miss</div>
         <div className="text-center">Overall</div>

@@ -103,7 +103,7 @@ const ClientCard: React.FC<ClientRowProps> = ({ client }) => {
           <p className="text-themed-secondary">{formatBytes(client.totalBytes)}</p>
         </div>
         <div>
-          <span className="text-themed-muted text-xs">Avg Speed</span>
+          <span className="text-themed-muted text-xs">Avg Download Speed</span>
           <p className="text-themed-secondary">{formatSpeed(client.averageBytesPerSecond)}</p>
         </div>
         <div>
@@ -126,7 +126,7 @@ const ClientCard: React.FC<ClientRowProps> = ({ client }) => {
 
 const sortOptions = [
   { value: 'totalData', label: 'Total Data' },
-  { value: 'avgSpeed', label: 'Avg Speed' },
+  { value: 'avgSpeed', label: 'Avg Download Speed' },
   { value: 'downloads', label: 'Total Downloads' },
   { value: 'hits', label: 'Cache Hits' },
   { value: 'misses', label: 'Cache Misses' },
@@ -226,7 +226,7 @@ const ClientsTab: React.FC = () => {
                 <th className="pb-3">Client IP</th>
                 <th className="pb-3">Total Downloads</th>
                 <th className="pb-3">Total Data</th>
-                <th className="pb-3 hidden lg:table-cell">Avg Speed</th>
+                <th className="pb-3 hidden lg:table-cell">Avg Download Speed</th>
                 <th className="pb-3">Cache Hits</th>
                 <th className="pb-3">Cache Misses</th>
                 <th className="pb-3">Hit Rate</th>

@@ -291,7 +291,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
               disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated}
               fullWidth
             >
-              Reset All access.log(s)
+              Reset All Log Positions
             </Button>
             <Button
               variant="filled"
