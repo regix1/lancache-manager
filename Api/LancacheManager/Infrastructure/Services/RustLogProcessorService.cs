@@ -405,10 +405,8 @@ public class RustLogProcessorService
                 {
                     // Auto-tag new downloads to active events IMMEDIATELY for live monitoring
                     // This must happen BEFORE the UI refresh so downloads show with their event tags
-                    if (silentMode)
-                    {
-                        await AutoTagNewDownloadsAsync();
-                    }
+                    // Run for BOTH silent and interactive mode to prevent duplicate grouping issues
+                    await AutoTagNewDownloadsAsync();
 
                     // These can run in background as they're not critical for the UI refresh
                     _ = Task.Run(async () =>
