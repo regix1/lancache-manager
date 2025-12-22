@@ -4,7 +4,7 @@ import { Button } from '@components/ui/Button';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { useTimezone } from '@contexts/TimezoneContext';
 import { getEffectiveTimezone, getDateInTimezone } from '@utils/timezone';
-import { getEventColorStyles, getEventColorVar } from '@utils/eventColors';
+import { getEventColorVar } from '@utils/eventColors';
 import { Tooltip } from '@components/ui/Tooltip';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import type { Event } from '../../../types';
