@@ -39,6 +39,11 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
   const [expandedDay, setExpandedDay] = useState<{ day: number; weekIndex: number } | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
 
+  // Check if an event has ended
+  const hasEventEnded = (event: Event): boolean => {
+    return new Date(event.endTimeUtc) < new Date();
+  };
+
   // Close popover when clicking outside
   useEffect(() => {
     if (expandedDay === null) return;
@@ -533,7 +538,14 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                             color: colorVar,
                           }}
                         >
-                          {spanEvent.isStart ? spanEvent.event.name : ''}
+                          {spanEvent.isStart ? (
+                          <>
+                            {spanEvent.event.name}
+                            {hasEventEnded(spanEvent.event) && (
+                              <span style={{ opacity: 0.7, marginLeft: '4px' }}>(Ended)</span>
+                            )}
+                          </>
+                        ) : ''}
                         </button>
                       </Tooltip>
                     );
@@ -658,7 +670,12 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                               className="w-2 h-2 rounded-full flex-shrink-0"
                               style={{ backgroundColor: colorVar }}
                             />
-                            <span className="truncate">{event.name}</span>
+                            <span className="truncate">
+                              {event.name}
+                              {hasEventEnded(event) && (
+                                <span style={{ opacity: 0.7, marginLeft: '4px' }}>(Ended)</span>
+                              )}
+                            </span>
                           </button>
                         );
                       })}
