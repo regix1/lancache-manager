@@ -55,9 +55,14 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
     setThumbTop(newThumbTop);
   };
 
-  // Handle scroll event
+  // Handle scroll event with RAF throttling
+  const rafRef = useRef<number | null>(null);
   const handleScroll = () => {
-    updateScrollbar();
+    if (rafRef.current) return;
+    rafRef.current = requestAnimationFrame(() => {
+      updateScrollbar();
+      rafRef.current = null;
+    });
   };
 
   // Handle thumb drag
@@ -143,6 +148,7 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
     return () => {
       clearTimeout(timer);
       resizeObserver.disconnect();
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
   }, [children]);
 
@@ -175,6 +181,8 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
           paddingRight,
           scrollbarWidth: 'none', // Firefox
           msOverflowStyle: 'none', // IE/Edge
+          WebkitOverflowScrolling: 'touch', // Smooth scrolling on iOS
+          willChange: 'scroll-position',
         }}
       >
         <style>{`

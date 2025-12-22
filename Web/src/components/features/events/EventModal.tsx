@@ -309,6 +309,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
             onChange={setEndDateTime}
             onClose={() => setShowEndPicker(false)}
             title="Select End Date & Time"
+            minDate={startDateTime}
           />
         )}
       </Modal>

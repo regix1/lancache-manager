@@ -10,13 +10,15 @@ interface DateTimePickerProps {
   onChange: (date: Date) => void;
   onClose: () => void;
   title?: string;
+  minDate?: Date; // Minimum selectable date/time
 }
 
 const DateTimePicker: React.FC<DateTimePickerProps> = ({
   value,
   onChange,
   onClose,
-  title = 'Select Date & Time'
+  title = 'Select Date & Time',
+  minDate
 }) => {
   const { use24HourFormat, useLocalTimezone } = useTimezone();
 
@@ -183,6 +185,38 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
     );
   };
 
+  // Check if a day is before the minimum date
+  const isBeforeMinDate = (day: number): boolean => {
+    if (!minDate) return false;
+    const checkDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
+    const minDateOnly = new Date(minDate.getFullYear(), minDate.getMonth(), minDate.getDate());
+    return checkDate < minDateOnly;
+  };
+
+  // Check if the selected date is the same as minDate (for time restrictions)
+  const isMinDateDay = (): boolean => {
+    if (!minDate || !selectedDate) return false;
+    return (
+      selectedDate.getFullYear() === minDate.getFullYear() &&
+      selectedDate.getMonth() === minDate.getMonth() &&
+      selectedDate.getDate() === minDate.getDate()
+    );
+  };
+
+  // Get minimum hour allowed (only applies on minDate day)
+  const getMinHour = (): number => {
+    if (!isMinDateDay() || !minDate) return 0;
+    return minDate.getHours();
+  };
+
+  // Get minimum minute allowed (only applies on minDate day and same hour)
+  const getMinMinute = (): number => {
+    if (!isMinDateDay() || !minDate) return 0;
+    if (hours > minDate.getHours()) return 0;
+    if (hours === minDate.getHours()) return minDate.getMinutes();
+    return 0;
+  };
+
   const daysInMonth = getDaysInMonth(currentMonth);
   const firstDayOfMonth = getFirstDayOfMonth(currentMonth);
 
@@ -342,25 +376,29 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
             const day = index + 1;
             const selected = isSelectedDate(day);
             const today = isToday(day);
+            const disabled = isBeforeMinDate(day);
 
-            let className = 'relative p-2 text-sm transition-all cursor-pointer rounded-lg ';
+            let className = 'relative p-2 text-sm transition-all rounded-lg ';
 
-            if (selected) {
-              className += 'bg-[var(--theme-primary)] text-[var(--theme-button-text)] font-semibold ';
+            if (disabled) {
+              className += 'text-[var(--theme-text-muted)] cursor-not-allowed opacity-40 ';
+            } else if (selected) {
+              className += 'bg-[var(--theme-primary)] text-[var(--theme-button-text)] font-semibold cursor-pointer ';
             } else if (today) {
-              className += 'ring-2 ring-[var(--theme-primary)]/50 text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-tertiary)] ';
+              className += 'ring-2 ring-[var(--theme-primary)]/50 text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-tertiary)] cursor-pointer ';
             } else {
-              className += 'hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] ';
+              className += 'hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] cursor-pointer ';
             }
 
             return (
               <button
                 key={day}
-                onClick={() => handleDateClick(day)}
+                onClick={() => !disabled && handleDateClick(day)}
+                disabled={disabled}
                 className={className}
               >
                 {day}
-                {today && !selected && (
+                {today && !selected && !disabled && (
                   <div className="absolute bottom-0.5 left-1/2 transform -translate-x-1/2 w-1 h-1 bg-[var(--theme-primary)] rounded-full" />
                 )}
               </button>
@@ -397,19 +435,32 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
                 >
                   <CustomScrollbar maxHeight="200px" paddingMode="none">
                     <div className="py-1">
-                      {hourOptions.map((hour) => (
-                        <button
-                          key={hour}
-                          onClick={() => handleHourChange(hour)}
-                          className={`w-full text-center px-4 py-2 text-sm transition-colors ${
-                            (use24HourFormat ? hours === hour : displayHour === hour)
-                              ? 'bg-[var(--theme-primary)] text-[var(--theme-button-text)] font-medium'
-                              : 'text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-tertiary)]'
-                          }`}
-                        >
-                          {hour.toString().padStart(2, '0')}
-                        </button>
-                      ))}
+                      {hourOptions.map((hour) => {
+                        // Convert display hour to 24h for comparison
+                        let hour24 = hour;
+                        if (!use24HourFormat) {
+                          if (amPm === 'PM' && hour !== 12) hour24 = hour + 12;
+                          else if (amPm === 'AM' && hour === 12) hour24 = 0;
+                        }
+                        const isDisabled = hour24 < getMinHour();
+
+                        return (
+                          <button
+                            key={hour}
+                            onClick={() => !isDisabled && handleHourChange(hour)}
+                            disabled={isDisabled}
+                            className={`w-full text-center px-4 py-2 text-sm transition-colors ${
+                              isDisabled
+                                ? 'text-[var(--theme-text-muted)] opacity-40 cursor-not-allowed'
+                                : (use24HourFormat ? hours === hour : displayHour === hour)
+                                  ? 'bg-[var(--theme-primary)] text-[var(--theme-button-text)] font-medium'
+                                  : 'text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-tertiary)]'
+                            }`}
+                          >
+                            {hour.toString().padStart(2, '0')}
+                          </button>
+                        );
+                      })}
                     </div>
                   </CustomScrollbar>
                 </div>
@@ -441,19 +492,26 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
                 >
                   <CustomScrollbar maxHeight="200px" paddingMode="none">
                     <div className="py-1">
-                      {minuteOptions.map((minute) => (
-                        <button
-                          key={minute}
-                          onClick={() => handleMinuteChange(minute)}
-                          className={`w-full text-center px-4 py-2 text-sm transition-colors ${
-                            minutes === minute
-                              ? 'bg-[var(--theme-primary)] text-[var(--theme-button-text)] font-medium'
-                              : 'text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-tertiary)]'
-                          }`}
-                        >
-                          {minute.toString().padStart(2, '0')}
-                        </button>
-                      ))}
+                      {minuteOptions.map((minute) => {
+                        const isDisabled = minute < getMinMinute();
+
+                        return (
+                          <button
+                            key={minute}
+                            onClick={() => !isDisabled && handleMinuteChange(minute)}
+                            disabled={isDisabled}
+                            className={`w-full text-center px-4 py-2 text-sm transition-colors ${
+                              isDisabled
+                                ? 'text-[var(--theme-text-muted)] opacity-40 cursor-not-allowed'
+                                : minutes === minute
+                                  ? 'bg-[var(--theme-primary)] text-[var(--theme-button-text)] font-medium'
+                                  : 'text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-tertiary)]'
+                            }`}
+                          >
+                            {minute.toString().padStart(2, '0')}
+                          </button>
+                        );
+                      })}
                     </div>
                   </CustomScrollbar>
                 </div>

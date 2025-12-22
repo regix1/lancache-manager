@@ -13,6 +13,7 @@ interface TooltipProps {
   className?: string;
   contentClassName?: string;
   strategy?: TooltipStrategy;
+  style?: React.CSSProperties;
 }
 
 const DEFAULT_OFFSET = 8;
@@ -24,13 +25,16 @@ export const Tooltip: React.FC<TooltipProps> = ({
   offset = DEFAULT_OFFSET,
   className,
   contentClassName = '',
-  strategy = 'edge'
+  strategy = 'edge',
+  style
 }) => {
   const [show, setShow] = useState(false);
   const [x, setX] = useState(0);
   const [y, setY] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
   const triggerRef = useRef<HTMLDivElement>(null);
+  const showTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Check if tooltips are disabled globally or on mobile
   const globallyDisabled =
@@ -75,25 +79,59 @@ export const Tooltip: React.FC<TooltipProps> = ({
   );
   const childContent = children ?? defaultChildren;
 
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (showTimeoutRef.current) clearTimeout(showTimeoutRef.current);
+      if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
+    };
+  }, []);
+
+  const handleMouseEnter = (e: React.MouseEvent) => {
+    if (tooltipsDisabled) return;
+
+    // Clear any pending hide
+    if (hideTimeoutRef.current) {
+      clearTimeout(hideTimeoutRef.current);
+      hideTimeoutRef.current = null;
+    }
+
+    setX(e.clientX);
+    setY(e.clientY);
+
+    // Small delay before showing (150ms)
+    showTimeoutRef.current = setTimeout(() => {
+      setShow(true);
+    }, 150);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!tooltipsDisabled && strategy === 'overlay') {
+      setX(e.clientX);
+      setY(e.clientY);
+    }
+  };
+
+  const handleMouseLeave = () => {
+    // Clear any pending show
+    if (showTimeoutRef.current) {
+      clearTimeout(showTimeoutRef.current);
+      showTimeoutRef.current = null;
+    }
+
+    // Hide immediately
+    setShow(false);
+  };
+
   return (
     <>
       <div
         ref={triggerRef}
         className={className || 'inline-flex'}
-        onMouseEnter={(e) => {
-          if (!tooltipsDisabled) {
-            setShow(true);
-            setX(e.clientX);
-            setY(e.clientY);
-          }
-        }}
-        onMouseMove={(e) => {
-          if (!tooltipsDisabled && strategy === 'overlay') {
-            setX(e.clientX);
-            setY(e.clientY);
-          }
-        }}
-        onMouseLeave={() => setShow(false)}
+        style={style}
+        onMouseEnter={handleMouseEnter}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
         onTouchStart={(e) => {
           if (!tooltipsDisabled) {
             setShow(true);
@@ -113,14 +151,20 @@ export const Tooltip: React.FC<TooltipProps> = ({
         strategy === 'overlay' &&
         createPortal(
           <div
-            className={`fixed z-[9999] max-w-md px-2.5 py-1.5 text-xs themed-card text-themed-secondary rounded-md shadow-2xl pointer-events-none ${contentClassName}`}
             style={{
+              position: 'fixed',
+              zIndex: 99999,
               left: x + 10,
               top: y + 10,
-              transition: 'none',
-              backdropFilter: 'blur(8px)',
+              maxWidth: '320px',
+              padding: '6px 10px',
+              fontSize: '12px',
+              borderRadius: '6px',
+              pointerEvents: 'none',
+              backgroundColor: 'var(--theme-bg-tertiary)',
+              color: 'var(--theme-text-primary)',
               border: '1px solid var(--theme-card-border)',
-              boxShadow: '0 10px 40px rgba(0, 0, 0, 0.4)'
+              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.5)'
             }}
           >
             {content}
