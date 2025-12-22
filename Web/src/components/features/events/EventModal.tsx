@@ -255,7 +255,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
                 <Button
                   type="button"
                   color="red"
-                  variant="subtle"
+                  variant="outline"
                   onClick={handleDeleteClick}
                   leftSection={<Trash2 className="w-4 h-4" />}
                 >
@@ -266,7 +266,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
             <div className="flex gap-2">
               <Button
                 type="button"
-                variant="subtle"
+                variant="outline"
                 onClick={onClose}
                 disabled={saving || deleting}
               >
@@ -274,6 +274,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
               </Button>
               <Button
                 type="submit"
+                variant="filled"
                 color="blue"
                 loading={saving}
               >
@@ -333,13 +334,14 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
           </p>
           <div className="flex justify-end gap-2 pt-4 border-t border-[var(--theme-border-primary)]">
             <Button
-              variant="subtle"
+              variant="outline"
               onClick={() => setShowDeleteConfirm(false)}
               disabled={deleting}
             >
               Cancel
             </Button>
             <Button
+              variant="filled"
               color="red"
               onClick={handleDeleteConfirm}
               loading={deleting}

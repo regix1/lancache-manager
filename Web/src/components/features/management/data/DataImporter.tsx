@@ -1,5 +1,15 @@
-import React, { useState } from 'react';
-import { Database, AlertTriangle, ChevronUp, ChevronDown } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Database,
+  AlertTriangle,
+  ChevronUp,
+  ChevronDown,
+  Upload,
+  CheckCircle2,
+  Loader2,
+  Search,
+  RefreshCw
+} from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
@@ -32,6 +42,17 @@ interface ImportResult {
   backupPath?: string;
 }
 
+interface FileSystemItem {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  size: number;
+  lastModified: string;
+  isAccessible: boolean;
+}
+
+type InputMode = 'auto' | 'browse' | 'manual';
+
 const DataImporter: React.FC<DataImporterProps> = ({
   isAuthenticated,
   mockMode,
@@ -46,8 +67,54 @@ const DataImporter: React.FC<DataImporterProps> = ({
   const [importing, setImporting] = useState(false);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
-  const [useBrowser, setUseBrowser] = useState(true);
+  const [inputMode, setInputMode] = useState<InputMode>('auto');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
+  const [autoSearching, setAutoSearching] = useState(false);
+  const [foundDatabases, setFoundDatabases] = useState<FileSystemItem[]>([]);
+
+  // Simulate progress during import
+  useEffect(() => {
+    if (importing) {
+      setImportProgress(0);
+      const interval = setInterval(() => {
+        setImportProgress(prev => {
+          if (prev >= 90) return prev;
+          return prev + Math.random() * 15;
+        });
+      }, 500);
+      return () => clearInterval(interval);
+    } else if (importResult) {
+      setImportProgress(100);
+    }
+  }, [importing, importResult]);
+
+  // Auto-search for databases when in auto mode
+  const searchForDatabases = useCallback(async () => {
+    if (!isAuthenticated || mockMode) return;
+
+    setAutoSearching(true);
+    try {
+      const res = await fetch(
+        '/api/filebrowser/search?searchPath=/',
+        ApiService.getFetchOptions({ method: 'GET' })
+      );
+      const result = await ApiService.handleResponse<{ results: FileSystemItem[] }>(res);
+      setFoundDatabases(result.results);
+    } catch (error) {
+      console.error('Failed to search for databases:', error);
+      setFoundDatabases([]);
+    } finally {
+      setAutoSearching(false);
+    }
+  }, [isAuthenticated, mockMode]);
+
+  // Trigger search when switching to auto mode
+  useEffect(() => {
+    if (inputMode === 'auto' && isAuthenticated && !mockMode && foundDatabases.length === 0) {
+      searchForDatabases();
+    }
+  }, [inputMode, isAuthenticated, mockMode, foundDatabases.length, searchForDatabases]);
 
   const handleValidate = async () => {
     if (!connectionString.trim()) {
@@ -57,6 +124,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
 
     setValidating(true);
     setValidationResult(null);
+    setImportResult(null);
 
     try {
       const res = await fetch(
@@ -127,52 +195,78 @@ const DataImporter: React.FC<DataImporterProps> = ({
   };
 
   const handleFileSelect = (path: string) => {
-    // Pass raw path - controller now accepts both formats
     setConnectionString(path);
     setValidationResult(null);
-    setUseBrowser(false);
+    setImportResult(null);
     onSuccess?.(`Selected database: ${path}`);
+  };
+
+  const handleAutoSelect = (item: FileSystemItem) => {
+    setConnectionString(item.path);
+    setValidationResult(null);
+    setImportResult(null);
+    onSuccess?.(`Selected database: ${item.path}`);
+  };
+
+  const formatSize = (bytes: number): string => {
+    if (bytes === 0) return '-';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
   };
 
   return (
     <Card>
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-cyan">
-            <Database className="w-5 h-5 icon-cyan" />
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
+            <Upload className="w-5 h-5 icon-purple" />
           </div>
-          <div className="flex items-center gap-2">
-            <h3 className="text-lg font-semibold text-themed-primary">
-              Import Historical Data
-            </h3>
-            <HelpPopover position="left" width={340}>
-              <HelpSection title="Input Methods">
-                <div className="space-y-1.5">
-                  <HelpDefinition term="Browse" termColor="blue">
-                    Navigate to select your SQLite database file
-                  </HelpDefinition>
-                  <HelpDefinition term="Manual" termColor="green">
-                    Paste the file path directly
-                  </HelpDefinition>
-                </div>
-              </HelpSection>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-lg font-semibold text-themed-primary">
+                Import Historical Data
+              </h3>
+              <HelpPopover position="left" width={340}>
+                <HelpSection title="Input Methods">
+                  <div className="space-y-1.5">
+                    <HelpDefinition term="Browse" termColor="blue">
+                      Navigate to select your SQLite database file
+                    </HelpDefinition>
+                    <HelpDefinition term="Manual" termColor="green">
+                      Paste the file path directly
+                    </HelpDefinition>
+                  </div>
+                </HelpSection>
 
-              <HelpSection title="Compatibility" variant="subtle">
-                Supports SQLite databases from DeveLanCacheUI_Backend and other compatible tools.
-                Mount external databases as Docker volumes.
-              </HelpSection>
+                <HelpSection title="Compatibility" variant="subtle">
+                  Only compatible with DeveLanCacheUI_Backend SQLite databases.
+                  Mount external databases as Docker volumes.
+                </HelpSection>
 
-              <HelpNote type="warning">
-                Stop the external application before importing to avoid database locks.
-              </HelpNote>
-            </HelpPopover>
+                <HelpNote type="warning">
+                  Stop the external application before importing to avoid database locks.
+                </HelpNote>
+              </HelpPopover>
+            </div>
+            <p className="text-xs text-themed-muted">
+              Import from DeveLanCacheUI_Backend databases only
+            </p>
           </div>
         </div>
-      </div>
 
-      <p className="text-themed-muted text-sm mb-4">
-        Import download history from external sources to maintain all your historical data in one place
-      </p>
+        {/* Compatibility Badge */}
+        <div
+          className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm"
+          style={{
+            backgroundColor: 'var(--theme-bg-tertiary)',
+            border: '1px solid var(--theme-border-secondary)'
+          }}
+        >
+          <Database className="w-4 h-4 icon-purple" />
+          <span className="text-themed-secondary font-medium">DeveLanCacheUI_Backend</span>
+        </div>
+      </div>
 
       {mockMode && (
         <Alert color="yellow" className="mb-4">
@@ -181,7 +275,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
       )}
 
       <div className="space-y-4">
-        {/* Browse/Manual Toggle */}
+        {/* Mode Toggle */}
         <div className="flex items-center gap-4">
           <div
             className="flex-1 h-[2px] rounded-full"
@@ -189,36 +283,132 @@ const DataImporter: React.FC<DataImporterProps> = ({
               background: 'repeating-linear-gradient(90deg, var(--theme-border-secondary) 0px, var(--theme-border-secondary) 4px, transparent 4px, transparent 8px)'
             }}
           />
-          <div className="flex items-center gap-2">
-            <Button
-              onClick={() => setUseBrowser(true)}
-              size="xs"
-              variant={useBrowser ? 'filled' : 'default'}
-              color="blue"
+          <div
+            className="inline-flex items-center gap-1 p-1 rounded-lg"
+            style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+          >
+            <button
+              onClick={() => setInputMode('auto')}
               disabled={mockMode || !isAuthenticated}
+              className="px-4 py-1.5 rounded-md text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                backgroundColor: inputMode === 'auto' ? 'var(--theme-primary)' : 'transparent',
+                color: inputMode === 'auto' ? 'var(--theme-button-text)' : 'var(--theme-text-secondary)'
+              }}
+            >
+              Auto
+            </button>
+            <button
+              onClick={() => setInputMode('browse')}
+              disabled={mockMode || !isAuthenticated}
+              className="px-4 py-1.5 rounded-md text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                backgroundColor: inputMode === 'browse' ? 'var(--theme-primary)' : 'transparent',
+                color: inputMode === 'browse' ? 'var(--theme-button-text)' : 'var(--theme-text-secondary)'
+              }}
             >
               Browse
-            </Button>
-            <Button
-              onClick={() => setUseBrowser(false)}
-              size="xs"
-              variant={!useBrowser ? 'filled' : 'default'}
-              color="blue"
+            </button>
+            <button
+              onClick={() => setInputMode('manual')}
               disabled={mockMode || !isAuthenticated}
+              className="px-4 py-1.5 rounded-md text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                backgroundColor: inputMode === 'manual' ? 'var(--theme-primary)' : 'transparent',
+                color: inputMode === 'manual' ? 'var(--theme-button-text)' : 'var(--theme-text-secondary)'
+              }}
             >
               Manual
-            </Button>
+            </button>
           </div>
+          <div
+            className="flex-1 h-[2px] rounded-full"
+            style={{
+              background: 'repeating-linear-gradient(90deg, var(--theme-border-secondary) 0px, var(--theme-border-secondary) 4px, transparent 4px, transparent 8px)'
+            }}
+          />
         </div>
 
-        {/* File Browser or Manual Input */}
-        {useBrowser ? (
+        {/* Auto Mode - Found Databases */}
+        {inputMode === 'auto' && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-themed-secondary">
+                {autoSearching ? 'Searching for databases...' : `Found ${foundDatabases.length} database(s)`}
+              </p>
+              <button
+                onClick={searchForDatabases}
+                disabled={autoSearching || mockMode || !isAuthenticated}
+                className="p-1.5 rounded-lg transition-colors hover:bg-themed-hover disabled:opacity-50"
+                style={{ color: 'var(--theme-text-muted)' }}
+                title="Refresh search"
+              >
+                {autoSearching ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+
+            {autoSearching ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
+              </div>
+            ) : foundDatabases.length > 0 ? (
+              <div
+                className="rounded-lg border overflow-hidden"
+                style={{ borderColor: 'var(--theme-border-secondary)' }}
+              >
+                <div className="max-h-[200px] overflow-y-auto custom-scrollbar">
+                  {foundDatabases.map((item, index) => (
+                    <button
+                      key={index}
+                      onClick={() => handleAutoSelect(item)}
+                      className={`w-full px-3 py-2.5 flex items-center gap-3 transition-all text-left border-b last:border-b-0
+                        hover:bg-themed-hover cursor-pointer
+                        ${connectionString === item.path ? 'bg-themed-accent-subtle ring-1 ring-inset ring-themed-accent' : ''}
+                      `}
+                      style={{ borderColor: 'var(--theme-border-secondary)' }}
+                    >
+                      <div className="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center icon-bg-green">
+                        <Database className="w-4 h-4 icon-green" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-themed-primary truncate text-sm">{item.name}</div>
+                        <div className="text-xs text-themed-muted mt-0.5 truncate">{item.path}</div>
+                      </div>
+                      <div className="text-xs text-themed-muted flex-shrink-0">
+                        {formatSize(item.size)}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div
+                className="text-center py-8 rounded-lg"
+                style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+              >
+                <Search className="w-8 h-8 mx-auto mb-2 text-themed-muted opacity-50" />
+                <p className="text-sm text-themed-muted">No database files found</p>
+                <p className="text-xs text-themed-muted mt-1">Try using Browse or Manual mode</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Browse Mode */}
+        {inputMode === 'browse' && (
           <FileBrowser
             onSelectFile={handleFileSelect}
             isAuthenticated={isAuthenticated}
             mockMode={mockMode}
           />
-        ) : (
+        )}
+
+        {/* Manual Mode */}
+        {inputMode === 'manual' && (
           <div>
             <label className="block text-sm font-medium text-themed-primary mb-2">
               Database File Path
@@ -226,7 +416,11 @@ const DataImporter: React.FC<DataImporterProps> = ({
             <input
               type="text"
               value={connectionString}
-              onChange={(e) => setConnectionString(e.target.value)}
+              onChange={(e) => {
+                setConnectionString(e.target.value);
+                setValidationResult(null);
+                setImportResult(null);
+              }}
               placeholder="/mnt/import/lancache.db"
               className="w-full px-3 py-2 rounded-lg transition-colors
                        bg-themed-secondary text-themed-primary
@@ -235,10 +429,38 @@ const DataImporter: React.FC<DataImporterProps> = ({
               disabled={mockMode || !isAuthenticated}
             />
             <p className="text-xs text-themed-muted mt-1">
-              Accepts file path or connection string:{' '}
-              <code className="bg-themed-tertiary px-1 py-0.5 rounded">/path/to/database.db</code>
+              Example: <code className="bg-themed-tertiary px-1 py-0.5 rounded">/path/to/database.db</code>
             </p>
           </div>
+        )}
+
+        {/* Validation Success */}
+        {validationResult?.valid && (
+          <div
+            className="flex items-center gap-3 p-3 rounded-lg"
+            style={{
+              backgroundColor: 'var(--theme-success-bg)',
+              border: '1px solid var(--theme-success)'
+            }}
+          >
+            <CheckCircle2 className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--theme-success)' }} />
+            <div>
+              <p className="font-medium text-themed-success">Connection Valid</p>
+              <p className="text-sm text-themed-secondary">
+                Found {validationResult.recordCount?.toLocaleString()} records ready to import
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Validation Error */}
+        {validationResult && !validationResult.valid && (
+          <Alert color="red">
+            <div>
+              <p className="font-medium">Validation Failed</p>
+              <p className="text-sm mt-1">{validationResult.message}</p>
+            </div>
+          </Alert>
         )}
 
         {/* Advanced Options */}
@@ -294,17 +516,48 @@ const DataImporter: React.FC<DataImporterProps> = ({
               disabled={mockMode || !isAuthenticated}
             />
             <p className="text-xs text-themed-muted mt-1 ml-6">
-              {overwriteExisting
-                ? 'Existing records will be updated with new data. New records will be added (merge/sync mode).'
-                : 'Only new records will be added. Existing records will be skipped (append-only mode).'}
+              {overwriteExisting ? 'Sync mode: update existing + add new' : 'Append only: skip duplicates'}
             </p>
           </div>
         </div>
 
+        {/* Import Progress */}
+        {importing && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-themed-secondary">Importing...</span>
+              <span className="text-themed-muted">{Math.round(importProgress)}%</span>
+            </div>
+            <div
+              className="h-2 rounded-full overflow-hidden"
+              style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+            >
+              <div
+                className="h-full rounded-full transition-all duration-300"
+                style={{
+                  width: `${importProgress}%`,
+                  backgroundColor: 'var(--theme-icon-green)'
+                }}
+              />
+            </div>
+          </div>
+        )}
+
         {/* Import Result */}
         {importResult && (
-          <div className="p-4 rounded-lg" style={{ backgroundColor: 'var(--theme-success-bg)', borderWidth: '1px', borderColor: 'var(--theme-success)' }}>
-            <p className="font-medium text-themed-success mb-3">{importResult.message}</p>
+          <div
+            className="p-4 rounded-lg"
+            style={{
+              backgroundColor: importResult.errors > 0 ? 'var(--theme-warning-bg)' : 'var(--theme-success-bg)',
+              border: `1px solid ${importResult.errors > 0 ? 'var(--theme-warning)' : 'var(--theme-success)'}`
+            }}
+          >
+            <p
+              className="font-medium mb-3"
+              style={{ color: importResult.errors > 0 ? 'var(--theme-warning-text)' : 'var(--theme-success-text)' }}
+            >
+              {importResult.message}
+            </p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-3">
               <div>
                 <span className="text-themed-muted">Total:</span>{' '}
@@ -330,7 +583,10 @@ const DataImporter: React.FC<DataImporterProps> = ({
               </div>
             </div>
             {importResult.backupPath && !importResult.backupPath.includes('(no backup') && (
-              <div className="pt-3 border-t" style={{ borderColor: 'var(--theme-success)' }}>
+              <div
+                className="pt-3 border-t"
+                style={{ borderColor: importResult.errors > 0 ? 'var(--theme-warning)' : 'var(--theme-success)' }}
+              >
                 <p className="text-xs text-themed-muted mb-1">Database backup created:</p>
                 <p className="text-xs font-mono text-themed-secondary bg-themed-tertiary px-2 py-1 rounded break-all">
                   {importResult.backupPath}
@@ -349,7 +605,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
             variant="default"
             fullWidth
           >
-            {validating ? 'Validating...' : 'Validate Connection'}
+            {validating ? 'Validating...' : validationResult?.valid ? 'Re-validate' : 'Validate Connection'}
           </Button>
 
           <Button
@@ -365,7 +621,14 @@ const DataImporter: React.FC<DataImporterProps> = ({
             color="green"
             fullWidth
           >
-            {importing ? 'Importing...' : 'Import Data'}
+            {importing ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Importing...
+              </>
+            ) : (
+              `Import ${validationResult?.recordCount?.toLocaleString() || ''} Records`
+            )}
           </Button>
         </div>
 
@@ -418,7 +681,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
           <div className="flex justify-end space-x-3 pt-4 border-t border-themed-secondary">
             <Button
               onClick={() => setShowConfirmModal(false)}
-              variant="default"
+              variant="outline"
             >
               Cancel
             </Button>

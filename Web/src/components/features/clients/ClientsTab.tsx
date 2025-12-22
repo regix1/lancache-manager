@@ -25,8 +25,17 @@ interface ClientRowProps {
   client: ClientData;
 }
 
+// Check if speed is meaningful (not just total bytes / 1 second)
+const isSpeedMeaningful = (speed: number | undefined, totalBytes: number): boolean => {
+  if (!speed || speed <= 0) return false;
+  // If speed is within 5% of total bytes, it's likely a ~1 second download
+  const ratio = speed / totalBytes;
+  return ratio < 0.95 || ratio > 1.05;
+};
+
 const ClientRow: React.FC<ClientRowProps> = ({ client }) => {
   const formattedLastActivity = useFormattedDateTime(client.lastActivityUtc);
+  const showSpeed = isSpeedMeaningful(client.averageBytesPerSecond, client.totalBytes);
 
   return (
     <tr className="hover:bg-themed-hover transition-colors">
@@ -40,7 +49,7 @@ const ClientRow: React.FC<ClientRowProps> = ({ client }) => {
         {formatBytes(client.totalBytes)}
       </td>
       <td className="py-3 text-themed-secondary text-sm hidden lg:table-cell whitespace-nowrap">
-        {formatSpeed(client.averageBytesPerSecond)}
+        {showSpeed ? formatSpeed(client.averageBytesPerSecond) : '-'}
       </td>
       <td className="py-3 cache-hit hidden md:table-cell text-sm whitespace-nowrap">
         {formatBytes(client.totalCacheHitBytes)}
@@ -71,6 +80,7 @@ const ClientRow: React.FC<ClientRowProps> = ({ client }) => {
 // Mobile card layout for each client
 const ClientCard: React.FC<ClientRowProps> = ({ client }) => {
   const formattedLastActivity = useFormattedDateTime(client.lastActivityUtc);
+  const showSpeed = isSpeedMeaningful(client.averageBytesPerSecond, client.totalBytes);
 
   return (
     <div
@@ -104,7 +114,7 @@ const ClientCard: React.FC<ClientRowProps> = ({ client }) => {
         </div>
         <div>
           <span className="text-themed-muted text-xs">Avg Download Speed</span>
-          <p className="text-themed-secondary">{formatSpeed(client.averageBytesPerSecond)}</p>
+          <p className="text-themed-secondary">{showSpeed ? formatSpeed(client.averageBytesPerSecond) : '-'}</p>
         </div>
         <div>
           <span className="text-themed-muted text-xs">Cache Hits</span>
