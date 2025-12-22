@@ -381,8 +381,8 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
 
           @container (min-width: 420px) {
             .chart-side {
-              width: 55%;
-              max-width: 260px;
+              width: 65%;
+              max-width: 320px;
             }
           }
 
