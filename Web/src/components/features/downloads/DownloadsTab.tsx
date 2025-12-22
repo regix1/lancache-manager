@@ -554,6 +554,14 @@ const DownloadsTab: React.FC = () => {
 
   // Removed serviceFilteredDownloads - now using latestDownloads.length directly for total count
 
+  // Normalize game name for grouping - removes trademark symbols and normalizes whitespace
+  const normalizeGameName = (name: string): string => {
+    return name
+      .replace(/[®™©℠]/g, '') // Remove trademark/copyright symbols
+      .replace(/\s+/g, ' ')    // Normalize whitespace
+      .trim();
+  };
+
   // Grouping logic for different view modes
   const createGroups = (
     downloads: Download[],
@@ -581,8 +589,11 @@ const DownloadsTab: React.FC = () => {
         download.gameName !== 'Unknown Steam Game' &&
         !download.gameName.match(/^Steam App \d+$/)
       ) {
-        groupKey = `game-${download.gameName}`;
-        groupName = download.gameName;
+        // Normalize the game name for grouping to avoid duplicates like
+        // "Call of Duty®: Black Ops II" vs "Call of Duty: Black Ops II"
+        const normalizedName = normalizeGameName(download.gameName);
+        groupKey = `game-${normalizedName}`;
+        groupName = normalizedName; // Use normalized name for display
         groupType = 'game';
       } else if (groupUnknown && isUnknownGame) {
         // Group all unknown games together when the setting is enabled
