@@ -496,11 +496,12 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                 >
                   {visibleEvents.map((spanEvent, eventIndex) => {
                     const colorVar = getEventColorVar(spanEvent.event.colorIndex);
+                    const isEnded = hasEventEnded(spanEvent.event);
 
                     return (
                       <Tooltip
                         key={`${spanEvent.event.id}-${week.weekIndex}`}
-                        content={spanEvent.event.name}
+                        content={`${spanEvent.event.name}${isEnded ? ' (Ended)' : ''}`}
                         strategy="overlay"
                         className="pointer-events-auto"
                         style={{
@@ -530,22 +531,21 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                                 : spanEvent.isEnd
                                   ? '0 4px 4px 0'
                                   : '0',
-                            background: `linear-gradient(90deg, color-mix(in srgb, ${colorVar} 30%, transparent) 0%, color-mix(in srgb, ${colorVar} 20%, transparent) 100%)`,
-                            borderLeft: spanEvent.isStart ? `3px solid ${colorVar}` : 'none',
-                            borderTop: `1px solid color-mix(in srgb, ${colorVar} 40%, transparent)`,
-                            borderBottom: `1px solid color-mix(in srgb, ${colorVar} 40%, transparent)`,
-                            borderRight: spanEvent.isEnd ? `1px solid color-mix(in srgb, ${colorVar} 40%, transparent)` : 'none',
-                            color: colorVar,
+                            background: `linear-gradient(90deg, color-mix(in srgb, ${colorVar} ${isEnded ? '20%' : '30%'}, transparent) 0%, color-mix(in srgb, ${colorVar} ${isEnded ? '12%' : '20%'}, transparent) 100%)`,
+                            borderLeft: spanEvent.isStart ? `3px solid ${isEnded ? `color-mix(in srgb, ${colorVar} 60%, transparent)` : colorVar}` : 'none',
+                            borderTop: `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)`,
+                            borderBottom: `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)`,
+                            borderRight: spanEvent.isEnd ? `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)` : 'none',
+                            color: isEnded ? `color-mix(in srgb, ${colorVar} 70%, transparent)` : colorVar,
+                            opacity: isEnded ? 0.75 : 1,
                           }}
                         >
                           {spanEvent.isStart ? (
-                          <>
-                            {spanEvent.event.name}
-                            {hasEventEnded(spanEvent.event) && (
-                              <span style={{ opacity: 0.7, marginLeft: '4px' }}>(Ended)</span>
-                            )}
-                          </>
-                        ) : ''}
+                            <>
+                              {isEnded && <span style={{ marginRight: '4px' }}>(Ended)</span>}
+                              {spanEvent.event.name}
+                            </>
+                          ) : ''}
                         </button>
                       </Tooltip>
                     );
@@ -642,6 +642,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                     <div className="space-y-1.5">
                       {dayEvents.map((event) => {
                         const colorVar = getEventColorVar(event.colorIndex);
+                        const isEnded = hasEventEnded(event);
                         return (
                           <button
                             key={event.id}
@@ -652,29 +653,30 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                             }}
                             className="w-full text-left px-3 py-2.5 text-xs font-medium truncate transition-all rounded-lg flex items-center gap-2"
                             style={{
-                              backgroundColor: `color-mix(in srgb, ${colorVar} 20%, transparent)`,
-                              borderLeft: `3px solid ${colorVar}`,
-                              color: colorVar,
+                              backgroundColor: `color-mix(in srgb, ${colorVar} ${isEnded ? '12%' : '20%'}, transparent)`,
+                              borderLeft: `3px solid ${isEnded ? `color-mix(in srgb, ${colorVar} 60%, transparent)` : colorVar}`,
+                              color: isEnded ? `color-mix(in srgb, ${colorVar} 70%, transparent)` : colorVar,
+                              opacity: isEnded ? 0.8 : 1,
                             }}
                             onMouseEnter={(e) => {
                               e.currentTarget.style.transform = 'translateX(3px)';
-                              e.currentTarget.style.backgroundColor = `color-mix(in srgb, ${colorVar} 30%, transparent)`;
+                              e.currentTarget.style.backgroundColor = `color-mix(in srgb, ${colorVar} ${isEnded ? '18%' : '30%'}, transparent)`;
                             }}
                             onMouseLeave={(e) => {
                               e.currentTarget.style.transform = 'translateX(0)';
-                              e.currentTarget.style.backgroundColor = `color-mix(in srgb, ${colorVar} 20%, transparent)`;
+                              e.currentTarget.style.backgroundColor = `color-mix(in srgb, ${colorVar} ${isEnded ? '12%' : '20%'}, transparent)`;
                             }}
-                            title={event.name}
+                            title={`${event.name}${isEnded ? ' (Ended)' : ''}`}
                           >
                             <span
                               className="w-2 h-2 rounded-full flex-shrink-0"
                               style={{ backgroundColor: colorVar }}
                             />
                             <span className="truncate">
-                              {event.name}
                               {hasEventEnded(event) && (
-                                <span style={{ opacity: 0.7, marginLeft: '4px' }}>(Ended)</span>
+                                <span style={{ opacity: 0.7, marginRight: '4px' }}>(Ended)</span>
                               )}
+                              {event.name}
                             </span>
                           </button>
                         );

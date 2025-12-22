@@ -108,8 +108,8 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
             label: event.name,
             description: formatEventDateRange(event.startTimeUtc, event.endTimeUtc),
             colorIndex: event.colorIndex,
-            badge: status === 'active' ? 'Live' : undefined,
-            badgeColor: 'var(--theme-status-success)'
+            badge: status === 'active' ? 'Live' : status === 'past' ? 'Ended' : undefined,
+            badgeColor: status === 'active' ? 'var(--theme-status-success)' : 'var(--theme-text-muted)'
           };
         })
       });

@@ -11,8 +11,16 @@ ARG TARGETPLATFORM
 
 WORKDIR /build/rust-processor
 
-# Copy Rust project files
+# Copy only dependency files first for better caching
 COPY rust-processor/Cargo.toml rust-processor/Cargo.lock* ./
+
+# Create dummy src to build dependencies (cache layer)
+RUN mkdir src && \
+    echo "fn main() {}" > src/main.rs && \
+    cargo build --release && \
+    rm -rf src target/release/deps/lancache* target/release/lancache* target/release/.fingerprint/lancache*
+
+# Now copy real source and build (only this layer rebuilds on code changes)
 COPY rust-processor/src ./src
 
 # Build for native platform
@@ -50,7 +58,13 @@ ARG TARGETPLATFORM
 
 WORKDIR /src
 
-# Copy the entire backend project directory
+# Copy only project file first for dependency caching
+COPY Api/LancacheManager/LancacheManager.csproj ./
+
+# Restore dependencies (cached unless csproj changes)
+RUN dotnet restore LancacheManager.csproj
+
+# Now copy source code (only this rebuilds on code changes)
 COPY Api/LancacheManager/ ./
 
 # Determine runtime identifier based on target platform
@@ -60,7 +74,6 @@ RUN case "$TARGETPLATFORM" in \
         *) RID="linux-x64" ;; \
     esac && \
     echo "Building for RID: $RID" && \
-    dotnet restore LancacheManager.csproj && \
     dotnet publish LancacheManager.csproj -c Release -o /app/publish -r $RID --self-contained false -p:SkipRustBuild=true
 
 # Copy frontend build to wwwroot

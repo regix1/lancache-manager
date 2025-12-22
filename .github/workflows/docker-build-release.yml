@@ -110,8 +110,10 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VERSION=${{ steps.version.outputs.VERSION }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: |
+            type=registry,ref=${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:cache-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
+          cache-to: |
+            type=registry,ref=${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:cache-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }},mode=max
           provenance: false
 
   create-manifest:
