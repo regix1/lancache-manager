@@ -172,22 +172,21 @@ export const EventProvider: React.FC<EventProviderProps> = ({ children }) => {
       refreshEventsRef.current?.();
     };
 
-    const handleDownloadTagged = () => {
-      // Could trigger a refresh of download associations here if needed
-      // For now, just refresh events to update counts
+    const handleEventsCleared = () => {
+      // All events were cleared via Database Management - refresh to clear the list
       refreshEventsRef.current?.();
     };
 
     on('EventCreated', handleEventCreated);
     on('EventUpdated', handleEventUpdated);
     on('EventDeleted', handleEventDeleted);
-    on('DownloadTagged', handleDownloadTagged);
+    on('EventsCleared', handleEventsCleared);
 
     return () => {
       off('EventCreated', handleEventCreated);
       off('EventUpdated', handleEventUpdated);
       off('EventDeleted', handleEventDeleted);
-      off('DownloadTagged', handleDownloadTagged);
+      off('EventsCleared', handleEventsCleared);
     };
   }, [on, off]);
 

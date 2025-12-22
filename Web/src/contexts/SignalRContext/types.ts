@@ -62,8 +62,7 @@ export const SIGNALR_EVENTS = [
   'EventCreated',
   'EventUpdated',
   'EventDeleted',
-  'TagUpdated',
-  'DownloadTagged'
+  'EventsCleared'
 ] as const;
 
 export type SignalREvent = (typeof SIGNALR_EVENTS)[number];

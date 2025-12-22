@@ -116,14 +116,30 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
       fetchedIds.current.clear();
     };
 
+    // Clear all event associations when events table is cleared
+    const handleEventsCleared = () => {
+      setAssociations(prev => {
+        const updated: AssociationsCache = {};
+        for (const [downloadId, assoc] of Object.entries(prev)) {
+          updated[Number(downloadId)] = {
+            ...assoc,
+            events: [] // Clear all events
+          };
+        }
+        return updated;
+      });
+    };
+
     on('EventDeleted', handleEventDeleted);
     on('EventUpdated', handleEventUpdated);
     on('DownloadsRefresh', handleDownloadsRefresh);
+    on('EventsCleared', handleEventsCleared);
 
     return () => {
       off('EventDeleted', handleEventDeleted);
       off('EventUpdated', handleEventUpdated);
       off('DownloadsRefresh', handleDownloadsRefresh);
+      off('EventsCleared', handleEventsCleared);
     };
   }, [on, off, removeEventFromCache, updateEventInCache]);
 

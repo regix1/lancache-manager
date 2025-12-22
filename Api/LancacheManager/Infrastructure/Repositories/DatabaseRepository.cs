@@ -630,6 +630,13 @@ public class DatabaseRepository : IDatabaseRepository
                             message = $"Cleared events ({eventsCount:N0} rows)",
                             timestamp = DateTime.UtcNow
                         });
+
+                        // Notify frontend to clear event cache
+                        await _hubContext.Clients.All.SendAsync("EventsCleared", new
+                        {
+                            message = "All events have been cleared",
+                            timestamp = DateTime.UtcNow
+                        });
                         break;
 
                     case "EventDownloads":
