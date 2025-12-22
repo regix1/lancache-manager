@@ -122,31 +122,9 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
           position: relative;
           padding: 1.25rem;
           border-radius: 16px;
-          background: linear-gradient(
-            135deg,
-            color-mix(in srgb, var(--theme-bg-secondary) 95%, var(--theme-primary) 5%) 0%,
-            var(--theme-bg-secondary) 50%,
-            color-mix(in srgb, var(--theme-bg-secondary) 95%, var(--theme-success) 5%) 100%
-          );
+          background: var(--theme-card-bg);
           border: 1px solid var(--theme-border-primary);
           overflow: hidden;
-        }
-
-        .downloads-header::before {
-          content: '';
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          height: 1px;
-          background: linear-gradient(
-            90deg,
-            transparent 0%,
-            color-mix(in srgb, var(--theme-primary) 40%, transparent) 20%,
-            color-mix(in srgb, var(--theme-primary) 60%, transparent) 50%,
-            color-mix(in srgb, var(--theme-primary) 40%, transparent) 80%,
-            transparent 100%
-          );
         }
 
         .header-content {
