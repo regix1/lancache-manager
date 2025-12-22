@@ -14,9 +14,18 @@ WORKDIR /build/rust-processor
 # Copy only dependency files first for better caching
 COPY rust-processor/Cargo.toml rust-processor/Cargo.lock* ./
 
-# Create dummy src to build dependencies (cache layer)
+# Create dummy src files for all binaries to build dependencies (cache layer)
 RUN mkdir src && \
-    echo "fn main() {}" > src/main.rs && \
+    echo "fn main() {}" > src/log_processor.rs && \
+    echo "fn main() {}" > src/speed_tracker.rs && \
+    echo "fn main() {}" > src/log_service_manager.rs && \
+    echo "fn main() {}" > src/cache_clear.rs && \
+    echo "fn main() {}" > src/cache_corruption.rs && \
+    echo "fn main() {}" > src/cache_game_detect.rs && \
+    echo "fn main() {}" > src/cache_game_remove.rs && \
+    echo "fn main() {}" > src/cache_service_remove.rs && \
+    echo "fn main() {}" > src/db_reset.rs && \
+    echo "fn main() {}" > src/db_migrate.rs && \
     cargo build --release && \
     rm -rf src target/release/deps/lancache* target/release/lancache* target/release/.fingerprint/lancache*
 
