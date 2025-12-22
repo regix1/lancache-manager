@@ -55,27 +55,8 @@ public class StatsRepository : IStatsRepository
     /// </summary>
     public async Task<List<ClientStats>> GetClientStatsAsync(CancellationToken cancellationToken = default)
     {
-        // Calculate duration from LogEntries (more accurate than Download start/end times)
-        // Groups log entries by DownloadId and calculates duration as max - min timestamp
-        var downloadDurations = await _context.LogEntries
-            .AsNoTracking()
-            .Where(e => e.DownloadId != null)
-            .GroupBy(e => e.DownloadId)
-            .Select(g => new
-            {
-                DownloadId = g.Key,
-                MinTimestamp = g.Min(e => e.Timestamp),
-                MaxTimestamp = g.Max(e => e.Timestamp)
-            })
-            .ToListAsync(cancellationToken);
-
-        // Create a lookup for duration by DownloadId
-        var durationLookup = downloadDurations.ToDictionary(
-            d => d.DownloadId!.Value,
-            d => (d.MaxTimestamp - d.MinTimestamp).TotalSeconds
-        );
-
-        // Fetch downloads with client info
+        // Fetch downloads with client info and end time for duration calculation
+        // NOTE: Using EndTime - StartTime instead of querying LogEntries for performance
         var downloads = await _context.Downloads
             .AsNoTracking()
             .Select(d => new
@@ -84,7 +65,8 @@ public class StatsRepository : IStatsRepository
                 d.ClientIp,
                 d.CacheHitBytes,
                 d.CacheMissBytes,
-                d.StartTimeUtc
+                d.StartTimeUtc,
+                d.EndTimeUtc
             })
             .ToListAsync(cancellationToken);
 
@@ -93,12 +75,12 @@ public class StatsRepository : IStatsRepository
             .GroupBy(d => d.ClientIp)
             .Select(g =>
             {
-                // Calculate total duration from log entries for all downloads of this client
+                // Calculate total duration from EndTime - StartTime for completed downloads
                 var totalDuration = g.Sum(d =>
                 {
-                    if (durationLookup.TryGetValue(d.Id, out var duration) && duration > 0)
+                    if (d.EndTimeUtc > d.StartTimeUtc)
                     {
-                        return duration;
+                        return (d.EndTimeUtc - d.StartTimeUtc).TotalSeconds;
                     }
                     return 0;
                 });
@@ -132,40 +114,19 @@ public class StatsRepository : IStatsRepository
             .Take(limit)
             .ToListAsync(cancellationToken);
 
-        // Get download IDs to calculate durations
-        var downloadIds = downloads.Select(d => d.Id).ToList();
-
-        // Calculate duration from LogEntries for each download
-        var downloadDurations = await _context.LogEntries
-            .AsNoTracking()
-            .Where(e => e.DownloadId != null && downloadIds.Contains(e.DownloadId.Value))
-            .GroupBy(e => e.DownloadId)
-            .Select(g => new
-            {
-                DownloadId = g.Key,
-                MinTimestamp = g.Min(e => e.Timestamp),
-                MaxTimestamp = g.Max(e => e.Timestamp)
-            })
-            .ToListAsync(cancellationToken);
-
-        var durationLookup = downloadDurations.ToDictionary(
-            d => d.DownloadId!.Value,
-            d => (d.MaxTimestamp - d.MinTimestamp).TotalSeconds
-        );
-
-        // Fix timezone and populate duration for proper JSON serialization
+        // Fix timezone and calculate duration from EndTime - StartTime for proper JSON serialization
+        // NOTE: Using EndTime - StartTime instead of querying LogEntries for performance
         foreach (var download in downloads)
         {
             download.StartTimeUtc = DateTime.SpecifyKind(download.StartTimeUtc, DateTimeKind.Utc);
             if (download.EndTimeUtc != default(DateTime))
             {
                 download.EndTimeUtc = DateTime.SpecifyKind(download.EndTimeUtc, DateTimeKind.Utc);
-            }
-
-            // Populate duration from LogEntries
-            if (durationLookup.TryGetValue(download.Id, out var duration))
-            {
-                download.DurationSeconds = duration;
+                // Calculate duration from EndTime - StartTime
+                if (download.EndTimeUtc > download.StartTimeUtc)
+                {
+                    download.DurationSeconds = (download.EndTimeUtc - download.StartTimeUtc).TotalSeconds;
+                }
             }
         }
 
