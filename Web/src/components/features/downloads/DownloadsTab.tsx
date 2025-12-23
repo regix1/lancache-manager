@@ -576,13 +576,19 @@ const DownloadsTab: React.FC = () => {
           download.gameName.toLowerCase().includes('unknown') ||
           download.gameName.match(/^Steam App \d+$/));
 
-      if (
-        download.gameName &&
+      // Check if we have a valid game (either by appId or by name)
+      const hasValidGameAppId = download.gameAppId && download.gameAppId > 0;
+      const hasValidGameName = download.gameName &&
         download.gameName !== 'Unknown Steam Game' &&
-        !download.gameName.match(/^Steam App \d+$/)
-      ) {
-        groupKey = `game-${download.gameName}`;
-        groupName = download.gameName;
+        !download.gameName.match(/^Steam App \d+$/);
+
+      if (hasValidGameAppId || hasValidGameName) {
+        // Use gameAppId for grouping when available (prevents duplicates from name variations)
+        // Fall back to gameName only if no appId exists
+        groupKey = hasValidGameAppId
+          ? `game-appid-${download.gameAppId}`
+          : `game-${download.gameName}`;
+        groupName = download.gameName || `Steam App ${download.gameAppId}`;
         groupType = 'game';
       } else if (groupUnknown && isUnknownGame) {
         // Group all unknown games together when the setting is enabled
