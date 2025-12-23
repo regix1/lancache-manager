@@ -139,6 +139,16 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
       const minPercent = 2.5; // Minimum visual percentage for small segments
       const minValue = (minPercent / 100) * total;
 
+      // Count how many segments need inflation
+      const smallSegments = chartData.data.filter(value => {
+        const percent = (value / total) * 100;
+        return percent > 0 && percent < minPercent;
+      }).length;
+
+      // If too many small segments would cause issues, skip inflation
+      // (e.g., 10+ small segments at 2.5% each = 25%+ needed from large segments)
+      if (smallSegments > 8) return chartData.data;
+
       // Find segments that need inflation
       const inflated = chartData.data.map(value => {
         const percent = (value / total) * 100;
@@ -154,13 +164,19 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
 
       if (excess <= 0) return inflated;
 
-      // Find the largest segment and reduce it to compensate
-      const largestIndex = chartData.data.indexOf(Math.max(...chartData.data));
-      if (largestIndex >= 0 && inflated[largestIndex] > excess) {
+      // Find the largest segment and check if it can absorb the excess
+      const largestValue = Math.max(...chartData.data);
+      const largestIndex = chartData.data.indexOf(largestValue);
+
+      if (largestIndex >= 0 && inflated[largestIndex] > excess * 1.5) {
+        // Largest segment can safely absorb the excess (with margin)
         inflated[largestIndex] -= excess;
+        return inflated;
       }
 
-      return inflated;
+      // Can't safely compensate - scale everything to maintain the original total
+      const scale = total / inflatedTotal;
+      return inflated.map(v => v * scale);
     }, [chartData.data]);
 
     // Theme change listener

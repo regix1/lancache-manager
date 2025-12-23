@@ -38,19 +38,16 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
 
     setLoading(true);
     try {
-      // Fetch associations for each download ID in parallel
-      const results = await Promise.all(
-        newIds.map(id => ApiService.getDownloadWithAssociations(id))
-      );
+      // Use batch endpoint - single API call for all IDs
+      const results = await ApiService.getBatchDownloadEvents(newIds);
 
       const newAssociations: AssociationsCache = {};
-      for (const result of results) {
-        if (result) {
-          fetchedIds.current.add(result.download.id);
-          newAssociations[result.download.id] = {
-            events: result.events.map(e => ({ id: e.id, name: e.name, colorIndex: e.colorIndex, autoTagged: e.autoTagged }))
-          };
-        }
+      for (const [idStr, data] of Object.entries(results)) {
+        const id = Number(idStr);
+        fetchedIds.current.add(id);
+        newAssociations[id] = {
+          events: data.events.map(e => ({ id: e.id, name: e.name, colorIndex: e.colorIndex, autoTagged: e.autoTagged }))
+        };
       }
 
       setAssociations(prev => ({ ...prev, ...newAssociations }));

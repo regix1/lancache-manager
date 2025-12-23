@@ -172,6 +172,58 @@ public class DownloadsController : ControllerBase
     }
 
     /// <summary>
+    /// Get events for multiple download IDs in a single batch request
+    /// </summary>
+    [HttpPost("batch-download-events")]
+    [RequireAuth]
+    public async Task<IActionResult> GetBatchDownloadEvents([FromBody] BatchDownloadEventsRequest request)
+    {
+        if (request.DownloadIds == null || request.DownloadIds.Count == 0)
+        {
+            return Ok(new Dictionary<int, object>());
+        }
+
+        // Limit to prevent abuse
+        const int maxIds = 500;
+        var downloadIds = request.DownloadIds.Take(maxIds).ToList();
+
+        try
+        {
+            // Get all events for these downloads in a single query
+            var eventDownloads = await _context.EventDownloads
+                .AsNoTracking()
+                .Include(ed => ed.Event)
+                .Where(ed => downloadIds.Contains(ed.DownloadId))
+                .ToListAsync();
+
+            // Group by download ID and return as dictionary
+            var result = downloadIds.ToDictionary(
+                id => id,
+                id => new
+                {
+                    events = eventDownloads
+                        .Where(ed => ed.DownloadId == id)
+                        .Select(ed => new
+                        {
+                            ed.Event.Id,
+                            ed.Event.Name,
+                            ed.Event.ColorIndex,
+                            ed.AutoTagged
+                        })
+                        .ToList()
+                }
+            );
+
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting batch download events for {Count} downloads", downloadIds.Count);
+            return Ok(new Dictionary<int, object>());
+        }
+    }
+
+    /// <summary>
     /// Get downloads with their tags and events for a time range
     /// </summary>
     [HttpGet("with-associations")]
@@ -250,4 +302,12 @@ public class DownloadsController : ControllerBase
             return Ok(new List<object>());
         }
     }
+}
+
+/// <summary>
+/// Request model for batch download events endpoint
+/// </summary>
+public class BatchDownloadEventsRequest
+{
+    public List<int> DownloadIds { get; set; } = new();
 }

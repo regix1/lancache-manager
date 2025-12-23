@@ -1090,6 +1090,31 @@ class ApiService {
     }
   }
 
+  // Get events for multiple downloads in a single batch request
+  static async getBatchDownloadEvents(
+    downloadIds: number[],
+    signal?: AbortSignal
+  ): Promise<Record<number, { events: Array<{ id: number; name: string; colorIndex: number; autoTagged: boolean }> }>> {
+    if (downloadIds.length === 0) {
+      return {};
+    }
+    try {
+      const res = await fetch(`${API_BASE}/downloads/batch-download-events`, {
+        ...this.getFetchOptions({ signal }),
+        method: 'POST',
+        body: JSON.stringify({ downloadIds })
+      });
+      return await this.handleResponse(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getBatchDownloadEvents error:', error);
+      }
+      throw error;
+    }
+  }
+
   // =====================================================
   // Real-time Download Speed API
   // =====================================================
