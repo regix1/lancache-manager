@@ -186,9 +186,23 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
     // Track which tab the current chart was created for
     const chartTabRef = useRef<TabId | null>(null);
 
-    // Single unified effect for chart management
+    // Cleanup on unmount only
+    useEffect(() => {
+      return () => {
+        if (chartInstance.current) {
+          chartInstance.current.destroy();
+          chartInstance.current = null;
+          chartTabRef.current = null;
+        }
+      };
+    }, []);
+
+    // Chart creation - only when tab changes or first mount
     useEffect(() => {
       if (!chartRef.current || chartData.labels.length === 0) return;
+
+      // Only create chart if tab changed or no chart exists
+      if (chartInstance.current && chartTabRef.current === activeTab) return;
 
       const ctx = chartRef.current.getContext('2d');
       if (!ctx) return;
@@ -198,19 +212,86 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
       const textColor = computedStyle.getPropertyValue('--theme-chart-text').trim() || '#a0aec0';
       const titleColor = computedStyle.getPropertyValue('--theme-text-primary').trim() || '#ffffff';
 
-      // Check if we need to create/recreate the chart
-      const needsNewChart = !chartInstance.current || chartTabRef.current !== activeTab;
+      // Destroy existing chart if switching tabs
+      if (chartInstance.current) {
+        chartInstance.current.destroy();
+        chartInstance.current = null;
+      }
+      chartTabRef.current = activeTab;
+      prevDataRef.current = '';
 
-      if (needsNewChart) {
-        // Destroy existing chart if switching tabs
-        if (chartInstance.current) {
-          chartInstance.current.destroy();
-          chartInstance.current = null;
+      // Create new chart with initial animation
+      chartInstance.current = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: chartData.labels,
+          datasets: [{
+            data: displayData,
+            backgroundColor: chartData.colors,
+            borderColor: borderColor,
+            borderWidth: 2,
+            borderRadius: 4,
+            borderAlign: 'inner',
+            spacing: 0
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          aspectRatio: 1,
+          layout: { padding: 0 },
+          animation: {
+            animateRotate: true,
+            animateScale: true,
+            duration: 600,
+            easing: 'easeOutQuart'
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              animation: { duration: 150 },
+              backgroundColor: 'rgba(0,0,0,0.9)',
+              titleColor: titleColor,
+              bodyColor: textColor,
+              borderColor: borderColor,
+              borderWidth: 1,
+              cornerRadius: 10,
+              padding: 14,
+              displayColors: true,
+              boxPadding: 6,
+              callbacks: {
+                label: (context) => {
+                  // Use original data ref for accurate tooltip (always current)
+                  const realValue = originalDataRef.current[context.dataIndex] || 0;
+                  const total = originalDataRef.current.reduce((a, b) => a + b, 0);
+                  const percentage = total > 0 ? ((realValue / total) * 100).toFixed(1) : '0';
+                  return `${context.label}: ${formatBytes(realValue)} (${percentage}%)`;
+                }
+              }
+            }
+          },
+          cutout: '70%',
+          radius: '100%'
         }
-        chartTabRef.current = activeTab;
-        prevDataRef.current = '';
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeTab]); // Only recreate on tab change - data updates handled separately
 
-        // Create new chart with initial animation
+    // Data updates - handles both initial creation and smooth updates
+    useEffect(() => {
+      if (!chartRef.current || chartData.labels.length === 0) return;
+
+      const ctx = chartRef.current.getContext('2d');
+      if (!ctx) return;
+
+      // If no chart exists yet, create it (handles first data arrival)
+      if (!chartInstance.current) {
+        const computedStyle = getComputedStyle(document.documentElement);
+        const borderColor = computedStyle.getPropertyValue('--theme-chart-border').trim() || '#1a1a2e';
+        const textColor = computedStyle.getPropertyValue('--theme-chart-text').trim() || '#a0aec0';
+        const titleColor = computedStyle.getPropertyValue('--theme-text-primary').trim() || '#ffffff';
+
+        chartTabRef.current = activeTab;
         chartInstance.current = new Chart(ctx, {
           type: 'doughnut',
           data: {
@@ -251,7 +332,6 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
                 boxPadding: 6,
                 callbacks: {
                   label: (context) => {
-                    // Use original data ref for accurate tooltip (always current)
                     const realValue = originalDataRef.current[context.dataIndex] || 0;
                     const total = originalDataRef.current.reduce((a, b) => a + b, 0);
                     const percentage = total > 0 ? ((realValue / total) * 100).toFixed(1) : '0';
@@ -264,37 +344,26 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
             radius: '100%'
           }
         });
-      } else if (chartInstance.current) {
-        // Smooth in-place update (no chart recreation)
-        const chart = chartInstance.current;
-        const currentDataString = JSON.stringify({ labels: chartData.labels, data: displayData });
-
-        // Skip if data hasn't changed
-        if (currentDataString === prevDataRef.current) return;
-        prevDataRef.current = currentDataString;
-
-        // Update data in place for smooth transitions
-        chart.data.labels = chartData.labels;
-        chart.data.datasets[0].data = displayData;
-        chart.data.datasets[0].backgroundColor = chartData.colors;
-
-        // Smooth update with short animation (grows/shrinks segments)
-        // Use 'none' for instant update or 'default' for standard animation
-        chart.options.animation = {
-          duration: 300,
-          easing: 'easeOutQuart'
-        };
-        chart.update('default');
+        prevDataRef.current = JSON.stringify({ labels: chartData.labels, data: displayData });
+        return;
       }
 
-      return () => {
-        if (chartInstance.current) {
-          chartInstance.current.destroy();
-          chartInstance.current = null;
-          chartTabRef.current = null;
-        }
-      };
-    }, [activeTab, chartData, displayData]);
+      // Chart exists - do smooth in-place update
+      const chart = chartInstance.current;
+      const currentDataString = JSON.stringify({ labels: chartData.labels, data: displayData });
+
+      // Skip if data hasn't changed
+      if (currentDataString === prevDataRef.current) return;
+      prevDataRef.current = currentDataString;
+
+      // Update data in place for smooth transitions
+      chart.data.labels = chartData.labels;
+      chart.data.datasets[0].data = displayData;
+      chart.data.datasets[0].backgroundColor = chartData.colors;
+
+      // Instant update - no animation, just shift the segments
+      chart.update('none');
+    }, [chartData, displayData, activeTab]);
 
     const totalValue = chartData.data.reduce((a, b) => a + b, 0);
     const totalHits = serviceStats.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);

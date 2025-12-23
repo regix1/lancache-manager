@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import ApiService from '@services/api.service';
 import { isAbortError } from '@utils/error';
 import MockDataService from '../../test/mockData.service';
@@ -369,7 +369,8 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     }
   }, []);
 
-  const value = {
+  // Memoize context value to prevent unnecessary re-renders of consumers
+  const value = useMemo(() => ({
     cacheInfo,
     clientStats,
     serviceStats,
@@ -379,7 +380,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     connectionStatus,
     refreshStats,
     updateStats
-  };
+  }), [cacheInfo, clientStats, serviceStats, dashboardStats, loading, error, connectionStatus, refreshStats, updateStats]);
 
   return <StatsContext.Provider value={value}>{children}</StatsContext.Provider>;
 };

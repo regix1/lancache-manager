@@ -4,7 +4,8 @@ import React, {
   useState,
   useEffect,
   useRef,
-  useCallback
+  useCallback,
+  useMemo
 } from 'react';
 import ApiService from '@services/api.service';
 import { isAbortError } from '@utils/error';
@@ -339,13 +340,14 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
     }
   }, []);
 
-  const value: DownloadsContextType = {
+  // Memoize context value to prevent unnecessary re-renders of consumers
+  const value = useMemo<DownloadsContextType>(() => ({
     latestDownloads,
     loading,
     error,
     refreshDownloads,
     updateDownloads
-  };
+  }), [latestDownloads, loading, error, refreshDownloads, updateDownloads]);
 
   return <DownloadsContext.Provider value={value}>{children}</DownloadsContext.Provider>;
 };
