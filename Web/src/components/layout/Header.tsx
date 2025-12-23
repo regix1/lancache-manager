@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import TimeFilter from '../common/TimeFilter';
-import PollingRateSelector from '../common/PollingRateSelector';
+import RefreshRateSelector from '../common/RefreshRateSelector';
 import TimezoneSelector from '../common/TimezoneSelector';
 import { Tooltip } from '@components/ui/Tooltip';
 import LancacheIcon from '../ui/LancacheIcon';
@@ -192,7 +192,7 @@ const Header: React.FC<HeaderProps> = ({
 
             <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
               <TimezoneSelector />
-              <PollingRateSelector disabled={mockMode} />
+              <RefreshRateSelector disabled={mockMode} />
               <TimeFilter disabled={mockMode} />
             </div>
           </div>
@@ -268,7 +268,7 @@ const Header: React.FC<HeaderProps> = ({
               {/* Right: Controls in a row */}
               <div className="flex items-center gap-1.5">
                 <TimezoneSelector />
-                <PollingRateSelector disabled={mockMode} />
+                <RefreshRateSelector disabled={mockMode} />
                 <TimeFilter disabled={mockMode} />
               </div>
             </div>

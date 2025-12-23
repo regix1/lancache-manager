@@ -58,8 +58,8 @@ export const SIGNALR_EVENTS = [
   'UserSessionRevoked',
   'UserSessionCreated',
   'SessionLastSeenUpdated',
-  'GuestPollingRateUpdated',
-  'DefaultGuestPollingRateChanged',
+  'GuestRefreshRateUpdated',
+  'DefaultGuestRefreshRateChanged',
   'EventCreated',
   'EventUpdated',
   'EventDeleted',
@@ -314,12 +314,12 @@ export interface PreferenceChangePayload {
   value: unknown;
 }
 
-export interface GuestPollingRateUpdatedPayload {
-  pollingRate: string;
+export interface GuestRefreshRateUpdatedPayload {
+  refreshRate: string;
 }
 
-export interface DefaultGuestPollingRateChangedPayload {
-  pollingRate: string;
+export interface DefaultGuestRefreshRateChangedPayload {
+  refreshRate: string;
 }
 
 export interface NewDownloadsPayload {

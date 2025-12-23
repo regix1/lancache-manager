@@ -554,16 +554,10 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
             gap: 0.3rem;
             padding: 0.5rem 0;
             border-bottom: 1px solid var(--theme-border-secondary);
-            animation: fade-in 0.3s ease forwards;
-            opacity: 0;
           }
 
           .legend-item:last-child {
             border-bottom: none;
-          }
-
-          @keyframes fade-in {
-            to { opacity: 1; }
           }
 
           .legend-row {
@@ -765,7 +759,6 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
                     <div
                       key={label}
                       className="legend-item"
-                      style={{ animationDelay: `${index * 80}ms` }}
                     >
                       <div className="legend-row">
                         <div className="legend-label">

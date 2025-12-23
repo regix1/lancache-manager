@@ -9,17 +9,17 @@ export const SIGNALR_BASE = import.meta.env.VITE_API_URL
 // Services
 export const SERVICES = ['steam', 'epic', 'origin', 'blizzard', 'wsus', 'riot'] as const;
 
-// Polling rate options (in milliseconds) - Best practices for dashboard refresh rates
-export const POLLING_RATES = {
-  LIVE: 0, // Live - Real-time SignalR updates, no throttling
-  ULTRA: 1000, // 1s - Ultra-fast (very high load, unstable)
-  REALTIME: 5000, // 5s - Real-time monitoring (high server load)
+// Refresh rate options (in milliseconds) - controls how often SignalR updates are applied
+export const REFRESH_RATES = {
+  LIVE: 0, // Live - Real-time SignalR updates, minimum 500ms throttle
+  ULTRA: 1000, // 1s - Ultra-fast updates
+  REALTIME: 5000, // 5s - Real-time monitoring
   STANDARD: 10000, // 10s - Balanced performance (recommended)
-  RELAXED: 30000, // 30s - Low server load
-  SLOW: 60000 // 60s - Minimal server impact
+  RELAXED: 30000, // 30s - Low update frequency
+  SLOW: 60000 // 60s - Minimal updates
 } as const;
 
-export type PollingRate = keyof typeof POLLING_RATES;
+export type RefreshRate = keyof typeof REFRESH_RATES;
 
 // File size units
 export const FILE_SIZE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'] as const;
@@ -33,5 +33,5 @@ export const STORAGE_KEYS = {
   GROUP_GAMES: 'lancache_downloads_group',
   SHOW_METADATA: 'lancache_downloads_metadata',
   SHOW_SMALL_FILES: 'lancache_downloads_show_small',
-  POLLING_RATE: 'lancache_polling_rate'
+  REFRESH_RATE: 'lancache_refresh_rate'
 } as const;

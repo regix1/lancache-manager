@@ -3,7 +3,7 @@ import ApiService from '@services/api.service';
 import { isAbortError } from '@utils/error';
 import MockDataService from '../../test/mockData.service';
 import { useTimeFilter } from '../TimeFilterContext';
-import { usePollingRate } from '../PollingRateContext';
+import { useRefreshRate } from '../RefreshRateContext';
 import { useSignalR } from '../SignalRContext';
 import { SIGNALR_REFRESH_EVENTS } from '../SignalRContext/types';
 import type { CacheInfo, ClientStat, ServiceStat, DashboardStats } from '../../types';
@@ -21,7 +21,7 @@ export const useStats = () => {
 
 export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode = false }) => {
   const { getTimeRangeParams, timeRange, customStartDate, customEndDate } = useTimeFilter();
-  const { getPollingInterval } = usePollingRate();
+  const { getRefreshInterval } = useRefreshRate();
   const signalR = useSignalR();
 
   const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null);
@@ -43,19 +43,19 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastFetchTime = useRef<number>(0);
   const lastSignalRRefresh = useRef<number>(0);
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingRefreshRef = useRef<NodeJS.Timeout | null>(null);
 
   // IMPORTANT: These refs are updated on every render BEFORE effects run
   // This ensures that any function reading from these refs gets the current value
   const currentTimeRangeRef = useRef<string>(timeRange);
   const getTimeRangeParamsRef = useRef(getTimeRangeParams);
-  const getPollingIntervalRef = useRef(getPollingInterval);
+  const getRefreshIntervalRef = useRef(getRefreshInterval);
   const mockModeRef = useRef(mockMode);
 
   // Update refs synchronously on every render
   currentTimeRangeRef.current = timeRange;
   getTimeRangeParamsRef.current = getTimeRangeParams;
-  getPollingIntervalRef.current = getPollingInterval;
+  getRefreshIntervalRef.current = getRefreshInterval;
   mockModeRef.current = mockMode;
 
   const getApiUrl = (): string => {
@@ -196,23 +196,30 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   useEffect(() => {
     if (mockMode) return;
 
-    // Handler that respects polling rate (or instant if Live mode)
+    // Debounced handler that respects user's refresh rate setting
+    // This replaces polling - SignalR events are the only source of updates
     const handleRefreshEvent = () => {
-      const pollingInterval = getPollingIntervalRef.current();
-
-      // Live mode (0) = instant updates, no throttling
-      if (pollingInterval === 0) {
-        fetchStats();
-        return;
+      // Clear any pending refresh to debounce rapid events
+      if (pendingRefreshRef.current) {
+        clearTimeout(pendingRefreshRef.current);
       }
 
-      // Throttle based on polling interval
-      const now = Date.now();
-      const timeSinceLastRefresh = now - lastSignalRRefresh.current;
-      if (timeSinceLastRefresh >= pollingInterval) {
-        lastSignalRRefresh.current = now;
-        fetchStats();
-      }
+      // Debounce: wait 100ms for more events before processing
+      pendingRefreshRef.current = setTimeout(() => {
+        const maxRefreshRate = getRefreshIntervalRef.current();
+        const now = Date.now();
+        const timeSinceLastRefresh = now - lastSignalRRefresh.current;
+
+        // User's setting controls max refresh rate
+        // LIVE mode (0) = minimum 500ms to prevent UI thrashing
+        const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
+
+        if (timeSinceLastRefresh >= minInterval) {
+          lastSignalRRefresh.current = now;
+          fetchStats();
+        }
+        pendingRefreshRef.current = null;
+      }, 100);
     };
 
     // Handler for database reset completion - always refresh immediately
@@ -230,6 +237,10 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     return () => {
       SIGNALR_REFRESH_EVENTS.forEach(event => signalR.off(event, handleRefreshEvent));
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
+      if (pendingRefreshRef.current) {
+        clearTimeout(pendingRefreshRef.current);
+        pendingRefreshRef.current = null;
+      }
     };
   }, [mockMode, signalR, fetchStats]);
 
@@ -261,59 +272,6 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       if (abortControllerRef.current) abortControllerRef.current.abort();
     };
   }, [mockMode, fetchStats]);
-
-  // Polling interval - fetch data at user-configured rate
-  // Skipped in Live mode (0) since SignalR handles real-time updates
-  const currentPollingInterval = getPollingInterval();
-  useEffect(() => {
-    if (mockMode) return;
-
-    // Clear any existing polling interval
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
-      pollingIntervalRef.current = null;
-    }
-
-    // Live mode (0) = no polling needed, SignalR handles updates
-    if (currentPollingInterval === 0) {
-      return;
-    }
-
-    // Set up polling at the user's configured rate
-    const setupPolling = () => {
-      pollingIntervalRef.current = setInterval(() => {
-        fetchStats();
-      }, currentPollingInterval);
-    };
-
-    // Start polling after initial load completes
-    if (!isInitialLoad.current) {
-      setupPolling();
-    } else {
-      // Wait for initial load to complete, then start polling
-      const checkAndSetup = setInterval(() => {
-        if (!isInitialLoad.current) {
-          clearInterval(checkAndSetup);
-          setupPolling();
-        }
-      }, 100);
-
-      return () => {
-        clearInterval(checkAndSetup);
-        if (pollingIntervalRef.current) {
-          clearInterval(pollingIntervalRef.current);
-          pollingIntervalRef.current = null;
-        }
-      };
-    }
-
-    return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
-      }
-    };
-  }, [mockMode, fetchStats, currentPollingInterval]);
 
   // Handle time range changes - fetch new data
   useEffect(() => {

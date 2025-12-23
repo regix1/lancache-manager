@@ -24,9 +24,9 @@ public class UserPreferences
     public bool Use24HourFormat { get; set; }
     public bool ShowDatasourceLabels { get; set; } = true;
 
-    // Polling rate for guest users (null = use default guest polling rate)
+    // Refresh rate for guest users (null = use default guest refresh rate)
     // Valid values: LIVE, ULTRA, REALTIME, STANDARD, RELAXED, SLOW
-    public string? PollingRate { get; set; }
+    public string? RefreshRate { get; set; }
 
     // Timestamp
     public DateTime UpdatedAtUtc { get; set; }

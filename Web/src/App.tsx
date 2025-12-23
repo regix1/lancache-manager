@@ -5,7 +5,7 @@ import { DownloadsProvider } from '@contexts/DownloadsContext';
 import { TimeFilterProvider } from '@contexts/TimeFilterContext';
 import { EventProvider } from '@contexts/EventContext';
 import { DownloadAssociationsProvider } from '@contexts/DownloadAssociationsContext';
-import { PollingRateProvider } from '@contexts/PollingRateContext';
+import { RefreshRateProvider } from '@contexts/RefreshRateContext';
 import { SignalRProvider, useSignalR } from '@contexts/SignalRContext';
 import { MockModeProvider, useMockMode } from '@contexts/MockModeContext';
 import { GuestConfigProvider } from '@contexts/GuestConfigContext';
@@ -726,7 +726,7 @@ const App: React.FC = () => {
         <TimeFilterProvider>
           <SignalRProvider>
             <AuthProvider>
-              <PollingRateProvider>
+              <RefreshRateProvider>
                 <TimezoneProvider>
                   <SteamWebApiStatusProvider>
                     <GuestConfigProvider>
@@ -750,7 +750,7 @@ const App: React.FC = () => {
                     </GuestConfigProvider>
                   </SteamWebApiStatusProvider>
                 </TimezoneProvider>
-              </PollingRateProvider>
+              </RefreshRateProvider>
             </AuthProvider>
           </SignalRProvider>
         </TimeFilterProvider>

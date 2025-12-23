@@ -11,7 +11,7 @@ import ApiService from '@services/api.service';
 import { isAbortError } from '@utils/error';
 import MockDataService from '../../test/mockData.service';
 import { useTimeFilter } from '../TimeFilterContext';
-import { usePollingRate } from '../PollingRateContext';
+import { useRefreshRate } from '../RefreshRateContext';
 import { useSignalR } from '../SignalRContext';
 import type { NewDownloadsPayload } from '../SignalRContext/types';
 import { SIGNALR_REFRESH_EVENTS } from '../SignalRContext/types';
@@ -43,7 +43,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   mockMode = false
 }) => {
   const { getTimeRangeParams, timeRange, customStartDate, customEndDate } = useTimeFilter();
-  const { pollingRate, getPollingInterval } = usePollingRate();
+  const { refreshRate, getRefreshInterval } = useRefreshRate();
   const signalR = useSignalR();
 
   // ============================================
@@ -67,19 +67,19 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   const fetchInProgress = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastFetchTime = useRef<number>(0);
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastSignalRRefresh = useRef<number>(0);
+  const pendingRefreshRef = useRef<NodeJS.Timeout | null>(null);
 
   // Sync refs - updated on every render BEFORE effects run
   // This ensures functions reading from these refs get current values
   const currentTimeRangeRef = useRef<string>(timeRange);
   const getTimeRangeParamsRef = useRef(getTimeRangeParams);
-  const getPollingIntervalRef = useRef(getPollingInterval);
+  const getRefreshIntervalRef = useRef(getRefreshInterval);
   const mockModeRef = useRef(mockMode);
 
   currentTimeRangeRef.current = timeRange;
   getTimeRangeParamsRef.current = getTimeRangeParams;
-  getPollingIntervalRef.current = getPollingInterval;
+  getRefreshIntervalRef.current = getRefreshInterval;
   mockModeRef.current = mockMode;
 
   // ============================================
@@ -173,7 +173,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
     // Handler for NewDownloads - merges new downloads into state without full refetch
     // Only active in Live mode - polling modes handle their own updates
     const handleNewDownloads = (payload: NewDownloadsPayload) => {
-      if (pollingRate !== 'LIVE') return;
+      if (refreshRate !== 'LIVE') return;
       if (!payload.downloads || payload.downloads.length === 0) return;
 
       const { startTime, endTime } = getTimeRangeParamsRef.current();
@@ -207,23 +207,30 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
       });
     };
 
-    // Handler that respects polling rate (or instant if Live mode)
+    // Debounced handler that respects user's refresh rate setting
+    // This replaces polling - SignalR events are the only source of updates
     const handleDataRefresh = () => {
-      const pollingInterval = getPollingIntervalRef.current();
-
-      // Live mode (0) = instant updates, no throttling
-      if (pollingInterval === 0) {
-        fetchDownloads();
-        return;
+      // Clear any pending refresh to debounce rapid events
+      if (pendingRefreshRef.current) {
+        clearTimeout(pendingRefreshRef.current);
       }
 
-      // Throttle based on polling interval
-      const now = Date.now();
-      const timeSinceLastRefresh = now - lastSignalRRefresh.current;
-      if (timeSinceLastRefresh >= pollingInterval) {
-        lastSignalRRefresh.current = now;
-        fetchDownloads();
-      }
+      // Debounce: wait 100ms for more events before processing
+      pendingRefreshRef.current = setTimeout(() => {
+        const maxRefreshRate = getRefreshIntervalRef.current();
+        const now = Date.now();
+        const timeSinceLastRefresh = now - lastSignalRRefresh.current;
+
+        // User's setting controls max refresh rate
+        // LIVE mode (0) = minimum 500ms to prevent UI thrashing
+        const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
+
+        if (timeSinceLastRefresh >= minInterval) {
+          lastSignalRRefresh.current = now;
+          fetchDownloads();
+        }
+        pendingRefreshRef.current = null;
+      }, 100);
     };
 
     // Handler for database reset completion
@@ -243,8 +250,12 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
       signalR.off('NewDownloads', handleNewDownloads);
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
       SIGNALR_REFRESH_EVENTS.forEach(event => signalR.off(event, handleDataRefresh));
+      if (pendingRefreshRef.current) {
+        clearTimeout(pendingRefreshRef.current);
+        pendingRefreshRef.current = null;
+      }
     };
-  }, [mockMode, signalR, fetchDownloads, pollingRate]);
+  }, [mockMode, signalR, fetchDownloads, refreshRate]);
 
   // ============================================
   // EFFECTS
@@ -273,30 +284,6 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
       if (abortControllerRef.current) abortControllerRef.current.abort();
     };
   }, [mockMode, fetchDownloads]);
-
-  // Polling interval
-  const currentPollingInterval = getPollingInterval();
-  useEffect(() => {
-    if (mockMode || currentPollingInterval === 0) return;
-
-    // Clear any existing polling interval
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
-      pollingIntervalRef.current = null;
-    }
-
-    // Don't start polling until initial load is complete
-    if (isInitialLoad.current) return;
-
-    pollingIntervalRef.current = setInterval(() => fetchDownloads(), currentPollingInterval);
-
-    return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
-      }
-    };
-  }, [mockMode, fetchDownloads, currentPollingInterval, loading]);
 
   // Time range changes
   useEffect(() => {

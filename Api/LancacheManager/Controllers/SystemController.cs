@@ -279,87 +279,87 @@ public class SystemController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/system/polling-rate - Get the current polling rate setting
+    /// GET /api/system/refresh-rate - Get the current refresh rate setting
     /// </summary>
-    [HttpGet("polling-rate")]
-    public IActionResult GetPollingRate()
+    [HttpGet("refresh-rate")]
+    public IActionResult GetRefreshRate()
     {
-        var rate = _stateService.GetPollingRate();
-        return Ok(new PollingRateResponse { PollingRate = rate });
+        var rate = _stateService.GetRefreshRate();
+        return Ok(new RefreshRateResponse { RefreshRate = rate });
     }
 
     /// <summary>
-    /// PATCH /api/system/polling-rate - Set the polling rate
+    /// PATCH /api/system/refresh-rate - Set the refresh rate
     /// RESTful: PATCH is proper method for configuration updates
-    /// Request body: { "pollingRate": "LIVE" | "ULTRA" | "REALTIME" | "STANDARD" | "RELAXED" | "SLOW" }
+    /// Request body: { "refreshRate": "LIVE" | "ULTRA" | "REALTIME" | "STANDARD" | "RELAXED" | "SLOW" }
     /// </summary>
-    [HttpPatch("polling-rate")]
-    public IActionResult SetPollingRate([FromBody] SetPollingRateRequest request)
+    [HttpPatch("refresh-rate")]
+    public IActionResult SetRefreshRate([FromBody] SetRefreshRateRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.PollingRate))
+        if (string.IsNullOrWhiteSpace(request.RefreshRate))
         {
-            return BadRequest(new ErrorResponse { Error = "Polling rate is required" });
+            return BadRequest(new ErrorResponse { Error = "Refresh rate is required" });
         }
 
         var validRates = new[] { "LIVE", "ULTRA", "REALTIME", "STANDARD", "RELAXED", "SLOW" };
-        if (!validRates.Contains(request.PollingRate.ToUpperInvariant()))
+        if (!validRates.Contains(request.RefreshRate.ToUpperInvariant()))
         {
-            return BadRequest(new ErrorResponse { Error = "Invalid polling rate. Must be LIVE, ULTRA, REALTIME, STANDARD, RELAXED, or SLOW" });
+            return BadRequest(new ErrorResponse { Error = "Invalid refresh rate. Must be LIVE, ULTRA, REALTIME, STANDARD, RELAXED, or SLOW" });
         }
 
-        _stateService.SetPollingRate(request.PollingRate);
-        _logger.LogInformation("Polling rate set to: {Rate}", request.PollingRate.ToUpperInvariant());
+        _stateService.SetRefreshRate(request.RefreshRate);
+        _logger.LogInformation("Refresh rate set to: {Rate}", request.RefreshRate.ToUpperInvariant());
 
-        return Ok(new PollingRateResponse
+        return Ok(new RefreshRateResponse
         {
-            Message = "Polling rate updated",
-            PollingRate = request.PollingRate.ToUpperInvariant()
+            Message = "Refresh rate updated",
+            RefreshRate = request.RefreshRate.ToUpperInvariant()
         });
     }
 
     /// <summary>
-    /// GET /api/system/default-guest-polling-rate - Get the default polling rate for guest users
+    /// GET /api/system/default-guest-refresh-rate - Get the default refresh rate for guest users
     /// </summary>
-    [HttpGet("default-guest-polling-rate")]
-    public IActionResult GetDefaultGuestPollingRate()
+    [HttpGet("default-guest-refresh-rate")]
+    public IActionResult GetDefaultGuestRefreshRate()
     {
-        var rate = _stateService.GetDefaultGuestPollingRate();
-        return Ok(new PollingRateResponse { PollingRate = rate });
+        var rate = _stateService.GetDefaultGuestRefreshRate();
+        return Ok(new RefreshRateResponse { RefreshRate = rate });
     }
 
     /// <summary>
-    /// PATCH /api/system/default-guest-polling-rate - Set the default polling rate for guest users
+    /// PATCH /api/system/default-guest-refresh-rate - Set the default refresh rate for guest users
     /// RESTful: PATCH is proper method for configuration updates
-    /// Request body: { "pollingRate": "LIVE" | "ULTRA" | "REALTIME" | "STANDARD" | "RELAXED" | "SLOW" }
+    /// Request body: { "refreshRate": "LIVE" | "ULTRA" | "REALTIME" | "STANDARD" | "RELAXED" | "SLOW" }
     /// </summary>
-    [HttpPatch("default-guest-polling-rate")]
+    [HttpPatch("default-guest-refresh-rate")]
     [RequireAuth]
-    public async Task<IActionResult> SetDefaultGuestPollingRate([FromBody] SetPollingRateRequest request)
+    public async Task<IActionResult> SetDefaultGuestRefreshRate([FromBody] SetRefreshRateRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.PollingRate))
+        if (string.IsNullOrWhiteSpace(request.RefreshRate))
         {
-            return BadRequest(new ErrorResponse { Error = "Polling rate is required" });
+            return BadRequest(new ErrorResponse { Error = "Refresh rate is required" });
         }
 
         var validRates = new[] { "LIVE", "ULTRA", "REALTIME", "STANDARD", "RELAXED", "SLOW" };
-        if (!validRates.Contains(request.PollingRate.ToUpperInvariant()))
+        if (!validRates.Contains(request.RefreshRate.ToUpperInvariant()))
         {
-            return BadRequest(new ErrorResponse { Error = "Invalid polling rate. Must be LIVE, ULTRA, REALTIME, STANDARD, RELAXED, or SLOW" });
+            return BadRequest(new ErrorResponse { Error = "Invalid refresh rate. Must be LIVE, ULTRA, REALTIME, STANDARD, RELAXED, or SLOW" });
         }
 
-        _stateService.SetDefaultGuestPollingRate(request.PollingRate);
-        _logger.LogInformation("Default guest polling rate set to: {Rate}", request.PollingRate.ToUpperInvariant());
+        _stateService.SetDefaultGuestRefreshRate(request.RefreshRate);
+        _logger.LogInformation("Default guest refresh rate set to: {Rate}", request.RefreshRate.ToUpperInvariant());
 
         // Broadcast to all clients so guest users pick up the new default
-        await _hubContext.Clients.All.SendAsync("DefaultGuestPollingRateChanged", new
+        await _hubContext.Clients.All.SendAsync("DefaultGuestRefreshRateChanged", new
         {
-            pollingRate = request.PollingRate.ToUpperInvariant()
+            refreshRate = request.RefreshRate.ToUpperInvariant()
         });
 
-        return Ok(new PollingRateResponse
+        return Ok(new RefreshRateResponse
         {
-            Message = "Default guest polling rate updated",
-            PollingRate = request.PollingRate.ToUpperInvariant()
+            Message = "Default guest refresh rate updated",
+            RefreshRate = request.RefreshRate.ToUpperInvariant()
         });
     }
 
@@ -383,14 +383,14 @@ public class SystemController : ControllerBase
         public string Mode { get; set; } = string.Empty;
     }
 
-    public class SetPollingRateRequest
+    public class SetRefreshRateRequest
     {
-        public string PollingRate { get; set; } = string.Empty;
+        public string RefreshRate { get; set; } = string.Empty;
     }
 
-    public class PollingRateResponse
+    public class RefreshRateResponse
     {
         public string? Message { get; set; }
-        public string PollingRate { get; set; } = string.Empty;
+        public string RefreshRate { get; set; } = string.Empty;
     }
 }

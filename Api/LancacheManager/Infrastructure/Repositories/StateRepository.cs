@@ -64,8 +64,8 @@ public class StateRepository : IStateRepository
         public bool GuestModeLocked { get; set; } = false; // When true, guest mode login is disabled
         public string? SelectedTheme { get; set; } = "dark-default"; // Default theme for authenticated users
         public string? DefaultGuestTheme { get; set; } = "dark-default"; // Default theme for guest users
-        public string PollingRate { get; set; } = "STANDARD"; // Default to 10 seconds (LIVE, ULTRA, REALTIME, STANDARD, RELAXED, SLOW)
-        public string DefaultGuestPollingRate { get; set; } = "STANDARD"; // Default polling rate for guest users
+        public string RefreshRate { get; set; } = "STANDARD"; // Default to 10 seconds (LIVE, ULTRA, REALTIME, STANDARD, RELAXED, SLOW)
+        public string DefaultGuestRefreshRate { get; set; } = "STANDARD"; // Default refresh rate for guest users
 
         // PICS viability check caching (prevents repeated Steam API calls)
         public bool RequiresFullScan { get; set; } = false; // True if Steam requires full scan due to large change gap
@@ -114,8 +114,8 @@ public class StateRepository : IStateRepository
         public bool GuestModeLocked { get; set; } = false;
         public string? SelectedTheme { get; set; } = "dark-default";
         public string? DefaultGuestTheme { get; set; } = "dark-default";
-        public string PollingRate { get; set; } = "STANDARD";
-        public string DefaultGuestPollingRate { get; set; } = "STANDARD";
+        public string RefreshRate { get; set; } = "STANDARD";
+        public string DefaultGuestRefreshRate { get; set; } = "STANDARD";
 
         // PICS viability check caching
         public bool RequiresFullScan { get; set; } = false;
@@ -833,8 +833,8 @@ public class StateRepository : IStateRepository
             GuestSessionDurationHours = persisted.GuestSessionDurationHours,
             SelectedTheme = persisted.SelectedTheme ?? "dark-default",
             DefaultGuestTheme = persisted.DefaultGuestTheme ?? "dark-default",
-            PollingRate = persisted.PollingRate ?? "STANDARD",
-            DefaultGuestPollingRate = persisted.DefaultGuestPollingRate ?? "STANDARD",
+            RefreshRate = persisted.RefreshRate ?? "STANDARD",
+            DefaultGuestRefreshRate = persisted.DefaultGuestRefreshRate ?? "STANDARD",
             // PICS viability check caching
             RequiresFullScan = persisted.RequiresFullScan,
             LastViabilityCheck = persisted.LastViabilityCheck,
@@ -880,8 +880,8 @@ public class StateRepository : IStateRepository
             GuestSessionDurationHours = state.GuestSessionDurationHours,
             SelectedTheme = state.SelectedTheme,
             DefaultGuestTheme = state.DefaultGuestTheme,
-            PollingRate = state.PollingRate ?? "STANDARD",
-            DefaultGuestPollingRate = state.DefaultGuestPollingRate ?? "STANDARD",
+            RefreshRate = state.RefreshRate ?? "STANDARD",
+            DefaultGuestRefreshRate = state.DefaultGuestRefreshRate ?? "STANDARD",
             // PICS viability check caching
             RequiresFullScan = state.RequiresFullScan,
             LastViabilityCheck = state.LastViabilityCheck,
@@ -1020,13 +1020,13 @@ public class StateRepository : IStateRepository
         UpdateState(state => state.DefaultGuestTheme = themeId ?? "dark-default");
     }
 
-    // Polling Rate Methods
-    public string GetPollingRate()
+    // Refresh Rate Methods
+    public string GetRefreshRate()
     {
-        return GetState().PollingRate ?? "STANDARD";
+        return GetState().RefreshRate ?? "STANDARD";
     }
 
-    public void SetPollingRate(string rate)
+    public void SetRefreshRate(string rate)
     {
         // Validate the rate is a valid option
         var validRates = new[] { "LIVE", "ULTRA", "REALTIME", "STANDARD", "RELAXED", "SLOW" };
@@ -1034,16 +1034,16 @@ public class StateRepository : IStateRepository
         {
             rate = "STANDARD";
         }
-        UpdateState(state => state.PollingRate = rate.ToUpperInvariant());
+        UpdateState(state => state.RefreshRate = rate.ToUpperInvariant());
     }
 
-    // Default Guest Polling Rate Methods
-    public string GetDefaultGuestPollingRate()
+    // Default Guest Refresh Rate Methods
+    public string GetDefaultGuestRefreshRate()
     {
-        return GetState().DefaultGuestPollingRate ?? "STANDARD";
+        return GetState().DefaultGuestRefreshRate ?? "STANDARD";
     }
 
-    public void SetDefaultGuestPollingRate(string rate)
+    public void SetDefaultGuestRefreshRate(string rate)
     {
         // Validate the rate is a valid option
         var validRates = new[] { "LIVE", "ULTRA", "REALTIME", "STANDARD", "RELAXED", "SLOW" };
@@ -1051,7 +1051,7 @@ public class StateRepository : IStateRepository
         {
             rate = "STANDARD";
         }
-        UpdateState(state => state.DefaultGuestPollingRate = rate.ToUpperInvariant());
+        UpdateState(state => state.DefaultGuestRefreshRate = rate.ToUpperInvariant());
     }
 
     // Steam Session Replacement Tracking Methods

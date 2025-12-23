@@ -6,7 +6,7 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { useDownloads } from '@contexts/DownloadsContext';
 import { useDownloadAssociations } from '@contexts/DownloadAssociationsContext';
 import { useSignalR } from '@contexts/SignalRContext';
-import { usePollingRate } from '@contexts/PollingRateContext';
+import { useRefreshRate } from '@contexts/RefreshRateContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import ApiService from '@services/api.service';
 import EventBadge from '../downloads/EventBadge';
@@ -164,10 +164,11 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   const { latestDownloads, loading } = useDownloads();
   const { fetchAssociations, getAssociations } = useDownloadAssociations();
   const signalR = useSignalR();
-  const { pollingRate, getPollingInterval } = usePollingRate();
-  const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const { getRefreshInterval } = useRefreshRate();
+  const lastUpdateRef = useRef<number>(0);
+  const pendingUpdateRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Fetch real-time speeds for active view
+  // Fetch real-time speeds (for initial load)
   const fetchSpeeds = useCallback(async () => {
     try {
       const data = await ApiService.getCurrentSpeeds();
@@ -177,46 +178,46 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     }
   }, []);
 
-  // Fetch speeds on mount to show the badge, then poll when in active mode
+  // SignalR for real-time updates with user-controlled throttling
+  // Always listen so the badge count stays accurate
   useEffect(() => {
-    // Always fetch once on mount to show the active count badge
+    // Initial fetch
     fetchSpeeds();
-  }, [fetchSpeeds]);
 
-  // Poll for speeds when in active mode (only in non-LIVE modes)
-  useEffect(() => {
-    if (viewMode !== 'active') return;
-    // LIVE mode uses SignalR only, no polling needed
-    if (pollingRate === 'LIVE') return;
-
-    // Already fetched on mount, just set up polling
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current);
-    }
-
-    const interval = Math.min(getPollingInterval(), 5000);
-    pollingRef.current = setInterval(fetchSpeeds, interval);
-
-    return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-        pollingRef.current = null;
-      }
-    };
-  }, [viewMode, pollingRate, getPollingInterval, fetchSpeeds]);
-
-  // SignalR for real-time updates - always listen regardless of viewMode
-  // so the badge count stays accurate even when viewing Recent tab
-  useEffect(() => {
-    if (pollingRate !== 'LIVE') return;
-
+    // SignalR handler with debouncing and throttling
     const handleSpeedUpdate = (payload: DownloadSpeedSnapshot) => {
-      setSpeedSnapshot(payload);
+      // Clear any pending update
+      if (pendingUpdateRef.current) {
+        clearTimeout(pendingUpdateRef.current);
+      }
+
+      // Debounce: wait 100ms for more events
+      pendingUpdateRef.current = setTimeout(() => {
+        const maxRefreshRate = getRefreshInterval();
+        const now = Date.now();
+        const timeSinceLastUpdate = now - lastUpdateRef.current;
+
+        // User's setting controls max refresh rate
+        // LIVE mode (0) = minimum 500ms to prevent UI thrashing
+        const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
+
+        if (timeSinceLastUpdate >= minInterval) {
+          lastUpdateRef.current = now;
+          setSpeedSnapshot(payload);
+        }
+        pendingUpdateRef.current = null;
+      }, 100);
     };
 
     signalR.on('DownloadSpeedUpdate', handleSpeedUpdate);
-    return () => signalR.off('DownloadSpeedUpdate', handleSpeedUpdate);
-  }, [pollingRate, signalR]);
+
+    return () => {
+      signalR.off('DownloadSpeedUpdate', handleSpeedUpdate);
+      if (pendingUpdateRef.current) {
+        clearTimeout(pendingUpdateRef.current);
+      }
+    };
+  }, [signalR, getRefreshInterval, fetchSpeeds]);
 
   // Fetch associations for visible downloads
   useEffect(() => {

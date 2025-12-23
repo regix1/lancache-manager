@@ -468,14 +468,14 @@ public class SessionsController : ControllerBase
     }
 
     /// <summary>
-    /// PATCH /api/sessions/{id}/polling-rate - Set the polling rate for a specific guest session
+    /// PATCH /api/sessions/{id}/refresh-rate - Set the refresh rate for a specific guest session
     /// RESTful: PATCH is proper method for partial resource updates
-    /// Request body: { "pollingRate": "LIVE" | "ULTRA" | "REALTIME" | "STANDARD" | "RELAXED" | "SLOW" | null }
-    /// Pass null or empty string to reset to default guest polling rate
+    /// Request body: { "refreshRate": "LIVE" | "ULTRA" | "REALTIME" | "STANDARD" | "RELAXED" | "SLOW" | null }
+    /// Pass null or empty string to reset to default guest refresh rate
     /// </summary>
-    [HttpPatch("{id}/polling-rate")]
+    [HttpPatch("{id}/refresh-rate")]
     [RequireAuth]
-    public async Task<IActionResult> SetSessionPollingRate(string id, [FromBody] SetSessionPollingRateRequest request)
+    public async Task<IActionResult> SetSessionRefreshRate(string id, [FromBody] SetSessionRefreshRateRequest request)
     {
         // Check if it's a guest session
         var guestSession = _guestSessionService.GetSessionByDeviceId(id);
@@ -484,68 +484,68 @@ public class SessionsController : ControllerBase
             return NotFound(new ErrorResponse { Error = "Guest session not found" });
         }
 
-        string? pollingRate = null;
-        var isReset = string.IsNullOrWhiteSpace(request.PollingRate);
+        string? refreshRate = null;
+        var isReset = string.IsNullOrWhiteSpace(request.RefreshRate);
 
         if (!isReset)
         {
             var validRates = new[] { "LIVE", "ULTRA", "REALTIME", "STANDARD", "RELAXED", "SLOW" };
-            if (!validRates.Contains(request.PollingRate!.ToUpperInvariant()))
+            if (!validRates.Contains(request.RefreshRate!.ToUpperInvariant()))
             {
-                return BadRequest(new ErrorResponse { Error = "Invalid polling rate. Must be LIVE, ULTRA, REALTIME, STANDARD, RELAXED, or SLOW" });
+                return BadRequest(new ErrorResponse { Error = "Invalid refresh rate. Must be LIVE, ULTRA, REALTIME, STANDARD, RELAXED, or SLOW" });
             }
-            pollingRate = request.PollingRate.ToUpperInvariant();
+            refreshRate = request.RefreshRate.ToUpperInvariant();
         }
 
-        // Update the polling rate in user preferences (null clears custom rate)
-        _userPreferencesService.UpdatePreferenceAndGet(id, "PollingRate", pollingRate);
+        // Update the refresh rate in user preferences (null clears custom rate)
+        _userPreferencesService.UpdatePreferenceAndGet(id, "RefreshRate", refreshRate);
 
         if (isReset)
         {
-            _logger.LogInformation("Guest session polling rate reset to default: DeviceId={DeviceId}", id);
+            _logger.LogInformation("Guest session refresh rate reset to default: DeviceId={DeviceId}", id);
         }
         else
         {
-            _logger.LogInformation("Guest session polling rate set: DeviceId={DeviceId}, Rate={Rate}", id, pollingRate);
+            _logger.LogInformation("Guest session refresh rate set: DeviceId={DeviceId}, Rate={Rate}", id, refreshRate);
         }
 
         // Push the new rate to the guest if they're connected
         var connectionId = _connectionTrackingService.GetConnectionId(id);
         if (!string.IsNullOrEmpty(connectionId))
         {
-            // If reset, send the default guest polling rate
-            var rateToSend = pollingRate ?? _stateService.GetDefaultGuestPollingRate();
-            await _hubContext.Clients.Client(connectionId).SendAsync("GuestPollingRateUpdated", new
+            // If reset, send the default guest refresh rate
+            var rateToSend = refreshRate ?? _stateService.GetDefaultGuestRefreshRate();
+            await _hubContext.Clients.Client(connectionId).SendAsync("GuestRefreshRateUpdated", new
             {
-                pollingRate = rateToSend,
+                refreshRate = rateToSend,
                 isDefault = isReset
             });
-            _logger.LogDebug("Pushed polling rate to connected guest: DeviceId={DeviceId}, ConnectionId={ConnectionId}, Rate={Rate}, IsDefault={IsDefault}",
+            _logger.LogDebug("Pushed refresh rate to connected guest: DeviceId={DeviceId}, ConnectionId={ConnectionId}, Rate={Rate}, IsDefault={IsDefault}",
                 id, connectionId, rateToSend, isReset);
         }
         else
         {
-            _logger.LogDebug("Guest not connected, polling rate will apply on reconnect: DeviceId={DeviceId}", id);
+            _logger.LogDebug("Guest not connected, refresh rate will apply on reconnect: DeviceId={DeviceId}", id);
         }
 
-        return Ok(new SetSessionPollingRateResponse
+        return Ok(new SetSessionRefreshRateResponse
         {
             Success = true,
-            Message = isReset ? "Polling rate reset to default" : "Polling rate updated",
-            PollingRate = pollingRate ?? _stateService.GetDefaultGuestPollingRate()
+            Message = isReset ? "Refresh rate reset to default" : "Refresh rate updated",
+            RefreshRate = refreshRate ?? _stateService.GetDefaultGuestRefreshRate()
         });
     }
 
-    public class SetSessionPollingRateRequest
+    public class SetSessionRefreshRateRequest
     {
-        public string PollingRate { get; set; } = string.Empty;
+        public string RefreshRate { get; set; } = string.Empty;
     }
 
-    public class SetSessionPollingRateResponse
+    public class SetSessionRefreshRateResponse
     {
         public bool Success { get; set; }
         public string Message { get; set; } = string.Empty;
-        public string PollingRate { get; set; } = string.Empty;
+        public string RefreshRate { get; set; } = string.Empty;
     }
 
     public class CreateSessionRequest

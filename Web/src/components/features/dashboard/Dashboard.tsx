@@ -20,7 +20,7 @@ import { useStats } from '@contexts/StatsContext';
 import { useDownloads } from '@contexts/DownloadsContext';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
 import { useSignalR } from '@contexts/SignalRContext';
-import { usePollingRate } from '@contexts/PollingRateContext';
+import { useRefreshRate } from '@contexts/RefreshRateContext';
 import { useDraggableCards } from '@hooks/useDraggableCards';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { STORAGE_KEYS } from '@utils/constants';
@@ -118,7 +118,7 @@ const Dashboard: React.FC = () => {
   const { latestDownloads } = useDownloads();
   const { timeRange, getTimeRangeParams, customStartDate, customEndDate } = useTimeFilter();
   const signalR = useSignalR();
-  const { pollingRate, getPollingInterval } = usePollingRate();
+  const { getRefreshInterval } = useRefreshRate();
 
   // Track if initial card animations have completed - prevents re-animation on reorder
   const initialAnimationCompleteRef = useRef(false);
@@ -163,9 +163,12 @@ const Dashboard: React.FC = () => {
     return () => controller.abort();
   }, [timeRange, getTimeRangeParams]);
 
-  // Fetch real-time speeds for accurate active downloads count
-  const pollingInterval = getPollingInterval();
+  // Fetch real-time speeds - uses SignalR with user-controlled throttling
+  const lastSpeedUpdateRef = useRef<number>(0);
+  const pendingSpeedUpdateRef = useRef<NodeJS.Timeout | null>(null);
+
   useEffect(() => {
+    // Initial fetch
     const fetchSpeeds = async () => {
       try {
         const data = await ApiService.getCurrentSpeeds();
@@ -174,32 +177,42 @@ const Dashboard: React.FC = () => {
         console.error('Failed to fetch speeds:', err);
       }
     };
-
-    // Initial fetch
     fetchSpeeds();
 
-    // LIVE mode (0) uses SignalR only, no polling needed
-    if (pollingInterval === 0) {
-      return;
-    }
-
-    // Poll at user's configured interval
-    const timer = setInterval(fetchSpeeds, pollingInterval);
-
-    return () => clearInterval(timer);
-  }, [pollingInterval]);
-
-  // SignalR subscription for real-time speed updates (when in LIVE mode)
-  useEffect(() => {
-    if (pollingRate !== 'LIVE') return;
-
+    // SignalR handler with debouncing and user-controlled throttling
     const handleSpeedUpdate = (payload: DownloadSpeedSnapshot) => {
-      setSpeedSnapshot(payload);
+      // Clear any pending update
+      if (pendingSpeedUpdateRef.current) {
+        clearTimeout(pendingSpeedUpdateRef.current);
+      }
+
+      // Debounce: wait 100ms for more events
+      pendingSpeedUpdateRef.current = setTimeout(() => {
+        const maxRefreshRate = getRefreshInterval();
+        const now = Date.now();
+        const timeSinceLastUpdate = now - lastSpeedUpdateRef.current;
+
+        // User's setting controls max refresh rate
+        // LIVE mode (0) = minimum 500ms to prevent UI thrashing
+        const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
+
+        if (timeSinceLastUpdate >= minInterval) {
+          lastSpeedUpdateRef.current = now;
+          setSpeedSnapshot(payload);
+        }
+        pendingSpeedUpdateRef.current = null;
+      }, 100);
     };
 
     signalR.on('DownloadSpeedUpdate', handleSpeedUpdate);
-    return () => signalR.off('DownloadSpeedUpdate', handleSpeedUpdate);
-  }, [pollingRate, signalR]);
+
+    return () => {
+      signalR.off('DownloadSpeedUpdate', handleSpeedUpdate);
+      if (pendingSpeedUpdateRef.current) {
+        clearTimeout(pendingSpeedUpdateRef.current);
+      }
+    };
+  }, [signalR, getRefreshInterval]);
 
   // Filter out services with only small files (< 1MB) and 0-byte files from dashboard data
   const filteredLatestDownloads = useMemo(() => {

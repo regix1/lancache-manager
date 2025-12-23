@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Zap, Clock, HardDrive, Users, TrendingUp } from 'lucide-react';
 import { useDownloads } from '@contexts/DownloadsContext';
 import { useSignalR } from '@contexts/SignalRContext';
-import { usePollingRate } from '@contexts/PollingRateContext';
+import { useRefreshRate } from '@contexts/RefreshRateContext';
 import ApiService from '@services/api.service';
 import type { DownloadSpeedSnapshot, SpeedHistorySnapshot } from '../../../types';
 
@@ -32,13 +32,14 @@ interface DownloadsHeaderProps {
 const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChange }) => {
   const { latestDownloads } = useDownloads();
   const signalR = useSignalR();
-  const { pollingRate, getPollingInterval } = usePollingRate();
+  const { getRefreshInterval } = useRefreshRate();
 
   const [speedSnapshot, setSpeedSnapshot] = useState<DownloadSpeedSnapshot | null>(null);
   const [historySnapshot, setHistorySnapshot] = useState<SpeedHistorySnapshot | null>(null);
-  const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSpeedUpdateRef = useRef<number>(0);
+  const pendingSpeedUpdateRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Fetch current speeds
+  // Fetch current speeds (for initial load)
   const fetchSpeeds = useCallback(async () => {
     try {
       const data = await ApiService.getCurrentSpeeds();
@@ -58,46 +59,45 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
     }
   }, []);
 
-  // Initial fetch
+  // SignalR setup with user-controlled throttling
   useEffect(() => {
+    // Initial fetch
     fetchSpeeds();
     fetchHistory();
-  }, [fetchSpeeds, fetchHistory]);
 
-  // Handle SignalR updates
-  const handleSpeedUpdate = useCallback((payload: DownloadSpeedSnapshot) => {
-    setSpeedSnapshot(payload);
-  }, []);
+    // SignalR handler with debouncing and throttling
+    const handleSpeedUpdate = (payload: DownloadSpeedSnapshot) => {
+      if (pendingSpeedUpdateRef.current) {
+        clearTimeout(pendingSpeedUpdateRef.current);
+      }
 
-  // Polling/SignalR setup
-  useEffect(() => {
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current);
-      pollingRef.current = null;
-    }
+      pendingSpeedUpdateRef.current = setTimeout(() => {
+        const maxRefreshRate = getRefreshInterval();
+        const now = Date.now();
+        const timeSinceLastUpdate = now - lastSpeedUpdateRef.current;
+        const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
 
-    if (pollingRate === 'LIVE') {
-      // LIVE mode: SignalR for speed updates, poll history separately
-      signalR.on('DownloadSpeedUpdate', handleSpeedUpdate);
-      // Still poll for history (SignalR doesn't provide this)
-      pollingRef.current = setInterval(fetchHistory, 10000);
+        if (timeSinceLastUpdate >= minInterval) {
+          lastSpeedUpdateRef.current = now;
+          setSpeedSnapshot(payload);
+        }
+        pendingSpeedUpdateRef.current = null;
+      }, 100);
+    };
 
-      return () => {
-        signalR.off('DownloadSpeedUpdate', handleSpeedUpdate);
-        if (pollingRef.current) clearInterval(pollingRef.current);
-      };
-    } else {
-      const interval = getPollingInterval();
-      pollingRef.current = setInterval(() => {
-        fetchSpeeds();
-        fetchHistory();
-      }, interval);
+    signalR.on('DownloadSpeedUpdate', handleSpeedUpdate);
 
-      return () => {
-        if (pollingRef.current) clearInterval(pollingRef.current);
-      };
-    }
-  }, [signalR, pollingRate, getPollingInterval, handleSpeedUpdate, fetchSpeeds, fetchHistory]);
+    // Periodically refresh history (every 30s) since SignalR doesn't push this
+    const historyInterval = setInterval(fetchHistory, 30000);
+
+    return () => {
+      signalR.off('DownloadSpeedUpdate', handleSpeedUpdate);
+      clearInterval(historyInterval);
+      if (pendingSpeedUpdateRef.current) {
+        clearTimeout(pendingSpeedUpdateRef.current);
+      }
+    };
+  }, [signalR, getRefreshInterval, fetchSpeeds, fetchHistory]);
 
   // Use speedSnapshot for all active download data (real-time from Rust speed tracker)
   const isActive = speedSnapshot?.hasActiveDownloads || false;

@@ -59,7 +59,7 @@ interface UserPreferences {
   picsAlwaysVisible: boolean;
   disableStickyNotifications: boolean;
   showDatasourceLabels: boolean;
-  pollingRate?: string | null;
+  refreshRate?: string | null; // Refresh rate for guest users
 }
 
 // Helper to format timestamp with timezone awareness
@@ -104,8 +104,8 @@ const UserTab: React.FC = () => {
   const [defaultGuestTheme, setDefaultGuestTheme] = useState<string>('dark-default');
   const [updatingGuestTheme, setUpdatingGuestTheme] = useState(false);
   const [availableThemes, setAvailableThemes] = useState<{ id: string; name: string }[]>([]);
-  const [defaultGuestPollingRate, setDefaultGuestPollingRate] = useState<string>('STANDARD');
-  const [updatingGuestPollingRate, setUpdatingGuestPollingRate] = useState(false);
+  const [defaultGuestRefreshRate, setDefaultGuestRefreshRate] = useState<string>('STANDARD');
+  const [updatingGuestRefreshRate, setUpdatingGuestRefreshRate] = useState(false);
   const [editingSession, setEditingSession] = useState<Session | null>(null);
   const [editingPreferences, setEditingPreferences] = useState<UserPreferences | null>(null);
   const [loadingPreferences, setLoadingPreferences] = useState(false);
@@ -279,47 +279,47 @@ const UserTab: React.FC = () => {
     }
   };
 
-  const loadDefaultGuestPollingRate = async () => {
+  const loadDefaultGuestRefreshRate = async () => {
     try {
-      const response = await fetch('/api/system/default-guest-polling-rate', {
+      const response = await fetch('/api/system/default-guest-refresh-rate', {
         headers: ApiService.getHeaders()
       });
       if (response.ok) {
         const data = await response.json();
-        setDefaultGuestPollingRate(data.pollingRate || 'STANDARD');
+        setDefaultGuestRefreshRate(data.refreshRate || 'STANDARD');
       }
     } catch (err) {
-      console.error('Failed to load default guest polling rate:', err);
+      console.error('Failed to load default guest refresh rate:', err);
     }
   };
 
-  const handleUpdateGuestPollingRate = async (newRate: string) => {
+  const handleUpdateGuestRefreshRate = async (newRate: string) => {
     try {
-      setUpdatingGuestPollingRate(true);
-      const response = await fetch('/api/system/default-guest-polling-rate', {
+      setUpdatingGuestRefreshRate(true);
+      const response = await fetch('/api/system/default-guest-refresh-rate', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           ...ApiService.getHeaders()
         },
-        body: JSON.stringify({ pollingRate: newRate })
+        body: JSON.stringify({ refreshRate: newRate })
       });
 
       if (response.ok) {
-        setDefaultGuestPollingRate(newRate);
-        showToast('success', 'Default guest polling rate updated');
+        setDefaultGuestRefreshRate(newRate);
+        showToast('success', 'Default guest refresh rate updated');
       } else {
         const errorData = await response.json();
-        showToast('error', errorData.error || 'Failed to update default guest polling rate');
+        showToast('error', errorData.error || 'Failed to update default guest refresh rate');
       }
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || 'Failed to update default guest polling rate');
+      showToast('error', getErrorMessage(err) || 'Failed to update default guest refresh rate');
     } finally {
-      setUpdatingGuestPollingRate(false);
+      setUpdatingGuestRefreshRate(false);
     }
   };
 
-  const pollingRateOptions = [
+  const refreshRateOptions = [
     { value: 'LIVE', label: 'Live (Real-time)' },
     { value: 'ULTRA', label: 'Ultra (1s)' },
     { value: 'REALTIME', label: 'Real-time (5s)' },
@@ -366,7 +366,7 @@ const UserTab: React.FC = () => {
     loadGuestDuration();
     loadAvailableThemes();
     loadDefaultGuestTheme();
-    loadDefaultGuestPollingRate();
+    loadDefaultGuestRefreshRate();
 
     on('UserSessionRevoked', handleSessionRevoked);
     on('UserSessionsCleared', handleSessionsCleared);
@@ -513,7 +513,7 @@ const UserTab: React.FC = () => {
           picsAlwaysVisible: prefs.picsAlwaysVisible ?? false,
           disableStickyNotifications: prefs.disableStickyNotifications ?? false,
           showDatasourceLabels: prefs.showDatasourceLabels ?? true,
-          pollingRate: prefs.pollingRate ?? null
+          refreshRate: prefs.refreshRate ?? null
         });
       } else {
         setEditingPreferences({
@@ -524,7 +524,7 @@ const UserTab: React.FC = () => {
           picsAlwaysVisible: false,
           disableStickyNotifications: false,
           showDatasourceLabels: true,
-          pollingRate: null
+          refreshRate: null
         });
       }
     } catch (err: unknown) {
@@ -578,13 +578,13 @@ const UserTab: React.FC = () => {
         }
 
         if (editingSession.type === 'guest') {
-          await fetch(`/api/sessions/${encodeURIComponent(editingSession.id)}/polling-rate`, {
+          await fetch(`/api/sessions/${encodeURIComponent(editingSession.id)}/refresh-rate`, {
             method: 'PATCH',
             headers: {
               'Content-Type': 'application/json',
               ...ApiService.getHeaders()
             },
-            body: JSON.stringify({ pollingRate: editingPreferences.pollingRate || '' })
+            body: JSON.stringify({ refreshRate: editingPreferences.refreshRate || '' })
           });
         }
 
@@ -1370,17 +1370,17 @@ const UserTab: React.FC = () => {
                 className="block text-sm font-medium mb-2"
                 style={{ color: 'var(--theme-text-primary)' }}
               >
-                Default Guest Polling Rate
+                Default Guest Refresh Rate
               </label>
               <div className="flex items-center gap-3">
                 <EnhancedDropdown
-                  options={pollingRateOptions}
-                  value={defaultGuestPollingRate}
-                  onChange={handleUpdateGuestPollingRate}
-                  disabled={updatingGuestPollingRate}
+                  options={refreshRateOptions}
+                  value={defaultGuestRefreshRate}
+                  onChange={handleUpdateGuestRefreshRate}
+                  disabled={updatingGuestRefreshRate}
                   className="w-full sm:w-64"
                 />
-                {updatingGuestPollingRate && (
+                {updatingGuestRefreshRate && (
                   <Loader2
                     className="w-4 h-4 animate-spin"
                     style={{ color: 'var(--theme-primary)' }}
@@ -1388,7 +1388,7 @@ const UserTab: React.FC = () => {
                 )}
               </div>
               <p className="text-xs mt-2" style={{ color: 'var(--theme-text-muted)' }}>
-                Default polling rate for all guest users
+                Default refresh rate for all guest users
               </p>
             </div>
           </div>
@@ -1600,25 +1600,25 @@ const UserTab: React.FC = () => {
                 />
               </div>
 
-              {/* Polling Rate (Guest Users Only) */}
+              {/* Refresh Rate (Guest Users Only) */}
               {editingSession && editingSession.type === 'guest' && (
                 <div>
                   <label className="block text-sm font-medium text-themed-primary mb-2">
-                    Polling Rate
+                    Refresh Rate
                   </label>
                   <EnhancedDropdown
                     options={[
                       {
                         value: 'default',
-                        label: `Default (${pollingRateOptions.find((o) => o.value === defaultGuestPollingRate)?.label || defaultGuestPollingRate})`
+                        label: `Default (${refreshRateOptions.find((o) => o.value === defaultGuestRefreshRate)?.label || defaultGuestRefreshRate})`
                       },
-                      ...pollingRateOptions
+                      ...refreshRateOptions
                     ]}
-                    value={editingPreferences.pollingRate || 'default'}
+                    value={editingPreferences.refreshRate || 'default'}
                     onChange={(value) =>
                       setEditingPreferences({
                         ...editingPreferences,
-                        pollingRate: value === 'default' ? null : value
+                        refreshRate: value === 'default' ? null : value
                       })
                     }
                     className="w-full"

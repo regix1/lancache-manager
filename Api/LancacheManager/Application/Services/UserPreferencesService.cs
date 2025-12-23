@@ -28,7 +28,7 @@ public class UserPreferencesService
         public bool UseLocalTimezone { get; set; }
         public bool Use24HourFormat { get; set; }
         public bool ShowDatasourceLabels { get; set; } = true;
-        public string? PollingRate { get; set; } // Polling rate for guest users (null = use default)
+        public string? RefreshRate { get; set; } // Refresh rate for guest users (null = use default)
     }
 
     /// <summary>
@@ -55,7 +55,7 @@ public class UserPreferencesService
                     UseLocalTimezone = preferences.UseLocalTimezone,
                     Use24HourFormat = preferences.Use24HourFormat,
                     ShowDatasourceLabels = preferences.ShowDatasourceLabels,
-                    PollingRate = preferences.PollingRate
+                    RefreshRate = preferences.RefreshRate
                 };
             }
 
@@ -100,7 +100,7 @@ public class UserPreferencesService
                 existingPreferences.UseLocalTimezone = preferencesDto.UseLocalTimezone;
                 existingPreferences.Use24HourFormat = preferencesDto.Use24HourFormat;
                 existingPreferences.ShowDatasourceLabels = preferencesDto.ShowDatasourceLabels;
-                existingPreferences.PollingRate = preferencesDto.PollingRate;
+                existingPreferences.RefreshRate = preferencesDto.RefreshRate;
                 existingPreferences.UpdatedAtUtc = DateTime.UtcNow;
             }
             else
@@ -118,7 +118,7 @@ public class UserPreferencesService
                     UseLocalTimezone = preferencesDto.UseLocalTimezone,
                     Use24HourFormat = preferencesDto.Use24HourFormat,
                     ShowDatasourceLabels = preferencesDto.ShowDatasourceLabels,
-                    PollingRate = preferencesDto.PollingRate,
+                    RefreshRate = preferencesDto.RefreshRate,
                     UpdatedAtUtc = DateTime.UtcNow
                 };
                 context.UserPreferences.Add(newPreferences);
@@ -197,8 +197,8 @@ public class UserPreferencesService
                 case "showdatasourcelabels":
                     preferences.ShowDatasourceLabels = GetValueAsBoolean(value);
                     break;
-                case "pollingrate":
-                    preferences.PollingRate = GetValueAsString(value);
+                case "refreshrate":
+                    preferences.RefreshRate = GetValueAsString(value);
                     break;
                 default:
                     _logger.LogWarning("Unknown preference key: {Key}", preferenceKey);
@@ -220,7 +220,7 @@ public class UserPreferencesService
                 UseLocalTimezone = preferences.UseLocalTimezone,
                 Use24HourFormat = preferences.Use24HourFormat,
                 ShowDatasourceLabels = preferences.ShowDatasourceLabels,
-                PollingRate = preferences.PollingRate
+                RefreshRate = preferences.RefreshRate
             };
         }
         catch (Exception ex)
