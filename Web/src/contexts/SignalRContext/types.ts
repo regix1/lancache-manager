@@ -25,6 +25,7 @@ export interface SignalRProviderProps {
 // List of all SignalR events
 export const SIGNALR_EVENTS = [
   'DownloadsRefresh',
+  'NewDownloads',
   'ProcessingProgress',
   'FastProcessingComplete',
   'DownloadSpeedUpdate',
@@ -66,6 +67,26 @@ export const SIGNALR_EVENTS = [
 ] as const;
 
 export type SignalREvent = (typeof SIGNALR_EVENTS)[number];
+
+/**
+ * Events that trigger a data refresh in DownloadsContext/StatsContext.
+ * Subset of SIGNALR_EVENTS used by contexts that need to refetch data.
+ */
+export const SIGNALR_REFRESH_EVENTS = [
+  // Background processing events
+  'DownloadsRefresh',
+  'FastProcessingComplete',
+  // User action completions
+  'DepotMappingComplete',
+  'LogRemovalComplete',
+  'CorruptionRemovalComplete',
+  'ServiceRemovalComplete',
+  'GameDetectionComplete',
+  'GameRemovalComplete',
+  'CacheClearComplete'
+] as const;
+
+export type SignalRRefreshEvent = (typeof SIGNALR_REFRESH_EVENTS)[number];
 
 // SignalR Payload Types
 
@@ -299,4 +320,31 @@ export interface GuestPollingRateUpdatedPayload {
 
 export interface DefaultGuestPollingRateChangedPayload {
   pollingRate: string;
+}
+
+export interface NewDownloadsPayload {
+  downloads: Array<{
+    id: number;
+    service: string;
+    clientIp: string;
+    startTimeUtc: string;
+    endTimeUtc: string | null;
+    startTimeLocal: string;
+    endTimeLocal: string | null;
+    cacheHitBytes: number;
+    cacheMissBytes: number;
+    totalBytes: number;
+    cacheHitPercent: number;
+    isActive: boolean;
+    gameName?: string;
+    gameAppId?: number;
+    gameImageUrl?: string;
+    depotId?: number;
+    lastUrl?: string;
+    datasource?: string;
+    durationSeconds?: number;
+    averageBytesPerSecond?: number;
+  }>;
+  count: number;
+  timestamp: string;
 }

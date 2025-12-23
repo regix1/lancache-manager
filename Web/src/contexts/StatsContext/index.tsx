@@ -5,6 +5,7 @@ import MockDataService from '../../test/mockData.service';
 import { useTimeFilter } from '../TimeFilterContext';
 import { usePollingRate } from '../PollingRateContext';
 import { useSignalR } from '../SignalRContext';
+import { SIGNALR_REFRESH_EVENTS } from '../SignalRContext/types';
 import type { CacheInfo, ClientStat, ServiceStat, DashboardStats } from '../../types';
 import type { StatsContextType, StatsProviderProps } from './types';
 
@@ -222,30 +223,12 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       }
     };
 
-    // Immediate fetch handler for user-initiated actions
-    const handleImmediateRefresh = () => fetchStats();
-
-    // Events that trigger data refresh (throttled by polling rate, or instant if Live)
-    const refreshEvents = ['DownloadsRefresh', 'FastProcessingComplete'];
-
-    // Events that should always trigger immediate refresh (user-initiated actions)
-    const immediateRefreshEvents = [
-      'DepotMappingComplete',
-      'LogRemovalComplete',
-      'CorruptionRemovalComplete',
-      'ServiceRemovalComplete',
-      'GameDetectionComplete',
-      'GameRemovalComplete',
-      'CacheClearComplete'
-    ];
-
-    refreshEvents.forEach(event => signalR.on(event, handleRefreshEvent));
-    immediateRefreshEvents.forEach(event => signalR.on(event, handleImmediateRefresh));
+    // Subscribe to all refresh events using centralized array
+    SIGNALR_REFRESH_EVENTS.forEach(event => signalR.on(event, handleRefreshEvent));
     signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
 
     return () => {
-      refreshEvents.forEach(event => signalR.off(event, handleRefreshEvent));
-      immediateRefreshEvents.forEach(event => signalR.off(event, handleImmediateRefresh));
+      SIGNALR_REFRESH_EVENTS.forEach(event => signalR.off(event, handleRefreshEvent));
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
     };
   }, [mockMode, signalR, fetchStats]);

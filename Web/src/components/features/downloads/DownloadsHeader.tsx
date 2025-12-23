@@ -30,7 +30,7 @@ interface DownloadsHeaderProps {
 }
 
 const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChange }) => {
-  const { activeDownloads, latestDownloads } = useDownloads();
+  const { latestDownloads } = useDownloads();
   const signalR = useSignalR();
   const { pollingRate, getPollingInterval } = usePollingRate();
 
@@ -77,12 +77,10 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
     }
 
     if (pollingRate === 'LIVE') {
+      // LIVE mode: SignalR for speed updates, poll history separately
       signalR.on('DownloadSpeedUpdate', handleSpeedUpdate);
-      // Still poll for history less frequently
-      pollingRef.current = setInterval(() => {
-        fetchSpeeds();
-        fetchHistory();
-      }, 10000);
+      // Still poll for history (SignalR doesn't provide this)
+      pollingRef.current = setInterval(fetchHistory, 10000);
 
       return () => {
         signalR.off('DownloadSpeedUpdate', handleSpeedUpdate);
@@ -101,17 +99,11 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
     }
   }, [signalR, pollingRate, getPollingInterval, handleSpeedUpdate, fetchSpeeds, fetchHistory]);
 
-  // Trust speedSnapshot when available (fresh data from API), only use activeDownloads as initial fallback
-  const isActive = speedSnapshot
-    ? speedSnapshot.hasActiveDownloads
-    : activeDownloads.length > 0;
+  // Use speedSnapshot for all active download data (real-time from Rust speed tracker)
+  const isActive = speedSnapshot?.hasActiveDownloads || false;
   const totalSpeed = speedSnapshot?.totalBytesPerSecond || 0;
-  const activeGamesCount = speedSnapshot
-    ? speedSnapshot.gameSpeeds?.length || 0
-    : activeDownloads.length;
-  const activeClientsCount = speedSnapshot
-    ? speedSnapshot.clientSpeeds?.length || 0
-    : new Set(activeDownloads.map(d => d.clientIp)).size;
+  const activeGamesCount = speedSnapshot?.gameSpeeds?.length || 0;
+  const activeClientsCount = speedSnapshot?.clientSpeeds?.length || 0;
   const todayTotal = historySnapshot?.totalBytes || 0;
   const { value: speedValue, unit: speedUnit } = formatSpeed(totalSpeed);
 

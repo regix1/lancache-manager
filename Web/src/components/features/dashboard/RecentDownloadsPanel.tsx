@@ -183,16 +183,18 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     fetchSpeeds();
   }, [fetchSpeeds]);
 
-  // Poll for speeds when in active mode
+  // Poll for speeds when in active mode (only in non-LIVE modes)
   useEffect(() => {
     if (viewMode !== 'active') return;
+    // LIVE mode uses SignalR only, no polling needed
+    if (pollingRate === 'LIVE') return;
 
     // Already fetched on mount, just set up polling
     if (pollingRef.current) {
       clearInterval(pollingRef.current);
     }
 
-    const interval = pollingRate === 'LIVE' ? 2000 : Math.min(getPollingInterval(), 5000);
+    const interval = Math.min(getPollingInterval(), 5000);
     pollingRef.current = setInterval(fetchSpeeds, interval);
 
     return () => {
@@ -234,9 +236,18 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       let groupName: string;
       let groupType: 'game' | 'metadata' | 'content';
 
-      if (download.gameName && download.gameName !== 'Unknown Steam Game' && !download.gameName.match(/^Steam App \d+$/)) {
-        groupKey = `game-${download.gameName}`;
-        groupName = download.gameName;
+      // Check if we have a valid game (either by appId or by name)
+      const hasValidGameAppId = download.gameAppId && download.gameAppId > 0;
+      const hasValidGameName = download.gameName &&
+        download.gameName !== 'Unknown Steam Game' &&
+        !download.gameName.match(/^Steam App \d+$/);
+
+      if (hasValidGameAppId || hasValidGameName) {
+        // Use gameAppId for grouping when available (prevents duplicates from name variations)
+        groupKey = hasValidGameAppId
+          ? `game-appid-${download.gameAppId}`
+          : `game-${download.gameName}`;
+        groupName = download.gameName || `Steam App ${download.gameAppId}`;
         groupType = 'game';
       } else if (download.gameName && download.gameName.match(/^Steam App \d+$/)) {
         groupKey = 'unmapped-steam-apps';

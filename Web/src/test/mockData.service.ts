@@ -3,7 +3,6 @@ import type { Download, CacheInfo, ClientStat, ServiceStat, DashboardStats } fro
 
 interface MockData {
   cacheInfo: CacheInfo;
-  activeDownloads: Download[];
   latestDownloads: Download[];
   clientStats: ClientStat[];
   serviceStats: ServiceStat[];
@@ -309,7 +308,6 @@ class MockDataService {
 
     return {
       cacheInfo,
-      activeDownloads: downloads.filter((d) => d.isActive),
       latestDownloads: downloads,
       clientStats,
       serviceStats,

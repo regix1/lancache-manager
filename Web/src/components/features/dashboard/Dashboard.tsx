@@ -115,7 +115,7 @@ const TrendHelpContent: Record<string, React.ReactNode> = {
 
 const Dashboard: React.FC = () => {
   const { cacheInfo, clientStats, serviceStats, dashboardStats, loading } = useStats();
-  const { activeDownloads, latestDownloads } = useDownloads();
+  const { latestDownloads } = useDownloads();
   const { timeRange, getTimeRangeParams, customStartDate, customEndDate } = useTimeFilter();
   const signalR = useSignalR();
   const { pollingRate, getPollingInterval } = usePollingRate();
@@ -216,9 +216,6 @@ const Dashboard: React.FC = () => {
     });
   }, [latestDownloads]);
 
-  // For active downloads, don't filter by size - show them all
-  // They're currently downloading and will grow in size
-  const filteredActiveDownloads = activeDownloads;
 
   const filteredServiceStats = useMemo(() => {
     return serviceStats.filter((service) => {
@@ -367,9 +364,8 @@ const Dashboard: React.FC = () => {
   }, []);
 
   const stats = useMemo(() => {
-    const activeClients = [...new Set(filteredActiveDownloads.map((d) => d.clientIp))].length;
-    // Use speed snapshot for real-time accurate active downloads count
-    // This syncs with RecentDownloadsPanel's Active tab which uses the same source
+    // Use speed snapshot for real-time accurate active data (from Rust speed tracker)
+    const activeClients = speedSnapshot?.clientSpeeds?.length ?? 0;
     const totalActiveDownloads = speedSnapshot?.gameSpeeds?.length ?? 0;
     const totalDownloads = filteredServiceStats.reduce(
       (sum, service) => sum + (service.totalDownloads || 0),
@@ -408,7 +404,7 @@ const Dashboard: React.FC = () => {
       cacheHitRatio: shouldShowValues ? (dashboardStats?.period?.hitRatio || 0) : 0,
       uniqueClients: shouldShowValues ? (dashboardStats?.uniqueClients || filteredClientStats.length) : 0
     };
-  }, [filteredActiveDownloads, filteredServiceStats, dashboardStats, filteredClientStats, timeRange, loading, speedSnapshot]);
+  }, [filteredServiceStats, dashboardStats, filteredClientStats, timeRange, loading, speedSnapshot]);
 
   const allStatCards = useMemo<AllStatCards>(
     () => ({

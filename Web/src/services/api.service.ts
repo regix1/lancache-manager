@@ -188,20 +188,6 @@ class ApiService {
     }
   }
 
-  static async getActiveDownloads(signal?: AbortSignal): Promise<Download[]> {
-    try {
-      const res = await fetch(`${API_BASE}/downloads/active`, this.getFetchOptions({ signal }));
-      return await this.handleResponse<Download[]>(res);
-    } catch (error: unknown) {
-      if (isAbortError(error)) {
-        // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
-        console.error('getActiveDownloads error:', error);
-      }
-      throw error;
-    }
-  }
-
   static async getLatestDownloads(
     signal?: AbortSignal,
     count: number | 'unlimited' = 'unlimited',

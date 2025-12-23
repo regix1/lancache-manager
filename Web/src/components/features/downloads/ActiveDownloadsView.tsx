@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Activity, HardDrive, Users, Loader2, RefreshCw } from 'lucide-react';
-import { useDownloads } from '@contexts/DownloadsContext';
 import { useSignalR } from '@contexts/SignalRContext';
 import { usePollingRate } from '@contexts/PollingRateContext';
 import ApiService from '@services/api.service';
@@ -17,7 +16,6 @@ const formatSpeed = (bytesPerSecond: number): string => {
 };
 
 const ActiveDownloadsView: React.FC = () => {
-  const { activeDownloads } = useDownloads();
   const signalR = useSignalR();
   const { pollingRate, getPollingInterval } = usePollingRate();
 
@@ -63,13 +61,11 @@ const ActiveDownloadsView: React.FC = () => {
     }
 
     if (pollingRate === 'LIVE') {
+      // LIVE mode: SignalR only, no polling
       signalR.on('DownloadSpeedUpdate', handleSpeedUpdate);
-      // Also poll as fallback
-      pollingRef.current = setInterval(fetchSpeeds, 2000);
 
       return () => {
         signalR.off('DownloadSpeedUpdate', handleSpeedUpdate);
-        if (pollingRef.current) clearInterval(pollingRef.current);
       };
     } else {
       const interval = getPollingInterval();
@@ -81,10 +77,8 @@ const ActiveDownloadsView: React.FC = () => {
     }
   }, [signalR, pollingRate, getPollingInterval, handleSpeedUpdate, fetchSpeeds]);
 
-  // Trust speedSnapshot when available (fresh data from API), only use activeDownloads as initial fallback
-  const hasActiveDownloads = speedSnapshot
-    ? speedSnapshot.hasActiveDownloads
-    : activeDownloads.length > 0;
+  // Use speedSnapshot for all active download data (real-time from Rust speed tracker)
+  const hasActiveDownloads = speedSnapshot?.hasActiveDownloads || false;
   const games = speedSnapshot?.gameSpeeds || [];
   const clients = speedSnapshot?.clientSpeeds || [];
 

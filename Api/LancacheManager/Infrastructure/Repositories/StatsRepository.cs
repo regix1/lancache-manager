@@ -195,11 +195,13 @@ public class StatsRepository : IStatsRepository
             .ToListAsync(cancellationToken);
 
         var groupedStats = downloads
-            .GroupBy(d => new { d.GameName, d.GameAppId })
+            // Group by GameAppId only to prevent duplicates from name variations (e.g., "Game®" vs "Game")
+            .GroupBy(d => d.GameAppId ?? 0)
             .Select(g => new GameStat
             {
-                GameName = g.Key.GameName ?? "",
-                GameAppId = (int)(g.Key.GameAppId ?? 0),
+                // Use the first non-empty game name from the group
+                GameName = g.Select(d => d.GameName).FirstOrDefault(n => !string.IsNullOrEmpty(n)) ?? "",
+                GameAppId = (int)g.Key,
                 TotalDownloads = g.Count(),
                 TotalBytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
                 CacheHitBytes = g.Sum(d => d.CacheHitBytes),

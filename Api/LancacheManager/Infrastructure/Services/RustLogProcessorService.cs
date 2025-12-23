@@ -408,6 +408,10 @@ public class RustLogProcessorService
                     // Run for BOTH silent and interactive mode to prevent duplicate grouping issues
                     await AutoTagNewDownloadsAsync();
 
+                    // Broadcast newly created downloads via SignalR for real-time UI updates
+                    // This eliminates the need for polling on the frontend
+                    await BroadcastNewDownloadsAsync();
+
                     // These can run in background as they're not critical for the UI refresh
                     _ = Task.Run(async () =>
                     {
@@ -665,6 +669,63 @@ public class RustLogProcessorService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error fetching missing game images - this is non-critical");
+        }
+    }
+
+    /// <summary>
+    /// Broadcast newly created downloads via SignalR for real-time UI updates
+    /// Queries downloads created in the last 2 minutes to capture any new entries
+    /// </summary>
+    private async Task BroadcastNewDownloadsAsync()
+    {
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            // Query downloads created in the last 2 minutes (covers processing time)
+            var cutoff = DateTime.UtcNow.AddMinutes(-2);
+            var newDownloads = await context.Downloads
+                .AsNoTracking()
+                .Where(d => d.StartTimeUtc >= cutoff)
+                .OrderByDescending(d => d.StartTimeUtc)
+                .Take(100) // Limit to prevent huge payloads
+                .ToListAsync();
+
+            if (newDownloads.Count == 0)
+            {
+                _logger.LogDebug("No new downloads to broadcast");
+                return;
+            }
+
+            // Fix timezone for proper JSON serialization
+            foreach (var download in newDownloads)
+            {
+                download.StartTimeUtc = DateTime.SpecifyKind(download.StartTimeUtc, DateTimeKind.Utc);
+                if (download.EndTimeUtc != default(DateTime))
+                {
+                    download.EndTimeUtc = DateTime.SpecifyKind(download.EndTimeUtc, DateTimeKind.Utc);
+                    // Calculate duration from EndTime - StartTime
+                    if (download.EndTimeUtc > download.StartTimeUtc)
+                    {
+                        download.DurationSeconds = (download.EndTimeUtc - download.StartTimeUtc).TotalSeconds;
+                    }
+                }
+            }
+
+            _logger.LogInformation("Broadcasting {Count} new downloads via SignalR", newDownloads.Count);
+
+            // Broadcast to all connected clients
+            await _hubContext.Clients.All.SendAsync("NewDownloads", new
+            {
+                downloads = newDownloads,
+                count = newDownloads.Count,
+                timestamp = DateTime.UtcNow
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error broadcasting new downloads - this is non-critical");
         }
     }
 
