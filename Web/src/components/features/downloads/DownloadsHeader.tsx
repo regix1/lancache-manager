@@ -38,12 +38,14 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
   const [historySnapshot, setHistorySnapshot] = useState<SpeedHistorySnapshot | null>(null);
   const lastSpeedUpdateRef = useRef<number>(0);
   const pendingSpeedUpdateRef = useRef<NodeJS.Timeout | null>(null);
+  const lastActiveStateRef = useRef<boolean | null>(null);
 
-  // Fetch current speeds (for initial load)
+  // Fetch current speeds (for initial load and visibility change)
   const fetchSpeeds = useCallback(async () => {
     try {
       const data = await ApiService.getCurrentSpeeds();
       setSpeedSnapshot(data);
+      lastActiveStateRef.current = data?.hasActiveDownloads ?? false;
     } catch (err) {
       console.error('Failed to fetch speeds:', err);
     }
@@ -71,6 +73,18 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
         clearTimeout(pendingSpeedUpdateRef.current);
       }
 
+      // ALWAYS accept updates immediately when hasActiveDownloads state changes
+      // This ensures "download finished" events are never throttled
+      const activeStateChanged = lastActiveStateRef.current !== null &&
+        lastActiveStateRef.current !== payload.hasActiveDownloads;
+
+      if (activeStateChanged) {
+        lastSpeedUpdateRef.current = Date.now();
+        lastActiveStateRef.current = payload.hasActiveDownloads;
+        setSpeedSnapshot(payload);
+        return;
+      }
+
       pendingSpeedUpdateRef.current = setTimeout(() => {
         const maxRefreshRate = getRefreshInterval();
         const now = Date.now();
@@ -79,6 +93,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
 
         if (timeSinceLastUpdate >= minInterval) {
           lastSpeedUpdateRef.current = now;
+          lastActiveStateRef.current = payload.hasActiveDownloads;
           setSpeedSnapshot(payload);
         }
         pendingSpeedUpdateRef.current = null;
@@ -98,6 +113,23 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
       }
     };
   }, [signalR, getRefreshInterval, fetchSpeeds, fetchHistory]);
+
+  // Refresh speeds when tab becomes visible
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        // Reset throttle and fetch fresh data
+        lastSpeedUpdateRef.current = 0;
+        fetchSpeeds();
+        fetchHistory();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [fetchSpeeds, fetchHistory]);
 
   // Use speedSnapshot for all active download data (real-time from Rust speed tracker)
   const isActive = speedSnapshot?.hasActiveDownloads || false;

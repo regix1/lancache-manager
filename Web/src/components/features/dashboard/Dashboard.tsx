@@ -166,17 +166,21 @@ const Dashboard: React.FC = () => {
   // Fetch real-time speeds - uses SignalR with user-controlled throttling
   const lastSpeedUpdateRef = useRef<number>(0);
   const pendingSpeedUpdateRef = useRef<NodeJS.Timeout | null>(null);
+  const lastActiveStateRef = useRef<boolean | null>(null);
+
+  // Function to fetch speeds (used for initial load and visibility change)
+  const fetchSpeeds = useCallback(async () => {
+    try {
+      const data = await ApiService.getCurrentSpeeds();
+      setSpeedSnapshot(data);
+      lastActiveStateRef.current = data?.hasActiveDownloads ?? false;
+    } catch (err) {
+      console.error('Failed to fetch speeds:', err);
+    }
+  }, []);
 
   useEffect(() => {
     // Initial fetch
-    const fetchSpeeds = async () => {
-      try {
-        const data = await ApiService.getCurrentSpeeds();
-        setSpeedSnapshot(data);
-      } catch (err) {
-        console.error('Failed to fetch speeds:', err);
-      }
-    };
     fetchSpeeds();
 
     // SignalR handler with debouncing and user-controlled throttling
@@ -184,6 +188,18 @@ const Dashboard: React.FC = () => {
       // Clear any pending update
       if (pendingSpeedUpdateRef.current) {
         clearTimeout(pendingSpeedUpdateRef.current);
+      }
+
+      // ALWAYS accept updates immediately when hasActiveDownloads state changes
+      // This ensures "download finished" events are never throttled
+      const activeStateChanged = lastActiveStateRef.current !== null &&
+        lastActiveStateRef.current !== payload.hasActiveDownloads;
+
+      if (activeStateChanged) {
+        lastSpeedUpdateRef.current = Date.now();
+        lastActiveStateRef.current = payload.hasActiveDownloads;
+        setSpeedSnapshot(payload);
+        return;
       }
 
       // Debounce: wait 100ms for more events
@@ -198,6 +214,7 @@ const Dashboard: React.FC = () => {
 
         if (timeSinceLastUpdate >= minInterval) {
           lastSpeedUpdateRef.current = now;
+          lastActiveStateRef.current = payload.hasActiveDownloads;
           setSpeedSnapshot(payload);
         }
         pendingSpeedUpdateRef.current = null;
@@ -212,7 +229,23 @@ const Dashboard: React.FC = () => {
         clearTimeout(pendingSpeedUpdateRef.current);
       }
     };
-  }, [signalR, getRefreshInterval]);
+  }, [signalR, getRefreshInterval, fetchSpeeds]);
+
+  // Refresh speeds when tab becomes visible
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        // Reset throttle and fetch fresh data
+        lastSpeedUpdateRef.current = 0;
+        fetchSpeeds();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [fetchSpeeds]);
 
   // Filter out services with only small files (< 1MB) and 0-byte files from dashboard data
   const filteredLatestDownloads = useMemo(() => {

@@ -24,12 +24,14 @@ const ActiveDownloadsView: React.FC = () => {
   const [viewMode, setViewMode] = useState<'games' | 'clients'>('games');
   const lastUpdateRef = useRef<number>(0);
   const pendingUpdateRef = useRef<NodeJS.Timeout | null>(null);
+  const lastActiveStateRef = useRef<boolean | null>(null);
 
-  // Fetch current speeds (for initial load and manual refresh)
+  // Fetch current speeds (for initial load, manual refresh, and visibility change)
   const fetchSpeeds = useCallback(async () => {
     try {
       const data = await ApiService.getCurrentSpeeds();
       setSpeedSnapshot(data);
+      lastActiveStateRef.current = data?.hasActiveDownloads ?? false;
     } catch (err) {
       console.error('Failed to fetch speeds:', err);
     } finally {
@@ -49,6 +51,19 @@ const ActiveDownloadsView: React.FC = () => {
         clearTimeout(pendingUpdateRef.current);
       }
 
+      // ALWAYS accept updates immediately when hasActiveDownloads state changes
+      // This ensures "download finished" events are never throttled
+      const activeStateChanged = lastActiveStateRef.current !== null &&
+        lastActiveStateRef.current !== payload.hasActiveDownloads;
+
+      if (activeStateChanged) {
+        lastUpdateRef.current = Date.now();
+        lastActiveStateRef.current = payload.hasActiveDownloads;
+        setSpeedSnapshot(payload);
+        setLoading(false);
+        return;
+      }
+
       // Debounce: wait 100ms for more events
       pendingUpdateRef.current = setTimeout(() => {
         const maxRefreshRate = getRefreshInterval();
@@ -61,6 +76,7 @@ const ActiveDownloadsView: React.FC = () => {
 
         if (timeSinceLastUpdate >= minInterval) {
           lastUpdateRef.current = now;
+          lastActiveStateRef.current = payload.hasActiveDownloads;
           setSpeedSnapshot(payload);
           setLoading(false);
         }
@@ -77,6 +93,22 @@ const ActiveDownloadsView: React.FC = () => {
       }
     };
   }, [signalR, getRefreshInterval, fetchSpeeds]);
+
+  // Refresh speeds when tab becomes visible
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        // Reset throttle and fetch fresh data
+        lastUpdateRef.current = 0;
+        fetchSpeeds();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [fetchSpeeds]);
 
   // Use speedSnapshot for all active download data (real-time from Rust speed tracker)
   const hasActiveDownloads = speedSnapshot?.hasActiveDownloads || false;
