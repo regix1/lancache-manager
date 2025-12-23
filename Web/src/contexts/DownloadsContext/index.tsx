@@ -67,15 +67,18 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastFetchTime = useRef<number>(0);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSignalRRefresh = useRef<number>(0);
 
   // Sync refs - updated on every render BEFORE effects run
   // This ensures functions reading from these refs get current values
   const currentTimeRangeRef = useRef<string>(timeRange);
   const getTimeRangeParamsRef = useRef(getTimeRangeParams);
+  const getPollingIntervalRef = useRef(getPollingInterval);
   const mockModeRef = useRef(mockMode);
 
   currentTimeRangeRef.current = timeRange;
   getTimeRangeParamsRef.current = getTimeRangeParams;
+  getPollingIntervalRef.current = getPollingInterval;
   mockModeRef.current = mockMode;
 
   // ============================================
@@ -203,8 +206,24 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
       });
     };
 
-    // Single handler for all refresh events (consolidated from duplicate handlers)
-    const handleDataRefresh = () => fetchDownloads();
+    // Handler that respects polling rate (or instant if Live mode)
+    const handleDataRefresh = () => {
+      const pollingInterval = getPollingIntervalRef.current();
+
+      // Live mode (0) = instant updates, no throttling
+      if (pollingInterval === 0) {
+        fetchDownloads();
+        return;
+      }
+
+      // Throttle based on polling interval
+      const now = Date.now();
+      const timeSinceLastRefresh = now - lastSignalRRefresh.current;
+      if (timeSinceLastRefresh >= pollingInterval) {
+        lastSignalRRefresh.current = now;
+        fetchDownloads();
+      }
+    };
 
     // Handler for database reset completion
     const handleDatabaseResetProgress = (payload: { status?: string }) => {

@@ -179,88 +179,122 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
       return () => window.removeEventListener('themechange', handleThemeChange);
     }, []);
 
-    // Chart rendering
+    // Store original data ref for tooltips (updated on each render)
+    const originalDataRef = useRef<number[]>(chartData.data);
+    originalDataRef.current = chartData.data;
+
+    // Track which tab the current chart was created for
+    const chartTabRef = useRef<TabId | null>(null);
+
+    // Single unified effect for chart management
     useEffect(() => {
       if (!chartRef.current || chartData.labels.length === 0) return;
 
-      const currentDataString = JSON.stringify({ labels: chartData.labels, data: chartData.data });
-      const dataChanged = currentDataString !== prevDataRef.current;
-      prevDataRef.current = currentDataString;
-
-      if (chartInstance.current) {
-        chartInstance.current.destroy();
-      }
+      const ctx = chartRef.current.getContext('2d');
+      if (!ctx) return;
 
       const computedStyle = getComputedStyle(document.documentElement);
       const borderColor = computedStyle.getPropertyValue('--theme-chart-border').trim() || '#1a1a2e';
       const textColor = computedStyle.getPropertyValue('--theme-chart-text').trim() || '#a0aec0';
       const titleColor = computedStyle.getPropertyValue('--theme-text-primary').trim() || '#ffffff';
 
-      const ctx = chartRef.current.getContext('2d');
-      if (!ctx) return;
+      // Check if we need to create/recreate the chart
+      const needsNewChart = !chartInstance.current || chartTabRef.current !== activeTab;
 
-      // Store original data for tooltips
-      const originalData = chartData.data;
+      if (needsNewChart) {
+        // Destroy existing chart if switching tabs
+        if (chartInstance.current) {
+          chartInstance.current.destroy();
+          chartInstance.current = null;
+        }
+        chartTabRef.current = activeTab;
+        prevDataRef.current = '';
 
-      chartInstance.current = new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-          labels: chartData.labels,
-          datasets: [{
-            data: displayData, // Use inflated data for visual display
-            backgroundColor: chartData.colors,
-            borderColor: borderColor,
-            borderWidth: 2,
-            borderRadius: 4,
-            borderAlign: 'inner',
-            spacing: 0
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: true,
-          aspectRatio: 1,
-          layout: { padding: 0 },
-          animation: {
-            animateRotate: true,
-            animateScale: dataChanged,
-            duration: 800,
-            easing: 'easeOutQuart'
-          },
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              backgroundColor: 'rgba(0,0,0,0.9)',
-              titleColor: titleColor,
-              bodyColor: textColor,
+        // Create new chart with initial animation
+        chartInstance.current = new Chart(ctx, {
+          type: 'doughnut',
+          data: {
+            labels: chartData.labels,
+            datasets: [{
+              data: displayData,
+              backgroundColor: chartData.colors,
               borderColor: borderColor,
-              borderWidth: 1,
-              cornerRadius: 10,
-              padding: 14,
-              displayColors: true,
-              boxPadding: 6,
-              callbacks: {
-                label: (context) => {
-                  // Use original data for accurate tooltip
-                  const realValue = originalData[context.dataIndex];
-                  const total = originalData.reduce((a, b) => a + b, 0);
-                  const percentage = total > 0 ? ((realValue / total) * 100).toFixed(1) : '0';
-                  return `${context.label}: ${formatBytes(realValue)} (${percentage}%)`;
+              borderWidth: 2,
+              borderRadius: 4,
+              borderAlign: 'inner',
+              spacing: 0
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            aspectRatio: 1,
+            layout: { padding: 0 },
+            animation: {
+              animateRotate: true,
+              animateScale: true,
+              duration: 600,
+              easing: 'easeOutQuart'
+            },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                animation: { duration: 150 },
+                backgroundColor: 'rgba(0,0,0,0.9)',
+                titleColor: titleColor,
+                bodyColor: textColor,
+                borderColor: borderColor,
+                borderWidth: 1,
+                cornerRadius: 10,
+                padding: 14,
+                displayColors: true,
+                boxPadding: 6,
+                callbacks: {
+                  label: (context) => {
+                    // Use original data ref for accurate tooltip (always current)
+                    const realValue = originalDataRef.current[context.dataIndex] || 0;
+                    const total = originalDataRef.current.reduce((a, b) => a + b, 0);
+                    const percentage = total > 0 ? ((realValue / total) * 100).toFixed(1) : '0';
+                    return `${context.label}: ${formatBytes(realValue)} (${percentage}%)`;
+                  }
                 }
               }
-            }
-          },
-          cutout: '70%',
-          radius: '100%'
-        }
-      });
+            },
+            cutout: '70%',
+            radius: '100%'
+          }
+        });
+      } else if (chartInstance.current) {
+        // Smooth in-place update (no chart recreation)
+        const chart = chartInstance.current;
+        const currentDataString = JSON.stringify({ labels: chartData.labels, data: displayData });
+
+        // Skip if data hasn't changed
+        if (currentDataString === prevDataRef.current) return;
+        prevDataRef.current = currentDataString;
+
+        // Update data in place for smooth transitions
+        chart.data.labels = chartData.labels;
+        chart.data.datasets[0].data = displayData;
+        chart.data.datasets[0].backgroundColor = chartData.colors;
+
+        // Smooth update with short animation (grows/shrinks segments)
+        // Use 'none' for instant update or 'default' for standard animation
+        chart.options.animation = {
+          duration: 300,
+          easing: 'easeOutQuart'
+        };
+        chart.update('default');
+      }
 
       return () => {
         if (chartInstance.current) {
           chartInstance.current.destroy();
+          chartInstance.current = null;
+          chartTabRef.current = null;
         }
       };
-    }, [chartData, displayData, activeTab]);
+    }, [activeTab, chartData, displayData]);
 
     const totalValue = chartData.data.reduce((a, b) => a + b, 0);
     const totalHits = serviceStats.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);
