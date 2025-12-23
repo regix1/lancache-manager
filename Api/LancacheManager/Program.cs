@@ -328,6 +328,12 @@ builder.Services.AddOutputCache(options =>
 {
     options.AddPolicy("dashboard", builder =>
         builder.Expire(TimeSpan.FromSeconds(5)));
+    options.AddPolicy("stats-short", builder =>
+        builder.Expire(TimeSpan.FromSeconds(10))
+               .SetVaryByQuery("startTime", "endTime", "since"));
+    options.AddPolicy("stats-long", builder =>
+        builder.Expire(TimeSpan.FromSeconds(30))
+               .SetVaryByQuery("startTime", "endTime", "interval"));
 });
 
 // Configure OpenTelemetry Metrics for Prometheus + Grafana

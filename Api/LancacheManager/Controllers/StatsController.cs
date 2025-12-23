@@ -3,6 +3,7 @@ using LancacheManager.Data;
 using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Controllers;
@@ -27,6 +28,7 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("clients")]
+    [OutputCache(PolicyName = "stats-short")]
     public async Task<IActionResult> GetClients([FromQuery] long? startTime = null, [FromQuery] long? endTime = null)
     {
         try
@@ -92,6 +94,7 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("services")]
+    [OutputCache(PolicyName = "stats-short")]
     public async Task<IActionResult> GetServices([FromQuery] string? since = null, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null)
     {
         try
@@ -153,6 +156,7 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("dashboard")]
+    [OutputCache(PolicyName = "stats-short")]
     public async Task<IActionResult> GetDashboardStats(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null)
@@ -303,6 +307,7 @@ public class StatsController : ControllerBase
     /// Groups downloads by hour of day to show activity patterns
     /// </summary>
     [HttpGet("hourly-activity")]
+    [OutputCache(PolicyName = "stats-long")]
     public async Task<IActionResult> GetHourlyActivity(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null)
@@ -412,6 +417,7 @@ public class StatsController : ControllerBase
     /// Shows how much new data has been added to the cache
     /// </summary>
     [HttpGet("cache-growth")]
+    [OutputCache(PolicyName = "stats-long")]
     public async Task<IActionResult> GetCacheGrowth(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
@@ -575,6 +581,7 @@ public class StatsController : ControllerBase
     /// Returns daily aggregated data for bandwidth saved, cache hit ratio, total served, and added to cache
     /// </summary>
     [HttpGet("sparklines")]
+    [OutputCache(PolicyName = "stats-long")]
     public async Task<IActionResult> GetSparklineData(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null)

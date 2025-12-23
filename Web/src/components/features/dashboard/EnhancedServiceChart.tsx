@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
-import { PieChart, Zap, Database } from 'lucide-react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { PieChart as PieChartIcon, Zap, Database } from 'lucide-react';
 import { formatBytes } from '@utils/formatters';
 import { Card } from '@components/ui/Card';
-import Chart from 'chart.js/auto';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import type { ServiceStat } from '@/types';
 
 interface EnhancedServiceChartProps {
@@ -21,18 +21,33 @@ interface TabConfig {
 }
 
 const TABS: TabConfig[] = [
-  { id: 'service', name: 'Service Distribution', shortName: 'Services', icon: PieChart },
+  { id: 'service', name: 'Service Distribution', shortName: 'Services', icon: PieChartIcon },
   { id: 'hit-ratio', name: 'Cache Hit Ratio', shortName: 'Cache', icon: Database },
   { id: 'bandwidth', name: 'Bandwidth Saved', shortName: 'Saved', icon: Zap }
 ];
 
+interface ChartDataItem {
+  name: string;
+  value: number;
+  color: string;
+  originalValue: number;
+  [key: string]: string | number;
+}
+
 const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
   ({ serviceStats, glassmorphism = false }) => {
     const [activeTab, setActiveTab] = useState<TabId>('service');
+    const [activeIndex, setActiveIndex] = useState<number | undefined>(undefined);
     const [, setThemeVersion] = useState(0);
-    const chartRef = useRef<HTMLCanvasElement>(null);
-    const chartInstance = useRef<Chart | null>(null);
-    const prevDataRef = useRef<string>('');
+
+    // Theme change listener
+    useEffect(() => {
+      const handleThemeChange = () => {
+        setTimeout(() => setThemeVersion((v) => v + 1), 50);
+      };
+      window.addEventListener('themechange', handleThemeChange);
+      return () => window.removeEventListener('themechange', handleThemeChange);
+    }, []);
 
     // Get service color from theme
     const getServiceColor = useCallback((serviceName: string) => {
@@ -65,326 +80,128 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
     }, []);
 
     // Chart data generators
-    const getServiceDistributionData = useCallback(() => {
-      if (!serviceStats?.length) return { labels: [], data: [], colors: [] };
+    const getServiceDistributionData = useCallback((): ChartDataItem[] => {
+      if (!serviceStats?.length) return [];
 
       const totalBytes = serviceStats.reduce((sum, s) => sum + (s.totalBytes || 0), 0);
-      if (totalBytes === 0) return { labels: [], data: [], colors: [] };
+      if (totalBytes === 0) return [];
 
-      const sorted = serviceStats
-        .map((s) => ({ name: s.service, value: s.totalBytes }))
+      return serviceStats
+        .map((s) => ({
+          name: s.service,
+          value: s.totalBytes,
+          originalValue: s.totalBytes,
+          color: getServiceColor(s.service)
+        }))
         .filter((s) => s.value > 0)
         .sort((a, b) => b.value - a.value);
-
-      return {
-        labels: sorted.map((s) => s.name),
-        data: sorted.map((s) => s.value),
-        colors: sorted.map((s) => getServiceColor(s.name))
-      };
     }, [serviceStats, getServiceColor]);
 
-    const getCacheHitRatioData = useCallback(() => {
-      if (!serviceStats?.length) return { labels: [], data: [], colors: [] };
+    const getCacheHitRatioData = useCallback((): ChartDataItem[] => {
+      if (!serviceStats?.length) return [];
 
       const totalHits = serviceStats.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);
       const totalMisses = serviceStats.reduce((sum, s) => sum + (s.totalCacheMissBytes || 0), 0);
 
-      if (totalHits + totalMisses === 0) return { labels: [], data: [], colors: [] };
+      if (totalHits + totalMisses === 0) return [];
 
       const computedStyle = getComputedStyle(document.documentElement);
       const hitColor = computedStyle.getPropertyValue('--theme-chart-cache-hit').trim() || '#22c55e';
       const missColor = computedStyle.getPropertyValue('--theme-chart-cache-miss').trim() || '#ef4444';
 
-      return {
-        labels: ['Cache Hits', 'Cache Misses'],
-        data: [totalHits, totalMisses],
-        colors: [hitColor, missColor]
-      };
+      return [
+        { name: 'Cache Hits', value: totalHits, originalValue: totalHits, color: hitColor },
+        { name: 'Cache Misses', value: totalMisses, originalValue: totalMisses, color: missColor }
+      ];
     }, [serviceStats]);
 
-    const getBandwidthSavedData = useCallback(() => {
-      if (!serviceStats?.length) return { labels: [], data: [], colors: [] };
+    const getBandwidthSavedData = useCallback((): ChartDataItem[] => {
+      if (!serviceStats?.length) return [];
 
-      const servicesWithSavings = serviceStats
-        .map((s) => ({ name: s.service, value: s.totalCacheHitBytes || 0 }))
+      return serviceStats
+        .map((s) => ({
+          name: s.service,
+          value: s.totalCacheHitBytes || 0,
+          originalValue: s.totalCacheHitBytes || 0,
+          color: getServiceColor(s.service)
+        }))
         .filter((s) => s.value > 0)
         .sort((a, b) => b.value - a.value);
-
-      if (!servicesWithSavings.length) return { labels: [], data: [], colors: [] };
-
-      return {
-        labels: servicesWithSavings.map((s) => s.name),
-        data: servicesWithSavings.map((s) => s.value),
-        colors: servicesWithSavings.map((s) => getServiceColor(s.name))
-      };
     }, [serviceStats, getServiceColor]);
 
-    // Get current chart data
-    const chartData = useMemo(() => {
+    // Get current chart data with minimum segment sizing
+    const chartData = useMemo((): ChartDataItem[] => {
+      let data: ChartDataItem[];
       switch (activeTab) {
-        case 'service': return getServiceDistributionData();
-        case 'hit-ratio': return getCacheHitRatioData();
-        case 'bandwidth': return getBandwidthSavedData();
-        default: return getServiceDistributionData();
+        case 'service': data = getServiceDistributionData(); break;
+        case 'hit-ratio': data = getCacheHitRatioData(); break;
+        case 'bandwidth': data = getBandwidthSavedData(); break;
+        default: data = getServiceDistributionData();
       }
-    }, [activeTab, getServiceDistributionData, getCacheHitRatioData, getBandwidthSavedData]);
 
-    // Inflate small segments for visual display (minimum 2.5% visual size)
-    const displayData = useMemo(() => {
-      if (chartData.data.length === 0) return chartData.data;
+      if (data.length === 0) return data;
 
-      const total = chartData.data.reduce((a, b) => a + b, 0);
-      if (total === 0) return chartData.data;
+      const total = data.reduce((sum, d) => sum + d.value, 0);
+      if (total === 0) return data;
 
-      const minPercent = 2.5; // Minimum visual percentage for small segments
+      // Apply minimum visual percentage (2.5%) for small segments
+      const minPercent = 2.5;
       const minValue = (minPercent / 100) * total;
 
-      // Count how many segments need inflation
-      const smallSegments = chartData.data.filter(value => {
-        const percent = (value / total) * 100;
-        return percent > 0 && percent < minPercent;
-      }).length;
+      // Count small segments
+      const smallCount = data.filter(d => (d.value / total) * 100 < minPercent && d.value > 0).length;
 
-      // If too many small segments would cause issues, skip inflation
-      // (e.g., 10+ small segments at 2.5% each = 25%+ needed from large segments)
-      if (smallSegments > 8) return chartData.data;
+      // If too many small segments, don't inflate
+      if (smallCount > 6) return data;
 
-      // Find segments that need inflation
-      const inflated = chartData.data.map(value => {
-        const percent = (value / total) * 100;
+      // Inflate small segments
+      const inflated = data.map(d => {
+        const percent = (d.value / total) * 100;
         if (percent > 0 && percent < minPercent) {
-          return minValue; // Inflate to minimum
+          return { ...d, value: minValue };
         }
-        return value;
+        return d;
       });
 
-      // Calculate how much we inflated
-      const inflatedTotal = inflated.reduce((a, b) => a + b, 0);
+      // Calculate excess and redistribute
+      const inflatedTotal = inflated.reduce((sum, d) => sum + d.value, 0);
       const excess = inflatedTotal - total;
 
       if (excess <= 0) return inflated;
 
-      // Find the largest segment and check if it can absorb the excess
-      const largestValue = Math.max(...chartData.data);
-      const largestIndex = chartData.data.indexOf(largestValue);
+      // Find largest segment
+      const largestIdx = data.reduce((maxIdx, d, idx, arr) =>
+        d.value > arr[maxIdx].value ? idx : maxIdx, 0);
 
-      if (largestIndex >= 0 && inflated[largestIndex] > excess * 1.5) {
-        // Largest segment can safely absorb the excess (with margin)
-        inflated[largestIndex] -= excess;
+      if (inflated[largestIdx].value > excess * 1.5) {
+        inflated[largestIdx] = { ...inflated[largestIdx], value: inflated[largestIdx].value - excess };
         return inflated;
       }
 
-      // Can't safely compensate - scale everything to maintain the original total
+      // Scale proportionally as fallback
       const scale = total / inflatedTotal;
-      return inflated.map(v => v * scale);
-    }, [chartData.data]);
+      return inflated.map(d => ({ ...d, value: d.value * scale }));
+    }, [activeTab, getServiceDistributionData, getCacheHitRatioData, getBandwidthSavedData]);
 
-    // Theme change listener
-    useEffect(() => {
-      const handleThemeChange = () => {
-        setTimeout(() => {
-          if (chartInstance.current) {
-            chartInstance.current.destroy();
-            chartInstance.current = null;
-          }
-          setThemeVersion((v) => v + 1);
-        }, 50);
-      };
-
-      window.addEventListener('themechange', handleThemeChange);
-      return () => window.removeEventListener('themechange', handleThemeChange);
-    }, []);
-
-    // Store original data ref for tooltips (updated on each render)
-    const originalDataRef = useRef<number[]>(chartData.data);
-    originalDataRef.current = chartData.data;
-
-    // Track which tab the current chart was created for
-    const chartTabRef = useRef<TabId | null>(null);
-
-    // Cleanup on unmount only
-    useEffect(() => {
-      return () => {
-        if (chartInstance.current) {
-          chartInstance.current.destroy();
-          chartInstance.current = null;
-          chartTabRef.current = null;
-        }
-      };
-    }, []);
-
-    // Chart creation - only when tab changes or first mount
-    useEffect(() => {
-      if (!chartRef.current || chartData.labels.length === 0) return;
-
-      // Only create chart if tab changed or no chart exists
-      if (chartInstance.current && chartTabRef.current === activeTab) return;
-
-      const ctx = chartRef.current.getContext('2d');
-      if (!ctx) return;
-
-      const computedStyle = getComputedStyle(document.documentElement);
-      const borderColor = computedStyle.getPropertyValue('--theme-chart-border').trim() || '#1a1a2e';
-      const textColor = computedStyle.getPropertyValue('--theme-chart-text').trim() || '#a0aec0';
-      const titleColor = computedStyle.getPropertyValue('--theme-text-primary').trim() || '#ffffff';
-
-      // Destroy existing chart if switching tabs
-      if (chartInstance.current) {
-        chartInstance.current.destroy();
-        chartInstance.current = null;
-      }
-      chartTabRef.current = activeTab;
-      prevDataRef.current = '';
-
-      // Create new chart with initial animation
-      chartInstance.current = new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-          labels: chartData.labels,
-          datasets: [{
-            data: displayData,
-            backgroundColor: chartData.colors,
-            borderColor: borderColor,
-            borderWidth: 2,
-            borderRadius: 4,
-            borderAlign: 'inner',
-            spacing: 0
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: true,
-          aspectRatio: 1,
-          layout: { padding: 0 },
-          animation: {
-            animateRotate: true,
-            animateScale: true,
-            duration: 600,
-            easing: 'easeOutQuart'
-          },
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              animation: { duration: 150 },
-              backgroundColor: 'rgba(0,0,0,0.9)',
-              titleColor: titleColor,
-              bodyColor: textColor,
-              borderColor: borderColor,
-              borderWidth: 1,
-              cornerRadius: 10,
-              padding: 14,
-              displayColors: true,
-              boxPadding: 6,
-              callbacks: {
-                label: (context) => {
-                  // Use original data ref for accurate tooltip (always current)
-                  const realValue = originalDataRef.current[context.dataIndex] || 0;
-                  const total = originalDataRef.current.reduce((a, b) => a + b, 0);
-                  const percentage = total > 0 ? ((realValue / total) * 100).toFixed(1) : '0';
-                  return `${context.label}: ${formatBytes(realValue)} (${percentage}%)`;
-                }
-              }
-            }
-          },
-          cutout: '70%',
-          radius: '100%'
-        }
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeTab]); // Only recreate on tab change - data updates handled separately
-
-    // Data updates - handles both initial creation and smooth updates
-    useEffect(() => {
-      if (!chartRef.current || chartData.labels.length === 0) return;
-
-      const ctx = chartRef.current.getContext('2d');
-      if (!ctx) return;
-
-      // If no chart exists yet, create it (handles first data arrival)
-      if (!chartInstance.current) {
-        const computedStyle = getComputedStyle(document.documentElement);
-        const borderColor = computedStyle.getPropertyValue('--theme-chart-border').trim() || '#1a1a2e';
-        const textColor = computedStyle.getPropertyValue('--theme-chart-text').trim() || '#a0aec0';
-        const titleColor = computedStyle.getPropertyValue('--theme-text-primary').trim() || '#ffffff';
-
-        chartTabRef.current = activeTab;
-        chartInstance.current = new Chart(ctx, {
-          type: 'doughnut',
-          data: {
-            labels: chartData.labels,
-            datasets: [{
-              data: displayData,
-              backgroundColor: chartData.colors,
-              borderColor: borderColor,
-              borderWidth: 2,
-              borderRadius: 4,
-              borderAlign: 'inner',
-              spacing: 0
-            }]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: true,
-            aspectRatio: 1,
-            layout: { padding: 0 },
-            animation: {
-              animateRotate: true,
-              animateScale: true,
-              duration: 600,
-              easing: 'easeOutQuart'
-            },
-            plugins: {
-              legend: { display: false },
-              tooltip: {
-                animation: { duration: 150 },
-                backgroundColor: 'rgba(0,0,0,0.9)',
-                titleColor: titleColor,
-                bodyColor: textColor,
-                borderColor: borderColor,
-                borderWidth: 1,
-                cornerRadius: 10,
-                padding: 14,
-                displayColors: true,
-                boxPadding: 6,
-                callbacks: {
-                  label: (context) => {
-                    const realValue = originalDataRef.current[context.dataIndex] || 0;
-                    const total = originalDataRef.current.reduce((a, b) => a + b, 0);
-                    const percentage = total > 0 ? ((realValue / total) * 100).toFixed(1) : '0';
-                    return `${context.label}: ${formatBytes(realValue)} (${percentage}%)`;
-                  }
-                }
-              }
-            },
-            cutout: '70%',
-            radius: '100%'
-          }
-        });
-        prevDataRef.current = JSON.stringify({ labels: chartData.labels, data: displayData });
-        return;
-      }
-
-      // Chart exists - do smooth in-place update
-      const chart = chartInstance.current;
-      const currentDataString = JSON.stringify({ labels: chartData.labels, data: displayData });
-
-      // Skip if data hasn't changed
-      if (currentDataString === prevDataRef.current) return;
-      prevDataRef.current = currentDataString;
-
-      // Update data in place for smooth transitions
-      chart.data.labels = chartData.labels;
-      chart.data.datasets[0].data = displayData;
-      chart.data.datasets[0].backgroundColor = chartData.colors;
-
-      // Instant update - no animation, just shift the segments
-      chart.update('none');
-    }, [chartData, displayData, activeTab]);
-
-    const totalValue = chartData.data.reduce((a, b) => a + b, 0);
+    const totalValue = chartData.reduce((sum, d) => sum + d.originalValue, 0);
     const totalHits = serviceStats.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);
     const totalBytes = serviceStats.reduce((sum, s) => sum + (s.totalBytes || 0), 0);
     const hitRatio = totalBytes > 0 ? (totalHits / totalBytes) * 100 : 0;
+
+    // Custom tooltip
+    const CustomTooltip = ({ active, payload }: { active?: boolean; payload?: Array<{ payload: ChartDataItem }> }) => {
+      if (!active || !payload?.length) return null;
+
+      const data = payload[0].payload;
+      const percentage = totalValue > 0 ? ((data.originalValue / totalValue) * 100).toFixed(1) : '0';
+
+      return (
+        <div className="chart-tooltip">
+          <div className="tooltip-label">{data.name}</div>
+          <div className="tooltip-value">{formatBytes(data.originalValue)} ({percentage}%)</div>
+        </div>
+      );
+    };
 
     // Get center label based on tab
     const getCenterLabel = () => {
@@ -478,7 +295,6 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
             padding-bottom: 0.75rem;
           }
 
-          /* Horizontal layout for wider containers */
           @container (min-width: 420px) {
             .chart-body {
               flex-direction: row;
@@ -486,7 +302,6 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
             }
           }
 
-          /* Vertical layout for narrow containers */
           @container (max-width: 419px) {
             .chart-body {
               flex-direction: column;
@@ -526,6 +341,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
             transform: translate(-50%, -50%);
             text-align: center;
             pointer-events: none;
+            z-index: 10;
           }
 
           .chart-center-value {
@@ -549,6 +365,25 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
             margin-top: 0.2rem;
           }
 
+          .chart-tooltip {
+            background: rgba(0, 0, 0, 0.9);
+            border: 1px solid var(--theme-chart-border, #333);
+            border-radius: 10px;
+            padding: 10px 14px;
+          }
+
+          .tooltip-label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--theme-text-primary, #fff);
+            margin-bottom: 4px;
+          }
+
+          .tooltip-value {
+            font-size: 0.8rem;
+            color: var(--theme-text-secondary, #a0aec0);
+          }
+
           .data-side {
             flex: 1;
             display: flex;
@@ -556,6 +391,8 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
             justify-content: flex-start;
             gap: 0.5rem;
             min-width: 0;
+            max-height: 280px;
+            overflow-y: auto;
           }
 
           @container (max-width: 419px) {
@@ -568,8 +405,28 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
             display: flex;
             flex-direction: column;
             gap: 0.3rem;
-            padding: 0.5rem 0;
+            padding: 0.5rem 0.5rem;
+            margin: 0 -0.5rem;
             border-bottom: 1px solid var(--theme-border-secondary);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+          }
+
+          .legend-item:hover {
+            background: var(--theme-bg-tertiary);
+          }
+
+          .legend-item.active {
+            background: var(--theme-bg-tertiary);
+          }
+
+          .legend-item.active .legend-name {
+            font-weight: 600;
+          }
+
+          .legend-item.dimmed {
+            opacity: 0.5;
           }
 
           .legend-item:last-child {
@@ -595,6 +452,12 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
             height: 10px;
             border-radius: 3px;
             flex-shrink: 0;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+          }
+
+          .legend-item.active .legend-dot {
+            transform: scale(1.3);
+            box-shadow: 0 0 8px currentColor;
           }
 
           .legend-name {
@@ -747,14 +610,53 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
           </div>
         </div>
 
-        {chartData.labels.length > 0 ? (
+        {chartData.length > 0 ? (
           <>
             {/* Main content - side by side */}
             <div className="chart-body">
               {/* Chart */}
               <div className="chart-side">
                 <div className="chart-wrapper">
-                  <canvas ref={chartRef} />
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={chartData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius="70%"
+                        outerRadius="95%"
+                        paddingAngle={2}
+                        dataKey="value"
+                        animationBegin={0}
+                        animationDuration={800}
+                        animationEasing="ease-out"
+                        onMouseEnter={(_, index) => setActiveIndex(index)}
+                        onMouseLeave={() => setActiveIndex(undefined)}
+                      >
+                        {chartData.map((entry, index) => {
+                          const isActive = activeIndex === index;
+                          const isDimmed = activeIndex !== undefined && activeIndex !== index;
+                          return (
+                            <Cell
+                              key={`cell-${index}`}
+                              fill={entry.color}
+                              stroke="var(--theme-chart-border, #1a1a2e)"
+                              strokeWidth={isActive ? 3 : 2}
+                              style={{
+                                cursor: 'pointer',
+                                transition: 'all 0.2s ease',
+                                opacity: isDimmed ? 0.5 : 1,
+                                filter: isActive ? 'brightness(1.15)' : 'none',
+                                transform: isActive ? 'scale(1.02)' : 'scale(1)',
+                                transformOrigin: 'center'
+                              }}
+                            />
+                          );
+                        })}
+                      </Pie>
+                      <Tooltip content={<CustomTooltip />} />
+                    </PieChart>
+                  </ResponsiveContainer>
                   <div className="chart-center">
                     <div className="chart-center-value">
                       {formatBytes(totalValue)}
@@ -768,21 +670,24 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
 
               {/* Legend with progress bars */}
               <div className="data-side">
-                {chartData.labels.map((label, index) => {
-                  const value = chartData.data[index];
-                  const percentage = totalValue > 0 ? (value / totalValue) * 100 : 0;
+                {chartData.map((item, index) => {
+                  const percentage = totalValue > 0 ? (item.originalValue / totalValue) * 100 : 0;
+                  const isActive = activeIndex === index;
+                  const isDimmed = activeIndex !== undefined && activeIndex !== index;
                   return (
                     <div
-                      key={label}
-                      className="legend-item"
+                      key={item.name}
+                      className={`legend-item ${isActive ? 'active' : ''} ${isDimmed ? 'dimmed' : ''}`}
+                      onMouseEnter={() => setActiveIndex(index)}
+                      onMouseLeave={() => setActiveIndex(undefined)}
                     >
                       <div className="legend-row">
                         <div className="legend-label">
                           <span
                             className="legend-dot"
-                            style={{ backgroundColor: chartData.colors[index] }}
+                            style={{ backgroundColor: item.color }}
                           />
-                          <span className="legend-name">{label}</span>
+                          <span className="legend-name">{item.name}</span>
                         </div>
                         <span className="legend-value">{percentage.toFixed(1)}%</span>
                       </div>
@@ -791,7 +696,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
                           className="legend-bar-fill"
                           style={{
                             width: `${percentage}%`,
-                            backgroundColor: chartData.colors[index]
+                            backgroundColor: item.color
                           }}
                         />
                       </div>
@@ -821,7 +726,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
           <div className="empty-state">
             <div className="empty-icon">
               <div className="empty-icon-bg" />
-              <PieChart size={24} />
+              <PieChartIcon size={24} />
             </div>
             <div className="empty-title">No Data Available</div>
             <div className="empty-desc">Service statistics will appear here</div>
