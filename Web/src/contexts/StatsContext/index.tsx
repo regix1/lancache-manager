@@ -244,6 +244,25 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     };
   }, [mockMode, signalR, fetchStats]);
 
+  // Page visibility - refresh when tab becomes visible
+  useEffect(() => {
+    if (mockMode) return;
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        // Tab became visible - trigger immediate refresh
+        // Reset the last refresh time to allow immediate fetch
+        lastSignalRRefresh.current = 0;
+        fetchStats();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [mockMode, fetchStats]);
+
   // Load mock data when mock mode is enabled
   useEffect(() => {
     if (mockMode) {

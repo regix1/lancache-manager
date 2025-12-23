@@ -25,7 +25,6 @@ export interface SignalRProviderProps {
 // List of all SignalR events
 export const SIGNALR_EVENTS = [
   'DownloadsRefresh',
-  'NewDownloads',
   'ProcessingProgress',
   'FastProcessingComplete',
   'DownloadSpeedUpdate',
@@ -322,29 +321,3 @@ export interface DefaultGuestRefreshRateChangedPayload {
   refreshRate: string;
 }
 
-export interface NewDownloadsPayload {
-  downloads: Array<{
-    id: number;
-    service: string;
-    clientIp: string;
-    startTimeUtc: string;
-    endTimeUtc: string | null;
-    startTimeLocal: string;
-    endTimeLocal: string | null;
-    cacheHitBytes: number;
-    cacheMissBytes: number;
-    totalBytes: number;
-    cacheHitPercent: number;
-    isActive: boolean;
-    gameName?: string;
-    gameAppId?: number;
-    gameImageUrl?: string;
-    depotId?: number;
-    lastUrl?: string;
-    datasource?: string;
-    durationSeconds?: number;
-    averageBytesPerSecond?: number;
-  }>;
-  count: number;
-  timestamp: string;
-}

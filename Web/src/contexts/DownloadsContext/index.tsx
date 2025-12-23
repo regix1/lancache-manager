@@ -13,7 +13,6 @@ import MockDataService from '../../test/mockData.service';
 import { useTimeFilter } from '../TimeFilterContext';
 import { useRefreshRate } from '../RefreshRateContext';
 import { useSignalR } from '../SignalRContext';
-import type { NewDownloadsPayload } from '../SignalRContext/types';
 import { SIGNALR_REFRESH_EVENTS } from '../SignalRContext/types';
 import type { DownloadsContextType, DownloadsProviderProps } from './types';
 
@@ -43,7 +42,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   mockMode = false
 }) => {
   const { getTimeRangeParams, timeRange, customStartDate, customEndDate } = useTimeFilter();
-  const { refreshRate, getRefreshInterval } = useRefreshRate();
+  const { getRefreshInterval } = useRefreshRate();
   const signalR = useSignalR();
 
   // ============================================
@@ -170,45 +169,8 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   useEffect(() => {
     if (mockMode) return;
 
-    // Handler for NewDownloads - merges new downloads into state without full refetch
-    // Only active in Live mode - polling modes handle their own updates
-    const handleNewDownloads = (payload: NewDownloadsPayload) => {
-      if (refreshRate !== 'LIVE') return;
-      if (!payload.downloads || payload.downloads.length === 0) return;
-
-      const { startTime, endTime } = getTimeRangeParamsRef.current();
-
-      // Filter new downloads by current time range
-      const newDownloads = payload.downloads.filter(download => {
-        if (!startTime && !endTime) return true;
-
-        const downloadTime = new Date(download.startTimeUtc).getTime() / 1000;
-        if (startTime && downloadTime < startTime) return false;
-        if (endTime && downloadTime > endTime) return false;
-        return true;
-      });
-
-      if (newDownloads.length === 0) return;
-
-      setLatestDownloads(prev => {
-        const existingIds = new Set(prev.map(d => d.id));
-        const uniqueNewDownloads = newDownloads.filter(d => !existingIds.has(d.id));
-
-        if (uniqueNewDownloads.length === 0) return prev;
-
-        // Prepend new downloads and cap at 500 to prevent unbounded growth
-        const merged = [...uniqueNewDownloads, ...prev].slice(0, 500);
-        merged.sort((a, b) =>
-          new Date(b.startTimeUtc).getTime() - new Date(a.startTimeUtc).getTime()
-        );
-
-        hasData.current = true;
-        return merged;
-      });
-    };
-
     // Debounced handler that respects user's refresh rate setting
-    // This replaces polling - SignalR events are the only source of updates
+    // All data comes from the database via API to ensure consistency with stats
     const handleDataRefresh = () => {
       // Clear any pending refresh to debounce rapid events
       if (pendingRefreshRef.current) {
@@ -241,13 +203,11 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
       }
     };
 
-    // Subscribe to events
-    signalR.on('NewDownloads', handleNewDownloads);
+    // Subscribe to events - all data comes from database via API for consistency
     signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
     SIGNALR_REFRESH_EVENTS.forEach(event => signalR.on(event, handleDataRefresh));
 
     return () => {
-      signalR.off('NewDownloads', handleNewDownloads);
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
       SIGNALR_REFRESH_EVENTS.forEach(event => signalR.off(event, handleDataRefresh));
       if (pendingRefreshRef.current) {
@@ -255,7 +215,29 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
         pendingRefreshRef.current = null;
       }
     };
-  }, [mockMode, signalR, fetchDownloads, refreshRate]);
+  }, [mockMode, signalR, fetchDownloads]);
+
+  // ============================================
+  // PAGE VISIBILITY - Refresh when tab becomes visible
+  // ============================================
+
+  useEffect(() => {
+    if (mockMode) return;
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        // Tab became visible - trigger immediate refresh
+        // Reset the last refresh time to allow immediate fetch
+        lastSignalRRefresh.current = 0;
+        fetchDownloads();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [mockMode, fetchDownloads]);
 
   // ============================================
   // EFFECTS
