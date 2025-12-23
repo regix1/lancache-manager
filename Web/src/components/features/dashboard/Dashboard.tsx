@@ -166,14 +166,14 @@ const Dashboard: React.FC = () => {
   // Fetch real-time speeds - uses SignalR with user-controlled throttling
   const lastSpeedUpdateRef = useRef<number>(0);
   const pendingSpeedUpdateRef = useRef<NodeJS.Timeout | null>(null);
-  const lastActiveStateRef = useRef<boolean | null>(null);
+  const lastActiveCountRef = useRef<number | null>(null);
 
   // Function to fetch speeds (used for initial load and visibility change)
   const fetchSpeeds = useCallback(async () => {
     try {
       const data = await ApiService.getCurrentSpeeds();
       setSpeedSnapshot(data);
-      lastActiveStateRef.current = data?.hasActiveDownloads ?? false;
+      lastActiveCountRef.current = data?.gameSpeeds?.length ?? 0;
     } catch (err) {
       console.error('Failed to fetch speeds:', err);
     }
@@ -190,14 +190,16 @@ const Dashboard: React.FC = () => {
         clearTimeout(pendingSpeedUpdateRef.current);
       }
 
-      // ALWAYS accept updates immediately when hasActiveDownloads state changes
-      // This ensures "download finished" events are never throttled
-      const activeStateChanged = lastActiveStateRef.current !== null &&
-        lastActiveStateRef.current !== payload.hasActiveDownloads;
+      const newCount = payload.gameSpeeds?.length ?? 0;
 
-      if (activeStateChanged) {
+      // ALWAYS accept updates immediately when active games count changes
+      // This ensures "download finished" events are never throttled
+      const countChanged = lastActiveCountRef.current !== null &&
+        lastActiveCountRef.current !== newCount;
+
+      if (countChanged) {
         lastSpeedUpdateRef.current = Date.now();
-        lastActiveStateRef.current = payload.hasActiveDownloads;
+        lastActiveCountRef.current = newCount;
         setSpeedSnapshot(payload);
         return;
       }
@@ -214,7 +216,7 @@ const Dashboard: React.FC = () => {
 
         if (timeSinceLastUpdate >= minInterval) {
           lastSpeedUpdateRef.current = now;
-          lastActiveStateRef.current = payload.hasActiveDownloads;
+          lastActiveCountRef.current = newCount;
           setSpeedSnapshot(payload);
         }
         pendingSpeedUpdateRef.current = null;

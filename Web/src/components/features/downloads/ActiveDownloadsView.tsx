@@ -24,14 +24,14 @@ const ActiveDownloadsView: React.FC = () => {
   const [viewMode, setViewMode] = useState<'games' | 'clients'>('games');
   const lastUpdateRef = useRef<number>(0);
   const pendingUpdateRef = useRef<NodeJS.Timeout | null>(null);
-  const lastActiveStateRef = useRef<boolean | null>(null);
+  const lastActiveCountRef = useRef<number | null>(null);
 
   // Fetch current speeds (for initial load, manual refresh, and visibility change)
   const fetchSpeeds = useCallback(async () => {
     try {
       const data = await ApiService.getCurrentSpeeds();
       setSpeedSnapshot(data);
-      lastActiveStateRef.current = data?.hasActiveDownloads ?? false;
+      lastActiveCountRef.current = data?.gameSpeeds?.length ?? 0;
     } catch (err) {
       console.error('Failed to fetch speeds:', err);
     } finally {
@@ -51,14 +51,16 @@ const ActiveDownloadsView: React.FC = () => {
         clearTimeout(pendingUpdateRef.current);
       }
 
-      // ALWAYS accept updates immediately when hasActiveDownloads state changes
-      // This ensures "download finished" events are never throttled
-      const activeStateChanged = lastActiveStateRef.current !== null &&
-        lastActiveStateRef.current !== payload.hasActiveDownloads;
+      const newCount = payload.gameSpeeds?.length ?? 0;
 
-      if (activeStateChanged) {
+      // ALWAYS accept updates immediately when active games count changes
+      // This ensures "download finished" events are never throttled
+      const countChanged = lastActiveCountRef.current !== null &&
+        lastActiveCountRef.current !== newCount;
+
+      if (countChanged) {
         lastUpdateRef.current = Date.now();
-        lastActiveStateRef.current = payload.hasActiveDownloads;
+        lastActiveCountRef.current = newCount;
         setSpeedSnapshot(payload);
         setLoading(false);
         return;
@@ -76,7 +78,7 @@ const ActiveDownloadsView: React.FC = () => {
 
         if (timeSinceLastUpdate >= minInterval) {
           lastUpdateRef.current = now;
-          lastActiveStateRef.current = payload.hasActiveDownloads;
+          lastActiveCountRef.current = newCount;
           setSpeedSnapshot(payload);
           setLoading(false);
         }
