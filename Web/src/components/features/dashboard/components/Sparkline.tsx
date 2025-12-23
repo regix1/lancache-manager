@@ -1,5 +1,4 @@
-import React, { useMemo, memo } from 'react';
-import { AreaChart, Area, ResponsiveContainer, YAxis } from 'recharts';
+import React, { useMemo, memo, useId } from 'react';
 
 interface SparklineProps {
   /** Array of data points to display */
@@ -19,7 +18,7 @@ interface SparklineProps {
 }
 
 /**
- * A minimal sparkline chart component using Recharts
+ * A minimal sparkline chart component using pure SVG
  * Displays a small inline chart with no axes, labels, or grid
  */
 const Sparkline: React.FC<SparklineProps> = memo(({
@@ -31,6 +30,8 @@ const Sparkline: React.FC<SparklineProps> = memo(({
   className = '',
   ariaLabel,
 }) => {
+  const gradientId = useId();
+
   // Check for reduced motion preference
   const prefersReducedMotion = useMemo(() => {
     if (typeof window === 'undefined') return true;
@@ -53,31 +54,53 @@ const Sparkline: React.FC<SparklineProps> = memo(({
     return color;
   }, [color]);
 
-  // Convert data array to Recharts format
-  const chartData = useMemo(() => {
-    return data.map((value, index) => ({
-      index,
-      value
-    }));
-  }, [data]);
+  // Calculate SVG path
+  const { linePath, areaPath, viewBox } = useMemo(() => {
+    if (data.length === 0) {
+      return { linePath: '', areaPath: '', viewBox: '0 0 100 100' };
+    }
 
-  // Calculate domain for Y axis
-  const yDomain = useMemo(() => {
-    if (data.length === 0) return [0, 1];
+    const width = 100;
+    const padding = 2;
+    const effectiveHeight = height - padding * 2;
 
     const minVal = Math.min(...data);
     const maxVal = Math.max(...data);
+    const range = maxVal - minVal || 1;
 
-    if (minVal === maxVal) {
-      if (minVal === 0) {
-        return [-1, 1];
-      }
-      return [minVal * 0.9, maxVal * 1.1];
+    // Normalize data to SVG coordinates
+    const points = data.map((value, index) => {
+      const x = (index / (data.length - 1)) * width;
+      const y = padding + effectiveHeight - ((value - minVal) / range) * effectiveHeight;
+      return { x, y };
+    });
+
+    // Create smooth curve using quadratic bezier
+    let linePath = `M ${points[0].x},${points[0].y}`;
+
+    for (let i = 1; i < points.length; i++) {
+      const prev = points[i - 1];
+      const curr = points[i];
+      const cpx = (prev.x + curr.x) / 2;
+      linePath += ` Q ${prev.x + (curr.x - prev.x) * 0.5},${prev.y} ${cpx},${(prev.y + curr.y) / 2}`;
     }
 
-    const range = maxVal - minVal;
-    return [minVal - range * 0.1, maxVal + range * 0.1];
-  }, [data]);
+    // Final segment
+    if (points.length > 1) {
+      const last = points[points.length - 1];
+      linePath += ` T ${last.x},${last.y}`;
+    }
+
+    // Create area path (same as line but closed at bottom)
+    const areaPath = linePath +
+      ` L ${points[points.length - 1].x},${height} L ${points[0].x},${height} Z`;
+
+    return {
+      linePath,
+      areaPath,
+      viewBox: `0 0 ${width} ${height}`
+    };
+  }, [data, height]);
 
   // Don't render if no data
   if (data.length === 0) {
@@ -91,27 +114,56 @@ const Sparkline: React.FC<SparklineProps> = memo(({
       role="img"
       aria-label={ariaLabel || `Sparkline chart showing ${data.length} data points`}
     >
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={chartData} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
-          <defs>
-            <linearGradient id={`sparklineGradient-${resolvedColor.replace(/[^a-zA-Z0-9]/g, '')}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={resolvedColor} stopOpacity={0.3} />
-              <stop offset="100%" stopColor={resolvedColor} stopOpacity={0} />
-            </linearGradient>
-          </defs>
-          <YAxis domain={yDomain} hide />
-          <Area
-            type="monotone"
-            dataKey="value"
-            stroke={resolvedColor}
-            strokeWidth={2}
-            fill={showArea ? `url(#sparklineGradient-${resolvedColor.replace(/[^a-zA-Z0-9]/g, '')})` : 'transparent'}
-            isAnimationActive={shouldAnimate}
-            animationDuration={800}
-            animationEasing="ease-out"
+      <svg
+        viewBox={viewBox}
+        preserveAspectRatio="none"
+        style={{ width: '100%', height: '100%', overflow: 'visible' }}
+      >
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={resolvedColor} stopOpacity={0.3} />
+            <stop offset="100%" stopColor={resolvedColor} stopOpacity={0} />
+          </linearGradient>
+        </defs>
+
+        {showArea && (
+          <path
+            d={areaPath}
+            fill={`url(#${gradientId})`}
+            style={{
+              opacity: shouldAnimate ? 0 : 1,
+              animation: shouldAnimate ? 'sparklineFadeIn 0.8s ease-out forwards' : 'none'
+            }}
           />
-        </AreaChart>
-      </ResponsiveContainer>
+        )}
+
+        <path
+          d={linePath}
+          fill="none"
+          stroke={resolvedColor}
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          style={{
+            strokeDasharray: shouldAnimate ? 1000 : 0,
+            strokeDashoffset: shouldAnimate ? 1000 : 0,
+            animation: shouldAnimate ? 'sparklineDrawIn 0.8s ease-out forwards' : 'none'
+          }}
+        />
+      </svg>
+
+      <style>{`
+        @keyframes sparklineDrawIn {
+          to {
+            stroke-dashoffset: 0;
+          }
+        }
+        @keyframes sparklineFadeIn {
+          to {
+            opacity: 1;
+          }
+        }
+      `}</style>
     </div>
   );
 });

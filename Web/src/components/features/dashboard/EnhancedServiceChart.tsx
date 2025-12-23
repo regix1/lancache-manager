@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { PieChart as PieChartIcon, Zap, Database } from 'lucide-react';
 import { formatBytes } from '@utils/formatters';
 import { Card } from '@components/ui/Card';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+import { PieChart } from 'react-minimal-pie-chart';
 import type { ServiceStat } from '@/types';
 
 interface EnhancedServiceChartProps {
@@ -27,17 +27,16 @@ const TABS: TabConfig[] = [
 ];
 
 interface ChartDataItem {
-  name: string;
+  title: string;
   value: number;
   color: string;
   originalValue: number;
-  [key: string]: string | number;
 }
 
 const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
   ({ serviceStats, glassmorphism = false }) => {
     const [activeTab, setActiveTab] = useState<TabId>('service');
-    const [activeIndex, setActiveIndex] = useState<number | undefined>(undefined);
+    const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
     const [, setThemeVersion] = useState(0);
 
     // Theme change listener
@@ -88,7 +87,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
 
       return serviceStats
         .map((s) => ({
-          name: s.service,
+          title: s.service,
           value: s.totalBytes,
           originalValue: s.totalBytes,
           color: getServiceColor(s.service)
@@ -110,8 +109,8 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
       const missColor = computedStyle.getPropertyValue('--theme-chart-cache-miss').trim() || '#ef4444';
 
       return [
-        { name: 'Cache Hits', value: totalHits, originalValue: totalHits, color: hitColor },
-        { name: 'Cache Misses', value: totalMisses, originalValue: totalMisses, color: missColor }
+        { title: 'Cache Hits', value: totalHits, originalValue: totalHits, color: hitColor },
+        { title: 'Cache Misses', value: totalMisses, originalValue: totalMisses, color: missColor }
       ];
     }, [serviceStats]);
 
@@ -120,7 +119,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
 
       return serviceStats
         .map((s) => ({
-          name: s.service,
+          title: s.service,
           value: s.totalCacheHitBytes || 0,
           originalValue: s.totalCacheHitBytes || 0,
           color: getServiceColor(s.service)
@@ -188,21 +187,6 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
     const totalBytes = serviceStats.reduce((sum, s) => sum + (s.totalBytes || 0), 0);
     const hitRatio = totalBytes > 0 ? (totalHits / totalBytes) * 100 : 0;
 
-    // Custom tooltip
-    const CustomTooltip = ({ active, payload }: { active?: boolean; payload?: Array<{ payload: ChartDataItem }> }) => {
-      if (!active || !payload?.length) return null;
-
-      const data = payload[0].payload;
-      const percentage = totalValue > 0 ? ((data.originalValue / totalValue) * 100).toFixed(1) : '0';
-
-      return (
-        <div className="chart-tooltip">
-          <div className="tooltip-label">{data.name}</div>
-          <div className="tooltip-value">{formatBytes(data.originalValue)} ({percentage}%)</div>
-        </div>
-      );
-    };
-
     // Get center label based on tab
     const getCenterLabel = () => {
       switch (activeTab) {
@@ -211,6 +195,9 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
         default: return 'Total';
       }
     };
+
+    // Get hovered segment info for tooltip
+    const hoveredData = hoveredIndex !== null ? chartData[hoveredIndex] : null;
 
     return (
       <Card glassmorphism={glassmorphism} className="service-chart-panel">
@@ -366,10 +353,18 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
           }
 
           .chart-tooltip {
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
             background: rgba(0, 0, 0, 0.9);
             border: 1px solid var(--theme-chart-border, #333);
             border-radius: 10px;
             padding: 10px 14px;
+            pointer-events: none;
+            white-space: nowrap;
+            z-index: 100;
+            margin-bottom: 8px;
           }
 
           .tooltip-label {
@@ -617,53 +612,43 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
               {/* Chart */}
               <div className="chart-side">
                 <div className="chart-wrapper">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={chartData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius="70%"
-                        outerRadius="95%"
-                        paddingAngle={2}
-                        dataKey="value"
-                        animationBegin={0}
-                        animationDuration={800}
-                        animationEasing="ease-out"
-                        onMouseEnter={(_, index) => setActiveIndex(index)}
-                        onMouseLeave={() => setActiveIndex(undefined)}
-                      >
-                        {chartData.map((entry, index) => {
-                          const isActive = activeIndex === index;
-                          const isDimmed = activeIndex !== undefined && activeIndex !== index;
-                          return (
-                            <Cell
-                              key={`cell-${index}`}
-                              fill={entry.color}
-                              stroke="var(--theme-chart-border, #1a1a2e)"
-                              strokeWidth={isActive ? 3 : 2}
-                              style={{
-                                cursor: 'pointer',
-                                transition: 'all 0.2s ease',
-                                opacity: isDimmed ? 0.5 : 1,
-                                filter: isActive ? 'brightness(1.15)' : 'none',
-                                transform: isActive ? 'scale(1.02)' : 'scale(1)',
-                                transformOrigin: 'center'
-                              }}
-                            />
-                          );
-                        })}
-                      </Pie>
-                      <Tooltip content={<CustomTooltip />} />
-                    </PieChart>
-                  </ResponsiveContainer>
+                  <PieChart
+                    data={chartData}
+                    lineWidth={30}
+                    paddingAngle={2}
+                    startAngle={-90}
+                    animate
+                    animationDuration={800}
+                    animationEasing="ease-out"
+                    segmentsStyle={(index) => ({
+                      transition: 'all 0.2s ease',
+                      opacity: hoveredIndex === null || hoveredIndex === index ? 1 : 0.5,
+                      cursor: 'pointer'
+                    })}
+                    segmentsShift={(index) => (hoveredIndex === index ? 4 : 0)}
+                    onMouseOver={(_, index) => setHoveredIndex(index)}
+                    onMouseOut={() => setHoveredIndex(null)}
+                  />
                   <div className="chart-center">
-                    <div className="chart-center-value">
-                      {formatBytes(totalValue)}
-                    </div>
-                    <div className="chart-center-label">
-                      {getCenterLabel()}
-                    </div>
+                    {hoveredData ? (
+                      <>
+                        <div className="chart-center-value">
+                          {formatBytes(hoveredData.originalValue)}
+                        </div>
+                        <div className="chart-center-label">
+                          {hoveredData.title}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="chart-center-value">
+                          {formatBytes(totalValue)}
+                        </div>
+                        <div className="chart-center-label">
+                          {getCenterLabel()}
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -672,14 +657,14 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
               <div className="data-side">
                 {chartData.map((item, index) => {
                   const percentage = totalValue > 0 ? (item.originalValue / totalValue) * 100 : 0;
-                  const isActive = activeIndex === index;
-                  const isDimmed = activeIndex !== undefined && activeIndex !== index;
+                  const isActive = hoveredIndex === index;
+                  const isDimmed = hoveredIndex !== null && hoveredIndex !== index;
                   return (
                     <div
-                      key={item.name}
+                      key={item.title}
                       className={`legend-item ${isActive ? 'active' : ''} ${isDimmed ? 'dimmed' : ''}`}
-                      onMouseEnter={() => setActiveIndex(index)}
-                      onMouseLeave={() => setActiveIndex(undefined)}
+                      onMouseEnter={() => setHoveredIndex(index)}
+                      onMouseLeave={() => setHoveredIndex(null)}
                     >
                       <div className="legend-row">
                         <div className="legend-label">
@@ -687,7 +672,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
                             className="legend-dot"
                             style={{ backgroundColor: item.color }}
                           />
-                          <span className="legend-name">{item.name}</span>
+                          <span className="legend-name">{item.title}</span>
                         </div>
                         <span className="legend-value">{percentage.toFixed(1)}%</span>
                       </div>
