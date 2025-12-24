@@ -3,6 +3,7 @@ import { PieChart, Zap, Database } from 'lucide-react';
 import { formatBytes } from '@utils/formatters';
 import { Card } from '@components/ui/Card';
 import { Chart, ChartConfiguration, registerables } from 'chart.js';
+import { useRefreshRate } from '@contexts/RefreshRateContext';
 import type { ServiceStat } from '@/types';
 
 // Register Chart.js components once
@@ -38,6 +39,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
     const prevDataRef = useRef<string>('');
     const originalDataRef = useRef<number[]>([]);
     const totalValueRef = useRef<number>(0);
+    const { refreshRate } = useRefreshRate();
 
     // Get service color from theme
     const getServiceColor = useCallback((serviceName: string) => {
@@ -142,7 +144,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
       const total = data.reduce((a, b) => a + b, 0);
       if (total === 0) return rawChartData;
 
-      const minPercent = 3; // Minimum visual percentage for small segments
+      const minPercent = 1.5; // Minimum visual percentage for small segments
       const minValue = (minPercent / 100) * total;
 
       // Identify segments that need inflation vs those that can shrink
@@ -206,6 +208,16 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
       return () => window.removeEventListener('themechange', handleThemeChange);
     }, []);
 
+    // Rebuild chart from scratch when refresh rate changes
+    useEffect(() => {
+      if (chartInstance.current) {
+        chartInstance.current.destroy();
+        chartInstance.current = null;
+      }
+      prevDataRef.current = '';
+      setThemeVersion((v) => v + 1);
+    }, [refreshRate]);
+
     // Cleanup on unmount
     useEffect(() => {
       return () => {
@@ -262,7 +274,8 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
             borderColor: borderColor,
             borderWidth: 2,
             borderRadius: 4,
-            spacing: 2,
+            spacing: 4,
+            offset: 2,
             hoverOffset: 8
           }]
         },

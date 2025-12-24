@@ -43,7 +43,8 @@ export const Tooltip: React.FC<TooltipProps> = ({
   // Detect mobile viewport - disable tooltips on mobile
   useEffect(() => {
     const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
+      const mobile = window.innerWidth < 768;
+      setIsMobile(prev => prev === mobile ? prev : mobile);
     };
     checkMobile();
     window.addEventListener('resize', checkMobile);
@@ -257,7 +258,8 @@ const EdgeTooltip: React.FC<{
       Math.min(y, window.innerHeight - tooltipRect.height - viewportPadding)
     );
 
-    setPos({ x, y });
+    // Only update state if position actually changed to prevent infinite loops
+    setPos(prev => (prev?.x === x && prev?.y === y) ? prev : { x, y });
   }, [trigger, position, offset]);
 
   return (
@@ -285,7 +287,10 @@ export const CacheInfoTooltip: React.FC = () => {
     document.documentElement.getAttribute('data-disable-tooltips') === 'true';
 
   useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    const checkMobile = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(prev => prev === mobile ? prev : mobile);
+    };
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
