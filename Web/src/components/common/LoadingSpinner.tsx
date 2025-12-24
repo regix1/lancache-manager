@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Loader2 } from 'lucide-react';
 
 interface LoadingSpinnerProps {
@@ -12,6 +12,30 @@ const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
   size = 'md',
   fullScreen = false
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Force browser to keep rendering on mobile by periodically touching the DOM
+  // This prevents mobile browsers from throttling updates when spinner is visible
+  useEffect(() => {
+    let frameId: number;
+    let lastTime = 0;
+
+    const keepAlive = (time: number) => {
+      // Only update every 500ms to minimize overhead
+      if (time - lastTime > 500) {
+        lastTime = time;
+        // Force a style recalc to keep the browser rendering
+        if (containerRef.current) {
+          void containerRef.current.offsetHeight;
+        }
+      }
+      frameId = requestAnimationFrame(keepAlive);
+    };
+
+    frameId = requestAnimationFrame(keepAlive);
+    return () => cancelAnimationFrame(frameId);
+  }, []);
+
   const sizeClasses = {
     xs: 'w-4 h-4',
     sm: 'w-6 h-6',
@@ -21,8 +45,11 @@ const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
   };
 
   const content = (
-    <div className="flex flex-col items-center justify-center space-y-4">
-      <Loader2 className={`${sizeClasses[size]} text-themed-accent animate-spin`} />
+    <div ref={containerRef} className="flex flex-col items-center justify-center space-y-4">
+      <Loader2
+        className={`${sizeClasses[size]} text-themed-accent animate-spin`}
+        style={{ willChange: 'transform' }}
+      />
       {message && <p className="text-sm text-themed-secondary">{message}</p>}
     </div>
   );
