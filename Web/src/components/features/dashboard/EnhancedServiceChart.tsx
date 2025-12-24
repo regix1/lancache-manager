@@ -136,60 +136,8 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
       }
     }, [activeTab, getServiceDistributionData, getCacheHitRatioData, getBandwidthSavedData]);
 
-    // Inflate small segments for visibility while keeping total constant
-    const chartData = useMemo(() => {
-      const { labels, data, colors } = rawChartData;
-      if (data.length === 0) return rawChartData;
-
-      const total = data.reduce((a, b) => a + b, 0);
-      if (total === 0) return rawChartData;
-
-      const minPercent = 1.5; // Minimum visual percentage for small segments
-      const minValue = (minPercent / 100) * total;
-
-      // Identify segments that need inflation vs those that can shrink
-      const needsInflation: number[] = [];
-      const canShrink: number[] = [];
-      let inflationNeeded = 0;
-      let shrinkableTotal = 0;
-
-      data.forEach((value, index) => {
-        const percent = (value / total) * 100;
-        if (percent > 0 && percent < minPercent) {
-          needsInflation.push(index);
-          inflationNeeded += minValue - value;
-        } else if (percent >= minPercent) {
-          canShrink.push(index);
-          shrinkableTotal += value;
-        }
-      });
-
-      // If nothing needs inflation or nothing can shrink, return original
-      if (needsInflation.length === 0 || canShrink.length === 0) {
-        return rawChartData;
-      }
-
-      // Check if shrinkable segments can absorb the inflation
-      // They must remain at least minValue each after shrinking
-      const maxShrinkage = shrinkableTotal - (canShrink.length * minValue);
-      if (inflationNeeded > maxShrinkage || inflationNeeded <= 0) {
-        return rawChartData;
-      }
-
-      // Apply inflation: inflate small, proportionally shrink large
-      const shrinkRatio = (shrinkableTotal - inflationNeeded) / shrinkableTotal;
-
-      const adjustedData = data.map((value, index) => {
-        if (needsInflation.includes(index)) {
-          return minValue;
-        } else if (canShrink.includes(index)) {
-          return value * shrinkRatio;
-        }
-        return value; // zero values stay zero
-      });
-
-      return { labels, data: adjustedData, colors };
-    }, [rawChartData]);
+    // Use raw data directly - inflation caused rendering glitches
+    const chartData = rawChartData;
 
     // Theme change listener
     useEffect(() => {
@@ -273,10 +221,8 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
             backgroundColor: chartData.colors,
             borderColor: borderColor,
             borderWidth: 2,
-            borderAlign: 'inner',
             borderRadius: 4,
-            spacing: 6,
-            offset: 0,
+            spacing: 2,
             hoverOffset: 8
           }]
         },

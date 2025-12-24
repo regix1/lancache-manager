@@ -133,21 +133,27 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
       clearTimeout(timeoutId);
 
       // Only apply results if timeRange hasn't changed during fetch (stale data protection)
-      // Use flushSync to force immediate render on mobile browsers (React 18 batching bug)
+      // Use requestAnimationFrame + flushSync to force immediate render on mobile browsers
       if (latest !== undefined && currentTimeRangeRef.current === currentTimeRange) {
-        flushSync(() => {
-          setLatestDownloads(latest);
-          setError(null);
-          if (showLoading) {
-            setLoading(false);
-          }
+        requestAnimationFrame(() => {
+          flushSync(() => {
+            setLatestDownloads(latest);
+            setError(null);
+            if (showLoading) {
+              setLoading(false);
+            }
+          });
         });
         hasData.current = true;
       } else {
-        setError(null);
-        if (showLoading) {
-          setLoading(false);
-        }
+        requestAnimationFrame(() => {
+          flushSync(() => {
+            setError(null);
+            if (showLoading) {
+              setLoading(false);
+            }
+          });
+        });
       }
     } catch (err: unknown) {
       // Fixed: Proper error handling without dead code
@@ -159,7 +165,9 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
         setError('Failed to fetch downloads from API');
       }
       if (showLoading) {
-        flushSync(() => setLoading(false));
+        requestAnimationFrame(() => {
+          flushSync(() => setLoading(false));
+        });
       }
     } finally {
       if (isInitial) {

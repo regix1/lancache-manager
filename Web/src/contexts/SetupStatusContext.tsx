@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 
 export interface SetupStatus {
   isCompleted: boolean;
@@ -36,16 +37,28 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
       const response = await fetch('/api/system/setup');
       if (response.ok) {
         const data = await response.json();
-        setSetupStatus({
-          isCompleted: data.isCompleted === true,
-          hasProcessedLogs: data.hasProcessedLogs === true,
-          isSetupCompleted: data.isSetupCompleted || false
+        // Use requestAnimationFrame + flushSync to force immediate render on mobile browsers
+        // Mobile browsers often delay React re-renders until the next animation frame
+        requestAnimationFrame(() => {
+          flushSync(() => {
+            setSetupStatus({
+              isCompleted: data.isCompleted === true,
+              hasProcessedLogs: data.hasProcessedLogs === true,
+              isSetupCompleted: data.isSetupCompleted || false
+            });
+            setIsLoading(false);
+          });
+        });
+      } else {
+        requestAnimationFrame(() => {
+          flushSync(() => setIsLoading(false));
         });
       }
     } catch (error) {
       console.error('[SetupStatus] Failed to fetch setup status:', error);
-    } finally {
-      setIsLoading(false);
+      requestAnimationFrame(() => {
+        flushSync(() => setIsLoading(false));
+      });
     }
   };
 

@@ -33,18 +33,23 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const fetchAuth = async () => {
     try {
       const authResult = await authService.checkAuth();
-      // Use flushSync to force immediate render on mobile browsers (React 18 batching bug)
-      flushSync(() => {
-        setIsAuthenticated(authResult.isAuthenticated);
-        setAuthMode(authResult.authMode);
-        setIsLoading(false);
+      // Use requestAnimationFrame + flushSync to force immediate render on mobile browsers
+      // Mobile browsers often delay React re-renders until the next animation frame
+      requestAnimationFrame(() => {
+        flushSync(() => {
+          setIsAuthenticated(authResult.isAuthenticated);
+          setAuthMode(authResult.authMode);
+          setIsLoading(false);
+        });
       });
     } catch (error) {
       console.error('[Auth] Failed to check auth status:', error);
-      flushSync(() => {
-        setIsAuthenticated(false);
-        setAuthMode('unauthenticated');
-        setIsLoading(false);
+      requestAnimationFrame(() => {
+        flushSync(() => {
+          setIsAuthenticated(false);
+          setAuthMode('unauthenticated');
+          setIsLoading(false);
+        });
       });
     }
   };

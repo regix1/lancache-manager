@@ -1,4 +1,5 @@
 import React, { useState, Suspense, lazy, useEffect, useCallback } from 'react';
+import { flushSync } from 'react-dom';
 import { NotificationsProvider } from '@contexts/NotificationsContext';
 import { StatsProvider, useStats } from '@contexts/StatsContext';
 import { DownloadsProvider } from '@contexts/DownloadsContext';
@@ -362,8 +363,13 @@ const AppContent: React.FC = () => {
     }
 
     if (authMode === 'guest') {
-      setDepotInitialized(true);
-      setCheckingDepotStatus(false);
+      // Use requestAnimationFrame + flushSync to force immediate render on mobile browsers
+      requestAnimationFrame(() => {
+        flushSync(() => {
+          setDepotInitialized(true);
+          setCheckingDepotStatus(false);
+        });
+      });
       return;
     }
 
@@ -385,15 +391,29 @@ const AppContent: React.FC = () => {
             hasData
           });
 
-          setDepotInitialized(hasData);
+          // Use requestAnimationFrame + flushSync to force immediate render on mobile browsers
+          requestAnimationFrame(() => {
+            flushSync(() => {
+              setDepotInitialized(hasData);
+              setCheckingDepotStatus(false);
+            });
+          });
         } else {
-          setDepotInitialized(false);
+          requestAnimationFrame(() => {
+            flushSync(() => {
+              setDepotInitialized(false);
+              setCheckingDepotStatus(false);
+            });
+          });
         }
       } catch (error) {
         console.error('Failed to check depot initialization status:', error);
-        setDepotInitialized(false);
-      } finally {
-        setCheckingDepotStatus(false);
+        requestAnimationFrame(() => {
+          flushSync(() => {
+            setDepotInitialized(false);
+            setCheckingDepotStatus(false);
+          });
+        });
       }
     };
 

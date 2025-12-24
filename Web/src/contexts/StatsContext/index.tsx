@@ -149,29 +149,32 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       // Only apply time-range-dependent results if timeRange hasn't changed during fetch
       const timeRangeStillValid = currentTimeRangeRef.current === currentTimeRange;
 
-      // Use flushSync to force immediate render on mobile browsers (React 18 batching bug)
-      flushSync(() => {
-        // Cache info is not time-range dependent, always apply
-        if (cache.status === 'fulfilled' && cache.value !== undefined) {
-          setCacheInfo(cache.value);
-        }
-        // Client/service/dashboard stats are time-range dependent
-        if (timeRangeStillValid) {
-          if (clients.status === 'fulfilled' && clients.value !== undefined) {
-            setClientStats(clients.value);
+      // Use requestAnimationFrame + flushSync to force immediate render on mobile browsers
+      // Mobile browsers often delay React re-renders until the next animation frame
+      requestAnimationFrame(() => {
+        flushSync(() => {
+          // Cache info is not time-range dependent, always apply
+          if (cache.status === 'fulfilled' && cache.value !== undefined) {
+            setCacheInfo(cache.value);
           }
-          if (services.status === 'fulfilled' && services.value !== undefined) {
-            setServiceStats(services.value);
+          // Client/service/dashboard stats are time-range dependent
+          if (timeRangeStillValid) {
+            if (clients.status === 'fulfilled' && clients.value !== undefined) {
+              setClientStats(clients.value);
+            }
+            if (services.status === 'fulfilled' && services.value !== undefined) {
+              setServiceStats(services.value);
+            }
+            if (dashboard.status === 'fulfilled' && dashboard.value !== undefined) {
+              setDashboardStats(dashboard.value);
+              hasData.current = true;
+            }
           }
-          if (dashboard.status === 'fulfilled' && dashboard.value !== undefined) {
-            setDashboardStats(dashboard.value);
-            hasData.current = true;
+          setError(null);
+          if (showLoading) {
+            setLoading(false);
           }
-        }
-        setError(null);
-        if (showLoading) {
-          setLoading(false);
-        }
+        });
       });
     } catch (err: unknown) {
       if (!hasData.current && !isAbortError(err)) {
@@ -182,7 +185,9 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
         }
       }
       if (showLoading) {
-        flushSync(() => setLoading(false));
+        requestAnimationFrame(() => {
+          flushSync(() => setLoading(false));
+        });
       }
     } finally {
       if (isInitial) {
