@@ -1,6 +1,7 @@
 using LancacheManager.Application.DTOs;
 using LancacheManager.Data;
 using LancacheManager.Infrastructure.Repositories;
+using LancacheManager.Infrastructure.Repositories.Interfaces;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
@@ -18,12 +19,18 @@ public class StatsController : ControllerBase
 {
     private readonly AppDbContext _context;
     private readonly StatsRepository _statsService;
+    private readonly IClientGroupsRepository _clientGroupsRepository;
     private readonly ILogger<StatsController> _logger;
 
-    public StatsController(AppDbContext context, StatsRepository statsService, ILogger<StatsController> logger)
+    public StatsController(
+        AppDbContext context,
+        StatsRepository statsService,
+        IClientGroupsRepository clientGroupsRepository,
+        ILogger<StatsController> logger)
     {
         _context = context;
         _statsService = statsService;
+        _clientGroupsRepository = clientGroupsRepository;
         _logger = logger;
     }
 
@@ -54,8 +61,11 @@ public class StatsController : ControllerBase
                 .Select(d => new { d.Id, d.ClientIp, d.CacheHitBytes, d.CacheMissBytes, d.StartTimeUtc, d.EndTimeUtc })
                 .ToListAsync();
 
+            // Get IP to group mapping
+            var ipToGroupMapping = await _clientGroupsRepository.GetIpToGroupMappingAsync();
+
             // Group by client and calculate totals including duration from EndTime - StartTime
-            var stats = downloads
+            var ipStats = downloads
                 .GroupBy(d => d.ClientIp)
                 .Select(g =>
                 {
@@ -69,18 +79,81 @@ public class StatsController : ControllerBase
                         return 0;
                     });
 
-                    return new ClientStats
+                    return new
                     {
                         ClientIp = g.Key,
                         TotalCacheHitBytes = g.Sum(d => d.CacheHitBytes),
                         TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
                         TotalDownloads = g.Count(),
                         TotalDurationSeconds = totalDuration,
-                        LastActivityUtc = DateTime.SpecifyKind(g.Max(d => d.StartTimeUtc), DateTimeKind.Utc),
-                        LastActivityLocal = g.Max(d => d.StartTimeUtc)
+                        LastActivityUtc = g.Max(d => d.StartTimeUtc)
                     };
                 })
-                .OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes)
+                .ToList();
+
+            // Separate grouped and ungrouped IPs
+            var groupedIpStats = ipStats
+                .Where(s => ipToGroupMapping.ContainsKey(s.ClientIp))
+                .GroupBy(s => ipToGroupMapping[s.ClientIp].GroupId)
+                .Select(g =>
+                {
+                    var groupInfo = ipToGroupMapping.Values.First(v => v.GroupId == g.Key);
+                    var memberIps = g.Select(s => s.ClientIp).OrderBy(ip => ip).ToList();
+                    var totalHitBytes = g.Sum(s => s.TotalCacheHitBytes);
+                    var totalMissBytes = g.Sum(s => s.TotalCacheMissBytes);
+                    var totalBytes = totalHitBytes + totalMissBytes;
+                    var totalDuration = g.Sum(s => s.TotalDurationSeconds);
+
+                    return new ClientStatsWithGroup
+                    {
+                        ClientIp = memberIps.First(), // Primary IP for reference
+                        DisplayName = groupInfo.Nickname,
+                        GroupId = g.Key,
+                        IsGrouped = true,
+                        GroupMemberIps = memberIps,
+                        TotalCacheHitBytes = totalHitBytes,
+                        TotalCacheMissBytes = totalMissBytes,
+                        TotalBytes = totalBytes,
+                        CacheHitPercent = totalBytes > 0 ? (double)totalHitBytes / totalBytes * 100 : 0,
+                        TotalDownloads = g.Sum(s => s.TotalDownloads),
+                        TotalDurationSeconds = totalDuration,
+                        AverageBytesPerSecond = totalDuration > 0 ? totalBytes / totalDuration : 0,
+                        LastActivityUtc = DateTime.SpecifyKind(g.Max(s => s.LastActivityUtc), DateTimeKind.Utc),
+                        LastActivityLocal = g.Max(s => s.LastActivityUtc)
+                    };
+                })
+                .ToList();
+
+            // Ungrouped IPs as individual entries
+            var ungroupedIpStats = ipStats
+                .Where(s => !ipToGroupMapping.ContainsKey(s.ClientIp))
+                .Select(s =>
+                {
+                    var totalBytes = s.TotalCacheHitBytes + s.TotalCacheMissBytes;
+                    return new ClientStatsWithGroup
+                    {
+                        ClientIp = s.ClientIp,
+                        DisplayName = null, // No nickname
+                        GroupId = null,
+                        IsGrouped = false,
+                        GroupMemberIps = null,
+                        TotalCacheHitBytes = s.TotalCacheHitBytes,
+                        TotalCacheMissBytes = s.TotalCacheMissBytes,
+                        TotalBytes = totalBytes,
+                        CacheHitPercent = totalBytes > 0 ? (double)s.TotalCacheHitBytes / totalBytes * 100 : 0,
+                        TotalDownloads = s.TotalDownloads,
+                        TotalDurationSeconds = s.TotalDurationSeconds,
+                        AverageBytesPerSecond = s.TotalDurationSeconds > 0 ? totalBytes / s.TotalDurationSeconds : 0,
+                        LastActivityUtc = DateTime.SpecifyKind(s.LastActivityUtc, DateTimeKind.Utc),
+                        LastActivityLocal = s.LastActivityUtc
+                    };
+                })
+                .ToList();
+
+            // Combine and sort by total bytes
+            var stats = groupedIpStats
+                .Concat(ungroupedIpStats)
+                .OrderByDescending(c => c.TotalBytes)
                 .Take(100)
                 .ToList();
 
@@ -89,7 +162,7 @@ public class StatsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting client stats");
-            return Ok(new List<ClientStats>());
+            return Ok(new List<ClientStatsWithGroup>());
         }
     }
 

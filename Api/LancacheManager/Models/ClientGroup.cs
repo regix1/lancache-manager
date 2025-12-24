@@ -1,0 +1,13 @@
+namespace LancacheManager.Models;
+
+public class ClientGroup
+{
+    public int Id { get; set; }
+    public string Nickname { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
+    public DateTime? UpdatedAtUtc { get; set; }
+
+    // Navigation property
+    public ICollection<ClientGroupMember> Members { get; set; } = new List<ClientGroupMember>();
+}

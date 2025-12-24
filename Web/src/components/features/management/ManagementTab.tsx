@@ -19,7 +19,8 @@ import {
   IntegrationsSection,
   StorageSection,
   DataSection,
-  PreferencesSection
+  PreferencesSection,
+  ClientsSection
 } from './sections';
 
 // Main Management Tab Component
@@ -257,6 +258,17 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
           <PreferencesSection
             isAuthenticated={isAuthenticated}
             optimizationsEnabled={optimizationsEnabled}
+          />
+        );
+
+      case 'clients':
+        return (
+          <ClientsSection
+            isAuthenticated={isAuthenticated}
+            authMode={authMode}
+            mockMode={mockMode}
+            onError={addError}
+            onSuccess={setSuccess}
           />
         );
 

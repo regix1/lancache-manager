@@ -187,6 +187,7 @@ builder.Services.AddSingleton<IStateRepository, StateRepository>();
 builder.Services.AddScoped<IDatabaseRepository, DatabaseRepository>();
 builder.Services.AddScoped<IStatsRepository, StatsRepository>();
 builder.Services.AddScoped<IEventsRepository, EventsRepository>();
+builder.Services.AddScoped<IClientGroupsRepository, ClientGroupsRepository>();
 builder.Services.AddSingleton<ISettingsRepository, SettingsRepository>();
 
 // Register image caching service

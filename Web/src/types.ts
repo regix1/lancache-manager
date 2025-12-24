@@ -334,6 +334,35 @@ export interface EventSummary {
   autoTagged: boolean;
 }
 
+// Client Group Types
+export interface ClientGroup {
+  id: number;
+  nickname: string;
+  description?: string;
+  createdAtUtc: string;
+  updatedAtUtc?: string;
+  memberIps: string[];
+}
+
+export interface CreateClientGroupRequest {
+  nickname: string;
+  description?: string;
+  initialIps?: string[];
+}
+
+export interface UpdateClientGroupRequest {
+  nickname: string;
+  description?: string;
+}
+
+// Extended ClientStat with group info (returned by /api/stats/clients)
+export interface ClientStatWithGroup extends ClientStat {
+  displayName?: string; // Nickname if grouped, undefined if not
+  groupId?: number;
+  isGrouped: boolean;
+  groupMemberIps?: string[];
+}
+
 // Real-time download speed types
 export interface GameSpeedInfo {
   depotId: number;

@@ -17,6 +17,8 @@ public class AppDbContext : DbContext
     public DbSet<UserPreferences> UserPreferences { get; set; }
     public DbSet<Event> Events { get; set; }
     public DbSet<EventDownload> EventDownloads { get; set; }
+    public DbSet<ClientGroup> ClientGroups { get; set; }
+    public DbSet<ClientGroupMember> ClientGroupMembers { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -179,6 +181,29 @@ public class AppDbContext : DbContext
             .HasOne(ed => ed.Download)
             .WithMany()
             .HasForeignKey(ed => ed.DownloadId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // ClientGroup configuration
+        modelBuilder.Entity<ClientGroup>()
+            .HasIndex(cg => cg.Nickname)
+            .HasDatabaseName("IX_ClientGroups_Nickname")
+            .IsUnique();
+
+        // ClientGroupMember configuration
+        modelBuilder.Entity<ClientGroupMember>()
+            .HasIndex(cgm => cgm.ClientIp)
+            .HasDatabaseName("IX_ClientGroupMembers_ClientIp")
+            .IsUnique(); // One IP can only belong to one group
+
+        modelBuilder.Entity<ClientGroupMember>()
+            .HasIndex(cgm => cgm.ClientGroupId)
+            .HasDatabaseName("IX_ClientGroupMembers_ClientGroupId");
+
+        // Configure one-to-many relationship
+        modelBuilder.Entity<ClientGroupMember>()
+            .HasOne(cgm => cgm.ClientGroup)
+            .WithMany(cg => cg.Members)
+            .HasForeignKey(cgm => cgm.ClientGroupId)
             .OnDelete(DeleteBehavior.Cascade);
     }
 }

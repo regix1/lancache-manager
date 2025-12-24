@@ -3,15 +3,18 @@ import { useStats } from '@contexts/StatsContext';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { Card } from '@components/ui/Card';
-import { CacheInfoTooltip } from '@components/ui/Tooltip';
+import { CacheInfoTooltip, Tooltip } from '@components/ui/Tooltip';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
-import { ArrowUpDown } from 'lucide-react';
+import { ArrowUpDown, Users } from 'lucide-react';
 
 type SortOption = 'ip' | 'downloads' | 'totalData' | 'hits' | 'misses' | 'hitRate' | 'lastActivity';
 type SortDirection = 'asc' | 'desc';
 
 interface ClientData {
   clientIp: string;
+  displayName?: string;
+  isGrouped?: boolean;
+  groupMemberIps?: string[];
   totalDownloads: number;
   totalBytes: number;
   totalCacheHitBytes: number;
@@ -26,11 +29,35 @@ interface ClientRowProps {
 
 const ClientRow: React.FC<ClientRowProps> = ({ client }) => {
   const formattedLastActivity = useFormattedDateTime(client.lastActivityUtc);
+  const displayLabel = client.displayName || client.clientIp;
+  const ipTooltip = client.isGrouped && client.groupMemberIps
+    ? `IPs: ${client.groupMemberIps.join(', ')}`
+    : client.displayName
+    ? `IP: ${client.clientIp}`
+    : undefined;
 
   return (
     <tr className="hover:bg-themed-hover transition-colors">
       <td className="py-3 text-themed-primary font-medium text-sm whitespace-nowrap">
-        {client.clientIp}
+        <div className="flex items-center gap-2">
+          {client.isGrouped && (
+            <Users className="w-4 h-4 text-themed-muted flex-shrink-0" />
+          )}
+          {ipTooltip ? (
+            <Tooltip content={ipTooltip}>
+              <span className="cursor-help border-b border-dashed border-themed-muted">
+                {displayLabel}
+              </span>
+            </Tooltip>
+          ) : (
+            <span>{displayLabel}</span>
+          )}
+          {client.isGrouped && client.groupMemberIps && client.groupMemberIps.length > 1 && (
+            <span className="text-xs text-themed-muted">
+              ({client.groupMemberIps.length} IPs)
+            </span>
+          )}
+        </div>
       </td>
       <td className="py-3 text-themed-secondary hidden sm:table-cell whitespace-nowrap">
         {client.totalDownloads}
@@ -67,6 +94,7 @@ const ClientRow: React.FC<ClientRowProps> = ({ client }) => {
 // Mobile card layout for each client
 const ClientCard: React.FC<ClientRowProps> = ({ client }) => {
   const formattedLastActivity = useFormattedDateTime(client.lastActivityUtc);
+  const displayLabel = client.displayName || client.clientIp;
 
   return (
     <div
@@ -76,9 +104,19 @@ const ClientCard: React.FC<ClientRowProps> = ({ client }) => {
         borderColor: 'var(--theme-border-primary)'
       }}
     >
-      {/* Header: IP and Hit Rate */}
+      {/* Header: IP/Name and Hit Rate */}
       <div className="flex items-center justify-between mb-3">
-        <span className="text-themed-primary font-medium">{client.clientIp}</span>
+        <div className="flex items-center gap-2">
+          {client.isGrouped && (
+            <Users className="w-4 h-4 text-themed-muted flex-shrink-0" />
+          )}
+          <span className="text-themed-primary font-medium">{displayLabel}</span>
+          {client.isGrouped && client.groupMemberIps && client.groupMemberIps.length > 1 && (
+            <span className="text-xs text-themed-muted">
+              ({client.groupMemberIps.length} IPs)
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           <div className="w-16 progress-track rounded-full h-2">
             <div

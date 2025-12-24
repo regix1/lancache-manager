@@ -5,6 +5,7 @@ import {
   HardDrive,
   FolderCog,
   Settings,
+  Users,
   type LucideIcon
 } from 'lucide-react';
 
@@ -13,7 +14,8 @@ export type ManagementSection =
   | 'integrations'
   | 'storage'
   | 'data'
-  | 'preferences';
+  | 'preferences'
+  | 'clients';
 
 interface TabConfig {
   id: ManagementSection;
@@ -58,6 +60,13 @@ const tabs: TabConfig[] = [
     shortLabel: 'Prefs',
     icon: Settings,
     description: 'Themes & customization'
+  },
+  {
+    id: 'clients',
+    label: 'Clients',
+    shortLabel: 'Clients',
+    icon: Users,
+    description: 'Client nicknames & groups'
   }
 ];
 

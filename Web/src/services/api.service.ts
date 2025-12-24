@@ -24,7 +24,10 @@ import type {
   CreateEventRequest,
   UpdateEventRequest,
   DownloadSpeedSnapshot,
-  SpeedHistorySnapshot
+  SpeedHistorySnapshot,
+  ClientGroup,
+  CreateClientGroupRequest,
+  UpdateClientGroupRequest
 } from '../types';
 
 // Response types for API operations
@@ -1145,6 +1148,130 @@ class ApiService {
         // Silently ignore abort errors
       } else if (!this.isGuestSessionError(error)) {
         console.error('getSpeedHistory error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // ==================== Client Groups API ====================
+
+  // Get all client groups
+  static async getClientGroups(signal?: AbortSignal): Promise<ClientGroup[]> {
+    try {
+      const res = await fetch(`${API_BASE}/client-groups`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<ClientGroup[]>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getClientGroups error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // Get a single client group by ID
+  static async getClientGroup(id: number, signal?: AbortSignal): Promise<ClientGroup> {
+    try {
+      const res = await fetch(`${API_BASE}/client-groups/${id}`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<ClientGroup>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getClientGroup error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // Create a new client group
+  static async createClientGroup(data: CreateClientGroupRequest): Promise<ClientGroup> {
+    try {
+      const res = await fetch(`${API_BASE}/client-groups`, this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      }));
+      return await this.handleResponse<ClientGroup>(res);
+    } catch (error) {
+      console.error('createClientGroup error:', error);
+      throw error;
+    }
+  }
+
+  // Update an existing client group
+  static async updateClientGroup(id: number, data: UpdateClientGroupRequest): Promise<ClientGroup> {
+    try {
+      const res = await fetch(`${API_BASE}/client-groups/${id}`, this.getFetchOptions({
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      }));
+      return await this.handleResponse<ClientGroup>(res);
+    } catch (error) {
+      console.error('updateClientGroup error:', error);
+      throw error;
+    }
+  }
+
+  // Delete a client group
+  static async deleteClientGroup(id: number): Promise<void> {
+    try {
+      const res = await fetch(`${API_BASE}/client-groups/${id}`, this.getFetchOptions({
+        method: 'DELETE'
+      }));
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status}: ${errorText || res.statusText}`);
+      }
+    } catch (error) {
+      console.error('deleteClientGroup error:', error);
+      throw error;
+    }
+  }
+
+  // Add a member (IP) to a client group
+  static async addClientGroupMember(groupId: number, clientIp: string): Promise<ClientGroup> {
+    try {
+      const res = await fetch(`${API_BASE}/client-groups/${groupId}/members`, this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientIp })
+      }));
+      return await this.handleResponse<ClientGroup>(res);
+    } catch (error) {
+      console.error('addClientGroupMember error:', error);
+      throw error;
+    }
+  }
+
+  // Remove a member (IP) from a client group
+  static async removeClientGroupMember(groupId: number, clientIp: string): Promise<void> {
+    try {
+      const res = await fetch(`${API_BASE}/client-groups/${groupId}/members/${encodeURIComponent(clientIp)}`, this.getFetchOptions({
+        method: 'DELETE'
+      }));
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status}: ${errorText || res.statusText}`);
+      }
+    } catch (error) {
+      console.error('removeClientGroupMember error:', error);
+      throw error;
+    }
+  }
+
+  // Get IP to group mapping for efficient lookups
+  static async getClientGroupMapping(signal?: AbortSignal): Promise<Record<string, { groupId: number; nickname: string }>> {
+    try {
+      const res = await fetch(`${API_BASE}/client-groups/mapping`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<Record<string, { groupId: number; nickname: string }>>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getClientGroupMapping error:', error);
       }
       throw error;
     }
