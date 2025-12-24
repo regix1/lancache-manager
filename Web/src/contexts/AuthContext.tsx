@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import authService, { type AuthMode } from '@services/auth.service';
 
 interface AuthContextType {
@@ -32,14 +33,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const fetchAuth = async () => {
     try {
       const authResult = await authService.checkAuth();
-      setIsAuthenticated(authResult.isAuthenticated);
-      setAuthMode(authResult.authMode);
+      // Use flushSync to force immediate render on mobile browsers (React 18 batching bug)
+      flushSync(() => {
+        setIsAuthenticated(authResult.isAuthenticated);
+        setAuthMode(authResult.authMode);
+        setIsLoading(false);
+      });
     } catch (error) {
       console.error('[Auth] Failed to check auth status:', error);
-      setIsAuthenticated(false);
-      setAuthMode('unauthenticated');
-    } finally {
-      setIsLoading(false);
+      flushSync(() => {
+        setIsAuthenticated(false);
+        setAuthMode('unauthenticated');
+        setIsLoading(false);
+      });
     }
   };
 

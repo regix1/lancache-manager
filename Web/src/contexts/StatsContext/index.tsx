@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { flushSync } from 'react-dom';
 import ApiService from '@services/api.service';
 import { isAbortError } from '@utils/error';
 import MockDataService from '../../test/mockData.service';
@@ -148,25 +149,30 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       // Only apply time-range-dependent results if timeRange hasn't changed during fetch
       const timeRangeStillValid = currentTimeRangeRef.current === currentTimeRange;
 
-      // Cache info is not time-range dependent, always apply
-      if (cache.status === 'fulfilled' && cache.value !== undefined) {
-        setCacheInfo(cache.value);
-      }
-      // Client/service/dashboard stats are time-range dependent
-      if (timeRangeStillValid) {
-        if (clients.status === 'fulfilled' && clients.value !== undefined) {
-          setClientStats(clients.value);
+      // Use flushSync to force immediate render on mobile browsers (React 18 batching bug)
+      flushSync(() => {
+        // Cache info is not time-range dependent, always apply
+        if (cache.status === 'fulfilled' && cache.value !== undefined) {
+          setCacheInfo(cache.value);
         }
-        if (services.status === 'fulfilled' && services.value !== undefined) {
-          setServiceStats(services.value);
+        // Client/service/dashboard stats are time-range dependent
+        if (timeRangeStillValid) {
+          if (clients.status === 'fulfilled' && clients.value !== undefined) {
+            setClientStats(clients.value);
+          }
+          if (services.status === 'fulfilled' && services.value !== undefined) {
+            setServiceStats(services.value);
+          }
+          if (dashboard.status === 'fulfilled' && dashboard.value !== undefined) {
+            setDashboardStats(dashboard.value);
+            hasData.current = true;
+          }
         }
-        if (dashboard.status === 'fulfilled' && dashboard.value !== undefined) {
-          setDashboardStats(dashboard.value);
-          hasData.current = true;
+        setError(null);
+        if (showLoading) {
+          setLoading(false);
         }
-      }
-
-      setError(null);
+      });
     } catch (err: unknown) {
       if (!hasData.current && !isAbortError(err)) {
         if (isAbortError(err)) {
@@ -175,10 +181,10 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
           setError('Failed to fetch stats from API');
         }
       }
-    } finally {
       if (showLoading) {
-        setLoading(false);
+        flushSync(() => setLoading(false));
       }
+    } finally {
       if (isInitial) {
         isInitialLoad.current = false;
       }

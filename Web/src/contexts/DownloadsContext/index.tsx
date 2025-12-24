@@ -7,6 +7,7 @@ import React, {
   useCallback,
   useMemo
 } from 'react';
+import { flushSync } from 'react-dom';
 import ApiService from '@services/api.service';
 import { isAbortError } from '@utils/error';
 import MockDataService from '../../test/mockData.service';
@@ -132,12 +133,22 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
       clearTimeout(timeoutId);
 
       // Only apply results if timeRange hasn't changed during fetch (stale data protection)
+      // Use flushSync to force immediate render on mobile browsers (React 18 batching bug)
       if (latest !== undefined && currentTimeRangeRef.current === currentTimeRange) {
-        setLatestDownloads(latest);
+        flushSync(() => {
+          setLatestDownloads(latest);
+          setError(null);
+          if (showLoading) {
+            setLoading(false);
+          }
+        });
         hasData.current = true;
+      } else {
+        setError(null);
+        if (showLoading) {
+          setLoading(false);
+        }
       }
-
-      setError(null);
     } catch (err: unknown) {
       // Fixed: Proper error handling without dead code
       if (isAbortError(err)) {
@@ -147,10 +158,10 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
       } else if (!hasData.current) {
         setError('Failed to fetch downloads from API');
       }
-    } finally {
       if (showLoading) {
-        setLoading(false);
+        flushSync(() => setLoading(false));
       }
+    } finally {
       if (isInitial) {
         isInitialLoad.current = false;
       }
