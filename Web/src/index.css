@@ -1867,6 +1867,145 @@ input[type='number']::-webkit-outer-spin-button {
   border-radius: 50%;
 }
 
+/* ===== MOBILE EDIT MODE STYLES ===== */
+
+/* Wiggle animation - iOS-style home screen editing */
+@keyframes cardWiggle {
+  0%, 100% {
+    transform: rotate(-0.5deg);
+  }
+  50% {
+    transform: rotate(0.5deg);
+  }
+}
+
+/* Subtle pulse for selected card */
+@keyframes selectedPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-primary) 40%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--theme-primary) 25%, transparent);
+  }
+}
+
+/* Scale bounce for swap animation */
+@keyframes swapBounce {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.95);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Edit mode container - enables animations on cards */
+.edit-mode-active .edit-mode-card {
+  animation: cardWiggle 0.15s ease-in-out infinite;
+  cursor: pointer;
+}
+
+/* Stagger the wiggle for natural feel */
+.edit-mode-active .edit-mode-card:nth-child(2n) {
+  animation-delay: 0.05s;
+}
+
+.edit-mode-active .edit-mode-card:nth-child(3n) {
+  animation-delay: 0.1s;
+}
+
+.edit-mode-active .edit-mode-card:nth-child(4n) {
+  animation-delay: 0.075s;
+}
+
+/* Selected card in edit mode */
+.edit-mode-card.card-selected {
+  animation: cardWiggle 0.15s ease-in-out infinite, selectedPulse 1s ease-in-out infinite;
+  z-index: 10;
+  transform-origin: center center;
+}
+
+/* Card being swapped */
+.edit-mode-card.card-swapping {
+  animation: swapBounce 0.3s ease-out;
+}
+
+/* Edit mode overlay gradient */
+.edit-mode-overlay {
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--theme-bg-primary) 95%, transparent) 0%,
+    transparent 100%
+  );
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+/* Edit mode button styles */
+.edit-mode-toggle {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.edit-mode-toggle:active {
+  transform: scale(0.95);
+}
+
+.edit-mode-toggle.active {
+  background-color: var(--theme-primary);
+  color: var(--theme-button-text);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--theme-primary) 40%, transparent);
+}
+
+/* Done button - prominent when in edit mode */
+.edit-mode-done {
+  background: var(--theme-primary);
+  color: var(--theme-button-text);
+  font-weight: 600;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--theme-primary) 40%, transparent);
+  transition: all 0.2s ease;
+}
+
+.edit-mode-done:hover {
+  background: var(--theme-button-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--theme-primary) 50%, transparent);
+}
+
+.edit-mode-done:active {
+  transform: scale(0.98) translateY(0);
+}
+
+/* Card drag handle in edit mode */
+.edit-mode-handle {
+  opacity: 0;
+  transform: scale(0.8);
+  transition: all 0.2s ease;
+}
+
+.edit-mode-active .edit-mode-handle {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Instruction banner animation */
+@keyframes bannerSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.edit-mode-banner {
+  animation: bannerSlideIn 0.3s ease-out;
+}
+
 /* Reduced motion support */
 @media (prefers-reduced-motion: reduce) {
   .animate-card-entrance,
@@ -1883,5 +2022,15 @@ input[type='number']::-webkit-outer-spin-button {
   .hour-bar,
   .widget-progress-fill {
     transition: none;
+  }
+
+  /* Disable edit mode animations for reduced motion */
+  .edit-mode-active .edit-mode-card,
+  .edit-mode-card.card-selected {
+    animation: none;
+  }
+
+  .edit-mode-card.card-selected {
+    box-shadow: 0 0 0 3px var(--theme-primary);
   }
 }

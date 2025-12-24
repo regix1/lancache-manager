@@ -14,7 +14,9 @@ import {
   Search,
   GripVertical,
   LayoutGrid,
-  X
+  X,
+  Move,
+  Check
 } from 'lucide-react';
 import { useStats } from '@contexts/StatsContext';
 import { useDownloads } from '@contexts/DownloadsContext';
@@ -340,10 +342,13 @@ const Dashboard: React.FC = () => {
     draggedCard,
     dragOverCard,
     isDragMode,
+    isEditMode,
     showDragHint,
     dragHandlers,
     resetCardOrder,
-    hideDragHint
+    hideDragHint,
+    toggleEditMode,
+    exitEditMode
   } = useDraggableCards({
     defaultOrder: DEFAULT_CARD_ORDER,
     storageKey: STORAGE_KEYS.DASHBOARD_CARD_ORDER,
@@ -583,13 +588,7 @@ const Dashboard: React.FC = () => {
 
   return (
     <div
-      className="space-y-4"
-      onClick={(e) => {
-        // Cancel drag mode if clicking outside of cards
-        if (isDragMode && !(e.target as Element).closest('[data-card-key]')) {
-          dragHandlers.onTouchEnd();
-        }
-      }}
+      className={`space-y-4 ${isEditMode ? 'edit-mode-active' : ''}`}
     >
       {/* Dashboard Header */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
@@ -597,6 +596,34 @@ const Dashboard: React.FC = () => {
           Dashboard
         </h2>
         <div className="flex flex-row items-center gap-2">
+          {/* Mobile Edit Mode Toggle */}
+          <div className="md:hidden">
+            {isEditMode ? (
+              <button
+                onClick={exitEditMode}
+                className="edit-mode-done flex items-center gap-2 px-4 py-2 text-sm rounded-lg"
+              >
+                <Check className="w-4 h-4" />
+                <span>Done</span>
+              </button>
+            ) : (
+              <Tooltip content="Rearrange cards" strategy="overlay">
+                <button
+                  onClick={toggleEditMode}
+                  className="edit-mode-toggle flex items-center gap-2 px-3 py-2 text-sm rounded-lg border"
+                  style={{
+                    color: 'var(--theme-text-secondary)',
+                    backgroundColor: 'var(--theme-bg-secondary)',
+                    borderColor: 'var(--theme-border-primary)'
+                  }}
+                >
+                  <Move className="w-4 h-4" />
+                  <span>Edit</span>
+                </button>
+              </Tooltip>
+            )}
+          </div>
+
           {/* Hidden Cards Button - only shows when cards are hidden */}
           {hiddenCardsCount > 0 && (
             <div className="relative" ref={dropdownRef}>
@@ -755,31 +782,52 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Touch instruction for mobile */}
-      {showDragHint && (
+      {/* Edit mode instruction banner for mobile */}
+      {isEditMode && (
+        <div className="md:hidden edit-mode-banner">
+          <div
+            className="flex items-center justify-between py-3 px-4 rounded-lg text-sm"
+            style={{
+              backgroundColor: 'color-mix(in srgb, var(--theme-primary) 15%, transparent)',
+              borderLeft: '3px solid var(--theme-primary)'
+            }}
+          >
+            <div className="flex items-center gap-2" style={{ color: 'var(--theme-text-primary)' }}>
+              {draggedCard ? (
+                <>
+                  <span className="text-base">👆</span>
+                  <span>Tap another card to swap, or tap the same card to cancel</span>
+                </>
+              ) : (
+                <>
+                  <span className="text-base">✨</span>
+                  <span>Tap any card to select it, then tap another to swap positions</span>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* First-time hint for mobile (only shows once) */}
+      {showDragHint && !isEditMode && (
         <div className="md:hidden">
-          {!isDragMode ? (
-            <div className="flex items-center justify-between py-3 px-4 rounded-lg bg-themed-secondary text-themed-muted text-sm">
-              <div className="flex items-center gap-2">
-                <span>💡</span>
-                <span>
-                  Hold any card for 1 second to select it, then tap another card to swap positions
-                </span>
-              </div>
-              <button
-                onClick={hideDragHint}
-                className="ml-2 p-1 rounded hover:bg-themed-hover transition-colors flex-shrink-0"
-                style={{ color: 'var(--theme-text-muted)' }}
-                title="Hide this hint"
-              >
-                <X className="w-4 h-4" />
-              </button>
+          <div className="flex items-center justify-between py-3 px-4 rounded-lg bg-themed-secondary text-themed-muted text-sm">
+            <div className="flex items-center gap-2">
+              <span>💡</span>
+              <span>
+                Use the <strong>Edit</strong> button to rearrange your dashboard cards
+              </span>
             </div>
-          ) : (
-            <div className="text-center py-2 px-4 rounded-lg bg-primary text-[var(--theme-button-text)] text-sm animate-pulse">
-              🔄 Drag mode active - Tap another card to move here, or tap anywhere to cancel
-            </div>
-          )}
+            <button
+              onClick={hideDragHint}
+              className="ml-2 p-1 rounded hover:bg-themed-hover transition-colors flex-shrink-0"
+              style={{ color: 'var(--theme-text-muted)' }}
+              title="Hide this hint"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -822,23 +870,21 @@ const Dashboard: React.FC = () => {
             <div
               key={card.key}
               data-card-key={card.key}
-              className={`relative group transition-all duration-200 h-full ${
-                isDragMode && draggedCard === card.key ? 'scale-105 shadow-lg' : ''
+              className={`relative group transition-all duration-200 h-full edit-mode-card ${
+                isDragMode && draggedCard === card.key ? 'scale-105 shadow-lg card-selected' : ''
               } ${isDragMode && dragOverCard === card.key ? 'transform translate-y-1' : ''}`}
               style={{
                 boxShadow: dragOverCard === card.key ? `0 0 0 2px var(--theme-primary)` : 'none',
-                cursor: draggedCard === card.key ? 'grabbing' : 'default',
-                opacity: isDragMode && draggedCard === card.key ? 0.8 : 1
+                cursor: isEditMode ? 'pointer' : (draggedCard === card.key ? 'grabbing' : 'default'),
+                opacity: isDragMode && draggedCard === card.key ? 0.9 : 1
               }}
-              draggable={!isDragMode}
+              draggable={!isDragMode && !isEditMode}
               onDragStart={(e) => dragHandlers.onDragStart(e, card.key)}
               onDragEnd={dragHandlers.onDragEnd}
               onDragOver={dragHandlers.onDragOver}
               onDragEnter={(e) => dragHandlers.onDragEnter(e, card.key)}
               onDragLeave={dragHandlers.onDragLeave}
               onDrop={(e) => dragHandlers.onDrop(e, card.key)}
-              onTouchStart={() => dragHandlers.onTouchStart(card.key)}
-              onTouchEnd={dragHandlers.onTouchEnd}
               onClick={() => dragHandlers.onCardTap(card.key)}
             >
               {/* Desktop drag handle - smaller, hover-triggered */}
@@ -865,35 +911,38 @@ const Dashboard: React.FC = () => {
                 </Tooltip>
               }
 
-              {/* Mobile drag handle - small, transparent, always visible in top-left */}
-              {
-                <Tooltip
-                  content="Hold to reorder"
-                  strategy="overlay"
-                  className="absolute top-2 left-2 transition-all md:hidden opacity-60 z-[5]"
+              {/* Mobile edit mode indicator - shows grab handle in edit mode */}
+              {isEditMode && (
+                <div
+                  className="absolute top-2 left-2 transition-all md:hidden z-[5] edit-mode-handle"
                 >
                   <div
-                    className="p-1 rounded"
+                    className="p-1.5 rounded-lg"
                     style={{
-                      cursor: 'grab',
-                      backgroundColor: 'transparent'
+                      backgroundColor: draggedCard === card.key
+                        ? 'var(--theme-primary)'
+                        : 'color-mix(in srgb, var(--theme-bg-primary) 80%, transparent)',
+                      backdropFilter: 'blur(4px)'
                     }}
                   >
                     <GripVertical
                       className="w-4 h-4 transition-colors"
-                      style={{ color: 'var(--theme-drag-handle)' }}
+                      style={{
+                        color: draggedCard === card.key
+                          ? 'var(--theme-button-text)'
+                          : 'var(--theme-text-secondary)'
+                      }}
                     />
                   </div>
-                </Tooltip>
-              }
+                </div>
+              )}
 
-              {/* Touch feedback overlay */}
-              {isDragMode && draggedCard === card.key && (
+              {/* Selected card overlay in edit mode */}
+              {isEditMode && draggedCard === card.key && (
                 <div
-                  className="absolute inset-0 rounded-lg border-2 border-dashed md:hidden"
+                  className="absolute inset-0 rounded-lg md:hidden pointer-events-none"
                   style={{
-                    borderColor: 'var(--theme-primary)',
-                    backgroundColor: 'rgba(var(--theme-primary-rgb), 0.1)',
+                    boxShadow: 'inset 0 0 0 2px var(--theme-primary)',
                     zIndex: 5
                   }}
                 />

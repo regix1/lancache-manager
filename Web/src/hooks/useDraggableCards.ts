@@ -14,8 +14,6 @@ interface DragHandlers {
   onDragEnter: (e: React.DragEvent, cardKey: string) => void;
   onDragLeave: () => void;
   onDrop: (e: React.DragEvent, targetCardKey: string) => void;
-  onTouchStart: (cardKey: string) => void;
-  onTouchEnd: () => void;
   onCardTap: (cardKey: string) => void;
 }
 
@@ -25,10 +23,13 @@ interface UseDraggableCardsReturn {
   draggedCard: string | null;
   dragOverCard: string | null;
   isDragMode: boolean;
+  isEditMode: boolean;
   showDragHint: boolean;
   dragHandlers: DragHandlers;
   resetCardOrder: () => void;
   hideDragHint: () => void;
+  toggleEditMode: () => void;
+  exitEditMode: () => void;
 }
 
 export const useDraggableCards = ({
@@ -39,7 +40,7 @@ export const useDraggableCards = ({
   const [draggedCard, setDraggedCard] = useState<string | null>(null);
   const [dragOverCard, setDragOverCard] = useState<string | null>(null);
   const [isDragMode, setIsDragMode] = useState(false);
-  const [holdTimeout, setHoldTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [isEditMode, setIsEditMode] = useState(false);
   const [showDragHint, setShowDragHint] = useState(() => {
     if (!dragHintStorageKey) return false;
     return storage.getItem(dragHintStorageKey) !== 'true';
@@ -67,15 +68,6 @@ export const useDraggableCards = ({
   useEffect(() => {
     storage.setItem(storageKey, JSON.stringify(cardOrder));
   }, [cardOrder, storageKey]);
-
-  // Clean up holdTimeout on unmount to prevent memory leaks
-  useEffect(() => {
-    return () => {
-      if (holdTimeout) {
-        clearTimeout(holdTimeout);
-      }
-    };
-  }, [holdTimeout]);
 
   // Desktop drag handlers
   const handleDragStart = useCallback((e: React.DragEvent, cardKey: string) => {
@@ -135,77 +127,73 @@ export const useDraggableCards = ({
     [draggedCard]
   );
 
-  // Touch handlers for mobile
-  const handleTouchStart = useCallback(
-    (cardKey: string) => {
-      const timeout = setTimeout(() => {
-        // If we already have a selected card, swap them
-        if (draggedCard && draggedCard !== cardKey) {
-          // Perform the swap - true swap, exchange positions directly
-          setCardOrder((prevOrder: string[]) => {
-            const newOrder = [...prevOrder];
-            const draggedIndex = newOrder.indexOf(draggedCard);
-            const targetIndex = newOrder.indexOf(cardKey);
-            [newOrder[draggedIndex], newOrder[targetIndex]] = [newOrder[targetIndex], newOrder[draggedIndex]];
-            return newOrder;
-          });
-
-          // Add haptic feedback for successful swap
-          if (navigator.vibrate) {
-            navigator.vibrate([50, 50, 50]);
-          }
-
-          // Clear selection
-          setDraggedCard(null);
-          setIsDragMode(false);
-        } else {
-          // Select this card
-          setIsDragMode(true);
-          setDraggedCard(cardKey);
-          // Add haptic feedback if available
-          if (navigator.vibrate) {
-            navigator.vibrate(50);
-          }
-        }
-      }, 1000); // 1 second hold to activate selection mode (longer to prevent accidental drags)
-      setHoldTimeout(timeout);
-    },
-    [draggedCard]
-  );
-
-  const handleTouchEnd = useCallback(() => {
-    if (holdTimeout) {
-      clearTimeout(holdTimeout);
-      setHoldTimeout(null);
-    }
-  }, [holdTimeout]);
-
-  const handleCardTap = useCallback(
-    (cardKey: string) => {
-      if (isDragMode && draggedCard) {
-        if (cardKey !== draggedCard) {
-          // Swap the cards - true swap, exchange positions directly
-          setCardOrder((prevOrder: string[]) => {
-            const newOrder = [...prevOrder];
-            const draggedIndex = newOrder.indexOf(draggedCard);
-            const targetIndex = newOrder.indexOf(cardKey);
-            [newOrder[draggedIndex], newOrder[targetIndex]] = [newOrder[targetIndex], newOrder[draggedIndex]];
-            return newOrder;
-          });
-
-          // Add haptic feedback for successful swap
-          if (navigator.vibrate) {
-            navigator.vibrate([50, 50, 50]);
-          }
-        }
-
-        // Clear selection
+  // Edit mode toggle for mobile - clean, intentional UX
+  const toggleEditMode = useCallback(() => {
+    setIsEditMode(prev => {
+      const newState = !prev;
+      if (!newState) {
+        // Exiting edit mode - clear selection
         setDraggedCard(null);
         setIsDragMode(false);
         setDragOverCard(null);
       }
+      // Haptic feedback on toggle
+      if (navigator.vibrate) {
+        navigator.vibrate(newState ? 50 : [25, 25]);
+      }
+      return newState;
+    });
+  }, []);
+
+  const exitEditMode = useCallback(() => {
+    setIsEditMode(false);
+    setDraggedCard(null);
+    setIsDragMode(false);
+    setDragOverCard(null);
+    if (navigator.vibrate) {
+      navigator.vibrate([25, 25]);
+    }
+  }, []);
+
+  // Card tap handler - works in edit mode for selection/swap
+  const handleCardTap = useCallback(
+    (cardKey: string) => {
+      // Only handle taps in edit mode on mobile
+      if (!isEditMode) return;
+
+      if (draggedCard) {
+        // We have a selected card - perform swap or deselect
+        if (cardKey !== draggedCard) {
+          // Swap the cards
+          setCardOrder((prevOrder: string[]) => {
+            const newOrder = [...prevOrder];
+            const draggedIndex = newOrder.indexOf(draggedCard);
+            const targetIndex = newOrder.indexOf(cardKey);
+            [newOrder[draggedIndex], newOrder[targetIndex]] = [newOrder[targetIndex], newOrder[draggedIndex]];
+            return newOrder;
+          });
+
+          // Haptic feedback for successful swap
+          if (navigator.vibrate) {
+            navigator.vibrate([50, 50, 50]);
+          }
+        }
+
+        // Clear selection after swap or tap on same card
+        setDraggedCard(null);
+        setIsDragMode(false);
+        setDragOverCard(null);
+      } else {
+        // No card selected - select this one
+        setDraggedCard(cardKey);
+        setIsDragMode(true);
+        // Haptic feedback for selection
+        if (navigator.vibrate) {
+          navigator.vibrate(50);
+        }
+      }
     },
-    [isDragMode, draggedCard]
+    [isEditMode, draggedCard]
   );
 
   // Utility functions
@@ -225,6 +213,7 @@ export const useDraggableCards = ({
     draggedCard,
     dragOverCard,
     isDragMode,
+    isEditMode,
     showDragHint,
     dragHandlers: {
       onDragStart: handleDragStart,
@@ -233,11 +222,11 @@ export const useDraggableCards = ({
       onDragEnter: handleDragEnter,
       onDragLeave: handleDragLeave,
       onDrop: handleDrop,
-      onTouchStart: handleTouchStart,
-      onTouchEnd: handleTouchEnd,
       onCardTap: handleCardTap
     },
     resetCardOrder,
-    hideDragHint
+    hideDragHint,
+    toggleEditMode,
+    exitEditMode
   };
 };
