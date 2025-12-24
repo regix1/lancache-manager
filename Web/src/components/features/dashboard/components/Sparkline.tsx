@@ -1,4 +1,8 @@
-import React, { useMemo, memo, useId } from 'react';
+import React, { useRef, useEffect, useMemo, memo, useState } from 'react';
+import { Chart, ChartConfiguration, registerables } from 'chart.js';
+
+// Register Chart.js components
+Chart.register(...registerables);
 
 interface SparklineProps {
   /** Array of data points to display */
@@ -18,7 +22,7 @@ interface SparklineProps {
 }
 
 /**
- * A minimal sparkline chart component using pure SVG
+ * A minimal sparkline chart component using Chart.js
  * Displays a small inline chart with no axes, labels, or grid
  */
 const Sparkline: React.FC<SparklineProps> = memo(({
@@ -30,7 +34,9 @@ const Sparkline: React.FC<SparklineProps> = memo(({
   className = '',
   ariaLabel,
 }) => {
-  const gradientId = useId();
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const chartRef = useRef<Chart | null>(null);
+  const [hasAnimated, setHasAnimated] = useState(false);
 
   // Check for reduced motion preference
   const prefersReducedMotion = useMemo(() => {
@@ -38,7 +44,8 @@ const Sparkline: React.FC<SparklineProps> = memo(({
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   }, []);
 
-  const shouldAnimate = animated && !prefersReducedMotion;
+  // Only animate on first render, not on data updates
+  const shouldAnimate = animated && !prefersReducedMotion && !hasAnimated;
 
   // Resolve CSS variable to actual color value
   const resolvedColor = useMemo(() => {
@@ -48,59 +55,144 @@ const Sparkline: React.FC<SparklineProps> = memo(({
         const computedStyle = getComputedStyle(document.documentElement);
         const resolved = computedStyle.getPropertyValue(varMatch[1]).trim();
         if (resolved) return resolved;
-        return computedStyle.getPropertyValue('--theme-primary').trim() || '#6366f1';
+        return computedStyle.getPropertyValue('--theme-primary').trim() || color;
       }
     }
     return color;
   }, [color]);
 
-  // Calculate SVG path
-  const { linePath, areaPath, viewBox } = useMemo(() => {
-    if (data.length === 0) {
-      return { linePath: '', areaPath: '', viewBox: '0 0 100 100' };
+  // Parse the color to create gradient
+  const gradientColor = useMemo(() => {
+    // Extract RGB values from the color
+    if (resolvedColor.startsWith('rgba') || resolvedColor.startsWith('rgb')) {
+      const match = resolvedColor.match(/[\d.]+/g);
+      if (match && match.length >= 3) {
+        const [r, g, b] = match;
+        return {
+          solid: `rgba(${r}, ${g}, ${b}, 1)`,
+          transparent: `rgba(${r}, ${g}, ${b}, 0)`,
+          fill: `rgba(${r}, ${g}, ${b}, 0.2)`,
+        };
+      }
+    }
+    // For hex colors, convert to RGB
+    if (resolvedColor.startsWith('#')) {
+      const hex = resolvedColor.slice(1);
+      const r = parseInt(hex.slice(0, 2), 16);
+      const g = parseInt(hex.slice(2, 4), 16);
+      const b = parseInt(hex.slice(4, 6), 16);
+      return {
+        solid: `rgba(${r}, ${g}, ${b}, 1)`,
+        transparent: `rgba(${r}, ${g}, ${b}, 0)`,
+        fill: `rgba(${r}, ${g}, ${b}, 0.2)`,
+      };
+    }
+    return {
+      solid: resolvedColor,
+      transparent: 'transparent',
+      fill: resolvedColor,
+    };
+  }, [resolvedColor]);
+
+  useEffect(() => {
+    if (!canvasRef.current || data.length === 0) return;
+
+    const ctx = canvasRef.current.getContext('2d');
+    if (!ctx) return;
+
+    // Destroy existing chart
+    if (chartRef.current) {
+      chartRef.current.destroy();
+      chartRef.current = null;
     }
 
-    const width = 100;
-    const padding = 2;
-    const effectiveHeight = height - padding * 2;
+    // Create gradient for area fill
+    const gradient = ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, gradientColor.fill);
+    gradient.addColorStop(1, gradientColor.transparent);
 
+    // Calculate stable min/max
     const minVal = Math.min(...data);
     const maxVal = Math.max(...data);
-    const range = maxVal - minVal || 1;
 
-    // Normalize data to SVG coordinates
-    const points = data.map((value, index) => {
-      const x = (index / (data.length - 1)) * width;
-      const y = padding + effectiveHeight - ((value - minVal) / range) * effectiveHeight;
-      return { x, y };
-    });
+    let yMin: number;
+    let yMax: number;
 
-    // Create smooth curve using quadratic bezier
-    let linePath = `M ${points[0].x},${points[0].y}`;
-
-    for (let i = 1; i < points.length; i++) {
-      const prev = points[i - 1];
-      const curr = points[i];
-      const cpx = (prev.x + curr.x) / 2;
-      linePath += ` Q ${prev.x + (curr.x - prev.x) * 0.5},${prev.y} ${cpx},${(prev.y + curr.y) / 2}`;
+    if (minVal === maxVal) {
+      if (minVal === 0) {
+        yMin = -1;
+        yMax = 1;
+      } else {
+        yMin = minVal * 0.9;
+        yMax = maxVal * 1.1;
+      }
+    } else {
+      const range = maxVal - minVal;
+      yMin = minVal - range * 0.1;
+      yMax = maxVal + range * 0.1;
     }
 
-    // Final segment
-    if (points.length > 1) {
-      const last = points[points.length - 1];
-      linePath += ` T ${last.x},${last.y}`;
-    }
-
-    // Create area path (same as line but closed at bottom)
-    const areaPath = linePath +
-      ` L ${points[points.length - 1].x},${height} L ${points[0].x},${height} Z`;
-
-    return {
-      linePath,
-      areaPath,
-      viewBox: `0 0 ${width} ${height}`
+    const config: ChartConfiguration = {
+      type: 'line',
+      data: {
+        labels: data.map((_, i) => i.toString()),
+        datasets: [
+          {
+            data: data,
+            borderColor: gradientColor.solid,
+            borderWidth: 2,
+            backgroundColor: showArea ? gradient : 'transparent',
+            fill: showArea,
+            tension: 0.4,
+            pointRadius: 0,
+            pointHoverRadius: 0,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: shouldAnimate
+          ? {
+              duration: 800,
+              easing: 'easeOutQuart',
+              onComplete: () => setHasAnimated(true),
+            }
+          : false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { enabled: false },
+        },
+        scales: {
+          x: { display: false },
+          y: {
+            display: false,
+            min: yMin,
+            max: yMax,
+          },
+        },
+        elements: {
+          line: {
+            borderCapStyle: 'round',
+            borderJoinStyle: 'round',
+          },
+        },
+        interaction: {
+          mode: 'index',
+          intersect: false,
+        },
+      },
     };
-  }, [data, height]);
+
+    chartRef.current = new Chart(ctx, config);
+
+    return () => {
+      if (chartRef.current) {
+        chartRef.current.destroy();
+        chartRef.current = null;
+      }
+    };
+  }, [data, gradientColor, height, showArea, shouldAnimate]);
 
   // Don't render if no data
   if (data.length === 0) {
@@ -110,60 +202,11 @@ const Sparkline: React.FC<SparklineProps> = memo(({
   return (
     <div
       className={`sparkline-container ${className}`}
-      style={{ height, width: '100%' }}
+      style={{ height }}
       role="img"
       aria-label={ariaLabel || `Sparkline chart showing ${data.length} data points`}
     >
-      <svg
-        viewBox={viewBox}
-        preserveAspectRatio="none"
-        style={{ width: '100%', height: '100%', overflow: 'visible' }}
-      >
-        <defs>
-          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={resolvedColor} stopOpacity={0.3} />
-            <stop offset="100%" stopColor={resolvedColor} stopOpacity={0} />
-          </linearGradient>
-        </defs>
-
-        {showArea && (
-          <path
-            d={areaPath}
-            fill={`url(#${gradientId})`}
-            style={{
-              opacity: shouldAnimate ? 0 : 1,
-              animation: shouldAnimate ? 'sparklineFadeIn 0.8s ease-out forwards' : 'none'
-            }}
-          />
-        )}
-
-        <path
-          d={linePath}
-          fill="none"
-          stroke={resolvedColor}
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          style={{
-            strokeDasharray: shouldAnimate ? 1000 : 0,
-            strokeDashoffset: shouldAnimate ? 1000 : 0,
-            animation: shouldAnimate ? 'sparklineDrawIn 0.8s ease-out forwards' : 'none'
-          }}
-        />
-      </svg>
-
-      <style>{`
-        @keyframes sparklineDrawIn {
-          to {
-            stroke-dashoffset: 0;
-          }
-        }
-        @keyframes sparklineFadeIn {
-          to {
-            opacity: 1;
-          }
-        }
-      `}</style>
+      <canvas ref={canvasRef} />
     </div>
   );
 });

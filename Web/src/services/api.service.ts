@@ -1102,6 +1102,7 @@ class ApiService {
       const res = await fetch(`${API_BASE}/downloads/batch-download-events`, {
         ...this.getFetchOptions({ signal }),
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ downloadIds })
       });
       return await this.handleResponse(res);
