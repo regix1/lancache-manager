@@ -32,7 +32,7 @@ import ApiService from '@services/api.service';
 import StatCard from '@components/common/StatCard';
 import { Tooltip } from '@components/ui/Tooltip';
 import { HelpDefinition } from '@components/ui/HelpPopover';
-import EnhancedServiceChart from './EnhancedServiceChart';
+import ServiceAnalyticsChart from './ServiceAnalyticsChart';
 import RecentDownloadsPanel from './RecentDownloadsPanel';
 import TopClientsTable from './TopClientsTable';
 // Widget imports
@@ -1034,7 +1034,7 @@ const Dashboard: React.FC = () => {
           key={`charts-${timeRange}-${customStartDate?.getTime()}-${customEndDate?.getTime()}`}
           className="grid grid-cols-1 lg:grid-cols-2 gap-4 animate-fadeIn"
         >
-          <EnhancedServiceChart serviceStats={filteredServiceStats || []} timeRange={timeRange} glassmorphism={true} />
+          <ServiceAnalyticsChart serviceStats={filteredServiceStats || []} timeRange={timeRange} glassmorphism={true} />
           <RecentDownloadsPanel downloads={filteredLatestDownloads || []} timeRange={timeRange} glassmorphism={true} />
         </div>
       )}

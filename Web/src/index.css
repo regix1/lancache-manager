@@ -1869,13 +1869,13 @@ input[type='number']::-webkit-outer-spin-button {
 
 /* ===== MOBILE EDIT MODE STYLES ===== */
 
-/* Wiggle animation - iOS-style home screen editing */
+/* Wiggle animation - iOS-style home screen editing (gentle, slow) */
 @keyframes cardWiggle {
   0%, 100% {
-    transform: rotate(-0.5deg);
+    transform: rotate(-0.3deg);
   }
   50% {
-    transform: rotate(0.5deg);
+    transform: rotate(0.3deg);
   }
 }
 
@@ -1904,26 +1904,26 @@ input[type='number']::-webkit-outer-spin-button {
 
 /* Edit mode container - enables animations on cards */
 .edit-mode-active .edit-mode-card {
-  animation: cardWiggle 0.15s ease-in-out infinite;
+  animation: cardWiggle 0.5s ease-in-out infinite;
   cursor: pointer;
 }
 
 /* Stagger the wiggle for natural feel */
 .edit-mode-active .edit-mode-card:nth-child(2n) {
-  animation-delay: 0.05s;
-}
-
-.edit-mode-active .edit-mode-card:nth-child(3n) {
   animation-delay: 0.1s;
 }
 
+.edit-mode-active .edit-mode-card:nth-child(3n) {
+  animation-delay: 0.2s;
+}
+
 .edit-mode-active .edit-mode-card:nth-child(4n) {
-  animation-delay: 0.075s;
+  animation-delay: 0.15s;
 }
 
 /* Selected card in edit mode */
 .edit-mode-card.card-selected {
-  animation: cardWiggle 0.15s ease-in-out infinite, selectedPulse 1s ease-in-out infinite;
+  animation: cardWiggle 0.5s ease-in-out infinite, selectedPulse 1.5s ease-in-out infinite;
   z-index: 10;
   transform-origin: center center;
 }
