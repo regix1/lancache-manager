@@ -1,5 +1,4 @@
-import React, { useState, Suspense, lazy, useEffect, useCallback } from 'react';
-import { flushSync } from 'react-dom';
+import React, { useState, useEffect, useCallback } from 'react';
 import { NotificationsProvider } from '@contexts/NotificationsContext';
 import { StatsProvider, useStats } from '@contexts/StatsContext';
 import { DownloadsProvider } from '@contexts/DownloadsContext';
@@ -35,16 +34,15 @@ import authService from '@services/auth.service';
 import heartbeatService from '@services/heartbeat.service';
 import { useActivityTracker } from '@hooks/useActivityTracker';
 
-// Lazy load heavy components
-const Dashboard = lazy(() => import('@components/features/dashboard/Dashboard'));
-const DownloadsTab = lazy(() => import('@components/features/downloads/DownloadsTab'));
-const ClientsTab = lazy(() => import('@components/features/clients/ClientsTab'));
-const ServicesTab = lazy(() => import('@components/features/services/ServicesTab'));
-const AuthenticateTab = lazy(() => import('@components/features/auth/AuthenticateTab'));
-const UserTab = lazy(() => import('@components/features/user/UserTab'));
-const EventsTab = lazy(() => import('@components/features/events'));
-const ManagementTab = lazy(() => import('@components/features/management/ManagementTab'));
-const MemoryDiagnostics = lazy(() => import('@components/features/memory/MemoryDiagnostics'));
+import Dashboard from '@components/features/dashboard/Dashboard';
+import DownloadsTab from '@components/features/downloads/DownloadsTab';
+import ClientsTab from '@components/features/clients/ClientsTab';
+import ServicesTab from '@components/features/services/ServicesTab';
+import AuthenticateTab from '@components/features/auth/AuthenticateTab';
+import UserTab from '@components/features/user/UserTab';
+import EventsTab from '@components/features/events';
+import ManagementTab from '@components/features/management/ManagementTab';
+import MemoryDiagnostics from '@components/features/memory/MemoryDiagnostics';
 
 // Wrapper components to inject mockMode from context into providers
 const StatsProviderWithMockMode: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -363,13 +361,8 @@ const AppContent: React.FC = () => {
     }
 
     if (authMode === 'guest') {
-      // Use requestAnimationFrame + flushSync to force immediate render on mobile browsers
-      requestAnimationFrame(() => {
-        flushSync(() => {
-          setDepotInitialized(true);
-          setCheckingDepotStatus(false);
-        });
-      });
+      setDepotInitialized(true);
+      setCheckingDepotStatus(false);
       return;
     }
 
@@ -391,29 +384,16 @@ const AppContent: React.FC = () => {
             hasData
           });
 
-          // Use requestAnimationFrame + flushSync to force immediate render on mobile browsers
-          requestAnimationFrame(() => {
-            flushSync(() => {
-              setDepotInitialized(hasData);
-              setCheckingDepotStatus(false);
-            });
-          });
+          setDepotInitialized(hasData);
+          setCheckingDepotStatus(false);
         } else {
-          requestAnimationFrame(() => {
-            flushSync(() => {
-              setDepotInitialized(false);
-              setCheckingDepotStatus(false);
-            });
-          });
+          setDepotInitialized(false);
+          setCheckingDepotStatus(false);
         }
       } catch (error) {
         console.error('Failed to check depot initialization status:', error);
-        requestAnimationFrame(() => {
-          flushSync(() => {
-            setDepotInitialized(false);
-            setCheckingDepotStatus(false);
-          });
-        });
+        setDepotInitialized(false);
+        setCheckingDepotStatus(false);
       }
     };
 
@@ -548,7 +528,7 @@ const AppContent: React.FC = () => {
     })();
 
     return (
-      <Suspense fallback={<LoadingSpinner fullScreen={false} message="Loading..." />}>
+      <>
         {activeTab === 'management' ? (
           <ManagementTab onApiKeyRegenerated={handleApiKeyRegenerated} />
         ) : activeTab === 'users' ? (
@@ -558,7 +538,7 @@ const AppContent: React.FC = () => {
         ) : (
           <TabComponent />
         )}
-      </Suspense>
+      </>
     );
   };
 
@@ -678,13 +658,7 @@ const AppContent: React.FC = () => {
 
   // Handle special routes like /memory
   if (isMemoryRoute) {
-    return (
-      <Suspense
-        fallback={<LoadingSpinner fullScreen={false} message="Loading memory diagnostics..." />}
-      >
-        <MemoryDiagnostics />
-      </Suspense>
-    );
+    return <MemoryDiagnostics />;
   }
 
   return (
@@ -718,22 +692,7 @@ const AppContent: React.FC = () => {
         {/* Only show Universal Notification Bar to authenticated users */}
         {authMode === 'authenticated' && <UniversalNotificationBar />}
         <main className="container mx-auto px-4 py-6 flex-grow">{renderContent()}</main>
-        <Suspense fallback={
-          <footer
-            className="py-4 text-center text-sm border-t"
-            style={{
-              backgroundColor: 'var(--theme-nav-bg)',
-              borderColor: 'var(--theme-nav-border)',
-              color: 'var(--theme-text-secondary)'
-            }}
-          >
-            <div className="container mx-auto px-4">
-              <p>LANCache Manager v...</p>
-            </div>
-          </footer>
-        }>
-          <Footer />
-        </Suspense>
+        <Footer />
       </div>
     </TimezoneAwareWrapper>
   );

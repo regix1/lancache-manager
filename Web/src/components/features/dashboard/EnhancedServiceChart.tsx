@@ -39,6 +39,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
     const prevDataRef = useRef<string>('');
     const originalDataRef = useRef<number[]>([]);
     const totalValueRef = useRef<number>(0);
+    const prevRefreshRateRef = useRef<string | null>(null);
     const { refreshRate } = useRefreshRate();
 
     // Get service color from theme
@@ -156,14 +157,23 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
       return () => window.removeEventListener('themechange', handleThemeChange);
     }, []);
 
-    // Rebuild chart from scratch when refresh rate changes
+    // Rebuild chart from scratch when refresh rate changes (skip initial mount)
     useEffect(() => {
-      if (chartInstance.current) {
-        chartInstance.current.destroy();
-        chartInstance.current = null;
+      if (prevRefreshRateRef.current === null) {
+        // First mount - just store the value, don't destroy anything
+        prevRefreshRateRef.current = refreshRate;
+        return;
       }
-      prevDataRef.current = '';
-      setThemeVersion((v) => v + 1);
+
+      if (prevRefreshRateRef.current !== refreshRate) {
+        prevRefreshRateRef.current = refreshRate;
+        if (chartInstance.current) {
+          chartInstance.current.destroy();
+          chartInstance.current = null;
+        }
+        prevDataRef.current = '';
+        setThemeVersion((v) => v + 1);
+      }
     }, [refreshRate]);
 
     // Cleanup on unmount
@@ -190,15 +200,17 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(
 
       const currentDataString = JSON.stringify({ labels: chartData.labels, data: chartData.data, tab: activeTab });
 
-      // If chart exists and only data changed (same tab), update in place
+      // If chart exists and same tab with same labels, update data in place
       if (chartInstance.current && prevDataRef.current) {
         const prevData = JSON.parse(prevDataRef.current);
-        if (prevData.tab === activeTab) {
-          // Same tab - just update data
-          chartInstance.current.data.labels = chartData.labels;
+        const sameTab = prevData.tab === activeTab;
+        const sameLabels = JSON.stringify(prevData.labels) === JSON.stringify(chartData.labels);
+
+        if (sameTab && sameLabels) {
+          // Same structure - update data values only
           chartInstance.current.data.datasets[0].data = chartData.data;
           chartInstance.current.data.datasets[0].backgroundColor = chartData.colors;
-          chartInstance.current.update('none');
+          chartInstance.current.update('active');
           prevDataRef.current = currentDataString;
           return;
         }

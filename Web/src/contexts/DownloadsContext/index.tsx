@@ -7,7 +7,6 @@ import React, {
   useCallback,
   useMemo
 } from 'react';
-import { flushSync } from 'react-dom';
 import ApiService from '@services/api.service';
 import { isAbortError } from '@utils/error';
 import MockDataService from '../../test/mockData.service';
@@ -133,27 +132,18 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
       clearTimeout(timeoutId);
 
       // Only apply results if timeRange hasn't changed during fetch (stale data protection)
-      // Use requestAnimationFrame + flushSync to force immediate render on mobile browsers
       if (latest !== undefined && currentTimeRangeRef.current === currentTimeRange) {
-        requestAnimationFrame(() => {
-          flushSync(() => {
-            setLatestDownloads(latest);
-            setError(null);
-            if (showLoading) {
-              setLoading(false);
-            }
-          });
-        });
+        setLatestDownloads(latest);
+        setError(null);
+        if (showLoading) {
+          setLoading(false);
+        }
         hasData.current = true;
       } else {
-        requestAnimationFrame(() => {
-          flushSync(() => {
-            setError(null);
-            if (showLoading) {
-              setLoading(false);
-            }
-          });
-        });
+        setError(null);
+        if (showLoading) {
+          setLoading(false);
+        }
       }
     } catch (err: unknown) {
       // Fixed: Proper error handling without dead code
@@ -165,9 +155,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
         setError('Failed to fetch downloads from API');
       }
       if (showLoading) {
-        requestAnimationFrame(() => {
-          flushSync(() => setLoading(false));
-        });
+        setLoading(false);
       }
     } finally {
       if (isInitial) {
@@ -312,7 +300,9 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
         }
       }
     } else if (timeRange !== 'custom') {
-      setLastCustomDates({ start: null, end: null });
+      if (lastCustomDates.start !== null || lastCustomDates.end !== null) {
+        setLastCustomDates({ start: null, end: null });
+      }
     }
   }, [customStartDate, customEndDate, timeRange, mockMode, fetchDownloads, lastCustomDates]);
 

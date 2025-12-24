@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { flushSync } from 'react-dom';
 import authService, { type AuthMode } from '@services/auth.service';
 
 interface AuthContextType {
@@ -33,24 +32,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const fetchAuth = async () => {
     try {
       const authResult = await authService.checkAuth();
-      // Use requestAnimationFrame + flushSync to force immediate render on mobile browsers
-      // Mobile browsers often delay React re-renders until the next animation frame
-      requestAnimationFrame(() => {
-        flushSync(() => {
-          setIsAuthenticated(authResult.isAuthenticated);
-          setAuthMode(authResult.authMode);
-          setIsLoading(false);
-        });
-      });
+      setIsAuthenticated(authResult.isAuthenticated);
+      setAuthMode(authResult.authMode);
+      setIsLoading(false);
     } catch (error) {
       console.error('[Auth] Failed to check auth status:', error);
-      requestAnimationFrame(() => {
-        flushSync(() => {
-          setIsAuthenticated(false);
-          setAuthMode('unauthenticated');
-          setIsLoading(false);
-        });
-      });
+      setIsAuthenticated(false);
+      setAuthMode('unauthenticated');
+      setIsLoading(false);
     }
   };
 
