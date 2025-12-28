@@ -51,7 +51,7 @@
       - cache_*         : Cache file operations (cache_clear, cache_corruption, cache_game_detect, cache_game_remove, cache_service_remove)
       - db_*            : Database operations (db_reset, db_migrate)
   -->
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) And '$(RuntimeIdentifier)' == ''">
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) And '$(RuntimeIdentifier)' == '' And '$(SkipRustBuild)' != 'true'">
     <!-- Development build on Windows - copy from target/release -->
     <None Include="..\..\rust-processor\target\release\log_processor.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -227,7 +227,7 @@
     </None>
   </ItemGroup>
 
-  <ItemGroup Condition="!$([MSBuild]::IsOSPlatform('Windows')) And '$(RuntimeIdentifier)' == ''">
+  <ItemGroup Condition="!$([MSBuild]::IsOSPlatform('Windows')) And '$(RuntimeIdentifier)' == '' And '$(SkipRustBuild)' != 'true'">
     <!-- Development build on Linux/Mac - copy from target/release -->
     <None Include="../../rust-processor/target/release/log_processor">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

@@ -1,15 +1,16 @@
 import React, { useMemo, memo, useState } from 'react';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
-import { CacheInfoTooltip } from '@components/ui/Tooltip';
+import { CacheInfoTooltip, Tooltip } from '@components/ui/Tooltip';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { useTimezone } from '@contexts/TimezoneContext';
 import { getEffectiveTimezone, formatShortDate } from '@utils/timezone';
-import type { ClientStat } from '@/types';
+import { Users } from 'lucide-react';
+import type { ClientStatWithGroup } from '@/types';
 
 interface TopClientsTableProps {
-  clientStats?: ClientStat[];
+  clientStats?: ClientStatWithGroup[];
   timeRange?: string;
   customStartDate?: Date | null;
   customEndDate?: Date | null;
@@ -21,6 +22,9 @@ type SortOption = 'total' | 'hits' | 'misses' | 'hitRate';
 interface TopClientRowProps {
   client: {
     clientIp: string;
+    displayName?: string;
+    isGrouped: boolean;
+    groupMemberIps?: string[];
     totalBytes: number;
     totalCacheHitBytes: number;
     totalCacheMissBytes: number;
@@ -31,11 +35,35 @@ interface TopClientRowProps {
 
 const TopClientRow: React.FC<TopClientRowProps> = ({ client }) => {
   const formattedLastActivity = useFormattedDateTime(client.lastActivityUtc);
+  const displayLabel = client.displayName || client.clientIp;
+  const ipTooltip = client.isGrouped && client.groupMemberIps
+    ? `IPs: ${client.groupMemberIps.join(', ')}`
+    : client.displayName
+    ? `IP: ${client.clientIp}`
+    : undefined;
 
   return (
     <tr className="hover:bg-themed-hover transition-colors">
       <td className="py-3 text-themed-primary whitespace-nowrap">
-        {client.clientIp}
+        <div className="flex items-center gap-2">
+          {client.isGrouped && (
+            <Users className="w-4 h-4 text-themed-muted flex-shrink-0" />
+          )}
+          {ipTooltip ? (
+            <Tooltip content={ipTooltip}>
+              <span className="cursor-help border-b border-dashed border-themed-muted">
+                {displayLabel}
+              </span>
+            </Tooltip>
+          ) : (
+            <span>{displayLabel}</span>
+          )}
+          {client.isGrouped && client.groupMemberIps && client.groupMemberIps.length > 1 && (
+            <span className="text-xs text-themed-muted">
+              ({client.groupMemberIps.length})
+            </span>
+          )}
+        </div>
       </td>
       <td className="py-3 text-themed-secondary hidden sm:table-cell whitespace-nowrap">
         {formatBytes(client.totalBytes)}

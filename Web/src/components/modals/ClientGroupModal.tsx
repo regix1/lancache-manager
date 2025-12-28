@@ -120,7 +120,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
 
   return (
     <Modal
-      isOpen={isOpen}
+      opened={isOpen}
       onClose={onClose}
       title={isEditing ? 'Edit Client Group' : 'Create Client Group'}
     >
@@ -357,7 +357,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
         <div className="flex justify-end gap-3 pt-4 border-t" style={{ borderColor: 'var(--theme-border-primary)' }}>
           <Button
             type="button"
-            variant="ghost"
+            variant="subtle"
             onClick={onClose}
             disabled={saving}
           >

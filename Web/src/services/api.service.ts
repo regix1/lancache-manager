@@ -218,7 +218,7 @@ class ApiService {
     signal?: AbortSignal,
     startTime?: number,
     endTime?: number
-  ): Promise<ClientStat[]> {
+  ): Promise<ClientStatWithGroup[]> {
     try {
       let url = `${API_BASE}/stats/clients`;
       const params = new URLSearchParams();
@@ -226,7 +226,7 @@ class ApiService {
       if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
       if (params.toString()) url += `?${params}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));
-      return await this.handleResponse<ClientStat[]>(res);
+      return await this.handleResponse<ClientStatWithGroup[]>(res);
     } catch (error: unknown) {
       if (isAbortError(error)) {
         // Silently ignore abort errors

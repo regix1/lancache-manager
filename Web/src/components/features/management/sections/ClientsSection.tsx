@@ -176,7 +176,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                   {isAuthenticated && (
                     <div className="flex items-center gap-2">
                       <Button
-                        variant="ghost"
+                        variant="subtle"
                         size="sm"
                         onClick={() => handleEditGroup(group)}
                         title="Edit group"
@@ -184,7 +184,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                         <Edit2 className="w-4 h-4" />
                       </Button>
                       <Button
-                        variant="ghost"
+                        variant="subtle"
                         size="sm"
                         onClick={() => handleDeleteGroup(group)}
                         disabled={deletingGroupId === group.id}

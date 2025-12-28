@@ -6,7 +6,7 @@ import { useTimeFilter } from '../TimeFilterContext';
 import { useRefreshRate } from '../RefreshRateContext';
 import { useSignalR } from '../SignalRContext';
 import { SIGNALR_REFRESH_EVENTS } from '../SignalRContext/types';
-import type { CacheInfo, ClientStat, ServiceStat, DashboardStats } from '../../types';
+import type { CacheInfo, ClientStatWithGroup, ServiceStat, DashboardStats } from '../../types';
 import type { StatsContextType, StatsProviderProps } from './types';
 
 const StatsContext = createContext<StatsContextType | undefined>(undefined);
@@ -25,7 +25,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   const signalR = useSignalR();
 
   const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null);
-  const [clientStats, setClientStats] = useState<ClientStat[]>([]);
+  const [clientStats, setClientStats] = useState<ClientStatWithGroup[]>([]);
   const [serviceStats, setServiceStats] = useState<ServiceStat[]>([]);
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
