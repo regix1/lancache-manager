@@ -112,6 +112,7 @@ CLAUDE.md
 .claude.json
 nul
 project.yml
+.serena/
 
 # Documentation and reference files (local only)
 docs/
