@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Users, Plus, X, Loader2 } from 'lucide-react';
+import { Plus, X, Loader2 } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { useClientGroups } from '@contexts/ClientGroupContext';

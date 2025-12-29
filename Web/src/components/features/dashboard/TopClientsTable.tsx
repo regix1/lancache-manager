@@ -7,10 +7,10 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { useTimezone } from '@contexts/TimezoneContext';
 import { getEffectiveTimezone, formatShortDate } from '@utils/timezone';
 import { Users } from 'lucide-react';
-import type { ClientStatWithGroup } from '@/types';
+import type { ClientStat } from '@/types';
 
 interface TopClientsTableProps {
-  clientStats?: ClientStatWithGroup[];
+  clientStats?: ClientStat[];
   timeRange?: string;
   customStartDate?: Date | null;
   customEndDate?: Date | null;

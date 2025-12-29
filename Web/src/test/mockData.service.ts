@@ -1,10 +1,10 @@
 import { SERVICES } from '../utils/constants';
-import type { Download, CacheInfo, ClientStatWithGroup, ServiceStat, DashboardStats } from '../types';
+import type { Download, CacheInfo, ClientStat, ServiceStat, DashboardStats } from '../types';
 
 interface MockData {
   cacheInfo: CacheInfo;
   latestDownloads: Download[];
-  clientStats: ClientStatWithGroup[];
+  clientStats: ClientStat[];
   serviceStats: ServiceStat[];
   dashboardStats: DashboardStats;
 }
@@ -223,7 +223,7 @@ class MockDataService {
     );
 
     // Generate client stats based on actual download activity
-    const clientStats = clients
+    const clientStats: ClientStat[] = clients
       .map((ip) => {
         const activity = clientActivity[ip];
 
@@ -244,13 +244,13 @@ class MockDataService {
             totalDownloads: activity.totalDownloads,
             lastActivityUtc: lastSeenIso,
             lastActivityLocal: lastSeenIso
-          };
+          } as ClientStat;
         } else {
           // Client had no downloads - return null to filter out
           return null;
         }
       })
-      .filter((client): client is ClientStatWithGroup => client !== null && client.totalBytes > 0);
+      .filter((client): client is ClientStat => client !== null && client.totalBytes > 0);
 
     // Generate service stats
     const serviceStats = SERVICES.map((service) => {

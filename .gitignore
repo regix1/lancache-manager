@@ -111,6 +111,7 @@ CLAUDE.md
 *.claude
 .claude.json
 nul
+project.yml
 
 # Documentation and reference files (local only)
 docs/

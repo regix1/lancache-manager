@@ -1,8 +1,8 @@
-import type { CacheInfo, ClientStatWithGroup, ServiceStat, DashboardStats } from '../../types';
+import type { CacheInfo, ClientStat, ServiceStat, DashboardStats } from '../../types';
 
 export interface StatsContextType {
   cacheInfo: CacheInfo | null;
-  clientStats: ClientStatWithGroup[];
+  clientStats: ClientStat[];
   serviceStats: ServiceStat[];
   dashboardStats: DashboardStats | null;
   loading: boolean;
@@ -11,7 +11,7 @@ export interface StatsContextType {
   refreshStats: () => Promise<void>;
   updateStats: (updater: {
     cacheInfo?: (prev: CacheInfo | null) => CacheInfo | null;
-    clientStats?: (prev: ClientStatWithGroup[]) => ClientStatWithGroup[];
+    clientStats?: (prev: ClientStat[]) => ClientStat[];
     serviceStats?: (prev: ServiceStat[]) => ServiceStat[];
     dashboardStats?: (prev: DashboardStats | null) => DashboardStats | null;
   }) => void;

@@ -66,6 +66,11 @@ export interface ClientStat {
   lastActivityLocal: string;
   /** Average download speed in bytes per second across all sessions. */
   averageBytesPerSecond?: number;
+  // Client group fields
+  displayName?: string; // Nickname if grouped, undefined if not
+  groupId?: number;
+  isGrouped: boolean; // true if this client is part of a group
+  groupMemberIps?: string[];
 }
 
 export interface ServiceStat {
@@ -355,13 +360,6 @@ export interface UpdateClientGroupRequest {
   description?: string;
 }
 
-// Extended ClientStat with group info (returned by /api/stats/clients)
-export interface ClientStatWithGroup extends ClientStat {
-  displayName?: string; // Nickname if grouped, undefined if not
-  groupId?: number;
-  isGrouped: boolean;
-  groupMemberIps?: string[];
-}
 
 // Real-time download speed types
 export interface GameSpeedInfo {

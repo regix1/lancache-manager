@@ -24,8 +24,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
     clientGroups,
     loading,
     deleteClientGroup,
-    removeMember,
-    refreshGroups
+    removeMember
   } = useClientGroups();
 
   const { clientStats } = useStats();
