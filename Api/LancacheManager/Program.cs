@@ -1,4 +1,5 @@
 using LancacheManager.Application.Services;
+using LancacheManager.Configuration;
 using LancacheManager.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Repositories;
@@ -103,6 +104,10 @@ builder.Services.AddCors(options =>
             .AllowCredentials();
     });
 });
+
+// Configure API options
+builder.Services.Configure<ApiOptions>(
+    builder.Configuration.GetSection("ApiOptions"));
 
 // IMPORTANT: Register path resolver FIRST before anything that depends on it
 if (OperatingSystemDetector.IsWindows)

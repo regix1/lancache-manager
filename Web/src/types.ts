@@ -63,7 +63,6 @@ export interface ClientStat {
   totalDownloads: number;
   downloadCount?: number;
   lastActivityUtc: string;
-  lastActivityLocal: string;
   /** Average download speed in bytes per second across all sessions. */
   averageBytesPerSecond?: number;
   // Client group fields

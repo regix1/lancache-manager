@@ -45,6 +45,9 @@ public class ClientStatsWithGroup
     public int TotalDownloads { get; set; }
     public double TotalDurationSeconds { get; set; }
     public double AverageBytesPerSecond { get; set; }
+
+    /// <summary>
+    /// Last activity timestamp in UTC. Frontend handles timezone conversion.
+    /// </summary>
     public DateTime LastActivityUtc { get; set; }
-    public DateTime LastActivityLocal { get; set; }
 }

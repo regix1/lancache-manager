@@ -1,4 +1,5 @@
 using LancacheManager.Application.DTOs;
+using LancacheManager.Configuration;
 using LancacheManager.Data;
 using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Infrastructure.Repositories.Interfaces;
@@ -6,6 +7,7 @@ using LancacheManager.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace LancacheManager.Controllers;
 
@@ -21,25 +23,36 @@ public class StatsController : ControllerBase
     private readonly StatsRepository _statsService;
     private readonly IClientGroupsRepository _clientGroupsRepository;
     private readonly ILogger<StatsController> _logger;
+    private readonly IOptions<ApiOptions> _apiOptions;
 
     public StatsController(
         AppDbContext context,
         StatsRepository statsService,
         IClientGroupsRepository clientGroupsRepository,
-        ILogger<StatsController> logger)
+        ILogger<StatsController> logger,
+        IOptions<ApiOptions> apiOptions)
     {
         _context = context;
         _statsService = statsService;
         _clientGroupsRepository = clientGroupsRepository;
         _logger = logger;
+        _apiOptions = apiOptions;
     }
 
     [HttpGet("clients")]
     [OutputCache(PolicyName = "stats-short")]
-    public async Task<IActionResult> GetClients([FromQuery] long? startTime = null, [FromQuery] long? endTime = null)
+    public async Task<IActionResult> GetClients(
+        [FromQuery] long? startTime = null,
+        [FromQuery] long? endTime = null,
+        [FromQuery] int? limit = null)
     {
         try
         {
+            // Get configuration
+            var maxLimit = _apiOptions.Value.MaxClientsPerRequest;
+            var defaultLimit = _apiOptions.Value.DefaultClientsLimit;
+            var effectiveLimit = Math.Min(limit ?? defaultLimit, maxLimit);
+
             // Build base query with time filtering
             var query = _context.Downloads.AsNoTracking();
 
@@ -54,116 +67,149 @@ public class StatsController : ControllerBase
                 query = query.Where(d => d.StartTimeUtc <= endDate);
             }
 
-            // Get filtered downloads with EndTimeUtc for duration calculation
+            // IMPROVEMENT #1: Push aggregation to database (SQL GROUP BY)
             // NOTE: Using EndTime - StartTime instead of querying LogEntries for performance
             // The LogEntries query was causing severe slowdowns with large datasets
-            var downloads = await query
-                .Select(d => new { d.Id, d.ClientIp, d.CacheHitBytes, d.CacheMissBytes, d.StartTimeUtc, d.EndTimeUtc })
+            var ipStats = await query
+                .GroupBy(d => d.ClientIp)
+                .Select(g => new
+                {
+                    ClientIp = g.Key,
+                    TotalCacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                    TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
+                    TotalDownloads = g.Count(),
+                    // Calculate duration in database
+                    TotalDurationSeconds = g.Sum(d =>
+                        d.EndTimeUtc > d.StartTimeUtc
+                            ? (d.EndTimeUtc - d.StartTimeUtc).TotalSeconds
+                            : 0),
+                    LastActivityUtc = g.Max(d => d.StartTimeUtc)
+                })
                 .ToListAsync();
 
-            // Get IP to group mapping
+            // IMPROVEMENT #2: Create reverse lookup dictionary (O(1) instead of O(n))
             var ipToGroupMapping = await _clientGroupsRepository.GetIpToGroupMappingAsync();
 
-            // Group by client and calculate totals including duration from EndTime - StartTime
-            var ipStats = downloads
-                .GroupBy(d => d.ClientIp)
-                .Select(g =>
+            // Build GroupId → GroupInfo lookup
+            var groupIdToInfo = ipToGroupMapping.Values
+                .GroupBy(v => v.GroupId)
+                .ToDictionary(g => g.Key, g => g.First());
+
+            // IMPROVEMENT #8: Single-pass partitioning (grouped vs ungrouped)
+            var groupedStats = new Dictionary<int, List<(string Ip, long Hit, long Miss, int Downloads, double Duration, DateTime LastActivity)>>();
+            var ungroupedStats = new List<ClientStatsWithGroup>();
+
+            foreach (var stat in ipStats)
+            {
+                if (ipToGroupMapping.TryGetValue(stat.ClientIp, out var groupInfo))
                 {
-                    // Calculate duration from EndTime - StartTime for completed downloads
-                    var totalDuration = g.Sum(d =>
+                    // Add to grouped collection
+                    if (!groupedStats.ContainsKey(groupInfo.GroupId))
                     {
-                        if (d.EndTimeUtc > d.StartTimeUtc)
-                        {
-                            return (d.EndTimeUtc - d.StartTimeUtc).TotalSeconds;
-                        }
-                        return 0;
-                    });
-
-                    return new
-                    {
-                        ClientIp = g.Key,
-                        TotalCacheHitBytes = g.Sum(d => d.CacheHitBytes),
-                        TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
-                        TotalDownloads = g.Count(),
-                        TotalDurationSeconds = totalDuration,
-                        LastActivityUtc = g.Max(d => d.StartTimeUtc)
-                    };
-                })
-                .ToList();
-
-            // Separate grouped and ungrouped IPs
-            var groupedIpStats = ipStats
-                .Where(s => ipToGroupMapping.ContainsKey(s.ClientIp))
-                .GroupBy(s => ipToGroupMapping[s.ClientIp].GroupId)
-                .Select(g =>
+                        groupedStats[groupInfo.GroupId] = new();
+                    }
+                    groupedStats[groupInfo.GroupId].Add((
+                        stat.ClientIp,
+                        stat.TotalCacheHitBytes,
+                        stat.TotalCacheMissBytes,
+                        stat.TotalDownloads,
+                        stat.TotalDurationSeconds,
+                        stat.LastActivityUtc
+                    ));
+                }
+                else
                 {
-                    var groupInfo = ipToGroupMapping.Values.First(v => v.GroupId == g.Key);
-                    var memberIps = g.Select(s => s.ClientIp).OrderBy(ip => ip).ToList();
-                    var totalHitBytes = g.Sum(s => s.TotalCacheHitBytes);
-                    var totalMissBytes = g.Sum(s => s.TotalCacheMissBytes);
-                    var totalBytes = totalHitBytes + totalMissBytes;
-                    var totalDuration = g.Sum(s => s.TotalDurationSeconds);
+                    // IMPROVEMENT #3: Use helper method
+                    ungroupedStats.Add(CreateClientStats(
+                        clientIp: stat.ClientIp,
+                        totalCacheHitBytes: stat.TotalCacheHitBytes,
+                        totalCacheMissBytes: stat.TotalCacheMissBytes,
+                        totalDownloads: stat.TotalDownloads,
+                        totalDurationSeconds: stat.TotalDurationSeconds,
+                        lastActivityUtc: stat.LastActivityUtc
+                    ));
+                }
+            }
 
-                    return new ClientStatsWithGroup
-                    {
-                        ClientIp = memberIps.First(), // Primary IP for reference
-                        DisplayName = groupInfo.Nickname,
-                        GroupId = g.Key,
-                        IsGrouped = true,
-                        GroupMemberIps = memberIps,
-                        TotalCacheHitBytes = totalHitBytes,
-                        TotalCacheMissBytes = totalMissBytes,
-                        TotalBytes = totalBytes,
-                        CacheHitPercent = totalBytes > 0 ? (double)totalHitBytes / totalBytes * 100 : 0,
-                        TotalDownloads = g.Sum(s => s.TotalDownloads),
-                        TotalDurationSeconds = totalDuration,
-                        AverageBytesPerSecond = totalDuration > 0 ? totalBytes / totalDuration : 0,
-                        LastActivityUtc = DateTime.SpecifyKind(g.Max(s => s.LastActivityUtc), DateTimeKind.Utc),
-                        LastActivityLocal = g.Max(s => s.LastActivityUtc)
-                    };
-                })
-                .ToList();
+            // Aggregate grouped stats
+            var groupedClientStats = groupedStats.Select(kvp =>
+            {
+                var groupId = kvp.Key;
+                var members = kvp.Value;
+                var groupInfo = groupIdToInfo[groupId]; // IMPROVEMENT #2: O(1) lookup!
 
-            // Ungrouped IPs as individual entries
-            var ungroupedIpStats = ipStats
-                .Where(s => !ipToGroupMapping.ContainsKey(s.ClientIp))
-                .Select(s =>
-                {
-                    var totalBytes = s.TotalCacheHitBytes + s.TotalCacheMissBytes;
-                    return new ClientStatsWithGroup
-                    {
-                        ClientIp = s.ClientIp,
-                        DisplayName = null, // No nickname
-                        GroupId = null,
-                        IsGrouped = false,
-                        GroupMemberIps = null,
-                        TotalCacheHitBytes = s.TotalCacheHitBytes,
-                        TotalCacheMissBytes = s.TotalCacheMissBytes,
-                        TotalBytes = totalBytes,
-                        CacheHitPercent = totalBytes > 0 ? (double)s.TotalCacheHitBytes / totalBytes * 100 : 0,
-                        TotalDownloads = s.TotalDownloads,
-                        TotalDurationSeconds = s.TotalDurationSeconds,
-                        AverageBytesPerSecond = s.TotalDurationSeconds > 0 ? totalBytes / s.TotalDurationSeconds : 0,
-                        LastActivityUtc = DateTime.SpecifyKind(s.LastActivityUtc, DateTimeKind.Utc),
-                        LastActivityLocal = s.LastActivityUtc
-                    };
-                })
-                .ToList();
+                return CreateClientStats(
+                    clientIp: members.First().Ip,
+                    totalCacheHitBytes: members.Sum(m => m.Hit),
+                    totalCacheMissBytes: members.Sum(m => m.Miss),
+                    totalDownloads: members.Sum(m => m.Downloads),
+                    totalDurationSeconds: members.Sum(m => m.Duration),
+                    lastActivityUtc: members.Max(m => m.LastActivity),
+                    displayName: groupInfo.Nickname,
+                    groupId: groupId,
+                    groupMemberIps: members.Select(m => m.Ip).OrderBy(ip => ip).ToList()
+                );
+            }).ToList();
 
             // Combine and sort by total bytes
-            var stats = groupedIpStats
-                .Concat(ungroupedIpStats)
+            var allStats = groupedClientStats
+                .Concat(ungroupedStats)
                 .OrderByDescending(c => c.TotalBytes)
-                .Take(100)
+                .Take(effectiveLimit) // IMPROVEMENT #4: Configurable limit
                 .ToList();
 
-            return Ok(stats);
+            return Ok(allStats);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting client stats");
-            return Ok(new List<ClientStatsWithGroup>());
+            // IMPROVEMENT #6: Return proper error instead of empty 200 OK
+            return StatusCode(500, new
+            {
+                error = "Failed to retrieve client statistics",
+                message = "An error occurred while processing your request. Please try again later."
+            });
         }
+    }
+
+    /// <summary>
+    /// Creates a ClientStatsWithGroup object with calculated metrics
+    /// </summary>
+    private static ClientStatsWithGroup CreateClientStats(
+        string clientIp,
+        long totalCacheHitBytes,
+        long totalCacheMissBytes,
+        int totalDownloads,
+        double totalDurationSeconds,
+        DateTime lastActivityUtc,
+        string? displayName = null,
+        int? groupId = null,
+        List<string>? groupMemberIps = null)
+    {
+        var totalBytes = totalCacheHitBytes + totalCacheMissBytes;
+        var cacheHitPercent = totalBytes > 0
+            ? (double)totalCacheHitBytes / totalBytes * 100
+            : 0;
+        var averageBytesPerSecond = totalDurationSeconds > 0
+            ? totalBytes / totalDurationSeconds
+            : 0;
+
+        return new ClientStatsWithGroup
+        {
+            ClientIp = clientIp,
+            DisplayName = displayName,
+            GroupId = groupId,
+            IsGrouped = groupId.HasValue,
+            GroupMemberIps = groupMemberIps,
+            TotalCacheHitBytes = totalCacheHitBytes,
+            TotalCacheMissBytes = totalCacheMissBytes,
+            TotalBytes = totalBytes,
+            CacheHitPercent = cacheHitPercent,
+            TotalDownloads = totalDownloads,
+            TotalDurationSeconds = totalDurationSeconds,
+            AverageBytesPerSecond = averageBytesPerSecond,
+            LastActivityUtc = DateTime.SpecifyKind(lastActivityUtc, DateTimeKind.Utc)
+        };
     }
 
     [HttpGet("services")]
