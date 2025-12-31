@@ -858,9 +858,9 @@ const RetroView: React.FC<RetroViewProps> = ({
               />
 
               {/* Mobile Layout */}
-              <div className="lg:hidden p-3 pl-4 space-y-2 sm:space-y-3 overflow-hidden min-w-0">
+              <div className="lg:hidden p-3 pl-4 space-y-2 sm:space-y-3 overflow-hidden min-w-0 max-w-full">
                 {/* App image and name */}
-                <div className="flex items-center gap-2 sm:gap-3">
+                <div className="flex items-center gap-2 sm:gap-3 min-w-0 w-full">
                   {hasGameImage && data.gameAppId ? (
                     <img
                       src={`${API_BASE}/game-images/${data.gameAppId}/header/`}
@@ -886,8 +886,8 @@ const RetroView: React.FC<RetroViewProps> = ({
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-[var(--theme-text-muted)]">
-                      <span>
+                    <div className="flex items-center gap-2 text-xs text-[var(--theme-text-muted)] min-w-0 overflow-hidden">
+                      <span className="truncate min-w-0">
                         <ClientIpDisplay clientIp={data.clientIp} className="inline" />
                         {data.depotId && (
                           <>
@@ -922,16 +922,16 @@ const RetroView: React.FC<RetroViewProps> = ({
                 </div>
 
                 {/* Timestamp and Speed */}
-                <div className="flex items-center justify-between text-xs text-[var(--theme-text-secondary)]">
-                  <span>{timeRange}</span>
-                  <span className="flex items-center gap-1 text-[var(--theme-text-primary)]">
+                <div className="flex items-center justify-between gap-2 text-xs text-[var(--theme-text-secondary)] min-w-0 w-full">
+                  <span className="truncate min-w-0 flex-1">{timeRange}</span>
+                  <span className="flex items-center gap-1 text-[var(--theme-text-primary)] flex-shrink-0">
                     <Zap size={12} style={{ color: 'var(--theme-warning)' }} />
                     {formatSpeed(data.averageBytesPerSecond)}
                   </span>
                 </div>
 
                 {/* Combined Progress Bar and Efficiency */}
-                <div className="flex items-center gap-4 min-w-0 w-full">
+                <div className="flex items-center gap-4 min-w-0 w-full max-w-full">
                   <div className="flex-1 min-w-0 overflow-hidden">
                     <CombinedProgressBar
                       hitBytes={cacheHitBytes}
@@ -939,7 +939,9 @@ const RetroView: React.FC<RetroViewProps> = ({
                       totalBytes={totalBytes}
                     />
                   </div>
-                  <EfficiencyGauge percent={hitPercent} size={48} />
+                  <div className="flex-shrink-0">
+                    <EfficiencyGauge percent={hitPercent} size={48} />
+                  </div>
                 </div>
               </div>
 

@@ -1618,7 +1618,7 @@ const DownloadsTab: React.FC = () => {
       )}
 
       {/* Downloads list */}
-      <div className="relative" ref={contentRef}>
+      <div className="relative overflow-x-hidden" ref={contentRef}>
         {/* Loading overlay for filter changes */}
         {filterLoading && (
           <div className="absolute inset-0 bg-[var(--theme-bg-primary)]/60 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg transition-opacity duration-300">
