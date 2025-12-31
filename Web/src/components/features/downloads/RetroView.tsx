@@ -931,8 +931,8 @@ const RetroView: React.FC<RetroViewProps> = ({
                 </div>
 
                 {/* Combined Progress Bar and Efficiency */}
-                <div className="flex items-center gap-4">
-                  <div className="flex-1">
+                <div className="flex items-center gap-4 min-w-0">
+                  <div className="flex-1 min-w-0">
                     <CombinedProgressBar
                       hitBytes={cacheHitBytes}
                       missBytes={cacheMissBytes}
