@@ -312,10 +312,10 @@ const CombinedProgressBar: React.FC<{
   const missPercent = totalBytes > 0 ? (missBytes / totalBytes) * 100 : 0;
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-1.5 min-w-0 w-full">
       {/* Combined bar */}
       <div
-        className="h-2 rounded-full overflow-hidden flex"
+        className="h-2 rounded-full overflow-hidden flex w-full"
         style={{ backgroundColor: 'var(--theme-progress-bg)' }}
       >
         {/* Cache Hit portion */}
@@ -341,11 +341,11 @@ const CombinedProgressBar: React.FC<{
       </div>
       {/* Labels */}
       {showLabels && (
-        <div className="flex justify-between text-[10px]">
-          <span style={{ color: 'var(--theme-chart-cache-hit)' }}>
+        <div className="flex justify-between text-[10px] min-w-0 w-full">
+          <span className="truncate" style={{ color: 'var(--theme-chart-cache-hit)' }}>
             {formatBytes(hitBytes)} ({formatPercent(hitPercent)})
           </span>
-          <span style={{ color: 'var(--theme-error)' }}>
+          <span className="truncate text-right" style={{ color: 'var(--theme-error)' }}>
             {formatBytes(missBytes)} ({formatPercent(missPercent)})
           </span>
         </div>
