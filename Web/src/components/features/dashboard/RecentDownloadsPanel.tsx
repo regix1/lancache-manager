@@ -6,6 +6,7 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { useDownloads } from '@contexts/DownloadsContext';
 import { useDownloadAssociations } from '@contexts/DownloadAssociationsContext';
+import { useClientGroups } from '@contexts/ClientGroupContext';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useRefreshRate } from '@contexts/RefreshRateContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
@@ -172,6 +173,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   const [speedSnapshot, setSpeedSnapshot] = useState<DownloadSpeedSnapshot | null>(null);
   const { latestDownloads, loading } = useDownloads();
   const { fetchAssociations, getAssociations } = useDownloadAssociations();
+  const { getGroupForIp } = useClientGroups();
   const signalR = useSignalR();
   const { getRefreshInterval } = useRefreshRate();
   const lastUpdateRef = useRef<number>(0);
@@ -979,10 +981,18 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
               onChange={setSelectedService}
             />
             <EnhancedDropdown
-              options={availableClients.map((client) => ({
-                value: client,
-                label: client === 'all' ? 'All Clients' : client
-              }))}
+              options={availableClients.map((client) => {
+                if (client === 'all') {
+                  return { value: client, label: 'All Clients' };
+                }
+                const group = getGroupForIp(client);
+                const hasNickname = group?.nickname && group.nickname !== client;
+                return {
+                  value: client,
+                  label: hasNickname ? group.nickname : client,
+                  description: hasNickname ? client : undefined
+                };
+              })}
               value={selectedClient}
               onChange={setSelectedClient}
             />

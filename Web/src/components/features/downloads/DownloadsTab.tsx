@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useDownloads } from '@contexts/DownloadsContext';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
+import { useClientGroups } from '@contexts/ClientGroupContext';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
 import preferencesService from '@services/preferences.service';
@@ -208,6 +209,7 @@ const convertDownloadsToCSV = (downloads: Download[]): string => {
 const DownloadsTab: React.FC = () => {
   const { latestDownloads = [], loading } = useDownloads();
   const { timeRange } = useTimeFilter();
+  const { getGroupForIp } = useClientGroups();
 
   // Active/Recent tab state
   const [activeTab, setActiveTab] = useState<'active' | 'recent'>('recent');
@@ -444,12 +446,17 @@ const DownloadsTab: React.FC = () => {
   const clientOptions = useMemo(
     () => [
       { value: 'all', label: 'All Clients' },
-      ...availableClients.map((client) => ({
-        value: client,
-        label: client
-      }))
+      ...availableClients.map((client) => {
+        const group = getGroupForIp(client);
+        const hasNickname = group?.nickname && group.nickname !== client;
+        return {
+          value: client,
+          label: hasNickname ? group.nickname : client,
+          description: hasNickname ? client : undefined
+        };
+      })
     ],
-    [availableClients]
+    [availableClients, getGroupForIp]
   );
 
   const itemsPerPageOptions = useMemo(

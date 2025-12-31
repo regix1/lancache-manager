@@ -495,6 +495,15 @@
     background-color: var(--theme-action-delete-hover);
   }
 
+  /* Subtle delete hover for icon buttons */
+  .delete-hover {
+    transition: background-color 0.2s, color 0.2s;
+  }
+  .delete-hover:hover {
+    background-color: color-mix(in srgb, var(--theme-icon-red) 15%, transparent);
+    color: var(--theme-icon-red);
+  }
+
   /* Progress Bars */
   .progress-bar-high {
     background-color: var(--theme-chart-cache-hit);
@@ -2004,6 +2013,72 @@ input[type='number']::-webkit-outer-spin-button {
 
 .edit-mode-banner {
   animation: bannerSlideIn 0.3s ease-out;
+}
+
+/* ==============================================
+   PORTRAIT / TALL SCREEN OPTIMIZATIONS
+   Optimizes layout for vertical monitors and portrait displays
+   ============================================== */
+
+/* Portrait orientation - expand container width */
+@media (orientation: portrait) {
+  .container {
+    max-width: 100% !important;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+}
+
+/* Tall screens (height > width) - regardless of orientation API support */
+@media (min-height: 800px) and (max-width: 1200px) {
+  .container {
+    max-width: 100% !important;
+  }
+}
+
+/* Very tall/narrow screens (typical vertical monitor) */
+@media (min-aspect-ratio: 1/2) and (max-aspect-ratio: 4/5) {
+  .container {
+    max-width: 100% !important;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+}
+
+/* Allow tables to scroll horizontally on narrow screens */
+.retro-table-container {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* On narrow/portrait screens, ensure table has minimum width */
+@media (max-width: 1400px) {
+  .retro-table-container table,
+  .retro-table-container > div {
+    min-width: 1200px;
+  }
+
+  /* Show horizontal scroll indicator */
+  .retro-table-container {
+    position: relative;
+  }
+
+  .retro-table-container::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 20px;
+    background: linear-gradient(to right, transparent, var(--theme-bg-secondary));
+    pointer-events: none;
+    opacity: 0.8;
+  }
+}
+
+/* When scrolled, hide the scroll indicator */
+.retro-table-container:not([data-scroll-start="true"])::after {
+  opacity: 0;
 }
 
 /* Reduced motion support */

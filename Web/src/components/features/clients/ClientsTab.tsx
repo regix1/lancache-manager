@@ -178,7 +178,7 @@ const sortOptions = [
   { value: 'misses', label: 'Cache Misses' },
   { value: 'hitRate', label: 'Hit Rate' },
   { value: 'lastActivity', label: 'Last Activity' },
-  { value: 'ip', label: 'Client IP' }
+  { value: 'ip', label: 'Client Name' }
 ];
 
 const directionOptions = [
@@ -198,7 +198,10 @@ const ClientsTab: React.FC = () => {
     sorted.sort((a, b) => {
       switch (sortBy) {
         case 'ip':
-          return multiplier * a.clientIp.localeCompare(b.clientIp);
+          // Sort by display name (nickname if available, otherwise IP)
+          const aName = a.displayName || a.clientIp;
+          const bName = b.displayName || b.clientIp;
+          return multiplier * aName.localeCompare(bName);
         case 'downloads':
           return multiplier * ((a.totalDownloads || 0) - (b.totalDownloads || 0));
         case 'totalData':
@@ -267,7 +270,7 @@ const ClientsTab: React.FC = () => {
           <table className="w-full">
             <thead>
               <tr className="text-left text-xs text-themed-muted uppercase tracking-wider">
-                <th className="pb-3">Client IP</th>
+                <th className="pb-3">Client</th>
                 <th className="pb-3">Total Downloads</th>
                 <th className="pb-3">Total Data</th>
                 <th className="pb-3">Cache Hits</th>

@@ -2,6 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
+import { Modal } from '@components/ui/Modal';
+import { Alert } from '@components/ui/Alert';
 import { useClientGroups } from '@contexts/ClientGroupContext';
 import { useStats } from '@contexts/StatsContext';
 import { Plus, Users, Trash2, Edit2, X, Loader2, User, AlertTriangle } from 'lucide-react';
@@ -34,6 +36,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
   const [editingGroup, setEditingGroup] = useState<ClientGroup | null>(null);
   const [deletingGroupId, setDeletingGroupId] = useState<number | null>(null);
   const [removingMember, setRemovingMember] = useState<{ groupId: number; ip: string } | null>(null);
+  const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<ClientGroup | null>(null);
 
   // Get all IPs that are in groups
   const groupedIps = useMemo(() => {
@@ -59,15 +62,18 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
     setIsModalOpen(true);
   };
 
-  const handleDeleteGroup = async (group: ClientGroup) => {
-    if (!window.confirm(`Are you sure you want to delete the nickname "${group.nickname}"? The associated IPs will no longer have a nickname.`)) {
-      return;
-    }
+  const handleDeleteGroup = (group: ClientGroup) => {
+    setDeleteConfirmGroup(group);
+  };
 
-    setDeletingGroupId(group.id);
+  const confirmDeleteGroup = async () => {
+    if (!deleteConfirmGroup) return;
+
+    setDeletingGroupId(deleteConfirmGroup.id);
     try {
-      await deleteClientGroup(group.id);
-      onSuccess(`Deleted nickname "${group.nickname}"`);
+      await deleteClientGroup(deleteConfirmGroup.id);
+      onSuccess(`Deleted nickname "${deleteConfirmGroup.nickname}"`);
+      setDeleteConfirmGroup(null);
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Failed to delete nickname');
     } finally {
@@ -180,7 +186,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                               <span
                                 className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs"
                                 style={{
-                                  backgroundColor: 'rgba(234, 179, 8, 0.15)',
+                                  backgroundColor: 'color-mix(in srgb, var(--theme-icon-orange) 15%, transparent)',
                                   color: 'var(--theme-icon-orange)'
                                 }}
                               >
@@ -208,10 +214,10 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                         <Button
                           variant="subtle"
                           size="sm"
+                          color="red"
                           onClick={() => handleDeleteGroup(group)}
                           disabled={deletingGroupId === group.id}
                           title="Delete nickname"
-                          className="text-red-500 hover:text-red-600"
                         >
                           {deletingGroupId === group.id ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
@@ -225,34 +231,33 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                   <CardContent className="pt-0 pb-4">
                     <div className="flex flex-wrap gap-2">
                       {group.memberIps.map(ip => (
-                        <Tooltip key={ip} content={`IP Address: ${ip}`}>
-                          <div
-                            className="flex items-center gap-1 px-2 py-1 rounded text-sm font-mono cursor-help"
-                            style={{
-                              backgroundColor: 'var(--theme-bg-tertiary)',
-                              color: 'var(--theme-text-secondary)'
-                            }}
-                          >
-                            <span>{ip}</span>
-                            {isAuthenticated && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleRemoveMember(group.id, ip, group.nickname);
-                                }}
-                                disabled={removingMember?.groupId === group.id && removingMember?.ip === ip}
-                                className="ml-1 p-0.5 rounded hover:bg-red-500/20 text-themed-muted hover:text-red-500 transition-colors"
-                                title="Remove IP"
-                              >
-                                {removingMember?.groupId === group.id && removingMember?.ip === ip ? (
-                                  <Loader2 className="w-3 h-3 animate-spin" />
-                                ) : (
-                                  <X className="w-3 h-3" />
-                                )}
-                              </button>
-                            )}
-                          </div>
-                        </Tooltip>
+                        <div
+                          key={ip}
+                          className="flex items-center gap-1 px-2 py-1 rounded text-sm font-mono"
+                          style={{
+                            backgroundColor: 'var(--theme-bg-tertiary)',
+                            color: 'var(--theme-text-secondary)'
+                          }}
+                        >
+                          <span>{ip}</span>
+                          {isAuthenticated && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRemoveMember(group.id, ip, group.nickname);
+                              }}
+                              disabled={removingMember?.groupId === group.id && removingMember?.ip === ip}
+                              className="ml-1 p-0.5 rounded text-themed-muted delete-hover"
+                              title="Remove IP"
+                            >
+                              {removingMember?.groupId === group.id && removingMember?.ip === ip ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <X className="w-3 h-3" />
+                              )}
+                            </button>
+                          )}
+                        </div>
                       ))}
                     </div>
                   </CardContent>
@@ -309,7 +314,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
         </div>
       )}
 
-      {/* Modal */}
+      {/* Edit/Create Modal */}
       <ClientGroupModal
         isOpen={isModalOpen}
         onClose={handleModalClose}
@@ -318,6 +323,50 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
         onSuccess={handleModalSuccess}
         onError={onError}
       />
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        opened={deleteConfirmGroup !== null}
+        onClose={() => {
+          if (deletingGroupId === null) {
+            setDeleteConfirmGroup(null);
+          }
+        }}
+        title={
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-6 h-6 text-themed-warning" />
+            <span>Delete Nickname</span>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-themed-secondary">
+            Delete nickname <strong>{deleteConfirmGroup?.nickname}</strong>? The associated IPs will no longer have a nickname.
+          </p>
+
+          <Alert color="yellow">
+            <p className="text-sm">This action cannot be undone.</p>
+          </Alert>
+
+          <div className="flex justify-end gap-3 pt-2">
+            <Button
+              variant="default"
+              onClick={() => setDeleteConfirmGroup(null)}
+              disabled={deletingGroupId !== null}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="filled"
+              color="red"
+              onClick={confirmDeleteGroup}
+              loading={deletingGroupId !== null}
+            >
+              Delete
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

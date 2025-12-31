@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronRight, Check } from 'lucide-react';
 import { CustomScrollbar } from './CustomScrollbar';
+import { Tooltip } from './Tooltip';
 import { getEventColorVar } from '@utils/eventColors';
 
 /** Props interface for icon components used in dropdowns */
@@ -26,6 +27,7 @@ export interface DropdownOption {
   label: string;
   shortLabel?: string; // Compact label for button display
   description?: string;
+  tooltip?: string; // Tooltip shown on hover (uses Tooltip component)
   icon?: React.ComponentType<IconComponentProps>;
   disabled?: boolean;
   rightLabel?: string; // Right-aligned badge/label (e.g., "10s", "1m")
@@ -535,63 +537,73 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                     )}
                   </React.Fragment>
                 ) : (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => !option.disabled && handleSelect(option.value)}
-                    disabled={option.disabled}
-                    className={`w-full px-3 py-2.5 text-left text-sm transition-all duration-150 ${
-                      option.disabled
-                        ? 'opacity-40 cursor-not-allowed'
-                        : 'hover:bg-[var(--theme-bg-tertiary)] cursor-pointer'
-                    } ${
-                      option.value === value
-                        ? 'bg-[var(--theme-bg-tertiary)]'
-                        : ''
-                    } ${
-                      options.findIndex((opt) => opt.value === 'divider') !== -1 &&
-                      options.findIndex((opt) => opt.value === option.value) >
-                        options.findIndex((opt) => opt.value === 'divider')
-                        ? 'opacity-75 text-xs pl-6'
-                        : ''
-                    }`}
-                    title={option.description || option.label}
-                  >
-                    <div className="flex items-start gap-3">
-                      {!cleanStyle && option.icon && (
-                        <option.icon
-                          className="flex-shrink-0 mt-0.5"
-                          size={16}
-                          style={{ color: option.value === value ? 'var(--theme-primary)' : 'var(--theme-text-secondary)' }}
-                        />
-                      )}
-                      <div className="flex flex-col flex-1 min-w-0">
-                        <span className={`font-medium truncate ${option.value === value ? 'text-[var(--theme-primary)]' : 'text-[var(--theme-text-primary)]'}`}>
-                          {option.label}
-                        </span>
-                        {option.description && (
-                          <span className="text-xs mt-0.5 leading-relaxed" style={{ color: 'var(--theme-text-secondary)' }}>
-                            {option.description}
-                          </span>
-                        )}
-                      </div>
-                      {option.rightLabel && (
-                        <span
-                          className="flex-shrink-0 text-xs font-medium"
-                          style={{ color: option.value === value ? 'var(--theme-primary)' : 'var(--theme-text-secondary)' }}
+                  <React.Fragment key={option.value}>
+                    {(() => {
+                      const buttonContent = (
+                        <button
+                          type="button"
+                          onClick={() => !option.disabled && handleSelect(option.value)}
+                          disabled={option.disabled}
+                          className={`w-full px-3 py-2.5 text-left text-sm transition-all duration-150 ${
+                            option.disabled
+                              ? 'opacity-40 cursor-not-allowed'
+                              : 'hover:bg-[var(--theme-bg-tertiary)] cursor-pointer'
+                          } ${
+                            option.value === value
+                              ? 'bg-[var(--theme-bg-tertiary)]'
+                              : ''
+                          } ${
+                            options.findIndex((opt) => opt.value === 'divider') !== -1 &&
+                            options.findIndex((opt) => opt.value === option.value) >
+                              options.findIndex((opt) => opt.value === 'divider')
+                              ? 'opacity-75 text-xs pl-6'
+                              : ''
+                          }`}
                         >
-                          {option.rightLabel}
-                        </span>
-                      )}
-                      {!cleanStyle && option.value === value && (
-                        <Check
-                          size={16}
-                          className="flex-shrink-0 mt-0.5"
-                          style={{ color: 'var(--theme-primary)' }}
-                        />
-                      )}
-                    </div>
-                  </button>
+                          <div className="flex items-start gap-3">
+                            {!cleanStyle && option.icon && (
+                              <option.icon
+                                className="flex-shrink-0 mt-0.5"
+                                size={16}
+                                style={{ color: option.value === value ? 'var(--theme-primary)' : 'var(--theme-text-secondary)' }}
+                              />
+                            )}
+                            <div className="flex flex-col flex-1 min-w-0">
+                              <span className={`font-medium truncate ${option.value === value ? 'text-[var(--theme-primary)]' : 'text-[var(--theme-text-primary)]'}`}>
+                                {option.label}
+                              </span>
+                              {option.description && (
+                                <span className="text-xs mt-0.5 leading-relaxed" style={{ color: 'var(--theme-text-secondary)' }}>
+                                  {option.description}
+                                </span>
+                              )}
+                            </div>
+                            {option.rightLabel && (
+                              <span
+                                className="flex-shrink-0 text-xs font-medium"
+                                style={{ color: option.value === value ? 'var(--theme-primary)' : 'var(--theme-text-secondary)' }}
+                              >
+                                {option.rightLabel}
+                              </span>
+                            )}
+                            {!cleanStyle && option.value === value && (
+                              <Check
+                                size={16}
+                                className="flex-shrink-0 mt-0.5"
+                                style={{ color: 'var(--theme-primary)' }}
+                              />
+                            )}
+                          </div>
+                        </button>
+                      );
+
+                      return option.tooltip ? (
+                        <Tooltip content={option.tooltip} className="w-full">
+                          {buttonContent}
+                        </Tooltip>
+                      ) : buttonContent;
+                    })()}
+                  </React.Fragment>
                 )
               )}
             </div>

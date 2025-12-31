@@ -278,10 +278,10 @@ const RetroView: React.FC<RetroViewProps> = ({
   }, [allGroupedItems, currentPage, itemsPerPage]);
 
   return (
-    <div className="rounded-lg border overflow-hidden" style={{ borderColor: 'var(--theme-border-primary)' }}>
+    <div className="rounded-lg border overflow-hidden retro-table-container" style={{ borderColor: 'var(--theme-border-primary)' }}>
       {/* Desktop Table Header - hidden on mobile */}
       <div
-        className="hidden lg:grid grid-cols-[minmax(260px,auto)_minmax(200px,2fr)_100px_120px_90px_minmax(130px,1fr)_minmax(130px,1fr)_100px] gap-2 px-4 py-3 text-xs font-semibold uppercase tracking-wide border-b"
+        className="hidden lg:grid grid-cols-[minmax(180px,auto)_minmax(180px,2fr)_80px_100px_100px_minmax(110px,1fr)_minmax(110px,1fr)_90px] gap-2 px-3 py-3 text-xs font-semibold uppercase tracking-wide border-b"
         style={{
           backgroundColor: 'var(--theme-bg-tertiary)',
           borderColor: 'var(--theme-border-secondary)',
@@ -476,28 +476,28 @@ const RetroView: React.FC<RetroViewProps> = ({
               </div>
 
               {/* Desktop Layout */}
-              <div className="hidden lg:grid grid-cols-[minmax(260px,auto)_minmax(200px,2fr)_100px_120px_90px_minmax(130px,1fr)_minmax(130px,1fr)_100px] gap-2 px-4 py-3 items-center">
+              <div className="hidden lg:grid grid-cols-[minmax(180px,auto)_minmax(180px,2fr)_80px_100px_100px_minmax(110px,1fr)_minmax(110px,1fr)_90px] gap-2 px-3 py-3 items-center">
                 {/* Timestamp */}
                 <div className="text-xs text-[var(--theme-text-secondary)] whitespace-nowrap">
                   {timeRange}
                 </div>
 
                 {/* App - with game image */}
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
                   {hasGameImage && data.gameAppId ? (
                     <img
                       src={`${API_BASE}/game-images/${data.gameAppId}/header/`}
                       alt={data.gameName || 'Game'}
-                      className="w-[160px] h-[60px] rounded object-cover flex-shrink-0"
+                      className="w-[120px] h-[45px] rounded object-cover flex-shrink-0"
                       loading="lazy"
                       onError={() => handleImageError(String(data.gameAppId))}
                     />
                   ) : (
                     <div
-                      className="w-[160px] h-[60px] rounded flex items-center justify-center flex-shrink-0"
+                      className="w-[120px] h-[45px] rounded flex items-center justify-center flex-shrink-0"
                       style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
                     >
-                      {getServiceIcon(data.service, 32)}
+                      {getServiceIcon(data.service, 28)}
                     </div>
                   )}
                   <div className="flex flex-col min-w-0">

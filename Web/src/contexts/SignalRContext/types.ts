@@ -87,7 +87,13 @@ export const SIGNALR_REFRESH_EVENTS = [
   'ServiceRemovalComplete',
   'GameDetectionComplete',
   'GameRemovalComplete',
-  'CacheClearComplete'
+  'CacheClearComplete',
+  // Client group changes (affects displayName in client stats)
+  'ClientGroupCreated',
+  'ClientGroupUpdated',
+  'ClientGroupDeleted',
+  'ClientGroupMemberAdded',
+  'ClientGroupMemberRemoved'
 ] as const;
 
 export type SignalRRefreshEvent = (typeof SIGNALR_REFRESH_EVENTS)[number];

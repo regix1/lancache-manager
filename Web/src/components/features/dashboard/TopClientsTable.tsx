@@ -168,7 +168,7 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
             <table className="w-full">
               <thead>
                 <tr className="text-left text-xs text-themed-muted uppercase tracking-wider">
-                  <th className="pb-3">Client IP</th>
+                  <th className="pb-3">Client</th>
                   <th className="pb-3 hidden sm:table-cell">Total</th>
                   <th className="pb-3 hidden md:table-cell">Hits</th>
                   <th className="pb-3 hidden md:table-cell">Misses</th>

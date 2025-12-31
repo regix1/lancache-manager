@@ -36,11 +36,11 @@ export const Tooltip: React.FC<TooltipProps> = ({
   const showTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Check if tooltips are disabled globally or on mobile
+  // Check if tooltips are disabled globally
   const globallyDisabled =
     document.documentElement.getAttribute('data-disable-tooltips') === 'true';
 
-  // Detect mobile viewport - disable tooltips on mobile
+  // Detect mobile viewport - use touch behavior instead of hover
   useEffect(() => {
     const checkMobile = () => {
       const mobile = window.innerWidth < 768;
@@ -51,10 +51,10 @@ export const Tooltip: React.FC<TooltipProps> = ({
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Disable tooltips on mobile or when globally disabled
-  const tooltipsDisabled = globallyDisabled || isMobile;
+  // Only disable if globally disabled (not on mobile - we use touch there)
+  const tooltipsDisabled = globallyDisabled;
 
-  // Add scroll listener to hide tooltip on mobile scroll
+  // Add scroll listener and click-outside handler to hide tooltip
   useEffect(() => {
     if (!show) return;
 
@@ -62,13 +62,29 @@ export const Tooltip: React.FC<TooltipProps> = ({
       setShow(false);
     };
 
+    // Close tooltip when clicking outside (for mobile tap-to-toggle)
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+      if (triggerRef.current && !triggerRef.current.contains(e.target as Node)) {
+        setShow(false);
+      }
+    };
+
     // Listen for scroll events on window and any scrollable parents
     window.addEventListener('scroll', handleScroll, { passive: true, capture: true });
     window.addEventListener('touchmove', handleScroll, { passive: true, capture: true });
 
+    // Add click-outside listener with a small delay to avoid immediate close
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('click', handleClickOutside, { capture: true });
+      document.addEventListener('touchstart', handleClickOutside, { capture: true });
+    }, 10);
+
     return () => {
+      clearTimeout(timeoutId);
       window.removeEventListener('scroll', handleScroll, { capture: true });
       window.removeEventListener('touchmove', handleScroll, { capture: true });
+      document.removeEventListener('click', handleClickOutside, { capture: true });
+      document.removeEventListener('touchstart', handleClickOutside, { capture: true });
     };
   }, [show]);
 
@@ -133,16 +149,21 @@ export const Tooltip: React.FC<TooltipProps> = ({
         onMouseEnter={handleMouseEnter}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
-        onTouchStart={(e) => {
-          if (!tooltipsDisabled) {
-            setShow(true);
-            const touch = e.touches[0];
-            setX(touch.clientX);
-            setY(touch.clientY);
+        onClick={(e) => {
+          // On mobile, toggle tooltip on tap
+          if (isMobile && !tooltipsDisabled) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!show) {
+              const rect = triggerRef.current?.getBoundingClientRect();
+              if (rect) {
+                setX(rect.left + rect.width / 2);
+                setY(rect.top);
+              }
+            }
+            setShow(!show);
           }
         }}
-        onTouchEnd={() => setShow(false)}
-        onTouchCancel={() => setShow(false)}
       >
         {childContent}
       </div>

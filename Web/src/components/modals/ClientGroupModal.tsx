@@ -130,9 +130,9 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
           <div
             className="mb-4 p-3 rounded-lg text-sm"
             style={{
-              backgroundColor: 'rgba(239, 68, 68, 0.1)',
-              color: 'var(--theme-text-error, #ef4444)',
-              border: '1px solid rgba(239, 68, 68, 0.3)'
+              backgroundColor: 'var(--theme-error-bg)',
+              color: 'var(--theme-error-text)',
+              border: '1px solid var(--theme-error)'
             }}
           >
             {error}
@@ -144,9 +144,9 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
           <div
             className="mb-4 p-3 rounded-lg text-sm flex items-start gap-2"
             style={{
-              backgroundColor: 'rgba(234, 179, 8, 0.15)',
-              color: 'var(--theme-icon-orange)',
-              border: '1px solid rgba(234, 179, 8, 0.3)'
+              backgroundColor: 'var(--theme-warning-bg)',
+              color: 'var(--theme-warning-text)',
+              border: '1px solid var(--theme-warning)'
             }}
           >
             <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
@@ -164,9 +164,9 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
           <div
             className="mb-4 p-3 rounded-lg text-sm flex items-start gap-2"
             style={{
-              backgroundColor: 'rgba(234, 179, 8, 0.15)',
-              color: 'var(--theme-icon-orange)',
-              border: '1px solid rgba(234, 179, 8, 0.3)'
+              backgroundColor: 'var(--theme-warning-bg)',
+              color: 'var(--theme-warning-text)',
+              border: '1px solid var(--theme-warning)'
             }}
           >
             <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
@@ -185,7 +185,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
             htmlFor="nickname"
             className="block text-sm font-medium text-themed-secondary mb-1"
           >
-            Nickname <span className="text-red-500">*</span>
+            Nickname <span className="text-themed-error">*</span>
           </label>
           <input
             id="nickname"
@@ -327,7 +327,10 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
                     <button
                       type="button"
                       onClick={() => handleRemoveIp(ip)}
-                      className="p-0.5 rounded hover:bg-white/20 transition-colors"
+                      className="p-0.5 rounded transition-colors"
+                      style={{ ['--hover-bg' as string]: 'rgba(255, 255, 255, 0.2)' }}
+                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)'}
+                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = ''}
                     >
                       <X className="w-3 h-3" />
                     </button>
