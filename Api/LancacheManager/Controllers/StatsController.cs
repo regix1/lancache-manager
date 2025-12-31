@@ -68,8 +68,8 @@ public class StatsController : ControllerBase
             }
 
             // IMPROVEMENT #1: Push aggregation to database (SQL GROUP BY)
-            // NOTE: Using EndTime - StartTime instead of querying LogEntries for performance
-            // The LogEntries query was causing severe slowdowns with large datasets
+            // NOTE: Duration must be calculated client-side due to SQLite limitations
+            // SQLite can't translate DateTime subtraction with TotalSeconds in aggregates
             var ipStats = await query
                 .GroupBy(d => d.ClientIp)
                 .Select(g => new
@@ -78,14 +78,25 @@ public class StatsController : ControllerBase
                     TotalCacheHitBytes = g.Sum(d => d.CacheHitBytes),
                     TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
                     TotalDownloads = g.Count(),
-                    // Calculate duration in database
-                    TotalDurationSeconds = g.Sum(d =>
-                        d.EndTimeUtc > d.StartTimeUtc
-                            ? (d.EndTimeUtc - d.StartTimeUtc).TotalSeconds
-                            : 0),
+                    // Get min start and max end for duration calculation client-side
+                    MinStartTimeUtc = g.Min(d => d.StartTimeUtc),
+                    MaxEndTimeUtc = g.Max(d => d.EndTimeUtc),
                     LastActivityUtc = g.Max(d => d.StartTimeUtc)
                 })
                 .ToListAsync();
+
+            // Calculate duration client-side (total time span from first download to last completion)
+            var ipStatsWithDuration = ipStats.Select(s => new
+            {
+                s.ClientIp,
+                s.TotalCacheHitBytes,
+                s.TotalCacheMissBytes,
+                s.TotalDownloads,
+                TotalDurationSeconds = s.MaxEndTimeUtc > s.MinStartTimeUtc
+                    ? (s.MaxEndTimeUtc - s.MinStartTimeUtc).TotalSeconds
+                    : 0,
+                s.LastActivityUtc
+            }).ToList();
 
             // IMPROVEMENT #2: Create reverse lookup dictionary (O(1) instead of O(n))
             var ipToGroupMapping = await _clientGroupsRepository.GetIpToGroupMappingAsync();
@@ -99,7 +110,7 @@ public class StatsController : ControllerBase
             var groupedStats = new Dictionary<int, List<(string Ip, long Hit, long Miss, int Downloads, double Duration, DateTime LastActivity)>>();
             var ungroupedStats = new List<ClientStatsWithGroup>();
 
-            foreach (var stat in ipStats)
+            foreach (var stat in ipStatsWithDuration)
             {
                 if (ipToGroupMapping.TryGetValue(stat.ClientIp, out var groupInfo))
                 {
