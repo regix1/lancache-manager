@@ -341,11 +341,11 @@ const CombinedProgressBar: React.FC<{
       </div>
       {/* Labels */}
       {showLabels && (
-        <div className="flex justify-between text-[10px] min-w-0 w-full">
-          <span className="truncate" style={{ color: 'var(--theme-chart-cache-hit)' }}>
+        <div className="flex justify-between gap-2 text-[10px] min-w-0 w-full overflow-hidden">
+          <span className="truncate flex-1 min-w-0" style={{ color: 'var(--theme-chart-cache-hit)' }}>
             {formatBytes(hitBytes)} ({formatPercent(hitPercent)})
           </span>
-          <span className="truncate text-right" style={{ color: 'var(--theme-error)' }}>
+          <span className="truncate flex-1 min-w-0 text-right" style={{ color: 'var(--theme-error)' }}>
             {formatBytes(missBytes)} ({formatPercent(missPercent)})
           </span>
         </div>
@@ -817,7 +817,7 @@ const RetroView: React.FC<RetroViewProps> = ({
       </div>
 
       {/* Table Body */}
-      <div>
+      <div className="overflow-x-hidden">
         {groupedItems.map((data, index) => {
           const serviceLower = data.service.toLowerCase();
           const isSteam = serviceLower === 'steam';
@@ -842,7 +842,7 @@ const RetroView: React.FC<RetroViewProps> = ({
           return (
             <div
               key={data.id}
-              className="row-animate transition-all duration-200 hover:bg-[var(--theme-bg-tertiary)]/50 group relative"
+              className="row-animate transition-all duration-200 hover:bg-[var(--theme-bg-tertiary)]/50 group relative w-full"
               style={{
                 borderBottom: '1px solid var(--theme-border-secondary)',
                 animationDelay: `${index * 30}ms`,
