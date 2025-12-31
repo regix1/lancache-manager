@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { formatBytes, formatPercent, formatDateTime, formatSpeed } from '@utils/formatters';
 import { Tooltip } from '@components/ui/Tooltip';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
@@ -26,6 +26,20 @@ interface RetroViewProps {
   showDatasourceLabels?: boolean;
   hasMultipleDatasources?: boolean;
 }
+
+// Default column widths
+const DEFAULT_COLUMN_WIDTHS = {
+  timestamp: 180,
+  app: 280,
+  depot: 80,
+  client: 140,
+  speed: 100,
+  cacheHit: 130,
+  cacheMiss: 130,
+  overall: 90
+};
+
+const STORAGE_KEY = 'retro-view-column-widths';
 
 const getServiceIcon = (service: string, size: number = 24) => {
   const serviceLower = service.toLowerCase();
@@ -237,6 +251,21 @@ const groupByDepot = (items: (Download | DownloadGroup)[], sortOrder: SortOrder 
   });
 };
 
+// Column resize handle component
+const ResizeHandle: React.FC<{
+  onMouseDown: (e: React.MouseEvent) => void;
+}> = ({ onMouseDown }) => (
+  <div
+    className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize group z-10"
+    onMouseDown={onMouseDown}
+  >
+    <div
+      className="absolute right-0 top-1 bottom-1 w-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+      style={{ backgroundColor: 'var(--theme-primary)' }}
+    />
+  </div>
+);
+
 const RetroView: React.FC<RetroViewProps> = ({
   items,
   aestheticMode = false,
@@ -248,6 +277,79 @@ const RetroView: React.FC<RetroViewProps> = ({
   hasMultipleDatasources = false
 }) => {
   const [imageErrors, setImageErrors] = React.useState<Set<string>>(new Set());
+
+  // Column widths state - load from localStorage or use defaults
+  const [columnWidths, setColumnWidths] = useState<typeof DEFAULT_COLUMN_WIDTHS>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        return { ...DEFAULT_COLUMN_WIDTHS, ...JSON.parse(saved) };
+      }
+    } catch {
+      // Ignore localStorage errors
+    }
+    return DEFAULT_COLUMN_WIDTHS;
+  });
+
+  // Resize state
+  const [resizing, setResizing] = useState<keyof typeof DEFAULT_COLUMN_WIDTHS | null>(null);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Save column widths to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(columnWidths));
+    } catch {
+      // Ignore localStorage errors
+    }
+  }, [columnWidths]);
+
+  const handleMouseDown = useCallback((column: keyof typeof DEFAULT_COLUMN_WIDTHS, e: React.MouseEvent) => {
+    e.preventDefault();
+    setResizing(column);
+    startXRef.current = e.clientX;
+    startWidthRef.current = columnWidths[column];
+  }, [columnWidths]);
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!resizing) return;
+
+    const diff = e.clientX - startXRef.current;
+    const newWidth = Math.max(50, startWidthRef.current + diff); // Min 50px
+
+    setColumnWidths(prev => ({
+      ...prev,
+      [resizing]: newWidth
+    }));
+  }, [resizing]);
+
+  const handleMouseUp = useCallback(() => {
+    setResizing(null);
+  }, []);
+
+  // Add/remove mouse event listeners for resizing
+  useEffect(() => {
+    if (resizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [resizing, handleMouseMove, handleMouseUp]);
+
+  // Reset to default widths
+  const handleResetWidths = useCallback(() => {
+    setColumnWidths(DEFAULT_COLUMN_WIDTHS);
+  }, []);
 
   const handleImageError = (gameAppId: string) => {
     setImageErrors((prev) => new Set(prev).add(gameAppId));
@@ -277,25 +379,61 @@ const RetroView: React.FC<RetroViewProps> = ({
     return allGroupedItems.slice(startIndex, endIndex);
   }, [allGroupedItems, currentPage, itemsPerPage]);
 
+  // Generate grid template from column widths
+  const gridTemplate = `${columnWidths.timestamp}px ${columnWidths.app}px ${columnWidths.depot}px ${columnWidths.client}px ${columnWidths.speed}px ${columnWidths.cacheHit}px ${columnWidths.cacheMiss}px ${columnWidths.overall}px`;
+
   return (
-    <div className="rounded-lg border overflow-hidden retro-table-container" style={{ borderColor: 'var(--theme-border-primary)' }}>
+    <div ref={containerRef} className="rounded-lg border overflow-hidden retro-table-container" style={{ borderColor: 'var(--theme-border-primary)' }}>
       {/* Desktop Table Header - hidden on mobile */}
       <div
-        className="hidden lg:grid grid-cols-[minmax(180px,auto)_minmax(180px,2fr)_80px_100px_100px_minmax(110px,1fr)_minmax(110px,1fr)_90px] gap-2 px-3 py-3 text-xs font-semibold uppercase tracking-wide border-b"
+        className="hidden lg:grid gap-2 px-3 py-3 text-xs font-semibold uppercase tracking-wide border-b select-none"
         style={{
+          gridTemplateColumns: gridTemplate,
           backgroundColor: 'var(--theme-bg-tertiary)',
           borderColor: 'var(--theme-border-secondary)',
           color: 'var(--theme-text-secondary)'
         }}
       >
-        <div>Timestamp</div>
-        <div>App</div>
-        <div>Depot</div>
-        <div>Client</div>
-        <div>Avg Download Speed</div>
-        <div>Cache Hit</div>
-        <div>Cache Miss</div>
-        <div className="text-center">Overall</div>
+        <div className="relative pr-2">
+          Timestamp
+          <ResizeHandle onMouseDown={(e) => handleMouseDown('timestamp', e)} />
+        </div>
+        <div className="relative pr-2">
+          App
+          <ResizeHandle onMouseDown={(e) => handleMouseDown('app', e)} />
+        </div>
+        <div className="relative pr-2">
+          Depot
+          <ResizeHandle onMouseDown={(e) => handleMouseDown('depot', e)} />
+        </div>
+        <div className="relative pr-2">
+          Client
+          <ResizeHandle onMouseDown={(e) => handleMouseDown('client', e)} />
+        </div>
+        <div className="relative pr-2">
+          Avg Speed
+          <ResizeHandle onMouseDown={(e) => handleMouseDown('speed', e)} />
+        </div>
+        <div className="relative pr-2">
+          Cache Hit
+          <ResizeHandle onMouseDown={(e) => handleMouseDown('cacheHit', e)} />
+        </div>
+        <div className="relative pr-2">
+          Cache Miss
+          <ResizeHandle onMouseDown={(e) => handleMouseDown('cacheMiss', e)} />
+        </div>
+        <div className="text-center flex items-center justify-between">
+          <span>Overall</span>
+          <Tooltip content="Reset column widths to default">
+            <button
+              onClick={handleResetWidths}
+              className="ml-2 p-1 rounded text-themed-muted hover:text-themed-primary transition-colors"
+              style={{ fontSize: '10px' }}
+            >
+              ↺
+            </button>
+          </Tooltip>
+        </div>
       </div>
 
       {/* Table Body */}
@@ -476,14 +614,17 @@ const RetroView: React.FC<RetroViewProps> = ({
               </div>
 
               {/* Desktop Layout */}
-              <div className="hidden lg:grid grid-cols-[minmax(180px,auto)_minmax(180px,2fr)_80px_100px_100px_minmax(110px,1fr)_minmax(110px,1fr)_90px] gap-2 px-3 py-3 items-center">
+              <div
+                className="hidden lg:grid gap-2 px-3 py-3 items-center"
+                style={{ gridTemplateColumns: gridTemplate }}
+              >
                 {/* Timestamp */}
-                <div className="text-xs text-[var(--theme-text-secondary)] whitespace-nowrap">
-                  {timeRange}
+                <div className="text-xs text-[var(--theme-text-secondary)] overflow-hidden">
+                  <span className="block truncate" title={timeRange}>{timeRange}</span>
                 </div>
 
                 {/* App - with game image */}
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 overflow-hidden">
                   {hasGameImage && data.gameAppId ? (
                     <img
                       src={`${API_BASE}/game-images/${data.gameAppId}/header/`}
@@ -500,9 +641,9 @@ const RetroView: React.FC<RetroViewProps> = ({
                       {getServiceIcon(data.service, 28)}
                     </div>
                   )}
-                  <div className="flex flex-col min-w-0">
+                  <div className="flex flex-col min-w-0 overflow-hidden">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
+                      <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate" title={data.gameName || data.service}>
                         {data.gameName || data.service}
                       </span>
                       {hasMultipleDatasources && showDatasourceLabels && data.datasource && (
@@ -529,7 +670,7 @@ const RetroView: React.FC<RetroViewProps> = ({
                 </div>
 
                 {/* Depot */}
-                <div>
+                <div className="overflow-hidden">
                   {data.depotId ? (
                     <a
                       href={`https://steamdb.info/depot/${data.depotId}/`}
@@ -544,22 +685,24 @@ const RetroView: React.FC<RetroViewProps> = ({
                   )}
                 </div>
 
-                {/* Client IP */}
-                <div className="text-sm font-mono text-[var(--theme-text-primary)] truncate">
+                {/* Client IP - no truncate, allow full display */}
+                <div className="text-sm font-mono text-[var(--theme-text-primary)] overflow-hidden">
                   {data.clientsSet.size > 1 ? (
-                    `${data.clientsSet.size} clients`
+                    <span className="truncate block" title={`${data.clientsSet.size} clients`}>
+                      {data.clientsSet.size} clients
+                    </span>
                   ) : (
                     <ClientIpDisplay clientIp={data.clientIp} />
                   )}
                 </div>
 
                 {/* Avg Speed */}
-                <div className="text-sm text-[var(--theme-text-primary)]">
-                  {formatSpeed(data.averageBytesPerSecond)}
+                <div className="text-sm text-[var(--theme-text-primary)] overflow-hidden">
+                  <span className="truncate block">{formatSpeed(data.averageBytesPerSecond)}</span>
                 </div>
 
                 {/* Cache Hit - Progress bar style */}
-                <div className="flex flex-col gap-1.5">
+                <div className="flex flex-col gap-1.5 overflow-hidden">
                   <div className="flex items-center gap-2">
                     <div
                       className="flex-1 h-1.5 rounded-full overflow-hidden"
@@ -574,13 +717,13 @@ const RetroView: React.FC<RetroViewProps> = ({
                       />
                     </div>
                   </div>
-                  <div className="text-xs text-[var(--theme-text-secondary)]">
+                  <div className="text-xs text-[var(--theme-text-secondary)] truncate">
                     {formatBytes(cacheHitBytes)} • {formatPercent(hitPercent)}
                   </div>
                 </div>
 
                 {/* Cache Miss - Progress bar style */}
-                <div className="flex flex-col gap-1.5">
+                <div className="flex flex-col gap-1.5 overflow-hidden">
                   <div className="flex items-center gap-2">
                     <div
                       className="flex-1 h-1.5 rounded-full overflow-hidden"
@@ -595,7 +738,7 @@ const RetroView: React.FC<RetroViewProps> = ({
                       />
                     </div>
                   </div>
-                  <div className="text-xs text-[var(--theme-text-secondary)]">
+                  <div className="text-xs text-[var(--theme-text-secondary)] truncate">
                     {formatBytes(cacheMissBytes)} • {formatPercent(missPercent)}
                   </div>
                 </div>
