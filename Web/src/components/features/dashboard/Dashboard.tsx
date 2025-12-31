@@ -71,7 +71,7 @@ const StatTooltips: Record<string, string> = {
   addedToCache: 'New content downloaded and cached',
   totalServed: 'Total data delivered to clients',
   activeDownloads: 'Number of downloads currently in progress',
-  activeClients: 'Number of unique client devices that have accessed the cache',
+  activeClients: 'Number of clients currently downloading through the cache',
   cacheHitRatio: 'Cache hits vs internet downloads. Higher is better!'
 };
 
@@ -524,8 +524,8 @@ const Dashboard: React.FC = () => {
       activeClients: {
         key: 'activeClients',
         title: 'Active Clients',
-        value: stats.uniqueClients,
-        subtitle: `${stats.totalDownloads} downloads`,
+        value: stats.activeClients,
+        subtitle: `${stats.uniqueClients} unique in period`,
         icon: Users,
         color: 'yellow' as const,
         visible: cardVisibility.activeClients,

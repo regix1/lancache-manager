@@ -411,7 +411,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
     <div className="space-y-8">
       {/* Active Events */}
       {groupedEvents.active.length > 0 && (
-        <div className="animate-fadeIn">
+        <div>
           <SectionHeader
             icon={<Zap className="w-3.5 h-3.5" style={{ color: 'var(--theme-status-success)' }} />}
             title="Active Events"
@@ -440,7 +440,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
 
       {/* Upcoming Events */}
       {groupedEvents.upcoming.length > 0 && (
-        <div className="animate-fadeIn" style={{ animationDelay: '100ms' }}>
+        <div>
           <SectionHeader
             icon={<CalendarClock className="w-3.5 h-3.5" style={{ color: 'var(--theme-primary)' }} />}
             title="Upcoming Events"
@@ -468,7 +468,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
 
       {/* Past Events */}
       {groupedEvents.past.length > 0 && (
-        <div className="animate-fadeIn" style={{ animationDelay: '200ms' }}>
+        <div>
           <SectionHeader
             icon={<History className="w-3.5 h-3.5" style={{ color: 'var(--theme-text-muted)' }} />}
             title="Past Events"

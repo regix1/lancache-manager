@@ -4,6 +4,7 @@ import { StatsProvider, useStats } from '@contexts/StatsContext';
 import { DownloadsProvider } from '@contexts/DownloadsContext';
 import { TimeFilterProvider } from '@contexts/TimeFilterContext';
 import { EventProvider } from '@contexts/EventContext';
+import { CalendarSettingsProvider } from '@contexts/CalendarSettingsContext';
 import { ClientGroupProvider } from '@contexts/ClientGroupContext';
 import { DownloadAssociationsProvider } from '@contexts/DownloadAssociationsContext';
 import { RefreshRateProvider } from '@contexts/RefreshRateContext';
@@ -716,13 +717,15 @@ const App: React.FC = () => {
                             <NotificationsProvider>
                               <StatsProviderWithMockMode>
                                 <DownloadsProviderWithMockMode>
-                                  <EventProvider>
-                                    <ClientGroupProvider>
+                                  <CalendarSettingsProvider>
+                                    <EventProvider>
+                                      <ClientGroupProvider>
                                       <DownloadAssociationsProvider>
                                         <AppContent />
                                       </DownloadAssociationsProvider>
                                     </ClientGroupProvider>
                                   </EventProvider>
+                                  </CalendarSettingsProvider>
                                 </DownloadsProviderWithMockMode>
                               </StatsProviderWithMockMode>
                             </NotificationsProvider>

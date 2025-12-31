@@ -3,10 +3,12 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { useTimezone } from '@contexts/TimezoneContext';
+import { useCalendarSettings } from '@contexts/CalendarSettingsContext';
 import { getEffectiveTimezone, getDateInTimezone } from '@utils/timezone';
 import { getEventColorVar } from '@utils/eventColors';
 import { Tooltip } from '@components/ui/Tooltip';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
+import CalendarSettingsPopover from './CalendarSettingsPopover';
 import type { Event } from '../../../types';
 
 interface EventCalendarProps {
@@ -35,6 +37,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
   onDayClick
 }) => {
   const { useLocalTimezone } = useTimezone();
+  const { settings } = useCalendarSettings();
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [expandedDay, setExpandedDay] = useState<{ day: number; weekIndex: number } | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -63,7 +66,14 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
     'July', 'August', 'September', 'October', 'November', 'December'
   ];
 
-  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  // Week days order based on settings
+  const weekDays = useMemo(() => {
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    if (settings.weekStartDay === 'monday') {
+      return [...days.slice(1), days[0]]; // Mon, Tue, Wed, Thu, Fri, Sat, Sun
+    }
+    return days;
+  }, [settings.weekStartDay]);
 
   const currentYear = new Date().getFullYear();
   const startYear = currentYear - 5;
@@ -86,9 +96,31 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
     return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
   };
 
-  // Get first day of month (0 = Sunday)
+  // Get first day of month adjusted for week start setting
   const getFirstDayOfMonth = (date: Date): number => {
-    return new Date(date.getFullYear(), date.getMonth(), 1).getDay();
+    const dayOfWeek = new Date(date.getFullYear(), date.getMonth(), 1).getDay();
+    if (settings.weekStartDay === 'monday') {
+      // Adjust for Monday start: Sunday (0) becomes 6, Monday (1) becomes 0, etc.
+      return dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    }
+    return dayOfWeek;
+  };
+
+  // Filter events based on settings
+  const filteredEvents = useMemo(() => {
+    if (settings.hideEndedEvents) {
+      return events.filter(event => !hasEventEnded(event));
+    }
+    return events;
+  }, [events, settings.hideEndedEvents]);
+
+  // Get week number for a date (ISO week number)
+  const getWeekNumber = (date: Date): number => {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
   };
 
   const isToday = (day: number): boolean => {
@@ -151,7 +183,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
 
       const spanningEvents: SpanningEvent[] = [];
 
-      events.forEach(event => {
+      filteredEvents.forEach(event => {
         const eventStart = new Date(event.startTimeUtc);
         const eventEnd = new Date(event.endTimeUtc);
 
@@ -244,7 +276,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
     }
 
     return rows;
-  }, [events, currentMonth, firstDayOfMonth, daysInMonth, useLocalTimezone]);
+  }, [filteredEvents, currentMonth, firstDayOfMonth, daysInMonth, useLocalTimezone, settings.weekStartDay]);
 
   // Check if current view includes today
   const now = new Date();
@@ -259,7 +291,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
     return (day: number): Event[] => {
       const checkDate = new Date(year, month, day);
 
-      return events.filter(event => {
+      return filteredEvents.filter(event => {
         const eventStart = new Date(event.startTimeUtc);
         const eventEnd = new Date(event.endTimeUtc);
 
@@ -272,7 +304,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
         return checkDate >= eventStartDate && checkDate <= eventEndDate;
       });
     };
-  }, [events, currentMonth, useLocalTimezone]);
+  }, [filteredEvents, currentMonth, useLocalTimezone]);
 
   // Get event count for a specific day
   const getEventCountForDay = useMemo(() => {
@@ -333,23 +365,35 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
           </Button>
         </div>
 
-        {/* Right: Today Button */}
-        {!isCurrentMonth && (
-          <Button
-            variant="subtle"
-            size="sm"
-            onClick={goToToday}
-          >
-            Today
-          </Button>
-        )}
+        {/* Right: Today Button + Settings */}
+        <div className="flex items-center gap-2">
+          {!isCurrentMonth && (
+            <Button
+              variant="subtle"
+              size="sm"
+              onClick={goToToday}
+            >
+              Today
+            </Button>
+          )}
+          <CalendarSettingsPopover />
+        </div>
       </div>
 
       {/* Week Days Header */}
       <div
-        className="grid grid-cols-7 gap-1 mb-2 rounded-lg p-2"
+        className={`grid gap-1 mb-2 rounded-lg p-2 ${settings.showWeekNumbers ? 'grid-cols-8' : 'grid-cols-7'}`}
         style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
       >
+        {settings.showWeekNumbers && (
+          <div
+            className="text-center text-xs font-semibold py-2"
+            style={{ color: 'var(--theme-text-muted)' }}
+            title="Week number"
+          >
+            Wk
+          </div>
+        )}
         {weekDays.map((day) => (
           <div
             key={day}
@@ -363,16 +407,74 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
 
       {/* Calendar Grid - Week by Week */}
       <div className="space-y-1">
-        {weekRows.map((week) => (
+        {weekRows.map((week) => {
+          // Get the first valid day in this week for week number calculation
+          const firstDayInWeek = week.days.find(d => d !== null);
+          const weekNumber = firstDayInWeek
+            ? getWeekNumber(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), firstDayInWeek))
+            : null;
+
+          return (
           <div key={week.weekIndex} className="relative">
             {/* Day cells grid */}
-            <div className="grid grid-cols-7 gap-1">
+            <div className={`grid gap-1 ${settings.showWeekNumbers ? 'grid-cols-8' : 'grid-cols-7'}`}>
+              {/* Week number cell */}
+              {settings.showWeekNumbers && (
+                <div
+                  className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} rounded-lg flex items-start justify-center pt-2`}
+                  style={{ backgroundColor: 'color-mix(in srgb, var(--theme-bg-tertiary) 50%, transparent)' }}
+                >
+                  <span
+                    className="text-xs font-semibold px-1.5 py-0.5 rounded"
+                    style={{
+                      color: 'var(--theme-text-muted)',
+                      backgroundColor: 'var(--theme-bg-tertiary)'
+                    }}
+                  >
+                    {weekNumber}
+                  </span>
+                </div>
+              )}
               {week.days.map((day, colIndex) => {
                 if (day === null) {
+                  // Calculate adjacent month day if setting is enabled
+                  if (settings.showAdjacentMonths) {
+                    const cellIndex = week.weekIndex * 7 + colIndex;
+                    const isBeforeMonth = cellIndex < firstDayOfMonth;
+
+                    let adjacentDay: number;
+
+                    if (isBeforeMonth) {
+                      // Previous month - calculate the day number
+                      const prevMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1);
+                      const daysInPrevMonth = getDaysInMonth(prevMonth);
+                      adjacentDay = daysInPrevMonth - (firstDayOfMonth - cellIndex - 1);
+                    } else {
+                      // Next month - calculate the day number
+                      const cellsAfterLastDay = cellIndex - (firstDayOfMonth + daysInMonth);
+                      adjacentDay = cellsAfterLastDay + 1;
+                    }
+
+                    return (
+                      <div
+                        key={`adjacent-${week.weekIndex}-${colIndex}`}
+                        className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} p-1.5 sm:p-2 rounded-lg`}
+                        style={{ backgroundColor: 'color-mix(in srgb, var(--theme-bg-tertiary) 30%, transparent)' }}
+                      >
+                        <span
+                          className="text-sm font-medium w-6 h-6 flex items-center justify-center rounded-full"
+                          style={{ color: 'var(--theme-text-muted)', opacity: 0.5 }}
+                        >
+                          {adjacentDay}
+                        </span>
+                      </div>
+                    );
+                  }
+
                   return (
                     <div
                       key={`empty-${week.weekIndex}-${colIndex}`}
-                      className="min-h-[90px] sm:min-h-[100px] rounded-lg"
+                      className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} rounded-lg`}
                       style={{ backgroundColor: 'color-mix(in srgb, var(--theme-bg-tertiary) 30%, transparent)' }}
                     />
                   );
@@ -385,7 +487,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                   <div
                     key={day}
                     onClick={() => onDayClick(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day))}
-                    className="min-h-[90px] sm:min-h-[100px] p-1.5 sm:p-2 rounded-lg border transition-all duration-200 cursor-pointer group"
+                    className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} p-1.5 sm:p-2 rounded-lg border transition-all duration-200 cursor-pointer group`}
                     style={{
                       backgroundColor: today
                         ? 'color-mix(in srgb, var(--theme-primary) 8%, transparent)'
@@ -419,7 +521,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                       >
                         {day}
                       </span>
-                      {eventCount > 0 && (
+                      {eventCount > 0 && settings.eventDisplayStyle === 'spanning' && (
                         eventCount > 5 ? (
                           <button
                             onClick={(e) => {
@@ -452,41 +554,63 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                         )
                       )}
                     </div>
+
                   </div>
                 );
               })}
             </div>
 
-            {/* Spanning events overlay */}
+            {/* Events overlay */}
             {(() => {
               const eventCount = week.spanningEvents.length;
-              const maxEvents = 5;
+              const maxEvents = settings.compactMode ? 6 : 5;
               const visibleEvents = week.spanningEvents.slice(0, maxEvents);
 
-              // Dynamic sizing - only shrink when more than 3
+              // Dynamic sizing based on event count and compact mode
               const getEventHeight = () => {
-                if (eventCount <= 3) return '18px';
-                return '12px';
+                if (settings.compactMode) {
+                  return '5px'; // Just colored lines in compact mode
+                }
+                return eventCount <= 3 ? '24px' : '18px'; // Bigger events in normal mode
               };
 
               const getEventGap = () => {
-                if (eventCount <= 3) return '2px';
-                return '0.5px';
+                if (settings.compactMode) return '2px';
+                if (eventCount <= 3) return '3px';
+                return '2px';
               };
 
               const getFontSize = () => {
-                if (eventCount <= 3) return '11px';
-                return '9px';
+                if (settings.compactMode) {
+                  return '0px'; // No text in compact mode
+                }
+                return eventCount <= 3 ? '13px' : '11px'; // Bigger text
               };
 
               const getPaddingTop = () => {
-                if (eventCount <= 3) return '34px';
-                return '28px';
+                if (settings.compactMode) return '32px';
+                return eventCount <= 3 ? '42px' : '36px'; // More space for bigger cells
+              };
+
+              // Offset for week numbers column
+              const gridColOffset = settings.showWeekNumbers ? 1 : 0;
+
+              // Get event background style based on opacity setting
+              const getEventBackground = (colorVar: string, isEnded: boolean) => {
+                if (settings.eventOpacity === 'solid') {
+                  // Solid mode: more vibrant, less transparent
+                  if (isEnded) {
+                    return `linear-gradient(90deg, color-mix(in srgb, ${colorVar} 45%, var(--theme-bg-secondary)) 0%, color-mix(in srgb, ${colorVar} 35%, var(--theme-bg-secondary)) 100%)`;
+                  }
+                  return `linear-gradient(90deg, color-mix(in srgb, ${colorVar} 65%, var(--theme-bg-secondary)) 0%, color-mix(in srgb, ${colorVar} 50%, var(--theme-bg-secondary)) 100%)`;
+                }
+                // Transparent mode (default): subtle, transparent
+                return `linear-gradient(90deg, color-mix(in srgb, ${colorVar} ${isEnded ? '20%' : '30%'}, transparent) 0%, color-mix(in srgb, ${colorVar} ${isEnded ? '12%' : '20%'}, transparent) 100%)`;
               };
 
               return (
                 <div
-                  className="absolute inset-0 grid grid-cols-7 pointer-events-none"
+                  className={`absolute inset-0 grid pointer-events-none ${settings.showWeekNumbers ? 'grid-cols-8' : 'grid-cols-7'}`}
                   style={{
                     paddingTop: getPaddingTop(),
                     gap: `${getEventGap()} 4px`,
@@ -498,6 +622,66 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                     const colorVar = getEventColorVar(spanEvent.event.colorIndex);
                     const isEnded = hasEventEnded(spanEvent.event);
 
+                    // Daily mode: render individual bars for each day
+                    if (settings.eventDisplayStyle === 'daily') {
+                      const dayBars = [];
+                      for (let col = spanEvent.startCol; col < spanEvent.startCol + spanEvent.span; col++) {
+                        dayBars.push(
+                          <Tooltip
+                            key={`${spanEvent.event.id}-${week.weekIndex}-${col}`}
+                            content={`${spanEvent.event.name}${isEnded ? ' (Ended)' : ''}`}
+                            strategy="overlay"
+                            className="pointer-events-auto"
+                            style={{
+                              gridColumn: `${col + gridColOffset} / span 1`,
+                              gridRow: eventIndex + 1,
+                              marginLeft: '4px',
+                              marginRight: '4px',
+                            }}
+                          >
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onEventClick(spanEvent.event);
+                              }}
+                              className="w-full h-full truncate font-bold"
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                height: getEventHeight(),
+                                fontSize: getFontSize(),
+                                lineHeight: '1',
+                                textAlign: 'left',
+                                paddingLeft: settings.compactMode ? '0' : '8px',
+                                paddingRight: settings.compactMode ? '0' : '6px',
+                                borderRadius: '4px',
+                                background: settings.compactMode
+                                  ? (settings.eventOpacity === 'solid'
+                                      ? (isEnded ? `color-mix(in srgb, ${colorVar} 60%, transparent)` : colorVar)
+                                      : (isEnded ? `color-mix(in srgb, ${colorVar} 35%, transparent)` : `color-mix(in srgb, ${colorVar} 55%, transparent)`))
+                                  : getEventBackground(colorVar, isEnded),
+                                borderLeft: settings.compactMode ? 'none' : `3px solid ${isEnded ? `color-mix(in srgb, ${colorVar} 60%, transparent)` : colorVar}`,
+                                borderTop: settings.compactMode ? 'none' : `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)`,
+                                borderBottom: settings.compactMode ? 'none' : `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)`,
+                                borderRight: settings.compactMode ? 'none' : `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)`,
+                                color: settings.compactMode ? 'transparent' : (isEnded ? 'rgba(255,255,255,0.7)' : '#ffffff'),
+                                opacity: isEnded ? 0.7 : 1,
+                              }}
+                            >
+                              {!settings.compactMode && (
+                                <>
+                                  {isEnded && <span style={{ marginRight: '4px' }}>(Ended)</span>}
+                                  {spanEvent.event.name}
+                                </>
+                              )}
+                            </button>
+                          </Tooltip>
+                        );
+                      }
+                      return dayBars;
+                    }
+
+                    // Spanning mode: render one bar across multiple days
                     return (
                       <Tooltip
                         key={`${spanEvent.event.id}-${week.weekIndex}`}
@@ -505,7 +689,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                         strategy="overlay"
                         className="pointer-events-auto"
                         style={{
-                          gridColumn: `${spanEvent.startCol} / span ${spanEvent.span}`,
+                          gridColumn: `${spanEvent.startCol + gridColOffset} / span ${spanEvent.span}`,
                           gridRow: eventIndex + 1,
                           marginLeft: spanEvent.isStart ? '4px' : '0',
                           marginRight: spanEvent.isEnd ? '4px' : '0',
@@ -516,31 +700,39 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                             e.stopPropagation();
                             onEventClick(spanEvent.event);
                           }}
-                          className="w-full h-full truncate font-medium"
+                          className="w-full h-full truncate font-bold"
                           style={{
+                            display: 'flex',
+                            alignItems: 'center',
                             height: getEventHeight(),
                             fontSize: getFontSize(),
-                            lineHeight: getEventHeight(),
+                            lineHeight: '1',
                             textAlign: 'left',
-                            paddingLeft: spanEvent.isStart ? '8px' : '6px',
-                            paddingRight: '6px',
-                            borderRadius: spanEvent.isStart && spanEvent.isEnd
-                              ? '4px'
-                              : spanEvent.isStart
-                                ? '4px 0 0 4px'
-                                : spanEvent.isEnd
-                                  ? '0 4px 4px 0'
-                                  : '0',
-                            background: `linear-gradient(90deg, color-mix(in srgb, ${colorVar} ${isEnded ? '20%' : '30%'}, transparent) 0%, color-mix(in srgb, ${colorVar} ${isEnded ? '12%' : '20%'}, transparent) 100%)`,
-                            borderLeft: spanEvent.isStart ? `3px solid ${isEnded ? `color-mix(in srgb, ${colorVar} 60%, transparent)` : colorVar}` : 'none',
-                            borderTop: `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)`,
-                            borderBottom: `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)`,
-                            borderRight: spanEvent.isEnd ? `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)` : 'none',
-                            color: isEnded ? `color-mix(in srgb, ${colorVar} 70%, transparent)` : colorVar,
-                            opacity: isEnded ? 0.75 : 1,
+                            paddingLeft: settings.compactMode ? '0' : (spanEvent.isStart ? '8px' : '6px'),
+                            paddingRight: settings.compactMode ? '0' : '6px',
+                            borderRadius: settings.compactMode ? '2px' : (
+                              spanEvent.isStart && spanEvent.isEnd
+                                ? '4px'
+                                : spanEvent.isStart
+                                  ? '4px 0 0 4px'
+                                  : spanEvent.isEnd
+                                    ? '0 4px 4px 0'
+                                    : '0'
+                            ),
+                            background: settings.compactMode
+                              ? (settings.eventOpacity === 'solid'
+                                  ? (isEnded ? `color-mix(in srgb, ${colorVar} 60%, transparent)` : colorVar)
+                                  : (isEnded ? `color-mix(in srgb, ${colorVar} 35%, transparent)` : `color-mix(in srgb, ${colorVar} 55%, transparent)`))
+                              : getEventBackground(colorVar, isEnded),
+                            borderLeft: settings.compactMode ? 'none' : (spanEvent.isStart ? `3px solid ${isEnded ? `color-mix(in srgb, ${colorVar} 60%, transparent)` : colorVar}` : 'none'),
+                            borderTop: settings.compactMode ? 'none' : `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)`,
+                            borderBottom: settings.compactMode ? 'none' : `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)`,
+                            borderRight: settings.compactMode ? 'none' : (spanEvent.isEnd ? `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)` : 'none'),
+                            color: settings.compactMode ? 'transparent' : (isEnded ? 'rgba(255,255,255,0.7)' : '#ffffff'),
+                            opacity: isEnded ? 0.7 : 1,
                           }}
                         >
-                          {spanEvent.isStart ? (
+                          {!settings.compactMode && spanEvent.isStart ? (
                             <>
                               {isEnded && <span style={{ marginRight: '4px' }}>(Ended)</span>}
                               {spanEvent.event.name}
@@ -562,6 +754,10 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
               const dayIndex = week.days.indexOf(expandedDay.day);
               // Position popover to avoid going off-screen
               const isRightSide = dayIndex >= 4;
+              // Account for week numbers column in positioning
+              const totalCols = settings.showWeekNumbers ? 8 : 7;
+              const adjustedIndex = settings.showWeekNumbers ? dayIndex + 1 : dayIndex;
+              const maxIndex = settings.showWeekNumbers ? 7 : 6;
 
               return (
                 <div
@@ -570,8 +766,8 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                   style={{
                     top: '4px',
                     ...(isRightSide
-                      ? { right: `calc(${((6 - dayIndex) / 7) * 100}% + 8px)` }
-                      : { left: `calc(${(dayIndex / 7) * 100}% + 8px)` }
+                      ? { right: `calc(${((maxIndex - adjustedIndex) / totalCols) * 100}% + 8px)` }
+                      : { left: `calc(${(adjustedIndex / totalCols) * 100}% + 8px)` }
                     ),
                     backgroundColor: 'var(--theme-card-bg)',
                     border: '1px solid var(--theme-card-border)',
@@ -687,7 +883,8 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
               );
             })()}
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Empty month message */}

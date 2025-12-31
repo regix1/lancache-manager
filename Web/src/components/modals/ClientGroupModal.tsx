@@ -11,7 +11,7 @@ interface ClientGroupModalProps {
   group: ClientGroup | null; // null for create, ClientGroup for edit
   ungroupedIps: string[];
   onSuccess: (message: string) => void;
-  onError: (message: string) => void;
+  onError?: (message: string) => void; // Optional, errors shown inline in modal
 }
 
 const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
@@ -19,18 +19,17 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
   onClose,
   group,
   ungroupedIps,
-  onSuccess,
-  onError
+  onSuccess
 }) => {
   const { createClientGroup, updateClientGroup, addMember } = useClientGroups();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [addingIp, setAddingIp] = useState<string | null>(null);
 
   // Form state
   const [nickname, setNickname] = useState('');
   const [description, setDescription] = useState('');
-  const [selectedIps, setSelectedIps] = useState<string[]>([]);
+  const [selectedIps, setSelectedIps] = useState<string[]>([]); // For create mode
+  const [pendingIps, setPendingIps] = useState<string[]>([]); // For edit mode - IPs to add on save
   const [ipSearchQuery, setIpSearchQuery] = useState('');
 
   // Reset form when modal opens/closes or group changes
@@ -40,10 +39,12 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
         setNickname(group.nickname);
         setDescription(group.description || '');
         setSelectedIps([]);
+        setPendingIps([]);
       } else {
         setNickname('');
         setDescription('');
         setSelectedIps([]);
+        setPendingIps([]);
       }
       setError(null);
       setIpSearchQuery('');
@@ -68,18 +69,17 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
     setSelectedIps(selectedIps.filter(i => i !== ip));
   };
 
-  const handleAddIpToExistingGroup = async (ip: string) => {
-    if (!group) return;
-
-    setAddingIp(ip);
-    try {
-      await addMember(group.id, ip);
-      onSuccess(`Added ${ip} to "${group.nickname}"`);
-    } catch (err) {
-      onError(err instanceof Error ? err.message : 'Failed to add IP');
-    } finally {
-      setAddingIp(null);
+  // Edit mode: Add IP to pending list (saved on submit)
+  const handleAddPendingIp = (ip: string) => {
+    if (!pendingIps.includes(ip)) {
+      setPendingIps([...pendingIps, ip]);
     }
+    setIpSearchQuery('');
+  };
+
+  // Edit mode: Remove IP from pending list
+  const handleRemovePendingIp = (ip: string) => {
+    setPendingIps(pendingIps.filter(i => i !== ip));
   };
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
@@ -94,11 +94,17 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
     setSaving(true);
     try {
       if (isEditing) {
+        // Update nickname/description
         await updateClientGroup(group.id, {
           nickname: nickname.trim(),
           description: description.trim() || undefined
         });
-        onSuccess(`Updated nickname "${nickname.trim()}"`);
+        // Add any pending IPs
+        for (const ip of pendingIps) {
+          await addMember(group.id, ip);
+        }
+        const ipsAdded = pendingIps.length > 0 ? ` and added ${pendingIps.length} IP${pendingIps.length > 1 ? 's' : ''}` : '';
+        onSuccess(`Updated nickname "${nickname.trim()}"${ipsAdded}`);
       } else {
         await createClientGroup({
           nickname: nickname.trim(),
@@ -114,7 +120,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
     } finally {
       setSaving(false);
     }
-  }, [nickname, description, selectedIps, isEditing, group, createClientGroup, updateClientGroup, onClose, onSuccess]);
+  }, [nickname, description, selectedIps, pendingIps, isEditing, group, createClientGroup, updateClientGroup, addMember, onClose, onSuccess]);
 
   if (!isOpen) return null;
 
@@ -230,7 +236,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
           // Edit mode: Show current members and option to add more
           <div className="mb-4">
             <label className="block text-sm font-medium text-themed-secondary mb-2">
-              Associated IPs ({group.memberIps.length})
+              Current IPs ({group.memberIps.length})
             </label>
             <div className="flex flex-wrap gap-2 mb-3">
               {group.memberIps.map(ip => (
@@ -247,7 +253,39 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
               ))}
             </div>
 
-            {ungroupedIps.length > 0 && (
+            {/* Pending IPs to be added */}
+            {pendingIps.length > 0 && (
+              <>
+                <label className="block text-sm font-medium text-themed-secondary mb-2">
+                  IPs to Add ({pendingIps.length})
+                </label>
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {pendingIps.map(ip => (
+                    <div
+                      key={ip}
+                      className="flex items-center gap-1 px-2 py-1 rounded text-sm font-mono"
+                      style={{
+                        backgroundColor: 'var(--theme-primary)',
+                        color: 'var(--theme-button-text)'
+                      }}
+                    >
+                      {ip}
+                      <button
+                        type="button"
+                        onClick={() => handleRemovePendingIp(ip)}
+                        className="p-0.5 rounded transition-colors"
+                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)'}
+                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = ''}
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {ungroupedIps.filter(ip => !pendingIps.includes(ip)).length > 0 && (
               <>
                 <label className="block text-sm font-medium text-themed-secondary mb-2">
                   Add More IPs
@@ -272,29 +310,24 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
                     borderColor: 'var(--theme-border-primary)'
                   }}
                 >
-                  {filteredIps.length === 0 ? (
+                  {filteredIps.filter(ip => !pendingIps.includes(ip)).length === 0 ? (
                     <p className="text-sm text-themed-muted text-center py-2">
                       {ipSearchQuery ? 'No matching IPs' : 'No ungrouped IPs available'}
                     </p>
                   ) : (
                     <div className="flex flex-wrap gap-2">
-                      {filteredIps.slice(0, 10).map(ip => (
+                      {filteredIps.filter(ip => !pendingIps.includes(ip)).slice(0, 10).map(ip => (
                         <button
                           key={ip}
                           type="button"
-                          onClick={() => handleAddIpToExistingGroup(ip)}
-                          disabled={addingIp === ip}
+                          onClick={() => handleAddPendingIp(ip)}
                           className="flex items-center gap-1 px-2 py-1 rounded text-sm font-mono transition-colors hover:bg-opacity-80"
                           style={{
                             backgroundColor: 'var(--theme-bg-secondary)',
                             color: 'var(--theme-text-secondary)'
                           }}
                         >
-                          {addingIp === ip ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                          ) : (
-                            <Plus className="w-3 h-3" />
-                          )}
+                          <Plus className="w-3 h-3" />
                           {ip}
                         </button>
                       ))}

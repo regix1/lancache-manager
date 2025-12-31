@@ -443,21 +443,52 @@ const DownloadsTab: React.FC = () => {
     return baseOptions;
   }, [filteredAvailableServices, availableServices, latestDownloads]);
 
-  const clientOptions = useMemo(
-    () => [
-      { value: 'all', label: 'All Clients' },
-      ...availableClients.map((client) => {
-        const group = getGroupForIp(client);
-        const hasNickname = group?.nickname && group.nickname !== client;
-        return {
-          value: client,
-          label: hasNickname ? group.nickname : client,
-          description: hasNickname ? client : undefined
-        };
-      })
-    ],
-    [availableClients, getGroupForIp]
-  );
+  const { clientGroups } = useClientGroups();
+
+  const clientOptions = useMemo(() => {
+    // Build a map of group IDs to the IPs in downloads that belong to that group
+    const groupedIps = new Map<number, { group: typeof clientGroups[0]; ips: string[] }>();
+    const ungroupedIps: string[] = [];
+
+    availableClients.forEach((clientIp) => {
+      const group = getGroupForIp(clientIp);
+      if (group && group.nickname) {
+        const existing = groupedIps.get(group.id);
+        if (existing) {
+          existing.ips.push(clientIp);
+        } else {
+          groupedIps.set(group.id, { group, ips: [clientIp] });
+        }
+      } else {
+        ungroupedIps.push(clientIp);
+      }
+    });
+
+    const options: { value: string; label: string; description?: string }[] = [
+      { value: 'all', label: 'All Clients' }
+    ];
+
+    // Add grouped clients - show once per group with IPs in description
+    Array.from(groupedIps.values())
+      .sort((a, b) => a.group.nickname.localeCompare(b.group.nickname))
+      .forEach(({ group, ips }) => {
+        options.push({
+          value: `group-${group.id}`,
+          label: group.nickname,
+          description: ips.join(', ')
+        });
+      });
+
+    // Add ungrouped IPs individually
+    ungroupedIps.sort().forEach((ip) => {
+      options.push({
+        value: ip,
+        label: ip
+      });
+    });
+
+    return options;
+  }, [availableClients, getGroupForIp, clientGroups]);
 
   const itemsPerPageOptions = useMemo(
     () => [
@@ -532,7 +563,18 @@ const DownloadsTab: React.FC = () => {
     }
 
     if (settings.selectedClient !== 'all') {
-      filtered = filtered.filter((d) => d.clientIp === settings.selectedClient);
+      // Check if it's a group selection (e.g., "group-123")
+      if (settings.selectedClient.startsWith('group-')) {
+        const groupId = parseInt(settings.selectedClient.replace('group-', ''), 10);
+        const group = clientGroups.find(g => g.id === groupId);
+        if (group) {
+          // Filter by any IP in the group
+          filtered = filtered.filter((d) => group.memberIps.includes(d.clientIp));
+        }
+      } else {
+        // Filter by exact IP
+        filtered = filtered.filter((d) => d.clientIp === settings.selectedClient);
+      }
     }
 
     // Apply search filter
@@ -556,7 +598,8 @@ const DownloadsTab: React.FC = () => {
     settings.hideUnknownGames,
     settings.selectedService,
     settings.selectedClient,
-    settings.searchQuery
+    settings.searchQuery,
+    clientGroups
   ]);
 
   // Removed serviceFilteredDownloads - now using latestDownloads.length directly for total count

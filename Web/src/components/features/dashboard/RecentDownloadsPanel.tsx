@@ -332,18 +332,78 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     return ['all', ...Array.from(services).sort()];
   }, [latestDownloads]);
 
+  const { clientGroups } = useClientGroups();
+
   const availableClients = useMemo(() => {
     const clients = new Set(latestDownloads.map((d) => d.clientIp));
-    return ['all', ...Array.from(clients).sort()];
+    return Array.from(clients).sort();
   }, [latestDownloads]);
+
+  const clientOptions = useMemo(() => {
+    // Build a map of group IDs to the IPs in downloads that belong to that group
+    const groupedIps = new Map<number, { group: typeof clientGroups[0]; ips: string[] }>();
+    const ungroupedIps: string[] = [];
+
+    availableClients.forEach((clientIp) => {
+      const group = getGroupForIp(clientIp);
+      if (group && group.nickname) {
+        const existing = groupedIps.get(group.id);
+        if (existing) {
+          existing.ips.push(clientIp);
+        } else {
+          groupedIps.set(group.id, { group, ips: [clientIp] });
+        }
+      } else {
+        ungroupedIps.push(clientIp);
+      }
+    });
+
+    const options: { value: string; label: string; description?: string }[] = [
+      { value: 'all', label: 'All Clients' }
+    ];
+
+    // Add grouped clients - show once per group with IPs in description
+    Array.from(groupedIps.values())
+      .sort((a, b) => a.group.nickname.localeCompare(b.group.nickname))
+      .forEach(({ group, ips }) => {
+        options.push({
+          value: `group-${group.id}`,
+          label: group.nickname,
+          description: ips.join(', ')
+        });
+      });
+
+    // Add ungrouped IPs individually
+    ungroupedIps.sort().forEach((ip) => {
+      options.push({
+        value: ip,
+        label: ip
+      });
+    });
+
+    return options;
+  }, [availableClients, getGroupForIp, clientGroups]);
 
   const filteredDownloads = useMemo(() => {
     return latestDownloads.filter((download) => {
       if (selectedService !== 'all' && download.service !== selectedService) return false;
-      if (selectedClient !== 'all' && download.clientIp !== selectedClient) return false;
+      if (selectedClient !== 'all') {
+        // Check if it's a group selection (e.g., "group-123")
+        if (selectedClient.startsWith('group-')) {
+          const groupId = parseInt(selectedClient.replace('group-', ''), 10);
+          const group = clientGroups.find(g => g.id === groupId);
+          if (group) {
+            // Filter by any IP in the group
+            if (!group.memberIps.includes(download.clientIp)) return false;
+          }
+        } else {
+          // Filter by exact IP
+          if (download.clientIp !== selectedClient) return false;
+        }
+      }
       return true;
     });
-  }, [latestDownloads, selectedService, selectedClient]);
+  }, [latestDownloads, selectedService, selectedClient, clientGroups]);
 
   const displayCount = 10;
   const groupedItems = useMemo(() => {
@@ -981,18 +1041,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
               onChange={setSelectedService}
             />
             <EnhancedDropdown
-              options={availableClients.map((client) => {
-                if (client === 'all') {
-                  return { value: client, label: 'All Clients' };
-                }
-                const group = getGroupForIp(client);
-                const hasNickname = group?.nickname && group.nickname !== client;
-                return {
-                  value: client,
-                  label: hasNickname ? group.nickname : client,
-                  description: hasNickname ? client : undefined
-                };
-              })}
+              options={clientOptions}
               value={selectedClient}
               onChange={setSelectedClient}
             />
