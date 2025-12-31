@@ -726,7 +726,7 @@ const RetroView: React.FC<RetroViewProps> = ({
 
   return (
     <div ref={containerRef} className="rounded-lg border overflow-hidden retro-table-container" style={{ borderColor: 'var(--theme-border-primary)', backgroundColor: 'var(--theme-card-bg)' }}>
-      {/* Keyframe styles for animations */}
+      {/* Keyframe styles for animations and mobile layout fixes */}
       <style>{`
         @keyframes float {
           0%, 100% { transform: translateY(0); }
@@ -746,11 +746,38 @@ const RetroView: React.FC<RetroViewProps> = ({
           animation: rowEntrance 0.3s ease-out forwards;
           opacity: 0;
         }
+
+        /* Mobile layout constraints - force content to fit viewport */
+        @media (max-width: 1023px) {
+          .retro-table-container {
+            max-width: 100% !important;
+            overflow-x: hidden !important;
+          }
+          .retro-table-container .retro-mobile-row {
+            max-width: 100% !important;
+            width: 100% !important;
+            box-sizing: border-box;
+            overflow: hidden;
+          }
+          .retro-table-container .retro-mobile-content {
+            max-width: 100% !important;
+            width: 100% !important;
+            box-sizing: border-box;
+          }
+          /* Ensure desktop layout is completely hidden and doesn't affect layout */
+          .retro-table-container .retro-desktop-layout {
+            display: none !important;
+            width: 0 !important;
+            min-width: 0 !important;
+            max-width: 0 !important;
+            overflow: hidden !important;
+          }
+        }
       `}</style>
 
       {/* Desktop Table Header - hidden on mobile */}
       <div
-        className="hidden lg:grid gap-2 pl-3 pr-4 py-3 text-xs font-semibold uppercase tracking-wide border-b select-none sticky top-0 z-20"
+        className="retro-desktop-layout hidden lg:grid gap-2 pl-3 pr-4 py-3 text-xs font-semibold uppercase tracking-wide border-b select-none sticky top-0 z-20"
         style={{
           gridTemplateColumns: gridTemplate,
           minWidth: minTableWidth,
@@ -842,7 +869,7 @@ const RetroView: React.FC<RetroViewProps> = ({
           return (
             <div
               key={data.id}
-              className="row-animate transition-all duration-200 hover:bg-[var(--theme-bg-tertiary)]/50 group relative w-full"
+              className="row-animate retro-mobile-row transition-all duration-200 hover:bg-[var(--theme-bg-tertiary)]/50 group relative w-full"
               style={{
                 borderBottom: '1px solid var(--theme-border-secondary)',
                 animationDelay: `${index * 30}ms`,
@@ -858,7 +885,7 @@ const RetroView: React.FC<RetroViewProps> = ({
               />
 
               {/* Mobile Layout */}
-              <div className="lg:hidden p-3 pl-4 space-y-2 sm:space-y-3 overflow-hidden min-w-0 max-w-full">
+              <div className="retro-mobile-content lg:hidden p-3 pl-4 space-y-2 sm:space-y-3 overflow-hidden min-w-0 max-w-full">
                 {/* App image and name */}
                 <div className="flex items-center gap-2 sm:gap-3 min-w-0 w-full">
                   {hasGameImage && data.gameAppId ? (
@@ -947,7 +974,7 @@ const RetroView: React.FC<RetroViewProps> = ({
 
               {/* Desktop Layout */}
               <div
-                className="hidden lg:grid gap-2 pl-4 pr-4 py-3 items-center"
+                className="retro-desktop-layout hidden lg:grid gap-2 pl-4 pr-4 py-3 items-center"
                 style={{ gridTemplateColumns: gridTemplate, minWidth: minTableWidth }}
                 data-row
               >
