@@ -750,27 +750,19 @@ const RetroView: React.FC<RetroViewProps> = ({
         /* Mobile layout constraints - force content to fit viewport */
         @media (max-width: 1023px) {
           .retro-table-container {
-            max-width: 100% !important;
-            overflow-x: hidden !important;
+            max-width: 100%;
           }
           .retro-table-container .retro-mobile-row {
-            max-width: 100% !important;
-            width: 100% !important;
+            max-width: 100%;
             box-sizing: border-box;
-            overflow: hidden;
           }
           .retro-table-container .retro-mobile-content {
-            max-width: 100% !important;
-            width: 100% !important;
+            max-width: 100%;
             box-sizing: border-box;
           }
-          /* Ensure desktop layout is completely hidden and doesn't affect layout */
+          /* Ensure desktop layout doesn't affect layout */
           .retro-table-container .retro-desktop-layout {
             display: none !important;
-            width: 0 !important;
-            min-width: 0 !important;
-            max-width: 0 !important;
-            overflow: hidden !important;
           }
         }
       `}</style>
@@ -958,16 +950,17 @@ const RetroView: React.FC<RetroViewProps> = ({
                 </div>
 
                 {/* Combined Progress Bar and Efficiency */}
-                <div className="flex items-center gap-4 min-w-0 w-full max-w-full">
-                  <div className="flex-1 min-w-0 overflow-hidden">
+                <div className="flex items-center gap-3 min-w-0 w-full">
+                  <div className="flex-1 min-w-0">
                     <CombinedProgressBar
                       hitBytes={cacheHitBytes}
                       missBytes={cacheMissBytes}
                       totalBytes={totalBytes}
+                      showLabels={false}
                     />
                   </div>
                   <div className="flex-shrink-0">
-                    <EfficiencyGauge percent={hitPercent} size={48} />
+                    <EfficiencyGauge percent={hitPercent} size={44} />
                   </div>
                 </div>
               </div>
