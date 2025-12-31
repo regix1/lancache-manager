@@ -18,6 +18,7 @@ import { BlizzardIcon } from '@components/ui/BlizzardIcon';
 import { XboxIcon } from '@components/ui/XboxIcon';
 import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
 import { Tooltip } from '@components/ui/Tooltip';
+import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { useHoldTimer } from '@hooks/useHoldTimer';
 import { useDownloadAssociations } from '@contexts/DownloadAssociationsContext';
 import DownloadBadges from './DownloadBadges';
@@ -635,9 +636,10 @@ const GroupCard: React.FC<GroupCardProps> = ({
                             {/* Client IP Header with totals */}
                             <div className="flex items-center justify-between p-3 rounded-lg bg-[var(--theme-bg-tertiary)]/50">
                               <div className="flex items-center gap-2">
-                                <span className="font-mono text-sm font-bold text-[var(--theme-text-primary)]">
-                                  {clientIp}
-                                </span>
+                                <ClientIpDisplay
+                                  clientIp={clientIp}
+                                  className="font-mono text-sm font-bold text-[var(--theme-text-primary)]"
+                                />
                                 <span className="text-xs text-themed-muted">
                                   ({clientDownloads.length} session
                                   {clientDownloads.length !== 1 ? 's' : ''})

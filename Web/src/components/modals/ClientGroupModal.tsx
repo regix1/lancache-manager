@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Plus, X, Loader2 } from 'lucide-react';
+import { Plus, X, Loader2, AlertTriangle } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { useClientGroups } from '@contexts/ClientGroupContext';
@@ -98,18 +98,18 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
           nickname: nickname.trim(),
           description: description.trim() || undefined
         });
-        onSuccess(`Updated group "${nickname.trim()}"`);
+        onSuccess(`Updated nickname "${nickname.trim()}"`);
       } else {
         await createClientGroup({
           nickname: nickname.trim(),
           description: description.trim() || undefined,
           initialIps: selectedIps.length > 0 ? selectedIps : undefined
         });
-        onSuccess(`Created group "${nickname.trim()}"`);
+        onSuccess(`Added nickname "${nickname.trim()}"`);
       }
       onClose();
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to save group';
+      const message = err instanceof Error ? err.message : 'Failed to save nickname';
       setError(message);
     } finally {
       setSaving(false);
@@ -122,7 +122,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
     <Modal
       opened={isOpen}
       onClose={onClose}
-      title={isEditing ? 'Edit Client Group' : 'Create Client Group'}
+      title={isEditing ? 'Edit Client Nickname' : 'Add Client Nickname'}
     >
       <form onSubmit={handleSubmit}>
         {/* Error Alert */}
@@ -136,6 +136,46 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
             }}
           >
             {error}
+          </div>
+        )}
+
+        {/* Multi-IP Warning */}
+        {!isEditing && selectedIps.length > 1 && (
+          <div
+            className="mb-4 p-3 rounded-lg text-sm flex items-start gap-2"
+            style={{
+              backgroundColor: 'rgba(234, 179, 8, 0.15)',
+              color: 'var(--theme-icon-orange)',
+              border: '1px solid rgba(234, 179, 8, 0.3)'
+            }}
+          >
+            <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <div>
+              <strong>Multiple IPs selected</strong>
+              <p className="text-themed-secondary text-xs mt-1">
+                All {selectedIps.length} IPs will share the same nickname. This is typically used when the same device has multiple IP addresses.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Multi-IP Warning for editing */}
+        {isEditing && group && group.memberIps.length > 1 && (
+          <div
+            className="mb-4 p-3 rounded-lg text-sm flex items-start gap-2"
+            style={{
+              backgroundColor: 'rgba(234, 179, 8, 0.15)',
+              color: 'var(--theme-icon-orange)',
+              border: '1px solid rgba(234, 179, 8, 0.3)'
+            }}
+          >
+            <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <div>
+              <strong>Shared nickname</strong>
+              <p className="text-themed-secondary text-xs mt-1">
+                This nickname is shared by {group.memberIps.length} IPs. Changes will apply to all of them.
+              </p>
+            </div>
           </div>
         )}
 
@@ -190,7 +230,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
           // Edit mode: Show current members and option to add more
           <div className="mb-4">
             <label className="block text-sm font-medium text-themed-secondary mb-2">
-              Current Members ({group.memberIps.length})
+              Associated IPs ({group.memberIps.length})
             </label>
             <div className="flex flex-wrap gap-2 mb-3">
               {group.memberIps.map(ip => (
@@ -268,7 +308,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
           // Create mode: Select initial IPs
           <div className="mb-4">
             <label className="block text-sm font-medium text-themed-secondary mb-2">
-              Initial Members <span className="text-themed-muted">(optional)</span>
+              Client IPs <span className="text-themed-muted">(select at least one)</span>
             </label>
 
             {/* Selected IPs */}
@@ -370,10 +410,10 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
             {saving ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                {isEditing ? 'Saving...' : 'Creating...'}
+                {isEditing ? 'Saving...' : 'Adding...'}
               </>
             ) : (
-              isEditing ? 'Save Changes' : 'Create Group'
+              isEditing ? 'Save Changes' : 'Add Nickname'
             )}
           </Button>
         </div>

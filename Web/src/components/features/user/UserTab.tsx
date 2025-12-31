@@ -23,6 +23,7 @@ import { HelpPopover } from '@components/ui/HelpPopover';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { Pagination } from '@components/ui/Pagination';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
+import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import ApiService from '@services/api.service';
 import themeService from '@services/theme.service';
 import authService from '@services/auth.service';
@@ -861,7 +862,7 @@ const UserTab: React.FC = () => {
                     {session.ipAddress && (
                       <div className="flex items-center gap-2" style={{ color: 'var(--theme-text-secondary)' }}>
                         <Network className="w-4 h-4 flex-shrink-0" />
-                        <span className="truncate">{cleanIpAddress(session.ipAddress)}</span>
+                        <ClientIpDisplay clientIp={cleanIpAddress(session.ipAddress)} className="truncate" />
                       </div>
                     )}
                     {session.operatingSystem && (
@@ -901,7 +902,7 @@ const UserTab: React.FC = () => {
                     {session.revokedBy && session.type === 'guest' && (
                       <div className="flex items-center gap-2" style={{ color: 'var(--theme-text-secondary)' }}>
                         <User className="w-4 h-4 flex-shrink-0" />
-                        <span className="truncate">Revoked by: {cleanIpAddress(session.revokedBy)}</span>
+                        <span className="truncate">Revoked by: <ClientIpDisplay clientIp={cleanIpAddress(session.revokedBy)} /></span>
                       </div>
                     )}
                   </div>
@@ -984,7 +985,7 @@ const UserTab: React.FC = () => {
                     <span>IP Address</span>
                   </div>
                   <div className="text-sm font-medium pl-[18px]" style={{ color: 'var(--theme-text-primary)' }}>
-                    {cleanIpAddress(session.ipAddress)}
+                    <ClientIpDisplay clientIp={cleanIpAddress(session.ipAddress)} />
                   </div>
                 </div>
               )}
@@ -1048,7 +1049,7 @@ const UserTab: React.FC = () => {
                     <span>Revoked By</span>
                   </div>
                   <div className="text-sm font-medium pl-[18px]" style={{ color: 'var(--theme-text-primary)' }}>
-                    {cleanIpAddress(session.revokedBy)}
+                    <ClientIpDisplay clientIp={cleanIpAddress(session.revokedBy)} />
                   </div>
                 </div>
               )}

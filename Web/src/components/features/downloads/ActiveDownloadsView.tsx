@@ -4,6 +4,7 @@ import { useSignalR } from '@contexts/SignalRContext';
 import { useRefreshRate } from '@contexts/RefreshRateContext';
 import ApiService from '@services/api.service';
 import { formatBytes } from '@utils/formatters';
+import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import type { DownloadSpeedSnapshot, GameSpeedInfo, ClientSpeedInfo } from '../../../types';
 
 // Format speed
@@ -517,8 +518,8 @@ const ActiveDownloadsView: React.FC = () => {
               </div>
 
               <div className="download-info">
-                <div className="download-name" title={client.clientIp}>
-                  {client.clientIp}
+                <div className="download-name">
+                  <ClientIpDisplay clientIp={client.clientIp} />
                 </div>
                 <div className="download-meta">
                   <span className="meta-item">{formatBytes(client.totalBytes)}</span>

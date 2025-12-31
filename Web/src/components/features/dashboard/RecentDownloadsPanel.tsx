@@ -3,6 +3,7 @@ import { Activity, Clock, Loader2, HardDrive, TrendingUp, RefreshCw } from 'luci
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { useDownloads } from '@contexts/DownloadsContext';
 import { useDownloadAssociations } from '@contexts/DownloadAssociationsContext';
 import { useSignalR } from '@contexts/SignalRContext';
@@ -96,6 +97,7 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
         cacheHitPercent: item.totalDownloaded > 0 ? (item.cacheHitBytes / item.totalDownloaded) * 100 : 0,
         startTime: item.lastSeen,
         clientInfo: `${item.clientsSet.size} client${item.clientsSet.size !== 1 ? 's' : ''}`,
+        clientIp: null as string | null, // Multiple clients, no single IP
         count: item.count,
         hasGameName: item.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/))
       }
@@ -107,7 +109,8 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
         totalBytes: item.totalBytes,
         cacheHitPercent: item.cacheHitPercent,
         startTime: item.startTimeUtc,
-        clientInfo: item.clientIp,
+        clientInfo: item.clientIp, // Fallback for display
+        clientIp: item.clientIp, // Single client IP for nickname lookup
         count: 1,
         hasGameName: item.gameName && item.gameName !== 'Unknown Steam Game' && !item.gameName.match(/^Steam App \d+$/)
       };
@@ -133,7 +136,13 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
           <div className="item-meta">
             <span className="service-badge">{display.service}</span>
             <span className="meta-separator">•</span>
-            <span className="meta-text">{display.clientInfo}</span>
+            <span className="meta-text">
+              {display.clientIp ? (
+                <ClientIpDisplay clientIp={display.clientIp} />
+              ) : (
+                display.clientInfo
+              )}
+            </span>
             {events.length > 0 && events.slice(0, 1).map(event => (
               <EventBadge key={event.id} event={event} size="sm" />
             ))}

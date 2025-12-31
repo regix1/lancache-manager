@@ -1,6 +1,7 @@
 import React from 'react';
 import { formatBytes, formatPercent, formatDateTime, formatSpeed } from '@utils/formatters';
 import { Tooltip } from '@components/ui/Tooltip';
+import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { WsusIcon } from '@components/ui/WsusIcon';
 import { RiotIcon } from '@components/ui/RiotIcon';
@@ -360,7 +361,7 @@ const RetroView: React.FC<RetroViewProps> = ({
                     </div>
                     <div className="flex items-center gap-2 text-xs text-[var(--theme-text-muted)]">
                       <span>
-                        {data.clientIp}
+                        <ClientIpDisplay clientIp={data.clientIp} className="inline" />
                         {data.depotId && (
                           <>
                             {' • '}
@@ -544,8 +545,12 @@ const RetroView: React.FC<RetroViewProps> = ({
                 </div>
 
                 {/* Client IP */}
-                <div className="text-sm font-mono text-[var(--theme-text-primary)] truncate" title={data.clientIp}>
-                  {data.clientsSet.size > 1 ? `${data.clientsSet.size} clients` : data.clientIp}
+                <div className="text-sm font-mono text-[var(--theme-text-primary)] truncate">
+                  {data.clientsSet.size > 1 ? (
+                    `${data.clientsSet.size} clients`
+                  ) : (
+                    <ClientIpDisplay clientIp={data.clientIp} />
+                  )}
                 </div>
 
                 {/* Avg Speed */}

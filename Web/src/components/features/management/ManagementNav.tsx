@@ -66,7 +66,7 @@ const tabs: TabConfig[] = [
     label: 'Clients',
     shortLabel: 'Clients',
     icon: Users,
-    description: 'Client nicknames & groups'
+    description: 'Assign nicknames to client IPs'
   }
 ];
 

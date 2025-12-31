@@ -3,6 +3,7 @@ import { ChevronRight, ExternalLink, ChevronLeft } from 'lucide-react';
 import { formatBytes, formatPercent, formatRelativeTime } from '@utils/formatters';
 import { getServiceBadgeStyles } from '@utils/serviceColors';
 import { Tooltip } from '@components/ui/Tooltip';
+import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { useHoldTimer } from '@hooks/useHoldTimer';
 import { useDownloadAssociations } from '@contexts/DownloadAssociationsContext';
@@ -434,9 +435,10 @@ const GroupRow: React.FC<GroupRowProps> = ({
                             {/* Mobile: Stacked layout */}
                             <div className="sm:hidden">
                               <div className="flex items-center justify-between">
-                                <span className="font-mono text-[var(--theme-text-primary)]">
-                                  {download.clientIp}
-                                </span>
+                                <ClientIpDisplay
+                                  clientIp={download.clientIp}
+                                  className="font-mono text-[var(--theme-text-primary)]"
+                                />
                                 <div className="flex items-center gap-2">
                                   <span className="font-medium text-[var(--theme-text-primary)] font-mono">
                                     {formatBytes(totalBytes)}
@@ -469,9 +471,10 @@ const GroupRow: React.FC<GroupRowProps> = ({
                             {/* Desktop: Single row */}
                             <div className="hidden sm:flex items-center justify-between">
                               <div className="flex items-center gap-3">
-                                <span className="font-mono text-[var(--theme-text-primary)]">
-                                  {download.clientIp}
-                                </span>
+                                <ClientIpDisplay
+                                  clientIp={download.clientIp}
+                                  className="font-mono text-[var(--theme-text-primary)]"
+                                />
                                 <span className="text-themed-muted">
                                   {formatRelativeTime(download.startTimeUtc)}
                                 </span>

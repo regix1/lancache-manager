@@ -95,6 +95,11 @@ const ClientRow: React.FC<ClientRowProps> = ({ client }) => {
 const ClientCard: React.FC<ClientRowProps> = ({ client }) => {
   const formattedLastActivity = useFormattedDateTime(client.lastActivityUtc);
   const displayLabel = client.displayName || client.clientIp;
+  const ipTooltip = client.isGrouped && client.groupMemberIps
+    ? `IPs: ${client.groupMemberIps.join(', ')}`
+    : client.displayName
+    ? `IP: ${client.clientIp}`
+    : undefined;
 
   return (
     <div
@@ -110,7 +115,15 @@ const ClientCard: React.FC<ClientRowProps> = ({ client }) => {
           {client.isGrouped && (
             <Users className="w-4 h-4 text-themed-muted flex-shrink-0" />
           )}
-          <span className="text-themed-primary font-medium">{displayLabel}</span>
+          {ipTooltip ? (
+            <Tooltip content={ipTooltip}>
+              <span className="text-themed-primary font-medium cursor-help border-b border-dashed border-themed-muted">
+                {displayLabel}
+              </span>
+            </Tooltip>
+          ) : (
+            <span className="text-themed-primary font-medium">{displayLabel}</span>
+          )}
           {client.isGrouped && client.groupMemberIps && client.groupMemberIps.length > 1 && (
             <span className="text-xs text-themed-muted">
               ({client.groupMemberIps.length} IPs)
