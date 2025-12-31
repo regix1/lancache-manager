@@ -211,23 +211,19 @@ public class ClientGroupsRepository : IClientGroupsRepository
 
     public async Task<Dictionary<string, (int GroupId, string Nickname)>> GetIpToGroupMappingAsync(CancellationToken cancellationToken = default)
     {
-        // Filter out any orphaned members (where ClientGroup is null) and create mapping
-        var members = await _context.ClientGroupMembers
+        // Query members with their groups, projecting to avoid null reference issues
+        var mappings = await _context.ClientGroupMembers
             .AsNoTracking()
             .Include(m => m.ClientGroup)
             .Where(m => m.ClientGroup != null)
+            .Select(m => new { m.ClientIp, m.ClientGroupId, m.ClientGroup!.Nickname })
             .ToListAsync(cancellationToken);
 
-        var mappings = new Dictionary<string, (int GroupId, string Nickname)>();
-        foreach (var m in members)
-        {
-            // Skip if IP already exists (defensive - shouldn't happen due to unique constraint)
-            if (!mappings.ContainsKey(m.ClientIp))
-            {
-                mappings[m.ClientIp] = (m.ClientGroupId, m.ClientGroup.Nickname);
-            }
-        }
-
-        return mappings;
+        // Build dictionary, handling potential duplicate IPs (shouldn't happen due to unique constraint)
+        return mappings
+            .GroupBy(m => m.ClientIp)
+            .ToDictionary(
+                g => g.Key,
+                g => (g.First().ClientGroupId, g.First().Nickname));
     }
 }
