@@ -281,9 +281,6 @@ const EfficiencyGauge: React.FC<{ percent: number; size?: number }> = ({ percent
             strokeDasharray={circumference}
             strokeDashoffset={offset}
             className="transition-all duration-500 ease-out"
-            style={{
-              filter: percent >= 90 ? `drop-shadow(0 0 4px ${getColor()})` : 'none'
-            }}
           />
         </svg>
         {/* Center percentage */}
@@ -849,7 +846,6 @@ const RetroView: React.FC<RetroViewProps> = ({
               style={{
                 borderBottom: '1px solid var(--theme-border-secondary)',
                 animationDelay: `${index * 30}ms`,
-                minWidth: minTableWidth,
               }}
             >
               {/* Left accent border based on efficiency */}
