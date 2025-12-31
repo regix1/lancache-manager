@@ -29,13 +29,13 @@ interface RetroViewProps {
 
 // Default column widths
 const DEFAULT_COLUMN_WIDTHS = {
-  timestamp: 180,
-  app: 280,
+  timestamp: 200,
+  app: 320,
   depot: 80,
   client: 140,
   speed: 100,
-  cacheHit: 130,
-  cacheMiss: 130,
+  cacheHit: 110,
+  cacheMiss: 110,
   overall: 90
 };
 
@@ -256,11 +256,20 @@ const ResizeHandle: React.FC<{
   onMouseDown: (e: React.MouseEvent) => void;
 }> = ({ onMouseDown }) => (
   <div
-    className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize group z-10"
+    className="absolute right-0 top-0 bottom-0 w-3 cursor-col-resize group z-10 flex items-center justify-center"
     onMouseDown={onMouseDown}
   >
+    {/* Always visible subtle divider */}
     <div
-      className="absolute right-0 top-1 bottom-1 w-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+      className="h-4 w-px rounded transition-all duration-150 group-hover:h-full group-hover:w-0.5"
+      style={{
+        backgroundColor: 'var(--theme-primary)',
+        opacity: 0.3
+      }}
+    />
+    {/* Brighter line on hover */}
+    <div
+      className="absolute h-full w-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity"
       style={{ backgroundColor: 'var(--theme-primary)' }}
     />
   </div>
