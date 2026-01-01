@@ -569,8 +569,69 @@ const RetroView: React.FC<RetroViewProps> = ({
 
   const handleResetWidths = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY);
-    setColumnWidths(smartDefaultWidths);
-  }, [smartDefaultWidths]);
+
+    // Calculate widths that fit the container
+    if (!containerRef.current) {
+      setColumnWidths(smartDefaultWidths);
+      return;
+    }
+
+    const containerWidth = containerRef.current.clientWidth;
+    const GRID_GAP = 8; // gap-2 = 0.5rem = 8px
+    const PADDING = 32; // pl-3 + pr-4 = ~28px, round up
+    const isDatasourceShown = hasMultipleDatasources && showDatasourceLabels;
+    const NUM_COLUMNS = isDatasourceShown ? 9 : 8;
+    const NUM_GAPS = NUM_COLUMNS - 1;
+
+    // Calculate total available width for columns
+    const availableWidth = containerWidth - PADDING - (NUM_GAPS * GRID_GAP);
+
+    // Define proportional weights for each column (relative importance)
+    // These weights determine how space is distributed
+    const columnWeights = {
+      timestamp: 1.4,    // Time ranges need space
+      app: 2.0,          // App names + images need most space
+      datasource: 0.6,   // Short labels
+      events: 0.6,       // Badge display
+      depot: 0.6,        // Numeric IDs
+      client: 0.8,       // IP addresses
+      speed: 0.7,        // Speed display
+      cacheHit: 1.5,     // Progress bar needs space
+      cacheMiss: 0,      // Combined with cacheHit
+      overall: 0.8       // Efficiency gauge
+    };
+
+    // Calculate total weight
+    let totalWeight = columnWeights.timestamp + columnWeights.app + columnWeights.events +
+      columnWeights.depot + columnWeights.client + columnWeights.speed +
+      columnWeights.cacheHit + columnWeights.overall;
+
+    if (isDatasourceShown) {
+      totalWeight += columnWeights.datasource;
+    }
+
+    // Account for fixed additions (app gets +40, overall gets +20 in grid template)
+    const fixedAdditions = 40 + 20;
+    const adjustedAvailable = availableWidth - fixedAdditions;
+
+    // Calculate proportional widths
+    const unitWidth = adjustedAvailable / totalWeight;
+
+    const newWidths: ColumnWidths = {
+      timestamp: Math.max(80, Math.floor(unitWidth * columnWeights.timestamp)),
+      app: Math.max(100, Math.floor(unitWidth * columnWeights.app)),
+      datasource: Math.max(50, Math.floor(unitWidth * columnWeights.datasource)),
+      events: Math.max(60, Math.floor(unitWidth * columnWeights.events)),
+      depot: Math.max(50, Math.floor(unitWidth * columnWeights.depot)),
+      client: Math.max(70, Math.floor(unitWidth * columnWeights.client)),
+      speed: Math.max(60, Math.floor(unitWidth * columnWeights.speed)),
+      cacheHit: Math.max(100, Math.floor(unitWidth * columnWeights.cacheHit)),
+      cacheMiss: 0, // Combined with cacheHit
+      overall: Math.max(60, Math.floor(unitWidth * columnWeights.overall))
+    };
+
+    setColumnWidths(newWidths);
+  }, [smartDefaultWidths, hasMultipleDatasources, showDatasourceLabels]);
 
   // Auto-fit a single column by measuring actual DOM content
   // Falls back to smart defaults from textMeasurement.ts if DOM measurement fails
@@ -780,6 +841,28 @@ const RetroView: React.FC<RetroViewProps> = ({
 
   return (
     <div ref={containerRef} className="rounded-lg border overflow-hidden retro-table-container" style={{ borderColor: 'var(--theme-border-primary)', backgroundColor: 'var(--theme-card-bg)' }}>
+      {/* Desktop Control Bar - Reset button outside the scrolling table */}
+      {isDesktop && (
+        <div
+          className="flex items-center justify-end px-3 py-1.5 border-b"
+          style={{
+            backgroundColor: 'var(--theme-bg-secondary)',
+            borderColor: 'var(--theme-border-secondary)'
+          }}
+        >
+          <Tooltip content="Fit all columns to page width">
+            <button
+              onClick={handleResetWidths}
+              className="flex items-center gap-1.5 px-2 py-1 text-xs rounded hover:bg-[var(--theme-bg-tertiary)] transition-colors"
+              style={{ color: 'var(--theme-text-secondary)' }}
+            >
+              <span style={{ fontSize: '12px' }}>↺</span>
+              <span>Fit to Page</span>
+            </button>
+          </Tooltip>
+        </div>
+      )}
+
       {/* Keyframe styles for animations */}
       <style>{`
         @keyframes float {
@@ -872,17 +955,8 @@ const RetroView: React.FC<RetroViewProps> = ({
               onDoubleClick={() => handleAutoFitColumn('cacheHit')}
             />
           </div>
-          <div className="flex items-center justify-center gap-1 pr-2" data-header>
+          <div className="flex items-center justify-center pr-2" data-header>
             <span>Efficiency</span>
-            <Tooltip content="Reset column widths to default">
-              <button
-                onClick={handleResetWidths}
-                className="p-0.5 rounded text-themed-muted hover:text-themed-primary transition-colors flex-shrink-0"
-                style={{ fontSize: '10px' }}
-              >
-                ↺
-              </button>
-            </Tooltip>
           </div>
         </div>
       )}
