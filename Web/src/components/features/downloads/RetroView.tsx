@@ -13,7 +13,9 @@ import { BlizzardIcon } from '@components/ui/BlizzardIcon';
 import { XboxIcon } from '@components/ui/XboxIcon';
 import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
 import { HardDrive, Download, Zap } from 'lucide-react';
-import type { Download as DownloadType, DownloadGroup } from '../../../types';
+import { useDownloadAssociations } from '@contexts/DownloadAssociationsContext';
+import DownloadBadges from './DownloadBadges';
+import type { Download as DownloadType, DownloadGroup, EventSummary } from '../../../types';
 
 const API_BASE = '/api';
 
@@ -85,6 +87,7 @@ interface DepotGroupedData {
   clientsSet: Set<string>;
   datasource?: string;
   averageBytesPerSecond: number;
+  downloadIds: number[]; // Track original download IDs for event associations
 }
 
 // Group items by depot ID for retro view display
@@ -115,12 +118,14 @@ const groupByDepot = (items: (DownloadType | DownloadGroup)[], sortOrder: SortOr
             clientsSet: new Set<string>(),
             datasource: download.datasource,
             averageBytesPerSecond: 0,
+            downloadIds: [],
             _weightedSpeedSum: 0,
             _speedBytesSum: 0
           };
         }
 
         const group = depotGroups[depotKey];
+        group.downloadIds.push(download.id);
         group.cacheHitBytes += download.cacheHitBytes || 0;
         group.cacheMissBytes += download.cacheMissBytes || 0;
         group.totalBytes += download.totalBytes || 0;
@@ -165,12 +170,14 @@ const groupByDepot = (items: (DownloadType | DownloadGroup)[], sortOrder: SortOr
           clientsSet: new Set<string>(),
           datasource: download.datasource,
           averageBytesPerSecond: 0,
+          downloadIds: [],
           _weightedSpeedSum: 0,
           _speedBytesSum: 0
         };
       }
 
       const group = depotGroups[depotKey];
+      group.downloadIds.push(download.id);
       group.cacheHitBytes += download.cacheHitBytes || 0;
       group.cacheMissBytes += download.cacheMissBytes || 0;
       group.totalBytes += download.totalBytes || 0;
@@ -459,6 +466,9 @@ const RetroView: React.FC<RetroViewProps> = ({
   // This completely removes desktop layout from DOM on mobile, preventing width calculation conflicts
   const isDesktop = useIsDesktop();
 
+  // Event associations for download badges
+  const { fetchAssociations, getAssociations } = useDownloadAssociations();
+
   // Calculate smart default widths based on content
   const smartDefaultWidths = useMemo(() => {
     return getDefaultColumnWidths();
@@ -579,19 +589,24 @@ const RetroView: React.FC<RetroViewProps> = ({
       return;
     }
 
+    // Check if datasource column is currently shown
+    const isDatasourceShown = hasMultipleDatasources && showDatasourceLabels;
+
     // Calculate available width constraint
     const containerWidth = containerRef.current.clientWidth;
     const GRID_GAP = 8; // gap-2 = 0.5rem = 8px
     const PADDING = 32; // pl-4 + pr-4 = 32px
-    const NUM_GAPS = 6; // 7 columns = 6 gaps
+    const NUM_GAPS = isDatasourceShown ? 8 : 7; // 9 columns = 8 gaps when datasource shown, otherwise 8 columns = 7 gaps
 
     // Calculate width used by other columns (excluding the one being auto-fit)
-    // Grid template: timestamp, app+40, depot, client, speed, cacheHit+cacheMiss, overall+20
+    // Grid template: timestamp, app+40, [datasource], events, depot, client, speed, cacheHit+cacheMiss, overall+20
     let otherColumnsWidth = 0;
 
     // Add each column's contribution to the grid
     if (column !== 'timestamp') otherColumnsWidth += columnWidths.timestamp;
     if (column !== 'app') otherColumnsWidth += columnWidths.app + 40;
+    if (isDatasourceShown && column !== 'datasource') otherColumnsWidth += columnWidths.datasource;
+    if (column !== 'events') otherColumnsWidth += columnWidths.events;
     if (column !== 'depot') otherColumnsWidth += columnWidths.depot;
     if (column !== 'client') otherColumnsWidth += columnWidths.client;
     if (column !== 'speed') otherColumnsWidth += columnWidths.speed;
@@ -610,17 +625,32 @@ const RetroView: React.FC<RetroViewProps> = ({
     // Maximum available width for this column
     const maxAvailableWidth = containerWidth - otherColumnsWidth - PADDING - (NUM_GAPS * GRID_GAP);
 
-    // Map column names to their grid index
-    const columnIndexMap: Record<keyof ColumnWidths, number> = {
-      timestamp: 0,
-      app: 1,
-      depot: 2,
-      client: 3,
-      speed: 4,
-      cacheHit: 5,
-      cacheMiss: 5, // Combined with cacheHit
-      overall: 6
-    };
+    // Map column names to their grid index (dynamic based on datasource visibility)
+    const columnIndexMap: Record<keyof ColumnWidths, number> = isDatasourceShown
+      ? {
+          timestamp: 0,
+          app: 1,
+          datasource: 2,
+          events: 3,
+          depot: 4,
+          client: 5,
+          speed: 6,
+          cacheHit: 7,
+          cacheMiss: 7, // Combined with cacheHit
+          overall: 8
+        }
+      : {
+          timestamp: 0,
+          app: 1,
+          datasource: -1, // Not shown
+          events: 2,
+          depot: 3,
+          client: 4,
+          speed: 5,
+          cacheHit: 6,
+          cacheMiss: 6, // Combined with cacheHit
+          overall: 7
+        };
 
     const colIndex = columnIndexMap[column];
 
@@ -680,7 +710,7 @@ const RetroView: React.FC<RetroViewProps> = ({
       ...prev,
       [column]: Math.max(60, constrainedWidth) // Ensure minimum of 60px
     }));
-  }, [smartDefaultWidths, columnWidths]);
+  }, [smartDefaultWidths, columnWidths, hasMultipleDatasources, showDatasourceLabels]);
 
   const handleImageError = (gameAppId: string) => {
     setImageErrors((prev) => new Set(prev).add(gameAppId));
@@ -710,9 +740,36 @@ const RetroView: React.FC<RetroViewProps> = ({
     return allGroupedItems.slice(startIndex, endIndex);
   }, [allGroupedItems, currentPage, itemsPerPage]);
 
+  // Fetch event associations for visible downloads
+  useEffect(() => {
+    const allDownloadIds = groupedItems.flatMap(group => group.downloadIds);
+    if (allDownloadIds.length > 0) {
+      fetchAssociations(allDownloadIds);
+    }
+  }, [groupedItems, fetchAssociations]);
+
+  // Helper to get aggregated events for a depot group
+  const getGroupEvents = useCallback((downloadIds: number[]): EventSummary[] => {
+    const eventsMap = new Map<number, EventSummary>();
+    downloadIds.forEach(id => {
+      const associations = getAssociations(id);
+      associations.events.forEach(event => {
+        // Dedupe events by ID
+        if (!eventsMap.has(event.id)) {
+          eventsMap.set(event.id, event);
+        }
+      });
+    });
+    return Array.from(eventsMap.values());
+  }, [getAssociations]);
+
   // Generate grid template from column widths
   // Use pixel values for precise control during resize, with 1fr on the last column to fill remaining space
-  const gridTemplate = `${columnWidths.timestamp}px ${columnWidths.app + 40}px ${columnWidths.depot}px ${columnWidths.client}px ${columnWidths.speed}px ${columnWidths.cacheHit + columnWidths.cacheMiss}px minmax(${columnWidths.overall + 20}px, 1fr)`;
+  // Only show datasource column when there are multiple datasources
+  const showDatasourceColumn = hasMultipleDatasources && showDatasourceLabels;
+  const gridTemplate = showDatasourceColumn
+    ? `${columnWidths.timestamp}px ${columnWidths.app + 40}px ${columnWidths.datasource}px ${columnWidths.events}px ${columnWidths.depot}px ${columnWidths.client}px ${columnWidths.speed}px ${columnWidths.cacheHit + columnWidths.cacheMiss}px minmax(${columnWidths.overall + 20}px, 1fr)`
+    : `${columnWidths.timestamp}px ${columnWidths.app + 40}px ${columnWidths.events}px ${columnWidths.depot}px ${columnWidths.client}px ${columnWidths.speed}px ${columnWidths.cacheHit + columnWidths.cacheMiss}px minmax(${columnWidths.overall + 20}px, 1fr)`;
 
   // Get efficiency-based accent color
   const getAccentColor = (hitPercent: number) => {
@@ -754,7 +811,7 @@ const RetroView: React.FC<RetroViewProps> = ({
             backgroundColor: 'var(--theme-bg-tertiary)',
             borderColor: 'var(--theme-border-secondary)',
             color: 'var(--theme-text-secondary)',
-            backdropFilter: 'blur(8px)',
+            minWidth: 'fit-content',
           }}
         >
           <div className="relative pr-2" data-header>
@@ -769,6 +826,22 @@ const RetroView: React.FC<RetroViewProps> = ({
             <ResizeHandle
               onMouseDown={(e) => handleMouseDown('app', e)}
               onDoubleClick={() => handleAutoFitColumn('app')}
+            />
+          </div>
+          {showDatasourceColumn && (
+            <div className="relative pr-2" data-header>
+              Source
+              <ResizeHandle
+                onMouseDown={(e) => handleMouseDown('datasource', e)}
+                onDoubleClick={() => handleAutoFitColumn('datasource')}
+              />
+            </div>
+          )}
+          <div className="relative pr-2" data-header>
+            Events
+            <ResizeHandle
+              onMouseDown={(e) => handleMouseDown('events', e)}
+              onDoubleClick={() => handleAutoFitColumn('events')}
             />
           </div>
           <div className="relative pr-2" data-header>
@@ -868,50 +941,61 @@ const RetroView: React.FC<RetroViewProps> = ({
                     <span className="block truncate" title={timeRange}>{timeRange}</span>
                   </div>
 
-                  {/* App - with game image */}
+                  {/* App - with game image (responsive to column width) */}
                   <div className="flex items-center gap-2 overflow-hidden" data-cell>
                     {hasGameImage && data.gameAppId ? (
                       <img
                         src={`${API_BASE}/game-images/${data.gameAppId}/header/`}
                         alt={data.gameName || 'Game'}
-                        className="w-[120px] h-[45px] rounded object-cover flex-shrink-0 transition-transform group-hover:scale-[1.02]"
+                        className="min-w-[60px] max-w-[120px] w-2/5 h-auto aspect-[120/45] rounded object-cover flex-shrink transition-transform group-hover:scale-[1.02]"
                         loading="lazy"
                         onError={() => handleImageError(String(data.gameAppId))}
                       />
                     ) : (
-                      <div
-                        className="w-[120px] h-[45px] rounded flex items-center justify-center flex-shrink-0"
-                        style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                      >
-                        {getServiceIcon(data.service, 28)}
+                      /* Service icon placeholder - fixed size, no background box for cleaner shrinking */
+                      <div className="w-10 h-10 flex items-center justify-center flex-shrink-0">
+                        {getServiceIcon(data.service, 32)}
                       </div>
                     )}
                     <div className="flex flex-col min-w-0 overflow-hidden">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate" title={data.gameName || data.service}>
-                          {data.gameName || data.service}
-                        </span>
-                        {hasMultipleDatasources && showDatasourceLabels && data.datasource && (
-                          <Tooltip content={`Datasource: ${data.datasource}`}>
-                            <span
-                              className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0"
-                              style={{
-                                backgroundColor: 'var(--theme-bg-tertiary)',
-                                color: 'var(--theme-text-secondary)',
-                                border: '1px solid var(--theme-border-secondary)'
-                              }}
-                            >
-                              {data.datasource}
-                            </span>
-                          </Tooltip>
-                        )}
-                      </div>
+                      <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate" title={data.gameName || data.service}>
+                        {data.gameName || data.service}
+                      </span>
                       {data.requestCount > 1 && (
                         <span className="text-xs text-[var(--theme-text-muted)]">
                           {data.clientsSet.size} client{data.clientsSet.size !== 1 ? 's' : ''} · {data.requestCount} request{data.requestCount !== 1 ? 's' : ''}
                         </span>
                       )}
                     </div>
+                  </div>
+
+                  {/* Datasource - only shown when multiple datasources exist */}
+                  {showDatasourceColumn && (
+                    <div className="overflow-hidden" data-cell>
+                      <span
+                        className="px-1.5 py-0.5 text-xs font-medium rounded inline-block truncate max-w-full"
+                        style={{
+                          backgroundColor: 'var(--theme-bg-tertiary)',
+                          color: 'var(--theme-text-secondary)',
+                          border: '1px solid var(--theme-border-secondary)'
+                        }}
+                        title={data.datasource}
+                      >
+                        {data.datasource || 'N/A'}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Events - shows event badges for associated downloads */}
+                  <div className="overflow-hidden" data-cell>
+                    {(() => {
+                      const events = getGroupEvents(data.downloadIds);
+                      return events.length > 0 ? (
+                        <DownloadBadges events={events} maxVisible={2} size="sm" />
+                      ) : (
+                        <span className="text-xs text-[var(--theme-text-muted)]">—</span>
+                      );
+                    })()}
                   </div>
 
                   {/* Depot */}

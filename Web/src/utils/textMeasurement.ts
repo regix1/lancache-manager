@@ -92,9 +92,9 @@ export const RETRO_VIEW_FONTS = {
  * Uses generic text patterns to estimate typical content widths
  */
 export const SAMPLE_DATA_PATTERNS = {
-  // Timestamp patterns - typical format including range (start - end)
+  // Timestamp patterns - compact format for typical ranges
   timestamp: [
-    'Dec 31, 12:34:56 PM - Dec 31, 1:45:07 PM',
+    'Dec 31, 12:34 PM - 1:45 PM',
   ],
   // App name patterns - use character width estimates (avg game name ~20 chars)
   // Using placeholder text to avoid hardcoding specific names
@@ -105,6 +105,8 @@ export const SAMPLE_DATA_PATTERNS = {
   headers: {
     timestamp: 'TIMESTAMP',
     app: 'APP',
+    datasource: 'SOURCE',
+    events: 'EVENTS',
     depot: 'DEPOT',
     client: 'CLIENT',
     speed: 'AVG SPEED',
@@ -121,6 +123,8 @@ export const SAMPLE_DATA_PATTERNS = {
 export interface ColumnWidths {
   timestamp: number;
   app: number;
+  datasource: number;
+  events: number;
   depot: number;
   client: number;
   speed: number;
@@ -151,6 +155,8 @@ export function calculateColumnWidths(actualData?: {
   const headerWidths = {
     timestamp: measureTextWidth(SAMPLE_DATA_PATTERNS.headers.timestamp, RETRO_VIEW_FONTS.header),
     app: measureTextWidth(SAMPLE_DATA_PATTERNS.headers.app, RETRO_VIEW_FONTS.header),
+    datasource: measureTextWidth(SAMPLE_DATA_PATTERNS.headers.datasource, RETRO_VIEW_FONTS.header),
+    events: measureTextWidth(SAMPLE_DATA_PATTERNS.headers.events, RETRO_VIEW_FONTS.header),
     depot: measureTextWidth(SAMPLE_DATA_PATTERNS.headers.depot, RETRO_VIEW_FONTS.header),
     client: measureTextWidth(SAMPLE_DATA_PATTERNS.headers.client, RETRO_VIEW_FONTS.header),
     speed: measureTextWidth(SAMPLE_DATA_PATTERNS.headers.speed, RETRO_VIEW_FONTS.header),
@@ -170,8 +176,9 @@ export function calculateColumnWidths(actualData?: {
   // Timestamp: measure the longest timestamp pattern
   const timestampContentWidth = measureMaxTextWidth(timestampSamples, RETRO_VIEW_FONTS.timestamp, 0);
 
-  // App: includes image (120px) + gap (8px) + text
-  const APP_IMAGE_WIDTH = 120;
+  // App: includes image (60-120px responsive) + gap (8px) + text
+  // Use minimum responsive image width for default calculation
+  const APP_IMAGE_WIDTH = 80;
   const APP_GAP = 8;
   const appNameContentWidth = measureMaxTextWidth(appNameSamples, RETRO_VIEW_FONTS.appName, 0);
   const appTotalWidth = APP_IMAGE_WIDTH + APP_GAP + appNameContentWidth;
@@ -194,6 +201,12 @@ export function calculateColumnWidths(actualData?: {
   // Overall: "100.0%" with label
   const overallContentWidth = measureTextWidth('100.0%', RETRO_VIEW_FONTS.overall);
 
+  // Datasource: compact width - just enough for short labels like "cache-1"
+  const datasourceContentWidth = measureTextWidth('cache-1', RETRO_VIEW_FONTS.appName);
+
+  // Events: compact width for 2 small badges
+  const eventsContentWidth = 90; // Space for 2 compact badges
+
   // Calculate final widths: max(header, content) + padding + resize handle
   const calculateWidth = (headerW: number, contentW: number, extraPadding: number = 0): number => {
     return Math.max(
@@ -205,6 +218,8 @@ export function calculateColumnWidths(actualData?: {
   return {
     timestamp: calculateWidth(headerWidths.timestamp, timestampContentWidth),
     app: calculateWidth(headerWidths.app, appTotalWidth, 8), // Extra padding for app column
+    datasource: calculateWidth(headerWidths.datasource, datasourceContentWidth),
+    events: calculateWidth(headerWidths.events, eventsContentWidth),
     depot: calculateWidth(headerWidths.depot, depotContentWidth),
     client: calculateWidth(headerWidths.client, clientContentWidth),
     speed: calculateWidth(headerWidths.speed, speedContentWidth),
