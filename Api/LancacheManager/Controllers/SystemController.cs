@@ -363,6 +363,124 @@ public class SystemController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Get default guest preferences
+    /// </summary>
+    [HttpGet("default-guest-preferences")]
+    public IActionResult GetDefaultGuestPreferences()
+    {
+        var state = _stateService.GetState();
+        return Ok(new
+        {
+            useLocalTimezone = state.DefaultGuestUseLocalTimezone,
+            use24HourFormat = state.DefaultGuestUse24HourFormat,
+            sharpCorners = state.DefaultGuestSharpCorners,
+            disableTooltips = state.DefaultGuestDisableTooltips,
+            showDatasourceLabels = state.DefaultGuestShowDatasourceLabels,
+            showYearInDates = state.DefaultGuestShowYearInDates,
+            allowedTimeFormats = state.AllowedTimeFormats ?? new List<string> { "server-24h", "server-12h", "local-24h", "local-12h" }
+        });
+    }
+
+    /// <summary>
+    /// Update allowed time formats for guests
+    /// </summary>
+    [HttpPatch("default-guest-preferences/allowed-time-formats")]
+    [RequireAuth]
+    public async Task<IActionResult> SetAllowedTimeFormats([FromBody] SetAllowedTimeFormatsRequest request)
+    {
+        var validFormats = new[] { "server-24h", "server-12h", "local-24h", "local-12h" };
+
+        if (request.Formats == null || request.Formats.Count == 0)
+        {
+            return BadRequest(new ErrorResponse { Error = "At least one time format must be allowed" });
+        }
+
+        // Validate all formats
+        foreach (var format in request.Formats)
+        {
+            if (!validFormats.Contains(format))
+            {
+                return BadRequest(new ErrorResponse { Error = $"Invalid time format: {format}. Valid formats are: {string.Join(", ", validFormats)}" });
+            }
+        }
+
+        _stateService.UpdateState(state =>
+        {
+            state.AllowedTimeFormats = request.Formats.Distinct().ToList();
+        });
+
+        _logger.LogInformation("Allowed time formats set to: {Formats}", string.Join(", ", request.Formats));
+
+        // Broadcast to all clients
+        await _hubContext.Clients.All.SendAsync("AllowedTimeFormatsChanged", new
+        {
+            formats = request.Formats
+        });
+
+        return Ok(new { message = "Allowed time formats updated", formats = request.Formats });
+    }
+
+    /// <summary>
+    /// Update a single default guest preference
+    /// </summary>
+    [HttpPatch("default-guest-preferences/{key}")]
+    [RequireAuth]
+    public async Task<IActionResult> SetDefaultGuestPreference(string key, [FromBody] SetBoolPreferenceRequest request)
+    {
+        var validKeys = new[] { "useLocalTimezone", "use24HourFormat", "sharpCorners", "disableTooltips", "showDatasourceLabels", "showYearInDates" };
+        if (!validKeys.Contains(key))
+        {
+            return BadRequest(new ErrorResponse { Error = $"Invalid preference key: {key}" });
+        }
+
+        _stateService.UpdateState(state =>
+        {
+            switch (key)
+            {
+                case "useLocalTimezone":
+                    state.DefaultGuestUseLocalTimezone = request.Value;
+                    break;
+                case "use24HourFormat":
+                    state.DefaultGuestUse24HourFormat = request.Value;
+                    break;
+                case "sharpCorners":
+                    state.DefaultGuestSharpCorners = request.Value;
+                    break;
+                case "disableTooltips":
+                    state.DefaultGuestDisableTooltips = request.Value;
+                    break;
+                case "showDatasourceLabels":
+                    state.DefaultGuestShowDatasourceLabels = request.Value;
+                    break;
+                case "showYearInDates":
+                    state.DefaultGuestShowYearInDates = request.Value;
+                    break;
+            }
+        });
+
+        _logger.LogInformation("Default guest preference {Key} set to: {Value}", key, request.Value);
+
+        // Broadcast to all clients so other admins and guest users can update
+        await _hubContext.Clients.All.SendAsync("DefaultGuestPreferencesChanged", new
+        {
+            key,
+            value = request.Value
+        });
+
+        return Ok(new { message = $"Default guest preference {key} updated", key, value = request.Value });
+    }
+
+    public class SetAllowedTimeFormatsRequest
+    {
+        public List<string> Formats { get; set; } = new();
+    }
+
+    public class SetBoolPreferenceRequest
+    {
+        public bool Value { get; set; }
+    }
+
     public class UpdateSetupRequest
     {
         public bool? Completed { get; set; }

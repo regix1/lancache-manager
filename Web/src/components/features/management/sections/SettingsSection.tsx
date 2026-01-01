@@ -1,10 +1,11 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, Suspense } from 'react';
 import {
   Shield,
   Sparkles,
   Settings,
   ToggleLeft,
-  ToggleRight
+  ToggleRight,
+  Gauge
 } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -13,12 +14,19 @@ import { useMockMode } from '@contexts/MockModeContext';
 import { useNotifications } from '@contexts/NotificationsContext';
 import AuthenticationManager from '../steam/AuthenticationManager';
 import DisplayPreferences from './DisplayPreferences';
+import GcManager from '../gc/GcManager';
 
 interface SettingsSectionProps {
   onApiKeyRegenerated?: () => void;
+  optimizationsEnabled: boolean;
+  isAuthenticated: boolean;
 }
 
-const SettingsSection: React.FC<SettingsSectionProps> = ({ onApiKeyRegenerated }) => {
+const SettingsSection: React.FC<SettingsSectionProps> = ({
+  onApiKeyRegenerated,
+  optimizationsEnabled,
+  isAuthenticated
+}) => {
   const { mockMode, setMockMode } = useMockMode();
   const { addNotification } = useNotifications();
 
@@ -133,6 +141,39 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ onApiKeyRegenerated }
             </div>
           </div>
           <DisplayPreferences />
+        </Card>
+
+        {/* Performance Optimizations Card */}
+        <Card>
+          <div className="flex items-center gap-3 mb-4">
+            <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${optimizationsEnabled ? 'icon-bg-orange' : 'icon-bg-gray'}`}>
+              <Gauge className={`w-5 h-5 ${optimizationsEnabled ? 'icon-orange' : 'icon-gray'}`} />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-themed-primary">Performance Optimizations</h3>
+              <p className="text-xs text-themed-muted">Garbage collection and memory management</p>
+            </div>
+          </div>
+          {optimizationsEnabled ? (
+            <Suspense
+              fallback={
+                <div className="flex items-center justify-center py-8">
+                  <div className="text-themed-muted">Loading GC settings...</div>
+                </div>
+              }
+            >
+              <GcManager isAuthenticated={isAuthenticated} />
+            </Suspense>
+          ) : (
+            <Alert color="yellow">
+              <div>
+                <p className="font-medium">Performance optimizations are disabled</p>
+                <p className="text-sm mt-1">
+                  Enable the <code className="px-1.5 py-0.5 rounded text-xs" style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}>ENABLE_GC_OPTIMIZATION</code> environment variable in your Docker container to access garbage collection settings.
+                </p>
+              </div>
+            </Alert>
+          )}
         </Card>
       </div>
     </div>

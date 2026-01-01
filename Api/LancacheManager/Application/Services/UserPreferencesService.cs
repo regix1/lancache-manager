@@ -30,6 +30,7 @@ public class UserPreferencesService
         public bool ShowDatasourceLabels { get; set; } = true;
         public bool ShowYearInDates { get; set; }
         public string? RefreshRate { get; set; } // Refresh rate for guest users (null = use default)
+        public string[]? AllowedTimeFormats { get; set; } // Allowed time formats for this user (null = all formats)
     }
 
     /// <summary>
@@ -57,7 +58,8 @@ public class UserPreferencesService
                     Use24HourFormat = preferences.Use24HourFormat,
                     ShowDatasourceLabels = preferences.ShowDatasourceLabels,
                     ShowYearInDates = preferences.ShowYearInDates,
-                    RefreshRate = preferences.RefreshRate
+                    RefreshRate = preferences.RefreshRate,
+                    AllowedTimeFormats = ParseAllowedTimeFormats(preferences.AllowedTimeFormats)
                 };
             }
 
@@ -104,6 +106,7 @@ public class UserPreferencesService
                 existingPreferences.ShowDatasourceLabels = preferencesDto.ShowDatasourceLabels;
                 existingPreferences.ShowYearInDates = preferencesDto.ShowYearInDates;
                 existingPreferences.RefreshRate = preferencesDto.RefreshRate;
+                existingPreferences.AllowedTimeFormats = SerializeAllowedTimeFormats(preferencesDto.AllowedTimeFormats);
                 existingPreferences.UpdatedAtUtc = DateTime.UtcNow;
             }
             else
@@ -123,6 +126,7 @@ public class UserPreferencesService
                     ShowDatasourceLabels = preferencesDto.ShowDatasourceLabels,
                     ShowYearInDates = preferencesDto.ShowYearInDates,
                     RefreshRate = preferencesDto.RefreshRate,
+                    AllowedTimeFormats = SerializeAllowedTimeFormats(preferencesDto.AllowedTimeFormats),
                     UpdatedAtUtc = DateTime.UtcNow
                 };
                 context.UserPreferences.Add(newPreferences);
@@ -207,6 +211,9 @@ public class UserPreferencesService
                 case "refreshrate":
                     preferences.RefreshRate = GetValueAsString(value);
                     break;
+                case "allowedtimeformats":
+                    preferences.AllowedTimeFormats = SerializeAllowedTimeFormats(GetValueAsStringArray(value));
+                    break;
                 default:
                     _logger.LogWarning("Unknown preference key: {Key}", preferenceKey);
                     return null;
@@ -228,7 +235,8 @@ public class UserPreferencesService
                 Use24HourFormat = preferences.Use24HourFormat,
                 ShowDatasourceLabels = preferences.ShowDatasourceLabels,
                 ShowYearInDates = preferences.ShowYearInDates,
-                RefreshRate = preferences.RefreshRate
+                RefreshRate = preferences.RefreshRate,
+                AllowedTimeFormats = ParseAllowedTimeFormats(preferences.AllowedTimeFormats)
             };
         }
         catch (Exception ex)
@@ -288,5 +296,56 @@ public class UserPreferencesService
             return jsonElement.ValueKind == JsonValueKind.Null ? null : jsonElement.GetString();
         }
         return value as string;
+    }
+
+    /// <summary>
+    /// Helper method to convert value to string array, handling JsonElement
+    /// </summary>
+    private string[]? GetValueAsStringArray<T>(T value)
+    {
+        if (value is JsonElement jsonElement)
+        {
+            if (jsonElement.ValueKind == JsonValueKind.Null)
+                return null;
+            if (jsonElement.ValueKind == JsonValueKind.Array)
+            {
+                var list = new List<string>();
+                foreach (var item in jsonElement.EnumerateArray())
+                {
+                    var str = item.GetString();
+                    if (str != null)
+                        list.Add(str);
+                }
+                return list.ToArray();
+            }
+        }
+        return value as string[];
+    }
+
+    /// <summary>
+    /// Serialize string array to JSON for database storage
+    /// </summary>
+    private static string? SerializeAllowedTimeFormats(string[]? formats)
+    {
+        if (formats == null || formats.Length == 0)
+            return null;
+        return JsonSerializer.Serialize(formats);
+    }
+
+    /// <summary>
+    /// Parse JSON string to string array for DTO
+    /// </summary>
+    private static string[]? ParseAllowedTimeFormats(string? json)
+    {
+        if (string.IsNullOrEmpty(json))
+            return null;
+        try
+        {
+            return JsonSerializer.Deserialize<string[]>(json);
+        }
+        catch
+        {
+            return null;
+        }
     }
 }

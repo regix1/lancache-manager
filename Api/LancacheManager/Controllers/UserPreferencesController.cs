@@ -61,7 +61,8 @@ public class UserPreferencesController : ControllerBase
                 Use24HourFormat = true,
                 ShowDatasourceLabels = true,
                 ShowYearInDates = false,
-                RefreshRate = null
+                RefreshRate = null,
+                AllowedTimeFormats = null
             });
         }
 
@@ -82,7 +83,8 @@ public class UserPreferencesController : ControllerBase
                 Use24HourFormat = true,
                 ShowDatasourceLabels = true,
                 ShowYearInDates = false,
-                RefreshRate = null
+                RefreshRate = null,
+                AllowedTimeFormats = null
             });
         }
 
@@ -188,7 +190,8 @@ public class UserPreferencesController : ControllerBase
                 Use24HourFormat = true,
                 ShowDatasourceLabels = true,
                 ShowYearInDates = false,
-                RefreshRate = null
+                RefreshRate = null,
+                AllowedTimeFormats = null
             });
         }
 

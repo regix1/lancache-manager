@@ -34,6 +34,7 @@ export interface UserPreferences {
   showDatasourceLabels: boolean;
   showYearInDates: boolean;
   refreshRate?: string | null; // Refresh rate for guest users (null = use default)
+  allowedTimeFormats?: string[] | null; // Allowed time formats for this user (null = all formats)
 }
 
 class PreferencesService {
@@ -85,7 +86,8 @@ class PreferencesService {
           use24HourFormat: data.use24HourFormat || false,
           showDatasourceLabels: data.showDatasourceLabels ?? true,
           showYearInDates: data.showYearInDates || false,
-          refreshRate: data.refreshRate || null
+          refreshRate: data.refreshRate || null,
+          allowedTimeFormats: data.allowedTimeFormats || null
         };
         this.loaded = true;
         // console.log('[PreferencesService] Loaded preferences from API:', this.preferences);
@@ -315,7 +317,8 @@ class PreferencesService {
           use24HourFormat: newPreferences.use24HourFormat || false,
           showDatasourceLabels: newPreferences.showDatasourceLabels ?? true,
           showYearInDates: newPreferences.showYearInDates || false,
-          refreshRate: newPreferences.refreshRate || null
+          refreshRate: newPreferences.refreshRate || null,
+          allowedTimeFormats: newPreferences.allowedTimeFormats || null
         };
 
         // Update cache directly with SignalR values (don't fetch from API to avoid race conditions)
@@ -500,7 +503,8 @@ class PreferencesService {
       use24HourFormat: true, // Default to 24-hour format
       showDatasourceLabels: true, // Default to showing datasource labels when multiple datasources
       showYearInDates: false, // Default to hiding year for current year dates
-      refreshRate: null // Default refresh rate (null = use system default)
+      refreshRate: null, // Default refresh rate (null = use system default)
+      allowedTimeFormats: null // Default to all time formats allowed
     };
   }
 
@@ -527,7 +531,8 @@ class PreferencesService {
           use24HourFormat: data.use24HourFormat || false,
           showDatasourceLabels: data.showDatasourceLabels ?? true,
           showYearInDates: data.showYearInDates || false,
-          refreshRate: data.refreshRate || null
+          refreshRate: data.refreshRate || null,
+          allowedTimeFormats: data.allowedTimeFormats || null
         };
       } else {
         console.error(

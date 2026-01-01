@@ -313,7 +313,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
           WebkitTapHighlightColor: 'transparent'
         }}
         onMouseEnter={(e) =>
-          !disabled && (e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)')
+          !disabled && (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
         }
         onMouseLeave={(e) =>
           !disabled && (e.currentTarget.style.backgroundColor = 'var(--theme-card-bg)')
@@ -402,7 +402,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                     <button
                       type="button"
                       onClick={(e) => handleSubmenuToggle(option.value, e.currentTarget)}
-                      className={`w-full px-3 py-2.5 text-left text-sm transition-all duration-150 hover:bg-[var(--theme-bg-tertiary)] cursor-pointer ${
+                      className={`w-full px-3 py-2.5 text-left text-sm transition-all duration-150 hover:bg-[var(--theme-bg-hover)] cursor-pointer ${
                         value.startsWith(option.value + ':') || expandedSubmenu === option.value
                           ? 'bg-[var(--theme-bg-tertiary)]'
                           : ''
@@ -484,7 +484,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                                     color: isSubSelected ? 'var(--theme-button-text)' : 'var(--theme-text-primary)'
                                   }}
                                   onMouseEnter={(e) => {
-                                    if (!isSubSelected) e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)';
+                                    if (!isSubSelected) e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
                                   }}
                                   onMouseLeave={(e) => {
                                     if (!isSubSelected) e.currentTarget.style.backgroundColor = 'transparent';
@@ -547,7 +547,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                           className={`w-full px-3 py-2.5 text-left text-sm transition-all duration-150 ${
                             option.disabled
                               ? 'opacity-40 cursor-not-allowed'
-                              : 'hover:bg-[var(--theme-bg-tertiary)] cursor-pointer'
+                              : 'hover:bg-[var(--theme-bg-hover)] cursor-pointer'
                           } ${
                             option.value === value
                               ? 'bg-[var(--theme-bg-tertiary)]'

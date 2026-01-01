@@ -5,6 +5,7 @@ import {
   FolderCog,
   Settings,
   Users,
+  Palette,
   type LucideIcon
 } from 'lucide-react';
 
@@ -55,9 +56,9 @@ const tabs: TabConfig[] = [
   },
   {
     id: 'preferences',
-    label: 'Preferences',
-    shortLabel: 'Prefs',
-    icon: Settings,
+    label: 'Theme',
+    shortLabel: 'Theme',
+    icon: Palette,
     description: 'Themes & customization'
   },
   {

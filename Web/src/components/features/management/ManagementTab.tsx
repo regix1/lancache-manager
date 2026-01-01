@@ -189,7 +189,13 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
   const renderActiveSection = () => {
     // Settings section is always available
     if (activeSection === 'settings') {
-      return <SettingsSection onApiKeyRegenerated={onApiKeyRegenerated} />;
+      return (
+        <SettingsSection
+          onApiKeyRegenerated={onApiKeyRegenerated}
+          optimizationsEnabled={optimizationsEnabled}
+          isAuthenticated={isAuthenticated}
+        />
+      );
     }
 
     // Other sections require authentication
@@ -251,7 +257,6 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
         return (
           <PreferencesSection
             isAuthenticated={isAuthenticated}
-            optimizationsEnabled={optimizationsEnabled}
           />
         );
 

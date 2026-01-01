@@ -2131,3 +2131,164 @@ input[type='number']::-webkit-outer-spin-button {
     box-shadow: 0 0 0 3px var(--theme-primary);
   }
 }
+
+/* ===== USER MANAGEMENT REFINED STYLES ===== */
+
+/* Stat pill - compact inline stat display */
+.stat-pill {
+  @apply inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium;
+  background: var(--theme-bg-secondary);
+  border: 1px solid var(--theme-border-secondary);
+  transition: all 0.2s ease;
+}
+
+.stat-pill:hover {
+  background: var(--theme-bg-tertiary);
+  border-color: var(--theme-border);
+}
+
+.stat-pill .stat-value {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Session card refined */
+.session-card {
+  @apply rounded-lg overflow-hidden;
+  background: var(--theme-bg-secondary);
+  border: 1px solid var(--theme-border-secondary);
+  transition: all 0.2s ease;
+}
+
+.session-card:hover {
+  border-color: var(--theme-border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.session-card.dimmed {
+  opacity: 0.6;
+  background: var(--theme-bg-tertiary);
+}
+
+.session-card.dimmed:hover {
+  opacity: 0.8;
+}
+
+/* Session avatar */
+.session-avatar {
+  @apply w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0;
+  transition: transform 0.2s ease;
+}
+
+.session-card:hover .session-avatar {
+  transform: scale(1.05);
+}
+
+/* Status dot with pulse animation */
+.status-dot {
+  @apply w-2 h-2 rounded-full;
+  box-shadow: 0 0 0 2px var(--theme-bg-secondary);
+}
+
+.status-dot.active {
+  background: var(--theme-success);
+  animation: pulse-dot 2s infinite;
+}
+
+.status-dot.away {
+  background: var(--theme-warning);
+  animation: pulse-dot-away 3s infinite;
+}
+
+.status-dot.inactive {
+  background: var(--theme-text-muted);
+}
+
+@keyframes pulse-dot {
+  0%, 100% { box-shadow: 0 0 0 2px var(--theme-bg-secondary), 0 0 0 4px rgba(34, 197, 94, 0.3); }
+  50% { box-shadow: 0 0 0 2px var(--theme-bg-secondary), 0 0 0 6px rgba(34, 197, 94, 0.1); }
+}
+
+@keyframes pulse-dot-away {
+  0%, 100% { box-shadow: 0 0 0 2px var(--theme-bg-secondary), 0 0 0 4px rgba(245, 158, 11, 0.3); }
+  50% { box-shadow: 0 0 0 2px var(--theme-bg-secondary), 0 0 0 6px rgba(245, 158, 11, 0.1); }
+}
+
+/* Config section */
+.config-section {
+  @apply rounded-lg p-4;
+  background: var(--theme-bg-tertiary);
+  border: 1px solid var(--theme-border-secondary);
+}
+
+.config-section-title {
+  @apply text-xs font-semibold uppercase tracking-wider mb-3;
+  color: var(--theme-text-muted);
+  letter-spacing: 0.05em;
+}
+
+/* Toggle row */
+.toggle-row {
+  @apply flex items-center justify-between py-2.5 px-3 -mx-3 rounded-lg;
+  transition: background 0.15s ease;
+}
+
+.toggle-row:hover {
+  background: var(--theme-bg-hover);
+}
+
+.toggle-row-label {
+  @apply text-sm font-medium;
+  color: var(--theme-text-primary);
+}
+
+.toggle-row-description {
+  @apply text-xs mt-0.5;
+  color: var(--theme-text-muted);
+}
+
+/* Modern toggle switch */
+.modern-toggle {
+  @apply relative inline-flex h-6 w-11 items-center rounded-full cursor-pointer;
+  background: var(--theme-bg-tertiary);
+  border: 1px solid var(--theme-border-secondary);
+  transition: all 0.2s ease;
+}
+
+.modern-toggle.checked {
+  background: var(--theme-primary);
+  border-color: var(--theme-primary);
+}
+
+.modern-toggle .toggle-thumb {
+  @apply inline-block h-4 w-4 rounded-full shadow-sm;
+  background: white;
+  transform: translateX(2px);
+  transition: transform 0.2s ease;
+}
+
+.modern-toggle.checked .toggle-thumb {
+  transform: translateX(22px);
+}
+
+/* Bulk action card */
+.bulk-action-card {
+  @apply rounded-lg p-4;
+  background: linear-gradient(135deg, var(--theme-bg-secondary) 0%, var(--theme-bg-tertiary) 100%);
+  border: 1px solid var(--theme-border-secondary);
+}
+
+/* Preference badge */
+.pref-badge {
+  @apply inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium;
+  background: var(--theme-bg-tertiary);
+  color: var(--theme-text-muted);
+  border: 1px solid var(--theme-border-secondary);
+}
+
+/* Section divider */
+.section-divider {
+  @apply my-4;
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--theme-border-secondary), transparent);
+}

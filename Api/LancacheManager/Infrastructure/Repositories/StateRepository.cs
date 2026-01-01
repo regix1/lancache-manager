@@ -66,6 +66,18 @@ public class StateRepository : IStateRepository
         public string? DefaultGuestTheme { get; set; } = "dark-default"; // Default theme for guest users
         public string RefreshRate { get; set; } = "STANDARD"; // Default to 10 seconds (LIVE, ULTRA, REALTIME, STANDARD, RELAXED, SLOW)
         public string DefaultGuestRefreshRate { get; set; } = "STANDARD"; // Default refresh rate for guest users
+        
+        // Default guest preferences (applied to new guest sessions)
+        public bool DefaultGuestUseLocalTimezone { get; set; } = false;
+        public bool DefaultGuestUse24HourFormat { get; set; } = true;
+        public bool DefaultGuestSharpCorners { get; set; } = false;
+        public bool DefaultGuestDisableTooltips { get; set; } = false;
+        public bool DefaultGuestShowDatasourceLabels { get; set; } = true;
+        public bool DefaultGuestShowYearInDates { get; set; } = false;
+
+        // Allowed time formats for guests (e.g., ["server-24h", "server-12h", "local-24h", "local-12h"])
+        // If empty or null, all formats are allowed
+        public List<string> AllowedTimeFormats { get; set; } = new() { "server-24h", "server-12h", "local-24h", "local-12h" };
 
         // PICS viability check caching (prevents repeated Steam API calls)
         public bool RequiresFullScan { get; set; } = false; // True if Steam requires full scan due to large change gap
@@ -116,6 +128,17 @@ public class StateRepository : IStateRepository
         public string? DefaultGuestTheme { get; set; } = "dark-default";
         public string RefreshRate { get; set; } = "STANDARD";
         public string DefaultGuestRefreshRate { get; set; } = "STANDARD";
+        
+        // Default guest preferences
+        public bool DefaultGuestUseLocalTimezone { get; set; } = false;
+        public bool DefaultGuestUse24HourFormat { get; set; } = true;
+        public bool DefaultGuestSharpCorners { get; set; } = false;
+        public bool DefaultGuestDisableTooltips { get; set; } = false;
+        public bool DefaultGuestShowDatasourceLabels { get; set; } = true;
+        public bool DefaultGuestShowYearInDates { get; set; } = false;
+
+        // Allowed time formats for guests
+        public List<string> AllowedTimeFormats { get; set; } = new() { "server-24h", "server-12h", "local-24h", "local-12h" };
 
         // PICS viability check caching
         public bool RequiresFullScan { get; set; } = false;
@@ -835,6 +858,14 @@ public class StateRepository : IStateRepository
             DefaultGuestTheme = persisted.DefaultGuestTheme ?? "dark-default",
             RefreshRate = persisted.RefreshRate ?? "STANDARD",
             DefaultGuestRefreshRate = persisted.DefaultGuestRefreshRate ?? "STANDARD",
+            // Default guest preferences
+            DefaultGuestUseLocalTimezone = persisted.DefaultGuestUseLocalTimezone,
+            DefaultGuestUse24HourFormat = persisted.DefaultGuestUse24HourFormat,
+            DefaultGuestSharpCorners = persisted.DefaultGuestSharpCorners,
+            DefaultGuestDisableTooltips = persisted.DefaultGuestDisableTooltips,
+            DefaultGuestShowDatasourceLabels = persisted.DefaultGuestShowDatasourceLabels,
+            DefaultGuestShowYearInDates = persisted.DefaultGuestShowYearInDates,
+            AllowedTimeFormats = persisted.AllowedTimeFormats ?? new List<string> { "server-24h", "server-12h", "local-24h", "local-12h" },
             // PICS viability check caching
             RequiresFullScan = persisted.RequiresFullScan,
             LastViabilityCheck = persisted.LastViabilityCheck,
@@ -882,6 +913,14 @@ public class StateRepository : IStateRepository
             DefaultGuestTheme = state.DefaultGuestTheme,
             RefreshRate = state.RefreshRate ?? "STANDARD",
             DefaultGuestRefreshRate = state.DefaultGuestRefreshRate ?? "STANDARD",
+            // Default guest preferences
+            DefaultGuestUseLocalTimezone = state.DefaultGuestUseLocalTimezone,
+            DefaultGuestUse24HourFormat = state.DefaultGuestUse24HourFormat,
+            DefaultGuestSharpCorners = state.DefaultGuestSharpCorners,
+            DefaultGuestDisableTooltips = state.DefaultGuestDisableTooltips,
+            DefaultGuestShowDatasourceLabels = state.DefaultGuestShowDatasourceLabels,
+            DefaultGuestShowYearInDates = state.DefaultGuestShowYearInDates,
+            AllowedTimeFormats = state.AllowedTimeFormats,
             // PICS viability check caching
             RequiresFullScan = state.RequiresFullScan,
             LastViabilityCheck = state.LastViabilityCheck,

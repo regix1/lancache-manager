@@ -37,6 +37,17 @@ const Sparkline: React.FC<SparklineProps> = memo(({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartRef = useRef<Chart | null>(null);
   const [hasAnimated, setHasAnimated] = useState(false);
+  const [themeVersion, setThemeVersion] = useState(0);
+
+  // Listen for theme changes to re-resolve colors
+  useEffect(() => {
+    const handleThemeChange = () => {
+      setThemeVersion(v => v + 1);
+    };
+
+    window.addEventListener('themechange', handleThemeChange);
+    return () => window.removeEventListener('themechange', handleThemeChange);
+  }, []);
 
   // Check for reduced motion preference
   const prefersReducedMotion = useMemo(() => {
@@ -47,7 +58,7 @@ const Sparkline: React.FC<SparklineProps> = memo(({
   // Only animate on first render, not on data updates
   const shouldAnimate = animated && !prefersReducedMotion && !hasAnimated;
 
-  // Resolve CSS variable to actual color value
+  // Resolve CSS variable to actual color value (re-resolves when theme changes)
   const resolvedColor = useMemo(() => {
     if (color.startsWith('var(')) {
       const varMatch = color.match(/var\((--[^)]+)\)/);
@@ -59,7 +70,8 @@ const Sparkline: React.FC<SparklineProps> = memo(({
       }
     }
     return color;
-  }, [color]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [color, themeVersion]);
 
   // Parse the color to create gradient
   const gradientColor = useMemo(() => {

@@ -536,6 +536,111 @@ public class SessionsController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Reset all guest sessions to default preferences
+    /// </summary>
+    [HttpPost("bulk/reset-to-defaults")]
+    [RequireAuth]
+    public async Task<IActionResult> BulkResetToDefaults()
+    {
+        var guestSessions = _guestSessionService.GetAllSessions()
+            .Where(s => !s.IsRevoked && !s.IsExpired)
+            .ToList();
+        var affectedCount = 0;
+
+        // Get default preferences from state
+        var state = _stateService.GetState();
+        var defaultPrefsDto = new UserPreferencesService.UserPreferencesDto
+        {
+            SelectedTheme = null, // null means use default guest theme
+            SharpCorners = state.DefaultGuestSharpCorners,
+            DisableFocusOutlines = true, // Default
+            DisableTooltips = state.DefaultGuestDisableTooltips,
+            PicsAlwaysVisible = false, // Default
+            DisableStickyNotifications = false, // Default
+            ShowDatasourceLabels = state.DefaultGuestShowDatasourceLabels,
+            UseLocalTimezone = state.DefaultGuestUseLocalTimezone,
+            Use24HourFormat = state.DefaultGuestUse24HourFormat,
+            ShowYearInDates = state.DefaultGuestShowYearInDates,
+            RefreshRate = null // null means use default guest refresh rate
+        };
+
+        foreach (var session in guestSessions)
+        {
+            try
+            {
+                // Reset preferences for this session
+                _userPreferencesService.SavePreferences(session.DeviceId, defaultPrefsDto);
+                affectedCount++;
+
+                // Notify the session about the preference change
+                await _hubContext.Clients.All.SendAsync("UserPreferencesUpdated", new
+                {
+                    sessionId = session.DeviceId,
+                    preferences = new
+                    {
+                        selectedTheme = defaultPrefsDto.SelectedTheme,
+                        sharpCorners = defaultPrefsDto.SharpCorners,
+                        disableFocusOutlines = defaultPrefsDto.DisableFocusOutlines,
+                        disableTooltips = defaultPrefsDto.DisableTooltips,
+                        picsAlwaysVisible = defaultPrefsDto.PicsAlwaysVisible,
+                        disableStickyNotifications = defaultPrefsDto.DisableStickyNotifications,
+                        showDatasourceLabels = defaultPrefsDto.ShowDatasourceLabels,
+                        useLocalTimezone = defaultPrefsDto.UseLocalTimezone,
+                        use24HourFormat = defaultPrefsDto.Use24HourFormat,
+                        showYearInDates = defaultPrefsDto.ShowYearInDates,
+                        refreshRate = defaultPrefsDto.RefreshRate
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to reset preferences for guest session {SessionId}", session.DeviceId);
+            }
+        }
+
+        _logger.LogInformation("Reset {Count} guest sessions to default preferences", affectedCount);
+
+        return Ok(new { affectedCount, message = $"Reset {affectedCount} guest sessions to defaults" });
+    }
+
+    /// <summary>
+    /// Clear all guest sessions (revoke and delete)
+    /// </summary>
+    [HttpDelete("bulk/clear-guests")]
+    [RequireAuth]
+    public async Task<IActionResult> BulkClearGuests()
+    {
+        var guestSessions = _guestSessionService.GetAllSessions()
+            .Where(s => !s.IsRevoked && !s.IsExpired)
+            .ToList();
+        var clearedCount = 0;
+
+        foreach (var session in guestSessions)
+        {
+            try
+            {
+                _guestSessionService.RevokeSession(session.DeviceId, "Admin (bulk action)");
+                clearedCount++;
+
+                // Notify connected clients
+                await _hubContext.Clients.All.SendAsync("UserSessionRevoked", new
+                {
+                    deviceId = session.DeviceId,
+                    sessionType = "guest"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to revoke guest session {SessionId}", session.DeviceId);
+            }
+        }
+
+        _logger.LogInformation("Cleared {Count} guest sessions", clearedCount);
+
+        return Ok(new { clearedCount, message = $"Cleared {clearedCount} guest sessions" });
+    }
+
     public class SetSessionRefreshRateRequest
     {
         public string RefreshRate { get; set; } = string.Empty;

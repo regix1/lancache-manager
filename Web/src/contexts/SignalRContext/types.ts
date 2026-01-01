@@ -54,6 +54,8 @@ export const SIGNALR_EVENTS = [
   'UserPreferencesReset',
   'UserSessionsCleared',
   'DefaultGuestThemeChanged',
+  'DefaultGuestPreferencesChanged',
+  'AllowedTimeFormatsChanged',
   'UserSessionRevoked',
   'UserSessionCreated',
   'SessionLastSeenUpdated',
@@ -330,5 +332,14 @@ export interface GuestRefreshRateUpdatedPayload {
 
 export interface DefaultGuestRefreshRateChangedPayload {
   refreshRate: string;
+}
+
+export interface DefaultGuestPreferencesChangedPayload {
+  key: string;
+  value: boolean;
+}
+
+export interface AllowedTimeFormatsChangedPayload {
+  formats: string[];
 }
 

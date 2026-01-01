@@ -32,13 +32,25 @@ export const Tooltip: React.FC<TooltipProps> = ({
   const [x, setX] = useState(0);
   const [y, setY] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
+  const [globallyDisabled, setGloballyDisabled] = useState(
+    document.documentElement.getAttribute('data-disable-tooltips') === 'true'
+  );
   const triggerRef = useRef<HTMLDivElement>(null);
   const showTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Check if tooltips are disabled globally
-  const globallyDisabled =
-    document.documentElement.getAttribute('data-disable-tooltips') === 'true';
+  // Listen for tooltips setting changes
+  useEffect(() => {
+    const handleTooltipsChange = () => {
+      const disabled = document.documentElement.getAttribute('data-disable-tooltips') === 'true';
+      setGloballyDisabled(disabled);
+      if (disabled) {
+        setShow(false);
+      }
+    };
+    window.addEventListener('tooltipschange', handleTooltipsChange);
+    return () => window.removeEventListener('tooltipschange', handleTooltipsChange);
+  }, []);
 
   // Detect mobile viewport - use touch behavior instead of hover
   useEffect(() => {
@@ -304,8 +316,19 @@ const EdgeTooltip: React.FC<{
 
 export const CacheInfoTooltip: React.FC = () => {
   const [isMobile, setIsMobile] = useState(false);
-  const globallyDisabled =
-    document.documentElement.getAttribute('data-disable-tooltips') === 'true';
+  const [globallyDisabled, setGloballyDisabled] = useState(
+    document.documentElement.getAttribute('data-disable-tooltips') === 'true'
+  );
+
+  // Listen for tooltips setting changes
+  useEffect(() => {
+    const handleTooltipsChange = () => {
+      const disabled = document.documentElement.getAttribute('data-disable-tooltips') === 'true';
+      setGloballyDisabled(disabled);
+    };
+    window.addEventListener('tooltipschange', handleTooltipsChange);
+    return () => window.removeEventListener('tooltipschange', handleTooltipsChange);
+  }, []);
 
   useEffect(() => {
     const checkMobile = () => {
