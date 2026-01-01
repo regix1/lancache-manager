@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { useIsDesktop } from '@hooks/useMediaQuery';
 import { formatBytes, formatPercent, formatDateTime, formatSpeed } from '@utils/formatters';
 import { getDefaultColumnWidths, calculateColumnWidths, type ColumnWidths } from '@utils/textMeasurement';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -312,7 +313,7 @@ const CombinedProgressBar: React.FC<{
   const missPercent = totalBytes > 0 ? (missBytes / totalBytes) * 100 : 0;
 
   return (
-    <div className="flex flex-col gap-1.5 min-w-0 w-full">
+    <div className="flex flex-col gap-1.5 min-w-0 w-full max-w-full overflow-hidden">
       {/* Combined bar */}
       <div
         className="h-2 rounded-full overflow-hidden flex w-full"
@@ -339,13 +340,13 @@ const CombinedProgressBar: React.FC<{
           }}
         />
       </div>
-      {/* Labels */}
+      {/* Labels - with truncation support for mobile */}
       {showLabels && (
-        <div className="flex justify-between gap-2 text-[10px] min-w-0 w-full overflow-hidden">
-          <span className="truncate flex-1 min-w-0" style={{ color: 'var(--theme-chart-cache-hit)' }}>
+        <div className="flex justify-between text-[10px] min-w-0 gap-2">
+          <span className="truncate" style={{ color: 'var(--theme-chart-cache-hit)' }}>
             {formatBytes(hitBytes)} ({formatPercent(hitPercent)})
           </span>
-          <span className="truncate flex-1 min-w-0 text-right" style={{ color: 'var(--theme-error)' }}>
+          <span className="truncate text-right" style={{ color: 'var(--theme-error)' }}>
             {formatBytes(missBytes)} ({formatPercent(missPercent)})
           </span>
         </div>
@@ -453,6 +454,10 @@ const RetroView: React.FC<RetroViewProps> = ({
   hasMultipleDatasources = false
 }) => {
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
+
+  // Use JavaScript-based breakpoint detection for conditional rendering
+  // This completely removes desktop layout from DOM on mobile, preventing width calculation conflicts
+  const isDesktop = useIsDesktop();
 
   // Calculate smart default widths based on content
   const smartDefaultWidths = useMemo(() => {
@@ -709,14 +714,6 @@ const RetroView: React.FC<RetroViewProps> = ({
   // Use pixel values for precise control during resize, with 1fr on the last column to fill remaining space
   const gridTemplate = `${columnWidths.timestamp}px ${columnWidths.app + 40}px ${columnWidths.depot}px ${columnWidths.client}px ${columnWidths.speed}px ${columnWidths.cacheHit + columnWidths.cacheMiss}px minmax(${columnWidths.overall + 20}px, 1fr)`;
 
-  // Calculate minimum table width to ensure header background extends across full scroll area
-  const GRID_GAP_PX = 8;
-  const PADDING_PX = 32; // pl-3 + pr-4 ≈ 28px, round up
-  const NUM_COLUMNS = 7;
-  const minTableWidth = columnWidths.timestamp + (columnWidths.app + 40) + columnWidths.depot +
-    columnWidths.client + columnWidths.speed + (columnWidths.cacheHit + columnWidths.cacheMiss) +
-    (columnWidths.overall + 20) + ((NUM_COLUMNS - 1) * GRID_GAP_PX) + PADDING_PX;
-
   // Get efficiency-based accent color
   const getAccentColor = (hitPercent: number) => {
     if (hitPercent >= 90) return 'var(--theme-success)';
@@ -726,7 +723,7 @@ const RetroView: React.FC<RetroViewProps> = ({
 
   return (
     <div ref={containerRef} className="rounded-lg border overflow-hidden retro-table-container" style={{ borderColor: 'var(--theme-border-primary)', backgroundColor: 'var(--theme-card-bg)' }}>
-      {/* Keyframe styles for animations and mobile layout fixes */}
+      {/* Keyframe styles for animations */}
       <style>{`
         @keyframes float {
           0%, 100% { transform: translateY(0); }
@@ -746,97 +743,79 @@ const RetroView: React.FC<RetroViewProps> = ({
           animation: rowEntrance 0.3s ease-out forwards;
           opacity: 0;
         }
-
-        /* Mobile layout constraints - force content to fit viewport */
-        @media (max-width: 1023px) {
-          .retro-table-container {
-            max-width: 100%;
-          }
-          .retro-table-container .retro-mobile-row {
-            max-width: 100%;
-            box-sizing: border-box;
-          }
-          .retro-table-container .retro-mobile-content {
-            max-width: 100%;
-            box-sizing: border-box;
-          }
-          /* Ensure desktop layout doesn't affect layout */
-          .retro-table-container .retro-desktop-layout {
-            display: none !important;
-          }
-        }
       `}</style>
 
-      {/* Desktop Table Header - hidden on mobile */}
-      <div
-        className="retro-desktop-layout hidden lg:grid gap-2 pl-3 pr-4 py-3 text-xs font-semibold uppercase tracking-wide border-b select-none sticky top-0 z-20"
-        style={{
-          gridTemplateColumns: gridTemplate,
-          minWidth: minTableWidth,
-          backgroundColor: 'var(--theme-bg-tertiary)',
-          borderColor: 'var(--theme-border-secondary)',
-          color: 'var(--theme-text-secondary)',
-          backdropFilter: 'blur(8px)',
-        }}
-      >
-        <div className="relative pr-2" data-header>
-          Timestamp
-          <ResizeHandle
-            onMouseDown={(e) => handleMouseDown('timestamp', e)}
-            onDoubleClick={() => handleAutoFitColumn('timestamp')}
-          />
+      {/* Desktop Table Header - only rendered on desktop via JS conditional */}
+      {isDesktop && (
+        <div
+          className="grid gap-2 pl-3 pr-4 py-3 text-xs font-semibold uppercase tracking-wide border-b select-none sticky top-0 z-20"
+          style={{
+            gridTemplateColumns: gridTemplate,
+            backgroundColor: 'var(--theme-bg-tertiary)',
+            borderColor: 'var(--theme-border-secondary)',
+            color: 'var(--theme-text-secondary)',
+            backdropFilter: 'blur(8px)',
+          }}
+        >
+          <div className="relative pr-2" data-header>
+            Timestamp
+            <ResizeHandle
+              onMouseDown={(e) => handleMouseDown('timestamp', e)}
+              onDoubleClick={() => handleAutoFitColumn('timestamp')}
+            />
+          </div>
+          <div className="relative pr-2" data-header>
+            App
+            <ResizeHandle
+              onMouseDown={(e) => handleMouseDown('app', e)}
+              onDoubleClick={() => handleAutoFitColumn('app')}
+            />
+          </div>
+          <div className="relative pr-2" data-header>
+            Depot
+            <ResizeHandle
+              onMouseDown={(e) => handleMouseDown('depot', e)}
+              onDoubleClick={() => handleAutoFitColumn('depot')}
+            />
+          </div>
+          <div className="relative pr-2" data-header>
+            Client
+            <ResizeHandle
+              onMouseDown={(e) => handleMouseDown('client', e)}
+              onDoubleClick={() => handleAutoFitColumn('client')}
+            />
+          </div>
+          <div className="relative pr-2" data-header>
+            Avg Speed
+            <ResizeHandle
+              onMouseDown={(e) => handleMouseDown('speed', e)}
+              onDoubleClick={() => handleAutoFitColumn('speed')}
+            />
+          </div>
+          <div className="relative pr-2" data-header>
+            Cache Performance
+            <ResizeHandle
+              onMouseDown={(e) => handleMouseDown('cacheHit', e)}
+              onDoubleClick={() => handleAutoFitColumn('cacheHit')}
+            />
+          </div>
+          <div className="flex items-center justify-center gap-1 pr-2" data-header>
+            <span>Efficiency</span>
+            <Tooltip content="Reset column widths to default">
+              <button
+                onClick={handleResetWidths}
+                className="p-0.5 rounded text-themed-muted hover:text-themed-primary transition-colors flex-shrink-0"
+                style={{ fontSize: '10px' }}
+              >
+                ↺
+              </button>
+            </Tooltip>
+          </div>
         </div>
-        <div className="relative pr-2" data-header>
-          App
-          <ResizeHandle
-            onMouseDown={(e) => handleMouseDown('app', e)}
-            onDoubleClick={() => handleAutoFitColumn('app')}
-          />
-        </div>
-        <div className="relative pr-2" data-header>
-          Depot
-          <ResizeHandle
-            onMouseDown={(e) => handleMouseDown('depot', e)}
-            onDoubleClick={() => handleAutoFitColumn('depot')}
-          />
-        </div>
-        <div className="relative pr-2" data-header>
-          Client
-          <ResizeHandle
-            onMouseDown={(e) => handleMouseDown('client', e)}
-            onDoubleClick={() => handleAutoFitColumn('client')}
-          />
-        </div>
-        <div className="relative pr-2" data-header>
-          Avg Speed
-          <ResizeHandle
-            onMouseDown={(e) => handleMouseDown('speed', e)}
-            onDoubleClick={() => handleAutoFitColumn('speed')}
-          />
-        </div>
-        <div className="relative pr-2" data-header>
-          Cache Performance
-          <ResizeHandle
-            onMouseDown={(e) => handleMouseDown('cacheHit', e)}
-            onDoubleClick={() => handleAutoFitColumn('cacheHit')}
-          />
-        </div>
-        <div className="flex items-center justify-center gap-1 pr-2" data-header>
-          <span>Efficiency</span>
-          <Tooltip content="Reset column widths to default">
-            <button
-              onClick={handleResetWidths}
-              className="p-0.5 rounded text-themed-muted hover:text-themed-primary transition-colors flex-shrink-0"
-              style={{ fontSize: '10px' }}
-            >
-              ↺
-            </button>
-          </Tooltip>
-        </div>
-      </div>
+      )}
 
       {/* Table Body */}
-      <div className="overflow-x-hidden">
+      <div>
         {groupedItems.map((data, index) => {
           const serviceLower = data.service.toLowerCase();
           const isSteam = serviceLower === 'steam';
@@ -861,7 +840,7 @@ const RetroView: React.FC<RetroViewProps> = ({
           return (
             <div
               key={data.id}
-              className="row-animate retro-mobile-row transition-all duration-200 hover:bg-[var(--theme-bg-tertiary)]/50 group relative w-full"
+              className="row-animate transition-all duration-200 hover:bg-[var(--theme-bg-tertiary)]/50 group relative"
               style={{
                 borderBottom: '1px solid var(--theme-border-secondary)',
                 animationDelay: `${index * 30}ms`,
@@ -876,199 +855,201 @@ const RetroView: React.FC<RetroViewProps> = ({
                 }}
               />
 
-              {/* Mobile Layout */}
-              <div className="retro-mobile-content lg:hidden p-3 pl-4 space-y-2 sm:space-y-3 overflow-hidden min-w-0 max-w-full">
-                {/* App image and name */}
-                <div className="flex items-center gap-2 sm:gap-3 min-w-0 w-full">
-                  {hasGameImage && data.gameAppId ? (
-                    <img
-                      src={`${API_BASE}/game-images/${data.gameAppId}/header/`}
-                      alt={data.gameName || 'Game'}
-                      className="w-[100px] h-[40px] sm:w-[130px] sm:h-[50px] rounded object-cover flex-shrink-0"
-                      loading="lazy"
-                      onError={() => handleImageError(String(data.gameAppId))}
-                    />
-                  ) : (
-                    <div
-                      className="w-[100px] h-[40px] sm:w-[130px] sm:h-[50px] rounded flex items-center justify-center flex-shrink-0"
-                      style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                    >
-                      {getServiceIcon(data.service, 24)}
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
-                      {data.gameName || data.service}
+              {/* Conditional Layout - Mobile or Desktop based on JS breakpoint detection */}
+              {isDesktop ? (
+                /* Desktop Layout */
+                <div
+                  className="grid gap-2 pl-4 pr-4 py-3 items-center"
+                  style={{ gridTemplateColumns: gridTemplate }}
+                  data-row
+                >
+                  {/* Timestamp */}
+                  <div className="text-xs text-[var(--theme-text-secondary)] overflow-hidden whitespace-nowrap" data-cell>
+                    <span className="block truncate" title={timeRange}>{timeRange}</span>
+                  </div>
+
+                  {/* App - with game image */}
+                  <div className="flex items-center gap-2 overflow-hidden" data-cell>
+                    {hasGameImage && data.gameAppId ? (
+                      <img
+                        src={`${API_BASE}/game-images/${data.gameAppId}/header/`}
+                        alt={data.gameName || 'Game'}
+                        className="w-[120px] h-[45px] rounded object-cover flex-shrink-0 transition-transform group-hover:scale-[1.02]"
+                        loading="lazy"
+                        onError={() => handleImageError(String(data.gameAppId))}
+                      />
+                    ) : (
+                      <div
+                        className="w-[120px] h-[45px] rounded flex items-center justify-center flex-shrink-0"
+                        style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+                      >
+                        {getServiceIcon(data.service, 28)}
+                      </div>
+                    )}
+                    <div className="flex flex-col min-w-0 overflow-hidden">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate" title={data.gameName || data.service}>
+                          {data.gameName || data.service}
+                        </span>
+                        {hasMultipleDatasources && showDatasourceLabels && data.datasource && (
+                          <Tooltip content={`Datasource: ${data.datasource}`}>
+                            <span
+                              className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0"
+                              style={{
+                                backgroundColor: 'var(--theme-bg-tertiary)',
+                                color: 'var(--theme-text-secondary)',
+                                border: '1px solid var(--theme-border-secondary)'
+                              }}
+                            >
+                              {data.datasource}
+                            </span>
+                          </Tooltip>
+                        )}
+                      </div>
                       {data.requestCount > 1 && (
-                        <span className="ml-2 text-xs text-[var(--theme-text-muted)]">
-                          ({data.clientsSet.size} client{data.clientsSet.size !== 1 ? 's' : ''} · {data.requestCount} request{data.requestCount !== 1 ? 's' : ''})
+                        <span className="text-xs text-[var(--theme-text-muted)]">
+                          {data.clientsSet.size} client{data.clientsSet.size !== 1 ? 's' : ''} · {data.requestCount} request{data.requestCount !== 1 ? 's' : ''}
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-[var(--theme-text-muted)] min-w-0 overflow-hidden">
-                      <span className="truncate min-w-0">
-                        <ClientIpDisplay clientIp={data.clientIp} className="inline" />
-                        {data.depotId && (
-                          <>
-                            {' • '}
-                            <a
-                              href={`https://steamdb.info/depot/${data.depotId}/`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-[var(--theme-primary)] hover:underline"
-                            >
-                              {data.depotId}
-                            </a>
-                          </>
-                        )}
-                      </span>
-                      {hasMultipleDatasources && showDatasourceLabels && data.datasource && (
-                        <Tooltip content={`Datasource: ${data.datasource}`}>
-                          <span
-                            className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0"
-                            style={{
-                              backgroundColor: 'var(--theme-bg-tertiary)',
-                              color: 'var(--theme-text-secondary)',
-                              border: '1px solid var(--theme-border-secondary)'
-                            }}
-                          >
-                            {data.datasource}
-                          </span>
-                        </Tooltip>
-                      )}
-                    </div>
                   </div>
-                </div>
 
-                {/* Timestamp and Speed */}
-                <div className="flex items-center justify-between gap-2 text-xs text-[var(--theme-text-secondary)] min-w-0 w-full">
-                  <span className="truncate min-w-0 flex-1">{timeRange}</span>
-                  <span className="flex items-center gap-1 text-[var(--theme-text-primary)] flex-shrink-0">
-                    <Zap size={12} style={{ color: 'var(--theme-warning)' }} />
-                    {formatSpeed(data.averageBytesPerSecond)}
-                  </span>
-                </div>
+                  {/* Depot */}
+                  <div className="overflow-hidden" data-cell>
+                    {data.depotId ? (
+                      <a
+                        href={`https://steamdb.info/depot/${data.depotId}/`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-mono text-[var(--theme-primary)] hover:underline"
+                      >
+                        {data.depotId}
+                      </a>
+                    ) : (
+                      <span className="text-sm text-[var(--theme-text-muted)]">N/A</span>
+                    )}
+                  </div>
 
-                {/* Combined Progress Bar and Efficiency */}
-                <div className="flex items-center gap-3 min-w-0 w-full">
-                  <div className="flex-1 min-w-0">
+                  {/* Client IP */}
+                  <div className="text-sm font-mono text-[var(--theme-text-primary)] overflow-hidden" data-cell>
+                    {data.clientsSet.size > 1 ? (
+                      <span className="truncate block" title={`${data.clientsSet.size} clients`}>
+                        {data.clientsSet.size} clients
+                      </span>
+                    ) : (
+                      <ClientIpDisplay clientIp={data.clientIp} />
+                    )}
+                  </div>
+
+                  {/* Avg Speed */}
+                  <div className="text-sm text-[var(--theme-text-primary)] overflow-hidden flex items-center gap-1" data-cell>
+                    <Zap size={12} style={{ color: 'var(--theme-warning)', opacity: 0.7 }} />
+                    <span className="truncate">{formatSpeed(data.averageBytesPerSecond)}</span>
+                  </div>
+
+                  {/* Combined Cache Performance Bar */}
+                  <div className="overflow-hidden pr-2" data-cell>
                     <CombinedProgressBar
                       hitBytes={cacheHitBytes}
                       missBytes={cacheMissBytes}
                       totalBytes={totalBytes}
-                      showLabels={false}
                     />
                   </div>
-                  <div className="flex-shrink-0">
-                    <EfficiencyGauge percent={hitPercent} size={44} />
+
+                  {/* Circular Efficiency Gauge */}
+                  <div className="flex justify-center" data-cell>
+                    <EfficiencyGauge percent={hitPercent} />
                   </div>
                 </div>
-              </div>
-
-              {/* Desktop Layout */}
-              <div
-                className="retro-desktop-layout hidden lg:grid gap-2 pl-4 pr-4 py-3 items-center"
-                style={{ gridTemplateColumns: gridTemplate, minWidth: minTableWidth }}
-                data-row
-              >
-                {/* Timestamp */}
-                <div className="text-xs text-[var(--theme-text-secondary)] overflow-hidden whitespace-nowrap" data-cell>
-                  <span className="block truncate" title={timeRange}>{timeRange}</span>
-                </div>
-
-                {/* App - with game image */}
-                <div className="flex items-center gap-2 overflow-hidden" data-cell>
-                  {hasGameImage && data.gameAppId ? (
-                    <img
-                      src={`${API_BASE}/game-images/${data.gameAppId}/header/`}
-                      alt={data.gameName || 'Game'}
-                      className="w-[120px] h-[45px] rounded object-cover flex-shrink-0 transition-transform group-hover:scale-[1.02]"
-                      loading="lazy"
-                      onError={() => handleImageError(String(data.gameAppId))}
-                    />
-                  ) : (
-                    <div
-                      className="w-[120px] h-[45px] rounded flex items-center justify-center flex-shrink-0"
-                      style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                    >
-                      {getServiceIcon(data.service, 28)}
-                    </div>
-                  )}
-                  <div className="flex flex-col min-w-0 overflow-hidden">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate" title={data.gameName || data.service}>
-                        {data.gameName || data.service}
-                      </span>
-                      {hasMultipleDatasources && showDatasourceLabels && data.datasource && (
-                        <Tooltip content={`Datasource: ${data.datasource}`}>
-                          <span
-                            className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0"
-                            style={{
-                              backgroundColor: 'var(--theme-bg-tertiary)',
-                              color: 'var(--theme-text-secondary)',
-                              border: '1px solid var(--theme-border-secondary)'
-                            }}
-                          >
-                            {data.datasource}
-                          </span>
-                        </Tooltip>
-                      )}
-                    </div>
-                    {data.requestCount > 1 && (
-                      <span className="text-xs text-[var(--theme-text-muted)]">
-                        {data.clientsSet.size} client{data.clientsSet.size !== 1 ? 's' : ''} · {data.requestCount} request{data.requestCount !== 1 ? 's' : ''}
-                      </span>
+              ) : (
+                /* Mobile Layout - with explicit width constraints */
+                <div className="p-3 pl-4 space-y-2 sm:space-y-3 w-full max-w-full overflow-hidden">
+                  {/* App image and name */}
+                  <div className="flex items-center gap-2 sm:gap-3 w-full min-w-0">
+                    {hasGameImage && data.gameAppId ? (
+                      <img
+                        src={`${API_BASE}/game-images/${data.gameAppId}/header/`}
+                        alt={data.gameName || 'Game'}
+                        className="w-[100px] h-[40px] sm:w-[130px] sm:h-[50px] rounded object-cover flex-shrink-0"
+                        loading="lazy"
+                        onError={() => handleImageError(String(data.gameAppId))}
+                      />
+                    ) : (
+                      <div
+                        className="w-[100px] h-[40px] sm:w-[130px] sm:h-[50px] rounded flex items-center justify-center flex-shrink-0"
+                        style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+                      >
+                        {getServiceIcon(data.service, 24)}
+                      </div>
                     )}
+                    <div className="flex-1 min-w-0 overflow-hidden">
+                      <div className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
+                        {data.gameName || data.service}
+                        {data.requestCount > 1 && (
+                          <span className="ml-2 text-xs text-[var(--theme-text-muted)]">
+                            ({data.clientsSet.size} client{data.clientsSet.size !== 1 ? 's' : ''} · {data.requestCount} request{data.requestCount !== 1 ? 's' : ''})
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-[var(--theme-text-muted)] min-w-0">
+                        <span className="truncate">
+                          <ClientIpDisplay clientIp={data.clientIp} className="inline" />
+                          {data.depotId && (
+                            <>
+                              {' • '}
+                              <a
+                                href={`https://steamdb.info/depot/${data.depotId}/`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[var(--theme-primary)] hover:underline"
+                              >
+                                {data.depotId}
+                              </a>
+                            </>
+                          )}
+                        </span>
+                        {hasMultipleDatasources && showDatasourceLabels && data.datasource && (
+                          <Tooltip content={`Datasource: ${data.datasource}`}>
+                            <span
+                              className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0"
+                              style={{
+                                backgroundColor: 'var(--theme-bg-tertiary)',
+                                color: 'var(--theme-text-secondary)',
+                                border: '1px solid var(--theme-border-secondary)'
+                              }}
+                            >
+                              {data.datasource}
+                            </span>
+                          </Tooltip>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Timestamp and Speed */}
+                  <div className="flex items-center justify-between text-xs text-[var(--theme-text-secondary)] min-w-0">
+                    <span className="truncate mr-2">{timeRange}</span>
+                    <span className="flex items-center gap-1 text-[var(--theme-text-primary)] flex-shrink-0">
+                      <Zap size={12} style={{ color: 'var(--theme-warning)' }} />
+                      {formatSpeed(data.averageBytesPerSecond)}
+                    </span>
+                  </div>
+
+                  {/* Combined Progress Bar and Efficiency */}
+                  <div className="flex items-center gap-3 w-full min-w-0">
+                    <div className="flex-1 min-w-0 overflow-hidden">
+                      <CombinedProgressBar
+                        hitBytes={cacheHitBytes}
+                        missBytes={cacheMissBytes}
+                        totalBytes={totalBytes}
+                      />
+                    </div>
+                    <div className="flex-shrink-0">
+                      <EfficiencyGauge percent={hitPercent} size={44} />
+                    </div>
                   </div>
                 </div>
-
-                {/* Depot */}
-                <div className="overflow-hidden" data-cell>
-                  {data.depotId ? (
-                    <a
-                      href={`https://steamdb.info/depot/${data.depotId}/`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm font-mono text-[var(--theme-primary)] hover:underline"
-                    >
-                      {data.depotId}
-                    </a>
-                  ) : (
-                    <span className="text-sm text-[var(--theme-text-muted)]">N/A</span>
-                  )}
-                </div>
-
-                {/* Client IP */}
-                <div className="text-sm font-mono text-[var(--theme-text-primary)] overflow-hidden" data-cell>
-                  {data.clientsSet.size > 1 ? (
-                    <span className="truncate block" title={`${data.clientsSet.size} clients`}>
-                      {data.clientsSet.size} clients
-                    </span>
-                  ) : (
-                    <ClientIpDisplay clientIp={data.clientIp} />
-                  )}
-                </div>
-
-                {/* Avg Speed */}
-                <div className="text-sm text-[var(--theme-text-primary)] overflow-hidden flex items-center gap-1" data-cell>
-                  <Zap size={12} style={{ color: 'var(--theme-warning)', opacity: 0.7 }} />
-                  <span className="truncate">{formatSpeed(data.averageBytesPerSecond)}</span>
-                </div>
-
-                {/* Combined Cache Performance Bar */}
-                <div className="overflow-hidden pr-2" data-cell>
-                  <CombinedProgressBar
-                    hitBytes={cacheHitBytes}
-                    missBytes={cacheMissBytes}
-                    totalBytes={totalBytes}
-                  />
-                </div>
-
-                {/* Circular Efficiency Gauge */}
-                <div className="flex justify-center" data-cell>
-                  <EfficiencyGauge percent={hitPercent} />
-                </div>
-              </div>
+              )}
             </div>
           );
         })}
