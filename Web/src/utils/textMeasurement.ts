@@ -92,9 +92,9 @@ export const RETRO_VIEW_FONTS = {
  * Uses generic text patterns to estimate typical content widths
  */
 export const SAMPLE_DATA_PATTERNS = {
-  // Timestamp patterns - compact format for typical ranges
+  // Timestamp patterns - longest format with full date on both sides including seconds
   timestamp: [
-    'Dec 31, 12:34 PM - 1:45 PM',
+    'Dec 31, 2025, 10:05:19 PM - Dec 31, 2025, 10:05:48 PM',
   ],
   // App name patterns - use character width estimates (avg game name ~20 chars)
   // Using placeholder text to avoid hardcoding specific names
