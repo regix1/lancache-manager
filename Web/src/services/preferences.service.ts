@@ -32,6 +32,7 @@ export interface UserPreferences {
   useLocalTimezone: boolean;
   use24HourFormat: boolean;
   showDatasourceLabels: boolean;
+  showYearInDates: boolean;
   refreshRate?: string | null; // Refresh rate for guest users (null = use default)
 }
 
@@ -83,6 +84,7 @@ class PreferencesService {
           useLocalTimezone: data.useLocalTimezone || false,
           use24HourFormat: data.use24HourFormat || false,
           showDatasourceLabels: data.showDatasourceLabels ?? true,
+          showYearInDates: data.showYearInDates || false,
           refreshRate: data.refreshRate || null
         };
         this.loaded = true;
@@ -312,6 +314,7 @@ class PreferencesService {
           useLocalTimezone: newPreferences.useLocalTimezone || false,
           use24HourFormat: newPreferences.use24HourFormat || false,
           showDatasourceLabels: newPreferences.showDatasourceLabels ?? true,
+          showYearInDates: newPreferences.showYearInDates || false,
           refreshRate: newPreferences.refreshRate || null
         };
 
@@ -496,6 +499,7 @@ class PreferencesService {
       useLocalTimezone: false, // Default to server timezone
       use24HourFormat: true, // Default to 24-hour format
       showDatasourceLabels: true, // Default to showing datasource labels when multiple datasources
+      showYearInDates: false, // Default to hiding year for current year dates
       refreshRate: null // Default refresh rate (null = use system default)
     };
   }
@@ -522,6 +526,7 @@ class PreferencesService {
           useLocalTimezone: data.useLocalTimezone || false,
           use24HourFormat: data.use24HourFormat || false,
           showDatasourceLabels: data.showDatasourceLabels ?? true,
+          showYearInDates: data.showYearInDates || false,
           refreshRate: data.refreshRate || null
         };
       } else {

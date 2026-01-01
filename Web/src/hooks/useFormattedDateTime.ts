@@ -1,12 +1,13 @@
 import { useMemo } from 'react';
 import { getServerTimezone } from '@utils/timezone';
 import { useTimezone } from '@contexts/TimezoneContext';
+import { getGlobalAlwaysShowYearPreference } from '@utils/yearDisplayPreference';
 
 /**
  * Hook that formats a date/time and automatically re-renders when timezone or time format preference changes
  * Use this instead of formatDateTime() directly in components to get live preference updates
  */
-export const useFormattedDateTime = (dateString: string | Date | null | undefined): string => {
+export const useFormattedDateTime = (dateString: string | Date | null | undefined, forceYear = false): string => {
   const { useLocalTimezone, use24HourFormat, refreshKey } = useTimezone();
 
   return useMemo(() => {
@@ -28,9 +29,11 @@ export const useFormattedDateTime = (dateString: string | Date | null | undefine
         targetTimezone = getServerTimezone();
       }
 
-      // Check if date is in a different year than current
+      // Check if year should be displayed
+      // Include year if: forceYear is true, OR user preference is to always show year, OR date is from different year
       const now = new Date();
-      const includeYear = date.getFullYear() !== now.getFullYear();
+      const alwaysShowYear = getGlobalAlwaysShowYearPreference();
+      const includeYear = forceYear || alwaysShowYear || date.getFullYear() !== now.getFullYear();
 
       // Build format options
       const formatOptions: Intl.DateTimeFormatOptions = {
@@ -43,7 +46,7 @@ export const useFormattedDateTime = (dateString: string | Date | null | undefine
         hour12: !use24HourFormat
       };
 
-      // Add year if date is from a different year
+      // Add year if needed
       if (includeYear) {
         formatOptions.year = 'numeric';
       }
@@ -62,5 +65,5 @@ export const useFormattedDateTime = (dateString: string | Date | null | undefine
     } catch (error) {
       return 'Invalid Date';
     }
-  }, [dateString, useLocalTimezone, use24HourFormat, refreshKey]); // Re-compute when date or preferences change
+  }, [dateString, forceYear, useLocalTimezone, use24HourFormat, refreshKey]); // Re-compute when date or preferences change
 };

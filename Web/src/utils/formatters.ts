@@ -2,13 +2,17 @@ import { FILE_SIZE_UNITS } from './constants';
 import { getServerTimezone } from './timezone';
 import { getGlobalTimezonePreference } from './timezonePreference';
 import { getGlobal24HourPreference } from './timeFormatPreference';
+import { getGlobalAlwaysShowYearPreference } from './yearDisplayPreference';
 
 /**
  * Format date/time to localized string
  * NOTE: This is for non-React contexts (CSV exports, etc.)
  * For React components, use the useFormattedDateTime hook instead
+ *
+ * @param dateString - The date to format
+ * @param forceYear - If true, always include the year in the output
  */
-export function formatDateTime(dateString: string | Date | null | undefined): string {
+export function formatDateTime(dateString: string | Date | null | undefined, forceYear = false): string {
   if (!dateString) return 'N/A';
 
   try {
@@ -30,9 +34,11 @@ export function formatDateTime(dateString: string | Date | null | undefined): st
     // Get 24-hour format preference
     const use24Hour = getGlobal24HourPreference();
 
-    // Check if date is in a different year than current
+    // Check if year should be displayed
+    // Include year if: forceYear is true, OR user preference is to always show year, OR date is from different year
     const now = new Date();
-    const includeYear = date.getFullYear() !== now.getFullYear();
+    const alwaysShowYear = getGlobalAlwaysShowYearPreference();
+    const includeYear = forceYear || alwaysShowYear || date.getFullYear() !== now.getFullYear();
 
     // Build format options
     const formatOptions: Intl.DateTimeFormatOptions = {
@@ -45,7 +51,7 @@ export function formatDateTime(dateString: string | Date | null | undefined): st
       hour12: !use24Hour
     };
 
-    // Add year if date is from a different year
+    // Add year if date is from a different year or forced
     if (includeYear) {
       formatOptions.year = 'numeric';
     }
@@ -67,6 +73,20 @@ export function formatDateTime(dateString: string | Date | null | undefined): st
 }
 
 /**
+ * Check if a date is from a different year than the current year
+ */
+export function isFromDifferentYear(dateString: string | Date | null | undefined): boolean {
+  if (!dateString) return false;
+  try {
+    const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
+    if (isNaN(date.getTime())) return false;
+    return date.getFullYear() !== new Date().getFullYear();
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Format bytes to human-readable string
  */
 export function formatBytes(bytes: number, decimals = 2): string {
@@ -83,18 +103,23 @@ export function formatBytes(bytes: number, decimals = 2): string {
 }
 
 /**
- * Format speed (bytes per second) to human-readable string
+ * Format speed (bytes per second) to human-readable string in bits
+ * Network speeds are traditionally measured in bits (Mb/s), not bytes (MB/s)
  */
 export function formatSpeed(bytesPerSecond: number | undefined | null, decimals = 1): string {
   if (!bytesPerSecond || bytesPerSecond <= 0) return 'N/A';
 
+  // Convert bytes to bits
+  const bitsPerSecond = bytesPerSecond * 8;
+
   const k = 1024;
   const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['b', 'Kb', 'Mb', 'Gb', 'Tb', 'Pb'];
 
-  const i = Math.floor(Math.log(bytesPerSecond) / Math.log(k));
-  const unit = FILE_SIZE_UNITS[i] || 'B';
+  const i = Math.floor(Math.log(bitsPerSecond) / Math.log(k));
+  const unit = sizes[i] || 'b';
 
-  return parseFloat((bytesPerSecond / Math.pow(k, i)).toFixed(dm)) + ' ' + unit + '/s';
+  return parseFloat((bitsPerSecond / Math.pow(k, i)).toFixed(dm)) + ' ' + unit + '/s';
 }
 
 /**

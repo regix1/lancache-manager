@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useSyncExternalS
 import preferencesService from '@services/preferences.service';
 import { setGlobalTimezonePreference } from '@utils/timezonePreference';
 import { setGlobal24HourPreference } from '@utils/timeFormatPreference';
+import { setGlobalAlwaysShowYearPreference, getGlobalAlwaysShowYearPreference } from '@utils/yearDisplayPreference';
 
 type TimeSettingValue = 'server-24h' | 'server-12h' | 'local-24h' | 'local-12h';
 
@@ -74,6 +75,7 @@ export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setActualUse24HourFormat(prefs.use24HourFormat);
       setGlobalTimezonePreference(prefs.useLocalTimezone);
       setGlobal24HourPreference(prefs.use24HourFormat);
+      setGlobalAlwaysShowYearPreference(prefs.showYearInDates ?? false);
     };
     loadPreferences();
 
@@ -125,6 +127,15 @@ export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           }
           return prev;
         });
+      }
+
+      // Handle showYearInDates preference change - only update if value actually changed
+      if (key === 'showYearInDates') {
+        const currentValue = getGlobalAlwaysShowYearPreference();
+        if (currentValue !== value) {
+          setGlobalAlwaysShowYearPreference(value);
+          setRefreshKey((prevKey) => prevKey + 1);
+        }
       }
     };
 

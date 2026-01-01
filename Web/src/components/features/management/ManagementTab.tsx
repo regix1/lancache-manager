@@ -15,7 +15,7 @@ import { Card } from '@components/ui/Card';
 // Import navigation and sections
 import ManagementNav, { type ManagementSection } from './ManagementNav';
 import {
-  AuthenticationSection,
+  SettingsSection,
   IntegrationsSection,
   StorageSection,
   DataSection,
@@ -31,7 +31,7 @@ interface ManagementTabProps {
 const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) => {
   const { refreshStats } = useStats();
   const { addNotification, notifications } = useNotifications();
-  const { mockMode, setMockMode } = useMockMode();
+  const { mockMode } = useMockMode();
   const signalR = useSignalR();
   const { isAuthenticated, authMode } = useAuth();
   const { steamAuthMode } = useSteamAuth();
@@ -39,7 +39,9 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
   // Active section state - persisted to localStorage
   const [activeSection, setActiveSection] = useState<ManagementSection>(() => {
     const saved = localStorage.getItem('management-active-section');
-    return (saved as ManagementSection) || 'authentication';
+    // Migrate old 'authentication' value to 'settings'
+    if (saved === 'authentication') return 'settings';
+    return (saved as ManagementSection) || 'settings';
   });
 
   const [optimizationsEnabled, setOptimizationsEnabled] = useState(false);
@@ -185,17 +187,9 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
 
   // Render the active section
   const renderActiveSection = () => {
-    // Authentication section is always available
-    if (activeSection === 'authentication') {
-      return (
-        <AuthenticationSection
-          mockMode={mockMode}
-          onToggleMockMode={() => setMockMode(!mockMode)}
-          onError={addError}
-          onSuccess={setSuccess}
-          onApiKeyRegenerated={onApiKeyRegenerated}
-        />
-      );
+    // Settings section is always available
+    if (activeSection === 'settings') {
+      return <SettingsSection onApiKeyRegenerated={onApiKeyRegenerated} />;
     }
 
     // Other sections require authentication
@@ -292,7 +286,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
       </div>
 
       {/* Guest Mode Info - shown in nav area when not authenticated */}
-      {authMode === 'guest' && activeSection !== 'authentication' && (
+      {authMode === 'guest' && activeSection !== 'settings' && (
         <div className="mt-4">
           <Card>
             <div className="text-center py-6">

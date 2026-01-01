@@ -28,6 +28,7 @@ public class UserPreferencesService
         public bool UseLocalTimezone { get; set; }
         public bool Use24HourFormat { get; set; }
         public bool ShowDatasourceLabels { get; set; } = true;
+        public bool ShowYearInDates { get; set; }
         public string? RefreshRate { get; set; } // Refresh rate for guest users (null = use default)
     }
 
@@ -55,6 +56,7 @@ public class UserPreferencesService
                     UseLocalTimezone = preferences.UseLocalTimezone,
                     Use24HourFormat = preferences.Use24HourFormat,
                     ShowDatasourceLabels = preferences.ShowDatasourceLabels,
+                    ShowYearInDates = preferences.ShowYearInDates,
                     RefreshRate = preferences.RefreshRate
                 };
             }
@@ -100,6 +102,7 @@ public class UserPreferencesService
                 existingPreferences.UseLocalTimezone = preferencesDto.UseLocalTimezone;
                 existingPreferences.Use24HourFormat = preferencesDto.Use24HourFormat;
                 existingPreferences.ShowDatasourceLabels = preferencesDto.ShowDatasourceLabels;
+                existingPreferences.ShowYearInDates = preferencesDto.ShowYearInDates;
                 existingPreferences.RefreshRate = preferencesDto.RefreshRate;
                 existingPreferences.UpdatedAtUtc = DateTime.UtcNow;
             }
@@ -118,6 +121,7 @@ public class UserPreferencesService
                     UseLocalTimezone = preferencesDto.UseLocalTimezone,
                     Use24HourFormat = preferencesDto.Use24HourFormat,
                     ShowDatasourceLabels = preferencesDto.ShowDatasourceLabels,
+                    ShowYearInDates = preferencesDto.ShowYearInDates,
                     RefreshRate = preferencesDto.RefreshRate,
                     UpdatedAtUtc = DateTime.UtcNow
                 };
@@ -197,6 +201,9 @@ public class UserPreferencesService
                 case "showdatasourcelabels":
                     preferences.ShowDatasourceLabels = GetValueAsBoolean(value);
                     break;
+                case "showyearindates":
+                    preferences.ShowYearInDates = GetValueAsBoolean(value);
+                    break;
                 case "refreshrate":
                     preferences.RefreshRate = GetValueAsString(value);
                     break;
@@ -220,6 +227,7 @@ public class UserPreferencesService
                 UseLocalTimezone = preferences.UseLocalTimezone,
                 Use24HourFormat = preferences.Use24HourFormat,
                 ShowDatasourceLabels = preferences.ShowDatasourceLabels,
+                ShowYearInDates = preferences.ShowYearInDates,
                 RefreshRate = preferences.RefreshRate
             };
         }

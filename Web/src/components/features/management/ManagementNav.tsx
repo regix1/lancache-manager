@@ -1,6 +1,5 @@
 import React from 'react';
 import {
-  Shield,
   Plug,
   HardDrive,
   FolderCog,
@@ -10,7 +9,7 @@ import {
 } from 'lucide-react';
 
 export type ManagementSection =
-  | 'authentication'
+  | 'settings'
   | 'integrations'
   | 'storage'
   | 'data'
@@ -27,11 +26,11 @@ interface TabConfig {
 
 const tabs: TabConfig[] = [
   {
-    id: 'authentication',
-    label: 'Authentication',
-    shortLabel: 'Auth',
-    icon: Shield,
-    description: 'API keys & access control'
+    id: 'settings',
+    label: 'Settings',
+    shortLabel: 'Settings',
+    icon: Settings,
+    description: 'Display & behavior preferences'
   },
   {
     id: 'integrations',
@@ -99,7 +98,7 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
           <div className="flex">
             {tabs.map((tab, index) => {
               const isActive = activeSection === tab.id;
-              const isDisabled = tab.id !== 'authentication' && !isAuthenticated;
+              const isDisabled = tab.id !== 'settings' && !isAuthenticated;
               const Icon = tab.icon;
               const isFirst = index === 0;
               const isLast = index === tabs.length - 1;
@@ -182,7 +181,7 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
         >
           {(() => {
             const activeTab = tabs.find(t => t.id === activeSection);
-            const Icon = activeTab?.icon || Shield;
+            const Icon = activeTab?.icon || Settings;
             return (
               <>
                 <Icon
@@ -218,7 +217,7 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
         >
           {tabs.map((tab) => {
             const isActive = activeSection === tab.id;
-            const isDisabled = tab.id !== 'authentication' && !isAuthenticated;
+            const isDisabled = tab.id !== 'settings' && !isAuthenticated;
             const Icon = tab.icon;
 
             return (

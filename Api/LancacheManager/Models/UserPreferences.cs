@@ -24,6 +24,9 @@ public class UserPreferences
     public bool Use24HourFormat { get; set; }
     public bool ShowDatasourceLabels { get; set; } = true;
 
+    // Date display preferences
+    public bool ShowYearInDates { get; set; }
+
     // Refresh rate for guest users (null = use default guest refresh rate)
     // Valid values: LIVE, ULTRA, REALTIME, STANDARD, RELAXED, SLOW
     public string? RefreshRate { get; set; }

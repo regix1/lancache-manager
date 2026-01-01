@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo, useImperativeHandle, forwardRef } from 'react';
 import { useIsDesktop } from '@hooks/useMediaQuery';
-import { formatBytes, formatPercent, formatDateTime, formatSpeed } from '@utils/formatters';
+import { formatBytes, formatPercent, formatDateTime, formatSpeed, isFromDifferentYear } from '@utils/formatters';
 import { getDefaultColumnWidths, calculateColumnWidths, type ColumnWidths } from '@utils/textMeasurement';
 import { Tooltip } from '@components/ui/Tooltip';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
@@ -20,6 +20,25 @@ import type { Download as DownloadType, DownloadGroup, EventSummary } from '../.
 const API_BASE = '/api';
 
 type SortOrder = 'latest' | 'oldest' | 'largest' | 'smallest' | 'service' | 'efficiency' | 'efficiency-low' | 'sessions' | 'alphabetical';
+
+/**
+ * Format a time range with consistent year display
+ * If either date is from a different year than now, both dates show the year
+ * @param startTimeUtc - Start time
+ * @param endTimeUtc - End time
+ * @param forceYear - If true, always include year in both dates (for measurement)
+ */
+const formatTimeRange = (startTimeUtc: string, endTimeUtc: string, forceYear = false): string => {
+  // Check if either date needs the year displayed
+  const needsYear = forceYear ||
+    isFromDifferentYear(startTimeUtc) ||
+    isFromDifferentYear(endTimeUtc);
+
+  const startTime = formatDateTime(startTimeUtc, needsYear);
+  const endTime = formatDateTime(endTimeUtc, needsYear);
+
+  return startTime === endTime ? startTime : `${startTime} - ${endTime}`;
+};
 
 interface RetroViewProps {
   items: (DownloadType | DownloadGroup)[];
@@ -504,9 +523,8 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
 
       const grouped = groupByDepot(items, sortOrder);
       grouped.forEach((data) => {
-        const startTime = formatDateTime(data.startTimeUtc);
-        const endTime = formatDateTime(data.endTimeUtc);
-        const timeRange = startTime === endTime ? startTime : `${startTime} - ${endTime}`;
+        // Use forceYear=true to measure with maximum width (always includes year)
+        const timeRange = formatTimeRange(data.startTimeUtc, data.endTimeUtc, true);
         timestamps.push(timeRange);
         appNames.push(data.gameName || data.service);
         clientIps.push(data.clientIp);
@@ -602,12 +620,10 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
       overall: 80
     };
 
-    // Timestamp column
+    // Timestamp column - use forceYear=true to measure maximum width
     measureSpan.style.font = '400 12px system-ui, -apple-system, sans-serif';
     grouped.forEach((data) => {
-      const startTime = formatDateTime(data.startTimeUtc);
-      const endTime = formatDateTime(data.endTimeUtc);
-      const timeRange = startTime === endTime ? startTime : `${startTime} - ${endTime}`;
+      const timeRange = formatTimeRange(data.startTimeUtc, data.endTimeUtc, true);
       measureSpan.textContent = timeRange;
       measuredWidths.timestamp = Math.max(measuredWidths.timestamp, measureSpan.offsetWidth + 32);
     });
@@ -703,39 +719,64 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
       totalMeasured += measuredWidths.datasource;
     }
 
-    // If content fits, use measured widths; otherwise scale down proportionally
-    let scaleFactor = 1;
-    if (totalMeasured > availableWidth) {
-      scaleFactor = availableWidth / totalMeasured;
-    }
-
     // Define minimum widths for each column
     const minWidths = {
       timestamp: 80,
       app: 100,
-      datasource: 50,
-      events: 60,
-      depot: 50,
-      client: 70,
-      speed: 60,
-      cacheHit: 100,
+      datasource: 40,
+      events: 50,
+      depot: 40,
+      client: 60,
+      speed: 50,
+      cacheHit: 80,
       cacheMiss: 0,
-      overall: 60
+      overall: 50
     };
 
-    // Apply scaled widths, respecting minimums
-    setColumnWidths({
-      timestamp: Math.max(minWidths.timestamp, Math.floor(measuredWidths.timestamp * scaleFactor)),
-      app: Math.max(minWidths.app, Math.floor(measuredWidths.app * scaleFactor)),
-      datasource: Math.max(minWidths.datasource, Math.floor(measuredWidths.datasource * scaleFactor)),
-      events: Math.max(minWidths.events, Math.floor(measuredWidths.events * scaleFactor)),
-      depot: Math.max(minWidths.depot, Math.floor(measuredWidths.depot * scaleFactor)),
-      client: Math.max(minWidths.client, Math.floor(measuredWidths.client * scaleFactor)),
-      speed: Math.max(minWidths.speed, Math.floor(measuredWidths.speed * scaleFactor)),
-      cacheHit: Math.max(minWidths.cacheHit, Math.floor(measuredWidths.cacheHit * scaleFactor)),
-      cacheMiss: 0,
-      overall: Math.max(minWidths.overall, Math.floor(measuredWidths.overall * scaleFactor))
-    });
+    // Priority-based scaling: timestamp and app are prioritized (never shrunk)
+    // Other columns shrink to fit remaining space
+    if (totalMeasured <= availableWidth) {
+      // Everything fits - use measured widths
+      setColumnWidths({
+        timestamp: measuredWidths.timestamp,
+        app: measuredWidths.app,
+        datasource: measuredWidths.datasource,
+        events: measuredWidths.events,
+        depot: measuredWidths.depot,
+        client: measuredWidths.client,
+        speed: measuredWidths.speed,
+        cacheHit: measuredWidths.cacheHit,
+        cacheMiss: 0,
+        overall: measuredWidths.overall
+      });
+    } else {
+      // Need to shrink - prioritize timestamp and app, shrink others
+      const priorityWidth = measuredWidths.timestamp + measuredWidths.app;
+      const remainingAvailable = availableWidth - priorityWidth;
+
+      // Calculate total width of non-priority columns
+      let otherColumnsTotal = measuredWidths.events + measuredWidths.depot +
+        measuredWidths.client + measuredWidths.speed + measuredWidths.cacheHit + measuredWidths.overall;
+      if (isDatasourceShown) {
+        otherColumnsTotal += measuredWidths.datasource;
+      }
+
+      // Scale factor for non-priority columns only
+      const otherScaleFactor = remainingAvailable > 0 ? Math.min(1, remainingAvailable / otherColumnsTotal) : 0.5;
+
+      setColumnWidths({
+        timestamp: measuredWidths.timestamp, // Keep full size
+        app: measuredWidths.app, // Keep full size
+        datasource: Math.max(minWidths.datasource, Math.floor(measuredWidths.datasource * otherScaleFactor)),
+        events: Math.max(minWidths.events, Math.floor(measuredWidths.events * otherScaleFactor)),
+        depot: Math.max(minWidths.depot, Math.floor(measuredWidths.depot * otherScaleFactor)),
+        client: Math.max(minWidths.client, Math.floor(measuredWidths.client * otherScaleFactor)),
+        speed: Math.max(minWidths.speed, Math.floor(measuredWidths.speed * otherScaleFactor)),
+        cacheHit: Math.max(minWidths.cacheHit, Math.floor(measuredWidths.cacheHit * otherScaleFactor)),
+        cacheMiss: 0,
+        overall: Math.max(minWidths.overall, Math.floor(measuredWidths.overall * otherScaleFactor))
+      });
+    }
   }, [items, sortOrder, hasMultipleDatasources, showDatasourceLabels, smartDefaultWidths]);
 
   // Auto-fit a single column by measuring actual data content (not truncated DOM text)
@@ -756,11 +797,10 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
     // Set font based on column type
     switch (column) {
       case 'timestamp':
+        // Use forceYear=true to measure with maximum possible width
         measureSpan.style.font = '400 12px system-ui, -apple-system, sans-serif';
         grouped.forEach((data) => {
-          const startTime = formatDateTime(data.startTimeUtc);
-          const endTime = formatDateTime(data.endTimeUtc);
-          const timeRange = startTime === endTime ? startTime : `${startTime} - ${endTime}`;
+          const timeRange = formatTimeRange(data.startTimeUtc, data.endTimeUtc, true);
           measureSpan.textContent = timeRange;
           maxWidth = Math.max(maxWidth, measureSpan.offsetWidth + 32); // padding
         });
@@ -1030,9 +1070,9 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
           const cacheMissBytes = data.cacheMissBytes || 0;
           const hitPercent = totalBytes > 0 ? (cacheHitBytes / totalBytes) * 100 : 0;
 
-          const startTime = formatDateTime(data.startTimeUtc);
-          const endTime = formatDateTime(data.endTimeUtc);
-          const timeRange = startTime === endTime ? startTime : `${startTime} - ${endTime}`;
+          // Format time range with consistent year display
+          // (if either date is from a different year, both show the year)
+          const timeRange = formatTimeRange(data.startTimeUtc, data.endTimeUtc);
 
           const accentColor = getAccentColor(hitPercent);
 

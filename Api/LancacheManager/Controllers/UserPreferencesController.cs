@@ -60,6 +60,7 @@ public class UserPreferencesController : ControllerBase
                 UseLocalTimezone = false,
                 Use24HourFormat = true,
                 ShowDatasourceLabels = true,
+                ShowYearInDates = false,
                 RefreshRate = null
             });
         }
@@ -80,6 +81,7 @@ public class UserPreferencesController : ControllerBase
                 UseLocalTimezone = false,
                 Use24HourFormat = true,
                 ShowDatasourceLabels = true,
+                ShowYearInDates = false,
                 RefreshRate = null
             });
         }
@@ -185,6 +187,7 @@ public class UserPreferencesController : ControllerBase
                 UseLocalTimezone = false,
                 Use24HourFormat = true,
                 ShowDatasourceLabels = true,
+                ShowYearInDates = false,
                 RefreshRate = null
             });
         }

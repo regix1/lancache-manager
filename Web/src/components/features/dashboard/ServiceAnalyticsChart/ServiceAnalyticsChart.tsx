@@ -217,8 +217,6 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
             justify-content: flex-start;
             gap: 0.5rem;
             min-width: 0;
-            max-height: 280px;
-            overflow-y: auto;
           }
 
           @container (max-width: 419px) {

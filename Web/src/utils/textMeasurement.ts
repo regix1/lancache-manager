@@ -192,8 +192,8 @@ export function calculateColumnWidths(actualData?: {
     : ['192.168.100.255', '10 clients', 'Gaming-PC'];
   const clientContentWidth = measureMaxTextWidth(clientSamples, RETRO_VIEW_FONTS.client, 0);
 
-  // Speed: typical format "999.9 MB/s"
-  const speedContentWidth = measureTextWidth('999.9 MB/s', RETRO_VIEW_FONTS.speed);
+  // Speed: typical format "999.9 Mb/s" (bits, not bytes)
+  const speedContentWidth = measureTextWidth('999.9 Mb/s', RETRO_VIEW_FONTS.speed);
 
   // Cache Hit/Miss: "999.99 GB • 99.9%"
   const cacheContentWidth = measureTextWidth('999.99 GB • 99.9%', RETRO_VIEW_FONTS.cacheValue);

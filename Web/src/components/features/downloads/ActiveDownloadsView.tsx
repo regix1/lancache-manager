@@ -7,13 +7,14 @@ import { formatBytes } from '@utils/formatters';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import type { DownloadSpeedSnapshot, GameSpeedInfo, ClientSpeedInfo } from '../../../types';
 
-// Format speed
+// Format speed in bits (network speeds are traditionally in bits)
 const formatSpeed = (bytesPerSecond: number): string => {
-  if (bytesPerSecond === 0) return '0 B/s';
-  if (bytesPerSecond < 1024) return `${bytesPerSecond.toFixed(0)} B/s`;
-  if (bytesPerSecond < 1024 * 1024) return `${(bytesPerSecond / 1024).toFixed(1)} KB/s`;
-  if (bytesPerSecond < 1024 * 1024 * 1024) return `${(bytesPerSecond / (1024 * 1024)).toFixed(1)} MB/s`;
-  return `${(bytesPerSecond / (1024 * 1024 * 1024)).toFixed(2)} GB/s`;
+  const bitsPerSecond = bytesPerSecond * 8;
+  if (bitsPerSecond === 0) return '0 b/s';
+  if (bitsPerSecond < 1024) return `${bitsPerSecond.toFixed(0)} b/s`;
+  if (bitsPerSecond < 1024 * 1024) return `${(bitsPerSecond / 1024).toFixed(1)} Kb/s`;
+  if (bitsPerSecond < 1024 * 1024 * 1024) return `${(bitsPerSecond / (1024 * 1024)).toFixed(1)} Mb/s`;
+  return `${(bitsPerSecond / (1024 * 1024 * 1024)).toFixed(2)} Gb/s`;
 };
 
 const ActiveDownloadsView: React.FC = () => {

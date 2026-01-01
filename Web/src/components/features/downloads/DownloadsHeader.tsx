@@ -15,13 +15,14 @@ const formatBytes = (bytes: number): string => {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 };
 
-// Format speed
+// Format speed in bits (network speeds are traditionally in bits)
 const formatSpeed = (bytesPerSecond: number): { value: string; unit: string } => {
-  if (bytesPerSecond === 0) return { value: '0', unit: 'B/s' };
-  if (bytesPerSecond < 1024) return { value: bytesPerSecond.toFixed(0), unit: 'B/s' };
-  if (bytesPerSecond < 1024 * 1024) return { value: (bytesPerSecond / 1024).toFixed(1), unit: 'KB/s' };
-  if (bytesPerSecond < 1024 * 1024 * 1024) return { value: (bytesPerSecond / (1024 * 1024)).toFixed(1), unit: 'MB/s' };
-  return { value: (bytesPerSecond / (1024 * 1024 * 1024)).toFixed(2), unit: 'GB/s' };
+  const bitsPerSecond = bytesPerSecond * 8;
+  if (bitsPerSecond === 0) return { value: '0', unit: 'b/s' };
+  if (bitsPerSecond < 1024) return { value: bitsPerSecond.toFixed(0), unit: 'b/s' };
+  if (bitsPerSecond < 1024 * 1024) return { value: (bitsPerSecond / 1024).toFixed(1), unit: 'Kb/s' };
+  if (bitsPerSecond < 1024 * 1024 * 1024) return { value: (bitsPerSecond / (1024 * 1024)).toFixed(1), unit: 'Mb/s' };
+  return { value: (bitsPerSecond / (1024 * 1024 * 1024)).toFixed(2), unit: 'Gb/s' };
 };
 
 interface DownloadsHeaderProps {

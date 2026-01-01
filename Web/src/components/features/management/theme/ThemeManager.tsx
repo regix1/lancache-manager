@@ -10,20 +10,16 @@ import {
   Brush,
   Edit,
   Loader2,
-  Bell,
   FileText,
   Settings2,
   Moon,
-  Sun,
-  Database
+  Sun
 } from 'lucide-react';
 import themeService from '@services/theme.service';
 import authService from '@services/auth.service';
-import preferencesService from '@services/preferences.service';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
-import { Checkbox } from '@components/ui/Checkbox';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { API_BASE } from '@utils/constants';
@@ -62,11 +58,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   const [selectedPage, setSelectedPage] = useState<string>('all');
   const [editOrganizationMode, setEditOrganizationMode] = useState<'category' | 'page'>('category');
   const [editSelectedPage, setEditSelectedPage] = useState<string>('all');
-  const [sharpCornersEnabled, setSharpCornersEnabled] = useState(false);
-  const [tooltipsDisabled, setTooltipsDisabled] = useState(false);
-  const [picsAlwaysVisible, setPicsAlwaysVisible] = useState(false);
-  const [disableStickyNotifications, setDisableStickyNotifications] = useState(false);
-  const [showDatasourceLabels, setShowDatasourceLabels] = useState(true);
 
   const [editedTheme, setEditedTheme] = useState<EditableTheme>({
     name: '',
@@ -104,47 +95,14 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       if (saved) setCurrentTheme(saved);
     }
 
-    // Load current option states (using sync versions for immediate display)
-    setSharpCornersEnabled(themeService.getSharpCornersSync());
-    setTooltipsDisabled(themeService.getDisableTooltipsSync());
-    setPicsAlwaysVisible(themeService.getPicsAlwaysVisibleSync());
-    setDisableStickyNotifications(themeService.getDisableStickyNotificationsSync());
-
-    // Load datasource labels preference
-    preferencesService.getPreferences().then(prefs => {
-      setShowDatasourceLabels(prefs.showDatasourceLabels ?? true);
-    });
-
-    // Listen for live preference changes from admin
+    // Listen for live preference changes from admin (theme changes only)
     const handlePreferenceChange = (event: Event) => {
       const customEvent = event as CustomEvent<{ key: string; value: unknown }>;
       const { key, value } = customEvent.detail;
 
-      switch (key) {
-        case 'selectedTheme':
-          if (value) {
-            setCurrentTheme(value as string);
-            setPreviewTheme(null);
-          }
-          break;
-        case 'sharpCorners':
-          setSharpCornersEnabled(value as boolean);
-          break;
-        case 'disableFocusOutlines':
-          // This is handled by theme service, no UI state to update
-          break;
-        case 'disableTooltips':
-          setTooltipsDisabled(value as boolean);
-          break;
-        case 'picsAlwaysVisible':
-          setPicsAlwaysVisible(value as boolean);
-          break;
-        case 'disableStickyNotifications':
-          setDisableStickyNotifications(value as boolean);
-          break;
-        case 'showDatasourceLabels':
-          setShowDatasourceLabels(value as boolean);
-          break;
+      if (key === 'selectedTheme' && value) {
+        setCurrentTheme(value as string);
+        setPreviewTheme(null);
       }
     };
 
@@ -510,33 +468,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     }
   };
 
-  // Options Handlers
-  const handleSharpCornersToggle = (enabled: boolean) => {
-    setSharpCornersEnabled(enabled);
-    themeService.setSharpCorners(enabled);
-  };
-
-  const handleTooltipsToggle = (enabled: boolean) => {
-    setTooltipsDisabled(enabled);
-    themeService.setDisableTooltips(enabled);
-  };
-
-  const handlePicsAlwaysVisibleToggle = (enabled: boolean) => {
-    setPicsAlwaysVisible(enabled);
-    themeService.setPicsAlwaysVisible(enabled);
-  };
-
-  const handleDisableStickyNotificationsToggle = (enabled: boolean) => {
-    setDisableStickyNotifications(enabled);
-    themeService.setDisableStickyNotifications(enabled);
-  };
-
-  const handleShowDatasourceLabelsToggle = async (enabled: boolean) => {
-    setShowDatasourceLabels(enabled);
-    // Update preferences via service (it dispatches the event internally)
-    await preferencesService.updatePreference('showDatasourceLabels', enabled);
-  };
-
   // Utility Functions
   const toggleGroup = (groupName: string) => {
     setExpandedGroups((prev) =>
@@ -762,112 +693,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                   Preview mode active. Select a theme to apply it permanently.
                 </p>
               )}
-            </div>
-
-            {/* Preferences Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {/* Visual Preferences */}
-              <div
-                className="p-4 rounded-lg border"
-                style={{
-                  backgroundColor: 'var(--theme-bg-tertiary)',
-                  borderColor: 'var(--theme-border-secondary)'
-                }}
-              >
-                <div className="flex items-center gap-2 mb-4">
-                  <Brush className="w-4 h-4 text-themed-accent" />
-                  <span className="text-sm font-medium text-themed-primary">Visual</span>
-                </div>
-                <div className="space-y-3">
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <Checkbox
-                      checked={sharpCornersEnabled}
-                      onChange={(e) => handleSharpCornersToggle(e.target.checked)}
-                      variant="rounded"
-                    />
-                    <div>
-                      <span className="text-sm text-themed-primary">Sharp Corners</span>
-                      <p className="text-xs text-themed-muted">Square corners instead of rounded</p>
-                    </div>
-                  </label>
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <Checkbox
-                      checked={!tooltipsDisabled}
-                      onChange={(e) => handleTooltipsToggle(!e.target.checked)}
-                      variant="rounded"
-                    />
-                    <div>
-                      <span className="text-sm text-themed-primary">Tooltips</span>
-                      <p className="text-xs text-themed-muted">Show helpful hints on hover</p>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              {/* Notification Preferences */}
-              <div
-                className="p-4 rounded-lg border"
-                style={{
-                  backgroundColor: 'var(--theme-bg-tertiary)',
-                  borderColor: 'var(--theme-border-secondary)'
-                }}
-              >
-                <div className="flex items-center gap-2 mb-4">
-                  <Bell className="w-4 h-4 text-themed-accent" />
-                  <span className="text-sm font-medium text-themed-primary">Notifications</span>
-                </div>
-                <div className="space-y-3">
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <Checkbox
-                      checked={!disableStickyNotifications}
-                      onChange={(e) => handleDisableStickyNotificationsToggle(!e.target.checked)}
-                      variant="rounded"
-                    />
-                    <div>
-                      <span className="text-sm text-themed-primary">Sticky Notifications</span>
-                      <p className="text-xs text-themed-muted">Fixed at top when scrolling</p>
-                    </div>
-                  </label>
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <Checkbox
-                      checked={picsAlwaysVisible}
-                      onChange={(e) => handlePicsAlwaysVisibleToggle(e.target.checked)}
-                      variant="rounded"
-                    />
-                    <div>
-                      <span className="text-sm text-themed-primary">Static Notifications</span>
-                      <p className="text-xs text-themed-muted">Require manual dismissal</p>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              {/* Downloads Preferences */}
-              <div
-                className="p-4 rounded-lg border"
-                style={{
-                  backgroundColor: 'var(--theme-bg-tertiary)',
-                  borderColor: 'var(--theme-border-secondary)'
-                }}
-              >
-                <div className="flex items-center gap-2 mb-4">
-                  <Database className="w-4 h-4 text-themed-accent" />
-                  <span className="text-sm font-medium text-themed-primary">Downloads</span>
-                </div>
-                <div className="space-y-3">
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <Checkbox
-                      checked={showDatasourceLabels}
-                      onChange={(e) => handleShowDatasourceLabelsToggle(e.target.checked)}
-                      variant="rounded"
-                    />
-                    <div>
-                      <span className="text-sm text-themed-primary">Datasource Labels</span>
-                      <p className="text-xs text-themed-muted">Show source on downloads (multi-datasource)</p>
-                    </div>
-                  </label>
-                </div>
-              </div>
             </div>
 
             {/* Installed Themes */}
