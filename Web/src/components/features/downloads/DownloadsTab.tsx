@@ -8,7 +8,8 @@ import {
   Grid3x3,
   Table,
   Search,
-  X
+  X,
+  Maximize2
 } from 'lucide-react';
 import { useDownloads } from '@contexts/DownloadsContext';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
@@ -23,11 +24,12 @@ import { Checkbox } from '@components/ui/Checkbox';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { ActionMenu, ActionMenuItem } from '@components/ui/ActionMenu';
 import { Pagination } from '@components/ui/Pagination';
+import { Tooltip } from '@components/ui/Tooltip';
 
 // Import view components
 import CompactView from './CompactView';
 import NormalView from './NormalView';
-import RetroView from './RetroView';
+import RetroView, { type RetroViewHandle } from './RetroView';
 import DownloadsHeader from './DownloadsHeader';
 import ActiveDownloadsView from './ActiveDownloadsView';
 
@@ -262,6 +264,7 @@ const DownloadsTab: React.FC = () => {
   const [retroTotalItems, setRetroTotalItems] = useState(0);
   const contentRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
+  const retroViewRef = useRef<RetroViewHandle>(null);
 
   const [settings, setSettings] = useState(() => {
     const savedViewMode = (storage.getItem(STORAGE_KEYS.VIEW_MODE) || 'normal') as ViewMode;
@@ -1134,14 +1137,15 @@ const DownloadsTab: React.FC = () => {
           {/* Mobile view controls at top */}
           <div className="flex sm:hidden items-center justify-between">
             <span className="text-sm font-medium text-themed-primary">Downloads</span>
-            <button
-              onClick={() => setSettingsOpened(!settingsOpened)}
-              className="p-1.5 rounded hover:bg-themed-hover transition-colors"
-              title="Settings"
-              data-settings-button="true"
-            >
-              <Settings size={18} />
-            </button>
+            <Tooltip content="Settings" position="bottom">
+              <button
+                onClick={() => setSettingsOpened(!settingsOpened)}
+                className="p-1.5 rounded hover:bg-themed-hover transition-colors"
+                data-settings-button="true"
+              >
+                <Settings size={18} />
+              </button>
+            </Tooltip>
           </div>
 
           {/* Search Input */}
@@ -1328,7 +1332,6 @@ const DownloadsTab: React.FC = () => {
                   style={{
                     color: settings.viewMode === 'compact' ? 'var(--theme-button-text)' : undefined
                   }}
-                  title="Compact View"
                 >
                   <List size={16} />
                   <span className="text-xs hidden lg:inline">Compact</span>
@@ -1343,7 +1346,6 @@ const DownloadsTab: React.FC = () => {
                   style={{
                     color: settings.viewMode === 'normal' ? 'var(--theme-button-text)' : undefined
                   }}
-                  title="Normal View"
                 >
                   <Grid3x3 size={16} />
                   <span className="text-xs hidden lg:inline">Normal</span>
@@ -1358,7 +1360,6 @@ const DownloadsTab: React.FC = () => {
                   style={{
                     color: settings.viewMode === 'retro' ? 'var(--theme-button-text)' : undefined
                   }}
-                  title="Retro View"
                 >
                   <Table size={16} />
                   <span className="text-xs hidden lg:inline">Retro</span>
@@ -1371,18 +1372,19 @@ const DownloadsTab: React.FC = () => {
                 onClose={() => setShowExportOptions(false)}
                 width="w-48"
                 trigger={
-                  <button
-                    onClick={() => setShowExportOptions(!showExportOptions)}
-                    className="p-2 rounded hover:bg-themed-hover transition-colors"
-                    title="Export Data"
-                    disabled={exportLoading || itemsToDisplay.length === 0}
-                  >
-                    {exportLoading ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <DownloadIcon size={18} />
-                    )}
-                  </button>
+                  <Tooltip content="Export Data" position="bottom">
+                    <button
+                      onClick={() => setShowExportOptions(!showExportOptions)}
+                      className="p-2 rounded hover:bg-themed-hover transition-colors"
+                      disabled={exportLoading || itemsToDisplay.length === 0}
+                    >
+                      {exportLoading ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <DownloadIcon size={18} />
+                      )}
+                    </button>
+                  </Tooltip>
                 }
               >
                 <ActionMenuItem
@@ -1403,14 +1405,26 @@ const DownloadsTab: React.FC = () => {
                 </ActionMenuItem>
               </ActionMenu>
 
-              <button
-                onClick={() => setSettingsOpened(!settingsOpened)}
-                className="p-2 rounded hover:bg-themed-hover transition-colors"
-                title="Settings"
-                data-settings-button="true"
-              >
-                <Settings size={18} />
-              </button>
+              {settings.viewMode === 'retro' && (
+                <Tooltip content="Fit columns to page" position="bottom">
+                  <button
+                    onClick={() => retroViewRef.current?.resetWidths()}
+                    className="p-2 rounded hover:bg-themed-hover transition-colors"
+                  >
+                    <Maximize2 size={18} />
+                  </button>
+                </Tooltip>
+              )}
+
+              <Tooltip content="Settings" position="bottom">
+                <button
+                  onClick={() => setSettingsOpened(!settingsOpened)}
+                  className="p-2 rounded hover:bg-themed-hover transition-colors"
+                  data-settings-button="true"
+                >
+                  <Settings size={18} />
+                </button>
+              </Tooltip>
             </div>
           </div>
         </div>
@@ -1691,6 +1705,7 @@ const DownloadsTab: React.FC = () => {
           >
             {settings.viewMode === 'retro' && (
               <RetroView
+                ref={retroViewRef}
                 items={allItemsSorted as (Download | DownloadGroup)[]}
                 aestheticMode={settings.aestheticMode}
                 itemsPerPage={settings.itemsPerPage}

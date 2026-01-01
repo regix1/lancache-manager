@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo, useImperativeHandle, forwardRef } from 'react';
 import { useIsDesktop } from '@hooks/useMediaQuery';
 import { formatBytes, formatPercent, formatDateTime, formatSpeed } from '@utils/formatters';
 import { getDefaultColumnWidths, calculateColumnWidths, type ColumnWidths } from '@utils/textMeasurement';
@@ -450,7 +450,12 @@ const ResizeHandle: React.FC<{
   </div>
 );
 
-const RetroView: React.FC<RetroViewProps> = ({
+// Expose handleResetWidths to parent components
+export interface RetroViewHandle {
+  resetWidths: () => void;
+}
+
+const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
   items,
   aestheticMode = false,
   itemsPerPage,
@@ -459,7 +464,7 @@ const RetroView: React.FC<RetroViewProps> = ({
   sortOrder = 'latest',
   showDatasourceLabels = true,
   hasMultipleDatasources = false
-}) => {
+}, ref) => {
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
 
   // Use JavaScript-based breakpoint detection for conditional rendering
@@ -570,208 +575,277 @@ const RetroView: React.FC<RetroViewProps> = ({
   const handleResetWidths = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY);
 
-    // Calculate widths that fit the container
     if (!containerRef.current) {
       setColumnWidths(smartDefaultWidths);
       return;
     }
 
-    const containerWidth = containerRef.current.clientWidth;
-    const GRID_GAP = 8; // gap-2 = 0.5rem = 8px
-    const PADDING = 32; // pl-3 + pr-4 = ~28px, round up
+    // Measure actual content widths for each column
+    const measureSpan = document.createElement('span');
+    measureSpan.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;';
+    document.body.appendChild(measureSpan);
+
+    const grouped = groupByDepot(items, sortOrder);
     const isDatasourceShown = hasMultipleDatasources && showDatasourceLabels;
-    const NUM_COLUMNS = isDatasourceShown ? 9 : 8;
-    const NUM_GAPS = NUM_COLUMNS - 1;
 
-    // Calculate total available width for columns
-    const availableWidth = containerWidth - PADDING - (NUM_GAPS * GRID_GAP);
-
-    // Define proportional weights for each column (relative importance)
-    // These weights determine how space is distributed
-    const columnWeights = {
-      timestamp: 1.4,    // Time ranges need space
-      app: 2.0,          // App names + images need most space
-      datasource: 0.6,   // Short labels
-      events: 0.6,       // Badge display
-      depot: 0.6,        // Numeric IDs
-      client: 0.8,       // IP addresses
-      speed: 0.7,        // Speed display
-      cacheHit: 1.5,     // Progress bar needs space
-      cacheMiss: 0,      // Combined with cacheHit
-      overall: 0.8       // Efficiency gauge
+    // Measure each column's required width based on actual data
+    const measuredWidths: ColumnWidths = {
+      timestamp: 80,
+      app: 100,
+      datasource: 50,
+      events: 90,
+      depot: 50,
+      client: 70,
+      speed: 60,
+      cacheHit: 150,
+      cacheMiss: 0,
+      overall: 80
     };
 
-    // Calculate total weight
-    let totalWeight = columnWeights.timestamp + columnWeights.app + columnWeights.events +
-      columnWeights.depot + columnWeights.client + columnWeights.speed +
-      columnWeights.cacheHit + columnWeights.overall;
+    // Timestamp column
+    measureSpan.style.font = '400 12px system-ui, -apple-system, sans-serif';
+    grouped.forEach((data) => {
+      const startTime = formatDateTime(data.startTimeUtc);
+      const endTime = formatDateTime(data.endTimeUtc);
+      const timeRange = startTime === endTime ? startTime : `${startTime} - ${endTime}`;
+      measureSpan.textContent = timeRange;
+      measuredWidths.timestamp = Math.max(measuredWidths.timestamp, measureSpan.offsetWidth + 32);
+    });
 
+    // App column
+    measureSpan.style.font = '500 14px system-ui, -apple-system, sans-serif';
+    grouped.forEach((data) => {
+      measureSpan.textContent = data.gameName || data.service;
+      // Add image width (120px) + gap (8px) + padding (32px)
+      measuredWidths.app = Math.max(measuredWidths.app, measureSpan.offsetWidth + 120 + 8 + 32);
+    });
+
+    // Datasource column
     if (isDatasourceShown) {
-      totalWeight += columnWeights.datasource;
+      measureSpan.style.font = '500 12px system-ui, -apple-system, sans-serif';
+      grouped.forEach((data) => {
+        measureSpan.textContent = data.datasource || 'N/A';
+        measuredWidths.datasource = Math.max(measuredWidths.datasource, measureSpan.offsetWidth + 32);
+      });
     }
 
-    // Account for fixed additions (app gets +40, overall gets +20 in grid template)
-    const fixedAdditions = 40 + 20;
-    const adjustedAvailable = availableWidth - fixedAdditions;
+    // Depot column
+    measureSpan.style.font = '400 14px ui-monospace, monospace';
+    grouped.forEach((data) => {
+      measureSpan.textContent = data.depotId ? String(data.depotId) : 'N/A';
+      measuredWidths.depot = Math.max(measuredWidths.depot, measureSpan.offsetWidth + 32);
+    });
 
-    // Calculate proportional widths
-    const unitWidth = adjustedAvailable / totalWeight;
+    // Client column
+    measureSpan.style.font = '400 14px ui-monospace, monospace';
+    grouped.forEach((data) => {
+      if (data.clientsSet.size > 1) {
+        measureSpan.textContent = `${data.clientsSet.size} clients`;
+      } else {
+        measureSpan.textContent = data.clientIp;
+      }
+      measuredWidths.client = Math.max(measuredWidths.client, measureSpan.offsetWidth + 32);
+    });
 
-    const newWidths: ColumnWidths = {
-      timestamp: Math.max(80, Math.floor(unitWidth * columnWeights.timestamp)),
-      app: Math.max(100, Math.floor(unitWidth * columnWeights.app)),
-      datasource: Math.max(50, Math.floor(unitWidth * columnWeights.datasource)),
-      events: Math.max(60, Math.floor(unitWidth * columnWeights.events)),
-      depot: Math.max(50, Math.floor(unitWidth * columnWeights.depot)),
-      client: Math.max(70, Math.floor(unitWidth * columnWeights.client)),
-      speed: Math.max(60, Math.floor(unitWidth * columnWeights.speed)),
-      cacheHit: Math.max(100, Math.floor(unitWidth * columnWeights.cacheHit)),
-      cacheMiss: 0, // Combined with cacheHit
-      overall: Math.max(60, Math.floor(unitWidth * columnWeights.overall))
+    // Speed column
+    measureSpan.style.font = '400 14px system-ui, -apple-system, sans-serif';
+    grouped.forEach((data) => {
+      measureSpan.textContent = formatSpeed(data.averageBytesPerSecond);
+      measuredWidths.speed = Math.max(measuredWidths.speed, measureSpan.offsetWidth + 32 + 16); // icon
+    });
+
+    // Cache performance column - measure the label format
+    measureSpan.style.font = '400 12px system-ui, -apple-system, sans-serif';
+    measureSpan.textContent = '999.99 GB (99.9%)';
+    const cacheValueWidth = measureSpan.offsetWidth;
+    // Two values side by side with gap
+    measuredWidths.cacheHit = Math.max(measuredWidths.cacheHit, (cacheValueWidth * 2) + 32);
+
+    // Measure headers too
+    measureSpan.style.font = '600 11px system-ui, -apple-system, sans-serif';
+    measureSpan.textContent = 'TIMESTAMP';
+    measuredWidths.timestamp = Math.max(measuredWidths.timestamp, measureSpan.offsetWidth + 32);
+    measureSpan.textContent = 'APP';
+    measuredWidths.app = Math.max(measuredWidths.app, measureSpan.offsetWidth + 32);
+    measureSpan.textContent = 'SOURCE';
+    measuredWidths.datasource = Math.max(measuredWidths.datasource, measureSpan.offsetWidth + 32);
+    measureSpan.textContent = 'EVENTS';
+    measuredWidths.events = Math.max(measuredWidths.events, measureSpan.offsetWidth + 32);
+    measureSpan.textContent = 'DEPOT';
+    measuredWidths.depot = Math.max(measuredWidths.depot, measureSpan.offsetWidth + 32);
+    measureSpan.textContent = 'CLIENT';
+    measuredWidths.client = Math.max(measuredWidths.client, measureSpan.offsetWidth + 32);
+    measureSpan.textContent = 'AVG SPEED';
+    measuredWidths.speed = Math.max(measuredWidths.speed, measureSpan.offsetWidth + 32);
+    measureSpan.textContent = 'CACHE PERFORMANCE';
+    measuredWidths.cacheHit = Math.max(measuredWidths.cacheHit, measureSpan.offsetWidth + 32);
+    measureSpan.textContent = 'EFFICIENCY';
+    measuredWidths.overall = Math.max(measuredWidths.overall, measureSpan.offsetWidth + 32);
+
+    document.body.removeChild(measureSpan);
+
+    // Calculate total measured width and available space
+    const containerWidth = containerRef.current.clientWidth;
+    const GRID_GAP = 8;
+    const PADDING = 32;
+    const NUM_COLUMNS = isDatasourceShown ? 9 : 8;
+    const NUM_GAPS = NUM_COLUMNS - 1;
+    const FIXED_ADDITIONS = 40 + 20; // app+40, overall+20 in grid template
+
+    const availableWidth = containerWidth - PADDING - (NUM_GAPS * GRID_GAP) - FIXED_ADDITIONS;
+
+    // Sum up all measured widths (excluding cacheMiss which is combined)
+    let totalMeasured = measuredWidths.timestamp + measuredWidths.app + measuredWidths.events +
+      measuredWidths.depot + measuredWidths.client + measuredWidths.speed +
+      measuredWidths.cacheHit + measuredWidths.overall;
+
+    if (isDatasourceShown) {
+      totalMeasured += measuredWidths.datasource;
+    }
+
+    // If content fits, use measured widths; otherwise scale down proportionally
+    let scaleFactor = 1;
+    if (totalMeasured > availableWidth) {
+      scaleFactor = availableWidth / totalMeasured;
+    }
+
+    // Define minimum widths for each column
+    const minWidths = {
+      timestamp: 80,
+      app: 100,
+      datasource: 50,
+      events: 60,
+      depot: 50,
+      client: 70,
+      speed: 60,
+      cacheHit: 100,
+      cacheMiss: 0,
+      overall: 60
     };
 
-    setColumnWidths(newWidths);
-  }, [smartDefaultWidths, hasMultipleDatasources, showDatasourceLabels]);
+    // Apply scaled widths, respecting minimums
+    setColumnWidths({
+      timestamp: Math.max(minWidths.timestamp, Math.floor(measuredWidths.timestamp * scaleFactor)),
+      app: Math.max(minWidths.app, Math.floor(measuredWidths.app * scaleFactor)),
+      datasource: Math.max(minWidths.datasource, Math.floor(measuredWidths.datasource * scaleFactor)),
+      events: Math.max(minWidths.events, Math.floor(measuredWidths.events * scaleFactor)),
+      depot: Math.max(minWidths.depot, Math.floor(measuredWidths.depot * scaleFactor)),
+      client: Math.max(minWidths.client, Math.floor(measuredWidths.client * scaleFactor)),
+      speed: Math.max(minWidths.speed, Math.floor(measuredWidths.speed * scaleFactor)),
+      cacheHit: Math.max(minWidths.cacheHit, Math.floor(measuredWidths.cacheHit * scaleFactor)),
+      cacheMiss: 0,
+      overall: Math.max(minWidths.overall, Math.floor(measuredWidths.overall * scaleFactor))
+    });
+  }, [items, sortOrder, hasMultipleDatasources, showDatasourceLabels, smartDefaultWidths]);
 
-  // Auto-fit a single column by measuring actual DOM content
-  // Falls back to smart defaults from textMeasurement.ts if DOM measurement fails
-  // Constrains to available container width to prevent horizontal scroll
+  // Auto-fit a single column by measuring actual data content (not truncated DOM text)
+  // Uses data from groupedItems to get full text values
   const handleAutoFitColumn = useCallback((column: keyof ColumnWidths) => {
     // Start with the smart default as baseline
     const defaultWidth = smartDefaultWidths[column];
     let maxWidth = defaultWidth;
 
-    if (!containerRef.current) {
-      // Fall back to smart defaults if no container
-      setColumnWidths(prev => ({
-        ...prev,
-        [column]: defaultWidth
-      }));
-      return;
-    }
-
-    // Check if datasource column is currently shown
-    const isDatasourceShown = hasMultipleDatasources && showDatasourceLabels;
-
-    // Calculate available width constraint
-    const containerWidth = containerRef.current.clientWidth;
-    const GRID_GAP = 8; // gap-2 = 0.5rem = 8px
-    const PADDING = 32; // pl-4 + pr-4 = 32px
-    const NUM_GAPS = isDatasourceShown ? 8 : 7; // 9 columns = 8 gaps when datasource shown, otherwise 8 columns = 7 gaps
-
-    // Calculate width used by other columns (excluding the one being auto-fit)
-    // Grid template: timestamp, app+40, [datasource], events, depot, client, speed, cacheHit+cacheMiss, overall+20
-    let otherColumnsWidth = 0;
-
-    // Add each column's contribution to the grid
-    if (column !== 'timestamp') otherColumnsWidth += columnWidths.timestamp;
-    if (column !== 'app') otherColumnsWidth += columnWidths.app + 40;
-    if (isDatasourceShown && column !== 'datasource') otherColumnsWidth += columnWidths.datasource;
-    if (column !== 'events') otherColumnsWidth += columnWidths.events;
-    if (column !== 'depot') otherColumnsWidth += columnWidths.depot;
-    if (column !== 'client') otherColumnsWidth += columnWidths.client;
-    if (column !== 'speed') otherColumnsWidth += columnWidths.speed;
-
-    // Cache column is combined (cacheHit + cacheMiss)
-    if (column !== 'cacheHit' && column !== 'cacheMiss') {
-      otherColumnsWidth += columnWidths.cacheHit + columnWidths.cacheMiss;
-    } else {
-      // When auto-fitting cache, still need to account for the other half
-      otherColumnsWidth += columnWidths.cacheMiss; // cacheMiss stays, only cacheHit changes
-    }
-
-    // Overall column (minimum width, can grow with 1fr but we use minimum for calculation)
-    if (column !== 'overall') otherColumnsWidth += columnWidths.overall + 20;
-
-    // Maximum available width for this column
-    const maxAvailableWidth = containerWidth - otherColumnsWidth - PADDING - (NUM_GAPS * GRID_GAP);
-
-    // Map column names to their grid index (dynamic based on datasource visibility)
-    const columnIndexMap: Record<keyof ColumnWidths, number> = isDatasourceShown
-      ? {
-          timestamp: 0,
-          app: 1,
-          datasource: 2,
-          events: 3,
-          depot: 4,
-          client: 5,
-          speed: 6,
-          cacheHit: 7,
-          cacheMiss: 7, // Combined with cacheHit
-          overall: 8
-        }
-      : {
-          timestamp: 0,
-          app: 1,
-          datasource: -1, // Not shown
-          events: 2,
-          depot: 3,
-          client: 4,
-          speed: 5,
-          cacheHit: 6,
-          cacheMiss: 6, // Combined with cacheHit
-          overall: 7
-        };
-
-    const colIndex = columnIndexMap[column];
-
     // Create a temporary span to measure text width
     const measureSpan = document.createElement('span');
-    measureSpan.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font:inherit;';
+    measureSpan.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;';
     document.body.appendChild(measureSpan);
 
-    // Find all rows and measure the content in the target column
-    const rows = containerRef.current.querySelectorAll('[data-row]');
-    rows.forEach((row) => {
-      const cells = row.querySelectorAll('[data-cell]');
-      const cell = cells[colIndex];
-      if (cell) {
-        // Get computed style to match font
-        const computedStyle = window.getComputedStyle(cell);
-        measureSpan.style.font = computedStyle.font;
-        measureSpan.style.fontSize = computedStyle.fontSize;
-        measureSpan.style.fontFamily = computedStyle.fontFamily;
-        measureSpan.style.fontWeight = computedStyle.fontWeight;
+    // Use the actual data to measure full text widths (not truncated DOM)
+    const grouped = groupByDepot(items, sortOrder);
 
-        // Measure text content
-        measureSpan.textContent = cell.textContent || '';
-        const textWidth = measureSpan.offsetWidth;
+    // Set font based on column type
+    switch (column) {
+      case 'timestamp':
+        measureSpan.style.font = '400 12px system-ui, -apple-system, sans-serif';
+        grouped.forEach((data) => {
+          const startTime = formatDateTime(data.startTimeUtc);
+          const endTime = formatDateTime(data.endTimeUtc);
+          const timeRange = startTime === endTime ? startTime : `${startTime} - ${endTime}`;
+          measureSpan.textContent = timeRange;
+          maxWidth = Math.max(maxWidth, measureSpan.offsetWidth + 32); // padding
+        });
+        break;
 
-        // For app column, add image width
-        if (column === 'app') {
-          const img = cell.querySelector('img');
-          if (img) {
-            maxWidth = Math.max(maxWidth, textWidth + 120 + 16 + 40); // image + gap + padding + tag space
+      case 'app':
+        measureSpan.style.font = '500 14px system-ui, -apple-system, sans-serif';
+        grouped.forEach((data) => {
+          measureSpan.textContent = data.gameName || data.service;
+          // Add image width (120px) + gap (8px) + padding (32px)
+          maxWidth = Math.max(maxWidth, measureSpan.offsetWidth + 120 + 8 + 32);
+        });
+        break;
+
+      case 'client':
+        measureSpan.style.font = '400 14px ui-monospace, monospace';
+        grouped.forEach((data) => {
+          if (data.clientsSet.size > 1) {
+            measureSpan.textContent = `${data.clientsSet.size} clients`;
           } else {
-            maxWidth = Math.max(maxWidth, textWidth + 120 + 16 + 40); // icon placeholder + gap + padding
+            measureSpan.textContent = data.clientIp;
           }
-        } else {
-          maxWidth = Math.max(maxWidth, textWidth + 32); // Add padding
-        }
-      }
-    });
+          maxWidth = Math.max(maxWidth, measureSpan.offsetWidth + 32);
+        });
+        break;
+
+      case 'depot':
+        measureSpan.style.font = '400 14px ui-monospace, monospace';
+        grouped.forEach((data) => {
+          measureSpan.textContent = data.depotId ? String(data.depotId) : 'N/A';
+          maxWidth = Math.max(maxWidth, measureSpan.offsetWidth + 32);
+        });
+        break;
+
+      case 'speed':
+        measureSpan.style.font = '400 14px system-ui, -apple-system, sans-serif';
+        grouped.forEach((data) => {
+          measureSpan.textContent = formatSpeed(data.averageBytesPerSecond);
+          maxWidth = Math.max(maxWidth, measureSpan.offsetWidth + 32 + 16); // extra for icon
+        });
+        break;
+
+      case 'datasource':
+        measureSpan.style.font = '500 12px system-ui, -apple-system, sans-serif';
+        grouped.forEach((data) => {
+          measureSpan.textContent = data.datasource || 'N/A';
+          maxWidth = Math.max(maxWidth, measureSpan.offsetWidth + 32);
+        });
+        break;
+
+      default:
+        // For other columns, use smart defaults
+        break;
+    }
 
     // Also measure header
-    const headers = containerRef.current.querySelectorAll('[data-header]');
-    const header = headers[colIndex];
-    if (header) {
-      const computedStyle = window.getComputedStyle(header);
-      measureSpan.style.font = computedStyle.font;
-      measureSpan.textContent = header.textContent || '';
-      maxWidth = Math.max(maxWidth, measureSpan.offsetWidth + 32);
-    }
+    measureSpan.style.font = '600 11px system-ui, -apple-system, sans-serif';
+    const headerLabels: Record<string, string> = {
+      timestamp: 'TIMESTAMP',
+      app: 'APP',
+      datasource: 'SOURCE',
+      events: 'EVENTS',
+      depot: 'DEPOT',
+      client: 'CLIENT',
+      speed: 'AVG SPEED',
+      cacheHit: 'CACHE PERFORMANCE',
+      cacheMiss: 'CACHE PERFORMANCE',
+      overall: 'EFFICIENCY'
+    };
+    measureSpan.textContent = headerLabels[column] || '';
+    maxWidth = Math.max(maxWidth, measureSpan.offsetWidth + 32);
 
     document.body.removeChild(measureSpan);
 
-    // Constrain to available width (prevent horizontal scroll)
-    const constrainedWidth = Math.min(Math.ceil(maxWidth), maxAvailableWidth);
-
-    // Update the column width
+    // Update the column width - NO constraint, let it expand fully
     setColumnWidths(prev => ({
       ...prev,
-      [column]: Math.max(60, constrainedWidth) // Ensure minimum of 60px
+      [column]: Math.max(60, Math.ceil(maxWidth)) // Ensure minimum of 60px
     }));
-  }, [smartDefaultWidths, columnWidths, hasMultipleDatasources, showDatasourceLabels]);
+  }, [smartDefaultWidths, items, sortOrder]);
+
+  // Expose resetWidths to parent via ref
+  useImperativeHandle(ref, () => ({
+    resetWidths: handleResetWidths
+  }), [handleResetWidths]);
 
   const handleImageError = (gameAppId: string) => {
     setImageErrors((prev) => new Set(prev).add(gameAppId));
@@ -840,29 +914,7 @@ const RetroView: React.FC<RetroViewProps> = ({
   };
 
   return (
-    <div ref={containerRef} className="rounded-lg border overflow-hidden retro-table-container" style={{ borderColor: 'var(--theme-border-primary)', backgroundColor: 'var(--theme-card-bg)' }}>
-      {/* Desktop Control Bar - Reset button outside the scrolling table */}
-      {isDesktop && (
-        <div
-          className="flex items-center justify-end px-3 py-1.5 border-b"
-          style={{
-            backgroundColor: 'var(--theme-bg-secondary)',
-            borderColor: 'var(--theme-border-secondary)'
-          }}
-        >
-          <Tooltip content="Fit all columns to page width">
-            <button
-              onClick={handleResetWidths}
-              className="flex items-center gap-1.5 px-2 py-1 text-xs rounded hover:bg-[var(--theme-bg-tertiary)] transition-colors"
-              style={{ color: 'var(--theme-text-secondary)' }}
-            >
-              <span style={{ fontSize: '12px' }}>↺</span>
-              <span>Fit to Page</span>
-            </button>
-          </Tooltip>
-        </div>
-      )}
-
+      <div ref={containerRef} className="rounded-lg border overflow-hidden retro-table-container" style={{ borderColor: 'var(--theme-border-primary)', backgroundColor: 'var(--theme-card-bg)' }}>
       {/* Keyframe styles for animations */}
       <style>{`
         @keyframes float {
@@ -1214,8 +1266,10 @@ const RetroView: React.FC<RetroViewProps> = ({
       </div>
 
       {groupedItems.length === 0 && <EmptyState />}
-    </div>
+      </div>
   );
-};
+});
+
+RetroView.displayName = 'RetroView';
 
 export default RetroView;
