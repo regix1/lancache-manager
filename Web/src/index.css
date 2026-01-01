@@ -2045,20 +2045,42 @@ input[type='number']::-webkit-outer-spin-button {
   }
 }
 
-/* Allow tables to scroll horizontally on narrow screens */
+/*
+ * RetroView Responsive Layout Fix
+ *
+ * PROBLEM: RetroView has a desktop layout with fixed pixel grid widths (e.g.,
+ * `gridTemplate = ${columnWidths.timestamp}px ${columnWidths.app + 40}px...`).
+ * These fixed widths caused "layout bleed" on mobile - the desktop layout's
+ * min-width: 1200px was forcing horizontal overflow even when the desktop
+ * content was removed from the DOM via JS conditional rendering.
+ *
+ * SOLUTION: Use JS-based conditional rendering (useIsDesktop hook at 1024px)
+ * to completely remove desktop layout from DOM on mobile, combined with CSS
+ * that aligns with the same breakpoint.
+ *
+ * IMPORTANT: The CSS media query breakpoint (1024px) MUST match the JS
+ * breakpoint in useMediaQuery.ts to prevent misalignment.
+ */
+
+/* Mobile (< 1024px): Force content to fit within viewport, prevent horizontal scroll */
 .retro-table-container {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
+  overflow-x: hidden;
 }
 
-/* On narrow/portrait screens, ensure table has minimum width */
-@media (max-width: 1400px) {
+/* Desktop only (>= 1024px, matches useIsDesktop() JS breakpoint) */
+@media (min-width: 1024px) {
+  .retro-table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* On narrow desktop screens (1024px-1400px), ensure table has minimum width for proper columns */
   .retro-table-container table,
   .retro-table-container > div {
     min-width: 1200px;
   }
 
-  /* Show horizontal scroll indicator */
+  /* Show horizontal scroll indicator on desktop */
   .retro-table-container {
     position: relative;
   }
