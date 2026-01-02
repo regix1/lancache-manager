@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { HubConnection } from '@microsoft/signalr';
 import { useNotifications } from '@contexts/NotificationsContext';
 import { type SteamLoginFlowState, type SteamAuthActions } from './useSteamAuthentication';
@@ -20,6 +20,9 @@ export interface UsePrefillSteamAuthOptions {
   onError?: (message: string) => void;
 }
 
+// Timeout for device confirmation (15 seconds)
+const DEVICE_CONFIRMATION_TIMEOUT_MS = 15000;
+
 /**
  * Hook for Steam authentication within a prefill Docker container.
  * Uses SignalR hub methods to handle encrypted credential exchange.
@@ -34,6 +37,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   const [waitingForMobileConfirmation, setWaitingForMobileConfirmation] = useState(false);
   const [useManualCode, setUseManualCode] = useState(false);
   const [pendingChallenge, setPendingChallenge] = useState<CredentialChallenge | null>(null);
+  const deviceConfirmationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Form state
   const [username, setUsername] = useState('');
@@ -89,10 +93,38 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     };
   }, [hubConnection, sessionId]);
 
+  // Timeout for device confirmation - switch to manual 2FA code entry after timeout
+  useEffect(() => {
+    if (waitingForMobileConfirmation) {
+      deviceConfirmationTimeoutRef.current = setTimeout(() => {
+        setWaitingForMobileConfirmation(false);
+        setNeedsTwoFactor(true);
+        setUseManualCode(true);
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message: 'Device confirmation timed out. Please enter your Steam Guard code manually.',
+          details: { notificationType: 'warning' }
+        });
+      }, DEVICE_CONFIRMATION_TIMEOUT_MS);
+
+      return () => {
+        if (deviceConfirmationTimeoutRef.current) {
+          clearTimeout(deviceConfirmationTimeoutRef.current);
+          deviceConfirmationTimeoutRef.current = null;
+        }
+      };
+    }
+  }, [waitingForMobileConfirmation, addNotification]);
+
   const cancelPendingRequest = useCallback(() => {
     setLoading(false);
     setWaitingForMobileConfirmation(false);
     setPendingChallenge(null);
+    if (deviceConfirmationTimeoutRef.current) {
+      clearTimeout(deviceConfirmationTimeoutRef.current);
+      deviceConfirmationTimeoutRef.current = null;
+    }
   }, []);
 
   const resetAuthForm = useCallback(() => {
@@ -106,6 +138,10 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     setUseManualCode(false);
     setLoading(false);
     setPendingChallenge(null);
+    if (deviceConfirmationTimeoutRef.current) {
+      clearTimeout(deviceConfirmationTimeoutRef.current);
+      deviceConfirmationTimeoutRef.current = null;
+    }
   }, []);
 
   const handleAuthenticate = useCallback(async (): Promise<boolean> => {

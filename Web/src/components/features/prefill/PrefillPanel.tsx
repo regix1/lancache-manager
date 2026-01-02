@@ -5,6 +5,7 @@ import { Button } from '../../ui/Button';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { usePrefillSteamAuth } from '@hooks/usePrefillSteamAuth';
 import { ActivityLog, createLogEntry, type LogEntry, type LogEntryType } from './ActivityLog';
+import { GameSelectionModal, type OwnedGame } from './GameSelectionModal';
 import authService from '@services/auth.service';
 import { SIGNALR_BASE } from '@utils/constants';
 import {
@@ -155,6 +156,12 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
+
+  // Game selection state
+  const [ownedGames, setOwnedGames] = useState<OwnedGame[]>([]);
+  const [selectedAppIds, setSelectedAppIds] = useState<number[]>([]);
+  const [showGameSelection, setShowGameSelection] = useState(false);
+  const [isLoadingGames, setIsLoadingGames] = useState(false);
 
   // Helper to add log entries
   const addLog = useCallback((type: LogEntryType, message: string, details?: string) => {
@@ -380,9 +387,15 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       switch (commandType) {
         case 'select-apps': {
           // Get owned games list
-          const games = await hubConnection.current.invoke('GetOwnedGames', session.id);
-          addLog('info', `Found ${games?.length || 0} owned games`);
-          // TODO: Show game selection UI
+          setIsLoadingGames(true);
+          try {
+            const games = await hubConnection.current.invoke('GetOwnedGames', session.id);
+            setOwnedGames(games || []);
+            addLog('info', `Found ${games?.length || 0} owned games`);
+            setShowGameSelection(true);
+          } finally {
+            setIsLoadingGames(false);
+          }
           break;
         }
         case 'select-status': {
@@ -438,6 +451,15 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     setShowAuthModal(true);
   }, [authActions]);
 
+  // Handle saving game selection
+  const handleSaveGameSelection = useCallback(async (selectedIds: number[]) => {
+    if (!session || !hubConnection.current) return;
+
+    await hubConnection.current.invoke('SetSelectedApps', session.id, selectedIds);
+    setSelectedAppIds(selectedIds);
+    addLog('success', `Selected ${selectedIds.length} games for prefill`);
+  }, [session, addLog]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -453,6 +475,16 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         onClose={() => setShowAuthModal(false)}
         state={authState}
         actions={authActions}
+      />
+
+      {/* Game Selection Modal */}
+      <GameSelectionModal
+        opened={showGameSelection}
+        onClose={() => setShowGameSelection(false)}
+        games={ownedGames}
+        selectedAppIds={selectedAppIds}
+        onSave={handleSaveGameSelection}
+        isLoading={isLoadingGames}
       />
 
       {/* Header Card */}
