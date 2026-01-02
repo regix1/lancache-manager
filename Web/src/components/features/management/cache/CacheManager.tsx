@@ -1,5 +1,5 @@
-import React, { useState, useEffect, use, useRef } from 'react';
-import { Server, AlertTriangle, FolderOpen, CheckCircle, XCircle, HardDrive, Lock } from 'lucide-react';
+import React, { useState, useEffect, use, useRef, useCallback } from 'react';
+import { Server, AlertTriangle, FolderOpen, CheckCircle, XCircle, HardDrive, Lock, RefreshCw, Clock, Loader2 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useSignalR } from '@contexts/SignalRContext';
@@ -10,7 +10,7 @@ import { Modal } from '@components/ui/Modal';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { Tooltip } from '@components/ui/Tooltip';
-import type { Config, DatasourceInfo } from '../../../../types';
+import type { Config, DatasourceInfo, CacheSizeInfo } from '../../../../types';
 
 // Fetch initial cache configuration data
 const fetchCacheConfig = async (): Promise<Config> => {
@@ -94,6 +94,49 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   const [expandedDatasources, setExpandedDatasources] = useState<Set<string>>(new Set());
   const cacheOperationInProgressRef = useRef(false);
   const deleteModeChangeInProgressRef = useRef(false);
+
+  // Cache size state
+  const [cacheSize, setCacheSize] = useState<CacheSizeInfo | null>(null);
+  const [cacheSizeLoading, setCacheSizeLoading] = useState(false);
+  const [cacheSizeError, setCacheSizeError] = useState<string | null>(null);
+
+  // Fetch cache size
+  const fetchCacheSize = useCallback(async () => {
+    if (mockMode || cacheReadOnly) return;
+
+    setCacheSizeLoading(true);
+    setCacheSizeError(null);
+    try {
+      const size = await ApiService.getCacheSize();
+      setCacheSize(size);
+    } catch (err) {
+      console.error('Failed to fetch cache size:', err);
+      setCacheSizeError(err instanceof Error ? err.message : 'Failed to calculate cache size');
+    } finally {
+      setCacheSizeLoading(false);
+    }
+  }, [mockMode, cacheReadOnly]);
+
+  // Load cache size on mount
+  useEffect(() => {
+    fetchCacheSize();
+  }, [fetchCacheSize]);
+
+  // Get estimated time based on current delete mode
+  const getEstimatedTime = useCallback(() => {
+    if (!cacheSize) return null;
+    const times = cacheSize.estimatedDeletionTimes;
+    switch (deleteMode) {
+      case 'preserve':
+        return times.preserveFormatted;
+      case 'full':
+        return times.fullFormatted;
+      case 'rsync':
+        return times.rsyncFormatted;
+      default:
+        return times.preserveFormatted;
+    }
+  }, [cacheSize, deleteMode]);
 
   const toggleExpanded = (name: string) => {
     setExpandedDatasources(prev => {
@@ -355,6 +398,63 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                 </div>
               );
             })()}
+
+            {/* Cache Size Info */}
+            <div className="p-4 rounded-lg bg-themed-tertiary/30 mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-themed-primary font-medium text-sm">Cache Size</p>
+                <Tooltip content="Refresh cache size" position="top">
+                  <Button
+                    variant="subtle"
+                    size="sm"
+                    onClick={fetchCacheSize}
+                    disabled={cacheSizeLoading || isCacheClearing}
+                    className="!p-1"
+                  >
+                    {cacheSizeLoading ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-themed-muted" />
+                    ) : (
+                      <RefreshCw className="w-3.5 h-3.5 text-themed-muted" />
+                    )}
+                  </Button>
+                </Tooltip>
+              </div>
+              
+              {cacheSizeError ? (
+                <p className="text-xs text-themed-error">{cacheSizeError}</p>
+              ) : cacheSizeLoading && !cacheSize ? (
+                <div className="flex items-center gap-2 text-xs text-themed-muted">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  <span>Calculating cache size...</span>
+                </div>
+              ) : cacheSize ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-themed-muted">Total Size</span>
+                    <span className="text-sm font-semibold text-themed-primary">{cacheSize.formattedSize}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-themed-muted">Files</span>
+                    <span className="text-sm text-themed-secondary">{cacheSize.totalFiles.toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-themed-muted">Directories</span>
+                    <span className="text-sm text-themed-secondary">{cacheSize.hexDirectories.toLocaleString()}</span>
+                  </div>
+                  {getEstimatedTime() && (
+                    <div className="flex items-center justify-between pt-2 border-t border-themed-secondary">
+                      <span className="text-xs text-themed-muted flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        Est. deletion time
+                      </span>
+                      <span className="text-sm text-themed-secondary">{getEstimatedTime()}</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-themed-muted">Click refresh to calculate cache size</p>
+              )}
+            </div>
 
             {/* Configuration Options */}
             <div className="p-4 rounded-lg bg-themed-tertiary/30">

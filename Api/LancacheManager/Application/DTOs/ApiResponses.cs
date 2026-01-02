@@ -652,6 +652,34 @@ public class CrawlModeResponse
 // ============================================================
 
 /// <summary>
+/// Response for cache size calculation
+/// </summary>
+public class CacheSizeResponse
+{
+    public long TotalBytes { get; set; }
+    public long TotalFiles { get; set; }
+    public long TotalDirectories { get; set; }
+    public int HexDirectories { get; set; }
+    public long ScanDurationMs { get; set; }
+    public EstimatedDeletionTimes EstimatedDeletionTimes { get; set; } = new();
+    public string FormattedSize { get; set; } = string.Empty;
+    public DateTime Timestamp { get; set; }
+}
+
+/// <summary>
+/// Estimated deletion times for different methods
+/// </summary>
+public class EstimatedDeletionTimes
+{
+    public double PreserveSeconds { get; set; }
+    public double FullSeconds { get; set; }
+    public double RsyncSeconds { get; set; }
+    public string PreserveFormatted { get; set; } = string.Empty;
+    public string FullFormatted { get; set; } = string.Empty;
+    public string RsyncFormatted { get; set; } = string.Empty;
+}
+
+/// <summary>
 /// Response for cache clear operation start
 /// </summary>
 public class CacheClearStartResponse

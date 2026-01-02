@@ -31,6 +31,11 @@ path = "src/log_service_manager.rs"
 
 # --- Cache Operations ---
 
+# Calculate cache size and estimate deletion time
+[[bin]]
+name = "cache_size"
+path = "src/cache_size.rs"
+
 # Clear entire cache directory (all hex directories)
 [[bin]]
 name = "cache_clear"

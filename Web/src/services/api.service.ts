@@ -3,6 +3,7 @@ import authService from './auth.service';
 import { isAbortError, getErrorMessage } from '../utils/error';
 import type {
   CacheInfo,
+  CacheSizeInfo,
   Download,
   ClientStat,
   ServiceStat,
@@ -740,6 +741,23 @@ class ApiService {
       return await this.handleResponse<{ available: boolean }>(res);
     } catch (error) {
       console.error('isRsyncAvailable error:', error);
+      throw error;
+    }
+  }
+
+  // Get cache size with deletion time estimates
+  static async getCacheSize(datasource?: string): Promise<CacheSizeInfo> {
+    try {
+      const url = datasource
+        ? `${API_BASE}/cache/size?datasource=${encodeURIComponent(datasource)}`
+        : `${API_BASE}/cache/size`;
+      const res = await fetch(url, this.getFetchOptions({
+        // Can take a while for large caches
+        signal: AbortSignal.timeout(120000) // 2 minutes
+      }));
+      return await this.handleResponse<CacheSizeInfo>(res);
+    } catch (error) {
+      console.error('getCacheSize error:', error);
       throw error;
     }
   }

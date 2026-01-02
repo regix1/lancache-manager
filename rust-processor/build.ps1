@@ -14,6 +14,7 @@ Write-Host "[BUILD] Building Rust executables for multiple platforms..." -Foregr
 $Binaries = @(
     "log_processor",           # Primary log processor (was lancache_processor)
     "log_service_manager",     # Service counting/removal from logs (was log_manager)
+    "cache_size",              # Calculate cache size and estimate deletion time
     "cache_clear",             # Clear entire cache (was cache_cleaner)
     "cache_corruption",        # Detect/remove corrupted chunks (was corruption_manager)
     "cache_game_detect",       # Detect games in cache (was game_cache_detector)

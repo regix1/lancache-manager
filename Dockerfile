@@ -19,6 +19,7 @@ RUN mkdir src && \
     echo "fn main() {}" > src/log_processor.rs && \
     echo "fn main() {}" > src/speed_tracker.rs && \
     echo "fn main() {}" > src/log_service_manager.rs && \
+    echo "fn main() {}" > src/cache_size.rs && \
     echo "fn main() {}" > src/cache_clear.rs && \
     echo "fn main() {}" > src/cache_corruption.rs && \
     echo "fn main() {}" > src/cache_game_detect.rs && \
@@ -39,6 +40,7 @@ RUN cargo build --release && \
     cp target/release/log_processor /build/output/ && \
     cp target/release/log_service_manager /build/output/ && \
     cp target/release/speed_tracker /build/output/ && \
+    cp target/release/cache_size /build/output/ && \
     cp target/release/cache_clear /build/output/ && \
     cp target/release/cache_corruption /build/output/ && \
     cp target/release/cache_game_detect /build/output/ && \

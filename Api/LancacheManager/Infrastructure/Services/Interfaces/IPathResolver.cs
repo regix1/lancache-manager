@@ -89,6 +89,11 @@ public interface IPathResolver
     string GetRustCacheCleanerPath();
 
     /// <summary>
+    /// Gets the path to the Rust cache size calculator executable
+    /// </summary>
+    string GetRustCacheSizePath();
+
+    /// <summary>
     /// Gets the path to the Rust corruption manager executable
     /// </summary>
     string GetRustCorruptionManagerPath();

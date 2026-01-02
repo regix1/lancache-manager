@@ -139,6 +139,9 @@ public class WindowsPathResolver : IPathResolver
     public string GetRustCacheCleanerPath() =>
         Path.Combine(AppContext.BaseDirectory, "rust-processor", "cache_clear.exe");
 
+    public string GetRustCacheSizePath() =>
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "cache_size.exe");
+
     public string GetRustCorruptionManagerPath() =>
         Path.Combine(AppContext.BaseDirectory, "rust-processor", "cache_corruption.exe");
 

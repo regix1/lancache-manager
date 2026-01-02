@@ -10,6 +10,24 @@ export interface CacheInfo {
   serviceSizes: Record<string, number>;
 }
 
+export interface CacheSizeInfo {
+  totalBytes: number;
+  totalFiles: number;
+  totalDirectories: number;
+  hexDirectories: number;
+  scanDurationMs: number;
+  formattedSize: string;
+  timestamp: string;
+  estimatedDeletionTimes: {
+    preserveSeconds: number;
+    fullSeconds: number;
+    rsyncSeconds: number;
+    preserveFormatted: string;
+    fullFormatted: string;
+    rsyncFormatted: string;
+  };
+}
+
 export interface Download {
   id: number;
   service: string;
