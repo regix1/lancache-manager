@@ -54,21 +54,43 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                 dockerUri = new Uri("unix:///var/run/docker.sock");
             }
 
+            // Check if Docker socket exists
+            if (!OperatingSystem.IsWindows() && !File.Exists("/var/run/docker.sock"))
+            {
+                _logger.LogWarning("Docker socket not found at /var/run/docker.sock. " +
+                    "Mount the Docker socket to enable prefill containers: -v /var/run/docker.sock:/var/run/docker.sock");
+            }
+
             _dockerClient = new DockerClientConfiguration(dockerUri).CreateClient();
-            _logger.LogInformation("Docker client initialized: {Endpoint}", dockerUri);
+
+            // Test connection
+            try
+            {
+                var version = await _dockerClient.System.GetVersionAsync(cancellationToken);
+                _logger.LogInformation("Docker client connected. Docker version: {Version}", version.Version);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Docker client created but cannot connect. Ensure Docker socket is mounted.");
+                _dockerClient = null;
+            }
 
             // Ensure image is available
-            await EnsureImageExistsAsync(cancellationToken);
+            if (_dockerClient != null)
+            {
+                await EnsureImageExistsAsync(cancellationToken);
+            }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to initialize Docker client. Container management will be unavailable.");
+            _dockerClient = null;
         }
 
         // Start cleanup timer (every minute)
         _cleanupTimer = new Timer(CleanupExpiredSessions, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
 
-        _logger.LogInformation("SteamPrefillDaemonService started");
+        _logger.LogInformation("SteamPrefillDaemonService started. Docker available: {DockerAvailable}", _dockerClient != null);
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)

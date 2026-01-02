@@ -19,10 +19,10 @@ services:
       # Remove :ro to enable cache clearing, corruption removal, and game removal
       - /mnt/cache:/cache:ro
 
-      # Docker socket for nginx log rotation (optional)
-      # Allows signaling nginx to reopen logs after manipulation
-      # Set NginxLogRotation__Enabled=false and remove this line to disable
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Docker socket for nginx log rotation and Steam Prefill containers
+      # Required for: nginx log rotation, spawning per-user prefill containers
+      # Note: Read-write access needed for prefill container management
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       #=== User/Group Settings ===#
       # PUID/PGID: User and group ID the application runs as after setup
@@ -109,3 +109,16 @@ services:
       # "preserve" = keep directory structure, only delete files (default, safer)
       # "full" = delete everything including directories (faster, more thorough)
       # - CacheClear__DeleteMode=preserve
+
+      #=== Steam Prefill Settings ===#
+      # Prefill__DockerImage: Docker image for per-user prefill containers
+      # Default: ghcr.io/regix1/steam-prefill-daemon:latest
+      # - Prefill__DockerImage=ghcr.io/regix1/steam-prefill-daemon:latest
+
+      # Prefill__SessionTimeoutMinutes: How long prefill sessions last before auto-cleanup
+      # Default: 120 (2 hours)
+      # - Prefill__SessionTimeoutMinutes=120
+
+      # Prefill__DaemonBasePath: Base path for daemon session data (commands/responses)
+      # Default: /tmp/steamprefill
+      # - Prefill__DaemonBasePath=/tmp/steamprefill
