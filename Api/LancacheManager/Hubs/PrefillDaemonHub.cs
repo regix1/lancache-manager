@@ -187,14 +187,29 @@ public class PrefillDaemonHub : Hub
     /// <summary>
     /// Starts a prefill operation
     /// </summary>
-    public async Task<PrefillResult> StartPrefill(string sessionId, bool all = false, bool recent = false, bool force = false, List<string>? operatingSystems = null)
+    public async Task<PrefillResult> StartPrefill(string sessionId, bool all = false, bool recent = false, bool force = false, string? operatingSystems = null)
     {
-        ValidateSessionAccess(sessionId, out var session);
+        try
+        {
+            ValidateSessionAccess(sessionId, out var session);
 
-        _logger.LogInformation("Starting prefill for session {SessionId} (all={All}, recent={Recent}, force={Force}, os={OS})",
-            sessionId, all, recent, force, operatingSystems != null ? string.Join(",", operatingSystems) : "default");
+            // Parse comma-separated OS string into list
+            List<string>? osList = null;
+            if (!string.IsNullOrEmpty(operatingSystems))
+            {
+                osList = operatingSystems.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+            }
 
-        return await _daemonService.PrefillAsync(sessionId, all, recent, force, operatingSystems);
+            _logger.LogInformation("Starting prefill for session {SessionId} (all={All}, recent={Recent}, force={Force}, os={OS})",
+                sessionId, all, recent, force, operatingSystems ?? "default");
+
+            return await _daemonService.PrefillAsync(sessionId, all, recent, force, osList);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "StartPrefill failed for session {SessionId}", sessionId);
+            throw;
+        }
     }
 
     /// <summary>
