@@ -283,10 +283,44 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             throw new KeyNotFoundException($"Session not found: {sessionId}");
         }
 
+        _logger.LogInformation("Starting login for session {SessionId}. ResponsesDir: {ResponsesDir}",
+            sessionId, session.ResponsesDir);
+
+        // Log what files exist in the responses directory
+        if (Directory.Exists(session.ResponsesDir))
+        {
+            var files = Directory.GetFiles(session.ResponsesDir);
+            _logger.LogInformation("Files in responses dir before login: {Files}",
+                files.Length > 0 ? string.Join(", ", files.Select(Path.GetFileName)) : "(empty)");
+        }
+        else
+        {
+            _logger.LogWarning("Responses directory does not exist: {ResponsesDir}", session.ResponsesDir);
+        }
+
         session.AuthState = DaemonAuthState.LoggingIn;
         await NotifyAuthStateChangeAsync(session);
 
-        return await session.Client.StartLoginAsync(timeout, cancellationToken);
+        var challenge = await session.Client.StartLoginAsync(timeout, cancellationToken);
+
+        // Log result
+        if (challenge != null)
+        {
+            _logger.LogInformation("Received challenge for session {SessionId}: Type={Type}, Id={ChallengeId}",
+                sessionId, challenge.CredentialType, challenge.ChallengeId);
+        }
+        else
+        {
+            // Log what files exist now
+            if (Directory.Exists(session.ResponsesDir))
+            {
+                var files = Directory.GetFiles(session.ResponsesDir);
+                _logger.LogWarning("No challenge received. Files in responses dir: {Files}",
+                    files.Length > 0 ? string.Join(", ", files.Select(Path.GetFileName)) : "(empty)");
+            }
+        }
+
+        return challenge;
     }
 
     /// <summary>

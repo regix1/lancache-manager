@@ -187,34 +187,23 @@ public sealed class DaemonClient : IDisposable
             return existingChallenge;
         }
 
-        var tcs = new TaskCompletionSource<CredentialChallenge>();
+        // Send login command (don't wait for response)
+        _ = SendCommandAsync("login", cancellationToken: cancellationToken);
 
-        lock (_pendingChallenges)
+        // Poll for credential challenge (FileSystemWatcher may not work on Docker bind mounts)
+        var timeoutTime = DateTime.UtcNow.Add(timeout ?? TimeSpan.FromSeconds(30));
+        while (DateTime.UtcNow < timeoutTime && !cancellationToken.IsCancellationRequested)
         {
-            _pendingChallenges["pending"] = tcs;
-        }
+            await Task.Delay(200, cancellationToken);
 
-        try
-        {
-            _ = SendCommandAsync("login", cancellationToken: cancellationToken);
-
-            using var timeoutCts = new CancellationTokenSource(timeout ?? TimeSpan.FromSeconds(30));
-            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-            using var reg = linkedCts.Token.Register(() => tcs.TrySetCanceled());
-
-            return await tcs.Task;
-        }
-        catch (OperationCanceledException)
-        {
-            return null;
-        }
-        finally
-        {
-            lock (_pendingChallenges)
+            var challenge = await GetPendingChallengeAsync(cancellationToken);
+            if (challenge != null)
             {
-                _pendingChallenges.Remove("pending");
+                return challenge;
             }
         }
+
+        return null;
     }
 
     /// <summary>
@@ -246,38 +235,20 @@ public sealed class DaemonClient : IDisposable
         TimeSpan? timeout = null,
         CancellationToken cancellationToken = default)
     {
-        var existingChallenge = await GetPendingChallengeAsync(cancellationToken);
-        if (existingChallenge != null)
+        // Poll for credential challenge (FileSystemWatcher may not work on Docker bind mounts)
+        var timeoutTime = DateTime.UtcNow.Add(timeout ?? TimeSpan.FromMinutes(5));
+        while (DateTime.UtcNow < timeoutTime && !cancellationToken.IsCancellationRequested)
         {
-            return existingChallenge;
-        }
-
-        var tcs = new TaskCompletionSource<CredentialChallenge>();
-
-        lock (_pendingChallenges)
-        {
-            _pendingChallenges["pending"] = tcs;
-        }
-
-        try
-        {
-            using var timeoutCts = new CancellationTokenSource(timeout ?? TimeSpan.FromMinutes(5));
-            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-            using var reg = linkedCts.Token.Register(() => tcs.TrySetCanceled());
-
-            return await tcs.Task;
-        }
-        catch (OperationCanceledException)
-        {
-            return null;
-        }
-        finally
-        {
-            lock (_pendingChallenges)
+            var challenge = await GetPendingChallengeAsync(cancellationToken);
+            if (challenge != null)
             {
-                _pendingChallenges.Remove("pending");
+                return challenge;
             }
+
+            await Task.Delay(200, cancellationToken);
         }
+
+        return null;
     }
 
     /// <summary>
