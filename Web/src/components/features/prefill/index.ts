@@ -1,3 +1,2 @@
 export { PrefillPanel } from './PrefillPanel';
-// Legacy terminal component - kept for reference
-export { PrefillTerminal } from './PrefillTerminal';
+export { ActivityLog, createLogEntry, type LogEntry, type LogEntryType } from './ActivityLog';
