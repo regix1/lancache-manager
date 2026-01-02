@@ -20,6 +20,9 @@ use std::os::windows::fs::OpenOptionsExt;
 #[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
 
+mod cache_utils;
+use cache_utils::{detect_filesystem_type, FilesystemType};
+
 #[derive(Serialize)]
 struct ProgressData {
     #[serde(rename = "isProcessing")]
@@ -541,12 +544,31 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
     Ok(())
 }
 
-/// Determine optimal thread count based on delete mode and available CPUs
-fn get_optimal_thread_count(delete_mode: &str) -> usize {
+/// Determine optimal thread count based on delete mode, filesystem type, and available CPUs
+/// For network filesystems (NFS/SMB), parallelism is significantly reduced as it often
+/// hurts rather than helps performance due to network round-trip overhead
+fn get_optimal_thread_count(delete_mode: &str, fs_type: FilesystemType) -> usize {
     let cpu_count = std::thread::available_parallelism()
         .map(|p| p.get())
         .unwrap_or(4);
 
+    // Network filesystems: parallelism often HURTS performance
+    // Each unlink/rmdir requires a network round-trip
+    // Reference: https://www.baeldung.com/linux/delete-large-directory
+    if fs_type.is_network() {
+        return match delete_mode {
+            // Rsync is most efficient on NFS - can use moderate parallelism
+            // as each rsync process handles a whole directory tree
+            "rsync" => std::cmp::min(cpu_count, 4),
+            // Full mode does remove_dir_all - limited parallelism
+            "full" => 2,
+            // Preserve mode is VERY slow on NFS - minimal parallelism
+            // to avoid overwhelming the NFS server with unlink() calls
+            _ => 2,
+        };
+    }
+
+    // Local filesystems: can use higher parallelism
     match delete_mode {
         // Fast mode uses remove_dir_all which is already efficient
         // Use fewer threads to avoid overwhelming the filesystem
@@ -558,7 +580,6 @@ fn get_optimal_thread_count(delete_mode: &str) -> usize {
 
         // Preserve mode does individual file deletes - I/O bound
         // Use high parallelism to maximize throughput on SSDs
-        // For NAS this might be too aggressive but user can override
         _ => std::cmp::min(cpu_count * 2, 16),
     }
 }
@@ -571,33 +592,64 @@ fn main() {
         eprintln!("  cache_cleaner <cache_path> <progress_json_path> [delete_mode] [thread_count]");
         eprintln!("\nExample:");
         eprintln!("  cache_cleaner /var/cache/lancache ./data/cache_clear_progress.json preserve");
-        eprintln!("  cache_cleaner /mnt/nas/cache ./data/progress.json full 8");
+        eprintln!("  cache_cleaner /mnt/nas/cache ./data/progress.json rsync 4");
         eprintln!("\nOptions:");
-        eprintln!("  delete_mode: Deletion method (default: preserve)");
+        eprintln!("  delete_mode: Deletion method (default: preserve, auto-adjusted for NFS/SMB)");
         eprintln!("    - 'preserve': Safe Mode - Individual file deletion (slower, keeps structure)");
-        eprintln!("    - 'full': Fast Mode - Directory removal (faster)");
-        eprintln!("    - 'rsync': Rsync - With empty directory (network storage, Linux only)");
-        eprintln!("  thread_count: Number of parallel threads (default: auto-detected based on mode)");
-        eprintln!("    - preserve: 2x CPU cores (max 16) for I/O-bound operations");
-        eprintln!("    - full: CPU cores (max 8) for syscall-efficient operations");
-        eprintln!("    - rsync: CPU cores (max 6) for process-based operations");
+        eprintln!("    - 'full': Fast Mode - Directory removal (faster on local disks)");
+        eprintln!("    - 'rsync': Rsync - With empty directory (RECOMMENDED for NFS/SMB, Linux only)");
+        eprintln!("  thread_count: Number of parallel threads (default: auto-detected based on mode & filesystem)");
+        eprintln!("    Local filesystems: Higher parallelism for better throughput");
+        eprintln!("    Network filesystems (NFS/SMB): Reduced parallelism to avoid overwhelming server");
         std::process::exit(1);
     }
 
     let cache_path = &args[1];
     let progress_path = Path::new(&args[2]);
+
+    // Detect filesystem type for optimal configuration
+    let cache_dir = Path::new(cache_path);
+    let fs_type = detect_filesystem_type(cache_dir);
+    let is_network_fs = fs_type.is_network();
+
+    eprintln!("Filesystem type: {:?} (network: {})", fs_type, is_network_fs);
+
+    // Get delete mode, with recommendation for network filesystems
     let delete_mode = if args.len() >= 4 {
-        &args[3]
+        let mode = &args[3];
+        // Warn if using suboptimal mode on network filesystem
+        if is_network_fs && mode == "preserve" {
+            eprintln!("⚠ Warning: 'preserve' mode is VERY slow on NFS/SMB filesystems.");
+            eprintln!("  Consider using 'rsync' mode instead for much better performance.");
+            eprintln!("  rsync empty-directory trick is ~3x faster on network storage.");
+        }
+        mode.as_str()
+    } else if is_network_fs {
+        // Default to rsync for network filesystems on Linux
+        #[cfg(target_os = "linux")]
+        {
+            eprintln!("Network filesystem detected - defaulting to 'rsync' mode (optimal for NFS/SMB)");
+            "rsync"
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            eprintln!("Network filesystem detected - using 'full' mode (rsync not available on this platform)");
+            "full"
+        }
     } else {
         "preserve"
     };
 
-    // Thread count: use provided value or auto-detect based on mode
+    // Thread count: use provided value or auto-detect based on mode and filesystem
     let thread_count = if args.len() >= 5 {
-        args[4].parse::<usize>().unwrap_or_else(|_| get_optimal_thread_count(delete_mode))
+        args[4].parse::<usize>().unwrap_or_else(|_| get_optimal_thread_count(delete_mode, fs_type))
     } else {
-        get_optimal_thread_count(delete_mode)
+        get_optimal_thread_count(delete_mode, fs_type)
     };
+
+    if is_network_fs {
+        eprintln!("Using reduced parallelism ({} threads) for network filesystem", thread_count);
+    }
 
     eprintln!("Thread count: {} (mode: {})", thread_count, delete_mode);
 

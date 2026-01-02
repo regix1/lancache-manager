@@ -13,6 +13,9 @@ use std::time::{Duration, Instant};
 #[cfg(windows)]
 use std::os::windows::fs::OpenOptionsExt;
 
+mod cache_utils;
+use cache_utils::detect_filesystem_type;
+
 #[derive(Serialize)]
 struct ProgressData {
     #[serde(rename = "isProcessing")]
@@ -247,6 +250,12 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
         anyhow::bail!("Cache directory does not exist: {}", cache_path);
     }
 
+    // Detect filesystem type - NFS/SMB require different strategies
+    let fs_type = detect_filesystem_type(cache_dir);
+    let is_network_fs = fs_type.is_network();
+
+    eprintln!("Filesystem type: {:?} (network: {})", fs_type, is_network_fs);
+
     // Find all hex directories (00-ff)
     let hex_dirs: Vec<_> = fs::read_dir(cache_dir)?
         .filter_map(|entry| entry.ok())
@@ -287,11 +296,23 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
         return Ok(result);
     }
 
+    // For network filesystems (NFS/SMB), use system commands which are more reliable
+    // The NFS client caches directory information and 'du' leverages this efficiently
+    if is_network_fs {
+        eprintln!("Network filesystem detected - using optimized du/find approach");
+        return calculate_cache_size_network(cache_dir, progress_path, total_hex_dirs, start_time);
+    }
+
+    // For local filesystems, use parallel scanning (fast and reliable)
+    eprintln!("Local filesystem - using parallel scan approach");
+
     // Atomic counters for parallel scanning
     let total_bytes = Arc::new(AtomicU64::new(0));
     let total_files = Arc::new(AtomicU64::new(0));
     let total_dirs = Arc::new(AtomicU64::new(0));
     let dirs_scanned = Arc::new(AtomicUsize::new(0));
+    let failed_entries = Arc::new(AtomicU64::new(0));
+    let failed_metadata = Arc::new(AtomicU64::new(0));
 
     // Write initial progress
     let progress = ProgressData {
@@ -345,29 +366,54 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
         }
     });
 
+    // Clone error counters for parallel loop
+    let failed_entries_clone = Arc::clone(&failed_entries);
+    let failed_metadata_clone = Arc::clone(&failed_metadata);
+
     // Parallel scan using rayon
+    // Process hex directories in parallel, but use serial walking within each
+    // to reduce concurrent NFS operations which can cause stale file handles
     hex_dirs.par_iter().for_each(|hex_dir| {
-        // Use jwalk for fast parallel directory walking within each hex dir
-        for entry in WalkDir::new(hex_dir)
+        // Use jwalk with serial mode for more reliable NFS handling
+        for result in WalkDir::new(hex_dir)
             .skip_hidden(false)
             .follow_links(false)
+            .parallelism(jwalk::Parallelism::Serial)
             .into_iter()
-            .filter_map(|e| e.ok())
         {
+            let entry = match result {
+                Ok(e) => e,
+                Err(_) => {
+                    failed_entries_clone.fetch_add(1, Ordering::Relaxed);
+                    continue;
+                }
+            };
+
             let file_type = entry.file_type();
-            
+
             if file_type.is_file() {
                 total_files.fetch_add(1, Ordering::Relaxed);
-                
-                // Get file size - use metadata from entry if available
-                if let Ok(metadata) = entry.metadata() {
-                    total_bytes.fetch_add(metadata.len(), Ordering::Relaxed);
-                }
+
+                // Get file size - try jwalk's cached metadata first, then fallback to std::fs
+                let size = match entry.metadata() {
+                    Ok(metadata) => metadata.len(),
+                    Err(_) => {
+                        // Fallback: try direct filesystem metadata call
+                        match fs::metadata(entry.path()) {
+                            Ok(metadata) => metadata.len(),
+                            Err(_) => {
+                                failed_metadata_clone.fetch_add(1, Ordering::Relaxed);
+                                0
+                            }
+                        }
+                    }
+                };
+                total_bytes.fetch_add(size, Ordering::Relaxed);
             } else if file_type.is_dir() {
                 total_dirs.fetch_add(1, Ordering::Relaxed);
             }
         }
-        
+
         dirs_scanned.fetch_add(1, Ordering::Relaxed);
     });
 
@@ -378,6 +424,8 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
     let final_bytes = total_bytes.load(Ordering::Relaxed);
     let final_files = total_files.load(Ordering::Relaxed);
     let final_dirs = total_dirs.load(Ordering::Relaxed);
+    let final_failed_entries = failed_entries.load(Ordering::Relaxed);
+    let final_failed_metadata = failed_metadata.load(Ordering::Relaxed);
 
     eprintln!("\nCache scan completed!");
     eprintln!("  Hex directories: {}", total_hex_dirs);
@@ -385,6 +433,18 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
     eprintln!("  Total files: {}", final_files);
     eprintln!("  Total size: {} ({} bytes)", format_bytes(final_bytes), final_bytes);
     eprintln!("  Scan time: {:.2}s", scan_duration.as_secs_f64());
+
+    // Report any failures - these indicate potential NFS or permission issues
+    if final_failed_entries > 0 || final_failed_metadata > 0 {
+        eprintln!("\n  ⚠ Warning: Some files could not be read:");
+        if final_failed_entries > 0 {
+            eprintln!("    - Failed to read {} directory entries", final_failed_entries);
+        }
+        if final_failed_metadata > 0 {
+            eprintln!("    - Failed to get metadata for {} files (size counted as 0)", final_failed_metadata);
+        }
+        eprintln!("    This may indicate NFS issues, permission problems, or stale file handles.");
+    }
 
     // Calculate deletion time estimates
     let estimates = estimate_deletion_times(
@@ -408,6 +468,183 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
         scan_duration_ms: scan_duration.as_millis() as u64,
         estimated_deletion_times: estimates,
         formatted_size: format_bytes(final_bytes),
+        timestamp: Utc::now().to_rfc3339(),
+    };
+
+    write_result(progress_path, &result)?;
+
+    Ok(result)
+}
+
+/// Calculate cache size using system commands (du/find)
+/// This is optimized for NFS/SMB where individual stat() calls are expensive
+/// but system commands can leverage NFS client caching effectively
+fn calculate_cache_size_network(
+    cache_dir: &Path,
+    progress_path: &Path,
+    hex_dir_count: usize,
+    start_time: Instant,
+) -> Result<CacheSizeResult> {
+    use std::process::Command;
+
+    eprintln!("Using du command to calculate total size (optimized for network filesystems)...");
+
+    // Write initial progress
+    let progress = ProgressData {
+        is_processing: true,
+        percent_complete: 10.0,
+        status: "scanning".to_string(),
+        message: "Calculating cache size using du (optimized for network storage)...".to_string(),
+        directories_scanned: 0,
+        total_directories: hex_dir_count,
+        total_bytes: 0,
+        total_files: 0,
+        timestamp: Utc::now().to_rfc3339(),
+    };
+    write_progress(progress_path, &progress)?;
+
+    // Use du -sb for total size (summarize, bytes)
+    // This is much more reliable on NFS than iterating with stat()
+    let du_output = Command::new("du")
+        .arg("-sb")
+        .arg(cache_dir)
+        .output();
+
+    let total_bytes = match du_output {
+        Ok(output) if output.status.success() => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            eprintln!("du output: {}", stdout.trim());
+            stdout
+                .split_whitespace()
+                .next()
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(0)
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            eprintln!("du command failed: {}", stderr);
+            // Fallback to du without -b (some systems don't support it)
+            let fallback = Command::new("du")
+                .arg("-s")
+                .arg(cache_dir)
+                .output();
+            match fallback {
+                Ok(out) if out.status.success() => {
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    // du -s returns kilobytes
+                    stdout
+                        .split_whitespace()
+                        .next()
+                        .and_then(|s| s.parse::<u64>().ok())
+                        .map(|kb| kb * 1024)
+                        .unwrap_or(0)
+                }
+                _ => 0,
+            }
+        }
+        Err(e) => {
+            eprintln!("Failed to execute du: {}", e);
+            0
+        }
+    };
+
+    eprintln!("Total size from du: {} ({} bytes)", format_bytes(total_bytes), total_bytes);
+
+    // Update progress
+    let progress = ProgressData {
+        is_processing: true,
+        percent_complete: 50.0,
+        status: "scanning".to_string(),
+        message: "Counting files...".to_string(),
+        directories_scanned: hex_dir_count / 2,
+        total_directories: hex_dir_count,
+        total_bytes,
+        total_files: 0,
+        timestamp: Utc::now().to_rfc3339(),
+    };
+    write_progress(progress_path, &progress)?;
+
+    // Count files using find -type f | wc -l (more reliable on NFS)
+    eprintln!("Counting files using find command...");
+    let find_output = Command::new("sh")
+        .arg("-c")
+        .arg(format!("find '{}' -type f | wc -l", cache_dir.display()))
+        .output();
+
+    let total_files = match find_output {
+        Ok(output) if output.status.success() => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            stdout.trim().parse::<u64>().unwrap_or(0)
+        }
+        _ => {
+            eprintln!("find command failed, estimating file count...");
+            // Rough estimate: typical lancache has ~1 file per 1MB average
+            total_bytes / (1024 * 1024)
+        }
+    };
+
+    eprintln!("Total files: {}", total_files);
+
+    // Count directories
+    let dir_output = Command::new("sh")
+        .arg("-c")
+        .arg(format!("find '{}' -type d | wc -l", cache_dir.display()))
+        .output();
+
+    let total_dirs = match dir_output {
+        Ok(output) if output.status.success() => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            stdout.trim().parse::<u64>().unwrap_or(hex_dir_count as u64)
+        }
+        _ => hex_dir_count as u64 * 257, // Estimate: 256 subdirs per hex dir + 1
+    };
+
+    let scan_duration = start_time.elapsed();
+
+    eprintln!("\nNetwork filesystem scan completed!");
+    eprintln!("  Hex directories: {}", hex_dir_count);
+    eprintln!("  Total directories: {}", total_dirs);
+    eprintln!("  Total files: {}", total_files);
+    eprintln!("  Total size: {} ({} bytes)", format_bytes(total_bytes), total_bytes);
+    eprintln!("  Scan time: {:.2}s", scan_duration.as_secs_f64());
+
+    // Calculate deletion time estimates (adjusted for network filesystem)
+    // Network filesystems are slower, so multiply estimates
+    let base_estimates = estimate_deletion_times(
+        total_files,
+        total_dirs,
+        hex_dir_count,
+        total_bytes,
+        scan_duration,
+    );
+
+    // For network filesystems, rsync is often the best choice
+    // Adjust estimates to reflect this
+    let estimates = EstimatedDeletionTimes {
+        // Preserve mode is MUCH slower on NFS due to individual unlink() calls
+        preserve_seconds: base_estimates.preserve_seconds * 3.0,
+        preserve_formatted: format_duration(base_estimates.preserve_seconds * 3.0),
+        // Full mode (remove_dir_all) is moderately slower
+        full_seconds: base_estimates.full_seconds * 2.0,
+        full_formatted: format_duration(base_estimates.full_seconds * 2.0),
+        // Rsync is well-optimized for this use case
+        rsync_seconds: base_estimates.rsync_seconds * 1.5,
+        rsync_formatted: format_duration(base_estimates.rsync_seconds * 1.5),
+    };
+
+    eprintln!("\nEstimated deletion times (network filesystem):");
+    eprintln!("  Safe Mode (preserve): {} ⚠ Slow on NFS", estimates.preserve_formatted);
+    eprintln!("  Fast Mode (full): {}", estimates.full_formatted);
+    eprintln!("  Rsync Mode: {} ✓ Recommended for NFS", estimates.rsync_formatted);
+
+    let result = CacheSizeResult {
+        total_bytes,
+        total_files,
+        total_directories: total_dirs,
+        hex_directories: hex_dir_count,
+        scan_duration_ms: scan_duration.as_millis() as u64,
+        estimated_deletion_times: estimates,
+        formatted_size: format_bytes(total_bytes),
         timestamp: Utc::now().to_rfc3339(),
     };
 

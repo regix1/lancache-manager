@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { NotificationsProvider } from '@contexts/NotificationsContext';
+import { CacheSizeProvider } from '@contexts/CacheSizeContext';
 import { StatsProvider, useStats } from '@contexts/StatsContext';
 import { DownloadsProvider } from '@contexts/DownloadsContext';
 import { TimeFilterProvider } from '@contexts/TimeFilterContext';
@@ -715,19 +716,21 @@ const App: React.FC = () => {
                         <SteamAuthProvider>
                           <PicsProgressProviderWithMockMode>
                             <NotificationsProvider>
-                              <StatsProviderWithMockMode>
-                                <DownloadsProviderWithMockMode>
-                                  <CalendarSettingsProvider>
-                                    <EventProvider>
-                                      <ClientGroupProvider>
-                                      <DownloadAssociationsProvider>
-                                        <AppContent />
-                                      </DownloadAssociationsProvider>
-                                    </ClientGroupProvider>
-                                  </EventProvider>
-                                  </CalendarSettingsProvider>
-                                </DownloadsProviderWithMockMode>
-                              </StatsProviderWithMockMode>
+                              <CacheSizeProvider>
+                                <StatsProviderWithMockMode>
+                                  <DownloadsProviderWithMockMode>
+                                    <CalendarSettingsProvider>
+                                      <EventProvider>
+                                        <ClientGroupProvider>
+                                        <DownloadAssociationsProvider>
+                                          <AppContent />
+                                        </DownloadAssociationsProvider>
+                                      </ClientGroupProvider>
+                                    </EventProvider>
+                                    </CalendarSettingsProvider>
+                                  </DownloadsProviderWithMockMode>
+                                </StatsProviderWithMockMode>
+                              </CacheSizeProvider>
                             </NotificationsProvider>
                           </PicsProgressProviderWithMockMode>
                         </SteamAuthProvider>

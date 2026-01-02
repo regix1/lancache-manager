@@ -3,6 +3,7 @@ import { Server, AlertTriangle, FolderOpen, CheckCircle, XCircle, HardDrive, Loc
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useSignalR } from '@contexts/SignalRContext';
+import { useCacheSize } from '@contexts/CacheSizeContext';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -10,7 +11,7 @@ import { Modal } from '@components/ui/Modal';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { Tooltip } from '@components/ui/Tooltip';
-import type { Config, DatasourceInfo, CacheSizeInfo } from '../../../../types';
+import type { Config, DatasourceInfo } from '../../../../types';
 
 // Fetch initial cache configuration data
 const fetchCacheConfig = async (): Promise<Config> => {
@@ -85,6 +86,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   const rsyncAvailable = use(getRsyncPromise());
   const cacheReadOnly = use(getPermissionsPromise());
 
+  // Cache size from global context (persists across navigation)
+  const { cacheSize, isLoading: cacheSizeLoading, error: cacheSizeError, fetchCacheSize, clearCacheSize } = useCacheSize();
+
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [deleteMode, setDeleteMode] = useState<'preserve' | 'full' | 'rsync'>(config.cacheDeleteMode as 'preserve' | 'full' | 'rsync');
@@ -95,32 +99,12 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   const cacheOperationInProgressRef = useRef(false);
   const deleteModeChangeInProgressRef = useRef(false);
 
-  // Cache size state
-  const [cacheSize, setCacheSize] = useState<CacheSizeInfo | null>(null);
-  const [cacheSizeLoading, setCacheSizeLoading] = useState(false);
-  const [cacheSizeError, setCacheSizeError] = useState<string | null>(null);
-
-  // Fetch cache size
-  const fetchCacheSize = useCallback(async () => {
-    if (mockMode || cacheReadOnly) return;
-
-    setCacheSizeLoading(true);
-    setCacheSizeError(null);
-    try {
-      const size = await ApiService.getCacheSize();
-      setCacheSize(size);
-    } catch (err) {
-      console.error('Failed to fetch cache size:', err);
-      setCacheSizeError(err instanceof Error ? err.message : 'Failed to calculate cache size');
-    } finally {
-      setCacheSizeLoading(false);
-    }
-  }, [mockMode, cacheReadOnly]);
-
-  // Load cache size on mount
+  // Fetch cache size on mount if not already loaded
   useEffect(() => {
-    fetchCacheSize();
-  }, [fetchCacheSize]);
+    if (!mockMode && !cacheReadOnly && !cacheSize && !cacheSizeLoading) {
+      fetchCacheSize();
+    }
+  }, [mockMode, cacheReadOnly, cacheSize, cacheSizeLoading, fetchCacheSize]);
 
   // Get estimated time based on current delete mode
   const getEstimatedTime = useCallback(() => {
@@ -156,6 +140,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
 
     const handleCacheClearComplete = () => {
       setIsCacheClearing(false);
+      // Clear the cached size so it refetches with new values
+      clearCacheSize();
     };
 
     signalR.on('CacheClearComplete', handleCacheClearComplete);
@@ -163,7 +149,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     return () => {
       signalR.off('CacheClearComplete', handleCacheClearComplete);
     };
-  }, [mockMode, signalR]);
+  }, [mockMode, signalR, clearCacheSize]);
 
   const handleDeleteModeChange = async (newMode: 'preserve' | 'full' | 'rsync') => {
     // Skip if already selected
