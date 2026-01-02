@@ -221,7 +221,8 @@ public sealed class DaemonClient : IDisposable
             credential);
 
         var json = JsonSerializer.Serialize(encrypted, new JsonSerializerOptions { WriteIndented = true });
-        var filePath = Path.Combine(_commandsDir, $"cred_{encrypted.ChallengeId}.json");
+        // Use cmd_ prefix like other commands - daemon watches for cmd_*.json
+        var filePath = Path.Combine(_commandsDir, $"cmd_{encrypted.ChallengeId}.json");
 
         // Debug: log what we're writing
         Console.WriteLine($"[DEBUG] Writing credential file: {filePath}");
@@ -229,6 +230,7 @@ public sealed class DaemonClient : IDisposable
         Console.WriteLine($"[DEBUG] Server public key length: {Convert.FromBase64String(challenge.ServerPublicKey).Length}");
         Console.WriteLine($"[DEBUG] Client public key: {encrypted.ClientPublicKey[..20]}...");
         Console.WriteLine($"[DEBUG] Encrypted credential length: {Convert.FromBase64String(encrypted.EncryptedCredential).Length}");
+        Console.WriteLine($"[DEBUG] JSON content:\n{json}");
 
         await File.WriteAllTextAsync(filePath, json, cancellationToken);
 
@@ -428,9 +430,6 @@ public class CredentialChallenge
 
 public class EncryptedCredentialResponse
 {
-    [JsonPropertyName("type")]
-    public string Type { get; set; } = "credential-response";
-
     [JsonPropertyName("challengeId")]
     public string ChallengeId { get; set; } = string.Empty;
 
@@ -539,33 +538,33 @@ public static class SecureCredentialExchange
     }
 
     /// <summary>
-    /// Alternative method using raw ECDH shared secret (x-coordinate) with SHA-256
-    /// Use this if the daemon doesn't use .NET's KDF
+    /// Encrypts credentials using ECDH + HKDF + AES-GCM
+    /// Matches the daemon's SecureCredentialExchange implementation exactly
     /// </summary>
     public static EncryptedCredentialResponse EncryptCredentialRaw(
         string challengeId,
         string serverPublicKeyBase64,
         string credential)
     {
-        // Create client ECDH key pair using ECDsa for more control
-        using var clientKey = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
-        var clientParams = clientKey.ExportParameters(true);
-
-        // Export client public key as raw EC point
-        var clientPublicKeyRaw = new byte[65];
-        clientPublicKeyRaw[0] = 0x04;
-        Array.Copy(clientParams.Q.X!, 0, clientPublicKeyRaw, 1, 32);
-        Array.Copy(clientParams.Q.Y!, 0, clientPublicKeyRaw, 33, 32);
-
-        // Import server's raw EC point
+        // Parse server public key (65-byte uncompressed EC point)
         var serverPublicKeyBytes = Convert.FromBase64String(serverPublicKeyBase64);
         if (serverPublicKeyBytes.Length != 65 || serverPublicKeyBytes[0] != 0x04)
         {
-            throw new CryptographicException($"Invalid server public key format");
+            throw new CryptographicException($"Invalid server public key format. Expected 65 bytes, got {serverPublicKeyBytes.Length}");
         }
 
-        // Derive raw shared secret (x-coordinate of shared point)
-        // Using DeriveRawSecretAgreement to get the raw x-coordinate
+        // Generate client ephemeral keypair
+        using var clientEcdh = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+        var clientParams = clientEcdh.ExportParameters(true);
+
+        // Export client public key as raw EC point (65 bytes: 0x04 + X + Y)
+        var clientPublicKey = new byte[65];
+        clientPublicKey[0] = 0x04;
+        Array.Copy(clientParams.Q.X!, 0, clientPublicKey, 1, 32);
+        Array.Copy(clientParams.Q.Y!, 0, clientPublicKey, 33, 32);
+
+        // Import server public key
+        using var serverEcdh = ECDiffieHellman.Create();
         var serverParams = new ECParameters
         {
             Curve = ECCurve.NamedCurves.nistP256,
@@ -575,30 +574,38 @@ public static class SecureCredentialExchange
                 Y = serverPublicKeyBytes[33..65]
             }
         };
+        serverEcdh.ImportParameters(serverParams);
 
-        using var serverKey = ECDiffieHellman.Create(serverParams);
+        // Derive shared secret using .NET's DeriveKeyMaterial
+        var sharedSecret = clientEcdh.DeriveKeyMaterial(serverEcdh.PublicKey);
 
-        // Get raw shared secret (x-coordinate)
-        byte[] rawSharedSecret = clientKey.DeriveRawSecretAgreement(serverKey.PublicKey);
-
-        // Hash with SHA-256 to get key material
-        byte[] sharedSecret = SHA256.HashData(rawSharedSecret);
+        // Derive AES key using HKDF (matching daemon's implementation)
+        var aesKey = HKDF.DeriveKey(
+            HashAlgorithmName.SHA256,
+            sharedSecret,
+            32, // 256-bit key
+            Encoding.UTF8.GetBytes(challengeId),  // Salt = challengeId
+            Encoding.UTF8.GetBytes("SteamPrefill-Credential-Encryption")); // Info
 
         // Encrypt with AES-GCM
-        using var aes = new AesGcm(sharedSecret, 16);
         var nonce = new byte[12];
         RandomNumberGenerator.Fill(nonce);
 
-        var plaintext = Encoding.UTF8.GetBytes(credential);
-        var ciphertext = new byte[plaintext.Length];
+        var plaintextBytes = Encoding.UTF8.GetBytes(credential);
+        var ciphertext = new byte[plaintextBytes.Length];
         var tag = new byte[16];
 
-        aes.Encrypt(nonce, plaintext, ciphertext, tag);
+        using var aesGcm = new AesGcm(aesKey, 16);
+        aesGcm.Encrypt(nonce, plaintextBytes, ciphertext, tag);
+
+        // Securely clear sensitive data
+        CryptographicOperations.ZeroMemory(sharedSecret);
+        CryptographicOperations.ZeroMemory(aesKey);
 
         return new EncryptedCredentialResponse
         {
             ChallengeId = challengeId,
-            ClientPublicKey = Convert.ToBase64String(clientPublicKeyRaw),
+            ClientPublicKey = Convert.ToBase64String(clientPublicKey),
             EncryptedCredential = Convert.ToBase64String(ciphertext),
             Nonce = Convert.ToBase64String(nonce),
             Tag = Convert.ToBase64String(tag)
