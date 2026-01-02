@@ -148,6 +148,8 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             {
                 Name = containerName,
                 Image = imageName,
+                // Run in daemon mode - watches for command files
+                Cmd = new List<string> { "daemon", "-c", "/commands", "-r", "/responses" },
                 Env = new List<string>
                 {
                     $"PREFILL_COMMANDS_DIR=/commands",
@@ -160,8 +162,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                         $"{commandsDir}:/commands",
                         $"{responsesDir}:/responses"
                     },
-                    // AutoRemove disabled for debugging - containers will persist after crash
-                    AutoRemove = false
+                    AutoRemove = true
                 }
             },
             cancellationToken);
