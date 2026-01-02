@@ -1,27 +1,27 @@
 using LancacheManager.Application.Services;
-using LancacheManager.Models;
+using LancacheManager.Application.SteamPrefill;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
 
 /// <summary>
-/// REST API endpoints for Steam Prefill session management
+/// REST API endpoints for Steam Prefill daemon session management
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
 public class PrefillController : ControllerBase
 {
-    private readonly PrefillSessionService _sessionService;
+    private readonly SteamPrefillDaemonService _daemonService;
     private readonly DeviceAuthService _deviceAuthService;
     private readonly ILogger<PrefillController> _logger;
 
     public PrefillController(
-        PrefillSessionService sessionService,
+        SteamPrefillDaemonService daemonService,
         DeviceAuthService deviceAuthService,
         ILogger<PrefillController> logger)
     {
-        _sessionService = sessionService;
+        _daemonService = daemonService;
         _deviceAuthService = deviceAuthService;
         _logger = logger;
     }
@@ -30,7 +30,7 @@ public class PrefillController : ControllerBase
     /// Gets all active prefill sessions (admin only)
     /// </summary>
     [HttpGet("sessions")]
-    public ActionResult<IEnumerable<PrefillSessionDto>> GetAllSessions()
+    public ActionResult<IEnumerable<DaemonSessionDto>> GetAllSessions()
     {
         // Check if user is authenticated
         if (!IsAuthenticated())
@@ -38,8 +38,8 @@ public class PrefillController : ControllerBase
             return Unauthorized();
         }
 
-        var sessions = _sessionService.GetAllSessions()
-            .Select(PrefillSessionDto.FromSession);
+        var sessions = _daemonService.GetAllSessions()
+            .Select(DaemonSessionDto.FromSession);
 
         return Ok(sessions);
     }
@@ -48,7 +48,7 @@ public class PrefillController : ControllerBase
     /// Gets sessions for the current user
     /// </summary>
     [HttpGet("sessions/mine")]
-    public ActionResult<IEnumerable<PrefillSessionDto>> GetMySessions()
+    public ActionResult<IEnumerable<DaemonSessionDto>> GetMySessions()
     {
         var deviceId = GetDeviceId();
         if (string.IsNullOrEmpty(deviceId))
@@ -56,8 +56,8 @@ public class PrefillController : ControllerBase
             return Unauthorized();
         }
 
-        var sessions = _sessionService.GetUserSessions(deviceId)
-            .Select(PrefillSessionDto.FromSession);
+        var sessions = _daemonService.GetUserSessions(deviceId)
+            .Select(DaemonSessionDto.FromSession);
 
         return Ok(sessions);
     }
@@ -66,7 +66,7 @@ public class PrefillController : ControllerBase
     /// Gets a specific session
     /// </summary>
     [HttpGet("sessions/{sessionId}")]
-    public ActionResult<PrefillSessionDto> GetSession(string sessionId)
+    public ActionResult<DaemonSessionDto> GetSession(string sessionId)
     {
         var deviceId = GetDeviceId();
         if (string.IsNullOrEmpty(deviceId))
@@ -74,7 +74,7 @@ public class PrefillController : ControllerBase
             return Unauthorized();
         }
 
-        var session = _sessionService.GetSession(sessionId);
+        var session = _daemonService.GetSession(sessionId);
         if (session == null)
         {
             return NotFound();
@@ -86,14 +86,14 @@ public class PrefillController : ControllerBase
             return Forbid();
         }
 
-        return Ok(PrefillSessionDto.FromSession(session));
+        return Ok(DaemonSessionDto.FromSession(session));
     }
 
     /// <summary>
     /// Creates a new prefill session
     /// </summary>
     [HttpPost("sessions")]
-    public async Task<ActionResult<PrefillSessionDto>> CreateSession()
+    public async Task<ActionResult<DaemonSessionDto>> CreateSession()
     {
         var deviceId = GetDeviceId();
         if (string.IsNullOrEmpty(deviceId))
@@ -109,8 +109,8 @@ public class PrefillController : ControllerBase
         try
         {
             _logger.LogInformation("Creating prefill session via REST API for device {DeviceId}", deviceId);
-            var session = await _sessionService.CreateSessionAsync(deviceId);
-            return CreatedAtAction(nameof(GetSession), new { sessionId = session.Id }, PrefillSessionDto.FromSession(session));
+            var session = await _daemonService.CreateSessionAsync(deviceId);
+            return CreatedAtAction(nameof(GetSession), new { sessionId = session.Id }, DaemonSessionDto.FromSession(session));
         }
         catch (InvalidOperationException ex)
         {
@@ -135,7 +135,7 @@ public class PrefillController : ControllerBase
             return Unauthorized();
         }
 
-        var session = _sessionService.GetSession(sessionId);
+        var session = _daemonService.GetSession(sessionId);
         if (session == null)
         {
             return NotFound();
@@ -147,7 +147,7 @@ public class PrefillController : ControllerBase
             return Forbid();
         }
 
-        await _sessionService.TerminateSessionAsync(sessionId, "Terminated via API");
+        await _daemonService.TerminateSessionAsync(sessionId, "Terminated via API");
         return NoContent();
     }
 
@@ -157,7 +157,7 @@ public class PrefillController : ControllerBase
     [HttpGet("status")]
     public ActionResult GetStatus()
     {
-        var sessions = _sessionService.GetAllSessions().ToList();
+        var sessions = _daemonService.GetAllSessions().ToList();
 
         return Ok(new
         {

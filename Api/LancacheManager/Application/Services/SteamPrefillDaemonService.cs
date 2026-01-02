@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using Docker.DotNet;
+using Docker.DotNet.Models;
 using LancacheManager.Application.SteamPrefill;
 using LancacheManager.Hubs;
 using Microsoft.AspNetCore.SignalR;
@@ -7,8 +9,8 @@ using Microsoft.AspNetCore.SignalR;
 namespace LancacheManager.Application.Services;
 
 /// <summary>
-/// Manages communication with Steam Prefill daemon instances.
-/// Each user session has its own daemon with dedicated command/response directories.
+/// Manages Steam Prefill daemon Docker containers.
+/// Each user session gets its own container with dedicated command/response directories.
 /// Uses encrypted credential exchange (ECDH + AES-GCM) for secure authentication.
 /// </summary>
 public class SteamPrefillDaemonService : IHostedService, IDisposable
@@ -17,12 +19,13 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     private readonly IHubContext<PrefillDaemonHub> _hubContext;
     private readonly IConfiguration _configuration;
     private readonly ConcurrentDictionary<string, DaemonSession> _sessions = new();
+    private DockerClient? _dockerClient;
     private Timer? _cleanupTimer;
     private bool _disposed;
 
     // Configuration defaults
     private const int DefaultSessionTimeoutMinutes = 120;
-    private const int MaxSessionsPerUser = 1;
+    private const string DefaultDockerImage = "ghcr.io/regix1/steam-prefill-daemon:latest";
 
     public SteamPrefillDaemonService(
         ILogger<SteamPrefillDaemonService> logger,
@@ -34,15 +37,38 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         _configuration = configuration;
     }
 
-    public Task StartAsync(CancellationToken cancellationToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("SteamPrefillDaemonService starting...");
+
+        // Initialize Docker client
+        try
+        {
+            Uri dockerUri;
+            if (OperatingSystem.IsWindows())
+            {
+                dockerUri = new Uri("npipe://./pipe/docker_engine");
+            }
+            else
+            {
+                dockerUri = new Uri("unix:///var/run/docker.sock");
+            }
+
+            _dockerClient = new DockerClientConfiguration(dockerUri).CreateClient();
+            _logger.LogInformation("Docker client initialized: {Endpoint}", dockerUri);
+
+            // Ensure image is available
+            await EnsureImageExistsAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to initialize Docker client. Container management will be unavailable.");
+        }
 
         // Start cleanup timer (every minute)
         _cleanupTimer = new Timer(CleanupExpiredSessions, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
 
         _logger.LogInformation("SteamPrefillDaemonService started");
-        return Task.CompletedTask;
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -63,10 +89,15 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
     /// <summary>
     /// Creates a new daemon session for a user.
-    /// Each session gets dedicated command/response directories.
+    /// Spawns a Docker container with dedicated command/response directories.
     /// </summary>
-    public Task<DaemonSession> CreateSessionAsync(string userId, CancellationToken cancellationToken = default)
+    public async Task<DaemonSession> CreateSessionAsync(string userId, CancellationToken cancellationToken = default)
     {
+        if (_dockerClient == null)
+        {
+            throw new InvalidOperationException("Docker client not initialized. Cannot create session.");
+        }
+
         // Check if user already has an active session
         var existingSession = _sessions.Values.FirstOrDefault(s => s.UserId == userId && s.Status == DaemonSessionStatus.Active);
         if (existingSession != null)
@@ -76,17 +107,60 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
         var sessionId = Guid.NewGuid().ToString("N")[..16];
         var basePath = GetDaemonBasePath();
-        var commandsDir = Path.Combine(basePath, "sessions", sessionId, "commands");
-        var responsesDir = Path.Combine(basePath, "sessions", sessionId, "responses");
+        var sessionPath = Path.Combine(basePath, "sessions", sessionId);
+        var commandsDir = Path.Combine(sessionPath, "commands");
+        var responsesDir = Path.Combine(sessionPath, "responses");
 
         // Create directories
         Directory.CreateDirectory(commandsDir);
         Directory.CreateDirectory(responsesDir);
 
+        _logger.LogInformation("Creating daemon container for session {SessionId}, user {UserId}", sessionId, userId);
+
+        // Create and start container
+        var containerName = $"prefill-daemon-{sessionId}";
+        var imageName = GetImageName();
+
+        var createResponse = await _dockerClient.Containers.CreateContainerAsync(
+            new CreateContainerParameters
+            {
+                Name = containerName,
+                Image = imageName,
+                Env = new List<string>
+                {
+                    $"PREFILL_COMMANDS_DIR=/commands",
+                    $"PREFILL_RESPONSES_DIR=/responses"
+                },
+                HostConfig = new HostConfig
+                {
+                    Binds = new List<string>
+                    {
+                        $"{commandsDir}:/commands",
+                        $"{responsesDir}:/responses"
+                    },
+                    AutoRemove = true
+                }
+            },
+            cancellationToken);
+
+        var containerId = createResponse.ID;
+        _logger.LogInformation("Created container {ContainerId} for session {SessionId}", containerId, sessionId);
+
+        // Start container
+        var started = await _dockerClient.Containers.StartContainerAsync(containerId, null, cancellationToken);
+        if (!started)
+        {
+            throw new InvalidOperationException($"Failed to start container {containerId}");
+        }
+
+        _logger.LogInformation("Started container {ContainerId} for session {SessionId}", containerId, sessionId);
+
         var session = new DaemonSession
         {
             Id = sessionId,
             UserId = userId,
+            ContainerId = containerId,
+            ContainerName = containerName,
             CommandsDir = commandsDir,
             ResponsesDir = responsesDir,
             ExpiresAt = DateTime.UtcNow.AddMinutes(GetSessionTimeoutMinutes())
@@ -102,7 +176,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
         _logger.LogInformation("Created daemon session {SessionId} for user {UserId}", sessionId, userId);
 
-        return Task.FromResult(session);
+        return session;
     }
 
     /// <summary>
@@ -262,7 +336,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         session.Status = DaemonSessionStatus.Terminated;
         session.EndedAt = DateTime.UtcNow;
 
-        // Shutdown daemon
+        // Shutdown daemon via command first
         try
         {
             await session.Client.ShutdownAsync();
@@ -270,6 +344,28 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         catch
         {
             // Ignore shutdown errors
+        }
+
+        // Stop and remove container
+        if (_dockerClient != null && !string.IsNullOrEmpty(session.ContainerId))
+        {
+            try
+            {
+                await _dockerClient.Containers.StopContainerAsync(
+                    session.ContainerId,
+                    new ContainerStopParameters { WaitBeforeKillSeconds = 5 });
+
+                _logger.LogInformation("Stopped container {ContainerId} for session {SessionId}",
+                    session.ContainerId, sessionId);
+            }
+            catch (DockerContainerNotFoundException)
+            {
+                // Container already removed (AutoRemove)
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error stopping container {ContainerId}", session.ContainerId);
+            }
         }
 
         // Notify subscribers
@@ -281,7 +377,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         session.CancellationTokenSource.Cancel();
         session.CancellationTokenSource.Dispose();
 
-        // Clean up directories (optional - could keep for debugging)
+        // Clean up directories
         try
         {
             var sessionDir = Path.GetDirectoryName(session.CommandsDir);
@@ -340,6 +436,41 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         foreach (var session in _sessions.Values)
         {
             session.SubscribedConnections.Remove(connectionId);
+        }
+    }
+
+    private async Task EnsureImageExistsAsync(CancellationToken cancellationToken)
+    {
+        if (_dockerClient == null) return;
+
+        var imageName = GetImageName();
+
+        try
+        {
+            await _dockerClient.Images.InspectImageAsync(imageName, cancellationToken);
+            _logger.LogDebug("Image exists: {ImageName}", imageName);
+        }
+        catch (DockerImageNotFoundException)
+        {
+            _logger.LogInformation("Pulling image: {ImageName}", imageName);
+
+            await _dockerClient.Images.CreateImageAsync(
+                new ImagesCreateParameters
+                {
+                    FromImage = imageName.Split(':')[0],
+                    Tag = imageName.Contains(':') ? imageName.Split(':')[1] : "latest"
+                },
+                null,
+                new Progress<JSONMessage>(msg =>
+                {
+                    if (!string.IsNullOrEmpty(msg.Status))
+                    {
+                        _logger.LogDebug("Pulling: {Status}", msg.Status);
+                    }
+                }),
+                cancellationToken);
+
+            _logger.LogInformation("Image pulled: {ImageName}", imageName);
         }
     }
 
@@ -553,6 +684,11 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         return _configuration["Prefill:DaemonBasePath"] ?? Path.Combine(Path.GetTempPath(), "steamprefill");
     }
 
+    private string GetImageName()
+    {
+        return _configuration["Prefill:DockerImage"] ?? DefaultDockerImage;
+    }
+
     private int GetSessionTimeoutMinutes()
     {
         return _configuration.GetValue<int>("Prefill:SessionTimeoutMinutes", DefaultSessionTimeoutMinutes);
@@ -563,6 +699,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         if (_disposed) return;
 
         _cleanupTimer?.Dispose();
+        _dockerClient?.Dispose();
 
         foreach (var session in _sessions.Values)
         {
@@ -582,6 +719,8 @@ public class DaemonSession
 {
     public string Id { get; init; } = string.Empty;
     public string UserId { get; init; } = string.Empty;
+    public string ContainerId { get; set; } = string.Empty;
+    public string ContainerName { get; set; } = string.Empty;
     public string CommandsDir { get; init; } = string.Empty;
     public string ResponsesDir { get; init; } = string.Empty;
     public DaemonSessionStatus Status { get; set; } = DaemonSessionStatus.Active;
@@ -622,12 +761,14 @@ public class DaemonSessionDto
 {
     public string Id { get; set; } = string.Empty;
     public string UserId { get; set; } = string.Empty;
+    public string ContainerName { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public string AuthState { get; set; } = string.Empty;
     public bool IsPrefilling { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? EndedAt { get; set; }
     public DateTime ExpiresAt { get; set; }
+    public int TimeRemainingSeconds { get; set; }
 
     public static DaemonSessionDto FromSession(DaemonSession session)
     {
@@ -635,12 +776,14 @@ public class DaemonSessionDto
         {
             Id = session.Id,
             UserId = session.UserId,
+            ContainerName = session.ContainerName,
             Status = session.Status.ToString(),
             AuthState = session.AuthState.ToString(),
             IsPrefilling = session.IsPrefilling,
             CreatedAt = session.CreatedAt,
             EndedAt = session.EndedAt,
-            ExpiresAt = session.ExpiresAt
+            ExpiresAt = session.ExpiresAt,
+            TimeRemainingSeconds = Math.Max(0, (int)(session.ExpiresAt - DateTime.UtcNow).TotalSeconds)
         };
     }
 }

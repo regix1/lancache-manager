@@ -1,7 +1,17 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { HubConnection } from '@microsoft/signalr';
 import { useNotifications } from '@contexts/NotificationsContext';
 import { type SteamLoginFlowState, type SteamAuthActions } from './useSteamAuthentication';
+
+interface CredentialChallenge {
+  type: string;
+  challengeId: string;
+  credentialType: string;
+  serverPublicKey: string;
+  email?: string;
+  createdAt: string;
+  expiresAt: string;
+}
 
 export interface UsePrefillSteamAuthOptions {
   sessionId: string | null;
@@ -12,8 +22,7 @@ export interface UsePrefillSteamAuthOptions {
 
 /**
  * Hook for Steam authentication within a prefill Docker container.
- * Uses SignalR hub methods to send credentials directly to the container
- * instead of the API-based authentication used elsewhere.
+ * Uses SignalR hub methods to handle encrypted credential exchange.
  */
 export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   const { sessionId, hubConnection, onSuccess, onError } = options;
@@ -24,6 +33,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   const [needsEmailCode, setNeedsEmailCode] = useState(false);
   const [waitingForMobileConfirmation, setWaitingForMobileConfirmation] = useState(false);
   const [useManualCode, setUseManualCode] = useState(false);
+  const [pendingChallenge, setPendingChallenge] = useState<CredentialChallenge | null>(null);
 
   // Form state
   const [username, setUsername] = useState('');
@@ -31,10 +41,51 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [emailCode, setEmailCode] = useState('');
 
+  // Listen for credential challenges from the daemon
+  useEffect(() => {
+    if (!hubConnection) return;
+
+    const handleCredentialChallenge = (_sessionId: string, challenge: CredentialChallenge) => {
+      setPendingChallenge(challenge);
+
+      // Set the appropriate state based on credential type
+      switch (challenge.credentialType) {
+        case 'password':
+          setNeedsTwoFactor(false);
+          setNeedsEmailCode(false);
+          setWaitingForMobileConfirmation(false);
+          break;
+        case '2fa':
+          setNeedsTwoFactor(true);
+          setNeedsEmailCode(false);
+          setWaitingForMobileConfirmation(false);
+          break;
+        case 'steamguard':
+          setNeedsEmailCode(true);
+          setNeedsTwoFactor(false);
+          setWaitingForMobileConfirmation(false);
+          break;
+        case 'device-confirmation':
+          setWaitingForMobileConfirmation(true);
+          setNeedsTwoFactor(false);
+          setNeedsEmailCode(false);
+          break;
+      }
+
+      setLoading(false);
+    };
+
+    hubConnection.on('CredentialChallenge', handleCredentialChallenge);
+
+    return () => {
+      hubConnection.off('CredentialChallenge', handleCredentialChallenge);
+    };
+  }, [hubConnection]);
+
   const cancelPendingRequest = useCallback(() => {
-    // For container-based auth, we can't really cancel - just reset state
     setLoading(false);
     setWaitingForMobileConfirmation(false);
+    setPendingChallenge(null);
   }, []);
 
   const resetAuthForm = useCallback(() => {
@@ -47,6 +98,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     setWaitingForMobileConfirmation(false);
     setUseManualCode(false);
     setLoading(false);
+    setPendingChallenge(null);
   }, []);
 
   const handleAuthenticate = useCallback(async (): Promise<boolean> => {
@@ -60,8 +112,9 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       return false;
     }
 
-    // Validate credentials
-    if (!needsTwoFactor && !needsEmailCode) {
+    // Validate credentials based on current state
+    if (!pendingChallenge) {
+      // Initial login - start the login process
       if (!username.trim() || !password.trim()) {
         addNotification({
           type: 'generic',
@@ -71,48 +124,67 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         });
         return false;
       }
-    }
 
-    if (needsEmailCode && !emailCode.trim()) {
-      addNotification({
-        type: 'generic',
-        status: 'failed',
-        message: 'Please enter your email verification code',
-        details: { notificationType: 'error' }
-      });
-      return false;
-    }
+      setLoading(true);
 
-    if (needsTwoFactor && useManualCode && !twoFactorCode.trim()) {
-      addNotification({
-        type: 'generic',
-        status: 'failed',
-        message: 'Please enter your 2FA code',
-        details: { notificationType: 'error' }
-      });
-      return false;
-    }
+      try {
+        // Start login to get initial challenge
+        const challenge = await hubConnection.invoke<CredentialChallenge | null>('StartLogin', sessionId);
 
-    setLoading(true);
+        if (challenge) {
+          setPendingChallenge(challenge);
 
-    try {
-      if (needsEmailCode) {
-        // Send email verification code
-        await hubConnection.invoke('SendEmailCode', sessionId, emailCode);
+          // Provide credentials based on challenge type
+          if (challenge.credentialType === 'password') {
+            // Send username first, then password
+            await hubConnection.invoke('ProvideCredential', sessionId, challenge, username);
+
+            // Wait for next challenge (password)
+            const passChallenge = await hubConnection.invoke<CredentialChallenge | null>('WaitForChallenge', sessionId, 30);
+            if (passChallenge?.credentialType === 'password') {
+              await hubConnection.invoke('ProvideCredential', sessionId, passChallenge, password);
+            }
+          }
+        }
+
         addNotification({
           type: 'generic',
           status: 'completed',
-          message: 'Email code sent',
+          message: 'Credentials sent',
           details: { notificationType: 'success' }
         });
-        resetAuthForm();
-        onSuccess?.();
+
         return true;
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to authenticate';
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message: errorMessage,
+          details: { notificationType: 'error' }
+        });
+        onError?.(errorMessage);
+        setLoading(false);
+        return false;
+      }
+    }
+
+    // Handle 2FA code
+    if (needsTwoFactor && pendingChallenge) {
+      if (!twoFactorCode.trim()) {
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message: 'Please enter your 2FA code',
+          details: { notificationType: 'error' }
+        });
+        return false;
       }
 
-      if (needsTwoFactor) {
-        // Send 2FA code
-        await hubConnection.invoke('SendTwoFactorCode', sessionId, twoFactorCode);
+      setLoading(true);
+
+      try {
+        await hubConnection.invoke('ProvideCredential', sessionId, pendingChallenge, twoFactorCode);
         addNotification({
           type: 'generic',
           status: 'completed',
@@ -122,32 +194,60 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         resetAuthForm();
         onSuccess?.();
         return true;
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to send 2FA code';
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message: errorMessage,
+          details: { notificationType: 'error' }
+        });
+        onError?.(errorMessage);
+        setLoading(false);
+        return false;
+      }
+    }
+
+    // Handle email verification code
+    if (needsEmailCode && pendingChallenge) {
+      if (!emailCode.trim()) {
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message: 'Please enter your email verification code',
+          details: { notificationType: 'error' }
+        });
+        return false;
       }
 
-      // Send initial credentials
-      await hubConnection.invoke('SendCredentials', sessionId, username, password);
-      addNotification({
-        type: 'generic',
-        status: 'completed',
-        message: 'Credentials sent to container',
-        details: { notificationType: 'success' }
-      });
-      resetAuthForm();
-      onSuccess?.();
-      return true;
+      setLoading(true);
 
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to send credentials';
-      addNotification({
-        type: 'generic',
-        status: 'failed',
-        message: errorMessage,
-        details: { notificationType: 'error' }
-      });
-      onError?.(errorMessage);
-      setLoading(false);
-      return false;
+      try {
+        await hubConnection.invoke('ProvideCredential', sessionId, pendingChallenge, emailCode);
+        addNotification({
+          type: 'generic',
+          status: 'completed',
+          message: 'Email code sent',
+          details: { notificationType: 'success' }
+        });
+        resetAuthForm();
+        onSuccess?.();
+        return true;
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to send email code';
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message: errorMessage,
+          details: { notificationType: 'error' }
+        });
+        onError?.(errorMessage);
+        setLoading(false);
+        return false;
+      }
     }
+
+    return false;
   }, [
     sessionId,
     hubConnection,
@@ -157,7 +257,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     emailCode,
     needsTwoFactor,
     needsEmailCode,
-    useManualCode,
+    pendingChallenge,
     addNotification,
     resetAuthForm,
     onSuccess,

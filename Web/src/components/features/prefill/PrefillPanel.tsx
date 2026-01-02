@@ -249,7 +249,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
     try {
       const connection = new HubConnectionBuilder()
-        .withUrl(`${SIGNALR_BASE}/prefill?deviceId=${encodeURIComponent(deviceId)}`)
+        .withUrl(`${SIGNALR_BASE}/prefill-daemon?deviceId=${encodeURIComponent(deviceId)}`)
         .withAutomaticReconnect()
         .configureLogging(LogLevel.Information)
         .build();
@@ -280,8 +280,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         handleAuthStateChanged(newState);
       });
 
-      // Handle session attached confirmation
-      connection.on('SessionAttached', (sessionDto: PrefillSessionDto) => {
+      // Handle session subscribed confirmation
+      connection.on('SessionSubscribed', (sessionDto: PrefillSessionDto) => {
         setSession(sessionDto);
         setTimeRemaining(sessionDto.timeRemainingSeconds);
         // Initialize login state from session auth state
@@ -310,9 +310,9 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       connection.onreconnected((connectionId) => {
         console.log('Hub reconnected:', connectionId);
         addLog('success', 'Reconnected to server');
-        // Re-attach to session if we have one
+        // Re-subscribe to session if we have one
         if (session) {
-          connection.invoke('AttachSession', session.id).catch(console.error);
+          connection.invoke('SubscribeToSession', session.id).catch(console.error);
         }
       });
 
@@ -357,8 +357,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       addLog('info', `Session expires in ${formatTimeRemaining(sessionDto.timeRemainingSeconds)}`);
       addLog('info', 'Click "Login to Steam" to authenticate before using prefill commands');
 
-      // Attach to session to start receiving output
-      await connection.invoke('AttachSession', sessionDto.id);
+      // Subscribe to session to start receiving events
+      await connection.invoke('SubscribeToSession', sessionDto.id);
 
       setIsCreating(false);
     } catch (err) {
@@ -370,14 +370,45 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     }
   }, [connectToHub, formatTimeRemaining, addLog]);
 
-  const executeCommand = useCallback(async (commandType: CommandType, options?: Record<string, string>) => {
+  const executeCommand = useCallback(async (commandType: CommandType) => {
     if (!session || !hubConnection.current) return;
 
     setIsExecuting(true);
     addLog('command', `Running: ${commandType}`);
 
     try {
-      await hubConnection.current.invoke('ExecuteCommand', session.id, commandType, options || null);
+      switch (commandType) {
+        case 'select-apps': {
+          // Get owned games list
+          const games = await hubConnection.current.invoke('GetOwnedGames', session.id);
+          addLog('info', `Found ${games?.length || 0} owned games`);
+          // TODO: Show game selection UI
+          break;
+        }
+        case 'select-status': {
+          const status = await hubConnection.current.invoke('GetStatus', session.id);
+          addLog('info', `Daemon status: ${status?.status || 'unknown'}`);
+          break;
+        }
+        case 'prefill':
+          addLog('download', 'Starting prefill of selected apps...');
+          await hubConnection.current.invoke('StartPrefill', session.id, false, false, false);
+          break;
+        case 'prefill-all':
+          addLog('download', 'Starting prefill of all owned games...');
+          await hubConnection.current.invoke('StartPrefill', session.id, true, false, false);
+          break;
+        case 'prefill-recent':
+          addLog('download', 'Starting prefill of recently played games...');
+          await hubConnection.current.invoke('StartPrefill', session.id, false, true, false);
+          break;
+        case 'prefill-force':
+          addLog('download', 'Starting force prefill (re-downloading)...');
+          await hubConnection.current.invoke('StartPrefill', session.id, false, false, true);
+          break;
+        default:
+          addLog('warning', `Command '${commandType}' not yet implemented`);
+      }
     } catch (err) {
       console.error('Failed to execute command:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to execute command';
