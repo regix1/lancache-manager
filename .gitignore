@@ -121,3 +121,6 @@ notification_code.md
 # Development tools and temporary files
 rustup-init.exe
 *.backup.json
+
+# Steam Lancache Prefill tool
+steam-lancache-prefill/
