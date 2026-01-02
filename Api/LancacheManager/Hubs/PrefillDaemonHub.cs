@@ -1,0 +1,252 @@
+using LancacheManager.Application.Services;
+using LancacheManager.Application.SteamPrefill;
+using LancacheManager.Security;
+using Microsoft.AspNetCore.SignalR;
+
+namespace LancacheManager.Hubs;
+
+/// <summary>
+/// SignalR hub for Steam Prefill daemon sessions.
+/// Provides real-time updates for authentication state changes and prefill progress.
+/// Uses secure encrypted credential exchange.
+/// </summary>
+public class PrefillDaemonHub : Hub
+{
+    private readonly SteamPrefillDaemonService _daemonService;
+    private readonly DeviceAuthService _deviceAuthService;
+    private readonly ILogger<PrefillDaemonHub> _logger;
+
+    public PrefillDaemonHub(
+        SteamPrefillDaemonService daemonService,
+        DeviceAuthService deviceAuthService,
+        ILogger<PrefillDaemonHub> logger)
+    {
+        _daemonService = daemonService;
+        _deviceAuthService = deviceAuthService;
+        _logger = logger;
+    }
+
+    public override async Task OnConnectedAsync()
+    {
+        var httpContext = Context.GetHttpContext();
+        var deviceId = httpContext?.Request.Query["deviceId"].FirstOrDefault();
+
+        if (string.IsNullOrEmpty(deviceId) || !_deviceAuthService.ValidateDevice(deviceId))
+        {
+            _logger.LogWarning("Unauthorized prefill daemon hub connection attempt from {ConnectionId}", Context.ConnectionId);
+            Context.Abort();
+            return;
+        }
+
+        _logger.LogDebug("Prefill daemon hub connected: {ConnectionId}, DeviceId: {DeviceId}", Context.ConnectionId, deviceId);
+        await base.OnConnectedAsync();
+    }
+
+    public override async Task OnDisconnectedAsync(Exception? exception)
+    {
+        _daemonService.RemoveSubscriber(Context.ConnectionId);
+
+        if (exception != null)
+        {
+            _logger.LogWarning(exception, "Prefill daemon hub disconnected with error: {ConnectionId}", Context.ConnectionId);
+        }
+        else
+        {
+            _logger.LogDebug("Prefill daemon hub disconnected: {ConnectionId}", Context.ConnectionId);
+        }
+
+        await base.OnDisconnectedAsync(exception);
+    }
+
+    /// <summary>
+    /// Creates a new daemon session and returns session info
+    /// </summary>
+    public async Task<DaemonSessionDto> CreateSession()
+    {
+        var deviceId = GetDeviceId();
+        if (string.IsNullOrEmpty(deviceId))
+        {
+            throw new HubException("Device ID required");
+        }
+
+        try
+        {
+            _logger.LogInformation("Creating daemon session for device {DeviceId}", deviceId);
+            var session = await _daemonService.CreateSessionAsync(deviceId);
+
+            // Subscribe this connection to session events
+            _daemonService.AddSubscriber(session.Id, Context.ConnectionId);
+
+            return DaemonSessionDto.FromSession(session);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Failed to create session for device {DeviceId}", deviceId);
+            throw new HubException(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating session for device {DeviceId}", deviceId);
+            throw new HubException("Failed to create daemon session");
+        }
+    }
+
+    /// <summary>
+    /// Subscribes to an existing session's events
+    /// </summary>
+    public async Task SubscribeToSession(string sessionId)
+    {
+        var deviceId = GetDeviceId();
+
+        var session = _daemonService.GetSession(sessionId);
+        if (session == null)
+        {
+            throw new HubException("Session not found");
+        }
+
+        if (session.UserId != deviceId)
+        {
+            throw new HubException("Access denied");
+        }
+
+        _daemonService.AddSubscriber(sessionId, Context.ConnectionId);
+
+        // Send current state
+        await Clients.Caller.SendAsync("SessionSubscribed", DaemonSessionDto.FromSession(session));
+    }
+
+    /// <summary>
+    /// Starts the login process
+    /// </summary>
+    public async Task<CredentialChallenge?> StartLogin(string sessionId)
+    {
+        ValidateSessionAccess(sessionId, out var session);
+
+        _logger.LogInformation("Starting login for session {SessionId}", sessionId);
+        return await _daemonService.StartLoginAsync(sessionId, TimeSpan.FromSeconds(30));
+    }
+
+    /// <summary>
+    /// Provides an encrypted credential in response to a challenge
+    /// </summary>
+    public async Task ProvideCredential(string sessionId, CredentialChallenge challenge, string credential)
+    {
+        ValidateSessionAccess(sessionId, out var session);
+
+        _logger.LogInformation("Providing {CredentialType} credential for session {SessionId}",
+            challenge.CredentialType, sessionId);
+
+        await _daemonService.ProvideCredentialAsync(sessionId, challenge, credential);
+    }
+
+    /// <summary>
+    /// Waits for the next credential challenge
+    /// </summary>
+    public async Task<CredentialChallenge?> WaitForChallenge(string sessionId, int timeoutSeconds = 30)
+    {
+        ValidateSessionAccess(sessionId, out var session);
+
+        return await _daemonService.WaitForChallengeAsync(sessionId, TimeSpan.FromSeconds(timeoutSeconds));
+    }
+
+    /// <summary>
+    /// Gets the daemon status for a session
+    /// </summary>
+    public async Task<DaemonStatus?> GetStatus(string sessionId)
+    {
+        ValidateSessionAccess(sessionId, out var session);
+
+        return await _daemonService.GetSessionStatusAsync(sessionId);
+    }
+
+    /// <summary>
+    /// Gets owned games for a logged-in session
+    /// </summary>
+    public async Task<List<OwnedGame>> GetOwnedGames(string sessionId)
+    {
+        ValidateSessionAccess(sessionId, out var session);
+
+        return await _daemonService.GetOwnedGamesAsync(sessionId);
+    }
+
+    /// <summary>
+    /// Sets selected apps for prefill
+    /// </summary>
+    public async Task SetSelectedApps(string sessionId, List<uint> appIds)
+    {
+        ValidateSessionAccess(sessionId, out var session);
+
+        await _daemonService.SetSelectedAppsAsync(sessionId, appIds);
+    }
+
+    /// <summary>
+    /// Starts a prefill operation
+    /// </summary>
+    public async Task<PrefillResult> StartPrefill(string sessionId, bool all = false, bool recent = false, bool force = false)
+    {
+        ValidateSessionAccess(sessionId, out var session);
+
+        _logger.LogInformation("Starting prefill for session {SessionId} (all={All}, recent={Recent}, force={Force})",
+            sessionId, all, recent, force);
+
+        return await _daemonService.PrefillAsync(sessionId, all, recent, force);
+    }
+
+    /// <summary>
+    /// Terminates a session
+    /// </summary>
+    public async Task EndSession(string sessionId)
+    {
+        ValidateSessionAccess(sessionId, out var session);
+
+        _logger.LogInformation("Ending session {SessionId}", sessionId);
+        await _daemonService.TerminateSessionAsync(sessionId, "User ended session");
+    }
+
+    /// <summary>
+    /// Gets session info
+    /// </summary>
+    public DaemonSessionDto? GetSessionInfo(string sessionId)
+    {
+        var session = _daemonService.GetSession(sessionId);
+        return session != null ? DaemonSessionDto.FromSession(session) : null;
+    }
+
+    /// <summary>
+    /// Gets all sessions for the current user
+    /// </summary>
+    public IEnumerable<DaemonSessionDto> GetMySessions()
+    {
+        var deviceId = GetDeviceId();
+        if (string.IsNullOrEmpty(deviceId))
+        {
+            return Enumerable.Empty<DaemonSessionDto>();
+        }
+
+        return _daemonService.GetUserSessions(deviceId)
+            .Select(DaemonSessionDto.FromSession);
+    }
+
+    private string? GetDeviceId()
+    {
+        return Context.GetHttpContext()?.Request.Query["deviceId"].FirstOrDefault();
+    }
+
+    private void ValidateSessionAccess(string sessionId, out DaemonSession session)
+    {
+        var deviceId = GetDeviceId();
+
+        var s = _daemonService.GetSession(sessionId);
+        if (s == null)
+        {
+            throw new HubException("Session not found");
+        }
+
+        if (s.UserId != deviceId)
+        {
+            throw new HubException("Access denied");
+        }
+
+        session = s;
+    }
+}
