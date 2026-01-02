@@ -665,38 +665,93 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
     eprintln!("Filesystem type: {:?} (network: {})", fs_type, is_network_fs);
 
     // Find all hex directories (00-ff)
-    let hex_dirs: Vec<_> = fs::read_dir(cache_dir)?
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.is_dir()
-                && path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(is_hex)
-                    .unwrap_or(false)
-        })
-        .collect();
+    // Cache structure can be either:
+    //   /cache/XX/... (hex dirs directly under cache)
+    //   /cache/steam/XX/... (service dirs containing hex dirs)
+    let mut hex_dirs: Vec<std::path::PathBuf> = Vec::new();
+    let mut service_dirs: Vec<std::path::PathBuf> = Vec::new();
+
+    for entry in fs::read_dir(cache_dir)?.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if path.is_dir() {
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if is_hex(name) {
+                // Direct hex directory under cache
+                hex_dirs.push(path);
+            } else if !name.starts_with('.') {
+                // Service directory (steam, epic, etc.)
+                service_dirs.push(path);
+            }
+        }
+    }
+
+    // If we found service directories, look for hex dirs inside them
+    if hex_dirs.is_empty() && !service_dirs.is_empty() {
+        eprintln!("Found {} service directories: {:?}",
+            service_dirs.len(),
+            service_dirs.iter().map(|p| p.file_name().unwrap_or_default().to_string_lossy()).collect::<Vec<_>>());
+
+        for service_dir in &service_dirs {
+            if let Ok(entries) = fs::read_dir(service_dir) {
+                for entry in entries.filter_map(|e| e.ok()) {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                        if is_hex(name) {
+                            hex_dirs.push(path);
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     let total_hex_dirs = hex_dirs.len();
     eprintln!("Found {} hex directories to scan", total_hex_dirs);
 
     if total_hex_dirs == 0 {
-        // Empty cache
-        let result = CacheSizeResult {
-            total_bytes: 0,
-            total_files: 0,
-            total_directories: 0,
-            hex_directories: 0,
-            scan_duration_ms: start_time.elapsed().as_millis() as u64,
-            estimated_deletion_times: EstimatedDeletionTimes {
+        // Empty cache - still run calibration to measure filesystem performance
+        eprintln!("Cache is empty, but running calibration to measure filesystem speeds...");
+
+        let calibration = run_dynamic_calibration(cache_dir);
+
+        // Build estimates info even for empty cache (shows filesystem capability)
+        let estimates = if let Some(ref cal) = calibration {
+            // Show what the filesystem CAN do, even with empty cache
+            eprintln!("\nFilesystem calibration results (cache is empty):");
+            for scenario in &cal.scenarios {
+                eprintln!("  {} files/dir, depth {}: preserve={:.0}/s, fast={:.1}/s, rsync={:.1}/s",
+                    scenario.files_per_dir, scenario.depth,
+                    scenario.preserve_files_per_sec,
+                    scenario.full_dirs_per_sec,
+                    scenario.rsync_dirs_per_sec);
+            }
+            EstimatedDeletionTimes {
+                preserve_seconds: 0.0,
+                full_seconds: 0.0,
+                rsync_seconds: 0.0,
+                preserve_formatted: "< 1 second (empty cache)".to_string(),
+                full_formatted: "< 1 second (empty cache)".to_string(),
+                rsync_formatted: "< 1 second (empty cache)".to_string(),
+            }
+        } else {
+            EstimatedDeletionTimes {
                 preserve_seconds: 0.0,
                 full_seconds: 0.0,
                 rsync_seconds: 0.0,
                 preserve_formatted: "< 1 second".to_string(),
                 full_formatted: "< 1 second".to_string(),
                 rsync_formatted: "< 1 second".to_string(),
-            },
+            }
+        };
+
+        let result = CacheSizeResult {
+            total_bytes: 0,
+            total_files: 0,
+            total_directories: 0,
+            hex_directories: 0,
+            scan_duration_ms: start_time.elapsed().as_millis() as u64,
+            estimated_deletion_times: estimates,
             formatted_size: "0 bytes".to_string(),
             timestamp: Utc::now().to_rfc3339(),
         };
