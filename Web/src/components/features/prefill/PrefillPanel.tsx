@@ -163,6 +163,18 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const [showGameSelection, setShowGameSelection] = useState(false);
   const [isLoadingGames, setIsLoadingGames] = useState(false);
 
+  // Prefill progress state
+  const [prefillProgress, setPrefillProgress] = useState<{
+    state: string;
+    currentAppId: number;
+    currentAppName?: string;
+    percentComplete: number;
+    bytesDownloaded: number;
+    totalBytes: number;
+    bytesPerSecond: number;
+    elapsedSeconds: number;
+  } | null>(null);
+
   // Helper to add log entries
   const addLog = useCallback((type: LogEntryType, message: string, details?: string) => {
     setLogEntries(prev => [...prev, createLogEntry(type, message, details)]);
@@ -244,6 +256,14 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     return `${minutes}:${secs.toString().padStart(2, '0')}`;
   }, []);
 
+  const formatBytes = useCallback((bytes: number): string => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  }, []);
+
   const connectToHub = useCallback(async (): Promise<HubConnection | null> => {
     const deviceId = authService.getDeviceId();
     if (!deviceId) {
@@ -301,7 +321,29 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         setSession(null);
         setIsExecuting(false);
         setIsLoggedIn(false);
+        setPrefillProgress(null);
         onSessionEnd?.();
+      });
+
+      // Handle prefill progress updates
+      connection.on('PrefillProgress', (_sessionId: string, progress: {
+        state: string;
+        currentAppId: number;
+        currentAppName?: string;
+        percentComplete: number;
+        bytesDownloaded: number;
+        totalBytes: number;
+        bytesPerSecond: number;
+        elapsedSeconds: number;
+      }) => {
+        if (progress.state === 'downloading') {
+          setPrefillProgress(progress);
+        } else if (progress.state === 'completed' || progress.state === 'error' || progress.state === 'app_completed') {
+          // Clear progress on completion or error
+          if (progress.state !== 'app_completed') {
+            setPrefillProgress(null);
+          }
+        }
       });
 
       connection.onclose((error) => {
@@ -406,6 +448,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         case 'prefill': {
           addLog('download', 'Starting prefill of selected apps...');
           const result = await hubConnection.current.invoke('StartPrefill', session.id, false, false, false);
+          setPrefillProgress(null); // Clear progress on completion
           if (result?.success) {
             const totalSeconds = result.totalTime?.totalSeconds || 0;
             addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
@@ -417,6 +460,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         case 'prefill-all': {
           addLog('download', 'Starting prefill of all owned games...');
           const result = await hubConnection.current.invoke('StartPrefill', session.id, true, false, false);
+          setPrefillProgress(null); // Clear progress on completion
           if (result?.success) {
             const totalSeconds = result.totalTime?.totalSeconds || 0;
             addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
@@ -428,6 +472,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         case 'prefill-recent': {
           addLog('download', 'Starting prefill of recently played games...');
           const result = await hubConnection.current.invoke('StartPrefill', session.id, false, true, false);
+          setPrefillProgress(null); // Clear progress on completion
           if (result?.success) {
             const totalSeconds = result.totalTime?.totalSeconds || 0;
             addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
@@ -439,6 +484,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         case 'prefill-force': {
           addLog('download', 'Starting force prefill (re-downloading)...');
           const result = await hubConnection.current.invoke('StartPrefill', session.id, false, false, true);
+          setPrefillProgress(null); // Clear progress on completion
           if (result?.success) {
             const totalSeconds = result.totalTime?.totalSeconds || 0;
             addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
@@ -645,6 +691,49 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                   <span className="text-[10px] opacity-60 w-full">{cmd.description}</span>
                 </Button>
               ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Prefill Progress */}
+      {prefillProgress && (
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Download className="h-4 w-4 text-primary animate-pulse" />
+                <CardTitle className="text-base">Downloading</CardTitle>
+              </div>
+              <span className="text-sm text-muted-foreground">
+                {formatBytes(prefillProgress.bytesPerSecond)}/s
+              </span>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm font-medium truncate max-w-[60%]">
+                  {prefillProgress.currentAppName || `App ${prefillProgress.currentAppId}`}
+                </span>
+                <span className="text-sm text-muted-foreground">
+                  {prefillProgress.percentComplete.toFixed(1)}%
+                </span>
+              </div>
+              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-primary transition-all duration-300 ease-out"
+                  style={{ width: `${Math.min(100, prefillProgress.percentComplete)}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between mt-1 text-xs text-muted-foreground">
+                <span>
+                  {formatBytes(prefillProgress.bytesDownloaded)} / {formatBytes(prefillProgress.totalBytes)}
+                </span>
+                <span>
+                  Elapsed: {formatTimeRemaining(Math.floor(prefillProgress.elapsedSeconds))}
+                </span>
+              </div>
             </div>
           </CardContent>
         </Card>

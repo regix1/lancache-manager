@@ -628,15 +628,22 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         {
             try
             {
-                // Only handle daemon_status.json changes
-                if (Path.GetFileName(e.FullPath) == "daemon_status.json")
+                var fileName = Path.GetFileName(e.FullPath);
+
+                // Handle daemon_status.json changes
+                if (fileName == "daemon_status.json")
                 {
                     await HandleStatusChangeAsync(session, e.FullPath);
+                }
+                // Handle prefill_progress.json changes
+                else if (fileName == "prefill_progress.json")
+                {
+                    await HandleProgressChangeAsync(session, e.FullPath);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Error handling status change {Path}", e.FullPath);
+                _logger.LogWarning(ex, "Error handling file change {Path}", e.FullPath);
             }
         };
     }
@@ -724,6 +731,38 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         }
     }
 
+    private async Task HandleProgressChangeAsync(DaemonSession session, string filePath)
+    {
+        await Task.Delay(50); // Ensure file is written
+
+        try
+        {
+            if (!File.Exists(filePath))
+            {
+                return; // File was deleted (prefill completed)
+            }
+
+            var json = await File.ReadAllTextAsync(filePath);
+            var progress = JsonSerializer.Deserialize<PrefillProgress>(json, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+
+            if (progress != null)
+            {
+                await NotifyPrefillProgressAsync(session, progress);
+            }
+        }
+        catch (FileNotFoundException)
+        {
+            // File was deleted during read - prefill completed
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error parsing progress from {Path}", filePath);
+        }
+    }
+
     private async Task NotifyAuthStateChangeAsync(DaemonSession session)
     {
         foreach (var connectionId in session.SubscribedConnections.ToList())
@@ -787,6 +826,23 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to notify prefill state to {ConnectionId}", connectionId);
+                session.SubscribedConnections.Remove(connectionId);
+            }
+        }
+    }
+
+    private async Task NotifyPrefillProgressAsync(DaemonSession session, PrefillProgress progress)
+    {
+        foreach (var connectionId in session.SubscribedConnections.ToList())
+        {
+            try
+            {
+                await _hubContext.Clients.Client(connectionId)
+                    .SendAsync("PrefillProgress", session.Id, progress);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to notify prefill progress to {ConnectionId}", connectionId);
                 session.SubscribedConnections.Remove(connectionId);
             }
         }
@@ -1034,4 +1090,28 @@ public class DaemonSessionDto
             TimeRemainingSeconds = Math.Max(0, (int)(session.ExpiresAt - DateTime.UtcNow).TotalSeconds)
         };
     }
+}
+
+/// <summary>
+/// Prefill progress update from the daemon
+/// </summary>
+public class PrefillProgress
+{
+    public string State { get; set; } = "idle";
+    public uint CurrentAppId { get; set; }
+    public string? CurrentAppName { get; set; }
+    public long TotalBytes { get; set; }
+    public long BytesDownloaded { get; set; }
+    public double PercentComplete { get; set; }
+    public double BytesPerSecond { get; set; }
+    public double ElapsedSeconds { get; set; }
+    public string? Result { get; set; }
+    public string? ErrorMessage { get; set; }
+    public int TotalApps { get; set; }
+    public int UpdatedApps { get; set; }
+    public int AlreadyUpToDate { get; set; }
+    public int FailedApps { get; set; }
+    public long TotalBytesTransferred { get; set; }
+    public double TotalTimeSeconds { get; set; }
+    public DateTime UpdatedAt { get; set; }
 }
