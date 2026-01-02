@@ -187,14 +187,48 @@ public class PrefillDaemonHub : Hub
     /// <summary>
     /// Starts a prefill operation
     /// </summary>
-    public async Task<PrefillResult> StartPrefill(string sessionId, bool all = false, bool recent = false, bool force = false)
+    public async Task<PrefillResult> StartPrefill(string sessionId, bool all = false, bool recent = false, bool force = false, List<string>? operatingSystems = null)
     {
         ValidateSessionAccess(sessionId, out var session);
 
-        _logger.LogInformation("Starting prefill for session {SessionId} (all={All}, recent={Recent}, force={Force})",
-            sessionId, all, recent, force);
+        _logger.LogInformation("Starting prefill for session {SessionId} (all={All}, recent={Recent}, force={Force}, os={OS})",
+            sessionId, all, recent, force, operatingSystems != null ? string.Join(",", operatingSystems) : "default");
 
-        return await _daemonService.PrefillAsync(sessionId, all, recent, force);
+        return await _daemonService.PrefillAsync(sessionId, all, recent, force, operatingSystems);
+    }
+
+    /// <summary>
+    /// Clears the temporary cache
+    /// </summary>
+    public async Task<ClearCacheResult> ClearCache(string sessionId)
+    {
+        ValidateSessionAccess(sessionId, out var session);
+
+        _logger.LogInformation("Clearing cache for session {SessionId}", sessionId);
+
+        return await _daemonService.ClearCacheAsync(sessionId);
+    }
+
+    /// <summary>
+    /// Gets cache info
+    /// </summary>
+    public async Task<ClearCacheResult> GetCacheInfo(string sessionId)
+    {
+        ValidateSessionAccess(sessionId, out var session);
+
+        return await _daemonService.GetCacheInfoAsync(sessionId);
+    }
+
+    /// <summary>
+    /// Gets selected apps status with download sizes
+    /// </summary>
+    public async Task<SelectedAppsStatus> GetSelectedAppsStatus(string sessionId)
+    {
+        ValidateSessionAccess(sessionId, out var session);
+
+        _logger.LogInformation("Getting selected apps status for session {SessionId}", sessionId);
+
+        return await _daemonService.GetSelectedAppsStatusAsync(sessionId);
     }
 
     /// <summary>

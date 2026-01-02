@@ -301,12 +301,15 @@ public sealed class DaemonClient : IDisposable
         bool all = false,
         bool recent = false,
         bool force = false,
+        List<string>? operatingSystems = null,
         CancellationToken cancellationToken = default)
     {
         var parameters = new Dictionary<string, string>();
         if (all) parameters["all"] = "true";
         if (recent) parameters["recent"] = "true";
         if (force) parameters["force"] = "true";
+        if (operatingSystems != null && operatingSystems.Count > 0)
+            parameters["os"] = string.Join(",", operatingSystems);
 
         var response = await SendCommandAsync("prefill", parameters,
             timeout: TimeSpan.FromHours(24),
@@ -322,6 +325,59 @@ public sealed class DaemonClient : IDisposable
         }
 
         return new PrefillResult { Success = true };
+    }
+
+    /// <summary>
+    /// Clear the temporary cache
+    /// </summary>
+    public async Task<ClearCacheResult> ClearCacheAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await SendCommandAsync("clear-cache", cancellationToken: cancellationToken);
+
+        if (response.Data is JsonElement element)
+        {
+            return JsonSerializer.Deserialize<ClearCacheResult>(element.GetRawText())
+                   ?? new ClearCacheResult { Success = false, Message = "Failed to parse result" };
+        }
+
+        return new ClearCacheResult { Success = response.Success, Message = response.Message };
+    }
+
+    /// <summary>
+    /// Get cache info
+    /// </summary>
+    public async Task<ClearCacheResult> GetCacheInfoAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await SendCommandAsync("get-cache-info", cancellationToken: cancellationToken);
+
+        if (response.Data is JsonElement element)
+        {
+            return JsonSerializer.Deserialize<ClearCacheResult>(element.GetRawText())
+                   ?? new ClearCacheResult { Success = false, Message = "Failed to parse result" };
+        }
+
+        return new ClearCacheResult { Success = response.Success, Message = response.Message };
+    }
+
+    /// <summary>
+    /// Get selected apps status with download sizes
+    /// </summary>
+    public async Task<SelectedAppsStatus> GetSelectedAppsStatusAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await SendCommandAsync("get-selected-apps-status",
+            timeout: TimeSpan.FromMinutes(5),
+            cancellationToken: cancellationToken);
+
+        if (!response.Success)
+            throw new InvalidOperationException(response.Error ?? "Failed to get selected apps status");
+
+        if (response.Data is JsonElement element)
+        {
+            return JsonSerializer.Deserialize<SelectedAppsStatus>(element.GetRawText())
+                   ?? new SelectedAppsStatus { Message = "Failed to parse result" };
+        }
+
+        return new SelectedAppsStatus { Message = response.Message };
     }
 
     /// <summary>
@@ -465,6 +521,48 @@ public class PrefillResult
 
     [JsonPropertyName("totalTime")]
     public TimeSpan TotalTime { get; set; }
+}
+
+public class ClearCacheResult
+{
+    [JsonPropertyName("success")]
+    public bool Success { get; set; }
+
+    [JsonPropertyName("fileCount")]
+    public int FileCount { get; set; }
+
+    [JsonPropertyName("bytesCleared")]
+    public long BytesCleared { get; set; }
+
+    [JsonPropertyName("message")]
+    public string? Message { get; set; }
+}
+
+public class AppStatus
+{
+    [JsonPropertyName("appId")]
+    public uint AppId { get; set; }
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("downloadSize")]
+    public long DownloadSize { get; set; }
+
+    [JsonPropertyName("isUpToDate")]
+    public bool IsUpToDate { get; set; }
+}
+
+public class SelectedAppsStatus
+{
+    [JsonPropertyName("apps")]
+    public List<AppStatus> Apps { get; set; } = new();
+
+    [JsonPropertyName("totalDownloadSize")]
+    public long TotalDownloadSize { get; set; }
+
+    [JsonPropertyName("message")]
+    public string? Message { get; set; }
 }
 
 #endregion

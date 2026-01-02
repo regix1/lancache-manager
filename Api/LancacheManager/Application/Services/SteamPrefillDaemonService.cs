@@ -397,6 +397,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         bool all = false,
         bool recent = false,
         bool force = false,
+        List<string>? operatingSystems = null,
         CancellationToken cancellationToken = default)
     {
         if (!_sessions.TryGetValue(sessionId, out var session))
@@ -409,7 +410,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
         try
         {
-            var result = await session.Client.PrefillAsync(all, recent, force, cancellationToken);
+            var result = await session.Client.PrefillAsync(all, recent, force, operatingSystems, cancellationToken);
             await NotifyPrefillStateChangeAsync(session, result.Success ? "completed" : "failed");
             return result;
         }
@@ -417,6 +418,45 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         {
             session.IsPrefilling = false;
         }
+    }
+
+    /// <summary>
+    /// Clears the temporary cache
+    /// </summary>
+    public async Task<ClearCacheResult> ClearCacheAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        if (!_sessions.TryGetValue(sessionId, out var session))
+        {
+            throw new KeyNotFoundException($"Session not found: {sessionId}");
+        }
+
+        return await session.Client.ClearCacheAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Gets cache info
+    /// </summary>
+    public async Task<ClearCacheResult> GetCacheInfoAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        if (!_sessions.TryGetValue(sessionId, out var session))
+        {
+            throw new KeyNotFoundException($"Session not found: {sessionId}");
+        }
+
+        return await session.Client.GetCacheInfoAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Gets selected apps status with download sizes
+    /// </summary>
+    public async Task<SelectedAppsStatus> GetSelectedAppsStatusAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        if (!_sessions.TryGetValue(sessionId, out var session))
+        {
+            throw new KeyNotFoundException($"Session not found: {sessionId}");
+        }
+
+        return await session.Client.GetSelectedAppsStatusAsync(cancellationToken);
     }
 
     /// <summary>
