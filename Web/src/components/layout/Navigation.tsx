@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { LayoutDashboard, Download, Laptop, Settings, Menu, Users, Key, ChevronDown, CalendarDays } from 'lucide-react';
+import { LayoutDashboard, Download, Laptop, Settings, Menu, Users, Key, ChevronDown, CalendarDays, Terminal } from 'lucide-react';
 import type { AuthMode } from '@services/auth.service';
 
 interface NavigationProps {
@@ -26,6 +26,7 @@ const Navigation: React.FC<NavigationProps> = React.memo(
       { id: 'downloads', label: 'Downloads', icon: Download, requiresAuth: false, guestOnly: false },
       { id: 'clients', label: 'Clients', icon: Laptop, requiresAuth: false, guestOnly: false },
       { id: 'authenticate', label: 'Authenticate', icon: Key, requiresAuth: false, guestOnly: true },
+      { id: 'prefill', label: 'Prefill', icon: Terminal, requiresAuth: false, guestOnly: false },
       { id: 'users', label: 'Users', icon: Users, requiresAuth: true, guestOnly: false },
       { id: 'events', label: 'Events', icon: CalendarDays, requiresAuth: true, guestOnly: false },
       { id: 'management', label: 'Management', icon: Settings, requiresAuth: true, guestOnly: false }

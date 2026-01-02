@@ -7,3 +7,4 @@ export { default as AuthenticateTab } from './auth/AuthenticateTab';
 export { default as UserTab } from './user/UserTab';
 export { default as ManagementTab } from './management/ManagementTab';
 export { default as MemoryDiagnostics } from './memory/MemoryDiagnostics';
+export { PrefillTerminal } from './prefill';

@@ -317,6 +317,10 @@ builder.Services.AddHostedService(provider => provider.GetRequiredService<CacheC
 // Register GameCacheDetectionService
 builder.Services.AddSingleton<GameCacheDetectionService>();
 
+// Register PrefillSessionService for Steam Prefill container management
+builder.Services.AddSingleton<PrefillSessionService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<PrefillSessionService>());
+
 // Register OperationStateService
 builder.Services.AddSingleton<OperationStateService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<OperationStateService>());
@@ -485,6 +489,7 @@ app.UseSwaggerUI(c =>
 // Map endpoints
 app.MapControllers();
 app.MapHub<DownloadHub>("/hubs/downloads");
+app.MapHub<PrefillTerminalHub>("/hubs/prefill");
 
 // Map Prometheus metrics endpoint for Grafana
 app.MapPrometheusScrapingEndpoint();
