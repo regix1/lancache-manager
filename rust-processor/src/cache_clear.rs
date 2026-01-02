@@ -147,15 +147,54 @@ fn delete_directory_contents(
 
 fn delete_directory_full(
     dir_path: &Path,
-    _files_counter: &AtomicU64,
+    files_counter: &AtomicU64,
 ) -> Result<()> {
     if !dir_path.exists() {
         return Ok(());
     }
 
+    // Count files before deletion using find (efficient even on NFS)
+    // This gives us accurate file counts for the progress display
+    #[cfg(unix)]
+    let file_count = {
+        use std::process::Command;
+        Command::new("sh")
+            .arg("-c")
+            .arg(format!("find '{}' -type f | wc -l", dir_path.display()))
+            .output()
+            .ok()
+            .and_then(|output| {
+                if output.status.success() {
+                    String::from_utf8_lossy(&output.stdout)
+                        .trim()
+                        .parse::<u64>()
+                        .ok()
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0)
+    };
+
+    #[cfg(not(unix))]
+    let file_count = {
+        // On Windows, walk the directory to count files before deletion
+        jwalk::WalkDir::new(dir_path)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+            .count() as u64
+    };
+
     // Remove the entire directory tree in a single syscall. No need to recreate.
     match fs::remove_dir_all(dir_path) {
-        Ok(_) => Ok(()),
+        Ok(_) => {
+            // Add the counted files to the total
+            if file_count > 0 {
+                files_counter.fetch_add(file_count, Ordering::Relaxed);
+            }
+            Ok(())
+        }
         Err(err) if err.kind() == ErrorKind::NotFound => {
             // Directory doesn't exist, that's fine
             Ok(())
@@ -163,6 +202,9 @@ fn delete_directory_full(
         Err(err) => {
             // If the directory vanished despite the error, return success
             if !dir_path.exists() {
+                if file_count > 0 {
+                    files_counter.fetch_add(file_count, Ordering::Relaxed);
+                }
                 return Ok(());
             }
 
