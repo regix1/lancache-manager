@@ -391,7 +391,17 @@ fn estimate_deletion_times_calibrated(
     let full_seconds = (hex_dirs as f64 / effective_full_rate).max(0.5);
     
     // Rsync mode: calibrated rate with parallelism
-    let effective_rsync_rate = calibration.rsync_dirs_per_sec * rsync_threads * efficiency;
+    // Calibration uses 50 files/dir - adjust for actual file density
+    // Fewer files = faster rsync (less work per directory)
+    let rsync_scale = if files_per_hex_dir < 50.0 {
+        // Rsync is faster with fewer files - scale up the rate
+        // With ~1 file/dir vs 50 files/dir, rsync is roughly 1.5-2x faster
+        1.0 + (50.0 - files_per_hex_dir) / 100.0
+    } else {
+        // More files = slower, scale down proportionally
+        50.0 / files_per_hex_dir
+    };
+    let effective_rsync_rate = calibration.rsync_dirs_per_sec * rsync_threads * efficiency * rsync_scale;
     let rsync_seconds = (hex_dirs as f64 / effective_rsync_rate).max(1.0);
     
     // Add small overhead for very large caches (I/O scheduling, buffer flushes)
