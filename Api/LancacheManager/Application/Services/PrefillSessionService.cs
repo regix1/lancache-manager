@@ -176,7 +176,10 @@ public class PrefillSessionService : IHostedService, IDisposable
                     AttachStdin = true,
                     AttachStdout = true,
                     AttachStderr = true,
-                    Cmd = new[] { "/bin/bash" },
+                    // Override the image's ENTRYPOINT to get an interactive shell
+                    Entrypoint = new[] { "/bin/bash" },
+                    Cmd = new string[] { },
+                    WorkingDir = "/",
                     Env = new[]
                     {
                         "TERM=xterm-256color",

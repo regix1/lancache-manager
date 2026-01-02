@@ -225,23 +225,23 @@ public class PrefillTerminalHub : Hub
         return commandType.ToLowerInvariant() switch
         {
             // App selection
-            "select-apps" => "./SteamPrefill select-apps --no-ansi",
-            "select-status" => "./SteamPrefill select-apps status --no-ansi",
+            "select-apps" => "/SteamPrefill select-apps",
+            "select-status" => "/SteamPrefill select-apps status",
 
             // Prefill commands
-            "prefill" => "./SteamPrefill prefill --no-ansi",
-            "prefill-all" => "./SteamPrefill prefill --all --no-ansi",
-            "prefill-recent" => "./SteamPrefill prefill --recent --no-ansi",
-            "prefill-recent-purchased" => "./SteamPrefill prefill --recently-purchased --no-ansi",
-            "prefill-top" => $"./SteamPrefill prefill --top {options?.GetValueOrDefault("count", "50")} --no-ansi",
-            "prefill-force" => "./SteamPrefill prefill --force --no-ansi",
+            "prefill" => "/SteamPrefill prefill",
+            "prefill-all" => "/SteamPrefill prefill --all",
+            "prefill-recent" => "/SteamPrefill prefill --recent",
+            "prefill-recent-purchased" => "/SteamPrefill prefill --recently-purchased",
+            "prefill-top" => $"/SteamPrefill prefill --top {options?.GetValueOrDefault("count", "50")}",
+            "prefill-force" => "/SteamPrefill prefill --force",
 
             // Utility commands
-            "clear-temp" => "./SteamPrefill clear-temp --yes",
+            "clear-temp" => "/SteamPrefill clear-temp --yes",
 
             // Custom command with app IDs
             "prefill-apps" when options?.ContainsKey("appIds") == true =>
-                $"./SteamPrefill prefill {string.Join(" ", options["appIds"].Split(',').Select(id => $"--appid {id.Trim()}"))} --no-ansi",
+                $"/SteamPrefill prefill {string.Join(" ", options["appIds"].Split(',').Select(id => $"--appid {id.Trim()}"))}",
 
             _ => null
         };
