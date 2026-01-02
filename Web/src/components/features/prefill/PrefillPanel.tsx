@@ -7,7 +7,7 @@ import { usePrefillSteamAuth } from '@hooks/usePrefillSteamAuth';
 import { ActivityLog, createLogEntry, type LogEntry, type LogEntryType } from './ActivityLog';
 import { GameSelectionModal, type OwnedGame } from './GameSelectionModal';
 import authService from '@services/auth.service';
-import { SIGNALR_BASE } from '@utils/constants';
+import { SIGNALR_BASE, API_BASE } from '@utils/constants';
 import {
   Loader2,
   ScrollText,
@@ -439,6 +439,30 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     }
   }, [connectToHub, formatTimeRemaining, addLog]);
 
+  // Helper to call prefill REST API (bypasses SignalR serialization issues)
+  const callPrefillApi = useCallback(async (
+    sessionId: string,
+    all: boolean = false,
+    recent: boolean = false,
+    force: boolean = false
+  ) => {
+    const response = await fetch(`${API_BASE}/prefill-daemon/sessions/${sessionId}/prefill`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...authService.getAuthHeaders()
+      },
+      body: JSON.stringify({ all, recent, force })
+    });
+    
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Prefill request failed' }));
+      throw new Error(error.message || `HTTP ${response.status}`);
+    }
+    
+    return response.json();
+  }, []);
+
   const executeCommand = useCallback(async (commandType: CommandType) => {
     if (!session || !hubConnection.current) return;
 
@@ -448,10 +472,16 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     try {
       switch (commandType) {
         case 'select-apps': {
-          // Get owned games list
+          // Get owned games list via REST API
           setIsLoadingGames(true);
           try {
-            const games = await hubConnection.current.invoke('GetOwnedGames', session.id);
+            const response = await fetch(`${API_BASE}/prefill-daemon/sessions/${session.id}/games`, {
+              headers: authService.getAuthHeaders()
+            });
+            if (!response.ok) {
+              throw new Error(`Failed to get games: HTTP ${response.status}`);
+            }
+            const games = await response.json();
             setOwnedGames(games || []);
             addLog('info', `Found ${games?.length || 0} owned games`);
             setShowGameSelection(true);
@@ -480,7 +510,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         }
         case 'prefill': {
           addLog('download', 'Starting prefill of selected apps...');
-          const result = await hubConnection.current.invoke('StartPrefill', session.id, false, false, false);
+          const result = await callPrefillApi(session.id, false, false, false);
           setPrefillProgress(null); // Clear progress on completion
           if (result?.success) {
             const totalSeconds = result.totalTime?.totalSeconds || 0;
@@ -492,7 +522,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         }
         case 'prefill-all': {
           addLog('download', 'Starting prefill of all owned games...');
-          const result = await hubConnection.current.invoke('StartPrefill', session.id, true, false, false);
+          const result = await callPrefillApi(session.id, true, false, false);
           setPrefillProgress(null); // Clear progress on completion
           if (result?.success) {
             const totalSeconds = result.totalTime?.totalSeconds || 0;
@@ -504,7 +534,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         }
         case 'prefill-recent': {
           addLog('download', 'Starting prefill of recently played games...');
-          const result = await hubConnection.current.invoke('StartPrefill', session.id, false, true, false);
+          const result = await callPrefillApi(session.id, false, true, false);
           setPrefillProgress(null); // Clear progress on completion
           if (result?.success) {
             const totalSeconds = result.totalTime?.totalSeconds || 0;
@@ -516,7 +546,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         }
         case 'prefill-force': {
           addLog('download', 'Starting force prefill (re-downloading)...');
-          const result = await hubConnection.current.invoke('StartPrefill', session.id, false, false, true);
+          const result = await callPrefillApi(session.id, false, false, true);
           setPrefillProgress(null); // Clear progress on completion
           if (result?.success) {
             const totalSeconds = result.totalTime?.totalSeconds || 0;
@@ -550,7 +580,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     } finally {
       setTimeout(() => setIsExecuting(false), 1000);
     }
-  }, [session, addLog, selectedAppIds, ownedGames]);
+  }, [session, addLog, selectedAppIds, ownedGames, callPrefillApi]);
 
   const handleEndSession = useCallback(async () => {
     if (!session || !hubConnection.current) return;
@@ -572,11 +602,23 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     setShowAuthModal(true);
   }, [authActions]);
 
-  // Handle saving game selection
+  // Handle saving game selection via REST API
   const handleSaveGameSelection = useCallback(async (selectedIds: number[]) => {
-    if (!session || !hubConnection.current) return;
+    if (!session) return;
 
-    await hubConnection.current.invoke('SetSelectedApps', session.id, selectedIds);
+    const response = await fetch(`${API_BASE}/prefill-daemon/sessions/${session.id}/selected-apps`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...authService.getAuthHeaders()
+      },
+      body: JSON.stringify({ appIds: selectedIds })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to set selected apps: HTTP ${response.status}`);
+    }
+    
     setSelectedAppIds(selectedIds);
     addLog('success', `Selected ${selectedIds.length} games for prefill`);
   }, [session, addLog]);
