@@ -176,7 +176,12 @@ public class PrefillDaemonHub : Hub
     {
         ValidateSessionAccess(sessionId, out var session);
 
-        await _daemonService.SetSelectedAppsAsync(sessionId, appIds);
+        _logger.LogInformation("SetSelectedApps called for session {SessionId} with {Count} app IDs: [{AppIds}]",
+            sessionId, appIds?.Count ?? 0, appIds != null ? string.Join(", ", appIds.Take(10)) + (appIds.Count > 10 ? "..." : "") : "null");
+
+        await _daemonService.SetSelectedAppsAsync(sessionId, appIds ?? new List<uint>());
+
+        _logger.LogInformation("SetSelectedApps completed for session {SessionId}", sessionId);
     }
 
     /// <summary>

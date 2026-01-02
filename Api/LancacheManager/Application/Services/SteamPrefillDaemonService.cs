@@ -382,7 +382,11 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             throw new KeyNotFoundException($"Session not found: {sessionId}");
         }
 
+        _logger.LogInformation("SetSelectedAppsAsync: Sending {Count} app IDs to daemon for session {SessionId}", appIds.Count, sessionId);
+
         await session.Client.SetSelectedAppsAsync(appIds, cancellationToken);
+
+        _logger.LogInformation("SetSelectedAppsAsync: Daemon acknowledged for session {SessionId}", sessionId);
     }
 
     /// <summary>

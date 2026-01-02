@@ -70,7 +70,9 @@ export const SIGNALR_EVENTS = [
   'ClientGroupDeleted',
   'ClientGroupMemberAdded',
   'ClientGroupMemberRemoved',
-  'PrefillProgress'
+  'PrefillProgress',
+  'StatusChanged',
+  'PrefillStateChanged'
 ] as const;
 
 export type SignalREvent = (typeof SIGNALR_EVENTS)[number];

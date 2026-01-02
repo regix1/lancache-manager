@@ -346,6 +346,26 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         }
       });
 
+      // Handle status changes (daemon status updates)
+      connection.on('StatusChanged', (_sessionId: string, status: { status: string; message: string }) => {
+        if (status.message) {
+          addLog('info', `Status: ${status.message}`);
+        }
+      });
+
+      // Handle prefill state changes
+      connection.on('PrefillStateChanged', (_sessionId: string, state: string) => {
+        if (state === 'started') {
+          addLog('download', 'Prefill operation started');
+        } else if (state === 'completed') {
+          addLog('success', 'Prefill operation completed');
+          setPrefillProgress(null);
+        } else if (state === 'failed') {
+          addLog('error', 'Prefill operation failed');
+          setPrefillProgress(null);
+        }
+      });
+
       connection.onclose((error) => {
         console.log('Hub connection closed:', error);
         setIsConnecting(false);
@@ -441,8 +461,22 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           break;
         }
         case 'select-status': {
-          const status = await hubConnection.current.invoke('GetStatus', session.id);
-          addLog('info', `Daemon status: ${status?.status || 'unknown'}`);
+          if (selectedAppIds.length === 0) {
+            addLog('warning', 'No games selected. Use "Select Apps" to choose games for prefill.');
+          } else {
+            // Get game names from ownedGames if we have them
+            const selectedNames = selectedAppIds.map(id => {
+              const game = ownedGames.find(g => g.appId === id);
+              return game ? game.name : `App ${id}`;
+            });
+            addLog('info', `${selectedAppIds.length} games selected for prefill:`);
+            // Show first 10 names, then "and X more..."
+            const displayNames = selectedNames.slice(0, 10);
+            displayNames.forEach(name => addLog('info', `  • ${name}`));
+            if (selectedNames.length > 10) {
+              addLog('info', `  ... and ${selectedNames.length - 10} more`);
+            }
+          }
           break;
         }
         case 'prefill': {
