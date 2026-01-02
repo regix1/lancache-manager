@@ -245,16 +245,11 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
             <button
               onClick={() => loadData(true)}
               disabled={isLoading || !!removingCorruption}
-              className="p-2 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center"
+              className="hover-btn p-2 rounded-lg disabled:opacity-50 flex items-center justify-center"
               style={{
                 color: 'var(--theme-text-muted)',
                 backgroundColor: 'transparent'
               }}
-              onMouseEnter={(e) =>
-                !isLoading && !removingCorruption &&
-                (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
-              }
-              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
               title="Refresh data"
             >
               {isLoading ? (

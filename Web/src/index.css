@@ -2214,6 +2214,54 @@ input[type='number']::-webkit-outer-spin-button {
   50% { box-shadow: 0 0 0 2px var(--theme-bg-secondary), 0 0 0 6px color-mix(in srgb, var(--theme-warning) 10%, transparent); }
 }
 
+/* Dropdown shared styles */
+@keyframes dropdownSlideDown {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes dropdownSlideUp {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* EnhancedDropdown */
+.ed-trigger {
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.ed-trigger:not(:disabled):hover {
+  background-color: var(--theme-bg-hover) !important;
+}
+
+.ed-trigger:focus {
+  border-color: var(--theme-border-focus) !important;
+}
+
+.ed-dropdown {
+  contain: layout style;
+}
+
+.ed-option {
+  transition: background-color 0.15s ease;
+}
+
+.ed-option:not(:disabled):hover {
+  background-color: var(--theme-bg-hover) !important;
+}
+
+.ed-option-selected {
+  background-color: var(--theme-bg-tertiary) !important;
+}
+
+.ed-submenu-option {
+  transition: background-color 0.15s ease;
+}
+
+.ed-submenu-option:not(.ed-submenu-selected):hover {
+  background-color: var(--theme-bg-hover) !important;
+}
+
 /* MultiSelectDropdown */
 .msd-dropdown {
   contain: layout style;
@@ -2273,6 +2321,33 @@ input[type='number']::-webkit-outer-spin-button {
 @keyframes msdFadeInUp {
   from { opacity: 0; transform: translateY(6px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Hover button - for popover/list items */
+.hover-btn {
+  transition: background-color 0.15s ease;
+}
+
+.hover-btn:not(:disabled):hover {
+  background-color: var(--theme-bg-hover) !important;
+}
+
+.hover-btn-trigger {
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.hover-btn-trigger:hover {
+  background-color: var(--theme-bg-hover) !important;
+  color: var(--theme-text-primary) !important;
+}
+
+/* Light hover for buttons on colored backgrounds */
+.hover-btn-light {
+  transition: background-color 0.15s ease;
+}
+
+.hover-btn-light:hover {
+  background-color: rgba(255, 255, 255, 0.2) !important;
 }
 
 /* Config section */

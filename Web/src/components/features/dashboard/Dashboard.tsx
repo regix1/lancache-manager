@@ -630,19 +630,11 @@ const Dashboard: React.FC = () => {
               <Tooltip content={`${hiddenCardsCount} hidden card${hiddenCardsCount !== 1 ? 's' : ''} - click to restore`} strategy="overlay">
                 <button
                   onClick={() => setDropdownOpen(!dropdownOpen)}
-                  className="flex items-center gap-2 px-3 py-2 text-sm transition-colors rounded-lg border"
+                  className="hover-btn-trigger flex items-center gap-2 px-3 py-2 text-sm rounded-lg border"
                   style={{
                     color: 'var(--theme-text-secondary)',
                     backgroundColor: 'var(--theme-bg-secondary)',
                     borderColor: 'var(--theme-border-primary)'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
-                    e.currentTarget.style.color = 'var(--theme-text-primary)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)';
-                    e.currentTarget.style.color = 'var(--theme-text-secondary)';
                   }}
                 >
                   <EyeOff className="w-4 h-4" />
@@ -693,14 +685,8 @@ const Dashboard: React.FC = () => {
                         setDropdownOpen(false);
                         setSearchQuery('');
                       }}
-                      className="w-full px-3 py-2 text-sm rounded-lg transition-colors text-left flex items-center gap-2"
+                      className="hover-btn w-full px-3 py-2 text-sm rounded-lg text-left flex items-center gap-2"
                       style={{ color: 'var(--theme-primary)' }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = 'transparent';
-                      }}
                     >
                       <Eye className="w-4 h-4" />
                       Show all cards
@@ -722,13 +708,7 @@ const Dashboard: React.FC = () => {
                                 setSearchQuery('');
                               }
                             }}
-                            className="w-full p-2.5 rounded-lg transition-colors flex items-center gap-3 group"
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.backgroundColor = 'transparent';
-                            }}
+                            className="hover-btn w-full p-2.5 rounded-lg flex items-center gap-3 group"
                           >
                             <div
                               className="p-1.5 rounded-lg group-hover:scale-105 transition-transform"

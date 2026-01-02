@@ -391,8 +391,8 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
                 }
               >
                 <div>
-                  <div className="toggle-row-label">Show Year</div>
-                  <div className="toggle-row-description">Always include year in dates</div>
+                  <div className="toggle-row-label">Always Show Year</div>
+                  <div className="toggle-row-description">Include year in dates even for current year</div>
                 </div>
                 <div className="flex items-center gap-2">
                   {updatingDefaultPref === 'showYearInDates' && (

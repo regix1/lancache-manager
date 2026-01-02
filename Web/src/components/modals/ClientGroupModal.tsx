@@ -273,9 +273,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
                       <button
                         type="button"
                         onClick={() => handleRemovePendingIp(ip)}
-                        className="p-0.5 rounded transition-colors"
-                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)'}
-                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = ''}
+                        className="hover-btn-light p-0.5 rounded"
                       >
                         <X className="w-3 h-3" />
                       </button>
@@ -360,10 +358,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
                     <button
                       type="button"
                       onClick={() => handleRemoveIp(ip)}
-                      className="p-0.5 rounded transition-colors"
-                      style={{ ['--hover-bg' as string]: 'rgba(255, 255, 255, 0.2)' }}
-                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)'}
-                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = ''}
+                      className="hover-btn-light p-0.5 rounded"
                     >
                       <X className="w-3 h-3" />
                     </button>

@@ -250,16 +250,11 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
             <button
               onClick={() => loadData(true)}
               disabled={isLoading || !!activeLogRemoval}
-              className="p-2 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center"
+              className="hover-btn p-2 rounded-lg disabled:opacity-50 flex items-center justify-center"
               style={{
                 color: 'var(--theme-text-muted)',
                 backgroundColor: 'transparent'
               }}
-              onMouseEnter={(e) =>
-                !isLoading && !activeLogRemoval &&
-                (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
-              }
-              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
               title="Refresh data"
             >
               {isLoading ? (
