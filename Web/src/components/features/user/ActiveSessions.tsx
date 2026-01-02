@@ -1704,6 +1704,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     }
                     placeholder="Select allowed formats"
                     minSelections={1}
+                    dropdownWidth="w-80"
                   />
                   <p className="text-xs text-themed-muted mt-1">
                     {editingPreferences.allowedTimeFormats

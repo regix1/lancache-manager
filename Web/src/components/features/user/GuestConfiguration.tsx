@@ -352,25 +352,28 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
               {/* Allowed Time Formats */}
               <div>
                 <div className="toggle-row-label mb-1.5">Allowed Time Formats</div>
-                <MultiSelectDropdown
-                  options={timeFormatOptions.map((opt) => ({
-                    value: opt.value,
-                    label: opt.label,
-                    description: opt.description,
-                    icon: opt.icon
-                  }))}
-                  values={defaultGuestPreferences.allowedTimeFormats}
-                  onChange={handleAllowedFormatsChange}
-                  placeholder="Select allowed formats"
-                  minSelections={1}
-                  disabled={updatingAllowedFormats || loadingDefaultPrefs}
-                />
-                {updatingAllowedFormats && (
-                  <Loader2
-                    className="w-4 h-4 animate-spin mt-1"
-                    style={{ color: 'var(--theme-primary)' }}
+                <div className="relative">
+                  <MultiSelectDropdown
+                    options={timeFormatOptions.map((opt) => ({
+                      value: opt.value,
+                      label: opt.label,
+                      description: opt.description,
+                      icon: opt.icon
+                    }))}
+                    values={defaultGuestPreferences.allowedTimeFormats}
+                    onChange={handleAllowedFormatsChange}
+                    placeholder="Select allowed formats"
+                    minSelections={1}
+                    disabled={updatingAllowedFormats || loadingDefaultPrefs}
+                    dropdownWidth="w-80"
                   />
-                )}
+                  {updatingAllowedFormats && (
+                    <Loader2
+                      className="w-4 h-4 animate-spin absolute right-10 top-1/2 -translate-y-1/2"
+                      style={{ color: 'var(--theme-primary)' }}
+                    />
+                  )}
+                </div>
                 <div className="toggle-row-description mt-1">
                   Time formats guests can choose from
                 </div>

@@ -2205,13 +2205,74 @@ input[type='number']::-webkit-outer-spin-button {
 }
 
 @keyframes pulse-dot {
-  0%, 100% { box-shadow: 0 0 0 2px var(--theme-bg-secondary), 0 0 0 4px rgba(34, 197, 94, 0.3); }
-  50% { box-shadow: 0 0 0 2px var(--theme-bg-secondary), 0 0 0 6px rgba(34, 197, 94, 0.1); }
+  0%, 100% { box-shadow: 0 0 0 2px var(--theme-bg-secondary), 0 0 0 4px color-mix(in srgb, var(--theme-success) 30%, transparent); }
+  50% { box-shadow: 0 0 0 2px var(--theme-bg-secondary), 0 0 0 6px color-mix(in srgb, var(--theme-success) 10%, transparent); }
 }
 
 @keyframes pulse-dot-away {
-  0%, 100% { box-shadow: 0 0 0 2px var(--theme-bg-secondary), 0 0 0 4px rgba(245, 158, 11, 0.3); }
-  50% { box-shadow: 0 0 0 2px var(--theme-bg-secondary), 0 0 0 6px rgba(245, 158, 11, 0.1); }
+  0%, 100% { box-shadow: 0 0 0 2px var(--theme-bg-secondary), 0 0 0 4px color-mix(in srgb, var(--theme-warning) 30%, transparent); }
+  50% { box-shadow: 0 0 0 2px var(--theme-bg-secondary), 0 0 0 6px color-mix(in srgb, var(--theme-warning) 10%, transparent); }
+}
+
+/* MultiSelectDropdown */
+.msd-dropdown {
+  contain: layout style;
+}
+
+.msd-option {
+  transition: background-color 0.15s ease;
+  position: relative;
+  contain: layout style;
+}
+
+.msd-option:active:not(:disabled) {
+  transform: scale(0.995);
+}
+
+.msd-option:not(:disabled):hover {
+  background-color: var(--theme-bg-tertiary) !important;
+}
+
+.msd-option-selected {
+  background-color: color-mix(in srgb, var(--theme-primary) 8%, var(--theme-bg-secondary)) !important;
+}
+
+.msd-option-selected:not(:disabled):hover {
+  background-color: color-mix(in srgb, var(--theme-primary) 12%, var(--theme-bg-secondary)) !important;
+}
+
+.msd-checkbox {
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.msd-checkbox-inner {
+  opacity: 0;
+  transform: scale(0.5);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.msd-checkbox-selected .msd-checkbox-inner {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.msd-accent {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.msd-option-selected .msd-accent {
+  opacity: 1;
+}
+
+@keyframes msdFadeInDown {
+  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes msdFadeInUp {
+  from { opacity: 0; transform: translateY(6px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 /* Config section */
