@@ -160,7 +160,8 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                         $"{commandsDir}:/commands",
                         $"{responsesDir}:/responses"
                     },
-                    AutoRemove = true
+                    // AutoRemove disabled for debugging - containers will persist after crash
+                    AutoRemove = false
                 }
             },
             cancellationToken);
@@ -178,33 +179,51 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         _logger.LogInformation("Started container {ContainerId} for session {SessionId}", containerId, sessionId);
 
         // Verify container is actually running (it may have crashed immediately)
-        await Task.Delay(500, cancellationToken); // Give it a moment to crash if it's going to
-        var inspect = await _dockerClient.Containers.InspectContainerAsync(containerId, cancellationToken);
-        if (!inspect.State.Running)
+        await Task.Delay(1000, cancellationToken); // Give it a moment to crash if it's going to
+        try
         {
-            var exitCode = inspect.State.ExitCode;
-            var error = inspect.State.Error;
-            _logger.LogError("Container {ContainerId} exited immediately! ExitCode: {ExitCode}, Error: {Error}",
-                containerId, exitCode, error);
-
-            // Try to get logs before container is removed
-            try
+            var inspect = await _dockerClient.Containers.InspectContainerAsync(containerId, cancellationToken);
+            if (!inspect.State.Running)
             {
-                var logParams = new ContainerLogsParameters { ShowStdout = true, ShowStderr = true, Tail = "50" };
-                using var logStream = await _dockerClient.Containers.GetContainerLogsAsync(containerId, false, logParams, cancellationToken);
-                using var memoryStream = new MemoryStream();
-                await logStream.CopyOutputToAsync(null, memoryStream, null, cancellationToken);
-                memoryStream.Position = 0;
-                using var reader = new StreamReader(memoryStream);
-                var logs = await reader.ReadToEndAsync(cancellationToken);
-                if (!string.IsNullOrWhiteSpace(logs))
-                {
-                    _logger.LogError("Container logs:\n{Logs}", logs);
-                }
-            }
-            catch { /* Container may already be removed due to AutoRemove */ }
+                var exitCode = inspect.State.ExitCode;
+                var error = inspect.State.Error;
+                _logger.LogError("Container {ContainerId} exited immediately! ExitCode: {ExitCode}, Error: {Error}",
+                    containerId, exitCode, error);
 
-            throw new InvalidOperationException($"Container crashed on startup. ExitCode: {exitCode}. Check if image '{imageName}' exists and is valid.");
+                // Try to get logs
+                try
+                {
+                    var logParams = new ContainerLogsParameters { ShowStdout = true, ShowStderr = true, Tail = "50" };
+                    using var logStream = await _dockerClient.Containers.GetContainerLogsAsync(containerId, false, logParams, cancellationToken);
+                    using var memoryStream = new MemoryStream();
+                    await logStream.CopyOutputToAsync(null, memoryStream, null, cancellationToken);
+                    memoryStream.Position = 0;
+                    using var reader = new StreamReader(memoryStream);
+                    var logs = await reader.ReadToEndAsync(cancellationToken);
+                    if (!string.IsNullOrWhiteSpace(logs))
+                    {
+                        _logger.LogError("Container logs:\n{Logs}", logs);
+                    }
+                    else
+                    {
+                        _logger.LogError("Container produced no logs before exiting");
+                    }
+                }
+                catch (Exception logEx)
+                {
+                    _logger.LogWarning(logEx, "Could not retrieve container logs");
+                }
+
+                throw new InvalidOperationException($"Container crashed on startup. ExitCode: {exitCode}. Check if image '{imageName}' exists and is valid.");
+            }
+
+            _logger.LogInformation("Container {ContainerId} verified running for session {SessionId}", containerId, sessionId);
+        }
+        catch (DockerContainerNotFoundException)
+        {
+            _logger.LogError("Container {ContainerId} was removed before we could verify it (crashed immediately with AutoRemove). " +
+                "Image '{ImageName}' may not exist or is crashing on startup.", containerId, imageName);
+            throw new InvalidOperationException($"Container crashed immediately. Ensure image '{imageName}' exists and is properly configured.");
         }
 
         var session = new DaemonSession
