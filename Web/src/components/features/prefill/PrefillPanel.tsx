@@ -403,22 +403,50 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           addLog('info', `Daemon status: ${status?.status || 'unknown'}`);
           break;
         }
-        case 'prefill':
+        case 'prefill': {
           addLog('download', 'Starting prefill of selected apps...');
-          await hubConnection.current.invoke('StartPrefill', session.id, false, false, false);
+          const result = await hubConnection.current.invoke('StartPrefill', session.id, false, false, false);
+          if (result?.success) {
+            const totalSeconds = result.totalTime?.totalSeconds || 0;
+            addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
+          } else {
+            addLog('error', result?.errorMessage || 'Prefill failed');
+          }
           break;
-        case 'prefill-all':
+        }
+        case 'prefill-all': {
           addLog('download', 'Starting prefill of all owned games...');
-          await hubConnection.current.invoke('StartPrefill', session.id, true, false, false);
+          const result = await hubConnection.current.invoke('StartPrefill', session.id, true, false, false);
+          if (result?.success) {
+            const totalSeconds = result.totalTime?.totalSeconds || 0;
+            addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
+          } else {
+            addLog('error', result?.errorMessage || 'Prefill failed');
+          }
           break;
-        case 'prefill-recent':
+        }
+        case 'prefill-recent': {
           addLog('download', 'Starting prefill of recently played games...');
-          await hubConnection.current.invoke('StartPrefill', session.id, false, true, false);
+          const result = await hubConnection.current.invoke('StartPrefill', session.id, false, true, false);
+          if (result?.success) {
+            const totalSeconds = result.totalTime?.totalSeconds || 0;
+            addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
+          } else {
+            addLog('error', result?.errorMessage || 'Prefill failed');
+          }
           break;
-        case 'prefill-force':
+        }
+        case 'prefill-force': {
           addLog('download', 'Starting force prefill (re-downloading)...');
-          await hubConnection.current.invoke('StartPrefill', session.id, false, false, true);
+          const result = await hubConnection.current.invoke('StartPrefill', session.id, false, false, true);
+          if (result?.success) {
+            const totalSeconds = result.totalTime?.totalSeconds || 0;
+            addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
+          } else {
+            addLog('error', result?.errorMessage || 'Prefill failed');
+          }
           break;
+        }
         default:
           addLog('warning', `Command '${commandType}' not yet implemented`);
       }
