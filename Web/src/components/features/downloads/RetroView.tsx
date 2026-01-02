@@ -449,7 +449,7 @@ const ResizeHandle: React.FC<{
   onDoubleClick: (e: React.MouseEvent) => void;
 }> = ({ onMouseDown, onDoubleClick }) => (
   <div
-    className="absolute right-0 top-0 bottom-0 w-3 cursor-col-resize group z-10 flex items-center justify-center"
+    className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize group z-10 flex items-center justify-end"
     onMouseDown={onMouseDown}
     onDoubleClick={onDoubleClick}
   >
@@ -610,7 +610,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
     const measuredWidths: ColumnWidths = {
       timestamp: 80,
       app: 100,
-      datasource: 50,
+      datasource: 75,
       events: 90,
       depot: 50,
       client: 70,
@@ -625,15 +625,15 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
     grouped.forEach((data) => {
       const timeRange = formatTimeRange(data.startTimeUtc, data.endTimeUtc, true);
       measureSpan.textContent = timeRange;
-      measuredWidths.timestamp = Math.max(measuredWidths.timestamp, measureSpan.offsetWidth + 32);
+      measuredWidths.timestamp = Math.max(measuredWidths.timestamp, measureSpan.offsetWidth + 12);
     });
 
     // App column
     measureSpan.style.font = '500 14px system-ui, -apple-system, sans-serif';
     grouped.forEach((data) => {
       measureSpan.textContent = data.gameName || data.service;
-      // Add image width (120px) + gap (8px) + padding (32px)
-      measuredWidths.app = Math.max(measuredWidths.app, measureSpan.offsetWidth + 120 + 8 + 32);
+      // Add image width (100px) + gap (8px) + padding (32px)
+      measuredWidths.app = Math.max(measuredWidths.app, measureSpan.offsetWidth + 100 + 8 + 32);
     });
 
     // Datasource column
@@ -675,7 +675,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
     measureSpan.textContent = '999.99 GB (99.9%)';
     const cacheValueWidth = measureSpan.offsetWidth;
     // Two values side by side with gap
-    measuredWidths.cacheHit = Math.max(measuredWidths.cacheHit, (cacheValueWidth * 2) + 32);
+    measuredWidths.cacheHit = Math.max(measuredWidths.cacheHit, (cacheValueWidth * 2) + 16);
 
     // Measure headers too
     measureSpan.style.font = '600 11px system-ui, -apple-system, sans-serif';
@@ -694,7 +694,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
     measureSpan.textContent = 'AVG SPEED';
     measuredWidths.speed = Math.max(measuredWidths.speed, measureSpan.offsetWidth + 32);
     measureSpan.textContent = 'CACHE PERFORMANCE';
-    measuredWidths.cacheHit = Math.max(measuredWidths.cacheHit, measureSpan.offsetWidth + 32);
+    measuredWidths.cacheHit = Math.max(measuredWidths.cacheHit, measureSpan.offsetWidth + 16);
     measureSpan.textContent = 'EFFICIENCY';
     measuredWidths.overall = Math.max(measuredWidths.overall, measureSpan.offsetWidth + 32);
 
@@ -723,7 +723,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
     const minWidths = {
       timestamp: 80,
       app: 100,
-      datasource: 40,
+      datasource: 70,
       events: 50,
       depot: 40,
       client: 60,
@@ -980,7 +980,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
       {/* Desktop Table Header - only rendered on desktop via JS conditional */}
       {isDesktop && (
         <div
-          className="grid gap-2 pl-3 pr-4 py-3 text-xs font-semibold uppercase tracking-wide border-b select-none sticky top-0 z-20"
+          className="grid pl-4 pr-4 py-3 text-xs font-semibold uppercase tracking-wide border-b select-none sticky top-0 z-20"
           style={{
             gridTemplateColumns: gridTemplate,
             backgroundColor: 'var(--theme-bg-tertiary)',
@@ -989,14 +989,14 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
             minWidth: 'fit-content',
           }}
         >
-          <div className="relative pr-2" data-header>
+          <div className="relative px-2" data-header>
             Timestamp
             <ResizeHandle
               onMouseDown={(e) => handleMouseDown('timestamp', e)}
               onDoubleClick={() => handleAutoFitColumn('timestamp')}
             />
           </div>
-          <div className="relative pr-2" data-header>
+          <div className="relative px-2" data-header>
             App
             <ResizeHandle
               onMouseDown={(e) => handleMouseDown('app', e)}
@@ -1004,7 +1004,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
             />
           </div>
           {showDatasourceColumn && (
-            <div className="relative pr-2" data-header>
+            <div className="relative px-2 text-center" data-header>
               Source
               <ResizeHandle
                 onMouseDown={(e) => handleMouseDown('datasource', e)}
@@ -1012,43 +1012,43 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
               />
             </div>
           )}
-          <div className="relative pr-2" data-header>
+          <div className="relative px-2 text-center" data-header>
             Events
             <ResizeHandle
               onMouseDown={(e) => handleMouseDown('events', e)}
               onDoubleClick={() => handleAutoFitColumn('events')}
             />
           </div>
-          <div className="relative pr-2" data-header>
+          <div className="relative px-2 text-center" data-header>
             Depot
             <ResizeHandle
               onMouseDown={(e) => handleMouseDown('depot', e)}
               onDoubleClick={() => handleAutoFitColumn('depot')}
             />
           </div>
-          <div className="relative pr-2" data-header>
+          <div className="relative px-2 text-center" data-header>
             Client
             <ResizeHandle
               onMouseDown={(e) => handleMouseDown('client', e)}
               onDoubleClick={() => handleAutoFitColumn('client')}
             />
           </div>
-          <div className="relative pr-2" data-header>
+          <div className="relative px-2 text-center" data-header>
             Avg Speed
             <ResizeHandle
               onMouseDown={(e) => handleMouseDown('speed', e)}
               onDoubleClick={() => handleAutoFitColumn('speed')}
             />
           </div>
-          <div className="relative pr-2" data-header>
+          <div className="relative px-2 text-center" data-header>
             Cache Performance
             <ResizeHandle
               onMouseDown={(e) => handleMouseDown('cacheHit', e)}
               onDoubleClick={() => handleAutoFitColumn('cacheHit')}
             />
           </div>
-          <div className="flex items-center justify-center pr-2" data-header>
-            <span>Efficiency</span>
+          <div className="relative px-2 text-center" data-header>
+            Efficiency
           </div>
         </div>
       )}
@@ -1098,17 +1098,17 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
               {isDesktop ? (
                 /* Desktop Layout */
                 <div
-                  className="grid gap-2 pl-4 pr-4 py-3 items-center"
+                  className="grid pl-4 pr-4 py-3 items-center"
                   style={{ gridTemplateColumns: gridTemplate }}
                   data-row
                 >
                   {/* Timestamp */}
-                  <div className="text-xs text-[var(--theme-text-secondary)] overflow-hidden whitespace-nowrap" data-cell>
+                  <div className="px-2 text-xs text-[var(--theme-text-secondary)] overflow-hidden whitespace-nowrap" data-cell>
                     <span className="block truncate" title={timeRange}>{timeRange}</span>
                   </div>
 
                   {/* App - with game image (responsive to column width) */}
-                  <div className="flex items-center gap-2 overflow-hidden" data-cell>
+                  <div className="px-2 flex items-center gap-2 overflow-hidden" data-cell>
                     {hasGameImage && data.gameAppId ? (
                       <img
                         src={`${API_BASE}/game-images/${data.gameAppId}/header/`}
@@ -1137,7 +1137,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
 
                   {/* Datasource - only shown when multiple datasources exist */}
                   {showDatasourceColumn && (
-                    <div className="overflow-hidden" data-cell>
+                    <div className="px-2 overflow-hidden text-center" data-cell>
                       <span
                         className="px-1.5 py-0.5 text-xs font-medium rounded inline-block truncate max-w-full"
                         style={{
@@ -1153,7 +1153,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                   )}
 
                   {/* Events - shows event badges for associated downloads */}
-                  <div className="overflow-hidden" data-cell>
+                  <div className="px-2 overflow-hidden flex justify-center" data-cell>
                     {(() => {
                       const events = getGroupEvents(data.downloadIds);
                       return events.length > 0 ? (
@@ -1165,7 +1165,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                   </div>
 
                   {/* Depot */}
-                  <div className="overflow-hidden" data-cell>
+                  <div className="px-2 overflow-hidden text-center" data-cell>
                     {data.depotId ? (
                       <a
                         href={`https://steamdb.info/depot/${data.depotId}/`}
@@ -1181,7 +1181,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                   </div>
 
                   {/* Client IP */}
-                  <div className="text-sm font-mono text-[var(--theme-text-primary)] overflow-hidden" data-cell>
+                  <div className="px-2 text-sm font-mono text-[var(--theme-text-primary)] overflow-hidden text-center" data-cell>
                     {data.clientsSet.size > 1 ? (
                       <span className="truncate block" title={`${data.clientsSet.size} clients`}>
                         {data.clientsSet.size} clients
@@ -1192,13 +1192,13 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                   </div>
 
                   {/* Avg Speed */}
-                  <div className="text-sm text-[var(--theme-text-primary)] overflow-hidden flex items-center gap-1" data-cell>
+                  <div className="px-2 text-sm text-[var(--theme-text-primary)] overflow-hidden flex items-center justify-center gap-1" data-cell>
                     <Zap size={12} style={{ color: 'var(--theme-warning)', opacity: 0.7 }} />
                     <span className="truncate">{formatSpeed(data.averageBytesPerSecond)}</span>
                   </div>
 
                   {/* Combined Cache Performance Bar */}
-                  <div className="overflow-hidden pr-2" data-cell>
+                  <div className="px-2 overflow-hidden flex justify-center" data-cell>
                     <CombinedProgressBar
                       hitBytes={cacheHitBytes}
                       missBytes={cacheMissBytes}
@@ -1207,7 +1207,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                   </div>
 
                   {/* Circular Efficiency Gauge */}
-                  <div className="flex justify-center" data-cell>
+                  <div className="px-2 flex justify-center" data-cell>
                     <EfficiencyGauge percent={hitPercent} />
                   </div>
                 </div>

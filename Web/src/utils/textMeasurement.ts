@@ -201,8 +201,8 @@ export function calculateColumnWidths(actualData?: {
   // Overall: "100.0%" with label
   const overallContentWidth = measureTextWidth('100.0%', RETRO_VIEW_FONTS.overall);
 
-  // Datasource: compact width - just enough for short labels like "cache-1"
-  const datasourceContentWidth = measureTextWidth('cache-1', RETRO_VIEW_FONTS.appName);
+  // Datasource: reasonable width for labels like "Primary", "cache-1", etc.
+  const datasourceContentWidth = measureTextWidth('Primary', RETRO_VIEW_FONTS.appName);
 
   // Events: compact width for 2 small badges
   const eventsContentWidth = 90; // Space for 2 compact badges
