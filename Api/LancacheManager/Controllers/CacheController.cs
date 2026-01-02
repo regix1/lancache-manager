@@ -139,12 +139,28 @@ public class CacheController : ControllerBase
                 return StatusCode(500, new ErrorResponse { Error = "Failed to start cache size calculation" });
             }
 
+            // Read stdout and stderr while process runs
+            var stdoutTask = process.StandardOutput.ReadToEndAsync();
+            var stderrTask = process.StandardError.ReadToEndAsync();
+
             await process.WaitForExitAsync();
+
+            var stdout = await stdoutTask;
+            var stderr = await stderrTask;
+
+            // Log the Rust binary output (includes filesystem detection and calibration info)
+            if (!string.IsNullOrWhiteSpace(stderr))
+            {
+                _logger.LogInformation("Cache size calculation output:\n{Output}", stderr);
+            }
+            if (!string.IsNullOrWhiteSpace(stdout))
+            {
+                _logger.LogInformation("Cache size result JSON:\n{Json}", stdout);
+            }
 
             if (process.ExitCode != 0)
             {
-                var stderr = await process.StandardError.ReadToEndAsync();
-                _logger.LogError("Cache size calculation failed: {Error}", stderr);
+                _logger.LogError("Cache size calculation failed with exit code {ExitCode}: {Error}", process.ExitCode, stderr);
                 return StatusCode(500, new ErrorResponse { Error = "Cache size calculation failed", Details = stderr });
             }
 
