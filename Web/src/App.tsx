@@ -46,7 +46,7 @@ import UserTab from '@components/features/user/UserTab';
 import EventsTab from '@components/features/events';
 import ManagementTab from '@components/features/management/ManagementTab';
 import MemoryDiagnostics from '@components/features/memory/MemoryDiagnostics';
-import { PrefillTerminal } from '@components/features/prefill';
+import { PrefillPanel } from '@components/features/prefill';
 
 // Wrapper components to inject mockMode from context into providers
 const StatsProviderWithMockMode: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -521,7 +521,7 @@ const AppContent: React.FC = () => {
         case 'authenticate':
           return AuthenticateTab;
         case 'prefill':
-          return PrefillTerminal;
+          return PrefillPanel;
         case 'users':
           return UserTab;
         case 'events':

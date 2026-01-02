@@ -136,6 +136,118 @@ public class PrefillTerminalHub : Hub
     }
 
     /// <summary>
+    /// Executes a predefined SteamPrefill command
+    /// </summary>
+    public async Task ExecuteCommand(string sessionId, string commandType, Dictionary<string, string>? options = null)
+    {
+        var httpContext = Context.GetHttpContext();
+        var deviceId = httpContext?.Request.Query["deviceId"].FirstOrDefault();
+
+        var session = _sessionService.GetSession(sessionId);
+        if (session == null || session.UserId != deviceId)
+        {
+            throw new HubException("Session not found or access denied");
+        }
+
+        // Build command based on type
+        var command = BuildCommand(commandType, options);
+        if (string.IsNullOrEmpty(command))
+        {
+            throw new HubException($"Unknown command type: {commandType}");
+        }
+
+        _logger.LogInformation("User {DeviceId} executing command {CommandType} in session {SessionId}",
+            deviceId, commandType, sessionId);
+
+        await _sessionService.ExecuteCommandAsync(sessionId, command);
+    }
+
+    /// <summary>
+    /// Sends Steam credentials to the container for authentication
+    /// </summary>
+    public async Task SendCredentials(string sessionId, string username, string password)
+    {
+        var httpContext = Context.GetHttpContext();
+        var deviceId = httpContext?.Request.Query["deviceId"].FirstOrDefault();
+
+        var session = _sessionService.GetSession(sessionId);
+        if (session == null || session.UserId != deviceId)
+        {
+            throw new HubException("Session not found or access denied");
+        }
+
+        _logger.LogInformation("Sending Steam credentials for session {SessionId}", sessionId);
+
+        // Send username, then password with newlines
+        await _sessionService.SendInputAsync(sessionId, username + "\n");
+        await Task.Delay(500); // Wait for password prompt
+        await _sessionService.SendInputAsync(sessionId, password + "\n");
+    }
+
+    /// <summary>
+    /// Sends 2FA code to the container
+    /// </summary>
+    public async Task SendTwoFactorCode(string sessionId, string code)
+    {
+        var httpContext = Context.GetHttpContext();
+        var deviceId = httpContext?.Request.Query["deviceId"].FirstOrDefault();
+
+        var session = _sessionService.GetSession(sessionId);
+        if (session == null || session.UserId != deviceId)
+        {
+            throw new HubException("Session not found or access denied");
+        }
+
+        _logger.LogInformation("Sending 2FA code for session {SessionId}", sessionId);
+        await _sessionService.SendInputAsync(sessionId, code + "\n");
+    }
+
+    /// <summary>
+    /// Sends email verification code to the container
+    /// </summary>
+    public async Task SendEmailCode(string sessionId, string code)
+    {
+        var httpContext = Context.GetHttpContext();
+        var deviceId = httpContext?.Request.Query["deviceId"].FirstOrDefault();
+
+        var session = _sessionService.GetSession(sessionId);
+        if (session == null || session.UserId != deviceId)
+        {
+            throw new HubException("Session not found or access denied");
+        }
+
+        _logger.LogInformation("Sending email code for session {SessionId}", sessionId);
+        await _sessionService.SendInputAsync(sessionId, code + "\n");
+    }
+
+    private static string? BuildCommand(string commandType, Dictionary<string, string>? options)
+    {
+        return commandType.ToLowerInvariant() switch
+        {
+            // App selection
+            "select-apps" => "./SteamPrefill select-apps --no-ansi",
+            "select-status" => "./SteamPrefill select-apps status --no-ansi",
+
+            // Prefill commands
+            "prefill" => "./SteamPrefill prefill --no-ansi",
+            "prefill-all" => "./SteamPrefill prefill --all --no-ansi",
+            "prefill-recent" => "./SteamPrefill prefill --recent --no-ansi",
+            "prefill-recent-purchased" => "./SteamPrefill prefill --recently-purchased --no-ansi",
+            "prefill-top" => $"./SteamPrefill prefill --top {options?.GetValueOrDefault("count", "50")} --no-ansi",
+            "prefill-force" => "./SteamPrefill prefill --force --no-ansi",
+
+            // Utility commands
+            "clear-temp" => "./SteamPrefill clear-temp --yes",
+
+            // Custom command with app IDs
+            "prefill-apps" when options?.ContainsKey("appIds") == true =>
+                $"./SteamPrefill prefill {string.Join(" ", options["appIds"].Split(',').Select(id => $"--appid {id.Trim()}"))} --no-ansi",
+
+            _ => null
+        };
+    }
+
+    /// <summary>
     /// Handles terminal resize events
     /// </summary>
     public async Task ResizeTerminal(string sessionId, int cols, int rows)

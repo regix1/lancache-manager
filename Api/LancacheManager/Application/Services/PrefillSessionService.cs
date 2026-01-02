@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using Docker.DotNet;
 using Docker.DotNet.Models;
 using LancacheManager.Models;
@@ -28,6 +29,38 @@ public class PrefillSessionService : IHostedService, IDisposable
     private const int MaxSessionsPerUser = 1;
     private const long DefaultMemoryLimit = 512 * 1024 * 1024; // 512MB
     private const long DefaultCpuLimit = 1_000_000_000; // 1 CPU
+
+    // Patterns for detecting Steam authentication prompts in container output
+    // These are compiled once for performance
+    private static readonly Regex[] LoginPromptPatterns =
+    [
+        new Regex(@"please enter your steam username", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new Regex(@"steam username:", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new Regex(@"^\s*username:", RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.Multiline)
+    ];
+
+    private static readonly Regex[] TwoFactorPatterns =
+    [
+        new Regex(@"two.?factor", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new Regex(@"steam\s*guard", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new Regex(@"authenticator\s*code", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new Regex(@"enter.*2fa", RegexOptions.IgnoreCase | RegexOptions.Compiled)
+    ];
+
+    private static readonly Regex[] EmailCodePatterns =
+    [
+        new Regex(@"email.*verification", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new Regex(@"code.*sent.*email", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new Regex(@"email.*code", RegexOptions.IgnoreCase | RegexOptions.Compiled)
+    ];
+
+    private static readonly Regex[] LoginSuccessPatterns =
+    [
+        new Regex(@"successfully logged in", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new Regex(@"logged in as", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new Regex(@"authentication successful", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new Regex(@"steam account.*authenticated", RegexOptions.IgnoreCase | RegexOptions.Compiled)
+    ];
 
     public PrefillSessionService(
         ILogger<PrefillSessionService> logger,
@@ -122,42 +155,15 @@ public class PrefillSessionService : IHostedService, IDisposable
             // Ensure image is available
             await EnsureImageExistsAsync(cancellationToken);
 
-            // Get configuration for volume mounts and network
-            // CacheVolume: Optional - if not set, no volume is mounted (container uses internal storage)
-            // NetworkName: Optional - if not set, uses default bridge network
-            var cacheVolume = _configuration["Prefill:CacheVolume"];
-            var networkName = _configuration["Prefill:NetworkName"];
+            // Get configuration for volume mounts
+            var cacheVolume = _configuration["Prefill:CacheVolume"] ?? "/lancache/cache";
+            var networkName = _configuration["Prefill:NetworkName"] ?? "bridge";
 
             // Create container
             var containerName = $"prefill-{userId}-{Guid.NewGuid():N}".Substring(0, 63); // Docker name limit
             session.ContainerName = containerName;
 
-            _logger.LogInformation("Creating prefill container: {ContainerName} for user {UserId} (network: {Network}, cache: {Cache})",
-                containerName, userId, networkName ?? "default", cacheVolume ?? "none");
-
-            // Build host config
-            var hostConfig = new HostConfig
-            {
-                AutoRemove = true,
-                Memory = DefaultMemoryLimit,
-                NanoCPUs = DefaultCpuLimit,
-                // Security: drop all capabilities except what's needed
-                CapDrop = new[] { "ALL" },
-                // Security: read-only root filesystem except for specific paths
-                ReadonlyRootfs = false, // Need write access for Config directory
-            };
-
-            // Only set network if configured
-            if (!string.IsNullOrEmpty(networkName))
-            {
-                hostConfig.NetworkMode = networkName;
-            }
-
-            // Only mount cache volume if configured
-            if (!string.IsNullOrEmpty(cacheVolume))
-            {
-                hostConfig.Binds = new[] { $"{cacheVolume}:/cache:rw" };
-            }
+            _logger.LogInformation("Creating prefill container: {ContainerName} for user {UserId}", containerName, userId);
 
             var createResponse = await _dockerClient.Containers.CreateContainerAsync(
                 new CreateContainerParameters
@@ -176,7 +182,18 @@ public class PrefillSessionService : IHostedService, IDisposable
                         "TERM=xterm-256color",
                         "LANG=en_US.UTF-8"
                     },
-                    HostConfig = hostConfig
+                    HostConfig = new HostConfig
+                    {
+                        Binds = new[] { $"{cacheVolume}:/cache:rw" },
+                        NetworkMode = networkName,
+                        AutoRemove = true,
+                        Memory = DefaultMemoryLimit,
+                        NanoCPUs = DefaultCpuLimit,
+                        // Security: drop all capabilities except what's needed
+                        CapDrop = new[] { "ALL" },
+                        // Security: read-only root filesystem except for specific paths
+                        ReadonlyRootfs = false, // Need write access for Config directory
+                    }
                 },
                 cancellationToken);
 
@@ -260,6 +277,29 @@ public class PrefillSessionService : IHostedService, IDisposable
     }
 
     /// <summary>
+    /// Executes a SteamPrefill command in the container
+    /// </summary>
+    public async Task ExecuteCommandAsync(string sessionId, string command, CancellationToken cancellationToken = default)
+    {
+        if (!_activeSessions.TryGetValue(sessionId, out var session))
+        {
+            throw new KeyNotFoundException($"Session not found: {sessionId}");
+        }
+
+        if (session.Status != PrefillSessionStatus.Active || session.Stream == null)
+        {
+            throw new InvalidOperationException("Session is not active");
+        }
+
+        _logger.LogInformation("Executing command in session {SessionId}: {Command}", sessionId, command);
+
+        // Send command followed by newline to execute
+        var fullCommand = command + "\n";
+        var bytes = Encoding.UTF8.GetBytes(fullCommand);
+        await session.Stream.WriteAsync(bytes, 0, bytes.Length, cancellationToken);
+    }
+
+    /// <summary>
     /// Starts reading output from the container and broadcasting to subscribers
     /// </summary>
     public Task StartOutputStreamAsync(string sessionId, string connectionId, CancellationToken cancellationToken = default)
@@ -303,7 +343,10 @@ public class PrefillSessionService : IHostedService, IDisposable
                 {
                     var output = Encoding.UTF8.GetString(buffer, 0, result.Count);
 
-                    // Broadcast to all subscribed connections
+                    // Detect authentication state changes and notify subscribers
+                    await DetectAndNotifyAuthStateAsync(session, output);
+
+                    // Broadcast terminal output to all subscribed connections
                     foreach (var connectionId in session.SubscribedConnections.ToList())
                     {
                         try
@@ -333,6 +376,59 @@ public class PrefillSessionService : IHostedService, IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error reading container output for session {SessionId}", session.Id);
+        }
+    }
+
+    /// <summary>
+    /// Detects authentication prompts in container output and notifies subscribers of state changes
+    /// </summary>
+    private async Task DetectAndNotifyAuthStateAsync(PrefillSession session, string output)
+    {
+        var previousState = session.AuthState;
+        SteamAuthState? newState = null;
+
+        // Check for successful login first (highest priority)
+        if (LoginSuccessPatterns.Any(p => p.IsMatch(output)))
+        {
+            newState = SteamAuthState.Authenticated;
+        }
+        // Check for 2FA prompt
+        else if (TwoFactorPatterns.Any(p => p.IsMatch(output)))
+        {
+            newState = SteamAuthState.TwoFactorRequired;
+        }
+        // Check for email code prompt
+        else if (EmailCodePatterns.Any(p => p.IsMatch(output)))
+        {
+            newState = SteamAuthState.EmailCodeRequired;
+        }
+        // Check for login prompt
+        else if (LoginPromptPatterns.Any(p => p.IsMatch(output)))
+        {
+            newState = SteamAuthState.CredentialsRequired;
+        }
+
+        // If state changed, update and notify
+        if (newState.HasValue && newState.Value != previousState)
+        {
+            session.AuthState = newState.Value;
+            _logger.LogInformation(
+                "Session {SessionId} auth state changed: {OldState} -> {NewState}",
+                session.Id, previousState, newState.Value);
+
+            // Notify all subscribed connections of the auth state change
+            foreach (var connectionId in session.SubscribedConnections.ToList())
+            {
+                try
+                {
+                    await _hubContext.Clients.Client(connectionId)
+                        .SendAsync("AuthStateChanged", session.Id, newState.Value.ToString(), session.CancellationTokenSource.Token);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to send auth state change to connection {ConnectionId}", connectionId);
+                }
+            }
         }
     }
 
