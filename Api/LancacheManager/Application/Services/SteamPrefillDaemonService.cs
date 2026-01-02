@@ -133,11 +133,19 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         var commandsDir = Path.Combine(sessionPath, "commands");
         var responsesDir = Path.Combine(sessionPath, "responses");
 
-        // Create directories
+        // Create directories inside this container
         Directory.CreateDirectory(commandsDir);
         Directory.CreateDirectory(responsesDir);
 
+        // For Docker bind mounts, we need to translate container paths to host paths
+        // /data inside this container maps to the host's data directory
+        var hostDataPath = await GetHostDataPathAsync(cancellationToken);
+        var hostCommandsDir = commandsDir.Replace("/data", hostDataPath);
+        var hostResponsesDir = responsesDir.Replace("/data", hostDataPath);
+
         _logger.LogInformation("Creating daemon container for session {SessionId}, user {UserId}", sessionId, userId);
+        _logger.LogDebug("Container paths: commands={CommandsDir}, responses={ResponsesDir}", commandsDir, responsesDir);
+        _logger.LogDebug("Host paths: commands={HostCommandsDir}, responses={HostResponsesDir}", hostCommandsDir, hostResponsesDir);
 
         // Create and start container
         var containerName = $"prefill-daemon-{sessionId}";
@@ -159,8 +167,8 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                 {
                     Binds = new List<string>
                     {
-                        $"{commandsDir}:/commands",
-                        $"{responsesDir}:/responses"
+                        $"{hostCommandsDir}:/commands",
+                        $"{hostResponsesDir}:/responses"
                     },
                     AutoRemove = true
                 }
@@ -769,7 +777,113 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
     private string GetDaemonBasePath()
     {
-        return _configuration["Prefill:DaemonBasePath"] ?? Path.Combine(Path.GetTempPath(), "steamprefill");
+        // Use /data directory which is a host mount, so both containers can access it
+        // The lancache-manager container writes here, and the prefill-daemon container reads from here
+        return _configuration["Prefill:DaemonBasePath"] ?? "/data/prefill-sessions";
+    }
+
+    private string? _cachedHostDataPath;
+
+    private async Task<string> GetHostDataPathAsync(CancellationToken cancellationToken = default)
+    {
+        // Return cached value if available
+        if (_cachedHostDataPath != null)
+            return _cachedHostDataPath;
+
+        // Check for explicit configuration first
+        var configuredPath = _configuration["Prefill:HostDataPath"];
+        if (!string.IsNullOrEmpty(configuredPath))
+        {
+            _cachedHostDataPath = configuredPath;
+            return configuredPath;
+        }
+
+        // Auto-detect by inspecting our own container's mounts
+        if (_dockerClient != null)
+        {
+            try
+            {
+                var containerId = GetOwnContainerId();
+                if (!string.IsNullOrEmpty(containerId))
+                {
+                    var inspect = await _dockerClient.Containers.InspectContainerAsync(containerId, cancellationToken);
+
+                    // Find the mount for /data
+                    var dataMount = inspect.Mounts?.FirstOrDefault(m => m.Destination == "/data");
+                    if (dataMount != null)
+                    {
+                        _cachedHostDataPath = dataMount.Source;
+                        _logger.LogInformation("Auto-detected host data path: {HostDataPath}", _cachedHostDataPath);
+                        return _cachedHostDataPath;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to auto-detect host data path from container mounts");
+            }
+        }
+
+        // Fallback - assume running directly on host
+        _cachedHostDataPath = "/data";
+        _logger.LogWarning("Could not auto-detect host data path, using fallback: {HostDataPath}. " +
+            "Set Prefill__HostDataPath environment variable if prefill containers can't access command files.",
+            _cachedHostDataPath);
+        return _cachedHostDataPath;
+    }
+
+    private string? GetOwnContainerId()
+    {
+        // Try to get container ID from cgroup
+        try
+        {
+            // In Docker, /proc/1/cpuset contains the container ID
+            if (File.Exists("/proc/1/cpuset"))
+            {
+                var cpuset = File.ReadAllText("/proc/1/cpuset").Trim();
+                // Format: /docker/<container_id> or /kubepods/.../<container_id>
+                var parts = cpuset.Split('/');
+                if (parts.Length > 0)
+                {
+                    var lastPart = parts[^1];
+                    if (lastPart.Length >= 12)
+                        return lastPart;
+                }
+            }
+
+            // Try /proc/self/cgroup
+            if (File.Exists("/proc/self/cgroup"))
+            {
+                var cgroup = File.ReadAllText("/proc/self/cgroup");
+                foreach (var line in cgroup.Split('\n'))
+                {
+                    // Format: 0::/docker/<container_id>
+                    if (line.Contains("/docker/"))
+                    {
+                        var idx = line.LastIndexOf("/docker/");
+                        if (idx >= 0)
+                        {
+                            var id = line[(idx + 8)..].Trim();
+                            if (id.Length >= 12)
+                                return id;
+                        }
+                    }
+                }
+            }
+
+            // Try hostname (often set to container ID in Docker)
+            var hostname = Environment.GetEnvironmentVariable("HOSTNAME");
+            if (!string.IsNullOrEmpty(hostname) && hostname.Length >= 12)
+            {
+                return hostname;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to get own container ID");
+        }
+
+        return null;
     }
 
     private string GetImageName()

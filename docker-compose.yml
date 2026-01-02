@@ -120,5 +120,12 @@ services:
       # - Prefill__SessionTimeoutMinutes=120
 
       # Prefill__DaemonBasePath: Base path for daemon session data (commands/responses)
-      # Default: /tmp/steamprefill
-      # - Prefill__DaemonBasePath=/tmp/steamprefill
+      # Must be inside /data to work with Docker sibling containers
+      # Default: /data/prefill-sessions
+      # - Prefill__DaemonBasePath=/data/prefill-sessions
+
+      # Prefill__HostDataPath: The HOST path that maps to /data in this container
+      # Auto-detected by inspecting container mounts. Only set this if auto-detection fails.
+      # Example: If your docker-compose.yml is at /srv/lancache/docker-compose.yml
+      # and you have ./data:/data, then set this to /srv/lancache/data
+      # - Prefill__HostDataPath=/srv/lancache/data
