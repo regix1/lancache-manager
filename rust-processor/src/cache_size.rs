@@ -345,6 +345,7 @@ fn run_deletion_calibration(cache_dir: &Path) -> Option<CalibrationResult> {
 
 /// Estimate deletion time based on calibration results and file/directory counts
 /// Uses actual measured performance from the filesystem for accurate estimates
+/// Accounts for parallelism used during actual deletion operations
 fn estimate_deletion_times_calibrated(
     total_files: u64,
     total_dirs: u64,
@@ -354,25 +355,44 @@ fn estimate_deletion_times_calibrated(
 ) -> EstimatedDeletionTimes {
     let _ = total_dirs; // Not used directly; we use hex_dirs and total_files
     
-    // Preserve mode: individual file deletions - use calibrated rate directly
-    let preserve_seconds = (total_files as f64 / calibration.preserve_files_per_sec).max(1.0);
+    // Get CPU count for parallelism estimation
+    let cpu_count = std::thread::available_parallelism()
+        .map(|p| p.get())
+        .unwrap_or(4) as f64;
+    
+    // Detect if this is likely a network filesystem based on calibration speeds
+    // NFS typically shows < 1000 files/sec for individual operations
+    let is_likely_network = calibration.preserve_files_per_sec < 5000.0;
+    
+    // Calculate parallelism factors (matching cache_clear.rs logic)
+    // Network filesystems use reduced parallelism to avoid overwhelming the server
+    let (preserve_threads, full_threads, rsync_threads) = if is_likely_network {
+        (2.0, 2.0, cpu_count.min(4.0))  // NFS: limited parallelism
+    } else {
+        (cpu_count.min(16.0), cpu_count.min(8.0), cpu_count.min(6.0))  // Local: higher parallelism
+    };
+    
+    // Parallelism efficiency (not quite linear due to I/O contention)
+    // Network filesystems see less benefit from parallelism
+    let efficiency = if is_likely_network { 0.7 } else { 0.85 };
+    
+    // Preserve mode: individual file deletions with parallelism
+    let effective_preserve_rate = calibration.preserve_files_per_sec * preserve_threads * efficiency;
+    let preserve_seconds = (total_files as f64 / effective_preserve_rate).max(1.0);
     
     // Full mode: remove_dir_all on each hex directory
-    // Calibration tested with ~50 files per dir, scale based on actual files per dir
     let files_per_hex_dir = if hex_dirs > 0 { 
         total_files as f64 / hex_dirs as f64 
     } else { 
         50.0 
     };
-    // Scale the rate based on files per directory (more files = slower per dir)
-    // Calibration used 50 files/dir as baseline
     let scale_factor = (files_per_hex_dir / 50.0).max(1.0);
-    let effective_full_rate = calibration.full_dirs_per_sec / scale_factor;
+    let effective_full_rate = (calibration.full_dirs_per_sec / scale_factor) * full_threads * efficiency;
     let full_seconds = (hex_dirs as f64 / effective_full_rate).max(0.5);
     
-    // Rsync mode: use directly calibrated rsync rate
-    // Rsync speed is almost independent of file count (single operation per dir)
-    let rsync_seconds = (hex_dirs as f64 / calibration.rsync_dirs_per_sec).max(1.0);
+    // Rsync mode: calibrated rate with parallelism
+    let effective_rsync_rate = calibration.rsync_dirs_per_sec * rsync_threads * efficiency;
+    let rsync_seconds = (hex_dirs as f64 / effective_rsync_rate).max(1.0);
     
     // Add small overhead for very large caches (I/O scheduling, buffer flushes)
     let size_gb = total_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
@@ -402,23 +422,24 @@ fn estimate_deletion_times_fallback(
     is_network_fs: bool,
 ) -> EstimatedDeletionTimes {
     let _ = total_dirs; // Not used in this estimation method
-    // Conservative base rates
-    let (preserve_rate, full_rate) = if is_network_fs {
-        // NFS/SMB: very conservative due to network latency
-        (200.0, 0.5)  // files/sec, dirs/sec
+    
+    // Get CPU count for parallelism
+    let cpu_count = std::thread::available_parallelism()
+        .map(|p| p.get())
+        .unwrap_or(4) as f64;
+    
+    // Base single-threaded rates and parallelism factors
+    let (preserve_rate, full_rate, rsync_rate, threads) = if is_network_fs {
+        // NFS/SMB: conservative rates with limited parallelism
+        (300.0, 1.0, 15.0, cpu_count.min(4.0) * 0.7)
     } else {
-        // Local: assume HDD (conservative), SSD would be much faster
-        (1000.0, 5.0)  // files/sec, dirs/sec
+        // Local: higher rates with more parallelism
+        (2000.0, 10.0, 50.0, cpu_count.min(8.0) * 0.85)
     };
     
-    let preserve_seconds = (total_files as f64 / preserve_rate).max(1.0);
-    
-    // Full mode: directories per second with files
-    let full_seconds = (hex_dirs as f64 / full_rate).max(0.5);
-    
-    // Rsync is directory-based, not file-based - very fast regardless of file count
-    let rsync_dirs_per_sec = if is_network_fs { 25.0 } else { 100.0 };
-    let rsync_seconds = (hex_dirs as f64 / rsync_dirs_per_sec).max(1.0);
+    let preserve_seconds = (total_files as f64 / (preserve_rate * threads.min(2.0))).max(1.0);
+    let full_seconds = (hex_dirs as f64 / (full_rate * threads.min(2.0))).max(0.5);
+    let rsync_seconds = (hex_dirs as f64 / (rsync_rate * threads)).max(1.0);
     
     // Size overhead
     let size_gb = total_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
