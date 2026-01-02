@@ -33,14 +33,15 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.branch || github.ref }}
 
       - name: Get branch name
         id: branch
         run: |
-          if [[ -n "${{ github.event.inputs.branch }}" ]]; then
+          # For workflow_dispatch with branch input, use that; otherwise use current ref
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ github.event.inputs.branch }}" ]]; then
             BRANCH="${{ github.event.inputs.branch }}"
+            git fetch origin "$BRANCH"
+            git checkout "$BRANCH"
           else
             BRANCH="${GITHUB_REF#refs/heads/}"
           fi
@@ -114,13 +115,12 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.branch || github.ref }}
 
       - name: Get branch name
         id: branch
         run: |
-          if [[ -n "${{ github.event.inputs.branch }}" ]]; then
+          # For workflow_dispatch with branch input, use that; otherwise use current ref
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ github.event.inputs.branch }}" ]]; then
             BRANCH="${{ github.event.inputs.branch }}"
           else
             BRANCH="${GITHUB_REF#refs/heads/}"
