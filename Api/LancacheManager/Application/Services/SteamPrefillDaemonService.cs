@@ -652,6 +652,13 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
             try
             {
+                // Check if file still exists (daemon may have deleted it after processing)
+                if (!File.Exists(filePath))
+                {
+                    _logger.LogDebug("Challenge file no longer exists (already processed): {Path}", filePath);
+                    return;
+                }
+
                 var json = await File.ReadAllTextAsync(filePath);
                 var challenge = JsonSerializer.Deserialize<CredentialChallenge>(json);
 
@@ -669,6 +676,11 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
                     await NotifyCredentialChallengeAsync(session, challenge);
                 }
+            }
+            catch (FileNotFoundException)
+            {
+                // File was deleted between existence check and read - this is normal
+                _logger.LogDebug("Challenge file was deleted during read (already processed): {Path}", filePath);
             }
             catch (Exception ex)
             {

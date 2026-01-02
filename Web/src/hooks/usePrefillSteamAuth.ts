@@ -43,9 +43,9 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
 
   // Listen for credential challenges from the daemon
   useEffect(() => {
-    if (!hubConnection) return;
+    if (!hubConnection || !sessionId) return;
 
-    const handleCredentialChallenge = (_sessionId: string, challenge: CredentialChallenge) => {
+    const handleCredentialChallenge = async (_sessionId: string, challenge: CredentialChallenge) => {
       setPendingChallenge(challenge);
 
       // Set the appropriate state based on credential type
@@ -69,6 +69,13 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           setWaitingForMobileConfirmation(true);
           setNeedsTwoFactor(false);
           setNeedsEmailCode(false);
+          // Auto-send acknowledgement for device confirmation
+          // The daemon needs this to unblock and poll Steam for approval
+          try {
+            await hubConnection.invoke('ProvideCredential', sessionId, challenge, 'confirm');
+          } catch (err) {
+            console.error('Failed to send device confirmation acknowledgement:', err);
+          }
           break;
       }
 
@@ -80,7 +87,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     return () => {
       hubConnection.off('CredentialChallenge', handleCredentialChallenge);
     };
-  }, [hubConnection]);
+  }, [hubConnection, sessionId]);
 
   const cancelPendingRequest = useCallback(() => {
     setLoading(false);
