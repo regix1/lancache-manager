@@ -462,6 +462,7 @@ public class PrefillResult
 
 /// <summary>
 /// Secure credential exchange using ECDH + AES-GCM
+/// The daemon uses raw EC points (uncompressed format: 04 || X || Y)
 /// </summary>
 public static class SecureCredentialExchange
 {
@@ -470,15 +471,39 @@ public static class SecureCredentialExchange
         string serverPublicKeyBase64,
         string credential)
     {
+        // Create client ECDH key pair
         using var clientEcdh = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
-        var clientPublicKey = clientEcdh.PublicKey.ExportSubjectPublicKeyInfo();
 
+        // Export client public key as raw EC point (uncompressed: 04 || X || Y)
+        var clientParams = clientEcdh.ExportParameters(false);
+        var clientPublicKeyRaw = new byte[65];
+        clientPublicKeyRaw[0] = 0x04; // Uncompressed point indicator
+        Array.Copy(clientParams.Q.X!, 0, clientPublicKeyRaw, 1, 32);
+        Array.Copy(clientParams.Q.Y!, 0, clientPublicKeyRaw, 33, 32);
+
+        // Import server's raw EC point
         var serverPublicKeyBytes = Convert.FromBase64String(serverPublicKeyBase64);
-        using var serverEcdh = ECDiffieHellman.Create();
-        serverEcdh.ImportSubjectPublicKeyInfo(serverPublicKeyBytes, out _);
+        if (serverPublicKeyBytes.Length != 65 || serverPublicKeyBytes[0] != 0x04)
+        {
+            throw new CryptographicException($"Invalid server public key format. Expected 65-byte uncompressed EC point, got {serverPublicKeyBytes.Length} bytes");
+        }
 
+        var serverParams = new ECParameters
+        {
+            Curve = ECCurve.NamedCurves.nistP256,
+            Q = new ECPoint
+            {
+                X = serverPublicKeyBytes[1..33],
+                Y = serverPublicKeyBytes[33..65]
+            }
+        };
+
+        using var serverEcdh = ECDiffieHellman.Create(serverParams);
+
+        // Derive shared secret
         var sharedSecret = clientEcdh.DeriveKeyMaterial(serverEcdh.PublicKey);
 
+        // Encrypt credential with AES-GCM
         using var aes = new AesGcm(sharedSecret[..32], 16);
         var nonce = new byte[12];
         RandomNumberGenerator.Fill(nonce);
@@ -492,7 +517,7 @@ public static class SecureCredentialExchange
         return new EncryptedCredentialResponse
         {
             ChallengeId = challengeId,
-            ClientPublicKey = Convert.ToBase64String(clientPublicKey),
+            ClientPublicKey = Convert.ToBase64String(clientPublicKeyRaw),
             EncryptedCredential = Convert.ToBase64String(ciphertext),
             Nonce = Convert.ToBase64String(nonce),
             Tag = Convert.ToBase64String(tag)
