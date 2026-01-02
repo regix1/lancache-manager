@@ -177,6 +177,36 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
         _logger.LogInformation("Started container {ContainerId} for session {SessionId}", containerId, sessionId);
 
+        // Verify container is actually running (it may have crashed immediately)
+        await Task.Delay(500, cancellationToken); // Give it a moment to crash if it's going to
+        var inspect = await _dockerClient.Containers.InspectContainerAsync(containerId, cancellationToken);
+        if (!inspect.State.Running)
+        {
+            var exitCode = inspect.State.ExitCode;
+            var error = inspect.State.Error;
+            _logger.LogError("Container {ContainerId} exited immediately! ExitCode: {ExitCode}, Error: {Error}",
+                containerId, exitCode, error);
+
+            // Try to get logs before container is removed
+            try
+            {
+                var logParams = new ContainerLogsParameters { ShowStdout = true, ShowStderr = true, Tail = "50" };
+                using var logStream = await _dockerClient.Containers.GetContainerLogsAsync(containerId, false, logParams, cancellationToken);
+                using var memoryStream = new MemoryStream();
+                await logStream.CopyOutputToAsync(null, memoryStream, null, cancellationToken);
+                memoryStream.Position = 0;
+                using var reader = new StreamReader(memoryStream);
+                var logs = await reader.ReadToEndAsync(cancellationToken);
+                if (!string.IsNullOrWhiteSpace(logs))
+                {
+                    _logger.LogError("Container logs:\n{Logs}", logs);
+                }
+            }
+            catch { /* Container may already be removed due to AutoRemove */ }
+
+            throw new InvalidOperationException($"Container crashed on startup. ExitCode: {exitCode}. Check if image '{imageName}' exists and is valid.");
+        }
+
         var session = new DaemonSession
         {
             Id = sessionId,
@@ -466,33 +496,49 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         if (_dockerClient == null) return;
 
         var imageName = GetImageName();
+        _logger.LogInformation("Checking for prefill daemon image: {ImageName}", imageName);
 
         try
         {
-            await _dockerClient.Images.InspectImageAsync(imageName, cancellationToken);
-            _logger.LogDebug("Image exists: {ImageName}", imageName);
+            var imageInfo = await _dockerClient.Images.InspectImageAsync(imageName, cancellationToken);
+            _logger.LogInformation("Image exists: {ImageName} (ID: {ImageId})", imageName, imageInfo.ID[..12]);
         }
         catch (DockerImageNotFoundException)
         {
-            _logger.LogInformation("Pulling image: {ImageName}", imageName);
+            _logger.LogInformation("Image not found locally, pulling: {ImageName}", imageName);
 
-            await _dockerClient.Images.CreateImageAsync(
-                new ImagesCreateParameters
-                {
-                    FromImage = imageName.Split(':')[0],
-                    Tag = imageName.Contains(':') ? imageName.Split(':')[1] : "latest"
-                },
-                null,
-                new Progress<JSONMessage>(msg =>
-                {
-                    if (!string.IsNullOrEmpty(msg.Status))
+            try
+            {
+                await _dockerClient.Images.CreateImageAsync(
+                    new ImagesCreateParameters
                     {
-                        _logger.LogDebug("Pulling: {Status}", msg.Status);
-                    }
-                }),
-                cancellationToken);
+                        FromImage = imageName.Split(':')[0],
+                        Tag = imageName.Contains(':') ? imageName.Split(':')[1] : "latest"
+                    },
+                    null,
+                    new Progress<JSONMessage>(msg =>
+                    {
+                        if (!string.IsNullOrEmpty(msg.Status))
+                        {
+                            var progress = msg.Progress?.Current > 0 ? $"{msg.Progress.Current}/{msg.Progress.Total}" : "";
+                            _logger.LogInformation("Pull progress: {Status} {Progress}", msg.Status, progress);
+                        }
+                        if (!string.IsNullOrEmpty(msg.ErrorMessage))
+                        {
+                            _logger.LogError("Pull error: {Error}", msg.ErrorMessage);
+                        }
+                    }),
+                    cancellationToken);
 
-            _logger.LogInformation("Image pulled: {ImageName}", imageName);
+                _logger.LogInformation("Image pulled successfully: {ImageName}", imageName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to pull image {ImageName}. The Steam Prefill feature requires this image. " +
+                    "Ensure the image exists at the registry or build it from: https://github.com/regix1/steam-prefill-daemon",
+                    imageName);
+                throw;
+            }
         }
     }
 
