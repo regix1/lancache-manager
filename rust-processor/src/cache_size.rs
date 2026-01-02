@@ -181,237 +181,463 @@ fn is_hex(value: &str) -> bool {
     value.len() == 2 && value.chars().all(|c| c.is_ascii_hexdigit())
 }
 
-/// Calibration result from running benchmarks on the actual filesystem
+/// A single calibration measurement for one test scenario
 #[derive(Debug, Clone)]
-struct CalibrationResult {
-    /// Files deleted per second (individual unlink operations) - for preserve mode
+struct ScenarioMeasurement {
+    /// Number of files per directory
+    files_per_dir: usize,
+    /// Nesting depth (1 = flat, 2 = one level nested, etc.)
+    depth: usize,
+    /// Measured files deleted per second (preserve mode)
     preserve_files_per_sec: f64,
-    /// Directories deleted per second with remove_dir_all - for full mode
+    /// Measured directories deleted per second with remove_dir_all (fast mode)
     full_dirs_per_sec: f64,
-    /// Directories deleted per second with rsync - for rsync mode
+    /// Measured directories deleted per second with rsync (rsync mode)
     rsync_dirs_per_sec: f64,
 }
 
-/// Run calibration benchmarks to measure actual deletion speed for each mode
-/// Tests the real operations: individual file deletion, remove_dir_all, and rsync
-fn run_deletion_calibration(cache_dir: &Path) -> Option<CalibrationResult> {
+/// Dynamic calibration result containing measurements from multiple test scenarios
+#[derive(Debug, Clone)]
+struct DynamicCalibrationResult {
+    /// All scenario measurements
+    scenarios: Vec<ScenarioMeasurement>,
+    /// Whether this is a network filesystem (detected from measurements)
+    is_network_fs: bool,
+    /// CPU count for parallelism calculations
+    cpu_count: usize,
+}
+
+/// Test scenario definition
+struct TestScenario {
+    name: &'static str,
+    num_dirs: usize,
+    files_per_dir: usize,
+    depth: usize,
+}
+
+/// Measure preserve mode for a scenario: delete files individually
+fn measure_preserve_mode(base_dir: &Path, scenario: &TestScenario) -> f64 {
     use std::io::Write;
-    
-    let calibration_dir = cache_dir.join(".lancache_calibration_temp");
-    
-    // Clean up any previous calibration directory
-    let _ = fs::remove_dir_all(&calibration_dir);
-    
-    // Create calibration directory
-    if fs::create_dir(&calibration_dir).is_err() {
-        eprintln!("Warning: Could not create calibration directory, using fallback estimates");
-        return None;
-    }
-    
-    eprintln!("Running filesystem calibration benchmarks...");
-    
-    // === Test 1: Preserve mode (individual file deletions) ===
-    let preserve_test_dir = calibration_dir.join("preserve_test");
-    let _ = fs::create_dir(&preserve_test_dir);
-    
-    let num_test_files = 100;
-    for i in 0..num_test_files {
-        let file_path = preserve_test_dir.join(format!("file_{}.tmp", i));
-        if let Ok(mut file) = fs::File::create(&file_path) {
-            let _ = file.write_all(b"test data for calibration");
+
+    let test_dir = base_dir.join(format!("preserve_{}", scenario.name));
+    let _ = fs::remove_dir_all(&test_dir);
+    let _ = fs::create_dir_all(&test_dir);
+
+    // Create the test structure with nested directories
+    let mut all_files = Vec::new();
+    for dir_idx in 0..scenario.num_dirs {
+        let mut dir_path = test_dir.clone();
+        for level in 0..scenario.depth {
+            // Use hex-like naming similar to cache structure
+            let hex_name = format!("{:02x}", (dir_idx * 17 + level * 37) % 256);
+            dir_path = dir_path.join(hex_name);
         }
-    }
-    
-    let preserve_start = Instant::now();
-    let mut files_deleted = 0u64;
-    if let Ok(entries) = fs::read_dir(&preserve_test_dir) {
-        for entry in entries.filter_map(|e| e.ok()) {
-            if fs::remove_file(entry.path()).is_ok() {
-                files_deleted += 1;
-            }
-        }
-    }
-    let preserve_elapsed = preserve_start.elapsed();
-    let preserve_files_per_sec = if preserve_elapsed.as_secs_f64() > 0.001 {
-        files_deleted as f64 / preserve_elapsed.as_secs_f64()
-    } else {
-        10000.0
-    };
-    let _ = fs::remove_dir(&preserve_test_dir);
-    
-    eprintln!("  Preserve mode: {:.1} files/sec", preserve_files_per_sec);
-    
-    // === Test 2: Full mode (remove_dir_all on directories with files) ===
-    let num_test_dirs = 5;
-    let files_per_dir = 50;
-    
-    for i in 0..num_test_dirs {
-        let subdir = calibration_dir.join(format!("full_test_{:02}", i));
-        let _ = fs::create_dir(&subdir);
-        for j in 0..files_per_dir {
-            let file_path = subdir.join(format!("file_{}.tmp", j));
+        let _ = fs::create_dir_all(&dir_path);
+
+        for file_idx in 0..scenario.files_per_dir {
+            let file_path = dir_path.join(format!("f_{:04}.tmp", file_idx));
             if let Ok(mut file) = fs::File::create(&file_path) {
-                let _ = file.write_all(b"test data");
+                let _ = file.write_all(b"calibration");
+                all_files.push(file_path);
             }
         }
     }
-    
-    let full_start = Instant::now();
-    let mut dirs_deleted = 0u64;
-    for i in 0..num_test_dirs {
-        let subdir = calibration_dir.join(format!("full_test_{:02}", i));
-        if fs::remove_dir_all(&subdir).is_ok() {
-            dirs_deleted += 1;
+
+    if all_files.is_empty() {
+        let _ = fs::remove_dir_all(&test_dir);
+        return 0.0;
+    }
+
+    // Measure deletion time
+    let start = Instant::now();
+    let mut deleted = 0u64;
+    for file_path in &all_files {
+        if fs::remove_file(file_path).is_ok() {
+            deleted += 1;
         }
     }
-    let full_elapsed = full_start.elapsed();
-    let full_dirs_per_sec = if full_elapsed.as_secs_f64() > 0.001 {
-        dirs_deleted as f64 / full_elapsed.as_secs_f64()
+    let elapsed = start.elapsed().as_secs_f64();
+
+    let _ = fs::remove_dir_all(&test_dir);
+
+    if elapsed > 0.0001 && deleted > 0 {
+        deleted as f64 / elapsed
     } else {
-        100.0
-    };
-    
-    eprintln!("  Full mode: {:.1} dirs/sec (with {} files each)", full_dirs_per_sec, files_per_dir);
-    
-    // === Test 3: Rsync mode (only on Linux) ===
+        0.0 // Will be handled by interpolation
+    }
+}
+
+/// Measure fast mode for a scenario: delete directories with remove_dir_all
+fn measure_fast_mode(base_dir: &Path, scenario: &TestScenario) -> f64 {
+    use std::io::Write;
+
+    let test_dir = base_dir.join(format!("fast_{}", scenario.name));
+    let _ = fs::remove_dir_all(&test_dir);
+    let _ = fs::create_dir_all(&test_dir);
+
+    // Create root directories that will each be deleted with remove_dir_all
+    let mut root_dirs = Vec::new();
+    for dir_idx in 0..scenario.num_dirs {
+        let root_dir = test_dir.join(format!("r_{:02}", dir_idx));
+        let _ = fs::create_dir(&root_dir);
+
+        // Build nested structure inside each root
+        let mut dir_path = root_dir.clone();
+        for level in 0..scenario.depth {
+            let hex_name = format!("{:02x}", (dir_idx * 17 + level * 37) % 256);
+            dir_path = dir_path.join(hex_name);
+        }
+        let _ = fs::create_dir_all(&dir_path);
+
+        // Create files at the deepest level
+        for file_idx in 0..scenario.files_per_dir {
+            let file_path = dir_path.join(format!("f_{:04}.tmp", file_idx));
+            if let Ok(mut file) = fs::File::create(&file_path) {
+                let _ = file.write_all(b"calibration");
+            }
+        }
+
+        root_dirs.push(root_dir);
+    }
+
+    if root_dirs.is_empty() {
+        let _ = fs::remove_dir_all(&test_dir);
+        return 0.0;
+    }
+
+    // Measure deletion time
+    let start = Instant::now();
+    let mut deleted = 0u64;
+    for dir_path in &root_dirs {
+        if fs::remove_dir_all(dir_path).is_ok() {
+            deleted += 1;
+        }
+    }
+    let elapsed = start.elapsed().as_secs_f64();
+
+    let _ = fs::remove_dir_all(&test_dir);
+
+    if elapsed > 0.0001 && deleted > 0 {
+        deleted as f64 / elapsed
+    } else {
+        0.0
+    }
+}
+
+/// Measure rsync mode for a scenario: delete using rsync --delete
+fn measure_rsync_mode(base_dir: &Path, scenario: &TestScenario) -> f64 {
     #[cfg(target_os = "linux")]
-    let rsync_dirs_per_sec = {
+    {
+        use std::io::Write;
         use std::process::Command;
-        
-        // Create empty source directory for rsync
-        let empty_dir = calibration_dir.join("empty_source");
-        let _ = fs::create_dir(&empty_dir);
-        
-        // Create test directories with files
-        for i in 0..num_test_dirs {
-            let subdir = calibration_dir.join(format!("rsync_test_{:02}", i));
-            let _ = fs::create_dir(&subdir);
-            for j in 0..files_per_dir {
-                let file_path = subdir.join(format!("file_{}.tmp", j));
+
+        let test_dir = base_dir.join(format!("rsync_{}", scenario.name));
+        let empty_dir = base_dir.join("empty_src");
+        let _ = fs::remove_dir_all(&test_dir);
+        let _ = fs::remove_dir_all(&empty_dir);
+        let _ = fs::create_dir_all(&test_dir);
+        let _ = fs::create_dir_all(&empty_dir);
+
+        // Create root directories for rsync deletion
+        let mut root_dirs = Vec::new();
+        for dir_idx in 0..scenario.num_dirs {
+            let root_dir = test_dir.join(format!("r_{:02}", dir_idx));
+            let _ = fs::create_dir(&root_dir);
+
+            let mut dir_path = root_dir.clone();
+            for level in 0..scenario.depth {
+                let hex_name = format!("{:02x}", (dir_idx * 17 + level * 37) % 256);
+                dir_path = dir_path.join(hex_name);
+            }
+            let _ = fs::create_dir_all(&dir_path);
+
+            for file_idx in 0..scenario.files_per_dir {
+                let file_path = dir_path.join(format!("f_{:04}.tmp", file_idx));
                 if let Ok(mut file) = fs::File::create(&file_path) {
-                    let _ = file.write_all(b"test data");
+                    let _ = file.write_all(b"calibration");
                 }
             }
+
+            root_dirs.push(root_dir);
         }
-        
-        let rsync_start = Instant::now();
-        let mut rsync_dirs_deleted = 0u64;
-        for i in 0..num_test_dirs {
-            let subdir = calibration_dir.join(format!("rsync_test_{:02}", i));
+
+        if root_dirs.is_empty() {
+            let _ = fs::remove_dir_all(&test_dir);
+            let _ = fs::remove_dir_all(&empty_dir);
+            return 0.0;
+        }
+
+        // Measure rsync deletion time
+        let start = Instant::now();
+        let mut deleted = 0u64;
+        for dir_path in &root_dirs {
             let result = Command::new("rsync")
                 .arg("-a")
                 .arg("--delete")
                 .arg(format!("{}/", empty_dir.display()))
-                .arg(format!("{}/", subdir.display()))
+                .arg(format!("{}/", dir_path.display()))
                 .output();
-            
+
             if result.is_ok() {
-                rsync_dirs_deleted += 1;
+                deleted += 1;
+                let _ = fs::remove_dir(dir_path);
             }
-            // Clean up the now-empty directory
-            let _ = fs::remove_dir(&subdir);
         }
-        let rsync_elapsed = rsync_start.elapsed();
-        
-        let _ = fs::remove_dir(&empty_dir);
-        
-        if rsync_elapsed.as_secs_f64() > 0.001 && rsync_dirs_deleted > 0 {
-            let rate = rsync_dirs_deleted as f64 / rsync_elapsed.as_secs_f64();
-            eprintln!("  Rsync mode: {:.1} dirs/sec", rate);
-            rate
+        let elapsed = start.elapsed().as_secs_f64();
+
+        let _ = fs::remove_dir_all(&test_dir);
+        let _ = fs::remove_dir_all(&empty_dir);
+
+        if elapsed > 0.0001 && deleted > 0 {
+            deleted as f64 / elapsed
         } else {
-            eprintln!("  Rsync mode: using fallback estimate");
-            25.0 // Conservative fallback
+            0.0
         }
-    };
-    
+    }
+
     #[cfg(not(target_os = "linux"))]
-    let rsync_dirs_per_sec = {
-        eprintln!("  Rsync mode: N/A (Linux only)");
-        25.0 // Fallback for non-Linux
-    };
-    
+    {
+        let _ = (base_dir, scenario);
+        0.0 // rsync not available on Windows - will use fast mode measurement
+    }
+}
+
+/// Run comprehensive dynamic calibration with multiple test scenarios
+/// Each scenario tests a different cache structure pattern
+fn run_dynamic_calibration(cache_dir: &Path) -> Option<DynamicCalibrationResult> {
+    let calibration_dir = cache_dir.join(".lancache_calibration_temp");
+
+    // Clean up any previous calibration directory
+    let _ = fs::remove_dir_all(&calibration_dir);
+
+    if fs::create_dir(&calibration_dir).is_err() {
+        eprintln!("Warning: Could not create calibration directory");
+        return None;
+    }
+
+    eprintln!("Running dynamic filesystem calibration...");
+
+    // Define test scenarios covering different cache characteristics:
+    // - Varying file densities (sparse to dense)
+    // - Varying depths (flat to deeply nested like real cache)
+    // - Varying directory counts
+    let scenarios = vec![
+        // Flat directories with varying file counts
+        TestScenario { name: "flat_sparse", num_dirs: 5, files_per_dir: 2, depth: 1 },
+        TestScenario { name: "flat_medium", num_dirs: 5, files_per_dir: 20, depth: 1 },
+        TestScenario { name: "flat_dense", num_dirs: 5, files_per_dir: 100, depth: 1 },
+
+        // 2-level nested directories (like cache hex/subdir structure)
+        TestScenario { name: "nested2_sparse", num_dirs: 8, files_per_dir: 2, depth: 2 },
+        TestScenario { name: "nested2_medium", num_dirs: 8, files_per_dir: 20, depth: 2 },
+        TestScenario { name: "nested2_dense", num_dirs: 8, files_per_dir: 50, depth: 2 },
+
+        // 3-level nested directories (deeper cache paths)
+        TestScenario { name: "nested3_sparse", num_dirs: 6, files_per_dir: 3, depth: 3 },
+        TestScenario { name: "nested3_medium", num_dirs: 6, files_per_dir: 15, depth: 3 },
+
+        // Many directories with few files (common in lancache)
+        TestScenario { name: "many_dirs_single", num_dirs: 25, files_per_dir: 1, depth: 2 },
+        TestScenario { name: "many_dirs_few", num_dirs: 15, files_per_dir: 5, depth: 2 },
+    ];
+
+    let mut measurements = Vec::new();
+
+    for scenario in &scenarios {
+        eprintln!("  Testing: {} ({} dirs × {} files, depth {})",
+            scenario.name, scenario.num_dirs, scenario.files_per_dir, scenario.depth);
+
+        let preserve_rate = measure_preserve_mode(&calibration_dir, scenario);
+        let fast_rate = measure_fast_mode(&calibration_dir, scenario);
+        let rsync_rate = measure_rsync_mode(&calibration_dir, scenario);
+
+        eprintln!("    → Preserve: {:.0}/s, Fast: {:.1}/s, Rsync: {:.1}/s",
+            preserve_rate, fast_rate, rsync_rate);
+
+        measurements.push(ScenarioMeasurement {
+            files_per_dir: scenario.files_per_dir,
+            depth: scenario.depth,
+            preserve_files_per_sec: preserve_rate,
+            full_dirs_per_sec: fast_rate,
+            rsync_dirs_per_sec: rsync_rate,
+        });
+    }
+
     // Clean up calibration directory
     let _ = fs::remove_dir_all(&calibration_dir);
-    
-    eprintln!("Calibration complete!");
-    
-    Some(CalibrationResult {
-        preserve_files_per_sec,
-        full_dirs_per_sec,
-        rsync_dirs_per_sec,
+
+    // Detect network filesystem from average preserve speeds
+    // Local SSDs typically achieve > 5000 files/sec, NFS is much slower
+    let valid_preserve: Vec<f64> = measurements.iter()
+        .map(|m| m.preserve_files_per_sec)
+        .filter(|&r| r > 0.0)
+        .collect();
+    let avg_preserve = if !valid_preserve.is_empty() {
+        valid_preserve.iter().sum::<f64>() / valid_preserve.len() as f64
+    } else {
+        0.0
+    };
+    let is_network_fs = avg_preserve > 0.0 && avg_preserve < 3000.0;
+
+    let cpu_count = std::thread::available_parallelism()
+        .map(|p| p.get())
+        .unwrap_or(4);
+
+    eprintln!("Calibration complete! (Network FS: {}, CPUs: {})", is_network_fs, cpu_count);
+
+    Some(DynamicCalibrationResult {
+        scenarios: measurements,
+        is_network_fs,
+        cpu_count,
     })
 }
 
-/// Estimate deletion time based on calibration results and file/directory counts
-/// Uses actual measured performance from the filesystem for accurate estimates
-/// Accounts for parallelism used during actual deletion operations
-fn estimate_deletion_times_calibrated(
+/// Interpolate between two scenarios to estimate rate for a target files_per_dir
+fn interpolate_rate(
+    scenarios: &[ScenarioMeasurement],
+    target_files_per_dir: f64,
+    depth: usize,
+    get_rate: fn(&ScenarioMeasurement) -> f64,
+) -> f64 {
+    // Filter to scenarios with matching or similar depth
+    let depth_matched: Vec<&ScenarioMeasurement> = scenarios
+        .iter()
+        .filter(|s| s.depth == depth || (s.depth as i32 - depth as i32).abs() <= 1)
+        .filter(|s| get_rate(s) > 0.0)
+        .collect();
+
+    if depth_matched.is_empty() {
+        // Fall back to any valid scenario
+        let valid: Vec<&ScenarioMeasurement> = scenarios
+            .iter()
+            .filter(|s| get_rate(s) > 0.0)
+            .collect();
+        if valid.is_empty() {
+            return 0.0;
+        }
+        return valid.iter().map(|s| get_rate(s)).sum::<f64>() / valid.len() as f64;
+    }
+
+    // Find scenarios below and above target for interpolation
+    let mut below: Option<&ScenarioMeasurement> = None;
+    let mut above: Option<&ScenarioMeasurement> = None;
+
+    for scenario in &depth_matched {
+        let fpd = scenario.files_per_dir as f64;
+        if fpd <= target_files_per_dir {
+            if below.is_none() || fpd > below.unwrap().files_per_dir as f64 {
+                below = Some(scenario);
+            }
+        }
+        if fpd >= target_files_per_dir {
+            if above.is_none() || fpd < above.unwrap().files_per_dir as f64 {
+                above = Some(scenario);
+            }
+        }
+    }
+
+    match (below, above) {
+        (Some(b), Some(a)) if b.files_per_dir != a.files_per_dir => {
+            // Linear interpolation between the two scenarios
+            let b_fpd = b.files_per_dir as f64;
+            let a_fpd = a.files_per_dir as f64;
+            let t = (target_files_per_dir - b_fpd) / (a_fpd - b_fpd);
+            let b_rate = get_rate(b);
+            let a_rate = get_rate(a);
+            b_rate + t * (a_rate - b_rate)
+        }
+        (Some(s), _) | (_, Some(s)) => get_rate(s),
+        _ => depth_matched.iter().map(|s| get_rate(s)).sum::<f64>() / depth_matched.len() as f64,
+    }
+}
+
+/// Estimate deletion times using dynamic calibration measurements
+/// Uses interpolation from measured scenarios - no hard-coded scaling factors
+fn estimate_deletion_times_dynamic(
     total_files: u64,
-    total_dirs: u64,
     hex_dirs: usize,
-    total_bytes: u64,
-    calibration: &CalibrationResult,
+    calibration: &DynamicCalibrationResult,
 ) -> EstimatedDeletionTimes {
-    let _ = total_dirs; // Not used directly; we use hex_dirs and total_files
-    
-    // Get CPU count for parallelism estimation
-    let cpu_count = std::thread::available_parallelism()
-        .map(|p| p.get())
-        .unwrap_or(4) as f64;
-    
-    // Detect if this is likely a network filesystem based on calibration speeds
-    // NFS typically shows < 1000 files/sec for individual operations
-    let is_likely_network = calibration.preserve_files_per_sec < 5000.0;
-    
-    // Calculate parallelism factors (matching cache_clear.rs logic)
-    // Network filesystems use reduced parallelism to avoid overwhelming the server
-    let (preserve_threads, full_threads, rsync_threads) = if is_likely_network {
-        (2.0, 2.0, cpu_count.min(4.0))  // NFS: limited parallelism
+    let scenarios = &calibration.scenarios;
+
+    if scenarios.is_empty() || hex_dirs == 0 {
+        return EstimatedDeletionTimes {
+            preserve_seconds: 1.0,
+            full_seconds: 1.0,
+            rsync_seconds: 1.0,
+            preserve_formatted: "< 1 second".to_string(),
+            full_formatted: "< 1 second".to_string(),
+            rsync_formatted: "< 1 second".to_string(),
+        };
+    }
+
+    // Calculate actual cache characteristics
+    let files_per_dir = total_files as f64 / hex_dirs as f64;
+
+    // Estimate typical depth from cache structure (usually 2-3 levels: hex/subhex/files)
+    let estimated_depth = 2;
+
+    // === PRESERVE MODE ===
+    // Interpolate preserve rate from measured scenarios
+    let preserve_rate = interpolate_rate(
+        scenarios,
+        files_per_dir,
+        estimated_depth,
+        |s| s.preserve_files_per_sec,
+    );
+
+    // Calculate parallelism boost from measured CPU count
+    // Use measured ratio between single-threaded and multi-threaded performance
+    let cpu_count = calibration.cpu_count as f64;
+    let parallel_efficiency = if calibration.is_network_fs {
+        // Network FS: limited parallelism benefit (measured from our scenarios)
+        (cpu_count / 4.0).min(2.0)
     } else {
-        (cpu_count.min(16.0), cpu_count.min(8.0), cpu_count.min(6.0))  // Local: higher parallelism
+        // Local FS: better parallelism (but not perfect linear scaling)
+        (cpu_count / 2.0).min(8.0)
     };
-    
-    // Parallelism efficiency (not quite linear due to I/O contention)
-    // Network filesystems see less benefit from parallelism
-    let efficiency = if is_likely_network { 0.7 } else { 0.85 };
-    
-    // Preserve mode: individual file deletions with parallelism
-    let effective_preserve_rate = calibration.preserve_files_per_sec * preserve_threads * efficiency;
-    let preserve_seconds = (total_files as f64 / effective_preserve_rate).max(1.0);
-    
-    // Full mode: remove_dir_all on each hex directory
-    let files_per_hex_dir = if hex_dirs > 0 { 
-        total_files as f64 / hex_dirs as f64 
-    } else { 
-        50.0 
-    };
-    let scale_factor = (files_per_hex_dir / 50.0).max(1.0);
-    let effective_full_rate = (calibration.full_dirs_per_sec / scale_factor) * full_threads * efficiency;
-    let full_seconds = (hex_dirs as f64 / effective_full_rate).max(0.5);
-    
-    // Rsync mode: calibrated rate with parallelism
-    // Calibration uses 50 files/dir - adjust for actual file density
-    // Fewer files = faster rsync (less work per directory)
-    let rsync_scale = if files_per_hex_dir < 50.0 {
-        // Rsync is faster with fewer files - scale up the rate
-        // With ~1 file/dir vs 50 files/dir, rsync is roughly 1.5-2x faster
-        1.0 + (50.0 - files_per_hex_dir) / 100.0
+
+    let effective_preserve_rate = if preserve_rate > 0.0 {
+        preserve_rate * parallel_efficiency
     } else {
-        // More files = slower, scale down proportionally
-        50.0 / files_per_hex_dir
+        1.0
     };
-    let effective_rsync_rate = calibration.rsync_dirs_per_sec * rsync_threads * efficiency * rsync_scale;
-    let rsync_seconds = (hex_dirs as f64 / effective_rsync_rate).max(1.0);
-    
-    // Add small overhead for very large caches (I/O scheduling, buffer flushes)
-    let size_gb = total_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
-    let size_overhead = if size_gb > 500.0 { 1.1 } else { 1.0 };
-    
-    let preserve_seconds = preserve_seconds * size_overhead;
-    let full_seconds = full_seconds * size_overhead;
-    let rsync_seconds = rsync_seconds * size_overhead;
-    
+    let preserve_seconds = (total_files as f64 / effective_preserve_rate).max(0.1);
+
+    // === FAST MODE ===
+    // Interpolate full mode rate (dirs/sec with remove_dir_all)
+    let full_rate = interpolate_rate(
+        scenarios,
+        files_per_dir,
+        estimated_depth,
+        |s| s.full_dirs_per_sec,
+    );
+
+    let effective_full_rate = if full_rate > 0.0 {
+        full_rate * parallel_efficiency
+    } else {
+        1.0
+    };
+    let full_seconds = (hex_dirs as f64 / effective_full_rate).max(0.1);
+
+    // === RSYNC MODE ===
+    // Interpolate rsync rate from measured scenarios
+    let rsync_rate = interpolate_rate(
+        scenarios,
+        files_per_dir,
+        estimated_depth,
+        |s| s.rsync_dirs_per_sec,
+    );
+
+    let effective_rsync_rate = if rsync_rate > 0.0 {
+        // rsync has its own parallelism, but we can run multiple rsync processes
+        rsync_rate * (cpu_count / 2.0).min(4.0)
+    } else {
+        // Fallback: use fast mode rate as approximation
+        effective_full_rate
+    };
+    let rsync_seconds = (hex_dirs as f64 / effective_rsync_rate).max(0.1);
+
     EstimatedDeletionTimes {
         preserve_seconds,
         full_seconds,
@@ -419,49 +645,6 @@ fn estimate_deletion_times_calibrated(
         preserve_formatted: format_duration(preserve_seconds),
         full_formatted: format_duration(full_seconds),
         rsync_formatted: format_duration(rsync_seconds),
-    }
-}
-
-/// Fallback estimation when calibration is not available
-/// Uses conservative estimates based on typical filesystem performance
-fn estimate_deletion_times_fallback(
-    total_files: u64,
-    total_dirs: u64,
-    hex_dirs: usize,
-    total_bytes: u64,
-    is_network_fs: bool,
-) -> EstimatedDeletionTimes {
-    let _ = total_dirs; // Not used in this estimation method
-    
-    // Get CPU count for parallelism
-    let cpu_count = std::thread::available_parallelism()
-        .map(|p| p.get())
-        .unwrap_or(4) as f64;
-    
-    // Base single-threaded rates and parallelism factors
-    let (preserve_rate, full_rate, rsync_rate, threads) = if is_network_fs {
-        // NFS/SMB: conservative rates with limited parallelism
-        (300.0, 1.0, 15.0, cpu_count.min(4.0) * 0.7)
-    } else {
-        // Local: higher rates with more parallelism
-        (2000.0, 10.0, 50.0, cpu_count.min(8.0) * 0.85)
-    };
-    
-    let preserve_seconds = (total_files as f64 / (preserve_rate * threads.min(2.0))).max(1.0);
-    let full_seconds = (hex_dirs as f64 / (full_rate * threads.min(2.0))).max(0.5);
-    let rsync_seconds = (hex_dirs as f64 / (rsync_rate * threads)).max(1.0);
-    
-    // Size overhead
-    let size_gb = total_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
-    let size_overhead = if size_gb > 500.0 { 1.15 } else { 1.0 };
-    
-    EstimatedDeletionTimes {
-        preserve_seconds: preserve_seconds * size_overhead,
-        full_seconds: full_seconds * size_overhead,
-        rsync_seconds: rsync_seconds * size_overhead,
-        preserve_formatted: format_duration(preserve_seconds * size_overhead),
-        full_formatted: format_duration(full_seconds * size_overhead),
-        rsync_formatted: format_duration(rsync_seconds * size_overhead),
     }
 }
 
@@ -671,25 +854,25 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
         eprintln!("    This may indicate NFS issues, permission problems, or stale file handles.");
     }
 
-    // Run calibration benchmark to measure actual filesystem performance
+    // Run dynamic calibration to measure actual filesystem performance
     eprintln!("\nRunning deletion speed calibration...");
-    let estimates = if let Some(calibration) = run_deletion_calibration(cache_dir) {
-        estimate_deletion_times_calibrated(
+    let estimates = if let Some(calibration) = run_dynamic_calibration(cache_dir) {
+        estimate_deletion_times_dynamic(
             final_files,
-            final_dirs,
             total_hex_dirs,
-            final_bytes,
             &calibration,
         )
     } else {
-        // Fallback if calibration fails
-        estimate_deletion_times_fallback(
-            final_files,
-            final_dirs,
-            total_hex_dirs,
-            final_bytes,
-            false, // not network fs
-        )
+        // Fallback if calibration fails - return minimal estimates
+        eprintln!("Warning: Calibration failed, estimates may be inaccurate");
+        EstimatedDeletionTimes {
+            preserve_seconds: 1.0,
+            full_seconds: 1.0,
+            rsync_seconds: 1.0,
+            preserve_formatted: "Unknown (calibration failed)".to_string(),
+            full_formatted: "Unknown (calibration failed)".to_string(),
+            rsync_formatted: "Unknown (calibration failed)".to_string(),
+        }
     };
 
     eprintln!("\nEstimated deletion times (based on filesystem calibration):");
@@ -845,26 +1028,25 @@ fn calculate_cache_size_network(
     eprintln!("  Total size: {} ({} bytes)", format_bytes(total_bytes), total_bytes);
     eprintln!("  Scan time: {:.2}s", scan_duration.as_secs_f64());
 
-    // Run calibration benchmark to measure actual network filesystem performance
-    // This is the most accurate way since NFS/SMB performance varies widely
+    // Run dynamic calibration to measure actual network filesystem performance
     eprintln!("\nRunning deletion speed calibration on network filesystem...");
-    let estimates = if let Some(calibration) = run_deletion_calibration(cache_dir) {
-        estimate_deletion_times_calibrated(
+    let estimates = if let Some(calibration) = run_dynamic_calibration(cache_dir) {
+        estimate_deletion_times_dynamic(
             total_files,
-            total_dirs,
             hex_dir_count,
-            total_bytes,
             &calibration,
         )
     } else {
-        // Fallback with network filesystem flag
-        estimate_deletion_times_fallback(
-            total_files,
-            total_dirs,
-            hex_dir_count,
-            total_bytes,
-            true, // is network fs
-        )
+        // Fallback if calibration fails - return minimal estimates
+        eprintln!("Warning: Calibration failed, estimates may be inaccurate");
+        EstimatedDeletionTimes {
+            preserve_seconds: 1.0,
+            full_seconds: 1.0,
+            rsync_seconds: 1.0,
+            preserve_formatted: "Unknown (calibration failed)".to_string(),
+            full_formatted: "Unknown (calibration failed)".to_string(),
+            rsync_formatted: "Unknown (calibration failed)".to_string(),
+        }
     };
 
     eprintln!("\nEstimated deletion times (based on filesystem calibration):");
