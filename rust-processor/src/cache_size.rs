@@ -404,7 +404,7 @@ fn measure_rsync_mode(base_dir: &Path, scenario: &TestScenario) -> f64 {
 
 /// Run comprehensive dynamic calibration with multiple test scenarios
 /// Each scenario tests a different cache structure pattern
-fn run_dynamic_calibration(cache_dir: &Path) -> Option<DynamicCalibrationResult> {
+fn run_dynamic_calibration(cache_dir: &Path, is_network_fs: bool) -> Option<DynamicCalibrationResult> {
     let calibration_dir = cache_dir.join(".lancache_calibration_temp");
 
     // Clean up any previous calibration directory
@@ -465,19 +465,6 @@ fn run_dynamic_calibration(cache_dir: &Path) -> Option<DynamicCalibrationResult>
 
     // Clean up calibration directory
     let _ = fs::remove_dir_all(&calibration_dir);
-
-    // Detect network filesystem from average preserve speeds
-    // Local SSDs typically achieve > 5000 files/sec, NFS is much slower
-    let valid_preserve: Vec<f64> = measurements.iter()
-        .map(|m| m.preserve_files_per_sec)
-        .filter(|&r| r > 0.0)
-        .collect();
-    let avg_preserve = if !valid_preserve.is_empty() {
-        valid_preserve.iter().sum::<f64>() / valid_preserve.len() as f64
-    } else {
-        0.0
-    };
-    let is_network_fs = avg_preserve > 0.0 && avg_preserve < 3000.0;
 
     let cpu_count = std::thread::available_parallelism()
         .map(|p| p.get())
@@ -713,7 +700,7 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
         // Empty cache - still run calibration to measure filesystem performance
         eprintln!("Cache is empty, but running calibration to measure filesystem speeds...");
 
-        let calibration = run_dynamic_calibration(cache_dir);
+        let calibration = run_dynamic_calibration(cache_dir, is_network_fs);
 
         // Build estimates info even for empty cache (shows filesystem capability)
         let estimates = if let Some(ref cal) = calibration {
@@ -911,7 +898,7 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
 
     // Run dynamic calibration to measure actual filesystem performance
     eprintln!("\nRunning deletion speed calibration...");
-    let estimates = if let Some(calibration) = run_dynamic_calibration(cache_dir) {
+    let estimates = if let Some(calibration) = run_dynamic_calibration(cache_dir, is_network_fs) {
         estimate_deletion_times_dynamic(
             final_files,
             total_hex_dirs,
@@ -1085,7 +1072,7 @@ fn calculate_cache_size_network(
 
     // Run dynamic calibration to measure actual network filesystem performance
     eprintln!("\nRunning deletion speed calibration on network filesystem...");
-    let estimates = if let Some(calibration) = run_dynamic_calibration(cache_dir) {
+    let estimates = if let Some(calibration) = run_dynamic_calibration(cache_dir, true) {
         estimate_deletion_times_dynamic(
             total_files,
             hex_dir_count,
