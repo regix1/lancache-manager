@@ -461,39 +461,19 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           break;
         }
         case 'select-status': {
-          try {
-            addLog('info', 'Fetching selected apps status...');
-            const status = await hubConnection.current.invoke('GetSelectedAppsStatus', session.id);
-            if (!status?.apps || status.apps.length === 0) {
-              addLog('warning', 'No games selected. Use "Select Apps" to choose games for prefill.');
-            } else {
-              addLog('info', status.message || `${status.apps.length} games selected`);
-              // Show first 10 apps with sizes
-              const displayApps = status.apps.slice(0, 10);
-              displayApps.forEach((app: { name: string; downloadSize: number; isUpToDate: boolean }) => {
-                const size = formatBytes(app.downloadSize);
-                const upToDate = app.isUpToDate ? ' (up to date)' : '';
-                addLog('info', `  • ${app.name} - ${size}${upToDate}`);
-              });
-              if (status.apps.length > 10) {
-                addLog('info', `  ... and ${status.apps.length - 10} more`);
-              }
-            }
-          } catch (err) {
-            // Fallback to local state if backend call fails
-            if (selectedAppIds.length === 0) {
-              addLog('warning', 'No games selected. Use "Select Apps" to choose games for prefill.');
-            } else {
-              const selectedNames = selectedAppIds.map(id => {
-                const game = ownedGames.find(g => g.appId === id);
-                return game ? game.name : `App ${id}`;
-              });
-              addLog('info', `${selectedAppIds.length} games selected for prefill:`);
-              const displayNames = selectedNames.slice(0, 10);
-              displayNames.forEach(name => addLog('info', `  • ${name}`));
-              if (selectedNames.length > 10) {
-                addLog('info', `  ... and ${selectedNames.length - 10} more`);
-              }
+          // Use local state - backend GetSelectedAppsStatus requires updated daemon
+          if (selectedAppIds.length === 0) {
+            addLog('warning', 'No games selected. Use "Select Apps" to choose games for prefill.');
+          } else {
+            const selectedNames = selectedAppIds.map(id => {
+              const game = ownedGames.find(g => g.appId === id);
+              return game ? game.name : `App ${id}`;
+            });
+            addLog('info', `${selectedAppIds.length} games selected for prefill:`);
+            const displayNames = selectedNames.slice(0, 10);
+            displayNames.forEach(name => addLog('info', `  • ${name}`));
+            if (selectedNames.length > 10) {
+              addLog('info', `  ... and ${selectedNames.length - 10} more`);
             }
           }
           break;
@@ -548,11 +528,15 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         }
         case 'clear-temp': {
           addLog('info', 'Clearing temporary cache...');
-          const clearResult = await hubConnection.current.invoke('ClearCache', session.id);
-          if (clearResult?.success) {
-            addLog('success', clearResult.message || 'Cache cleared successfully');
-          } else {
-            addLog('error', clearResult?.message || 'Failed to clear cache');
+          try {
+            const clearResult = await hubConnection.current.invoke('ClearCache', session.id);
+            if (clearResult?.success) {
+              addLog('success', clearResult.message || 'Cache cleared successfully');
+            } else {
+              addLog('error', clearResult?.message || 'Failed to clear cache');
+            }
+          } catch {
+            addLog('warning', 'Clear cache not supported by current daemon version');
           }
           break;
         }

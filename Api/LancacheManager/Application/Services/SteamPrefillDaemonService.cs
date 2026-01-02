@@ -127,6 +127,9 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             throw new InvalidOperationException($"User already has an active session: {existingSession.Id}");
         }
 
+        // Always pull latest image before creating session
+        await EnsureImageExistsAsync(cancellationToken);
+
         var sessionId = Guid.NewGuid().ToString("N")[..16];
         var basePath = GetDaemonBasePath();
         var sessionPath = Path.Combine(basePath, "sessions", sessionId);
@@ -602,45 +605,50 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         if (_dockerClient == null) return;
 
         var imageName = GetImageName();
-        _logger.LogInformation("Checking for prefill daemon image: {ImageName}", imageName);
+        _logger.LogInformation("Pulling latest prefill daemon image: {ImageName}", imageName);
 
         try
         {
-            var imageInfo = await _dockerClient.Images.InspectImageAsync(imageName, cancellationToken);
-            _logger.LogInformation("Image exists: {ImageName} (ID: {ImageId})", imageName, imageInfo.ID[..12]);
-        }
-        catch (DockerImageNotFoundException)
-        {
-            _logger.LogInformation("Image not found locally, pulling: {ImageName}", imageName);
+            // Always pull to ensure we have the latest version
+            await _dockerClient.Images.CreateImageAsync(
+                new ImagesCreateParameters
+                {
+                    FromImage = imageName.Split(':')[0],
+                    Tag = imageName.Contains(':') ? imageName.Split(':')[1] : "latest"
+                },
+                null,
+                new Progress<JSONMessage>(msg =>
+                {
+                    if (!string.IsNullOrEmpty(msg.Status))
+                    {
+                        // Only log significant progress, not every layer
+                        if (msg.Status.Contains("Pulling") || msg.Status.Contains("Downloaded") || msg.Status.Contains("up to date"))
+                        {
+                            _logger.LogInformation("Pull: {Status}", msg.Status);
+                        }
+                    }
+                    if (!string.IsNullOrEmpty(msg.ErrorMessage))
+                    {
+                        _logger.LogError("Pull error: {Error}", msg.ErrorMessage);
+                    }
+                }),
+                cancellationToken);
 
+            var imageInfo = await _dockerClient.Images.InspectImageAsync(imageName, cancellationToken);
+            _logger.LogInformation("Image ready: {ImageName} (ID: {ImageId})", imageName, imageInfo.ID[..12]);
+        }
+        catch (Exception ex)
+        {
+            // Check if we have a local copy we can use
             try
             {
-                await _dockerClient.Images.CreateImageAsync(
-                    new ImagesCreateParameters
-                    {
-                        FromImage = imageName.Split(':')[0],
-                        Tag = imageName.Contains(':') ? imageName.Split(':')[1] : "latest"
-                    },
-                    null,
-                    new Progress<JSONMessage>(msg =>
-                    {
-                        if (!string.IsNullOrEmpty(msg.Status))
-                        {
-                            var progress = msg.Progress?.Current > 0 ? $"{msg.Progress.Current}/{msg.Progress.Total}" : "";
-                            _logger.LogInformation("Pull progress: {Status} {Progress}", msg.Status, progress);
-                        }
-                        if (!string.IsNullOrEmpty(msg.ErrorMessage))
-                        {
-                            _logger.LogError("Pull error: {Error}", msg.ErrorMessage);
-                        }
-                    }),
-                    cancellationToken);
-
-                _logger.LogInformation("Image pulled successfully: {ImageName}", imageName);
+                var imageInfo = await _dockerClient.Images.InspectImageAsync(imageName, cancellationToken);
+                _logger.LogWarning(ex, "Failed to pull latest image, using cached version: {ImageId}", imageInfo.ID[..12]);
             }
-            catch (Exception ex)
+            catch (DockerImageNotFoundException)
             {
-                _logger.LogError(ex, "Failed to pull image {ImageName}. The Steam Prefill feature requires this image. " +
+                _logger.LogError(ex, "Failed to pull image {ImageName} and no cached version available. " +
+                    "The Steam Prefill feature requires this image. " +
                     "Ensure the image exists at the registry or build it from: https://github.com/regix1/steam-prefill-daemon",
                     imageName);
                 throw;
