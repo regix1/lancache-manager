@@ -2263,6 +2263,18 @@ input[type='number']::-webkit-outer-spin-button {
 }
 
 /* MultiSelectDropdown */
+.msd-trigger {
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.msd-trigger:not(:disabled):hover {
+  background-color: var(--theme-bg-hover) !important;
+}
+
+.msd-trigger-open {
+  background-color: var(--theme-bg-hover) !important;
+}
+
 .msd-dropdown {
   contain: layout style;
 }

@@ -199,12 +199,11 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
         type="button"
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
-        className={`w-full px-3 py-2.5 rounded-lg border text-left transition-all duration-150 flex items-center justify-between gap-2 text-sm font-medium ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-[var(--theme-border-focus)]'}`}
+        className={`msd-trigger w-full px-3 py-2.5 rounded-lg border text-left flex items-center justify-between gap-2 text-sm font-medium ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${isOpen ? 'msd-trigger-open' : ''}`}
         style={{
           backgroundColor: 'var(--theme-card-bg)',
-          borderColor: isOpen ? 'var(--theme-primary)' : 'var(--theme-border-primary)',
-          color: 'var(--theme-text-primary)',
-          boxShadow: isOpen ? '0 0 0 3px color-mix(in srgb, var(--theme-primary) 15%, transparent)' : 'none'
+          borderColor: isOpen ? 'var(--theme-border-focus)' : 'var(--theme-border-primary)',
+          color: 'var(--theme-text-primary)'
         }}
       >
         <span className="truncate flex-1">{displayLabel}</span>

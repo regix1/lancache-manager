@@ -57,56 +57,43 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   });
   const [loadingDefaultPrefs, setLoadingDefaultPrefs] = useState(false);
   const [updatingDefaultPref, setUpdatingDefaultPref] = useState<string | null>(null);
-  const [updatingTimeFormat, setUpdatingTimeFormat] = useState(false);
   const [updatingAllowedFormats, setUpdatingAllowedFormats] = useState(false);
 
-  // Get current time format from the two boolean settings
-  const getCurrentTimeFormat = (): TimeSettingValue => {
+  // Helper to update default time format based on a format value
+  const updateDefaultTimeFormat = async (format: TimeSettingValue) => {
+    const newUseLocal = format.startsWith('local');
+    const newUse24Hour = format.endsWith('24h');
+
+    const [localResponse, formatResponse] = await Promise.all([
+      fetch('/api/system/default-guest-preferences/useLocalTimezone', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...ApiService.getHeaders() },
+        body: JSON.stringify({ value: newUseLocal })
+      }),
+      fetch('/api/system/default-guest-preferences/use24HourFormat', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...ApiService.getHeaders() },
+        body: JSON.stringify({ value: newUse24Hour })
+      })
+    ]);
+
+    if (localResponse.ok && formatResponse.ok) {
+      setDefaultGuestPreferences(prev => ({
+        ...prev,
+        useLocalTimezone: newUseLocal,
+        use24HourFormat: newUse24Hour
+      }));
+    }
+  };
+
+  // Get current default time format from the two boolean settings
+  const getCurrentDefaultFormat = (): TimeSettingValue => {
     const isLocal = defaultGuestPreferences.useLocalTimezone;
     const is24h = defaultGuestPreferences.use24HourFormat;
     if (isLocal && is24h) return 'local-24h';
     if (isLocal && !is24h) return 'local-12h';
     if (!isLocal && is24h) return 'server-24h';
     return 'server-12h';
-  };
-
-  // Handle time format dropdown change - updates both booleans
-  const handleTimeFormatChange = async (value: string) => {
-    const typedValue = value as TimeSettingValue;
-    const newUseLocal = typedValue.startsWith('local');
-    const newUse24Hour = typedValue.endsWith('24h');
-
-    try {
-      setUpdatingTimeFormat(true);
-
-      // Update both settings
-      const [localResponse, formatResponse] = await Promise.all([
-        fetch('/api/system/default-guest-preferences/useLocalTimezone', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', ...ApiService.getHeaders() },
-          body: JSON.stringify({ value: newUseLocal })
-        }),
-        fetch('/api/system/default-guest-preferences/use24HourFormat', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', ...ApiService.getHeaders() },
-          body: JSON.stringify({ value: newUse24Hour })
-        })
-      ]);
-
-      if (localResponse.ok && formatResponse.ok) {
-        setDefaultGuestPreferences(prev => ({
-          ...prev,
-          useLocalTimezone: newUseLocal,
-          use24HourFormat: newUse24Hour
-        }));
-      } else {
-        showToast('error', 'Failed to update default time format');
-      }
-    } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || 'Failed to update default time format');
-    } finally {
-      setUpdatingTimeFormat(false);
-    }
   };
 
   const timeFormatOptions = [
@@ -222,6 +209,12 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
       });
 
       if (response.ok) {
+        // If current default is no longer in allowed list, update to first allowed format
+        const currentDefault = getCurrentDefaultFormat();
+        if (!formats.includes(currentDefault) && formats.length > 0) {
+          await updateDefaultTimeFormat(formats[0] as TimeSettingValue);
+        }
+
         setDefaultGuestPreferences((prev) => ({
           ...prev,
           allowedTimeFormats: formats
@@ -331,24 +324,6 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
           <div className="config-section">
             <div className="config-section-title">Date & Time</div>
             <div className="space-y-3">
-              {/* Default Time Format */}
-              <div>
-                <div className="toggle-row-label mb-1.5">Default Time Format</div>
-                <EnhancedDropdown
-                  options={timeFormatOptions}
-                  value={getCurrentTimeFormat()}
-                  onChange={handleTimeFormatChange}
-                  disabled={updatingTimeFormat || loadingDefaultPrefs}
-                  className="w-full"
-                />
-                {updatingTimeFormat && (
-                  <Loader2
-                    className="w-4 h-4 animate-spin mt-1"
-                    style={{ color: 'var(--theme-primary)' }}
-                  />
-                )}
-              </div>
-
               {/* Allowed Time Formats */}
               <div>
                 <div className="toggle-row-label mb-1.5">Allowed Time Formats</div>
@@ -375,7 +350,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
                   )}
                 </div>
                 <div className="toggle-row-description mt-1">
-                  Time formats guests can choose from
+                  First selected format is the default for guests
                 </div>
               </div>
 
