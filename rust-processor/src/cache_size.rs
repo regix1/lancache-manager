@@ -8,7 +8,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 #[cfg(windows)]
 use std::os::windows::fs::OpenOptionsExt;
@@ -181,54 +181,162 @@ fn is_hex(value: &str) -> bool {
     value.len() == 2 && value.chars().all(|c| c.is_ascii_hexdigit())
 }
 
-/// Estimate deletion time based on file count, size, and deletion method
-/// 
-/// These estimates are based on typical filesystem performance:
-/// - **preserve mode**: Individual file deletions, ~1000-5000 files/sec on SSD, ~200-500 on HDD/NAS
-/// - **full mode**: Directory removal with remove_dir_all, much faster as it's a single syscall per dir
-/// - **rsync mode**: rsync with empty directory, moderate speed due to process overhead
-fn estimate_deletion_times(
+/// Calibration result from running a small benchmark on the actual filesystem
+#[derive(Debug, Clone)]
+struct CalibrationResult {
+    /// Files deleted per second (individual unlink operations)
+    files_per_sec: f64,
+    /// Directories deleted per second (remove_dir_all operations)  
+    dirs_per_sec: f64,
+    /// Whether this appears to be a slow filesystem (NFS/SMB-like performance)
+    is_slow_fs: bool,
+}
+
+/// Run a quick calibration benchmark to measure actual filesystem deletion speed
+/// Creates temporary files and measures how long it takes to delete them
+fn run_deletion_calibration(cache_dir: &Path) -> Option<CalibrationResult> {
+    use std::io::Write;
+    
+    let calibration_dir = cache_dir.join(".lancache_calibration_temp");
+    
+    // Clean up any previous calibration directory
+    let _ = fs::remove_dir_all(&calibration_dir);
+    
+    // Create calibration directory
+    if fs::create_dir(&calibration_dir).is_err() {
+        eprintln!("Warning: Could not create calibration directory, using fallback estimates");
+        return None;
+    }
+    
+    // Create subdirectories to simulate cache structure
+    let num_subdirs = 10;
+    let files_per_subdir = 20;
+    let mut created_files = 0u64;
+    let mut created_dirs = 0u64;
+    
+    for i in 0..num_subdirs {
+        let subdir = calibration_dir.join(format!("{:02x}", i));
+        if fs::create_dir(&subdir).is_ok() {
+            created_dirs += 1;
+            for j in 0..files_per_subdir {
+                let file_path = subdir.join(format!("test_file_{}.tmp", j));
+                if let Ok(mut file) = fs::File::create(&file_path) {
+                    // Write small amount of data to make it realistic
+                    let _ = file.write_all(b"calibration test data");
+                    created_files += 1;
+                }
+            }
+        }
+    }
+    
+    if created_files < 50 {
+        eprintln!("Warning: Could not create enough calibration files ({}), using fallback", created_files);
+        let _ = fs::remove_dir_all(&calibration_dir);
+        return None;
+    }
+    
+    eprintln!("Running deletion calibration with {} files in {} directories...", created_files, created_dirs);
+    
+    // Measure individual file deletion speed (preserve mode simulation)
+    let preserve_start = Instant::now();
+    let mut files_deleted = 0u64;
+    
+    for i in 0..num_subdirs {
+        let subdir = calibration_dir.join(format!("{:02x}", i));
+        if let Ok(entries) = fs::read_dir(&subdir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                if fs::remove_file(entry.path()).is_ok() {
+                    files_deleted += 1;
+                }
+            }
+        }
+    }
+    let preserve_elapsed = preserve_start.elapsed();
+    let files_per_sec = if preserve_elapsed.as_secs_f64() > 0.0 {
+        files_deleted as f64 / preserve_elapsed.as_secs_f64()
+    } else {
+        10000.0 // Very fast, assume SSD
+    };
+    
+    // Measure directory deletion speed (full mode simulation)
+    let full_start = Instant::now();
+    let mut dirs_deleted = 0u64;
+    
+    for i in 0..num_subdirs {
+        let subdir = calibration_dir.join(format!("{:02x}", i));
+        if fs::remove_dir(&subdir).is_ok() {
+            dirs_deleted += 1;
+        }
+    }
+    let full_elapsed = full_start.elapsed();
+    let dirs_per_sec = if full_elapsed.as_secs_f64() > 0.001 {
+        dirs_deleted as f64 / full_elapsed.as_secs_f64()
+    } else {
+        5000.0 // Very fast
+    };
+    
+    // Clean up calibration directory
+    let _ = fs::remove_dir_all(&calibration_dir);
+    
+    // Determine if this is a slow filesystem
+    // Local SSDs typically achieve 5000+ files/sec, NFS typically 100-500 files/sec
+    let is_slow_fs = files_per_sec < 1000.0;
+    
+    eprintln!("Calibration complete:");
+    eprintln!("  File deletion rate: {:.1} files/sec", files_per_sec);
+    eprintln!("  Directory deletion rate: {:.1} dirs/sec", dirs_per_sec);
+    eprintln!("  Slow filesystem detected: {}", is_slow_fs);
+    
+    Some(CalibrationResult {
+        files_per_sec,
+        dirs_per_sec,
+        is_slow_fs,
+    })
+}
+
+/// Estimate deletion time based on calibration results and file/directory counts
+/// Uses actual measured performance from the filesystem for accurate estimates
+fn estimate_deletion_times_calibrated(
     total_files: u64,
     total_dirs: u64,
     hex_dirs: usize,
     total_bytes: u64,
-    scan_duration: Duration,
+    calibration: &CalibrationResult,
 ) -> EstimatedDeletionTimes {
-    // Use scan performance as a proxy for filesystem speed
-    // Faster scan = faster filesystem = adjust estimates
-    let scan_secs = scan_duration.as_secs_f64().max(0.1);
-    let files_per_sec_scan = total_files as f64 / scan_secs;
+    let _ = total_dirs; // Not used directly; we use hex_dirs and files_per_hex_dir instead
     
-    // Base estimates (conservative for NAS/HDD, files per second for deletion)
-    // These are intentionally conservative - better to overestimate than underestimate
-    let base_delete_rate_preserve = 500.0;  // files/sec for individual deletes
-    let base_delete_rate_full = 50000.0;    // files/sec equivalent for remove_dir_all
-    let base_delete_rate_rsync = 2000.0;    // files/sec for rsync
+    // Preserve mode: individual file deletions
+    // Use calibrated rate directly
+    let preserve_seconds = (total_files as f64 / calibration.files_per_sec).max(1.0);
     
-    // Adjust based on observed scan speed (scan is read-only, deletion is slower)
-    // If scan was fast, deletion will likely be faster too
-    let speed_factor = (files_per_sec_scan / 10000.0).min(3.0).max(0.5);
+    // Full mode (remove_dir_all): Each hex directory is deleted as a tree
+    // The work is proportional to the number of files, but batched per directory
+    // Estimate based on files per hex directory and calibrated directory speed
+    let files_per_hex_dir = if hex_dirs > 0 { 
+        total_files as f64 / hex_dirs as f64 
+    } else { 
+        0.0 
+    };
     
-    let adjusted_preserve_rate = base_delete_rate_preserve * speed_factor;
-    let adjusted_full_rate = base_delete_rate_full * speed_factor;
-    let adjusted_rsync_rate = base_delete_rate_rsync * speed_factor;
+    // remove_dir_all is roughly 2-5x slower than empty dir removal due to recursion
+    // Use a conservative multiplier based on files per directory
+    let recursion_factor = (files_per_hex_dir / 1000.0).max(1.0).min(10.0);
+    let effective_dirs_per_sec = calibration.dirs_per_sec / recursion_factor;
+    let full_seconds = (hex_dirs as f64 / effective_dirs_per_sec).max(0.5);
     
-    // Calculate times
-    let preserve_seconds = (total_files as f64 / adjusted_preserve_rate).max(1.0);
+    // Rsync mode: Process overhead per directory + file handling
+    // rsync is typically 30-50% of preserve mode speed due to batching
+    let rsync_files_per_sec = calibration.files_per_sec * 0.4;
+    let rsync_overhead_per_dir = if calibration.is_slow_fs { 2.0 } else { 0.5 };
+    let rsync_seconds = (hex_dirs as f64 * rsync_overhead_per_dir + total_files as f64 / rsync_files_per_sec).max(1.0);
     
-    // Full mode: primarily depends on directory count, not file count
-    // Each remove_dir_all is roughly O(1) from our perspective
-    let full_seconds = (hex_dirs as f64 * 0.5 + total_dirs as f64 / adjusted_full_rate * 10.0).max(0.5);
+    // Add small overhead for very large caches (I/O scheduling, buffer flushes)
+    let size_gb = total_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+    let size_overhead = if size_gb > 500.0 { 1.1 } else { 1.0 };
     
-    // Rsync mode: process overhead per directory + file handling
-    let rsync_seconds = (hex_dirs as f64 * 1.0 + total_files as f64 / adjusted_rsync_rate).max(1.0);
-    
-    // Add overhead based on total size (larger files = more disk activity)
-    let size_factor = (total_bytes as f64 / (100.0 * 1024.0 * 1024.0 * 1024.0)).min(2.0); // Factor for 100GB+
-    
-    let preserve_seconds = preserve_seconds * (1.0 + size_factor * 0.1);
-    let full_seconds = full_seconds * (1.0 + size_factor * 0.05);
-    let rsync_seconds = rsync_seconds * (1.0 + size_factor * 0.1);
+    let preserve_seconds = preserve_seconds * size_overhead;
+    let full_seconds = full_seconds * size_overhead;
+    let rsync_seconds = rsync_seconds * size_overhead;
     
     EstimatedDeletionTimes {
         preserve_seconds,
@@ -237,6 +345,51 @@ fn estimate_deletion_times(
         preserve_formatted: format_duration(preserve_seconds),
         full_formatted: format_duration(full_seconds),
         rsync_formatted: format_duration(rsync_seconds),
+    }
+}
+
+/// Fallback estimation when calibration is not available
+/// Uses conservative estimates based on typical filesystem performance
+fn estimate_deletion_times_fallback(
+    total_files: u64,
+    total_dirs: u64,
+    hex_dirs: usize,
+    total_bytes: u64,
+    is_network_fs: bool,
+) -> EstimatedDeletionTimes {
+    let _ = total_dirs; // Not used in this estimation method
+    // Conservative base rates (files per second)
+    let (preserve_rate, full_rate, rsync_rate) = if is_network_fs {
+        // NFS/SMB: very conservative due to network latency
+        (200.0, 500.0, 400.0)
+    } else {
+        // Local: assume HDD (conservative), SSD would be much faster
+        (1000.0, 5000.0, 2000.0)
+    };
+    
+    let preserve_seconds = (total_files as f64 / preserve_rate).max(1.0);
+    
+    // Full mode: per-directory with recursion overhead
+    let files_per_hex_dir = if hex_dirs > 0 { 
+        total_files as f64 / hex_dirs as f64 
+    } else { 
+        1000.0 
+    };
+    let full_seconds = (hex_dirs as f64 * (1.0 + files_per_hex_dir / full_rate)).max(0.5);
+    
+    let rsync_seconds = (hex_dirs as f64 * 1.5 + total_files as f64 / rsync_rate).max(1.0);
+    
+    // Size overhead
+    let size_gb = total_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+    let size_overhead = if size_gb > 500.0 { 1.15 } else { 1.0 };
+    
+    EstimatedDeletionTimes {
+        preserve_seconds: preserve_seconds * size_overhead,
+        full_seconds: full_seconds * size_overhead,
+        rsync_seconds: rsync_seconds * size_overhead,
+        preserve_formatted: format_duration(preserve_seconds * size_overhead),
+        full_formatted: format_duration(full_seconds * size_overhead),
+        rsync_formatted: format_duration(rsync_seconds * size_overhead),
     }
 }
 
@@ -446,16 +599,28 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
         eprintln!("    This may indicate NFS issues, permission problems, or stale file handles.");
     }
 
-    // Calculate deletion time estimates
-    let estimates = estimate_deletion_times(
-        final_files,
-        final_dirs,
-        total_hex_dirs,
-        final_bytes,
-        scan_duration,
-    );
+    // Run calibration benchmark to measure actual filesystem performance
+    eprintln!("\nRunning deletion speed calibration...");
+    let estimates = if let Some(calibration) = run_deletion_calibration(cache_dir) {
+        estimate_deletion_times_calibrated(
+            final_files,
+            final_dirs,
+            total_hex_dirs,
+            final_bytes,
+            &calibration,
+        )
+    } else {
+        // Fallback if calibration fails
+        estimate_deletion_times_fallback(
+            final_files,
+            final_dirs,
+            total_hex_dirs,
+            final_bytes,
+            false, // not network fs
+        )
+    };
 
-    eprintln!("\nEstimated deletion times:");
+    eprintln!("\nEstimated deletion times (based on filesystem calibration):");
     eprintln!("  Safe Mode (preserve): {}", estimates.preserve_formatted);
     eprintln!("  Fast Mode (full): {}", estimates.full_formatted);
     eprintln!("  Rsync Mode: {}", estimates.rsync_formatted);
@@ -608,31 +773,29 @@ fn calculate_cache_size_network(
     eprintln!("  Total size: {} ({} bytes)", format_bytes(total_bytes), total_bytes);
     eprintln!("  Scan time: {:.2}s", scan_duration.as_secs_f64());
 
-    // Calculate deletion time estimates (adjusted for network filesystem)
-    // Network filesystems are slower, so multiply estimates
-    let base_estimates = estimate_deletion_times(
-        total_files,
-        total_dirs,
-        hex_dir_count,
-        total_bytes,
-        scan_duration,
-    );
-
-    // For network filesystems, rsync is often the best choice
-    // Adjust estimates to reflect this
-    let estimates = EstimatedDeletionTimes {
-        // Preserve mode is MUCH slower on NFS due to individual unlink() calls
-        preserve_seconds: base_estimates.preserve_seconds * 3.0,
-        preserve_formatted: format_duration(base_estimates.preserve_seconds * 3.0),
-        // Full mode (remove_dir_all) is moderately slower
-        full_seconds: base_estimates.full_seconds * 2.0,
-        full_formatted: format_duration(base_estimates.full_seconds * 2.0),
-        // Rsync is well-optimized for this use case
-        rsync_seconds: base_estimates.rsync_seconds * 1.5,
-        rsync_formatted: format_duration(base_estimates.rsync_seconds * 1.5),
+    // Run calibration benchmark to measure actual network filesystem performance
+    // This is the most accurate way since NFS/SMB performance varies widely
+    eprintln!("\nRunning deletion speed calibration on network filesystem...");
+    let estimates = if let Some(calibration) = run_deletion_calibration(cache_dir) {
+        estimate_deletion_times_calibrated(
+            total_files,
+            total_dirs,
+            hex_dir_count,
+            total_bytes,
+            &calibration,
+        )
+    } else {
+        // Fallback with network filesystem flag
+        estimate_deletion_times_fallback(
+            total_files,
+            total_dirs,
+            hex_dir_count,
+            total_bytes,
+            true, // is network fs
+        )
     };
 
-    eprintln!("\nEstimated deletion times (network filesystem):");
+    eprintln!("\nEstimated deletion times (based on filesystem calibration):");
     eprintln!("  Safe Mode (preserve): {} ⚠ Slow on NFS", estimates.preserve_formatted);
     eprintln!("  Fast Mode (full): {}", estimates.full_formatted);
     eprintln!("  Rsync Mode: {} ✓ Recommended for NFS", estimates.rsync_formatted);
