@@ -122,15 +122,42 @@ public class PrefillSessionService : IHostedService, IDisposable
             // Ensure image is available
             await EnsureImageExistsAsync(cancellationToken);
 
-            // Get configuration for volume mounts
-            var cacheVolume = _configuration["Prefill:CacheVolume"] ?? "/lancache/cache";
-            var networkName = _configuration["Prefill:NetworkName"] ?? "lancache";
+            // Get configuration for volume mounts and network
+            // CacheVolume: Optional - if not set, no volume is mounted (container uses internal storage)
+            // NetworkName: Optional - if not set, uses default bridge network
+            var cacheVolume = _configuration["Prefill:CacheVolume"];
+            var networkName = _configuration["Prefill:NetworkName"];
 
             // Create container
             var containerName = $"prefill-{userId}-{Guid.NewGuid():N}".Substring(0, 63); // Docker name limit
             session.ContainerName = containerName;
 
-            _logger.LogInformation("Creating prefill container: {ContainerName} for user {UserId}", containerName, userId);
+            _logger.LogInformation("Creating prefill container: {ContainerName} for user {UserId} (network: {Network}, cache: {Cache})",
+                containerName, userId, networkName ?? "default", cacheVolume ?? "none");
+
+            // Build host config
+            var hostConfig = new HostConfig
+            {
+                AutoRemove = true,
+                Memory = DefaultMemoryLimit,
+                NanoCPUs = DefaultCpuLimit,
+                // Security: drop all capabilities except what's needed
+                CapDrop = new[] { "ALL" },
+                // Security: read-only root filesystem except for specific paths
+                ReadonlyRootfs = false, // Need write access for Config directory
+            };
+
+            // Only set network if configured
+            if (!string.IsNullOrEmpty(networkName))
+            {
+                hostConfig.NetworkMode = networkName;
+            }
+
+            // Only mount cache volume if configured
+            if (!string.IsNullOrEmpty(cacheVolume))
+            {
+                hostConfig.Binds = new[] { $"{cacheVolume}:/cache:rw" };
+            }
 
             var createResponse = await _dockerClient.Containers.CreateContainerAsync(
                 new CreateContainerParameters
@@ -149,18 +176,7 @@ public class PrefillSessionService : IHostedService, IDisposable
                         "TERM=xterm-256color",
                         "LANG=en_US.UTF-8"
                     },
-                    HostConfig = new HostConfig
-                    {
-                        Binds = new[] { $"{cacheVolume}:/cache:rw" },
-                        NetworkMode = networkName,
-                        AutoRemove = true,
-                        Memory = DefaultMemoryLimit,
-                        NanoCPUs = DefaultCpuLimit,
-                        // Security: drop all capabilities except what's needed
-                        CapDrop = new[] { "ALL" },
-                        // Security: read-only root filesystem except for specific paths
-                        ReadonlyRootfs = false, // Need write access for Config directory
-                    }
+                    HostConfig = hostConfig
                 },
                 cancellationToken);
 
