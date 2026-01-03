@@ -3,29 +3,77 @@ using LancacheManager.Security;
 namespace LancacheManager.Middleware;
 
 /// <summary>
-/// Middleware for Swagger endpoint (currently allows full access)
-/// - Users can view API documentation and swagger.json without authentication
-/// - Swagger UI provides built-in "Authorize" button for entering API key or Device ID
-/// - Authentication is required only for making actual API calls (protected by AuthenticationMiddleware)
+/// Middleware for Swagger endpoint protection
+/// - In development: Allow full access for easier debugging
+/// - In production: Optionally require authentication based on Security:ProtectSwagger setting
+/// - Swagger UI provides built-in "Authorize" button for entering API key
 /// </summary>
 public class SwaggerAuthenticationMiddleware
 {
     private readonly RequestDelegate _next;
     private readonly ILogger<SwaggerAuthenticationMiddleware> _logger;
+    private readonly IConfiguration _configuration;
+    private readonly IHostEnvironment _environment;
 
     public SwaggerAuthenticationMiddleware(
         RequestDelegate next,
-        ILogger<SwaggerAuthenticationMiddleware> logger)
+        ILogger<SwaggerAuthenticationMiddleware> logger,
+        IConfiguration configuration,
+        IHostEnvironment environment)
     {
         _next = next;
         _logger = logger;
+        _configuration = configuration;
+        _environment = environment;
     }
 
     public async Task InvokeAsync(HttpContext context, ApiKeyService apiKeyService, DeviceAuthService deviceAuthService)
     {
-        // Allow full access to /swagger endpoints
-        // Swagger UI has built-in "Authorize" button for authentication
-        // Users can view documentation freely but need auth to make actual API calls
-        await _next(context);
+        // Check if this is a swagger request
+        if (!context.Request.Path.StartsWithSegments("/swagger"))
+        {
+            await _next(context);
+            return;
+        }
+
+        // Always allow in development mode
+        if (_environment.IsDevelopment())
+        {
+            await _next(context);
+            return;
+        }
+
+        // Check if swagger protection is enabled (default: false for backward compatibility)
+        var protectSwagger = _configuration.GetValue<bool>("Security:ProtectSwagger", false);
+        if (!protectSwagger)
+        {
+            await _next(context);
+            return;
+        }
+
+        // Swagger protection is enabled - require API key
+        var apiKey = context.Request.Headers["X-Api-Key"].FirstOrDefault();
+        
+        if (!string.IsNullOrEmpty(apiKey) && apiKeyService.ValidateApiKey(apiKey))
+        {
+            await _next(context);
+            return;
+        }
+
+        // Check for authenticated session
+        var deviceId = context.Session.GetString("DeviceId");
+        if (!string.IsNullOrEmpty(deviceId) && deviceAuthService.ValidateDevice(deviceId))
+        {
+            await _next(context);
+            return;
+        }
+
+        // Not authenticated - return 401
+        _logger.LogWarning("Unauthorized swagger access attempt from {IP}", 
+            context.Connection.RemoteIpAddress);
+        
+        context.Response.StatusCode = 401;
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsync("{\"error\":\"API key required to access Swagger documentation\"}");
     }
 }

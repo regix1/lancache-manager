@@ -12,6 +12,8 @@ using LancacheManager.Security;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Routing.Constraints;
 using Microsoft.EntityFrameworkCore;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
 using OpenTelemetry.Metrics;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -94,14 +96,31 @@ builder.Services.AddSignalR(options =>
 });
 
 // Configure CORS
+// Security:AllowedOrigins can be set to restrict origins (comma-separated list)
+// Empty or "*" = allow all origins (for development or same-origin reverse proxy setups)
+// Example: "https://lancache.local,https://admin.lancache.local"
+var allowedOrigins = builder.Configuration["Security:AllowedOrigins"];
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
     {
-        policy.SetIsOriginAllowed(_ => true)
-            .AllowAnyMethod()
-            .AllowAnyHeader()
-            .AllowCredentials();
+        if (string.IsNullOrWhiteSpace(allowedOrigins) || allowedOrigins == "*")
+        {
+            // Permissive mode - for development or when behind same-origin reverse proxy
+            policy.SetIsOriginAllowed(_ => true)
+                .AllowAnyMethod()
+                .AllowAnyHeader()
+                .AllowCredentials();
+        }
+        else
+        {
+            // Restricted mode - for internet-exposed instances
+            var origins = allowedOrigins.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            policy.WithOrigins(origins)
+                .AllowAnyMethod()
+                .AllowAnyHeader()
+                .AllowCredentials();
+        }
     });
 });
 
@@ -358,6 +377,29 @@ builder.Services.AddOpenTelemetry()
             .AddMeter("LancacheManager"); // For custom business metrics
     });
 
+// Configure Rate Limiting for auth endpoints
+// Protects against brute force attacks on login/device registration
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    
+    // Rate limit for authentication endpoints (login, device registration)
+    options.AddFixedWindowLimiter("auth", config =>
+    {
+        config.PermitLimit = 5;           // 5 attempts
+        config.Window = TimeSpan.FromMinutes(1); // per minute
+        config.QueueLimit = 0;            // No queuing, reject immediately
+    });
+    
+    // Rate limit for Steam auth (more lenient due to 2FA flows)
+    options.AddFixedWindowLimiter("steam-auth", config =>
+    {
+        config.PermitLimit = 10;          // 10 attempts
+        config.Window = TimeSpan.FromMinutes(5); // per 5 minutes
+        config.QueueLimit = 0;
+    });
+});
+
 // Configure logging
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
@@ -458,6 +500,9 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 
 app.UseRouting();
+
+// Rate limiting - must be after routing to access endpoint metadata
+app.UseRateLimiter();
 
 // Enable session middleware (must be before authentication middleware)
 app.UseSession();

@@ -5,16 +5,19 @@ namespace LancacheManager.Middleware;
 
 /// <summary>
 /// Global exception handling middleware to eliminate duplicate try-catch blocks across controllers
+/// Sanitizes error messages in production to prevent information disclosure
 /// </summary>
 public class GlobalExceptionMiddleware
 {
     private readonly RequestDelegate _next;
     private readonly ILogger<GlobalExceptionMiddleware> _logger;
+    private readonly IHostEnvironment _environment;
 
-    public GlobalExceptionMiddleware(RequestDelegate next, ILogger<GlobalExceptionMiddleware> _logger)
+    public GlobalExceptionMiddleware(RequestDelegate next, ILogger<GlobalExceptionMiddleware> logger, IHostEnvironment environment)
     {
         _next = next;
-        this._logger = _logger;
+        _logger = logger;
+        _environment = environment;
     }
 
     public async Task InvokeAsync(HttpContext context)
@@ -26,22 +29,22 @@ public class GlobalExceptionMiddleware
         catch (UnauthorizedAccessException ex)
         {
             _logger.LogWarning(ex, "Unauthorized access attempt");
-            await HandleExceptionAsync(context, ex, HttpStatusCode.Forbidden);
+            await HandleExceptionAsync(context, ex, HttpStatusCode.Forbidden, "Access denied");
         }
         catch (ArgumentException ex)
         {
             _logger.LogWarning(ex, "Invalid argument provided");
-            await HandleExceptionAsync(context, ex, HttpStatusCode.BadRequest);
+            await HandleExceptionAsync(context, ex, HttpStatusCode.BadRequest, "Invalid request parameters");
         }
         catch (InvalidOperationException ex)
         {
             _logger.LogError(ex, "Invalid operation");
-            await HandleExceptionAsync(context, ex, HttpStatusCode.BadRequest);
+            await HandleExceptionAsync(context, ex, HttpStatusCode.BadRequest, "Invalid operation");
         }
         catch (IOException ex)
         {
             _logger.LogError(ex, "IO error occurred");
-            await HandleExceptionAsync(context, ex, HttpStatusCode.InternalServerError);
+            await HandleExceptionAsync(context, ex, HttpStatusCode.InternalServerError, "A file system error occurred");
         }
         catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
         {
@@ -56,29 +59,34 @@ public class GlobalExceptionMiddleware
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unhandled exception occurred at {Path}", context.Request.Path);
-            await HandleExceptionAsync(context, ex, HttpStatusCode.InternalServerError);
+            await HandleExceptionAsync(context, ex, HttpStatusCode.InternalServerError, "An unexpected error occurred");
         }
     }
 
-    private static Task HandleExceptionAsync(
+    private Task HandleExceptionAsync(
         HttpContext context,
         Exception exception,
         HttpStatusCode statusCode,
-        string? customMessage = null)
+        string safeMessage)
     {
         context.Response.ContentType = "application/json";
         context.Response.StatusCode = (int)statusCode;
 
+        // In development, include exception details for debugging
+        // In production, use generic safe messages to prevent information disclosure
+        var isDevelopment = _environment.IsDevelopment();
+
         var response = new
         {
-            error = customMessage ?? exception.Message,
-            details = exception.Message,
+            error = isDevelopment ? exception.Message : safeMessage,
+            details = isDevelopment ? exception.Message : (string?)null,
             statusCode = (int)statusCode
         };
 
         var options = new JsonSerializerOptions
         {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
         };
 
         return context.Response.WriteAsync(JsonSerializer.Serialize(response, options));

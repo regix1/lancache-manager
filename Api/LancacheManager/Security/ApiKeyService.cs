@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 using LancacheManager.Infrastructure.Services.Interfaces;
 
 namespace LancacheManager.Security;
@@ -87,7 +88,22 @@ public class ApiKeyService
         }
 
         var validKey = GetOrCreateApiKey();
-        return string.Equals(apiKey, validKey, StringComparison.Ordinal);
+
+        // Use constant-time comparison to prevent timing attacks
+        // CryptographicOperations.FixedTimeEquals compares byte arrays in constant time
+        var apiKeyBytes = Encoding.UTF8.GetBytes(apiKey);
+        var validKeyBytes = Encoding.UTF8.GetBytes(validKey);
+
+        // If lengths differ, still perform comparison to maintain constant time
+        // but ensure we return false
+        if (apiKeyBytes.Length != validKeyBytes.Length)
+        {
+            // Compare with self to maintain constant time, then return false
+            CryptographicOperations.FixedTimeEquals(validKeyBytes, validKeyBytes);
+            return false;
+        }
+
+        return CryptographicOperations.FixedTimeEquals(apiKeyBytes, validKeyBytes);
     }
 
     public (string oldKey, string newKey) ForceRegenerateApiKey()

@@ -7,18 +7,53 @@ namespace LancacheManager.Controllers;
 /// <summary>
 /// Controller for browsing the server filesystem to locate database files
 /// Used primarily for DeveLanCacheUI import feature
+/// Security: Paths can be restricted via Security:AllowedBrowsePaths configuration
 /// </summary>
 [ApiController]
 [Route("api/filebrowser")]
 public class FileBrowserController : ControllerBase
 {
     private readonly ILogger<FileBrowserController> _logger;
+    private readonly IConfiguration _configuration;
+    private readonly List<string> _allowedPaths;
 
-    public FileBrowserController(ILogger<FileBrowserController> logger)
+    public FileBrowserController(ILogger<FileBrowserController> logger, IConfiguration configuration)
     {
         _logger = logger;
+        _configuration = configuration;
+        
+        // Parse allowed paths from configuration
+        // Format: comma-separated list of paths, e.g., "/data,/mnt,C:\data"
+        // Empty = allow all paths (for backward compatibility, but logs warning)
+        var allowedPathsConfig = _configuration["Security:AllowedBrowsePaths"];
+        if (string.IsNullOrWhiteSpace(allowedPathsConfig))
+        {
+            _allowedPaths = new List<string>(); // Empty = unrestricted (backward compat)
+        }
+        else
+        {
+            _allowedPaths = allowedPathsConfig
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(p => Path.GetFullPath(p))
+                .ToList();
+        }
     }
 
+    /// <summary>
+    /// Check if a path is within allowed directories
+    /// </summary>
+    private bool IsPathAllowed(string path)
+    {
+        // If no restrictions configured, allow all (backward compatibility)
+        if (_allowedPaths.Count == 0)
+        {
+            return true;
+        }
+
+        var fullPath = Path.GetFullPath(path);
+        return _allowedPaths.Any(allowed => 
+            fullPath.StartsWith(allowed, StringComparison.OrdinalIgnoreCase));
+    }
 
     /// <summary>
     /// GET /api/filebrowser/list - List contents of a directory
@@ -30,7 +65,7 @@ public class FileBrowserController : ControllerBase
     {
         try
         {
-            // If no path provided, return common locations
+            // If no path provided, return common locations (filtered by allowed paths)
             if (string.IsNullOrWhiteSpace(path))
             {
                 return Ok(new DirectoryListResponse
@@ -39,6 +74,13 @@ public class FileBrowserController : ControllerBase
                     ParentPath = null,
                     Items = GetCommonLocations()
                 });
+            }
+
+            // Security: Validate path is within allowed directories
+            if (!IsPathAllowed(path))
+            {
+                _logger.LogWarning("Attempted access to restricted path: {Path}", path);
+                return StatusCode(403, new ErrorResponse { Error = "Access to this path is not allowed" });
             }
 
             // Validate path exists
@@ -149,10 +191,48 @@ public class FileBrowserController : ControllerBase
 
     /// <summary>
     /// Get common locations where DeveLanCacheUI databases might be located
+    /// Filtered by allowed paths if Security:AllowedBrowsePaths is configured
     /// </summary>
     private List<FileSystemItemDto> GetCommonLocations()
     {
         var locations = new List<FileSystemItemDto>();
+        
+        // If allowed paths are configured, return only those
+        if (_allowedPaths.Count > 0)
+        {
+            foreach (var allowedPath in _allowedPaths)
+            {
+                if (Directory.Exists(allowedPath))
+                {
+                    try
+                    {
+                        var dirInfo = new DirectoryInfo(allowedPath);
+                        locations.Add(new FileSystemItemDto
+                        {
+                            Name = allowedPath,
+                            Path = allowedPath,
+                            IsDirectory = true,
+                            LastModified = dirInfo.LastWriteTime,
+                            IsAccessible = true
+                        });
+                    }
+                    catch
+                    {
+                        locations.Add(new FileSystemItemDto
+                        {
+                            Name = allowedPath,
+                            Path = allowedPath,
+                            IsDirectory = true,
+                            LastModified = DateTime.MinValue,
+                            IsAccessible = false
+                        });
+                    }
+                }
+            }
+            return locations;
+        }
+        
+        // No restrictions configured - return default common paths
         var commonPaths = new List<string>();
 
         // Detect OS and add appropriate paths
@@ -288,6 +368,13 @@ public class FileBrowserController : ControllerBase
             if (string.IsNullOrWhiteSpace(searchPath))
             {
                 searchPath = "/";
+            }
+
+            // Security: Validate path is within allowed directories
+            if (!IsPathAllowed(searchPath))
+            {
+                _logger.LogWarning("Attempted search in restricted path: {Path}", searchPath);
+                return StatusCode(403, new ErrorResponse { Error = "Access to this path is not allowed" });
             }
 
             if (!Directory.Exists(searchPath))

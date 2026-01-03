@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using LancacheManager.Application.DTOs;
 using LancacheManager.Data;
 using LancacheManager.Hubs;
@@ -5,6 +6,7 @@ using LancacheManager.Infrastructure.Repositories.Interfaces;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Controllers;
@@ -62,6 +64,7 @@ public class DevicesController : ControllerBase
     /// Request body: { "deviceId": "...", "apiKey": "...", "deviceName": "..." }
     /// </summary>
     [HttpPost]
+    [EnableRateLimiting("auth")]
     public async Task<IActionResult> RegisterDevice([FromBody] RegisterDeviceRequest request)
     {
         // Block authentication during database reset operations
@@ -262,9 +265,19 @@ public class DevicesController : ControllerBase
 
     public class RegisterDeviceRequest
     {
+        [Required]
+        [StringLength(128, MinimumLength = 16, ErrorMessage = "DeviceId must be between 16 and 128 characters")]
+        [RegularExpression(@"^[a-zA-Z0-9_-]+$", ErrorMessage = "DeviceId contains invalid characters")]
         public string DeviceId { get; set; } = string.Empty;
+
+        [Required]
+        [StringLength(100, MinimumLength = 40, ErrorMessage = "ApiKey must be between 40 and 100 characters")]
         public string ApiKey { get; set; } = string.Empty;
+
+        [StringLength(100, ErrorMessage = "DeviceName cannot exceed 100 characters")]
         public string? DeviceName { get; set; }
+
+        [StringLength(45, ErrorMessage = "LocalIp cannot exceed 45 characters")] // Max IPv6 length
         public string? LocalIp { get; set; }
     }
 }

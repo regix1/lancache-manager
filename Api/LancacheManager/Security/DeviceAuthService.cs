@@ -393,9 +393,19 @@ public class DeviceAuthService
 
     private byte[] DeriveKeyFromDeviceId(string deviceId)
     {
-        // Derive a 256-bit key from the device ID
+        // Derive a 256-bit key from the device ID combined with a server-side secret
+        // The secret adds protection even if an attacker knows the device ID
+        var serverSecret = _configuration["Security:DeviceKeySecret"];
+        
+        // If no secret is configured, use the API key as the secret (always exists)
+        // This ensures backward compatibility while still providing protection
+        if (string.IsNullOrEmpty(serverSecret))
+        {
+            serverSecret = _apiKeyService.GetOrCreateApiKey();
+        }
+        
         using var sha256 = SHA256.Create();
-        var hash = sha256.ComputeHash(Encoding.UTF8.GetBytes($"LancacheManager_{deviceId}_v1"));
+        var hash = sha256.ComputeHash(Encoding.UTF8.GetBytes($"LancacheManager_{serverSecret}_{deviceId}_v2"));
         return hash;
     }
 
