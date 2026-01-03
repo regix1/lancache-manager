@@ -172,7 +172,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
                 : 'Enable scheduled rotation to run automatically'}
             </p>
           </div>
-          <div className="relative">
+          <div className="relative min-w-[180px]">
             {isUpdatingSchedule && (
               <div className="absolute inset-0 flex items-center justify-center bg-themed-bg-secondary/50 rounded z-10">
                 <Loader2 className="w-4 h-4 animate-spin text-themed-primary" />
@@ -183,7 +183,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
               value={getScheduleValue(status.scheduleHours)}
               onChange={handleScheduleChange}
               disabled={!isAuthenticated || isUpdatingSchedule}
-              dropdownWidth="200px"
+              dropdownWidth="280px"
               alignRight
             />
           </div>
