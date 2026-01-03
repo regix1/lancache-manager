@@ -1,5 +1,5 @@
 import { SERVICES } from '../utils/constants';
-import type { Download, CacheInfo, ClientStat, ServiceStat, DashboardStats } from '../types';
+import type { Download, CacheInfo, ClientStat, ServiceStat, DashboardStats, HourlyActivityResponse, HourlyActivityItem, CacheGrowthResponse, CacheGrowthDataPoint } from '../types';
 
 interface MockData {
   cacheInfo: CacheInfo;
@@ -362,6 +362,136 @@ class MockDataService {
       isActive: true,
       gameName: game.name,
       gameAppId: game.appId
+    };
+  }
+
+  /**
+   * Generate mock hourly activity data for PeakUsageHours widget
+   */
+  static generateMockHourlyActivity(): HourlyActivityResponse {
+    const daysInPeriod = 7;
+
+    // Generate realistic hourly distribution - more activity in afternoon/evening
+    const hours: HourlyActivityItem[] = Array.from({ length: 24 }, (_, hour) => {
+      // Activity pattern: low at night, peak in afternoon/evening
+      let baseActivity: number;
+      if (hour >= 0 && hour < 6) {
+        baseActivity = 0.1 + Math.random() * 0.15; // Night: 10-25%
+      } else if (hour >= 6 && hour < 12) {
+        baseActivity = 0.3 + Math.random() * 0.2; // Morning: 30-50%
+      } else if (hour >= 12 && hour < 18) {
+        baseActivity = 0.7 + Math.random() * 0.3; // Afternoon: 70-100%
+      } else {
+        baseActivity = 0.5 + Math.random() * 0.35; // Evening: 50-85%
+      }
+
+      const downloads = Math.floor(baseActivity * 100 * daysInPeriod);
+      const avgDownloads = downloads / daysInPeriod;
+      const bytesPerDownload = (2 + Math.random() * 8) * 1024 * 1024 * 1024; // 2-10 GB average
+      const bytesServed = Math.floor(downloads * bytesPerDownload);
+      const avgBytesServed = bytesServed / daysInPeriod;
+      const cacheHitRatio = 0.7 + Math.random() * 0.25; // 70-95% hit rate
+
+      return {
+        hour,
+        downloads,
+        avgDownloads,
+        bytesServed,
+        avgBytesServed,
+        cacheHitBytes: Math.floor(bytesServed * cacheHitRatio),
+        cacheMissBytes: Math.floor(bytesServed * (1 - cacheHitRatio)),
+      };
+    });
+
+    // Find peak hour (highest downloads)
+    const peakHour = hours.reduce((max, h) => h.downloads > max.downloads ? h : max, hours[0]).hour;
+    const totalDownloads = hours.reduce((sum, h) => sum + h.downloads, 0);
+    const totalBytesServed = hours.reduce((sum, h) => sum + h.bytesServed, 0);
+
+    const now = Math.floor(Date.now() / 1000);
+    const periodStart = now - (daysInPeriod * 24 * 60 * 60);
+
+    return {
+      hours,
+      peakHour,
+      totalDownloads,
+      totalBytesServed,
+      daysInPeriod,
+      periodStart,
+      periodEnd: now,
+      period: '7d',
+    };
+  }
+
+  /**
+   * Generate mock cache growth data for CacheGrowthTrend widget
+   */
+  static generateMockCacheGrowth(usedCacheSize: number = 1450000000000, totalCacheSize: number = 2000000000000): CacheGrowthResponse {
+    const now = new Date();
+    const daysOfData = 14;
+
+    // Generate daily data points showing cumulative growth
+    const dataPoints: CacheGrowthDataPoint[] = [];
+    let cumulativeBytes = usedCacheSize * 0.6; // Start at 60% of current
+    const dailyGrowthBase = (usedCacheSize * 0.4) / daysOfData; // Spread remaining 40% over period
+
+    for (let i = daysOfData; i >= 0; i--) {
+      const date = new Date(now);
+      date.setDate(date.getDate() - i);
+      date.setHours(23, 59, 59, 0);
+
+      const growthVariation = 0.5 + Math.random(); // 50-150% of base growth
+      const dailyGrowth = Math.floor(dailyGrowthBase * growthVariation);
+
+      dataPoints.push({
+        timestamp: date.toISOString(),
+        cumulativeCacheMissBytes: Math.floor(cumulativeBytes),
+        growthFromPrevious: i === daysOfData ? 0 : dailyGrowth,
+      });
+
+      cumulativeBytes += dailyGrowth;
+    }
+
+    // Calculate average daily growth
+    const totalGrowth = dataPoints[dataPoints.length - 1].cumulativeCacheMissBytes - dataPoints[0].cumulativeCacheMissBytes;
+    const averageDailyGrowth = Math.floor(totalGrowth / daysOfData);
+
+    // Calculate trend by comparing first half to second half
+    const midpoint = Math.floor(dataPoints.length / 2);
+    const firstHalfGrowth = dataPoints[midpoint].cumulativeCacheMissBytes - dataPoints[0].cumulativeCacheMissBytes;
+    const secondHalfGrowth = dataPoints[dataPoints.length - 1].cumulativeCacheMissBytes - dataPoints[midpoint].cumulativeCacheMissBytes;
+
+    let trend: 'up' | 'down' | 'stable';
+    let percentChange = 0;
+
+    if (firstHalfGrowth > 0) {
+      percentChange = ((secondHalfGrowth - firstHalfGrowth) / firstHalfGrowth) * 100;
+      if (percentChange > 10) trend = 'up';
+      else if (percentChange < -10) trend = 'down';
+      else trend = 'stable';
+    } else {
+      trend = 'stable';
+    }
+
+    // Calculate days until full
+    const remainingSpace = totalCacheSize - usedCacheSize;
+    const estimatedDaysUntilFull = averageDailyGrowth > 0
+      ? Math.ceil(remainingSpace / averageDailyGrowth)
+      : null;
+
+    return {
+      dataPoints,
+      currentCacheSize: usedCacheSize,
+      totalCapacity: totalCacheSize,
+      averageDailyGrowth,
+      netAverageDailyGrowth: averageDailyGrowth,
+      trend,
+      percentChange,
+      estimatedDaysUntilFull,
+      period: '14d',
+      hasDataDeletion: false,
+      estimatedBytesDeleted: 0,
+      cacheWasCleared: false,
     };
   }
 }

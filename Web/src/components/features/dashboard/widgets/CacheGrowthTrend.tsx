@@ -6,6 +6,8 @@ import Sparkline from '../components/Sparkline';
 import ApiService from '@services/api.service';
 import { HelpPopover, HelpDefinition } from '@components/ui/HelpPopover';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
+import { useMockMode } from '@contexts/MockModeContext';
+import MockDataService from '../../../../test/mockData.service';
 
 interface CacheGrowthTrendProps {
   /** Current used cache size in bytes (from cacheInfo) */
@@ -29,12 +31,24 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
   staggerIndex,
 }) => {
   const { timeRange, getTimeRangeParams } = useTimeFilter();
+  const { mockMode } = useMockMode();
   const [data, setData] = useState<CacheGrowthResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Fetch cache growth data from API
+  // In mock mode, use generated mock data instead
   useEffect(() => {
+    if (mockMode) {
+      setLoading(true);
+      // Use mock data with provided cache sizes
+      const mockData = MockDataService.generateMockCacheGrowth(usedCacheSize, totalCacheSize);
+      setData(mockData);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
     const controller = new AbortController();
 
     const fetchData = async () => {
@@ -66,7 +80,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
     fetchData();
 
     return () => controller.abort();
-  }, [timeRange, getTimeRangeParams, usedCacheSize]);
+  }, [timeRange, getTimeRangeParams, usedCacheSize, totalCacheSize, mockMode]);
 
   // Extract sparkline data from API response
   const sparklineData = useMemo(() => {
