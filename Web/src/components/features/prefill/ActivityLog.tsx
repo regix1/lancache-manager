@@ -73,9 +73,10 @@ const formatTime = (date: Date): string => {
 
 const LogEntryRow = memo(({ entry }: { entry: LogEntry }) => (
   <div
-    className="flex items-start gap-3 py-2.5 px-4 transition-colors"
+    className="flex items-center gap-3 py-2 px-4 transition-colors"
     style={{
-      borderBottom: '1px solid var(--theme-border-secondary)'
+      borderBottom: '1px solid var(--theme-border-secondary)',
+      minHeight: '40px'
     }}
     onMouseEnter={(e) => {
       e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
@@ -83,23 +84,22 @@ const LogEntryRow = memo(({ entry }: { entry: LogEntry }) => (
     onMouseLeave={(e) => {
       e.currentTarget.style.backgroundColor = 'transparent';
     }}
+    title={entry.details ? `${entry.message}\n${entry.details}` : entry.message}
   >
     <span
-      className="text-xs font-mono flex-shrink-0 pt-0.5 tabular-nums"
+      className="text-xs font-mono flex-shrink-0 tabular-nums"
       style={{ color: 'var(--theme-text-muted)' }}
     >
       {formatTime(entry.timestamp)}
     </span>
     <LogIcon type={entry.type} />
     <div className="flex-1 min-w-0">
-      <span className="text-sm break-words" style={{ color: 'var(--theme-text-primary)' }}>
+      <span
+        className="text-sm truncate block"
+        style={{ color: 'var(--theme-text-primary)' }}
+      >
         {entry.message}
       </span>
-      {entry.details && (
-        <p className="text-xs mt-0.5 break-words" style={{ color: 'var(--theme-text-muted)' }}>
-          {entry.details}
-        </p>
-      )}
     </div>
   </div>
 ));
