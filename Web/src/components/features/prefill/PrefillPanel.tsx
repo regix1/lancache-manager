@@ -147,11 +147,13 @@ const COMMAND_BUTTONS: CommandButton[] = [
 
 export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const hubConnection = useRef<HubConnection | null>(null);
+  const initializationAttempted = useRef(false);
 
   const [session, setSession] = useState<PrefillSessionDto | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [timeRemaining, setTimeRemaining] = useState<number>(0);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -403,10 +405,59 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     }
   }, [session, onSessionEnd, handleAuthStateChanged, addLog]);
 
+  // Check for existing sessions and reconnect if found
+  const initializeSession = useCallback(async () => {
+    if (initializationAttempted.current) return;
+    initializationAttempted.current = true;
+
+    setIsInitializing(true);
+
+    try {
+      const connection = await connectToHub();
+      if (!connection) {
+        setIsInitializing(false);
+        return;
+      }
+
+      // Check for existing sessions
+      const existingSessions = await connection.invoke<PrefillSessionDto[]>('GetMySessions');
+      const activeSession = existingSessions?.find(s => s.status === 'Active');
+
+      if (activeSession) {
+        addLog('info', 'Reconnecting to existing session...', `Session: ${activeSession.id}`);
+
+        // Subscribe to the session
+        await connection.invoke('SubscribeToSession', activeSession.id);
+
+        setSession(activeSession);
+        setTimeRemaining(activeSession.timeRemainingSeconds);
+        setIsLoggedIn(activeSession.authState === 'Authenticated');
+
+        addLog('success', 'Reconnected to existing session', `Container: ${activeSession.containerName}`);
+        addLog('info', `Session expires in ${formatTimeRemaining(activeSession.timeRemainingSeconds)}`);
+
+        if (activeSession.authState === 'Authenticated') {
+          addLog('info', 'Already logged in to Steam');
+        } else {
+          addLog('info', 'Click "Login to Steam" to authenticate');
+        }
+      }
+    } catch (err) {
+      console.error('Failed to initialize session:', err);
+      // Don't set error - just means no existing session
+    } finally {
+      setIsInitializing(false);
+    }
+  }, [connectToHub, addLog, formatTimeRemaining]);
+
+  // Initialize on mount
+  useEffect(() => {
+    initializeSession();
+  }, [initializeSession]);
+
   const createSession = useCallback(async () => {
     setIsCreating(true);
     setError(null);
-    setIsLoggedIn(false);
     setLogEntries([]); // Clear previous logs
 
     try {
@@ -422,14 +473,23 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
       addLog('info', 'Creating prefill session...');
 
-      // Create session via hub
+      // Create session via hub (returns existing session if one exists)
       const sessionDto = await connection.invoke<PrefillSessionDto>('CreateSession');
       setSession(sessionDto);
       setTimeRemaining(sessionDto.timeRemainingSeconds);
 
-      addLog('success', 'Session created successfully', `Container: ${sessionDto.containerName}`);
+      // Check if this was an existing session or a new one
+      const isExistingSession = sessionDto.authState === 'Authenticated';
+      setIsLoggedIn(isExistingSession);
+
+      if (isExistingSession) {
+        addLog('success', 'Connected to existing session', `Container: ${sessionDto.containerName}`);
+        addLog('info', 'Already logged in to Steam');
+      } else {
+        addLog('success', 'Session created successfully', `Container: ${sessionDto.containerName}`);
+        addLog('info', 'Click "Login to Steam" to authenticate before using prefill commands');
+      }
       addLog('info', `Session expires in ${formatTimeRemaining(sessionDto.timeRemainingSeconds)}`);
-      addLog('info', 'Click "Login to Steam" to authenticate before using prefill commands');
 
       // Subscribe to session to start receiving events
       await connection.invoke('SubscribeToSession', sessionDto.id);
@@ -741,7 +801,14 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             </div>
           )}
 
-          {!session && !isCreating && (
+          {isInitializing && !session && (
+            <div className="flex items-center justify-center py-8 gap-3">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              <span>Checking for existing session...</span>
+            </div>
+          )}
+
+          {!session && !isCreating && !isInitializing && (
             <div className="flex flex-col items-center justify-center py-8 gap-4">
               <div className="text-center">
                 <h3 className="text-lg font-medium">Steam Prefill</h3>
@@ -772,7 +839,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             </div>
           )}
 
-          {isCreating && !session && (
+          {isCreating && !session && !isInitializing && (
             <div className="flex items-center justify-center py-8 gap-3">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
               <span>Creating session...</span>

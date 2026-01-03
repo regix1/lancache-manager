@@ -120,11 +120,12 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             throw new InvalidOperationException("Docker client not initialized. Cannot create session.");
         }
 
-        // Check if user already has an active session
+        // Check if user already has an active session - return it instead of creating a new one
         var existingSession = _sessions.Values.FirstOrDefault(s => s.UserId == userId && s.Status == DaemonSessionStatus.Active);
         if (existingSession != null)
         {
-            throw new InvalidOperationException($"User already has an active session: {existingSession.Id}");
+            _logger.LogInformation("Returning existing active session {SessionId} for user {UserId}", existingSession.Id, userId);
+            return existingSession;
         }
 
         // Always pull latest image before creating session
