@@ -269,14 +269,15 @@ public class PrefillDaemonHub : Hub
     }
 
     /// <summary>
-    /// Terminates a session
+    /// Terminates a session immediately (force kill)
     /// </summary>
     public async Task EndSession(string sessionId)
     {
         ValidateSessionAccess(sessionId, out var session);
 
-        _logger.LogInformation("Ending session {SessionId}", sessionId);
-        await _daemonService.TerminateSessionAsync(sessionId, "User ended session");
+        _logger.LogInformation("Force ending session {SessionId}", sessionId);
+        // Use force=true for immediate termination without waiting
+        await _daemonService.TerminateSessionAsync(sessionId, "User ended session", force: true);
     }
 
     /// <summary>

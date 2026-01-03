@@ -169,6 +169,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   // Prefill progress state
   const [prefillProgress, setPrefillProgress] = useState<{
     state: string;
+    message?: string;
     currentAppId: number;
     currentAppName?: string;
     percentComplete: number;
@@ -278,6 +279,21 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       return null;
     }
 
+    // Reuse existing connection if already connected
+    if (hubConnection.current?.state === 'Connected') {
+      return hubConnection.current;
+    }
+
+    // Stop any existing connection before creating a new one
+    if (hubConnection.current) {
+      try {
+        await hubConnection.current.stop();
+      } catch {
+        // Ignore errors stopping old connection
+      }
+      hubConnection.current = null;
+    }
+
     setIsConnecting(true);
     setError(null);
 
@@ -335,6 +351,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       // Handle prefill progress updates
       connection.on('PrefillProgress', (_sessionId: string, progress: {
         state: string;
+        message?: string;
         currentAppId: number;
         currentAppName?: string;
         percentComplete: number;
@@ -345,6 +362,13 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       }) => {
         if (progress.state === 'downloading') {
           setPrefillProgress(progress);
+        } else if (progress.state === 'loading-metadata' || progress.state === 'metadata-loaded' || progress.state === 'starting' || progress.state === 'preparing') {
+          // Show status message for metadata loading phase
+          if (progress.message) {
+            addLog('info', progress.message);
+          }
+          // Set a loading state so UI shows something is happening
+          setPrefillProgress({ ...progress, percentComplete: 0, bytesDownloaded: 0, totalBytes: 0 });
         } else if (progress.state === 'completed' || progress.state === 'error' || progress.state === 'app_completed') {
           // Clear progress on completion or error
           if (progress.state !== 'app_completed') {
@@ -913,17 +937,24 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
       {/* Prefill Progress */}
       {prefillProgress && (
-        <Card>
+        <Card className="border-primary/50">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Download className="h-4 w-4 text-primary animate-pulse" />
-                <CardTitle className="text-base">Downloading</CardTitle>
+                <CardTitle className="text-base">
+                  {prefillProgress.state === 'loading-metadata' ? 'Loading Game Data' :
+                   prefillProgress.state === 'metadata-loaded' ? 'Preparing' :
+                   prefillProgress.state === 'starting' ? 'Starting' :
+                   'Downloading'}
+                </CardTitle>
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-sm text-muted-foreground">
-                  {formatBytes(prefillProgress.bytesPerSecond)}/s
-                </span>
+                {prefillProgress.state === 'downloading' && (
+                  <span className="text-sm text-muted-foreground">
+                    {formatBytes(prefillProgress.bytesPerSecond)}/s
+                  </span>
+                )}
                 <Button
                   variant="outline"
                   size="sm"
@@ -938,28 +969,43 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           </CardHeader>
           <CardContent className="space-y-3">
             <div>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-sm font-medium truncate max-w-[60%]">
-                  {prefillProgress.currentAppName || `App ${prefillProgress.currentAppId}`}
-                </span>
-                <span className="text-sm text-muted-foreground">
-                  {prefillProgress.percentComplete.toFixed(1)}%
-                </span>
-              </div>
-              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-primary transition-all duration-300 ease-out"
-                  style={{ width: `${Math.min(100, prefillProgress.percentComplete)}%` }}
-                />
-              </div>
-              <div className="flex items-center justify-between mt-1 text-xs text-muted-foreground">
-                <span>
-                  {formatBytes(prefillProgress.bytesDownloaded)} / {formatBytes(prefillProgress.totalBytes)}
-                </span>
-                <span>
-                  Elapsed: {formatTimeRemaining(Math.floor(prefillProgress.elapsedSeconds))}
-                </span>
-              </div>
+              {prefillProgress.state === 'loading-metadata' || prefillProgress.state === 'metadata-loaded' || prefillProgress.state === 'starting' || prefillProgress.state === 'preparing' ? (
+                // Show message for metadata loading phase
+                <div className="flex flex-col items-center justify-center py-2">
+                  <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+                    <div className="h-full bg-primary animate-pulse" style={{ width: '100%' }} />
+                  </div>
+                  <span className="text-sm text-muted-foreground mt-2">
+                    {prefillProgress.message || 'Preparing prefill operation...'}
+                  </span>
+                </div>
+              ) : (
+                // Show download progress
+                <>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-medium truncate max-w-[60%]">
+                      {prefillProgress.currentAppName || `App ${prefillProgress.currentAppId}`}
+                    </span>
+                    <span className="text-sm text-muted-foreground">
+                      {prefillProgress.percentComplete.toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="h-2 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-primary transition-all duration-300 ease-out"
+                      style={{ width: `${Math.min(100, prefillProgress.percentComplete)}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between mt-1 text-xs text-muted-foreground">
+                    <span>
+                      {formatBytes(prefillProgress.bytesDownloaded)} / {formatBytes(prefillProgress.totalBytes)}
+                    </span>
+                    <span>
+                      Elapsed: {formatTimeRemaining(Math.floor(prefillProgress.elapsedSeconds))}
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
           </CardContent>
         </Card>

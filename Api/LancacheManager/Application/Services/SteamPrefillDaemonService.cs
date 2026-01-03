@@ -547,39 +547,57 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     /// <summary>
     /// Terminates a session and cleans up resources
     /// </summary>
-    public async Task TerminateSessionAsync(string sessionId, string reason = "User requested")
+    /// <param name="force">If true, kills the container immediately without graceful shutdown</param>
+    public async Task TerminateSessionAsync(string sessionId, string reason = "User requested", bool force = false)
     {
         if (!_sessions.TryRemove(sessionId, out var session))
         {
             return;
         }
 
-        _logger.LogInformation("Terminating session {SessionId}: {Reason}", sessionId, reason);
+        _logger.LogInformation("Terminating session {SessionId}: {Reason} (force={Force})", sessionId, reason, force);
 
         session.Status = DaemonSessionStatus.Terminated;
         session.EndedAt = DateTime.UtcNow;
 
-        // Shutdown daemon via command first
-        try
-        {
-            await session.Client.ShutdownAsync();
-        }
-        catch
-        {
-            // Ignore shutdown errors
-        }
+        // Cancel any ongoing operations immediately
+        session.CancellationTokenSource.Cancel();
 
-        // Stop and remove container
+        // Kill container immediately if force, otherwise try graceful shutdown
         if (_dockerClient != null && !string.IsNullOrEmpty(session.ContainerId))
         {
             try
             {
-                await _dockerClient.Containers.StopContainerAsync(
-                    session.ContainerId,
-                    new ContainerStopParameters { WaitBeforeKillSeconds = 5 });
+                if (force)
+                {
+                    // Kill immediately without waiting
+                    await _dockerClient.Containers.KillContainerAsync(
+                        session.ContainerId,
+                        new ContainerKillParameters());
+                    _logger.LogInformation("Force killed container {ContainerId} for session {SessionId}",
+                        session.ContainerId, sessionId);
+                }
+                else
+                {
+                    // Try graceful shutdown first (with very short timeout)
+                    try
+                    {
+                        using var shutdownCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                        await session.Client.ShutdownAsync(shutdownCts.Token);
+                    }
+                    catch
+                    {
+                        // Ignore shutdown errors - container will be killed
+                    }
 
-                _logger.LogInformation("Stopped container {ContainerId} for session {SessionId}",
-                    session.ContainerId, sessionId);
+                    // Stop with minimal wait time
+                    await _dockerClient.Containers.StopContainerAsync(
+                        session.ContainerId,
+                        new ContainerStopParameters { WaitBeforeKillSeconds = 1 });
+
+                    _logger.LogInformation("Stopped container {ContainerId} for session {SessionId}",
+                        session.ContainerId, sessionId);
+                }
             }
             catch (DockerContainerNotFoundException)
             {
@@ -597,7 +615,6 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         // Cleanup
         session.Client.Dispose();
         session.StatusWatcher?.Dispose();
-        session.CancellationTokenSource.Cancel();
         session.CancellationTokenSource.Dispose();
 
         // Clean up directories
@@ -1212,6 +1229,7 @@ public class DaemonSessionDto
 public class PrefillProgress
 {
     public string State { get; set; } = "idle";
+    public string? Message { get; set; }
     public uint CurrentAppId { get; set; }
     public string? CurrentAppName { get; set; }
     public long TotalBytes { get; set; }

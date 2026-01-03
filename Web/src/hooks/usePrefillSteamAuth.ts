@@ -68,15 +68,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         setWaitingForMobileConfirmation(false);
         setLoading(false);
 
-        addNotification({
-          type: 'generic',
-          status: 'completed',
-          message: 'Successfully logged in to Steam',
-          details: { notificationType: 'success' }
-        });
-
-        // The PrefillPanel's handleAuthStateChanged will also close the modal,
-        // but we call onSuccess here for consistency
+        // Note: PrefillPanel's handleAuthStateChanged handles the log entry,
+        // so we don't add a notification here to avoid duplicates
         onSuccess?.();
       }
     };
@@ -86,7 +79,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     return () => {
       hubConnection.off('AuthStateChanged', handleAuthStateChanged);
     };
-  }, [hubConnection, sessionId, onSuccess, addNotification]);
+  }, [hubConnection, sessionId, onSuccess]);
 
   // Listen for credential challenges from the daemon
   useEffect(() => {
