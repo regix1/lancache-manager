@@ -371,17 +371,20 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         if (progress.state === 'downloading') {
           setPrefillProgress(progress);
         } else if (progress.state === 'loading-metadata' || progress.state === 'metadata-loaded' || progress.state === 'starting' || progress.state === 'preparing') {
-          // Show status message for metadata loading phase
+          // Log status message
           if (progress.message) {
             addLog('info', progress.message);
           }
+          // Don't show progress bar for "0 games" scenarios - nothing to download
+          if (progress.message?.includes('0 games')) {
+            setPrefillProgress(null);
+            return;
+          }
           // Set a loading state so UI shows something is happening
           setPrefillProgress({ ...progress, percentComplete: 0, bytesDownloaded: 0, totalBytes: 0 });
-        } else if (progress.state === 'completed' || progress.state === 'error' || progress.state === 'app_completed') {
-          // Clear progress on completion or error
-          if (progress.state !== 'app_completed') {
-            setPrefillProgress(null);
-          }
+        } else {
+          // Clear progress for any other state (completed, error, app_completed, idle, etc.)
+          setPrefillProgress(null);
         }
       });
 
