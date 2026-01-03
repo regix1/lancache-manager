@@ -344,7 +344,7 @@ public partial class SteamKit2Service
 
             if (currentCount >= MaxSessionReplacedBeforeLogout)
             {
-                _logger.LogError("Steam session has been replaced {Count} times. Auto-logging out to prevent further attempts. User must re-authenticate.", currentCount);
+                _logger.LogWarning("Steam session was replaced. Auto-logging out and switching to anonymous mode. User must re-authenticate.");
 
                 // Set flag to prevent OnDisconnected from attempting reconnections
                 _sessionReplacementAutoLogout = true;
@@ -356,7 +356,7 @@ public partial class SteamKit2Service
                 _stateService.ResetSessionReplacedCount(); // Reset counter in state.json
                 _isReconnectingAfterSessionReplaced = false; // Clear flag since we're logging out
 
-                errorMessage = $"Your Steam session was replaced {MaxSessionReplacedBeforeLogout} times. This usually means another device or application is using your Steam account. Your credentials have been cleared - please re-authenticate after closing other Steam sessions.";
+                errorMessage = "Your Steam session was replaced by another login. This usually means you logged into Steam from another device or application (Steam client, browser, etc.). Your credentials have been cleared and the system has switched to anonymous mode. Please close other Steam sessions and re-authenticate.";
                 errorType = "AutoLogout";
 
                 // Send auto-logout notification

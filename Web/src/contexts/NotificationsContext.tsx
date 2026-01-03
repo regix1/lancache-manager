@@ -1343,6 +1343,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           case 'SessionReplaced':
           case 'LoggedInElsewhere':
             return 'Steam Session Replaced';
+          case 'AutoLogout':
+            return 'Steam Auto-Logout';
           case 'InvalidCredentials':
           case 'AuthenticationRequired':
           case 'SessionExpired':

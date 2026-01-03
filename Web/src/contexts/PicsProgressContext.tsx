@@ -200,19 +200,26 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
     const handleDepotMappingComplete = (event: DepotMappingCompleteEvent) => {
       console.log('[PicsProgress] Depot mapping complete:', event);
       const now = new Date().toISOString();
+      
+      // Handle both success and failure cases
+      const isSuccess = event.success !== false && !event.cancelled;
+      const isCancelled = event.cancelled === true;
+      
       setProgress((prev) =>
         prev
           ? {
               ...prev,
               isProcessing: false,
-              status: 'Completed',
-              progressPercent: 100,
+              status: isCancelled ? 'Cancelled' : isSuccess ? 'Completed' : 'Failed',
+              progressPercent: isSuccess ? 100 : prev.progressPercent,
               processedApps: event.totalApps || prev.totalApps,
               processedBatches: event.totalBatches || prev.totalBatches,
               depotMappingsFound: event.depotMappingsFound || prev.depotMappingsFound,
-              lastCrawlTime: now,
-              // Calculate next crawl time (convert hours to seconds)
-              nextCrawlIn: prev.crawlIntervalHours ? prev.crawlIntervalHours * 3600 : undefined
+              // Only update lastCrawlTime and nextCrawlIn on success
+              lastCrawlTime: isSuccess ? now : prev.lastCrawlTime,
+              nextCrawlIn: isSuccess && prev.crawlIntervalHours ? prev.crawlIntervalHours * 3600 : prev.nextCrawlIn,
+              // Store error message if present
+              errorMessage: event.error || null
             }
           : null
       );

@@ -54,7 +54,7 @@ public partial class SteamKit2Service : IHostedService, IDisposable
 
     // Track session replacement errors to auto-logout after repeated failures
     // Counter is persisted to state.json via _stateService
-    private const int MaxSessionReplacedBeforeLogout = 2; // Auto-logout after 2 session replacements
+    private const int MaxSessionReplacedBeforeLogout = 1; // Auto-logout after 2 session replacements
     private bool _isReconnectingAfterSessionReplaced = false; // Don't reset counter during reconnection
     private bool _sessionReplacementAutoLogout = false; // Prevent reconnection attempts after auto-logout
 
