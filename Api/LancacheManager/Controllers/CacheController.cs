@@ -30,6 +30,7 @@ public class CacheController : ControllerBase
     private readonly StateRepository _stateService;
     private readonly IHubContext<DownloadHub> _hubContext;
     private readonly RustProcessHelper _rustProcessHelper;
+    private readonly NginxLogRotationService _nginxLogRotationService;
 
     public CacheController(
         CacheManagementService cacheService,
@@ -41,7 +42,8 @@ public class CacheController : ControllerBase
         IPathResolver pathResolver,
         StateRepository stateService,
         IHubContext<DownloadHub> hubContext,
-        RustProcessHelper rustProcessHelper)
+        RustProcessHelper rustProcessHelper,
+        NginxLogRotationService nginxLogRotationService)
     {
         _cacheService = cacheService;
         _cacheClearingService = cacheClearingService;
@@ -53,6 +55,7 @@ public class CacheController : ControllerBase
         _stateService = stateService;
         _hubContext = hubContext;
         _rustProcessHelper = rustProcessHelper;
+        _nginxLogRotationService = nginxLogRotationService;
     }
 
     /// <summary>
@@ -438,6 +441,10 @@ public class CacheController : ControllerBase
                     if (result.Success)
                     {
                         _logger.LogInformation("Corruption removal completed for service: {Service}", service);
+
+                        // Signal nginx to reopen log files (prevents monolithic container from losing log access)
+                        await _nginxLogRotationService.ReopenNginxLogsAsync();
+
                         _removalTracker.CompleteCorruptionRemoval(service, true);
                         await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
                         {
