@@ -156,11 +156,16 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
   const endIndex = startIndex + ENTRIES_PER_PAGE;
   const visibleEntries = entries.slice(startIndex, endIndex);
 
-  // Calculate scroll area height - subtract pagination height when pagination is shown
+  // Check if using percentage-based height (needs flex layout) or fixed height (can use calc)
   const hasPagination = totalPages > 1;
-  const scrollAreaMaxHeight = hasPagination
-    ? `calc(${maxHeight} - ${PAGINATION_HEIGHT}px)`
-    : maxHeight;
+  const isPercentageHeight = maxHeight.includes('%');
+
+  // For percentage heights, we use flex layout. For fixed heights, we use calc.
+  const scrollAreaMaxHeight = isPercentageHeight
+    ? undefined // Let flex handle it
+    : hasPagination
+      ? `calc(${maxHeight} - ${PAGINATION_HEIGHT}px)`
+      : maxHeight;
 
   // Auto-advance to last page when new entries are added
   useEffect(() => {
@@ -212,13 +217,15 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
         borderRadius: 'var(--theme-border-radius-lg, 0.75rem)',
         border: '1px solid var(--theme-border-secondary)',
         overflow: 'hidden',
+        // For percentage heights, set height to fill container
+        ...(isPercentageHeight ? { height: maxHeight } : {}),
       }}
     >
       {entries.length === 0 ? (
         /* Empty State */
         <div
-          className="flex flex-col items-center justify-center py-12 px-6"
-          style={{ height: maxHeight }}
+          className="flex flex-col items-center justify-center py-12 px-6 flex-1"
+          style={isPercentageHeight ? {} : { height: maxHeight }}
         >
           <div
             className="relative w-14 h-14 rounded-xl flex items-center justify-center mb-3"
@@ -246,12 +253,12 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
         </div>
       ) : (
         <>
-          {/* Scrollable Log Entries Area - explicit maxHeight accounts for pagination */}
+          {/* Scrollable Log Entries Area - uses flex for % heights, calc for fixed heights */}
           <div
             ref={scrollContainerRef}
-            className="overflow-y-auto overflow-x-hidden"
+            className={`overflow-y-auto overflow-x-hidden ${isPercentageHeight ? 'flex-1 min-h-0' : ''}`}
             style={{
-              maxHeight: scrollAreaMaxHeight,
+              ...(scrollAreaMaxHeight ? { maxHeight: scrollAreaMaxHeight } : {}),
               scrollbarWidth: 'thin',
               scrollbarColor: 'var(--theme-scrollbar-thumb) var(--theme-scrollbar-track)',
             }}
