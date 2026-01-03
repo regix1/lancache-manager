@@ -30,6 +30,7 @@ public class CacheController : ControllerBase
     private readonly StateRepository _stateService;
     private readonly IHubContext<DownloadHub> _hubContext;
     private readonly RustProcessHelper _rustProcessHelper;
+    private readonly NginxLogRotationService _nginxLogRotationService;
 
     public CacheController(
         CacheManagementService cacheService,
@@ -41,7 +42,8 @@ public class CacheController : ControllerBase
         IPathResolver pathResolver,
         StateRepository stateService,
         IHubContext<DownloadHub> hubContext,
-        RustProcessHelper rustProcessHelper)
+        RustProcessHelper rustProcessHelper,
+        NginxLogRotationService nginxLogRotationService)
     {
         _cacheService = cacheService;
         _cacheClearingService = cacheClearingService;
@@ -53,6 +55,7 @@ public class CacheController : ControllerBase
         _stateService = stateService;
         _hubContext = hubContext;
         _rustProcessHelper = rustProcessHelper;
+        _nginxLogRotationService = nginxLogRotationService;
     }
 
     /// <summary>
@@ -198,7 +201,7 @@ public class CacheController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error calculating cache size");
-            return StatusCode(500, new ErrorResponse { Error = "Failed to calculate cache size", Details = ex.Message });
+            return StatusCode(500, new ErrorResponse { Error = "Failed to calculate cache size. Check server logs for details." });
         }
     }
 
@@ -438,6 +441,10 @@ public class CacheController : ControllerBase
                     if (result.Success)
                     {
                         _logger.LogInformation("Corruption removal completed for service: {Service}", service);
+
+                        // Signal nginx to reopen log files (prevents monolithic container from losing log access)
+                        await _nginxLogRotationService.ReopenNginxLogsAsync();
+
                         _removalTracker.CompleteCorruptionRemoval(service, true);
                         await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
                         {
@@ -470,13 +477,13 @@ public class CacheController : ControllerBase
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error during corruption removal for service: {Service}", service);
-                _removalTracker.CompleteCorruptionRemoval(service, false, ex.Message);
+                _removalTracker.CompleteCorruptionRemoval(service, false, "Operation failed. Check server logs for details.");
                 await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
                 {
                     service,
                     operationId,
                     success = false,
-                    error = ex.Message
+                    error = "Operation failed. Check server logs for details."
                 });
             }
         });
@@ -602,14 +609,14 @@ public class CacheController : ControllerBase
                 _logger.LogError(ex, "Error during service removal for: {Service}", name);
 
                 // Complete tracking with error
-                _removalTracker.CompleteServiceRemoval(name, false, error: ex.Message);
+                _removalTracker.CompleteServiceRemoval(name, false, error: "Operation failed. Check server logs for details.");
 
                 // Send SignalR notification on failure
                 await _hubContext.Clients.All.SendAsync("ServiceRemovalComplete", new
                 {
                     success = false,
                     serviceName = name,
-                    message = $"Failed to remove {name} service: {ex.Message}"
+                    message = $"Failed to remove {name} service. Check server logs for details."
                 });
             }
         });

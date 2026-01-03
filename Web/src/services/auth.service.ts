@@ -22,6 +22,9 @@ interface AuthCheckResponse {
   hasBeenInitialized?: boolean; // Whether setup has been completed (persistent flag)
   hasDataLoaded?: boolean; // Whether depot data has been loaded from state.json
   error?: string;
+  // Prefill permission for guests
+  prefillEnabled?: boolean;
+  prefillTimeRemaining?: number; // minutes
 }
 
 interface RegisterResponse {
@@ -239,11 +242,13 @@ class AuthService {
             requiresAuth: true,
             isAuthenticated: false,
             authMode: 'guest',
-            guestTimeRemaining: this.getGuestTimeRemaining(),
+            guestTimeRemaining: result.guestTimeRemaining || this.getGuestTimeRemaining(),
             hasData: result.hasData || false,
             hasEverBeenSetup: result.hasEverBeenSetup || false,
             hasBeenInitialized: result.hasBeenInitialized || false,
-            hasDataLoaded: result.hasDataLoaded || false
+            hasDataLoaded: result.hasDataLoaded || false,
+            prefillEnabled: result.prefillEnabled ?? false,
+            prefillTimeRemaining: result.prefillTimeRemaining
           };
         } catch {
           return {
@@ -254,7 +259,9 @@ class AuthService {
             hasData: false,
             hasEverBeenSetup: false,
             hasBeenInitialized: false,
-            hasDataLoaded: false
+            hasDataLoaded: false,
+            prefillEnabled: false,
+            prefillTimeRemaining: undefined
           };
         }
       }
@@ -320,7 +327,10 @@ class AuthService {
           hasData: result.hasData || false,
           hasEverBeenSetup: result.hasEverBeenSetup || false,
           hasBeenInitialized: result.hasBeenInitialized || false,
-          hasDataLoaded: result.hasDataLoaded || false
+          hasDataLoaded: result.hasDataLoaded || false,
+          // Prefill permission for guests
+          prefillEnabled: result.prefillEnabled ?? false,
+          prefillTimeRemaining: result.prefillTimeRemaining
         };
       }
 

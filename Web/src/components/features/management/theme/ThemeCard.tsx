@@ -64,7 +64,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
 
   return (
     <div
-      className="rounded-lg p-4 transition-all hover:shadow-md themed-card relative group"
+      className="rounded-lg p-4 transition-all hover:shadow-md themed-card relative group isolate"
       style={{
         backgroundColor: 'var(--theme-bg-secondary)',
         border: `1px solid ${

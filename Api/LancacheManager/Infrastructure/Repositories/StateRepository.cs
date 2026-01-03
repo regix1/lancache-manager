@@ -79,6 +79,10 @@ public class StateRepository : IStateRepository
         // If empty or null, all formats are allowed
         public List<string> AllowedTimeFormats { get; set; } = new() { "server-24h", "server-12h", "local-24h", "local-12h" };
 
+        // Guest prefill permissions - controls access to the Prefill tab for guests
+        public bool GuestPrefillEnabledByDefault { get; set; } = false; // Whether new guests get prefill access by default
+        public int GuestPrefillDurationHours { get; set; } = 2; // Default duration for prefill access (1 or 2 hours)
+
         // PICS viability check caching (prevents repeated Steam API calls)
         public bool RequiresFullScan { get; set; } = false; // True if Steam requires full scan due to large change gap
         public DateTime? LastViabilityCheck { get; set; } // When we last checked with Steam
@@ -139,6 +143,10 @@ public class StateRepository : IStateRepository
 
         // Allowed time formats for guests
         public List<string> AllowedTimeFormats { get; set; } = new() { "server-24h", "server-12h", "local-24h", "local-12h" };
+
+        // Guest prefill permissions
+        public bool GuestPrefillEnabledByDefault { get; set; } = false;
+        public int GuestPrefillDurationHours { get; set; } = 2;
 
         // PICS viability check caching
         public bool RequiresFullScan { get; set; } = false;
@@ -866,6 +874,9 @@ public class StateRepository : IStateRepository
             DefaultGuestShowDatasourceLabels = persisted.DefaultGuestShowDatasourceLabels,
             DefaultGuestShowYearInDates = persisted.DefaultGuestShowYearInDates,
             AllowedTimeFormats = persisted.AllowedTimeFormats ?? new List<string> { "server-24h", "server-12h", "local-24h", "local-12h" },
+            // Guest prefill permissions
+            GuestPrefillEnabledByDefault = persisted.GuestPrefillEnabledByDefault,
+            GuestPrefillDurationHours = persisted.GuestPrefillDurationHours,
             // PICS viability check caching
             RequiresFullScan = persisted.RequiresFullScan,
             LastViabilityCheck = persisted.LastViabilityCheck,
@@ -921,6 +932,9 @@ public class StateRepository : IStateRepository
             DefaultGuestShowDatasourceLabels = state.DefaultGuestShowDatasourceLabels,
             DefaultGuestShowYearInDates = state.DefaultGuestShowYearInDates,
             AllowedTimeFormats = state.AllowedTimeFormats,
+            // Guest prefill permissions
+            GuestPrefillEnabledByDefault = state.GuestPrefillEnabledByDefault,
+            GuestPrefillDurationHours = state.GuestPrefillDurationHours,
             // PICS viability check caching
             RequiresFullScan = state.RequiresFullScan,
             LastViabilityCheck = state.LastViabilityCheck,
@@ -1155,5 +1169,31 @@ public class StateRepository : IStateRepository
     public void SetRequireAuthForMetrics(bool? value)
     {
         UpdateState(state => state.RequireAuthForMetrics = value);
+    }
+
+    // Guest Prefill Permission Methods
+    public bool GetGuestPrefillEnabledByDefault()
+    {
+        return GetState().GuestPrefillEnabledByDefault;
+    }
+
+    public void SetGuestPrefillEnabledByDefault(bool enabled)
+    {
+        UpdateState(state => state.GuestPrefillEnabledByDefault = enabled);
+    }
+
+    public int GetGuestPrefillDurationHours()
+    {
+        return GetState().GuestPrefillDurationHours;
+    }
+
+    public void SetGuestPrefillDurationHours(int hours)
+    {
+        // Validate hours (1 or 2)
+        if (hours != 1 && hours != 2)
+        {
+            hours = 2; // Default to 2 hours
+        }
+        UpdateState(state => state.GuestPrefillDurationHours = hours);
     }
 }

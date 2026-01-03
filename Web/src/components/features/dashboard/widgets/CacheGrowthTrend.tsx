@@ -6,6 +6,8 @@ import Sparkline from '../components/Sparkline';
 import ApiService from '@services/api.service';
 import { HelpPopover, HelpDefinition } from '@components/ui/HelpPopover';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
+import { useMockMode } from '@contexts/MockModeContext';
+import MockDataService from '../../../../test/mockData.service';
 
 interface CacheGrowthTrendProps {
   /** Current used cache size in bytes (from cacheInfo) */
@@ -29,12 +31,24 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
   staggerIndex,
 }) => {
   const { timeRange, getTimeRangeParams } = useTimeFilter();
+  const { mockMode } = useMockMode();
   const [data, setData] = useState<CacheGrowthResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Fetch cache growth data from API
+  // In mock mode, use generated mock data instead
   useEffect(() => {
+    if (mockMode) {
+      setLoading(true);
+      // Use mock data with provided cache sizes
+      const mockData = MockDataService.generateMockCacheGrowth(usedCacheSize, totalCacheSize);
+      setData(mockData);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
     const controller = new AbortController();
 
     const fetchData = async () => {
@@ -42,7 +56,14 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
         setLoading(true);
         setError(null);
         const { startTime, endTime } = getTimeRangeParams();
-        const response = await ApiService.getCacheGrowth(controller.signal, startTime, endTime, 'daily');
+        // Pass actual cache size to detect deletions and calculate net growth
+        const response = await ApiService.getCacheGrowth(
+          controller.signal,
+          startTime,
+          endTime,
+          'daily',
+          usedCacheSize > 0 ? usedCacheSize : undefined
+        );
         setData(response);
       } catch (err) {
         if (!controller.signal.aborted) {
@@ -59,7 +80,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
     fetchData();
 
     return () => controller.abort();
-  }, [timeRange, getTimeRangeParams]);
+  }, [timeRange, getTimeRangeParams, usedCacheSize, totalCacheSize, mockMode]);
 
   // Extract sparkline data from API response
   const sparklineData = useMemo(() => {
@@ -70,9 +91,12 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
   // Get values from API or props
   const trend = data?.trend ?? 'stable';
   const percentChange = data?.percentChange ?? 0;
-  const growthRatePerDay = data?.averageDailyGrowth ?? 0;
+  // Use net growth rate (accounts for cache deletions) when available
+  const growthRatePerDay = data?.netAverageDailyGrowth ?? data?.averageDailyGrowth ?? 0;
   const daysUntilFull = data?.estimatedDaysUntilFull ?? null;
   const hasEnoughData = sparklineData.length >= 2;
+  const hasDataDeletion = data?.hasDataDeletion ?? false;
+  const cacheWasCleared = data?.cacheWasCleared ?? false;
 
   // Usage percentage (from props - real cache info)
   const usagePercent = totalCacheSize > 0
@@ -137,18 +161,25 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
           <h3 className="text-sm font-semibold" style={{ color: 'var(--theme-text-primary)' }}>
             Cache Growth
           </h3>
-          <HelpPopover width={240}>
+          <HelpPopover width={260}>
             <div className="space-y-1.5">
               <HelpDefinition term="↑ Up" termColor="green">Cache growing faster recently</HelpDefinition>
               <HelpDefinition term="↓ Down" termColor="orange">Cache growth slowing down</HelpDefinition>
+              {hasDataDeletion && (
+                <HelpDefinition term="Net Growth" termColor="blue">
+                  Accounts for cache that was cleared/deleted
+                </HelpDefinition>
+              )}
               <div className="text-[10px] mt-2 pt-2 border-t" style={{ borderColor: 'var(--theme-border)', color: 'var(--theme-text-muted)' }}>
-                Compares recent daily growth to earlier in the period
+                {hasDataDeletion
+                  ? 'Cache was cleared - growth rate adjusted for deletions'
+                  : 'Compares recent daily growth to earlier in the period'}
               </div>
             </div>
           </HelpPopover>
         </div>
-        {/* Only show percentage when meaningful (not 0) and not extreme (<=500%) */}
-        {hasEnoughData && percentChange !== 0 && Math.abs(percentChange) <= 500 && (
+        {/* Only show percentage when meaningful (not 0), not extreme (<=500%), and cache wasn't cleared */}
+        {hasEnoughData && percentChange !== 0 && Math.abs(percentChange) <= 500 && !cacheWasCleared && (
           <div
             className="flex items-center gap-1 text-xs font-medium"
             style={{ color: getTrendColor() }}
@@ -198,20 +229,41 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
         <div className="mb-3">
           <Sparkline
             data={sparklineData}
-            color="var(--theme-primary)"
+            color={hasDataDeletion ? 'var(--theme-info)' : 'var(--theme-primary)'}
             height={40}
             showArea={true}
             animated={true}
             ariaLabel={`Cache growth trend over ${timeRange}`}
           />
+          {hasDataDeletion && (
+            <div
+              className="text-[10px] text-center mt-1"
+              style={{ color: 'var(--theme-text-muted)' }}
+            >
+              {cacheWasCleared
+                ? 'Cache cleared • Showing new downloads'
+                : 'Some cache data was deleted'}
+            </div>
+          )}
         </div>
       )}
 
       {/* Growth stats */}
       <div className="grid grid-cols-2 gap-4 text-xs">
         <div>
-          <div style={{ color: 'var(--theme-text-muted)' }}>Growth Rate</div>
-          <div className="font-medium" style={{ color: 'var(--theme-text-primary)' }}>
+          <div style={{ color: 'var(--theme-text-muted)' }}>
+            {cacheWasCleared ? 'Download Rate' : hasDataDeletion ? 'Net Growth' : 'Growth Rate'}
+          </div>
+          <div
+            className="font-medium"
+            style={{
+              color: growthRatePerDay < 0
+                ? 'var(--theme-info)'
+                : growthRatePerDay > 0
+                  ? 'var(--theme-text-primary)'
+                  : 'var(--theme-text-muted)'
+            }}
+          >
             {growthRatePerDay > 0
               ? `+${formatBytes(growthRatePerDay)}/day`
               : growthRatePerDay < 0

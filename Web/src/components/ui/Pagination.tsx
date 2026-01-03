@@ -18,6 +18,8 @@ interface PaginationProps {
   showCard?: boolean;
   /** Offset to extend pagination to parent edges (default: 1.5rem for Card lg padding) */
   parentPadding?: 'sm' | 'md' | 'lg' | 'none';
+  /** Use compact mode for narrow containers - shows only prev/next with page indicator */
+  compact?: boolean;
 }
 
 export const Pagination: React.FC<PaginationProps> = ({
@@ -29,7 +31,8 @@ export const Pagination: React.FC<PaginationProps> = ({
   itemLabel = 'items',
   className = '',
   showCard = true,
-  parentPadding = 'lg'
+  parentPadding = 'lg',
+  compact = false
 }) => {
   // Calculate offset based on parent padding
   const paddingValues = {
@@ -43,6 +46,81 @@ export const Pagination: React.FC<PaginationProps> = ({
 
   const startItem = (currentPage - 1) * itemsPerPage + 1;
   const endItem = Math.min(currentPage * itemsPerPage, totalItems);
+
+  // Compact mode - simplified layout for narrow containers
+  if (compact) {
+    const compactContent = (
+      <div className={`flex items-center justify-between gap-2 ${!showCard ? className : ''}`}>
+        {/* Page info */}
+        <span className="text-xs" style={{ color: 'var(--theme-text-muted)' }}>
+          {startItem}-{endItem} of {totalItems}
+        </span>
+
+        {/* Navigation */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+            disabled={currentPage === 1}
+            className="p-1.5 rounded-md transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{
+              backgroundColor: 'var(--theme-bg-tertiary)',
+              color: 'var(--theme-text-primary)',
+              border: '1px solid var(--theme-border-secondary)'
+            }}
+            title="Previous page"
+          >
+            <ChevronLeft size={14} />
+          </button>
+
+          <span
+            className="text-xs font-medium px-2 tabular-nums"
+            style={{ color: 'var(--theme-text-primary)' }}
+          >
+            {currentPage}/{totalPages}
+          </span>
+
+          <button
+            onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+            disabled={currentPage === totalPages}
+            className="p-1.5 rounded-md transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{
+              backgroundColor: 'var(--theme-bg-tertiary)',
+              color: 'var(--theme-text-primary)',
+              border: '1px solid var(--theme-border-secondary)'
+            }}
+            title="Next page"
+          >
+            <ChevronRight size={14} />
+          </button>
+        </div>
+      </div>
+    );
+
+    if (!showCard) {
+      return compactContent;
+    }
+
+    return (
+      <div
+        className={`relative mt-4 z-20 ${className}`}
+        style={{
+          marginLeft: `-${offset}`,
+          marginRight: `-${offset}`,
+          marginBottom: `-${offset}`,
+          paddingLeft: offset,
+          paddingRight: offset,
+          paddingTop: '0.75rem',
+          paddingBottom: offset,
+          backgroundColor: 'var(--theme-card-bg)',
+          borderTop: '1px solid var(--theme-border-primary)',
+          borderBottomLeftRadius: 'var(--theme-border-radius-lg, 0.75rem)',
+          borderBottomRightRadius: 'var(--theme-border-radius-lg, 0.75rem)'
+        }}
+      >
+        {compactContent}
+      </div>
+    );
+  }
 
   const content = (
     <div className={`flex flex-col sm:flex-row items-center justify-between gap-3 ${!showCard ? className : ''}`}>

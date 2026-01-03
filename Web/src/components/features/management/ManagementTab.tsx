@@ -45,6 +45,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
   });
 
   const [optimizationsEnabled, setOptimizationsEnabled] = useState(false);
+  const [logRotationEnabled, setLogRotationEnabled] = useState(false);
   const [gameCacheRefreshKey, setGameCacheRefreshKey] = useState(0);
 
   // Derive log processing state from notifications for DepotMappingManager
@@ -138,6 +139,25 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
     checkOptimizations();
   }, []);
 
+  // Check if log rotation is enabled
+  useEffect(() => {
+    const checkLogRotation = async () => {
+      try {
+        const response = await fetch('/api/system/log-rotation/status');
+        if (response.ok) {
+          const data = await response.json();
+          setLogRotationEnabled(data.enabled === true);
+        } else {
+          setLogRotationEnabled(false);
+        }
+      } catch {
+        setLogRotationEnabled(false);
+      }
+    };
+
+    checkLogRotation();
+  }, []);
+
   // Initialize with migration
   useEffect(() => {
     const initialize = async () => {
@@ -193,6 +213,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
         <SettingsSection
           onApiKeyRegenerated={onApiKeyRegenerated}
           optimizationsEnabled={optimizationsEnabled}
+          logRotationEnabled={logRotationEnabled}
           isAuthenticated={isAuthenticated}
         />
       );

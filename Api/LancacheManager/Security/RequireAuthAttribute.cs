@@ -39,12 +39,17 @@ public class RequireAuthAttribute : ActionFilterAttribute
             }
         }
 
-        // Priority 2: Check for API key in header (backward compatibility)
+        // Priority 2: Check for API key in header (for Swagger UI and API clients)
         var apiKeyHeader = httpContext.Request.Headers["X-Api-Key"].FirstOrDefault();
         if (!string.IsNullOrEmpty(apiKeyHeader))
         {
             var apiKeyService = httpContext.RequestServices.GetRequiredService<ApiKeyService>();
-            if (apiKeyService.ValidateApiKey(apiKeyHeader))
+            var isValid = apiKeyService.ValidateApiKey(apiKeyHeader);
+            
+            var logger = httpContext.RequestServices.GetService<ILogger<RequireAuthAttribute>>();
+            logger?.LogDebug("[RequireAuth] X-Api-Key header present, validation result: {IsValid}", isValid);
+            
+            if (isValid)
             {
                 base.OnActionExecuting(context);
                 return;

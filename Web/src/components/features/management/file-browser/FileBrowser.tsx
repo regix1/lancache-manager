@@ -114,7 +114,8 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
   const [searching, setSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<FileSystemItem[]>([]);
 
-  const isRootLevel = currentPath === '/' || currentPath === null || !currentPath.includes('/');
+  // Root level is when we're showing the list of allowed paths (home view)
+  const isRootLevel = currentPath === '/' || currentPath === null;
 
   useEffect(() => {
     if (!mockMode && isAuthenticated) {
@@ -161,6 +162,9 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
   const handleBack = () => {
     if (parentPath !== null) {
       loadDirectory(parentPath);
+    } else {
+      // Parent is outside allowed paths, go to home (root listing of allowed paths)
+      loadDirectory(null);
     }
   };
 
@@ -217,7 +221,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
           <Home className="w-3.5 h-3.5" />
         </Button>
 
-        {currentPath !== '/' && parentPath !== null && (
+        {currentPath && currentPath !== '/' && (
           <Button
             onClick={handleBack}
             size="xs"

@@ -84,7 +84,11 @@ public class SessionsController : ControllerBase
             isRevoked = false,
             revokedAt = (DateTime?)null,
             revokedBy = (string?)null,
-            type = "authenticated"
+            type = "authenticated",
+            // Authenticated users always have prefill access
+            prefillEnabled = true,
+            prefillExpiresAt = (DateTime?)null,
+            isPrefillExpired = false
         }).ToList();
 
         // Filter out guest sessions that have been upgraded to authenticated
@@ -110,7 +114,11 @@ public class SessionsController : ControllerBase
                 isRevoked = g.IsRevoked,
                 revokedAt = g.RevokedAt,
                 revokedBy = g.RevokedBy,
-                type = "guest"
+                type = "guest",
+                // Prefill permissions
+                prefillEnabled = g.PrefillEnabled,
+                prefillExpiresAt = g.PrefillExpiresAt,
+                isPrefillExpired = g.IsPrefillExpired
             }).ToList();
 
         // Sort: authenticated users first, then guests, both by creation date (newest first)
@@ -194,7 +202,11 @@ public class SessionsController : ControllerBase
                 expiresAt = guestSession.ExpiresAt,
                 isExpired = guestSession.IsExpired,
                 isRevoked = guestSession.IsRevoked,
-                type = "guest"
+                type = "guest",
+                // Prefill permissions
+                prefillEnabled = guestSession.PrefillEnabled,
+                prefillExpiresAt = guestSession.PrefillExpiresAt,
+                isPrefillExpired = guestSession.IsPrefillExpired
             });
         }
 

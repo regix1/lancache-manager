@@ -69,7 +69,11 @@ export const SIGNALR_EVENTS = [
   'ClientGroupUpdated',
   'ClientGroupDeleted',
   'ClientGroupMemberAdded',
-  'ClientGroupMemberRemoved'
+  'ClientGroupMemberRemoved',
+  'PrefillProgress',
+  'StatusChanged',
+  'PrefillStateChanged',
+  'GuestPrefillPermissionChanged'
 ] as const;
 
 export type SignalREvent = (typeof SIGNALR_EVENTS)[number];
@@ -341,5 +345,31 @@ export interface DefaultGuestPreferencesChangedPayload {
 
 export interface AllowedTimeFormatsChangedPayload {
   formats: string[];
+}
+
+export interface PrefillProgressPayload {
+  state: string;
+  currentAppId: number;
+  currentAppName?: string;
+  totalBytes: number;
+  bytesDownloaded: number;
+  percentComplete: number;
+  bytesPerSecond: number;
+  elapsedSeconds: number;
+  result?: string;
+  errorMessage?: string;
+  totalApps: number;
+  updatedApps: number;
+  alreadyUpToDate: number;
+  failedApps: number;
+  totalBytesTransferred: number;
+  totalTimeSeconds: number;
+  updatedAt: string;
+}
+
+export interface GuestPrefillPermissionChangedPayload {
+  deviceId: string;
+  enabled: boolean;
+  expiresAt?: string;
 }
 

@@ -98,23 +98,6 @@ public class DownloadsController : ControllerBase
         return Ok(new List<Download>());
     }
 
-    [HttpGet("active")]
-    [ResponseCache(Duration = 2)] // Cache for 2 seconds
-    public async Task<IActionResult> GetActive()
-    {
-        try
-        {
-            // Use cached service method (2-second cache)
-            var downloads = await _statsService.GetActiveDownloadsAsync();
-            return Ok(downloads);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting active downloads");
-            return Ok(new List<Download>());
-        }
-    }
-
     /// <summary>
     /// Get a download by ID with its tags and events
     /// </summary>

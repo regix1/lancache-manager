@@ -42,8 +42,8 @@ const tabs: TabConfig[] = [
   },
   {
     id: 'storage',
-    label: 'Storage',
-    shortLabel: 'Storage',
+    label: 'Logs & Cache',
+    shortLabel: 'Logs & Cache',
     icon: HardDrive,
     description: 'Cache, logs & game detection'
   },

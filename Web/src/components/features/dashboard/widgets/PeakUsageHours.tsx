@@ -6,8 +6,10 @@ import { Tooltip } from '@components/ui/Tooltip';
 import { HelpPopover, HelpDefinition } from '@components/ui/HelpPopover';
 import { useTimezone } from '@contexts/TimezoneContext';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
+import { useMockMode } from '@contexts/MockModeContext';
 import { getCurrentHour } from '@utils/timezone';
 import ApiService from '@services/api.service';
+import MockDataService from '../../../../test/mockData.service';
 
 interface PeakUsageHoursProps {
   /** Whether to use glassmorphism style */
@@ -27,6 +29,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
   staggerIndex,
 }) => {
   const { timeRange, getTimeRangeParams } = useTimeFilter();
+  const { mockMode } = useMockMode();
   const [data, setData] = useState<HourlyActivityResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +63,18 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
   const isMultiDayPeriod = daysInPeriod > 1;
 
   // Fetch hourly activity from backend API (already aggregated server-side)
+  // In mock mode, use generated mock data instead
   useEffect(() => {
+    if (mockMode) {
+      setLoading(true);
+      // Use mock data
+      const mockData = MockDataService.generateMockHourlyActivity();
+      setData(mockData);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
     const controller = new AbortController();
 
     const fetchData = async () => {
@@ -85,7 +99,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
     fetchData();
 
     return () => controller.abort();
-  }, [timeRange, getTimeRangeParams]);
+  }, [timeRange, getTimeRangeParams, mockMode]);
 
   // Extract hourly data from API response (already includes all 24 hours)
   const hourlyData = useMemo((): HourlyActivityItem[] => {

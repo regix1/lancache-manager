@@ -17,7 +17,8 @@ import {
   Settings,
   BarChart3,
   Layers,
-  CalendarDays
+  CalendarDays,
+  Terminal
 } from 'lucide-react';
 import { type ColorGroup, type PageGroup } from './types';
 
@@ -71,6 +72,13 @@ export const pageDefinitions: PageGroup[] = [
       'Event scheduling calendar, event cards with customizable colors, event list with active/upcoming/past status, and event time range filtering'
   },
   {
+    name: 'prefill',
+    label: 'Prefill',
+    icon: Terminal,
+    description:
+      'Steam Prefill daemon session management, game selection modal, prefill commands (all/recent/top 50), download progress bars, activity log with color-coded entries (success/error/warning/info/download/auth/command), session timer, Steam authentication status'
+  },
+  {
     name: 'management',
     label: 'Management',
     icon: Settings,
@@ -100,7 +108,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Main brand color used throughout',
         affects: ['Primary buttons', 'Links', 'Active states', 'Focus rings'],
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'management', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'users', 'events', 'prefill', 'management', 'charts']
       },
       {
         key: 'secondaryColor',
@@ -116,7 +124,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Tertiary accent for special elements',
         affects: ['Special badges', 'Tooltips', 'Info elements'],
         supportsAlpha: true,
-        pages: []
+        pages: ['prefill']
       }
     ]
   },
@@ -134,7 +142,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Main content text color',
         affects: ['Headings', 'Body text', 'Labels'],
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'management']
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'users', 'events', 'prefill', 'management']
       },
       {
         key: 'textSecondary',
@@ -142,7 +150,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Supporting content text',
         affects: ['Descriptions', 'Subtitles', 'Help text'],
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'management']
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'users', 'events', 'prefill', 'management']
       },
       {
         key: 'textMuted',
@@ -150,7 +158,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'De-emphasized text',
         affects: ['Disabled text', 'Timestamps', 'Minor labels'],
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'management', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'users', 'events', 'prefill', 'management', 'charts']
       },
       {
         key: 'textAccent',
@@ -184,7 +192,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Main application background',
         affects: ['Body', 'Main container', 'Base layer'],
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services']
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'users', 'events', 'prefill', 'management']
       },
       {
         key: 'bgSecondary',
@@ -192,7 +200,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Elevated surface backgrounds',
         affects: ['Cards', 'Panels', 'Modals', 'Dialogs'],
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services']
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'users', 'events', 'prefill', 'management']
       },
       {
         key: 'bgTertiary',
@@ -200,7 +208,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Sunken or nested elements',
         affects: ['Input fields', 'Wells', 'Code blocks'],
         supportsAlpha: true,
-        pages: ['downloads', 'management']
+        pages: ['dashboard', 'downloads', 'users', 'events', 'prefill', 'management']
       },
       {
         key: 'bgHover',
@@ -208,7 +216,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Interactive hover backgrounds',
         affects: ['Button hovers', 'List hovers', 'Menu hovers'],
         supportsAlpha: true,
-        pages: ['dashboard', 'clients', 'services', 'management', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'users', 'events', 'prefill', 'management', 'charts']
       },
       {
         key: 'cardBg',
@@ -216,7 +224,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Card component background',
         affects: ['Stat cards', 'Content cards', 'Widget backgrounds'],
         supportsAlpha: true,
-        pages: ['dashboard']
+        pages: ['dashboard', 'downloads', 'events']
       },
       {
         key: 'cardBorder',
@@ -224,7 +232,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Card component borders',
         affects: ['Card outlines', 'Panel borders'],
         supportsAlpha: true,
-        pages: ['dashboard']
+        pages: ['dashboard', 'events']
       },
       {
         key: 'cardOutline',
@@ -266,7 +274,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Button label color',
         affects: ['Button labels', 'Button icons'],
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'management']
+        pages: ['dashboard', 'downloads', 'users', 'events', 'prefill', 'management']
       },
       {
         key: 'inputBg',
@@ -408,7 +416,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Main divider and border color',
         affects: ['Card borders', 'Dividers', 'Separators'],
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'management', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'users', 'events', 'prefill', 'management', 'charts']
       },
       {
         key: 'borderSecondary',
@@ -416,7 +424,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Subtle borders and dividers',
         affects: ['Input borders', 'Section dividers', 'Subtle lines'],
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'management']
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'users', 'events', 'prefill', 'management']
       },
       {
         key: 'borderFocus',
@@ -448,7 +456,7 @@ export const colorGroups: ColorGroup[] = [
           'Success notifications'
         ],
         supportsAlpha: true,
-        pages: ['dashboard', 'management']
+        pages: ['dashboard', 'downloads', 'users', 'events', 'prefill', 'management']
       },
       {
         key: 'successBg',
@@ -462,7 +470,7 @@ export const colorGroups: ColorGroup[] = [
           'Success banners'
         ],
         supportsAlpha: true,
-        pages: ['downloads']
+        pages: ['downloads', 'users', 'prefill', 'management']
       },
       {
         key: 'successText',
@@ -470,7 +478,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Success state text color (alert text)',
         affects: ['Success messages', 'Positive values', 'Alert text', 'Success notifications'],
         supportsAlpha: true,
-        pages: ['downloads']
+        pages: ['downloads', 'clients', 'services', 'users', 'prefill']
       },
       {
         key: 'warning',
@@ -478,7 +486,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Warning state primary color (border for alerts)',
         affects: ['Warning icons', 'Caution buttons', 'Alert borders', 'Warning notifications'],
         supportsAlpha: true,
-        pages: ['dashboard']
+        pages: ['dashboard', 'downloads', 'users', 'prefill', 'management']
       },
       {
         key: 'warningBg',
@@ -486,7 +494,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Warning state background (alert background)',
         affects: ['Warning alerts', 'Warning badges', 'Alert backgrounds', 'Caution banners'],
         supportsAlpha: true,
-        pages: []
+        pages: ['users', 'prefill', 'management']
       },
       {
         key: 'warningText',
@@ -494,7 +502,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Warning state text color (alert text)',
         affects: ['Warning messages', 'Caution text', 'Alert text', 'Warning notifications'],
         supportsAlpha: true,
-        pages: []
+        pages: ['clients', 'services', 'users', 'prefill', 'management']
       },
       {
         key: 'error',
@@ -508,7 +516,7 @@ export const colorGroups: ColorGroup[] = [
           'Error notifications'
         ],
         supportsAlpha: true,
-        pages: []
+        pages: ['dashboard', 'downloads', 'users', 'prefill', 'management']
       },
       {
         key: 'errorBg',
@@ -522,7 +530,7 @@ export const colorGroups: ColorGroup[] = [
           'Danger zones'
         ],
         supportsAlpha: true,
-        pages: ['management']
+        pages: ['downloads', 'users', 'prefill', 'management']
       },
       {
         key: 'errorText',
@@ -530,7 +538,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Error state text color (alert text)',
         affects: ['Error messages', 'Validation errors', 'Alert text', 'Error notifications'],
         supportsAlpha: true,
-        pages: ['downloads', 'management']
+        pages: ['downloads', 'users', 'prefill', 'management']
       },
       {
         key: 'info',
@@ -538,7 +546,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Information state primary color (border for alerts)',
         affects: ['Info icons', 'Info buttons', 'Alert borders', 'Info notifications'],
         supportsAlpha: true,
-        pages: ['management']
+        pages: ['dashboard', 'users', 'events', 'prefill', 'management']
       },
       {
         key: 'infoBg',
@@ -552,7 +560,7 @@ export const colorGroups: ColorGroup[] = [
           'Info banners'
         ],
         supportsAlpha: true,
-        pages: ['management']
+        pages: ['users', 'events', 'prefill', 'management']
       },
       {
         key: 'infoText',
@@ -560,7 +568,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Information state text color (alert text)',
         affects: ['Info messages', 'Help content', 'Alert text', 'Notification text'],
         supportsAlpha: true,
-        pages: ['downloads', 'management']
+        pages: ['downloads', 'users', 'events', 'prefill', 'management']
       }
     ]
   },
@@ -644,7 +652,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Progress bar background',
         affects: ['Progress tracks', 'Empty progress state'],
         supportsAlpha: true,
-        pages: []
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'prefill']
       },
       {
         key: 'chartColor1',
@@ -716,7 +724,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Cache hit visualization',
         affects: ['Hit rate charts', 'Success indicators'],
         supportsAlpha: true,
-        pages: ['charts']
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
       },
       {
         key: 'chartCacheMissColor',
@@ -724,7 +732,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Cache miss visualization',
         affects: ['Miss rate charts', 'Warning indicators'],
         supportsAlpha: true,
-        pages: ['charts']
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
       },
       {
         key: 'chartGridColor',
@@ -923,9 +931,9 @@ export const colorGroups: ColorGroup[] = [
         key: 'steamColor',
         label: 'Steam',
         description: 'Steam platform color',
-        affects: ['Steam badges', 'Steam charts'],
+        affects: ['Steam badges', 'Steam charts', 'Steam Prefill branding'],
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'prefill', 'charts']
       },
       {
         key: 'epicColor',
@@ -1144,7 +1152,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Background for database/storage icons',
         affects: ['Total Cache card icon', 'Database indicators'],
         supportsAlpha: true,
-        pages: ['dashboard']
+        pages: ['dashboard', 'events', 'management']
       },
       {
         key: 'iconBgGreen',
@@ -1152,7 +1160,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Background for hard drive/storage icons',
         affects: ['Used Space card icon', 'Storage indicators'],
         supportsAlpha: true,
-        pages: ['dashboard']
+        pages: ['dashboard', 'events', 'management']
       },
       {
         key: 'iconBgEmerald',
@@ -1168,7 +1176,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Background for lightning/zap icons',
         affects: ['Added to Cache card icon', 'Speed indicators'],
         supportsAlpha: true,
-        pages: ['dashboard']
+        pages: ['dashboard', 'events', 'management']
       },
       {
         key: 'iconBgIndigo',
@@ -1184,7 +1192,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Background for download icons',
         affects: ['Active Downloads card icon', 'Download indicators'],
         supportsAlpha: true,
-        pages: ['dashboard']
+        pages: ['dashboard', 'events', 'management']
       },
       {
         key: 'iconBgYellow',
@@ -1192,7 +1200,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Background for users/people icons',
         affects: ['Active Clients card icon', 'Client indicators'],
         supportsAlpha: true,
-        pages: ['dashboard']
+        pages: ['dashboard', 'management']
       },
       {
         key: 'iconBgCyan',
@@ -1200,7 +1208,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Background for activity/performance icons',
         affects: ['Cache Hit Ratio card icon', 'Performance indicators'],
         supportsAlpha: true,
-        pages: ['dashboard']
+        pages: ['dashboard', 'events', 'management']
       },
       {
         key: 'iconBgRed',
@@ -1208,7 +1216,7 @@ export const colorGroups: ColorGroup[] = [
         description: 'Background for error/critical icons',
         affects: ['Error indicators', 'Critical state icons'],
         supportsAlpha: true,
-        pages: ['dashboard']
+        pages: ['dashboard', 'events']
       }
     ]
   }

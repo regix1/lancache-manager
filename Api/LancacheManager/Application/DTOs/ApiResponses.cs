@@ -73,6 +73,9 @@ public class AuthStatusResponse
     public bool HasEverBeenSetup { get; set; }
     public bool HasBeenInitialized { get; set; }
     public bool HasDataLoaded { get; set; }
+    // Prefill permission for guests
+    public bool? PrefillEnabled { get; set; }
+    public int? PrefillTimeRemaining { get; set; } // minutes
 }
 
 /// <summary>
@@ -497,15 +500,6 @@ public class CancellationResponse
 // ============================================================
 
 /// <summary>
-/// Response for game list endpoint
-/// </summary>
-public class GameListResponse
-{
-    public string Message { get; set; } = string.Empty;
-    public object? CachedResults { get; set; }
-}
-
-/// <summary>
 /// Response for game removal operation start
 /// </summary>
 public class GameRemovalStartResponse
@@ -546,16 +540,6 @@ public class CachedDetectionResponse
     public int TotalGamesDetected { get; set; }
     public int TotalServicesDetected { get; set; }
     public string? LastDetectionTime { get; set; }
-}
-
-/// <summary>
-/// Response for resolving unknown games
-/// </summary>
-public class ResolveUnknownGamesResponse
-{
-    public bool Success { get; set; }
-    public int ResolvedCount { get; set; }
-    public string Message { get; set; } = string.Empty;
 }
 
 // ============================================================
@@ -1156,6 +1140,30 @@ public class CacheGrowthResponse
     /// Time period for this data
     /// </summary>
     public string Period { get; set; } = string.Empty;
+
+    /// <summary>
+    /// True if the actual cache size is less than cumulative downloads,
+    /// indicating data was deleted (cache was cleared/cleaned)
+    /// </summary>
+    public bool HasDataDeletion { get; set; }
+
+    /// <summary>
+    /// Estimated bytes that were deleted from cache
+    /// (difference between cumulative downloads and actual cache size)
+    /// </summary>
+    public long EstimatedBytesDeleted { get; set; }
+
+    /// <summary>
+    /// Net average daily growth (accounting for deletions)
+    /// Can be negative if cache is shrinking
+    /// </summary>
+    public long NetAverageDailyGrowth { get; set; }
+
+    /// <summary>
+    /// True if the cache was essentially cleared (very small relative to historical downloads).
+    /// When true, percentChange is not meaningful and growth rate shows download rate.
+    /// </summary>
+    public bool CacheWasCleared { get; set; }
 }
 
 /// <summary>

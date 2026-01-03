@@ -7,18 +7,49 @@ namespace LancacheManager.Controllers;
 /// <summary>
 /// Controller for browsing the server filesystem to locate database files
 /// Used primarily for DeveLanCacheUI import feature
+/// Security: Paths can be restricted via Security:AllowedBrowsePaths configuration
 /// </summary>
 [ApiController]
 [Route("api/filebrowser")]
 public class FileBrowserController : ControllerBase
 {
     private readonly ILogger<FileBrowserController> _logger;
+    private readonly IConfiguration _configuration;
+    private readonly List<string> _allowedPaths;
 
-    public FileBrowserController(ILogger<FileBrowserController> logger)
+    public FileBrowserController(ILogger<FileBrowserController> logger, IConfiguration configuration)
     {
         _logger = logger;
+        _configuration = configuration;
+
+        // Parse allowed paths from configuration
+        // Format: comma-separated list of paths, e.g., "/data,/mnt,C:\data"
+        // Default: /data and /mnt for common Docker mount points
+        var allowedPathsConfig = _configuration["Security:AllowedBrowsePaths"];
+        if (string.IsNullOrWhiteSpace(allowedPathsConfig))
+        {
+            // Default to /data and /mnt - common Docker mount points for databases
+            _allowedPaths = new List<string> { "/data", "/mnt" };
+            _logger.LogInformation("FileBrowser: Using default allowed paths /data and /mnt. Configure Security:AllowedBrowsePaths to customize.");
+        }
+        else
+        {
+            _allowedPaths = allowedPathsConfig
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(p => Path.GetFullPath(p))
+                .ToList();
+        }
     }
 
+    /// <summary>
+    /// Check if a path is within allowed directories
+    /// </summary>
+    private bool IsPathAllowed(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        return _allowedPaths.Any(allowed =>
+            fullPath.StartsWith(allowed, StringComparison.OrdinalIgnoreCase));
+    }
 
     /// <summary>
     /// GET /api/filebrowser/list - List contents of a directory
@@ -30,7 +61,7 @@ public class FileBrowserController : ControllerBase
     {
         try
         {
-            // If no path provided, return common locations
+            // If no path provided, return common locations (filtered by allowed paths)
             if (string.IsNullOrWhiteSpace(path))
             {
                 return Ok(new DirectoryListResponse
@@ -39,6 +70,13 @@ public class FileBrowserController : ControllerBase
                     ParentPath = null,
                     Items = GetCommonLocations()
                 });
+            }
+
+            // Security: Validate path is within allowed directories
+            if (!IsPathAllowed(path))
+            {
+                _logger.LogWarning("Attempted access to restricted path: {Path}", path);
+                return StatusCode(403, new ErrorResponse { Error = "Access to this path is not allowed" });
             }
 
             // Validate path exists
@@ -126,11 +164,17 @@ public class FileBrowserController : ControllerBase
                 _logger.LogWarning("Access denied to files in directory: {Path}", path);
             }
 
-            // Get parent directory
+            // Get parent directory - only if it's within allowed paths
+            // If parent is outside allowed paths, set to null so UI navigates to home
             string? parentPath = null;
             if (directoryInfo.Parent != null)
             {
-                parentPath = directoryInfo.Parent.FullName;
+                var parentFullPath = directoryInfo.Parent.FullName;
+                if (IsPathAllowed(parentFullPath))
+                {
+                    parentPath = parentFullPath;
+                }
+                // else: parentPath stays null, meaning "back" should go to home/root
             }
 
             return Ok(new DirectoryListResponse
@@ -148,111 +192,25 @@ public class FileBrowserController : ControllerBase
     }
 
     /// <summary>
-    /// Get common locations where DeveLanCacheUI databases might be located
+    /// Get allowed locations where databases might be located
+    /// Only returns paths that are explicitly configured in AllowedBrowsePaths
     /// </summary>
     private List<FileSystemItemDto> GetCommonLocations()
     {
         var locations = new List<FileSystemItemDto>();
-        var commonPaths = new List<string>();
 
-        // Detect OS and add appropriate paths
-        if (OperatingSystem.IsLinux() || OperatingSystem.IsFreeBSD())
+        // Only show configured allowed paths - no other locations
+        foreach (var allowedPath in _allowedPaths)
         {
-            commonPaths.AddRange(new[]
-            {
-                "/data",
-                "/mnt",
-                "/var/lib",
-                "/opt",
-                "/home",
-                "/app",
-                "/config"
-            });
-        }
-        else if (OperatingSystem.IsWindows())
-        {
-            commonPaths.AddRange(new[]
-            {
-                "C:\\data",
-                "C:\\ProgramData",
-                "C:\\Users",
-                "D:\\",
-                "H:\\"
-            });
-        }
-        else if (OperatingSystem.IsMacOS())
-        {
-            commonPaths.AddRange(new[]
-            {
-                "/Users",
-                "/Applications",
-                "/Volumes"
-            });
-        }
-
-        // Add current directory
-        try
-        {
-            var currentDir = Directory.GetCurrentDirectory();
-            locations.Add(new FileSystemItemDto
-            {
-                Name = "Current Directory",
-                Path = currentDir,
-                IsDirectory = true,
-                LastModified = Directory.GetLastWriteTime(currentDir),
-                IsAccessible = true
-            });
-        }
-        catch { /* Ignore */ }
-
-        // Add root
-        if (OperatingSystem.IsLinux() || OperatingSystem.IsFreeBSD() || OperatingSystem.IsMacOS())
-        {
-            locations.Add(new FileSystemItemDto
-            {
-                Name = "Root (/)",
-                Path = "/",
-                IsDirectory = true,
-                LastModified = DateTime.MinValue,
-                IsAccessible = true
-            });
-        }
-        else if (OperatingSystem.IsWindows())
-        {
-            // Add drive letters
-            try
-            {
-                var drives = DriveInfo.GetDrives()
-                    .Where(d => d.IsReady)
-                    .OrderBy(d => d.Name);
-
-                foreach (var drive in drives)
-                {
-                    locations.Add(new FileSystemItemDto
-                    {
-                        Name = $"{drive.Name} ({drive.VolumeLabel})",
-                        Path = drive.RootDirectory.FullName,
-                        IsDirectory = true,
-                        LastModified = DateTime.MinValue,
-                        IsAccessible = true
-                    });
-                }
-            }
-            catch { /* Ignore */ }
-        }
-
-        // Add common locations that exist
-        foreach (var path in commonPaths)
-        {
-            if (Directory.Exists(path))
+            if (Directory.Exists(allowedPath))
             {
                 try
                 {
-                    var dirInfo = new DirectoryInfo(path);
+                    var dirInfo = new DirectoryInfo(allowedPath);
                     locations.Add(new FileSystemItemDto
                     {
-                        Name = $"Common: {path}",
-                        Path = path,
+                        Name = allowedPath,
+                        Path = allowedPath,
                         IsDirectory = true,
                         LastModified = dirInfo.LastWriteTime,
                         IsAccessible = true
@@ -262,13 +220,25 @@ public class FileBrowserController : ControllerBase
                 {
                     locations.Add(new FileSystemItemDto
                     {
-                        Name = $"Common: {path}",
-                        Path = path,
+                        Name = allowedPath,
+                        Path = allowedPath,
                         IsDirectory = true,
                         LastModified = DateTime.MinValue,
                         IsAccessible = false
                     });
                 }
+            }
+            else
+            {
+                // Show the allowed path even if it doesn't exist (marked as inaccessible)
+                locations.Add(new FileSystemItemDto
+                {
+                    Name = allowedPath,
+                    Path = allowedPath,
+                    IsDirectory = true,
+                    LastModified = DateTime.MinValue,
+                    IsAccessible = false
+                });
             }
         }
 
@@ -278,6 +248,7 @@ public class FileBrowserController : ControllerBase
     /// <summary>
     /// GET /api/filebrowser/search - Search for .db files
     /// Query params: searchPath (directory to search in), pattern (filename pattern)
+    /// Special case: searchPath="/" searches within all allowed paths
     /// </summary>
     [HttpGet("search")]
     [RequireAuth]
@@ -285,18 +256,39 @@ public class FileBrowserController : ControllerBase
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(searchPath))
+            var results = new List<FileSystemItemDto>();
+            var searchPattern = string.IsNullOrWhiteSpace(pattern) ? "*.db" : pattern;
+
+            // Special case: root path "/" - search within all allowed paths
+            if (string.IsNullOrWhiteSpace(searchPath) || searchPath == "/")
             {
-                searchPath = "/";
+                foreach (var allowedPath in _allowedPaths)
+                {
+                    if (Directory.Exists(allowedPath))
+                    {
+                        SearchDirectory(allowedPath, searchPattern, results, 0, 3);
+                    }
+                }
+
+                return Ok(new FileSearchResponse
+                {
+                    SearchPath = "/",
+                    Pattern = searchPattern,
+                    Results = results.OrderBy(r => r.Path).ToList()
+                });
+            }
+
+            // Security: Validate path is within allowed directories
+            if (!IsPathAllowed(searchPath))
+            {
+                _logger.LogWarning("Attempted search in restricted path: {Path}", searchPath);
+                return StatusCode(403, new ErrorResponse { Error = "Access to this path is not allowed" });
             }
 
             if (!Directory.Exists(searchPath))
             {
                 return BadRequest(new ErrorResponse { Error = "Search path does not exist" });
             }
-
-            var results = new List<FileSystemItemDto>();
-            var searchPattern = string.IsNullOrWhiteSpace(pattern) ? "*.db" : pattern;
 
             // Search up to 3 levels deep to avoid long searches
             SearchDirectory(searchPath, searchPattern, results, 0, 3);

@@ -15,6 +15,7 @@ import { GuestConfigProvider } from '@contexts/GuestConfigContext';
 import { PicsProgressProvider } from '@contexts/PicsProgressContext';
 import { SetupStatusProvider, useSetupStatus } from '@contexts/SetupStatusContext';
 import { SteamAuthProvider, useSteamAuth } from '@contexts/SteamAuthContext';
+import { PrefillProvider } from '@contexts/PrefillContext';
 import { AuthProvider, useAuth } from '@contexts/AuthContext';
 import { SteamWebApiStatusProvider, useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 import { TimezoneProvider } from '@contexts/TimezoneContext';
@@ -46,6 +47,7 @@ import UserTab from '@components/features/user/UserTab';
 import EventsTab from '@components/features/events';
 import ManagementTab from '@components/features/management/ManagementTab';
 import MemoryDiagnostics from '@components/features/memory/MemoryDiagnostics';
+import { PrefillPanel } from '@components/features/prefill';
 
 // Wrapper components to inject mockMode from context into providers
 const StatsProviderWithMockMode: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -72,7 +74,7 @@ const AppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const { connectionStatus } = useStats();
   const { setupStatus, isLoading: checkingSetupStatus, markSetupCompleted } = useSetupStatus();
-  const { isAuthenticated, authMode, isLoading: checkingAuth, refreshAuth } = useAuth();
+  const { isAuthenticated, authMode, isLoading: checkingAuth, refreshAuth, prefillEnabled } = useAuth();
   const { status: steamApiStatus, refresh: refreshSteamWebApiStatus } = useSteamWebApiStatus();
   const { refreshSteamAuth } = useSteamAuth();
   const [depotInitialized, setDepotInitialized] = useState<boolean | null>(null);
@@ -519,6 +521,8 @@ const AppContent: React.FC = () => {
           return ServicesTab;
         case 'authenticate':
           return AuthenticateTab;
+        case 'prefill':
+          return PrefillPanel;
         case 'users':
           return UserTab;
         case 'events':
@@ -691,7 +695,7 @@ const AppContent: React.FC = () => {
         <Header
           connectionStatus={connectionStatus as 'connected' | 'disconnected' | 'reconnecting'}
         />
-        <Navigation activeTab={activeTab} setActiveTab={setActiveTab} authMode={authMode} />
+        <Navigation activeTab={activeTab} setActiveTab={setActiveTab} authMode={authMode} prefillEnabled={prefillEnabled} />
         {/* Only show Universal Notification Bar to authenticated users */}
         {authMode === 'authenticated' && <UniversalNotificationBar />}
         <main className="container mx-auto px-4 py-6 flex-grow">{renderContent()}</main>
@@ -714,6 +718,7 @@ const App: React.FC = () => {
                     <GuestConfigProvider>
                       <SetupStatusProvider>
                         <SteamAuthProvider>
+                          <PrefillProvider>
                           <PicsProgressProviderWithMockMode>
                             <NotificationsProvider>
                               <CacheSizeProvider>
@@ -733,6 +738,7 @@ const App: React.FC = () => {
                               </CacheSizeProvider>
                             </NotificationsProvider>
                           </PicsProgressProviderWithMockMode>
+                          </PrefillProvider>
                         </SteamAuthProvider>
                       </SetupStatusProvider>
                     </GuestConfigProvider>

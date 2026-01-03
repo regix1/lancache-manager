@@ -13,7 +13,8 @@ import {
   Edit,
   Lock,
   Unlock,
-  ChevronDown
+  ChevronDown,
+  Download
 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -126,6 +127,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const [totalCount, setTotalCount] = useState(0);
   const [sessionPreferences, setSessionPreferences] = useState<Record<string, UserPreferences>>({});
   const [loadingSessionPrefs, setLoadingSessionPrefs] = useState<Set<string>>(new Set());
+  const [updatingPrefill, setUpdatingPrefill] = useState(false);
 
   const toggleSessionExpanded = (sessionId: string) => {
     setExpandedSessions((prev) => {
@@ -547,6 +549,58 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       return `${hours}h ${minutes}m remaining`;
     }
     return `${minutes}m remaining`;
+  };
+
+  const handleTogglePrefill = async (session: Session, enabled: boolean) => {
+    try {
+      setUpdatingPrefill(true);
+      const response = await fetch(
+        `/api/auth/guest/prefill/toggle/${encodeURIComponent(session.deviceId || session.id)}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...ApiService.getHeaders()
+          },
+          body: JSON.stringify({ enabled })
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        // Update the session in the list
+        setSessions((prev) =>
+          prev.map((s) => {
+            if (s.id === session.id) {
+              return {
+                ...s,
+                prefillEnabled: data.prefillEnabled,
+                prefillExpiresAt: data.prefillExpiresAt,
+                isPrefillExpired: false
+              };
+            }
+            return s;
+          })
+        );
+        // Also update the editingSession if it's the same session
+        if (editingSession?.id === session.id) {
+          setEditingSession({
+            ...editingSession,
+            prefillEnabled: data.prefillEnabled,
+            prefillExpiresAt: data.prefillExpiresAt,
+            isPrefillExpired: false
+          });
+        }
+        showToast('success', data.message);
+      } else {
+        const errorData = await response.json();
+        showToast('error', errorData.error || 'Failed to update prefill permission');
+      }
+    } catch (err: unknown) {
+      showToast('error', getErrorMessage(err) || 'Failed to update prefill permission');
+    } finally {
+      setUpdatingPrefill(false);
+    }
   };
 
   type SessionStatus = 'active' | 'away' | 'inactive';
@@ -1532,6 +1586,79 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                       ? 'Custom refresh rate for this user'
                       : `Default: ${refreshRateOptions.find((o) => o.value === defaultGuestRefreshRate)?.label || defaultGuestRefreshRate}`}
                   </p>
+                </div>
+              )}
+
+              {/* Prefill Access (Guest Users Only) */}
+              {editingSession && editingSession.type === 'guest' && !editingSession.isRevoked && !editingSession.isExpired && (
+                <div
+                  className="p-4 rounded-lg"
+                  style={{
+                    backgroundColor: 'var(--theme-bg-tertiary)',
+                    border: '1px solid var(--theme-border-secondary)'
+                  }}
+                >
+                  <div className="flex items-center gap-2 mb-3">
+                    <Download className="w-4 h-4" style={{ color: 'var(--theme-primary)' }} />
+                    <h4 className="text-sm font-medium text-themed-primary">Prefill Access</h4>
+                  </div>
+                  <p className="text-xs text-themed-muted mb-3">
+                    Grant this guest access to the Prefill tab. Access is time-limited and will expire automatically.
+                  </p>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      {editingSession.prefillEnabled && !editingSession.isPrefillExpired ? (
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="px-2 py-1 text-xs rounded-full font-medium"
+                            style={{
+                              backgroundColor: 'var(--theme-success-bg)',
+                              color: 'var(--theme-success-text)'
+                            }}
+                          >
+                            Enabled
+                          </span>
+                          {editingSession.prefillExpiresAt && (
+                            <span className="text-xs text-themed-muted">
+                              Expires: {formatTimeRemaining(editingSession.prefillExpiresAt)}
+                            </span>
+                          )}
+                        </div>
+                      ) : editingSession.isPrefillExpired ? (
+                        <span
+                          className="px-2 py-1 text-xs rounded-full font-medium"
+                          style={{
+                            backgroundColor: 'var(--theme-warning-bg)',
+                            color: 'var(--theme-warning-text)'
+                          }}
+                        >
+                          Expired
+                        </span>
+                      ) : (
+                        <span
+                          className="px-2 py-1 text-xs rounded-full font-medium"
+                          style={{
+                            backgroundColor: 'var(--theme-bg-secondary)',
+                            color: 'var(--theme-text-muted)'
+                          }}
+                        >
+                          Disabled
+                        </span>
+                      )}
+                    </div>
+                    <Button
+                      variant="default"
+                      color={editingSession.prefillEnabled && !editingSession.isPrefillExpired ? 'orange' : 'green'}
+                      size="sm"
+                      onClick={() => handleTogglePrefill(
+                        editingSession,
+                        !(editingSession.prefillEnabled && !editingSession.isPrefillExpired)
+                      )}
+                      loading={updatingPrefill}
+                    >
+                      {editingSession.prefillEnabled && !editingSession.isPrefillExpired ? 'Revoke Access' : 'Grant Access'}
+                    </Button>
+                  </div>
                 </div>
               )}
 

@@ -28,6 +28,7 @@ public class SystemController : ControllerBase
     private readonly SteamKit2Service _steamKit2Service;
     private readonly DatasourceService _datasourceService;
     private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly NginxLogRotationHostedService _logRotationService;
 
     public SystemController(
         StateRepository stateService,
@@ -38,7 +39,8 @@ public class SystemController : ControllerBase
         CacheClearingService cacheClearingService,
         SteamKit2Service steamKit2Service,
         DatasourceService datasourceService,
-        IHubContext<DownloadHub> hubContext)
+        IHubContext<DownloadHub> hubContext,
+        NginxLogRotationHostedService logRotationService)
     {
         _stateService = stateService;
         _configuration = configuration;
@@ -49,6 +51,7 @@ public class SystemController : ControllerBase
         _steamKit2Service = steamKit2Service;
         _datasourceService = datasourceService;
         _hubContext = hubContext;
+        _logRotationService = logRotationService;
     }
 
     /// <summary>
@@ -469,6 +472,67 @@ public class SystemController : ControllerBase
         });
 
         return Ok(new { message = $"Default guest preference {key} updated", key, value = request.Value });
+    }
+
+    /// <summary>
+    /// GET /api/system/log-rotation/status - Get nginx log rotation status
+    /// </summary>
+    [HttpGet("log-rotation/status")]
+    public IActionResult GetLogRotationStatus()
+    {
+        var status = _logRotationService.GetStatus();
+        return Ok(status);
+    }
+
+    /// <summary>
+    /// POST /api/system/log-rotation/trigger - Force nginx log rotation
+    /// </summary>
+    [HttpPost("log-rotation/trigger")]
+    [RequireAuth]
+    public async Task<IActionResult> TriggerLogRotation()
+    {
+        _logger.LogInformation("Manual log rotation triggered via API");
+        var success = await _logRotationService.ForceRotationAsync();
+
+        if (success)
+        {
+            return Ok(new { success = true, message = "Log rotation completed successfully" });
+        }
+        else
+        {
+            return Ok(new { success = false, message = "Log rotation failed. Check server logs for details." });
+        }
+    }
+
+    /// <summary>
+    /// PUT /api/system/log-rotation/schedule - Update log rotation schedule
+    /// </summary>
+    [HttpPut("log-rotation/schedule")]
+    [RequireAuth]
+    public async Task<IActionResult> UpdateLogRotationSchedule([FromBody] UpdateLogRotationScheduleRequest request)
+    {
+        if (request.ScheduleHours < 0 || request.ScheduleHours > 168)
+        {
+            return BadRequest(new { success = false, message = "Schedule hours must be between 0 (disabled) and 168 (1 week)" });
+        }
+
+        _logger.LogInformation("Log rotation schedule update requested: {Hours} hours", request.ScheduleHours);
+        var success = await _logRotationService.UpdateScheduleAsync(request.ScheduleHours);
+
+        if (success)
+        {
+            var status = _logRotationService.GetStatus();
+            return Ok(new { success = true, message = "Log rotation schedule updated", status });
+        }
+        else
+        {
+            return BadRequest(new { success = false, message = "Failed to update schedule" });
+        }
+    }
+
+    public class UpdateLogRotationScheduleRequest
+    {
+        public int ScheduleHours { get; set; }
     }
 
     public class SetAllowedTimeFormatsRequest
