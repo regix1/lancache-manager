@@ -314,7 +314,8 @@ class ApiService {
     signal?: AbortSignal,
     startTime?: number,
     endTime?: number,
-    interval = 'daily'
+    interval = 'daily',
+    actualCacheSize?: number
   ): Promise<CacheGrowthResponse> {
     try {
       let url = `${API_BASE}/stats/cache-growth`;
@@ -322,6 +323,10 @@ class ApiService {
       if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
       if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
       params.append('interval', interval);
+      // Pass actual cache size to detect deletions and calculate net growth
+      if (actualCacheSize && actualCacheSize > 0) {
+        params.append('actualCacheSize', actualCacheSize.toString());
+      }
       url += `?${params}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<CacheGrowthResponse>(res);

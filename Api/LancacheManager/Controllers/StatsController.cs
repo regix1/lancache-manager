@@ -545,13 +545,15 @@ public class StatsController : ControllerBase
     /// <summary>
     /// Get cache growth data over time
     /// Shows how much new data has been added to the cache
+    /// Pass actualCacheSize to detect deletions and calculate net growth
     /// </summary>
     [HttpGet("cache-growth")]
     [OutputCache(PolicyName = "stats-long")]
     public async Task<IActionResult> GetCacheGrowth(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
-        [FromQuery] string interval = "daily")
+        [FromQuery] string interval = "daily",
+        [FromQuery] long? actualCacheSize = null)
     {
         try
         {
@@ -676,27 +678,72 @@ public class StatsController : ControllerBase
                 else if (percentChange < -5) trend = "down";
             }
 
-            // Estimate days until full (if we had capacity info)
-            int? daysUntilFull = null;
-            if (avgDailyGrowth > 0 && totalCapacity > 0)
+            // Calculate net growth accounting for deletions
+            // If actual cache size is provided and less than cumulative downloads,
+            // data was deleted and we should show net growth
+            long netAvgDailyGrowth = avgDailyGrowth;
+            long estimatedBytesDeleted = 0;
+            bool hasDataDeletion = false;
+
+            if (actualCacheSize.HasValue && actualCacheSize.Value > 0)
             {
-                var remainingSpace = totalCapacity - currentCacheSize;
+                // Total cumulative downloads (all data ever added to cache)
+                var cumulativeDownloads = await _context.Downloads
+                    .AsNoTracking()
+                    .SumAsync(d => (long?)d.CacheMissBytes) ?? 0;
+
+                // If actual cache is smaller than cumulative downloads, data was deleted
+                if (actualCacheSize.Value < cumulativeDownloads)
+                {
+                    hasDataDeletion = true;
+                    estimatedBytesDeleted = cumulativeDownloads - actualCacheSize.Value;
+
+                    // Calculate the net change over the period
+                    // This is a rough estimate: actual cache size / total time = net daily rate
+                    if (dataPoints.Count >= 2)
+                    {
+                        var firstTimestamp = dataPoints.First().Timestamp;
+                        var lastTimestamp = dataPoints.Last().Timestamp;
+                        var totalDays = (lastTimestamp - firstTimestamp).TotalDays;
+
+                        if (totalDays > 0)
+                        {
+                            // The last cumulative value is the total downloads in the period
+                            var periodDownloads = dataPoints.Last().CumulativeCacheMissBytes;
+
+                            // If we're looking at all data, calculate proportional deletions
+                            // Rough estimate: assume deletions happened uniformly
+                            var deletionRate = (double)estimatedBytesDeleted / totalDays;
+                            netAvgDailyGrowth = (long)(avgDailyGrowth - deletionRate);
+                        }
+                    }
+                }
+            }
+
+            // Estimate days until full using net growth (not raw download growth)
+            int? daysUntilFull = null;
+            if (netAvgDailyGrowth > 0 && totalCapacity > 0)
+            {
+                var remainingSpace = totalCapacity - (actualCacheSize ?? currentCacheSize);
                 if (remainingSpace > 0)
                 {
-                    daysUntilFull = (int)Math.Ceiling((double)remainingSpace / avgDailyGrowth);
+                    daysUntilFull = (int)Math.Ceiling((double)remainingSpace / netAvgDailyGrowth);
                 }
             }
 
             return Ok(new CacheGrowthResponse
             {
                 DataPoints = dataPoints,
-                CurrentCacheSize = currentCacheSize,
+                CurrentCacheSize = actualCacheSize ?? currentCacheSize,
                 TotalCapacity = totalCapacity,
                 AverageDailyGrowth = avgDailyGrowth,
+                NetAverageDailyGrowth = netAvgDailyGrowth,
                 Trend = trend,
                 PercentChange = percentChange,
                 EstimatedDaysUntilFull = daysUntilFull,
-                Period = startTime.HasValue ? "filtered" : "all"
+                Period = startTime.HasValue ? "filtered" : "all",
+                HasDataDeletion = hasDataDeletion,
+                EstimatedBytesDeleted = estimatedBytesDeleted
             });
         }
         catch (Exception ex)

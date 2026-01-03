@@ -5,7 +5,8 @@ import {
   Settings,
   ToggleLeft,
   ToggleRight,
-  Gauge
+  Gauge,
+  RotateCw
 } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -15,6 +16,7 @@ import { useNotifications } from '@contexts/NotificationsContext';
 import AuthenticationManager from '../steam/AuthenticationManager';
 import DisplayPreferences from './DisplayPreferences';
 import GcManager from '../gc/GcManager';
+import LogRotationManager from '../LogRotationManager';
 
 interface SettingsSectionProps {
   onApiKeyRegenerated?: () => void;
@@ -174,6 +176,24 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
               </div>
             </Alert>
           )}
+        </Card>
+
+        {/* Log Rotation Card */}
+        <Card>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-cyan">
+              <RotateCw className="w-5 h-5 icon-cyan" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-themed-primary">Nginx Log Rotation</h3>
+              <p className="text-xs text-themed-muted">Signal nginx to reopen log files after manipulation</p>
+            </div>
+          </div>
+          <LogRotationManager
+            isAuthenticated={isAuthenticated}
+            onError={handleError}
+            onSuccess={handleSuccess}
+          />
         </Card>
       </div>
     </div>

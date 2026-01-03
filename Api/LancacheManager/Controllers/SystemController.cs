@@ -28,6 +28,7 @@ public class SystemController : ControllerBase
     private readonly SteamKit2Service _steamKit2Service;
     private readonly DatasourceService _datasourceService;
     private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly NginxLogRotationHostedService _logRotationService;
 
     public SystemController(
         StateRepository stateService,
@@ -38,7 +39,8 @@ public class SystemController : ControllerBase
         CacheClearingService cacheClearingService,
         SteamKit2Service steamKit2Service,
         DatasourceService datasourceService,
-        IHubContext<DownloadHub> hubContext)
+        IHubContext<DownloadHub> hubContext,
+        NginxLogRotationHostedService logRotationService)
     {
         _stateService = stateService;
         _configuration = configuration;
@@ -49,6 +51,7 @@ public class SystemController : ControllerBase
         _steamKit2Service = steamKit2Service;
         _datasourceService = datasourceService;
         _hubContext = hubContext;
+        _logRotationService = logRotationService;
     }
 
     /// <summary>
@@ -469,6 +472,36 @@ public class SystemController : ControllerBase
         });
 
         return Ok(new { message = $"Default guest preference {key} updated", key, value = request.Value });
+    }
+
+    /// <summary>
+    /// GET /api/system/log-rotation/status - Get nginx log rotation status
+    /// </summary>
+    [HttpGet("log-rotation/status")]
+    public IActionResult GetLogRotationStatus()
+    {
+        var status = _logRotationService.GetStatus();
+        return Ok(status);
+    }
+
+    /// <summary>
+    /// POST /api/system/log-rotation/trigger - Force nginx log rotation
+    /// </summary>
+    [HttpPost("log-rotation/trigger")]
+    [RequireAuth]
+    public async Task<IActionResult> TriggerLogRotation()
+    {
+        _logger.LogInformation("Manual log rotation triggered via API");
+        var success = await _logRotationService.ForceRotationAsync();
+
+        if (success)
+        {
+            return Ok(new { success = true, message = "Log rotation completed successfully" });
+        }
+        else
+        {
+            return Ok(new { success = false, message = "Log rotation failed. Check server logs for details." });
+        }
     }
 
     public class SetAllowedTimeFormatsRequest

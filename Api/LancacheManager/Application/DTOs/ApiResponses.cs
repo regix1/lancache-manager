@@ -1137,6 +1137,24 @@ public class CacheGrowthResponse
     /// Time period for this data
     /// </summary>
     public string Period { get; set; } = string.Empty;
+
+    /// <summary>
+    /// True if the actual cache size is less than cumulative downloads,
+    /// indicating data was deleted (cache was cleared/cleaned)
+    /// </summary>
+    public bool HasDataDeletion { get; set; }
+
+    /// <summary>
+    /// Estimated bytes that were deleted from cache
+    /// (difference between cumulative downloads and actual cache size)
+    /// </summary>
+    public long EstimatedBytesDeleted { get; set; }
+
+    /// <summary>
+    /// Net average daily growth (accounting for deletions)
+    /// Can be negative if cache is shrinking
+    /// </summary>
+    public long NetAverageDailyGrowth { get; set; }
 }
 
 /// <summary>
