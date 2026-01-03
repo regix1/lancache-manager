@@ -168,7 +168,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       await ApiService.setCacheDeleteMode(newMode);
       setDeleteMode(newMode);
       const modeDesc =
-        newMode === 'rsync' ? 'Rsync' : newMode === 'full' ? 'Fast Mode' : 'Safe Mode';
+        newMode === 'rsync' ? 'Rsync' : newMode === 'full' ? 'Remove All' : 'Preserve';
       onSuccess?.(`Delete mode set to: ${modeDesc}`);
     } catch (err: unknown) {
       console.error('Failed to update delete mode:', err);
@@ -236,14 +236,14 @@ const CacheManager: React.FC<CacheManagerProps> = ({
             <HelpPopover position="left" width={300}>
               <HelpSection title="Deletion Methods">
                 <div className="space-y-1.5">
-                  <HelpDefinition term="Safe Mode" termColor="blue">
-                    Individual file deletion — slower but keeps directory structure
+                  <HelpDefinition term="Preserve" termColor="blue">
+                    Deletes files individually, keeps directory structure intact
                   </HelpDefinition>
-                  <HelpDefinition term="Fast Mode" termColor="green">
-                    Full directory removal — faster for local storage
+                  <HelpDefinition term="Remove All" termColor="green">
+                    Removes entire directories at once — fastest for local storage
                   </HelpDefinition>
                   <HelpDefinition term="Rsync" termColor="purple">
-                    Sync with empty directory — best for network storage
+                    Uses rsync --delete — reliable for network storage (NFS/SMB)
                   </HelpDefinition>
                 </div>
               </HelpSection>
@@ -450,10 +450,10 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                   <p className="text-themed-primary font-medium text-sm mb-1">Deletion Method</p>
                   <p className="text-xs text-themed-muted">
                     {deleteMode === 'rsync'
-                      ? 'Rsync with empty directory (network storage)'
+                      ? 'Rsync with empty directory (best for NFS/SMB)'
                       : deleteMode === 'full'
-                        ? 'Fast Mode directory removal (faster)'
-                        : 'Individual file deletion (slower, keeps structure)'}
+                        ? 'Remove entire directories at once'
+                        : 'Delete files individually (keeps structure)'}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -471,7 +471,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                     }
                     title={cacheReadOnly ? 'Cache directory is read-only' : undefined}
                   >
-                    Safe Mode
+                    Preserve
                   </Button>
                   <Button
                     size="sm"
@@ -487,7 +487,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                     }
                     title={cacheReadOnly ? 'Cache directory is read-only' : undefined}
                   >
-                    Fast Mode
+                    Remove All
                   </Button>
                   {rsyncAvailable && (
                     <Button

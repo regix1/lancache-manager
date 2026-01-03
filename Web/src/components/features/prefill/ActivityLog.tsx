@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState, memo, useMemo } from 'react';
-import { CustomScrollbar } from '@components/ui/CustomScrollbar';
+import { useEffect, useRef, useState, memo } from 'react';
 import {
   CheckCircle2,
   AlertCircle,
@@ -144,7 +143,6 @@ const ENTRIES_PER_PAGE = 10;
 const PAGINATION_HEIGHT = 52; // Fixed height for pagination footer
 
 export function ActivityLog({ entries, maxHeight = '400px', className = '' }: ActivityLogProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
   const shouldAutoScroll = useRef(true);
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -154,25 +152,6 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
   const endIndex = startIndex + ENTRIES_PER_PAGE;
   const visibleEntries = entries.slice(startIndex, endIndex);
 
-  // Calculate content area height
-  const contentHeight = useMemo(() => {
-    if (maxHeight === '100%') return '100%';
-    // Parse maxHeight and subtract pagination height if needed
-    const hasPagination = totalPages > 1;
-    if (!hasPagination) return maxHeight;
-
-    // If maxHeight is a calc() or percentage, handle appropriately
-    if (maxHeight.includes('calc') || maxHeight.includes('%')) {
-      return `calc(${maxHeight} - ${PAGINATION_HEIGHT}px)`;
-    }
-    // Parse pixel value
-    const parsed = parseInt(maxHeight, 10);
-    if (!isNaN(parsed)) {
-      return `${parsed - PAGINATION_HEIGHT}px`;
-    }
-    return maxHeight;
-  }, [maxHeight, totalPages]);
-
   // Auto-advance to last page when new entries are added
   useEffect(() => {
     const newTotalPages = Math.ceil(entries.length / ENTRIES_PER_PAGE);
@@ -181,29 +160,28 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
     }
   }, [entries.length]);
 
+  // Get reference to scrollable element
+  const scrollableRef = useRef<HTMLDivElement>(null);
+
   // Auto-scroll to bottom when new entries are added
   useEffect(() => {
-    if (containerRef.current && shouldAutoScroll.current) {
-      const scrollableElement = containerRef.current.querySelector('.overflow-y-auto');
-      if (scrollableElement) {
-        scrollableElement.scrollTop = scrollableElement.scrollHeight;
-      }
+    if (scrollableRef.current && shouldAutoScroll.current) {
+      scrollableRef.current.scrollTop = scrollableRef.current.scrollHeight;
     }
   }, [visibleEntries]);
 
   // Listen for scroll events to detect if user scrolled up
   useEffect(() => {
-    const handleScroll = (e: Event) => {
-      const target = e.target as HTMLElement;
-      const { scrollTop, scrollHeight, clientHeight } = target;
+    const scrollableElement = scrollableRef.current;
+    if (!scrollableElement) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = scrollableElement;
       shouldAutoScroll.current = scrollHeight - scrollTop - clientHeight < 50;
     };
 
-    const scrollableElement = containerRef.current?.querySelector('.overflow-y-auto');
-    if (scrollableElement) {
-      scrollableElement.addEventListener('scroll', handleScroll);
-      return () => scrollableElement.removeEventListener('scroll', handleScroll);
-    }
+    scrollableElement.addEventListener('scroll', handleScroll);
+    return () => scrollableElement.removeEventListener('scroll', handleScroll);
   }, []);
 
   const handlePageChange = (page: number) => {
@@ -217,7 +195,6 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
 
   return (
     <div
-      ref={containerRef}
       className={`${className} flex flex-col`}
       style={{
         backgroundColor: 'var(--theme-bg-tertiary)',
@@ -232,12 +209,6 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
         /* Empty State */
         <div
           className="flex flex-col items-center justify-center flex-1 py-16 px-6"
-          style={{
-            background: `
-              radial-gradient(circle at 50% 0%, rgba(59, 130, 246, 0.03) 0%, transparent 50%),
-              var(--theme-bg-tertiary)
-            `
-          }}
         >
           <div
             className="relative w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
@@ -275,25 +246,27 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
         </div>
       ) : (
         <>
-          {/* Scrollable Log Entries */}
-          <div className="flex-1 min-h-0">
-            <CustomScrollbar
-              maxHeight={contentHeight}
-              paddingMode="none"
-            >
-              <div>
-                {visibleEntries.map((entry, index) => (
-                  <LogEntryRow
-                    key={entry.id}
-                    entry={entry}
-                    isLast={index === visibleEntries.length - 1}
-                  />
-                ))}
-              </div>
-            </CustomScrollbar>
+          {/* Scrollable Log Entries - takes remaining space */}
+          <div
+            ref={scrollableRef}
+            className="flex-1 min-h-0 overflow-y-auto"
+            style={{
+              scrollbarWidth: 'thin',
+              scrollbarColor: 'var(--theme-scrollbar-thumb) var(--theme-scrollbar-track)'
+            }}
+          >
+            <div>
+              {visibleEntries.map((entry, index) => (
+                <LogEntryRow
+                  key={entry.id}
+                  entry={entry}
+                  isLast={index === visibleEntries.length - 1 && totalPages <= 1}
+                />
+              ))}
+            </div>
           </div>
 
-          {/* Pagination Footer - Fixed Height */}
+          {/* Pagination Footer - Always visible, fixed at bottom */}
           {totalPages > 1 && (
             <div
               className="flex-shrink-0 flex items-center justify-between px-4"

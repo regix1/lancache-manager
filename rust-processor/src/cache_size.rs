@@ -158,9 +158,9 @@ fn print_deletion_time_recommendations(estimates: &EstimatedDeletionTimes, is_ne
         ""
     };
     
-    eprintln!("  Safe Mode (preserve): {}{}", estimates.preserve_formatted, preserve_indicator);
-    eprintln!("  Fast Mode (full): {}{}", estimates.full_formatted, full_indicator);
-    eprintln!("  Rsync Mode: {}{}", estimates.rsync_formatted, rsync_indicator);
+    eprintln!("  Preserve: {}{}", estimates.preserve_formatted, preserve_indicator);
+    eprintln!("  Remove All: {}{}", estimates.full_formatted, full_indicator);
+    eprintln!("  Rsync: {}{}", estimates.rsync_formatted, rsync_indicator);
 }
 
 fn write_progress(progress_path: &Path, progress: &ProgressData) -> Result<()> {
@@ -617,19 +617,22 @@ fn estimate_deletion_times_dynamic(
         |s| s.preserve_files_per_sec,
     );
 
-    // Calculate parallelism boost from measured CPU count
-    // Use measured ratio between single-threaded and multi-threaded performance
-    let cpu_count = calibration.cpu_count as f64;
-    let parallel_efficiency = if calibration.is_network_fs {
-        // Network FS: limited parallelism benefit (measured from our scenarios)
-        (cpu_count / 4.0).min(2.0)
+    // Calculate parallelism effect
+    // On NFS, parallel file deletion can actually be SLOWER due to network contention
+    // and NFS client/server locking. Real-world measurements show 2 workers achieve
+    // only ~60-70% of single-threaded throughput on NFS.
+    let parallel_factor = if calibration.is_network_fs {
+        // Network FS: parallelism hurts due to contention
+        // Multiple workers compete for network bandwidth and NFS locks
+        0.65
     } else {
-        // Local FS: better parallelism (but not perfect linear scaling)
-        (cpu_count / 2.0).min(8.0)
+        // Local FS: parallelism helps but with diminishing returns
+        let cpu_count = calibration.cpu_count as f64;
+        (cpu_count / 2.0).min(4.0)
     };
 
     let effective_preserve_rate = if preserve_rate > 0.0 {
-        preserve_rate * parallel_efficiency
+        preserve_rate * parallel_factor
     } else {
         1.0
     };
@@ -670,8 +673,8 @@ fn estimate_deletion_times_dynamic(
         let overhead_per_dir = (time_per_cal_dir - file_time_per_cal).max(0.001);
 
         // Scale for real cache
-        let total_overhead = hex_dirs as f64 * overhead_per_dir / parallel_efficiency;
-        let total_file_time = total_files as f64 / file_rate / parallel_efficiency;
+        let total_overhead = hex_dirs as f64 * overhead_per_dir / parallel_factor;
+        let total_file_time = total_files as f64 / file_rate / parallel_factor;
 
         (total_overhead + total_file_time).max(0.1)
     } else {
@@ -724,7 +727,7 @@ fn estimate_deletion_times_dynamic(
 
         // Calculate total rsync time for real cache
         // With parallelism, we can run multiple rsync processes
-        let parallel_workers = (cpu_count as f64 / 2.0).min(4.0);
+        let parallel_workers = (calibration.cpu_count as f64 / 2.0).min(4.0);
 
         // Total time = (calls * overhead / workers) + (total_files / file_rate / workers)
         let call_overhead_time = (hex_dirs as f64 * overhead_per_call) / parallel_workers;

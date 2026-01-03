@@ -838,9 +838,9 @@ public class CacheClearingService : IHostedService
     {
         return _deleteMode switch
         {
-            "preserve" => "Safe Mode",
-            "full" => "Fast Mode",
-            "rsync" => "Rsync Mode",
+            "preserve" => "Preserve",
+            "full" => "Remove All",
+            "rsync" => "Rsync",
             _ => _deleteMode
         };
     }
