@@ -10,6 +10,7 @@ import { usePrefillContext } from '@contexts/PrefillContext';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import authService from '@services/auth.service';
 import { SIGNALR_BASE, API_BASE } from '@utils/constants';
+import { formatSpeed } from '@utils/formatters';
 import {
   Loader2,
   ScrollText,
@@ -1128,7 +1129,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                     {prefillProgress.state === 'downloading' && (
                       <div className="text-right hidden sm:block">
                         <p className="text-sm font-medium text-themed-primary">
-                          {formatBytes(prefillProgress.bytesPerSecond)}/s
+                          {formatSpeed(prefillProgress.bytesPerSecond)}
                         </p>
                         <p className="text-xs text-themed-muted">
                           {formatTimeRemaining(Math.floor(prefillProgress.elapsedSeconds))} elapsed
