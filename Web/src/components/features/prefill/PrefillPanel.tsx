@@ -80,6 +80,7 @@ interface CommandButton {
 }
 
 // Grouped command buttons for better organization
+// Note: ALL commands require login - nothing works without Steam auth
 const SELECTION_COMMANDS: CommandButton[] = [
   {
     id: 'select-apps',
@@ -87,8 +88,7 @@ const SELECTION_COMMANDS: CommandButton[] = [
     description: 'Choose games to prefill',
     icon: <List className="h-4 w-4" />,
     variant: 'filled',
-    color: 'blue',
-    requiresLogin: true
+    color: 'blue'
   },
   {
     id: 'select-status',
@@ -106,40 +106,35 @@ const PREFILL_COMMANDS: CommandButton[] = [
     description: 'Download selected games',
     icon: <Download className="h-4 w-4" />,
     variant: 'filled',
-    color: 'green',
-    requiresLogin: true
+    color: 'green'
   },
   {
     id: 'prefill-all',
     label: 'Prefill All',
     description: 'All owned games',
     icon: <Gamepad2 className="h-4 w-4" />,
-    variant: 'subtle',
-    requiresLogin: true
+    variant: 'outline'
   },
   {
     id: 'prefill-recent',
     label: 'Recent Played',
     description: 'Last 2 weeks',
     icon: <Clock className="h-4 w-4" />,
-    variant: 'subtle',
-    requiresLogin: true
+    variant: 'outline'
   },
   {
     id: 'prefill-recent-purchased',
     label: 'Recent Bought',
     description: 'Last 2 weeks',
     icon: <ShoppingCart className="h-4 w-4" />,
-    variant: 'subtle',
-    requiresLogin: true
+    variant: 'outline'
   },
   {
     id: 'prefill-top',
     label: 'Top 50',
     description: 'Popular games',
     icon: <TrendingUp className="h-4 w-4" />,
-    variant: 'subtle',
-    requiresLogin: true
+    variant: 'outline'
   }
 ];
 
@@ -149,8 +144,7 @@ const UTILITY_COMMANDS: CommandButton[] = [
     label: 'Force Download',
     description: 'Re-download all',
     icon: <RefreshCw className="h-4 w-4" />,
-    variant: 'outline',
-    requiresLogin: true
+    variant: 'outline'
   },
   {
     id: 'clear-temp',
@@ -616,7 +610,12 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           break;
         }
         case 'prefill': {
-          addLog('download', 'Starting prefill of selected apps...');
+          // Check if any games are selected
+          if (selectedAppIds.length === 0) {
+            addLog('warning', 'No games selected. Use "Select Apps" to choose games for prefill first.');
+            break;
+          }
+          addLog('download', `Starting prefill of ${selectedAppIds.length} selected apps...`);
           const result = await callPrefillApi(session.id, {});
           setPrefillProgress(null); // Clear progress on completion
           if (result?.success) {
@@ -785,33 +784,52 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     };
   }, []);
 
-  // Render command button
-  const renderCommandButton = (cmd: CommandButton) => (
-    <Button
-      key={cmd.id}
-      variant={cmd.variant || 'default'}
-      color={cmd.color}
-      onClick={() => executeCommand(cmd.id)}
-      disabled={isExecuting || (cmd.requiresLogin && !isLoggedIn)}
-      className="h-auto py-3 px-4 flex-col items-start gap-1"
-      size="sm"
-    >
-      <div className="flex items-center gap-2 w-full">
-        <span
-          className="p-1.5 rounded-md"
-          style={{
-            backgroundColor: cmd.variant === 'filled'
-              ? 'rgba(255,255,255,0.15)'
-              : 'color-mix(in srgb, var(--theme-primary) 15%, transparent)'
-          }}
-        >
-          {cmd.icon}
-        </span>
-        <span className="font-medium text-sm">{cmd.label}</span>
-      </div>
-      <span className="text-xs opacity-70 pl-8">{cmd.description}</span>
-    </Button>
-  );
+  // Render command button - ALL commands disabled until logged in
+  const renderCommandButton = (cmd: CommandButton) => {
+    // Special handling for "Prefill Selected" - disable if no games selected
+    const isPrefillSelected = cmd.id === 'prefill';
+    const noGamesSelected = selectedAppIds.length === 0;
+    const isDisabled = isExecuting || !isLoggedIn || (isPrefillSelected && noGamesSelected);
+
+    // Dynamic label for prefill selected
+    const label = isPrefillSelected && selectedAppIds.length > 0
+      ? `Prefill Selected (${selectedAppIds.length})`
+      : cmd.label;
+
+    // Dynamic description for prefill selected
+    const description = isPrefillSelected
+      ? noGamesSelected
+        ? 'Select games first'
+        : `${selectedAppIds.length} game${selectedAppIds.length !== 1 ? 's' : ''} ready`
+      : cmd.description;
+
+    return (
+      <Button
+        key={cmd.id}
+        variant={cmd.variant || 'default'}
+        color={cmd.color}
+        onClick={() => executeCommand(cmd.id)}
+        disabled={isDisabled}
+        className="h-auto py-3 px-4 flex-col items-start gap-1"
+        size="sm"
+      >
+        <div className="flex items-center gap-2 w-full">
+          <span
+            className="p-1.5 rounded-md"
+            style={{
+              backgroundColor: cmd.variant === 'filled'
+                ? 'rgba(255,255,255,0.15)'
+                : 'color-mix(in srgb, var(--theme-primary) 15%, transparent)'
+            }}
+          >
+            {cmd.icon}
+          </span>
+          <span className="font-medium text-sm">{label}</span>
+        </div>
+        <span className="text-xs opacity-70 pl-8">{description}</span>
+      </Button>
+    );
+  };
 
   // No session state - show start screen
   if (!session && !isCreating && !isInitializing) {
@@ -830,13 +848,10 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         <Card className="max-w-2xl mx-auto">
           <CardContent className="py-12">
             <div className="flex flex-col items-center text-center space-y-6">
-              {/* Steam Icon with glow effect */}
+              {/* Steam Icon */}
               <div
                 className="w-20 h-20 rounded-2xl flex items-center justify-center"
-                style={{
-                  background: 'linear-gradient(135deg, var(--theme-steam) 0%, color-mix(in srgb, var(--theme-steam) 70%, #000) 100%)',
-                  boxShadow: '0 8px 32px color-mix(in srgb, var(--theme-steam) 30%, transparent)'
-                }}
+                style={{ backgroundColor: 'var(--theme-steam)' }}
               >
                 <SteamIcon size={40} className="text-white" />
               </div>
@@ -956,10 +971,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         <div className="flex items-center gap-4">
           <div
             className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{
-              background: 'linear-gradient(135deg, var(--theme-steam) 0%, color-mix(in srgb, var(--theme-steam) 70%, #000) 100%)',
-              boxShadow: '0 4px 12px color-mix(in srgb, var(--theme-steam) 25%, transparent)'
-            }}
+            style={{ backgroundColor: 'var(--theme-steam)' }}
           >
             <SteamIcon size={24} className="text-white" />
           </div>
@@ -1224,11 +1236,11 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                   <Shield className="h-5 w-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-warning)' }} />
                   <div>
                     <p className="font-medium text-sm" style={{ color: 'var(--theme-warning-text)' }}>
-                      Authentication Required
+                      Login Required to Use Commands
                     </p>
                     <p className="text-sm text-themed-muted mt-1">
-                      Some commands require Steam login. Your credentials are sent directly to the container
-                      and never stored by this application.
+                      All prefill commands require Steam authentication. Click "Login to Steam" above to enable commands.
+                      Your credentials are sent directly to the container and never stored by this application.
                     </p>
                   </div>
                 </div>
