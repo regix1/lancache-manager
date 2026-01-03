@@ -399,6 +399,8 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         string sessionId,
         bool all = false,
         bool recent = false,
+        bool recentlyPurchased = false,
+        int? top = null,
         bool force = false,
         List<string>? operatingSystems = null,
         CancellationToken cancellationToken = default)
@@ -413,7 +415,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
         try
         {
-            var result = await session.Client.PrefillAsync(all, recent, force, operatingSystems, cancellationToken);
+            var result = await session.Client.PrefillAsync(all, recent, recentlyPurchased, top, force, operatingSystems, cancellationToken);
             await NotifyPrefillStateChangeAsync(session, result.Success ? "completed" : "failed");
             return result;
         }

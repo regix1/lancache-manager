@@ -203,7 +203,7 @@ public class PrefillDaemonHub : Hub
             _logger.LogInformation("Starting prefill for session {SessionId} (all={All}, recent={Recent}, force={Force}, os={OS})",
                 sessionId, all, recent, force, operatingSystems ?? "default");
 
-            return await _daemonService.PrefillAsync(sessionId, all, recent, force, osList);
+            return await _daemonService.PrefillAsync(sessionId, all: all, recent: recent, force: force, operatingSystems: osList);
         }
         catch (Exception ex)
         {

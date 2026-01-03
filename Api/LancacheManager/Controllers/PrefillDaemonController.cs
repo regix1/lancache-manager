@@ -400,6 +400,8 @@ public class PrefillDaemonController : ControllerBase
                 sessionId,
                 all: request?.All ?? false,
                 recent: request?.Recent ?? false,
+                recentlyPurchased: request?.RecentlyPurchased ?? false,
+                top: request?.Top,
                 force: request?.Force ?? false);
 
             return Ok(result);
@@ -486,6 +488,8 @@ public class PrefillDaemonController : ControllerBase
     {
         public bool All { get; set; }
         public bool Recent { get; set; }
+        public bool RecentlyPurchased { get; set; }
+        public int? Top { get; set; }
         public bool Force { get; set; }
     }
 

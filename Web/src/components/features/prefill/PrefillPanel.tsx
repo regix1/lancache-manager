@@ -442,9 +442,13 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   // Helper to call prefill REST API (bypasses SignalR serialization issues)
   const callPrefillApi = useCallback(async (
     sessionId: string,
-    all: boolean = false,
-    recent: boolean = false,
-    force: boolean = false
+    options: {
+      all?: boolean;
+      recent?: boolean;
+      recentlyPurchased?: boolean;
+      top?: number;
+      force?: boolean;
+    } = {}
   ) => {
     const response = await fetch(`${API_BASE}/prefill-daemon/sessions/${sessionId}/prefill`, {
       method: 'POST',
@@ -452,14 +456,14 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         'Content-Type': 'application/json',
         ...authService.getAuthHeaders()
       },
-      body: JSON.stringify({ all, recent, force })
+      body: JSON.stringify(options)
     });
-    
+
     if (!response.ok) {
       const error = await response.json().catch(() => ({ message: 'Prefill request failed' }));
       throw new Error(error.message || `HTTP ${response.status}`);
     }
-    
+
     return response.json();
   }, []);
 
@@ -510,10 +514,10 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         }
         case 'prefill': {
           addLog('download', 'Starting prefill of selected apps...');
-          const result = await callPrefillApi(session.id, false, false, false);
+          const result = await callPrefillApi(session.id, {});
           setPrefillProgress(null); // Clear progress on completion
           if (result?.success) {
-            const totalSeconds = result.totalTime?.totalSeconds || 0;
+            const totalSeconds = result.totalSeconds || 0;
             addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
           } else {
             addLog('error', result?.errorMessage || 'Prefill failed');
@@ -522,10 +526,10 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         }
         case 'prefill-all': {
           addLog('download', 'Starting prefill of all owned games...');
-          const result = await callPrefillApi(session.id, true, false, false);
+          const result = await callPrefillApi(session.id, { all: true });
           setPrefillProgress(null); // Clear progress on completion
           if (result?.success) {
-            const totalSeconds = result.totalTime?.totalSeconds || 0;
+            const totalSeconds = result.totalSeconds || 0;
             addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
           } else {
             addLog('error', result?.errorMessage || 'Prefill failed');
@@ -534,10 +538,34 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         }
         case 'prefill-recent': {
           addLog('download', 'Starting prefill of recently played games...');
-          const result = await callPrefillApi(session.id, false, true, false);
+          const result = await callPrefillApi(session.id, { recent: true });
           setPrefillProgress(null); // Clear progress on completion
           if (result?.success) {
-            const totalSeconds = result.totalTime?.totalSeconds || 0;
+            const totalSeconds = result.totalSeconds || 0;
+            addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
+          } else {
+            addLog('error', result?.errorMessage || 'Prefill failed');
+          }
+          break;
+        }
+        case 'prefill-recent-purchased': {
+          addLog('download', 'Starting prefill of recently purchased games...');
+          const result = await callPrefillApi(session.id, { recentlyPurchased: true });
+          setPrefillProgress(null); // Clear progress on completion
+          if (result?.success) {
+            const totalSeconds = result.totalSeconds || 0;
+            addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
+          } else {
+            addLog('error', result?.errorMessage || 'Prefill failed');
+          }
+          break;
+        }
+        case 'prefill-top': {
+          addLog('download', 'Starting prefill of top 50 popular games...');
+          const result = await callPrefillApi(session.id, { top: 50 });
+          setPrefillProgress(null); // Clear progress on completion
+          if (result?.success) {
+            const totalSeconds = result.totalSeconds || 0;
             addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
           } else {
             addLog('error', result?.errorMessage || 'Prefill failed');
@@ -546,10 +574,10 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         }
         case 'prefill-force': {
           addLog('download', 'Starting force prefill (re-downloading)...');
-          const result = await callPrefillApi(session.id, false, false, true);
+          const result = await callPrefillApi(session.id, { force: true });
           setPrefillProgress(null); // Clear progress on completion
           if (result?.success) {
-            const totalSeconds = result.totalTime?.totalSeconds || 0;
+            const totalSeconds = result.totalSeconds || 0;
             addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
           } else {
             addLog('error', result?.errorMessage || 'Prefill failed');

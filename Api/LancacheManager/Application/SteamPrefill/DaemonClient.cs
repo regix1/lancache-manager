@@ -300,6 +300,8 @@ public sealed class DaemonClient : IDisposable
     public async Task<PrefillResult> PrefillAsync(
         bool all = false,
         bool recent = false,
+        bool recentlyPurchased = false,
+        int? top = null,
         bool force = false,
         List<string>? operatingSystems = null,
         CancellationToken cancellationToken = default)
@@ -307,6 +309,8 @@ public sealed class DaemonClient : IDisposable
         var parameters = new Dictionary<string, string>();
         if (all) parameters["all"] = "true";
         if (recent) parameters["recent"] = "true";
+        if (recentlyPurchased) parameters["recentlyPurchased"] = "true";
+        if (top.HasValue) parameters["top"] = top.Value.ToString();
         if (force) parameters["force"] = "true";
         if (operatingSystems != null && operatingSystems.Count > 0)
             parameters["os"] = string.Join(",", operatingSystems);
@@ -521,6 +525,12 @@ public class PrefillResult
 
     [JsonPropertyName("totalTime")]
     public TimeSpan TotalTime { get; set; }
+
+    /// <summary>
+    /// Total time in seconds (for JSON serialization compatibility)
+    /// </summary>
+    [JsonPropertyName("totalSeconds")]
+    public double TotalSeconds => TotalTime.TotalSeconds;
 }
 
 public class ClearCacheResult
