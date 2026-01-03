@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useRef, ChangeEvent } from 'react';
+import { useState, useMemo, useCallback, useEffect, ChangeEvent } from 'react';
 import { Modal } from '../../ui/Modal';
 import { Button } from '../../ui/Button';
 import { CustomScrollbar } from '../../ui/CustomScrollbar';
@@ -29,8 +29,6 @@ export function GameSelectionModal({
   const [search, setSearch] = useState('');
   const [localSelected, setLocalSelected] = useState<Set<number>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
-  const [listHeight, setListHeight] = useState(400);
-  const listContainerRef = useRef<HTMLDivElement>(null);
 
   // Reset local selection when modal opens - start fresh each time
   useEffect(() => {
@@ -40,29 +38,6 @@ export function GameSelectionModal({
       setSearch('');
     }
   }, [opened, selectedAppIds]);
-
-  // Measure list container height for CustomScrollbar
-  useEffect(() => {
-    if (!opened || !listContainerRef.current) return;
-
-    const updateHeight = () => {
-      if (listContainerRef.current) {
-        setListHeight(listContainerRef.current.clientHeight);
-      }
-    };
-
-    // Initial measurement with delay for modal animation
-    const timer = setTimeout(updateHeight, 50);
-
-    // Update on resize
-    const resizeObserver = new ResizeObserver(updateHeight);
-    resizeObserver.observe(listContainerRef.current);
-
-    return () => {
-      clearTimeout(timer);
-      resizeObserver.disconnect();
-    };
-  }, [opened]);
 
   // Filter games by search
   const filteredGames = useMemo(() => {
@@ -175,8 +150,7 @@ export function GameSelectionModal({
 
         {/* Game list */}
         <div
-          ref={listContainerRef}
-          className="flex-1 rounded-lg overflow-hidden min-h-0"
+          className="flex-1 relative rounded-lg overflow-hidden min-h-0"
           style={{
             backgroundColor: 'var(--theme-bg-tertiary)',
             border: '1px solid var(--theme-border-secondary)'
@@ -203,7 +177,8 @@ export function GameSelectionModal({
               )}
             </div>
           ) : (
-            <CustomScrollbar maxHeight={`${listHeight}px`} paddingMode="compact">
+            <div className="absolute inset-0">
+              <CustomScrollbar maxHeight="100%" className="h-full" paddingMode="compact">
               <div>
                 {sortedGames.map(game => {
                   const isSelected = localSelected.has(game.appId);
@@ -278,7 +253,8 @@ export function GameSelectionModal({
                   );
                 })}
               </div>
-            </CustomScrollbar>
+              </CustomScrollbar>
+            </div>
           )}
         </div>
 
