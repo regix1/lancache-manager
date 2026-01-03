@@ -169,6 +169,8 @@ export interface CacheGrowthResponse {
   hasDataDeletion: boolean;
   /** Estimated bytes that were deleted from cache */
   estimatedBytesDeleted: number;
+  /** True if cache was essentially cleared (very small relative to historical downloads) */
+  cacheWasCleared?: boolean;
 }
 
 export interface SparklineMetric {

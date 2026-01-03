@@ -1155,6 +1155,12 @@ public class CacheGrowthResponse
     /// Can be negative if cache is shrinking
     /// </summary>
     public long NetAverageDailyGrowth { get; set; }
+
+    /// <summary>
+    /// True if the cache was essentially cleared (very small relative to historical downloads).
+    /// When true, percentChange is not meaningful and growth rate shows download rate.
+    /// </summary>
+    public bool CacheWasCleared { get; set; }
 }
 
 /// <summary>

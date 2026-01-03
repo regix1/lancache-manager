@@ -82,6 +82,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
   const daysUntilFull = data?.estimatedDaysUntilFull ?? null;
   const hasEnoughData = sparklineData.length >= 2;
   const hasDataDeletion = data?.hasDataDeletion ?? false;
+  const cacheWasCleared = data?.cacheWasCleared ?? false;
 
   // Usage percentage (from props - real cache info)
   const usagePercent = totalCacheSize > 0
@@ -163,8 +164,8 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
             </div>
           </HelpPopover>
         </div>
-        {/* Only show percentage when meaningful (not 0) and not extreme (<=500%) */}
-        {hasEnoughData && percentChange !== 0 && Math.abs(percentChange) <= 500 && (
+        {/* Only show percentage when meaningful (not 0), not extreme (<=500%), and cache wasn't cleared */}
+        {hasEnoughData && percentChange !== 0 && Math.abs(percentChange) <= 500 && !cacheWasCleared && (
           <div
             className="flex items-center gap-1 text-xs font-medium"
             style={{ color: getTrendColor() }}
@@ -225,7 +226,9 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
               className="text-[10px] text-center mt-1"
               style={{ color: 'var(--theme-text-muted)' }}
             >
-              Cache was cleared • Showing download history
+              {cacheWasCleared
+                ? 'Cache cleared • Showing new downloads'
+                : 'Some cache data was deleted'}
             </div>
           )}
         </div>
@@ -235,7 +238,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
       <div className="grid grid-cols-2 gap-4 text-xs">
         <div>
           <div style={{ color: 'var(--theme-text-muted)' }}>
-            {hasDataDeletion ? 'Net Growth' : 'Growth Rate'}
+            {cacheWasCleared ? 'Download Rate' : hasDataDeletion ? 'Net Growth' : 'Growth Rate'}
           </div>
           <div
             className="font-medium"

@@ -684,6 +684,7 @@ public class StatsController : ControllerBase
             long netAvgDailyGrowth = avgDailyGrowth;
             long estimatedBytesDeleted = 0;
             bool hasDataDeletion = false;
+            bool cacheWasCleared = false;
 
             if (actualCacheSize.HasValue && actualCacheSize.Value > 0)
             {
@@ -698,21 +699,31 @@ public class StatsController : ControllerBase
                     hasDataDeletion = true;
                     estimatedBytesDeleted = cumulativeDownloads - actualCacheSize.Value;
 
-                    // Calculate the net change over the period
-                    // This is a rough estimate: actual cache size / total time = net daily rate
-                    if (dataPoints.Count >= 2)
+                    // Detect if cache was essentially cleared (actual cache is very small)
+                    // If actual cache is <5% of cumulative downloads OR <100MB, treat as "cleared"
+                    const long CLEARED_THRESHOLD_BYTES = 100L * 1024 * 1024; // 100MB
+                    var cacheRatio = cumulativeDownloads > 0
+                        ? (double)actualCacheSize.Value / cumulativeDownloads
+                        : 1.0;
+
+                    cacheWasCleared = actualCacheSize.Value < CLEARED_THRESHOLD_BYTES || cacheRatio < 0.05;
+
+                    if (cacheWasCleared)
                     {
+                        // Cache was cleared - show the positive download rate as growth
+                        // The deletion is a past event, current growth is positive (downloads happening)
+                        netAvgDailyGrowth = avgDailyGrowth;
+                    }
+                    else if (dataPoints.Count >= 2)
+                    {
+                        // Cache has some deletions but wasn't fully cleared
+                        // Calculate proportional net growth
                         var firstTimestamp = dataPoints.First().Timestamp;
                         var lastTimestamp = dataPoints.Last().Timestamp;
                         var totalDays = (lastTimestamp - firstTimestamp).TotalDays;
 
                         if (totalDays > 0)
                         {
-                            // The last cumulative value is the total downloads in the period
-                            var periodDownloads = dataPoints.Last().CumulativeCacheMissBytes;
-
-                            // If we're looking at all data, calculate proportional deletions
-                            // Rough estimate: assume deletions happened uniformly
                             var deletionRate = (double)estimatedBytesDeleted / totalDays;
                             netAvgDailyGrowth = (long)(avgDailyGrowth - deletionRate);
                         }
@@ -743,7 +754,8 @@ public class StatsController : ControllerBase
                 EstimatedDaysUntilFull = daysUntilFull,
                 Period = startTime.HasValue ? "filtered" : "all",
                 HasDataDeletion = hasDataDeletion,
-                EstimatedBytesDeleted = estimatedBytesDeleted
+                EstimatedBytesDeleted = estimatedBytesDeleted,
+                CacheWasCleared = cacheWasCleared
             });
         }
         catch (Exception ex)

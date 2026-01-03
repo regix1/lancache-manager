@@ -87,7 +87,7 @@ const LogEntryRow = memo(({ entry, isLast }: { entry: LogEntry; isLast: boolean 
 
   return (
     <div
-      className="group flex items-start gap-3 px-3 py-2.5 transition-colors duration-100"
+      className="group flex items-start gap-2 sm:gap-3 px-2 sm:px-3 py-2 sm:py-2.5 transition-colors duration-100"
       style={{
         borderBottom: isLast ? 'none' : '1px solid var(--theme-border-secondary)',
         backgroundColor: 'transparent',
@@ -99,9 +99,9 @@ const LogEntryRow = memo(({ entry, isLast }: { entry: LogEntry; isLast: boolean 
         e.currentTarget.style.backgroundColor = 'transparent';
       }}
     >
-      {/* Timestamp */}
+      {/* Timestamp - hidden on mobile, shown on sm+ */}
       <span
-        className="text-[11px] font-mono flex-shrink-0 tabular-nums pt-1.5 opacity-50 group-hover:opacity-80 transition-opacity"
+        className="hidden sm:block text-[11px] font-mono flex-shrink-0 tabular-nums pt-1.5 opacity-50 group-hover:opacity-80 transition-opacity"
         style={{ color: 'var(--theme-text-muted)', letterSpacing: '0.02em' }}
       >
         {formatTime(entry.timestamp)}
@@ -119,7 +119,7 @@ const LogEntryRow = memo(({ entry, isLast }: { entry: LogEntry; isLast: boolean 
       {/* Message content */}
       <div className="flex-1 min-w-0 pt-0.5">
         <p
-          className="text-[13px] leading-snug"
+          className="text-xs sm:text-[13px] leading-snug"
           style={{
             color: 'var(--theme-text-primary)',
             wordBreak: 'break-word'
@@ -129,7 +129,7 @@ const LogEntryRow = memo(({ entry, isLast }: { entry: LogEntry; isLast: boolean 
         </p>
         {entry.details && (
           <p
-            className="text-xs mt-0.5 opacity-60"
+            className="text-[11px] sm:text-xs mt-0.5 opacity-60"
             style={{ color: 'var(--theme-text-muted)' }}
           >
             {entry.details}
@@ -143,6 +143,7 @@ const LogEntryRow = memo(({ entry, isLast }: { entry: LogEntry; isLast: boolean 
 LogEntryRow.displayName = 'LogEntryRow';
 
 const ENTRIES_PER_PAGE = 10;
+const PAGINATION_HEIGHT = 44; // Fixed height for pagination footer
 
 export function ActivityLog({ entries, maxHeight = '400px', className = '' }: ActivityLogProps) {
   const shouldAutoScroll = useRef(true);
@@ -154,6 +155,12 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
   const startIndex = (currentPage - 1) * ENTRIES_PER_PAGE;
   const endIndex = startIndex + ENTRIES_PER_PAGE;
   const visibleEntries = entries.slice(startIndex, endIndex);
+
+  // Calculate scroll area height - subtract pagination height when pagination is shown
+  const hasPagination = totalPages > 1;
+  const scrollAreaMaxHeight = hasPagination
+    ? `calc(${maxHeight} - ${PAGINATION_HEIGHT}px)`
+    : maxHeight;
 
   // Auto-advance to last page when new entries are added
   useEffect(() => {
@@ -204,14 +211,15 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
         backgroundColor: 'var(--theme-bg-tertiary)',
         borderRadius: 'var(--theme-border-radius-lg, 0.75rem)',
         border: '1px solid var(--theme-border-secondary)',
-        height: maxHeight,
-        maxHeight: maxHeight,
         overflow: 'hidden',
       }}
     >
       {entries.length === 0 ? (
         /* Empty State */
-        <div className="flex flex-col items-center justify-center flex-1 py-12 px-6">
+        <div
+          className="flex flex-col items-center justify-center py-12 px-6"
+          style={{ height: maxHeight }}
+        >
           <div
             className="relative w-14 h-14 rounded-xl flex items-center justify-center mb-3"
             style={{
@@ -238,11 +246,12 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
         </div>
       ) : (
         <>
-          {/* Scrollable Log Entries Area - min-h-0 is crucial for flex overflow */}
+          {/* Scrollable Log Entries Area - explicit maxHeight accounts for pagination */}
           <div
             ref={scrollContainerRef}
-            className="flex-1 overflow-y-auto overflow-x-hidden min-h-0"
+            className="overflow-y-auto overflow-x-hidden"
             style={{
+              maxHeight: scrollAreaMaxHeight,
               scrollbarWidth: 'thin',
               scrollbarColor: 'var(--theme-scrollbar-thumb) var(--theme-scrollbar-track)',
             }}
@@ -261,7 +270,7 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
           {/* Fixed Pagination Footer - flex-shrink-0 keeps it always visible */}
           {totalPages > 1 && (
             <div
-              className="flex-shrink-0 flex items-center justify-between px-3"
+              className="flex-shrink-0 flex items-center justify-between px-2 sm:px-3"
               style={{
                 height: '44px',
                 minHeight: '44px',
@@ -269,20 +278,20 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
                 backgroundColor: 'var(--theme-bg-secondary)',
               }}
             >
-              {/* Entry count */}
+              {/* Entry count - hidden on very small screens */}
               <span
-                className="text-[11px] tabular-nums"
+                className="hidden xs:block text-[10px] sm:text-[11px] tabular-nums"
                 style={{ color: 'var(--theme-text-muted)' }}
               >
                 {startItem}–{endItem} of {entries.length}
               </span>
 
-              {/* Navigation controls */}
-              <div className="flex items-center gap-1.5">
+              {/* Navigation controls - centered on very small screens */}
+              <div className="flex items-center gap-1 sm:gap-1.5 mx-auto xs:mx-0">
                 <button
                   onClick={() => handlePageChange(currentPage - 1)}
                   disabled={currentPage === 1}
-                  className="flex items-center justify-center w-7 h-7 rounded-md transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                  className="flex items-center justify-center w-8 h-8 sm:w-7 sm:h-7 rounded-md transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                   style={{
                     backgroundColor: 'var(--theme-bg-tertiary)',
                     border: '1px solid var(--theme-border-secondary)',
@@ -314,7 +323,7 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
                 <button
                   onClick={() => handlePageChange(currentPage + 1)}
                   disabled={currentPage === totalPages}
-                  className="flex items-center justify-center w-7 h-7 rounded-md transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                  className="flex items-center justify-center w-8 h-8 sm:w-7 sm:h-7 rounded-md transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                   style={{
                     backgroundColor: 'var(--theme-bg-tertiary)',
                     border: '1px solid var(--theme-border-secondary)',
