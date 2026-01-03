@@ -737,36 +737,48 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
     private void StartStatusWatcher(DaemonSession session)
     {
+        // Use a ConcurrentDictionary to track pending file changes for deduplication
+        // FileSystemWatcher fires multiple events for a single file change
+        var pendingChanges = new ConcurrentDictionary<string, DateTime>();
+        var processLock = new SemaphoreSlim(1, 1);
+
         session.StatusWatcher = new FileSystemWatcher(session.ResponsesDir, "*.json")
         {
-            NotifyFilter = NotifyFilters.FileName | NotifyFilters.CreationTime | NotifyFilters.LastWrite,
+            // Only watch for LastWrite - this reduces duplicate events
+            NotifyFilter = NotifyFilters.LastWrite,
             EnableRaisingEvents = true
         };
 
-        session.StatusWatcher.Created += async (sender, e) =>
+        // Use a single handler for all changes to simplify deduplication
+        async void HandleFileChange(object sender, FileSystemEventArgs e)
         {
+            var fileName = Path.GetFileName(e.FullPath);
+            var now = DateTime.UtcNow;
+
+            // Deduplicate: if we've processed this file in the last 100ms, skip it
+            if (pendingChanges.TryGetValue(fileName, out var lastProcessed) &&
+                (now - lastProcessed).TotalMilliseconds < 100)
+            {
+                return;
+            }
+
+            pendingChanges[fileName] = now;
+
+            // Wait a bit for file to be fully written
+            await Task.Delay(50);
+
+            // Use lock to ensure we don't process the same file concurrently
+            await processLock.WaitAsync();
             try
             {
-                await HandleResponseFileAsync(session, e.FullPath);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error handling response file {Path}", e.FullPath);
-            }
-        };
-
-        session.StatusWatcher.Changed += async (sender, e) =>
-        {
-            try
-            {
-                var fileName = Path.GetFileName(e.FullPath);
-
-                // Handle daemon_status.json changes
-                if (fileName == "daemon_status.json")
+                if (fileName.StartsWith("auth_challenge_"))
+                {
+                    await HandleResponseFileAsync(session, e.FullPath);
+                }
+                else if (fileName == "daemon_status.json")
                 {
                     await HandleStatusChangeAsync(session, e.FullPath);
                 }
-                // Handle prefill_progress.json changes
                 else if (fileName == "prefill_progress.json")
                 {
                     await HandleProgressChangeAsync(session, e.FullPath);
@@ -776,7 +788,14 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             {
                 _logger.LogWarning(ex, "Error handling file change {Path}", e.FullPath);
             }
-        };
+            finally
+            {
+                processLock.Release();
+            }
+        }
+
+        session.StatusWatcher.Changed += HandleFileChange;
+        session.StatusWatcher.Created += HandleFileChange;
     }
 
     private async Task HandleResponseFileAsync(DaemonSession session, string filePath)
@@ -829,8 +848,6 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
     private async Task HandleStatusChangeAsync(DaemonSession session, string filePath)
     {
-        await Task.Delay(50); // Ensure file is written
-
         try
         {
             var json = await File.ReadAllTextAsync(filePath);
