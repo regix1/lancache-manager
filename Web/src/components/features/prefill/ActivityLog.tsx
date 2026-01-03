@@ -1,4 +1,5 @@
 import { useEffect, useRef, memo } from 'react';
+import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import {
   CheckCircle2,
   AlertCircle,
@@ -8,7 +9,7 @@ import {
   Loader2,
   Clock,
   XCircle,
-  Gamepad2
+  Terminal
 } from 'lucide-react';
 
 export type LogEntryType =
@@ -40,21 +41,21 @@ const LogIcon = memo(({ type }: { type: LogEntryType }) => {
 
   switch (type) {
     case 'success':
-      return <CheckCircle2 className={`${iconClass} text-green-500`} />;
+      return <CheckCircle2 className={iconClass} style={{ color: 'var(--theme-success)' }} />;
     case 'error':
-      return <XCircle className={`${iconClass} text-red-500`} />;
+      return <XCircle className={iconClass} style={{ color: 'var(--theme-error)' }} />;
     case 'warning':
-      return <AlertCircle className={`${iconClass} text-yellow-500`} />;
+      return <AlertCircle className={iconClass} style={{ color: 'var(--theme-warning)' }} />;
     case 'download':
-      return <Download className={`${iconClass} text-blue-500`} />;
+      return <Download className={iconClass} style={{ color: 'var(--theme-primary)' }} />;
     case 'auth':
-      return <LogIn className={`${iconClass} text-purple-500`} />;
+      return <LogIn className={iconClass} style={{ color: 'var(--theme-steam)' }} />;
     case 'progress':
-      return <Loader2 className={`${iconClass} text-blue-500 animate-spin`} />;
+      return <Loader2 className={`${iconClass} animate-spin`} style={{ color: 'var(--theme-primary)' }} />;
     case 'command':
-      return <Gamepad2 className={`${iconClass} text-cyan-500`} />;
+      return <Terminal className={iconClass} style={{ color: 'var(--theme-accent)' }} />;
     default:
-      return <Info className={`${iconClass} text-themed-secondary`} />;
+      return <Info className={iconClass} style={{ color: 'var(--theme-text-muted)' }} />;
   }
 });
 
@@ -70,17 +71,31 @@ const formatTime = (date: Date): string => {
 };
 
 const LogEntryRow = memo(({ entry }: { entry: LogEntry }) => (
-  <div className="flex items-start gap-2 py-1.5 px-3 hover:bg-themed-surface-hover transition-colors">
-    <span className="text-xs text-themed-tertiary font-mono flex-shrink-0 pt-0.5">
+  <div
+    className="flex items-start gap-3 py-2.5 px-4 transition-colors"
+    style={{
+      borderBottom: '1px solid var(--theme-border-secondary)'
+    }}
+    onMouseEnter={(e) => {
+      e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
+    }}
+    onMouseLeave={(e) => {
+      e.currentTarget.style.backgroundColor = 'transparent';
+    }}
+  >
+    <span
+      className="text-xs font-mono flex-shrink-0 pt-0.5 tabular-nums"
+      style={{ color: 'var(--theme-text-muted)' }}
+    >
       {formatTime(entry.timestamp)}
     </span>
     <LogIcon type={entry.type} />
     <div className="flex-1 min-w-0">
-      <span className="text-sm text-themed-primary break-words">
+      <span className="text-sm break-words" style={{ color: 'var(--theme-text-primary)' }}>
         {entry.message}
       </span>
       {entry.details && (
-        <p className="text-xs text-themed-tertiary mt-0.5 break-words">
+        <p className="text-xs mt-0.5 break-words" style={{ color: 'var(--theme-text-muted)' }}>
           {entry.details}
         </p>
       )}
@@ -91,42 +106,70 @@ const LogEntryRow = memo(({ entry }: { entry: LogEntry }) => (
 LogEntryRow.displayName = 'LogEntryRow';
 
 export function ActivityLog({ entries, maxHeight = '400px', className = '' }: ActivityLogProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const shouldAutoScroll = useRef(true);
 
   // Auto-scroll to bottom when new entries are added
   useEffect(() => {
-    if (containerRef.current && shouldAutoScroll.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+    if (scrollRef.current && shouldAutoScroll.current) {
+      // Find the scrollable element within CustomScrollbar
+      const scrollableElement = scrollRef.current.querySelector('.overflow-y-auto');
+      if (scrollableElement) {
+        scrollableElement.scrollTop = scrollableElement.scrollHeight;
+      }
     }
   }, [entries]);
 
-  // Detect if user scrolled up (disable auto-scroll)
-  const handleScroll = () => {
-    if (!containerRef.current) return;
-    const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
-    // If scrolled within 50px of bottom, enable auto-scroll
-    shouldAutoScroll.current = scrollHeight - scrollTop - clientHeight < 50;
-  };
+  // Listen for scroll events to detect if user scrolled up
+  useEffect(() => {
+    const handleScroll = (e: Event) => {
+      const target = e.target as HTMLElement;
+      const { scrollTop, scrollHeight, clientHeight } = target;
+      // If scrolled within 50px of bottom, enable auto-scroll
+      shouldAutoScroll.current = scrollHeight - scrollTop - clientHeight < 50;
+    };
+
+    const scrollableElement = scrollRef.current?.querySelector('.overflow-y-auto');
+    if (scrollableElement) {
+      scrollableElement.addEventListener('scroll', handleScroll);
+      return () => scrollableElement.removeEventListener('scroll', handleScroll);
+    }
+  }, []);
 
   return (
     <div
-      ref={containerRef}
-      onScroll={handleScroll}
-      className={`overflow-y-auto bg-themed-surface rounded-lg border border-themed ${className}`}
-      style={{ maxHeight }}
+      ref={scrollRef}
+      className={className}
+      style={{
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        borderRadius: 'var(--theme-border-radius-lg, 0.5rem)',
+        border: '1px solid var(--theme-border-secondary)',
+        height: maxHeight === '100%' ? '100%' : undefined,
+        maxHeight: maxHeight !== '100%' ? maxHeight : undefined
+      }}
     >
       {entries.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-8 text-themed-tertiary">
-          <Clock className="h-8 w-8 mb-2 opacity-50" />
-          <p className="text-sm">Waiting for activity...</p>
+        <div
+          className="flex flex-col items-center justify-center py-12"
+          style={{ color: 'var(--theme-text-muted)' }}
+        >
+          <div
+            className="w-12 h-12 rounded-xl flex items-center justify-center mb-3"
+            style={{ backgroundColor: 'var(--theme-bg-secondary)' }}
+          >
+            <Clock className="h-6 w-6 opacity-50" />
+          </div>
+          <p className="text-sm font-medium">Waiting for activity...</p>
+          <p className="text-xs mt-1 opacity-70">Commands and status updates will appear here</p>
         </div>
       ) : (
-        <div className="divide-y divide-themed">
-          {entries.map((entry) => (
-            <LogEntryRow key={entry.id} entry={entry} />
-          ))}
-        </div>
+        <CustomScrollbar maxHeight={maxHeight} paddingMode="compact">
+          <div>
+            {entries.map((entry) => (
+              <LogEntryRow key={entry.id} entry={entry} />
+            ))}
+          </div>
+        </CustomScrollbar>
       )}
     </div>
   );

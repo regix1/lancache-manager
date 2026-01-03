@@ -1,12 +1,13 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { HubConnection, HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
-import { Card, CardContent, CardHeader, CardTitle } from '../../ui/Card';
+import { Card, CardContent } from '../../ui/Card';
 import { Button } from '../../ui/Button';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { usePrefillSteamAuth } from '@hooks/usePrefillSteamAuth';
 import { ActivityLog, type LogEntryType } from './ActivityLog';
 import { GameSelectionModal, type OwnedGame } from './GameSelectionModal';
 import { usePrefillContext } from '@contexts/PrefillContext';
+import { SteamIcon } from '@components/ui/SteamIcon';
 import authService from '@services/auth.service';
 import { SIGNALR_BASE, API_BASE } from '@utils/constants';
 import {
@@ -25,7 +26,11 @@ import {
   TrendingUp,
   ShoppingCart,
   LogIn,
-  CheckCircle2
+  CheckCircle2,
+  Eye,
+  Zap,
+  Timer,
+  Shield
 } from 'lucide-react';
 
 // Auth states from backend - matches SteamAuthState enum
@@ -71,37 +76,44 @@ interface CommandButton {
   icon: React.ReactNode;
   variant?: 'default' | 'outline' | 'filled' | 'subtle';
   requiresLogin?: boolean;
+  color?: 'blue' | 'green' | 'red' | 'yellow' | 'purple' | 'gray' | 'orange' | 'default';
 }
 
-const COMMAND_BUTTONS: CommandButton[] = [
+// Grouped command buttons for better organization
+const SELECTION_COMMANDS: CommandButton[] = [
   {
     id: 'select-apps',
     label: 'Select Apps',
     description: 'Choose games to prefill',
     icon: <List className="h-4 w-4" />,
     variant: 'filled',
+    color: 'blue',
     requiresLogin: true
   },
   {
     id: 'select-status',
     label: 'View Selected',
     description: 'Show selected apps',
-    icon: <Gamepad2 className="h-4 w-4" />,
+    icon: <Eye className="h-4 w-4" />,
     variant: 'outline'
-  },
+  }
+];
+
+const PREFILL_COMMANDS: CommandButton[] = [
   {
     id: 'prefill',
     label: 'Prefill Selected',
-    description: 'Download to cache',
+    description: 'Download selected games',
     icon: <Download className="h-4 w-4" />,
     variant: 'filled',
+    color: 'green',
     requiresLogin: true
   },
   {
     id: 'prefill-all',
     label: 'Prefill All',
     description: 'All owned games',
-    icon: <Download className="h-4 w-4" />,
+    icon: <Gamepad2 className="h-4 w-4" />,
     variant: 'subtle',
     requiresLogin: true
   },
@@ -128,7 +140,10 @@ const COMMAND_BUTTONS: CommandButton[] = [
     icon: <TrendingUp className="h-4 w-4" />,
     variant: 'subtle',
     requiresLogin: true
-  },
+  }
+];
+
+const UTILITY_COMMANDS: CommandButton[] = [
   {
     id: 'prefill-force',
     label: 'Force Download',
@@ -142,7 +157,8 @@ const COMMAND_BUTTONS: CommandButton[] = [
     label: 'Clear Temp',
     description: 'Free disk space',
     icon: <Trash2 className="h-4 w-4" />,
-    variant: 'outline'
+    variant: 'outline',
+    color: 'red'
   }
 ];
 
@@ -753,11 +769,11 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       },
       body: JSON.stringify({ appIds: selectedIds })
     });
-    
+
     if (!response.ok) {
       throw new Error(`Failed to set selected apps: HTTP ${response.status}`);
     }
-    
+
     setSelectedAppIds(selectedIds);
     addLog('success', `Selected ${selectedIds.length} games for prefill`);
   }, [session, addLog]);
@@ -769,8 +785,146 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     };
   }, []);
 
+  // Render command button
+  const renderCommandButton = (cmd: CommandButton) => (
+    <Button
+      key={cmd.id}
+      variant={cmd.variant || 'default'}
+      color={cmd.color}
+      onClick={() => executeCommand(cmd.id)}
+      disabled={isExecuting || (cmd.requiresLogin && !isLoggedIn)}
+      className="h-auto py-3 px-4 flex-col items-start gap-1"
+      size="sm"
+    >
+      <div className="flex items-center gap-2 w-full">
+        <span
+          className="p-1.5 rounded-md"
+          style={{
+            backgroundColor: cmd.variant === 'filled'
+              ? 'rgba(255,255,255,0.15)'
+              : 'color-mix(in srgb, var(--theme-primary) 15%, transparent)'
+          }}
+        >
+          {cmd.icon}
+        </span>
+        <span className="font-medium text-sm">{cmd.label}</span>
+      </div>
+      <span className="text-xs opacity-70 pl-8">{cmd.description}</span>
+    </Button>
+  );
+
+  // No session state - show start screen
+  if (!session && !isCreating && !isInitializing) {
+    return (
+      <div className="animate-fade-in">
+        {/* Steam Auth Modal */}
+        <SteamAuthModal
+          opened={showAuthModal}
+          onClose={() => setShowAuthModal(false)}
+          state={authState}
+          actions={authActions}
+          isPrefillMode={true}
+          onCancelLogin={handleCancelLogin}
+        />
+
+        <Card className="max-w-2xl mx-auto">
+          <CardContent className="py-12">
+            <div className="flex flex-col items-center text-center space-y-6">
+              {/* Steam Icon with glow effect */}
+              <div
+                className="w-20 h-20 rounded-2xl flex items-center justify-center"
+                style={{
+                  background: 'linear-gradient(135deg, var(--theme-steam) 0%, color-mix(in srgb, var(--theme-steam) 70%, #000) 100%)',
+                  boxShadow: '0 8px 32px color-mix(in srgb, var(--theme-steam) 30%, transparent)'
+                }}
+              >
+                <SteamIcon size={40} className="text-white" />
+              </div>
+
+              <div className="space-y-2">
+                <h2 className="text-2xl font-bold text-themed-primary">Steam Prefill</h2>
+                <p className="text-themed-muted max-w-md">
+                  Pre-download Steam games to your cache for faster LAN party downloads.
+                  Connect to your Steam library and prefill games before the event.
+                </p>
+              </div>
+
+              {error && (
+                <div
+                  className="w-full max-w-md p-4 rounded-lg flex items-center gap-3"
+                  style={{
+                    backgroundColor: 'var(--theme-error-bg)',
+                    border: '1px solid color-mix(in srgb, var(--theme-error) 30%, transparent)'
+                  }}
+                >
+                  <AlertCircle className="h-5 w-5 flex-shrink-0" style={{ color: 'var(--theme-error)' }} />
+                  <span className="text-sm" style={{ color: 'var(--theme-error-text)' }}>{error}</span>
+                </div>
+              )}
+
+              <div className="flex flex-col items-center gap-3 pt-2">
+                <Button
+                  onClick={createSession}
+                  disabled={isConnecting}
+                  variant="filled"
+                  size="lg"
+                  className="min-w-[200px]"
+                >
+                  {isConnecting ? (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      Connecting...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="h-5 w-5" />
+                      Start Session
+                    </>
+                  )}
+                </Button>
+                <p className="text-xs text-themed-muted flex items-center gap-1.5">
+                  <Shield className="h-3.5 w-3.5" />
+                  Requires Steam login to access your game library
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Loading/Creating state
+  if (isInitializing || isCreating) {
+    return (
+      <div className="animate-fade-in">
+        <Card className="max-w-2xl mx-auto">
+          <CardContent className="py-12">
+            <div className="flex flex-col items-center justify-center gap-4">
+              <div
+                className="w-16 h-16 rounded-xl flex items-center justify-center"
+                style={{ backgroundColor: 'color-mix(in srgb, var(--theme-steam) 15%, transparent)' }}
+              >
+                <Loader2 className="h-8 w-8 animate-spin" style={{ color: 'var(--theme-steam)' }} />
+              </div>
+              <div className="text-center">
+                <p className="text-lg font-medium text-themed-primary">
+                  {isInitializing ? 'Checking for existing session...' : 'Creating session...'}
+                </p>
+                <p className="text-sm text-themed-muted mt-1">
+                  This may take a moment
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Active session - full interface
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 animate-fade-in">
       {/* Steam Auth Modal */}
       <SteamAuthModal
         opened={showAuthModal}
@@ -791,241 +945,328 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         isLoading={isLoadingGames}
       />
 
-      {/* Header Card */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div className="flex items-center gap-2">
-            <CardTitle>Steam Prefill</CardTitle>
+      {/* Header Bar */}
+      <div
+        className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-lg"
+        style={{
+          backgroundColor: 'var(--theme-bg-secondary)',
+          border: '1px solid var(--theme-border-primary)'
+        }}
+      >
+        <div className="flex items-center gap-4">
+          <div
+            className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
+            style={{
+              background: 'linear-gradient(135deg, var(--theme-steam) 0%, color-mix(in srgb, var(--theme-steam) 70%, #000) 100%)',
+              boxShadow: '0 4px 12px color-mix(in srgb, var(--theme-steam) 25%, transparent)'
+            }}
+          >
+            <SteamIcon size={24} className="text-white" />
           </div>
-          {session && (
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Clock className="h-4 w-4" />
-                <span>{formatTimeRemaining(timeRemaining)}</span>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleEndSession}
-                className="text-red-500 hover:text-red-600"
-              >
-                <X className="h-4 w-4 mr-1" />
-                End Session
-              </Button>
-            </div>
-          )}
-        </CardHeader>
-        <CardContent>
-          {error && (
-            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-2 text-red-500">
-              <AlertCircle className="h-4 w-4" />
-              <span>{error}</span>
-            </div>
-          )}
+          <div>
+            <h1 className="text-xl font-bold text-themed-primary">Steam Prefill</h1>
+            <p className="text-sm text-themed-muted">Pre-download games to your cache</p>
+          </div>
+        </div>
 
-          {isInitializing && !session && (
-            <div className="flex items-center justify-center py-8 gap-3">
-              <Loader2 className="h-6 w-6 animate-spin text-primary" />
-              <span>Checking for existing session...</span>
-            </div>
-          )}
+        <div className="flex items-center gap-3 w-full sm:w-auto">
+          {/* Session Timer */}
+          <div
+            className="flex items-center gap-2 px-4 py-2 rounded-lg flex-1 sm:flex-initial justify-center"
+            style={{
+              backgroundColor: timeRemaining < 600
+                ? 'color-mix(in srgb, var(--theme-warning) 15%, transparent)'
+                : 'var(--theme-bg-tertiary)',
+              border: '1px solid',
+              borderColor: timeRemaining < 600
+                ? 'color-mix(in srgb, var(--theme-warning) 30%, transparent)'
+                : 'var(--theme-border-secondary)'
+            }}
+          >
+            <Timer className="h-4 w-4" style={{
+              color: timeRemaining < 600 ? 'var(--theme-warning)' : 'var(--theme-text-muted)'
+            }} />
+            <span
+              className="font-mono font-semibold tabular-nums"
+              style={{
+                color: timeRemaining < 600 ? 'var(--theme-warning-text)' : 'var(--theme-text-primary)'
+              }}
+            >
+              {formatTimeRemaining(timeRemaining)}
+            </span>
+          </div>
 
-          {!session && !isCreating && !isInitializing && (
-            <div className="flex flex-col items-center justify-center py-8 gap-4">
-              <div className="text-center">
-                <h3 className="text-lg font-medium">Steam Prefill</h3>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Pre-download Steam games to your cache for faster LAN party downloads.
-                </p>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Requires Steam login to access your game library.
-                </p>
-              </div>
-              <Button
-                onClick={createSession}
-                disabled={isConnecting || isCreating}
-                size="lg"
-              >
-                {isConnecting ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Connecting...
-                  </>
-                ) : (
-                  <>
-                    <Play className="h-4 w-4 mr-2" />
-                    Start Session
-                  </>
-                )}
-              </Button>
-            </div>
-          )}
+          {/* End Session Button */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleEndSession}
+            className="flex-shrink-0"
+            style={{
+              borderColor: 'color-mix(in srgb, var(--theme-error) 40%, transparent)',
+              color: 'var(--theme-error)'
+            }}
+          >
+            <X className="h-4 w-4" />
+            <span className="hidden sm:inline">End Session</span>
+          </Button>
+        </div>
+      </div>
 
-          {isCreating && !session && !isInitializing && (
-            <div className="flex items-center justify-center py-8 gap-3">
-              <Loader2 className="h-6 w-6 animate-spin text-primary" />
-              <span>Creating session...</span>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {/* Error Banner */}
+      {error && (
+        <div
+          className="p-4 rounded-lg flex items-center gap-3"
+          style={{
+            backgroundColor: 'var(--theme-error-bg)',
+            border: '1px solid color-mix(in srgb, var(--theme-error) 30%, transparent)'
+          }}
+        >
+          <AlertCircle className="h-5 w-5 flex-shrink-0" style={{ color: 'var(--theme-error)' }} />
+          <span style={{ color: 'var(--theme-error-text)' }}>{error}</span>
+        </div>
+      )}
 
-      {/* Command Buttons */}
-      {session && (
-        <Card>
-          <CardHeader className="pb-3">
+      {/* Main Content - Two Column Layout */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        {/* Left Column - Controls */}
+        <div className="xl:col-span-2 space-y-4">
+          {/* Authentication Card */}
+          <Card padding="md">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-base">Actions</CardTitle>
-              <div className="flex items-center gap-2">
-                {isLoggedIn ? (
-                  <div className="flex items-center gap-1.5 text-sm text-green-500">
-                    <CheckCircle2 className="h-4 w-4" />
-                    <span>Logged In</span>
-                  </div>
-                ) : (
-                  <Button
-                    variant="filled"
-                    size="sm"
-                    onClick={handleOpenAuthModal}
-                  >
-                    <LogIn className="h-4 w-4 mr-1" />
-                    Login to Steam
-                  </Button>
-                )}
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-10 h-10 rounded-lg flex items-center justify-center"
+                  style={{
+                    backgroundColor: isLoggedIn
+                      ? 'color-mix(in srgb, var(--theme-success) 15%, transparent)'
+                      : 'color-mix(in srgb, var(--theme-warning) 15%, transparent)'
+                  }}
+                >
+                  {isLoggedIn ? (
+                    <CheckCircle2 className="h-5 w-5" style={{ color: 'var(--theme-success)' }} />
+                  ) : (
+                    <LogIn className="h-5 w-5" style={{ color: 'var(--theme-warning)' }} />
+                  )}
+                </div>
+                <div>
+                  <p className="font-medium text-themed-primary">
+                    {isLoggedIn ? 'Logged In to Steam' : 'Steam Login Required'}
+                  </p>
+                  <p className="text-sm text-themed-muted">
+                    {isLoggedIn
+                      ? 'You can now use prefill commands'
+                      : 'Authenticate to access your game library'
+                    }
+                  </p>
+                </div>
               </div>
+
+              {!isLoggedIn && (
+                <Button
+                  variant="filled"
+                  onClick={handleOpenAuthModal}
+                  className="flex-shrink-0"
+                >
+                  <SteamIcon size={18} />
+                  Login to Steam
+                </Button>
+              )}
             </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {!isLoggedIn && (
-              <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg text-sm">
-                <div className="flex items-start gap-2">
-                  <LogIn className="h-4 w-4 mt-0.5 text-yellow-500" />
+          </Card>
+
+          {/* Download Progress Card */}
+          {prefillProgress && (
+            <Card
+              padding="md"
+              className="overflow-hidden"
+              style={{
+                borderColor: 'color-mix(in srgb, var(--theme-primary) 50%, transparent)'
+              }}
+            >
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-10 h-10 rounded-lg flex items-center justify-center"
+                      style={{ backgroundColor: 'color-mix(in srgb, var(--theme-primary) 15%, transparent)' }}
+                    >
+                      <Download className="h-5 w-5 animate-pulse" style={{ color: 'var(--theme-primary)' }} />
+                    </div>
+                    <div>
+                      <p className="font-medium text-themed-primary">
+                        {prefillProgress.state === 'loading-metadata' ? 'Loading Game Data' :
+                         prefillProgress.state === 'metadata-loaded' ? 'Preparing Download' :
+                         prefillProgress.state === 'starting' ? 'Starting' :
+                         prefillProgress.state === 'preparing' ? 'Preparing' :
+                         'Downloading'}
+                      </p>
+                      {prefillProgress.state === 'downloading' && (
+                        <p className="text-sm text-themed-muted truncate max-w-[300px]">
+                          {prefillProgress.currentAppName || `App ${prefillProgress.currentAppId}`}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    {prefillProgress.state === 'downloading' && (
+                      <div className="text-right hidden sm:block">
+                        <p className="text-sm font-medium text-themed-primary">
+                          {formatBytes(prefillProgress.bytesPerSecond)}/s
+                        </p>
+                        <p className="text-xs text-themed-muted">
+                          {formatTimeRemaining(Math.floor(prefillProgress.elapsedSeconds))} elapsed
+                        </p>
+                      </div>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleCancelPrefill}
+                    >
+                      <XCircle className="h-4 w-4" />
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Progress Bar */}
+                <div className="space-y-2">
+                  <div
+                    className="h-3 rounded-full overflow-hidden"
+                    style={{ backgroundColor: 'var(--theme-progress-bg)' }}
+                  >
+                    {prefillProgress.state === 'downloading' ? (
+                      <div
+                        className="h-full rounded-full transition-all duration-300 ease-out"
+                        style={{
+                          width: `${Math.min(100, prefillProgress.percentComplete)}%`,
+                          background: 'linear-gradient(90deg, var(--theme-primary) 0%, var(--theme-accent) 100%)'
+                        }}
+                      />
+                    ) : (
+                      <div
+                        className="h-full rounded-full animate-pulse"
+                        style={{
+                          width: '100%',
+                          background: 'linear-gradient(90deg, var(--theme-primary) 0%, var(--theme-accent) 100%)',
+                          opacity: 0.5
+                        }}
+                      />
+                    )}
+                  </div>
+
+                  {prefillProgress.state === 'downloading' ? (
+                    <div className="flex items-center justify-between text-xs text-themed-muted">
+                      <span>
+                        {formatBytes(prefillProgress.bytesDownloaded)} / {formatBytes(prefillProgress.totalBytes)}
+                      </span>
+                      <span className="font-medium" style={{ color: 'var(--theme-primary)' }}>
+                        {prefillProgress.percentComplete.toFixed(1)}%
+                      </span>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-themed-muted text-center">
+                      {prefillProgress.message || 'Preparing prefill operation...'}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {/* Command Buttons */}
+          <Card padding="md">
+            <div className="space-y-6">
+              {/* Selection Commands */}
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-themed-muted mb-3 flex items-center gap-2">
+                  <List className="h-3.5 w-3.5" />
+                  Game Selection
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {SELECTION_COMMANDS.map(renderCommandButton)}
+                </div>
+              </div>
+
+              {/* Prefill Commands */}
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-themed-muted mb-3 flex items-center gap-2">
+                  <Download className="h-3.5 w-3.5" />
+                  Prefill Options
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {PREFILL_COMMANDS.map(renderCommandButton)}
+                </div>
+              </div>
+
+              {/* Utility Commands */}
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-themed-muted mb-3 flex items-center gap-2">
+                  <Zap className="h-3.5 w-3.5" />
+                  Utilities
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {UTILITY_COMMANDS.map(renderCommandButton)}
+                </div>
+              </div>
+
+              {/* Login Required Notice */}
+              {!isLoggedIn && (
+                <div
+                  className="p-4 rounded-lg flex items-start gap-3"
+                  style={{
+                    backgroundColor: 'color-mix(in srgb, var(--theme-warning) 10%, transparent)',
+                    border: '1px solid color-mix(in srgb, var(--theme-warning) 25%, transparent)'
+                  }}
+                >
+                  <Shield className="h-5 w-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-warning)' }} />
                   <div>
-                    <p className="text-yellow-500 font-medium">Login Required</p>
-                    <p className="text-muted-foreground text-xs mt-1">
-                      Click "Login to Steam" above to authenticate before using commands that require login.
-                      Your credentials are sent directly to the container and never stored by this application.
+                    <p className="font-medium text-sm" style={{ color: 'var(--theme-warning-text)' }}>
+                      Authentication Required
+                    </p>
+                    <p className="text-sm text-themed-muted mt-1">
+                      Some commands require Steam login. Your credentials are sent directly to the container
+                      and never stored by this application.
                     </p>
                   </div>
                 </div>
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
-              {COMMAND_BUTTONS.map((cmd) => (
-                <Button
-                  key={cmd.id}
-                  variant={cmd.variant || 'default'}
-                  onClick={() => executeCommand(cmd.id)}
-                  disabled={isExecuting || (cmd.requiresLogin && !isLoggedIn)}
-                  className="flex flex-col h-auto py-2 px-3 text-left"
-                  size="sm"
-                >
-                  <div className="flex items-center gap-1.5 w-full">
-                    {cmd.icon}
-                    <span className="font-medium text-xs">{cmd.label}</span>
-                  </div>
-                  <span className="text-[10px] opacity-60 w-full">{cmd.description}</span>
-                </Button>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Prefill Progress */}
-      {prefillProgress && (
-        <Card className="border-primary/50">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Download className="h-4 w-4 text-primary animate-pulse" />
-                <CardTitle className="text-base">
-                  {prefillProgress.state === 'loading-metadata' ? 'Loading Game Data' :
-                   prefillProgress.state === 'metadata-loaded' ? 'Preparing' :
-                   prefillProgress.state === 'starting' ? 'Starting' :
-                   'Downloading'}
-                </CardTitle>
-              </div>
-              <div className="flex items-center gap-3">
-                {prefillProgress.state === 'downloading' && (
-                  <span className="text-sm text-muted-foreground">
-                    {formatBytes(prefillProgress.bytesPerSecond)}/s
-                  </span>
-                )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleCancelPrefill}
-                  className="h-7 text-xs"
-                >
-                  <XCircle className="h-3 w-3 mr-1" />
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div>
-              {prefillProgress.state === 'loading-metadata' || prefillProgress.state === 'metadata-loaded' || prefillProgress.state === 'starting' || prefillProgress.state === 'preparing' ? (
-                // Show message for metadata loading phase
-                <div className="flex flex-col items-center justify-center py-2">
-                  <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
-                    <div className="h-full bg-primary animate-pulse" style={{ width: '100%' }} />
-                  </div>
-                  <span className="text-sm text-muted-foreground mt-2">
-                    {prefillProgress.message || 'Preparing prefill operation...'}
-                  </span>
-                </div>
-              ) : (
-                // Show download progress
-                <>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm font-medium truncate max-w-[60%]">
-                      {prefillProgress.currentAppName || `App ${prefillProgress.currentAppId}`}
-                    </span>
-                    <span className="text-sm text-muted-foreground">
-                      {prefillProgress.percentComplete.toFixed(1)}%
-                    </span>
-                  </div>
-                  <div className="h-2 bg-muted rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-primary transition-all duration-300 ease-out"
-                      style={{ width: `${Math.min(100, prefillProgress.percentComplete)}%` }}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between mt-1 text-xs text-muted-foreground">
-                    <span>
-                      {formatBytes(prefillProgress.bytesDownloaded)} / {formatBytes(prefillProgress.totalBytes)}
-                    </span>
-                    <span>
-                      Elapsed: {formatTimeRemaining(Math.floor(prefillProgress.elapsedSeconds))}
-                    </span>
-                  </div>
-                </>
               )}
             </div>
-          </CardContent>
-        </Card>
-      )}
+          </Card>
+        </div>
 
-      {/* Activity Log */}
-      {(session || isCreating) && (
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center gap-2">
-              <ScrollText className="h-4 w-4" />
-              <CardTitle className="text-base">Activity Log</CardTitle>
+        {/* Right Column - Activity Log */}
+        <div className="xl:col-span-1">
+          <Card padding="none" className="h-full flex flex-col" style={{ minHeight: '500px' }}>
+            <div
+              className="px-4 pt-4 pb-3 flex items-center gap-3"
+              style={{
+                borderBottom: '1px solid var(--theme-border-primary)'
+              }}
+            >
+              <div
+                className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                style={{ backgroundColor: 'color-mix(in srgb, var(--theme-accent) 15%, transparent)' }}
+              >
+                <ScrollText className="h-4 w-4" style={{ color: 'var(--theme-accent)' }} />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-themed-primary">Activity Log</h3>
+                <p className="text-xs text-themed-muted">Status updates and output</p>
+              </div>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Status updates and command output
-            </p>
-          </CardHeader>
-          <CardContent className="p-0 pb-4 px-4">
-            <ActivityLog entries={logEntries} maxHeight="400px" />
-          </CardContent>
-        </Card>
-      )}
+            <CardContent className="flex-1 p-0 overflow-hidden">
+              <ActivityLog
+                entries={logEntries}
+                maxHeight="100%"
+                className="h-full border-0 rounded-none"
+              />
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }
