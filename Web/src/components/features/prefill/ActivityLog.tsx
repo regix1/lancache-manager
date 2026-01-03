@@ -106,7 +106,7 @@ const LogEntryRow = memo(({ entry }: { entry: LogEntry }) => (
 
 LogEntryRow.displayName = 'LogEntryRow';
 
-const ENTRIES_PER_PAGE = 20;
+const ENTRIES_PER_PAGE = 10;
 
 export function ActivityLog({ entries, maxHeight = '400px', className = '' }: ActivityLogProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -169,7 +169,8 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
         borderRadius: 'var(--theme-border-radius-lg, 0.5rem)',
         border: '1px solid var(--theme-border-secondary)',
         height: maxHeight === '100%' ? '100%' : undefined,
-        maxHeight: maxHeight !== '100%' ? maxHeight : undefined
+        maxHeight: maxHeight !== '100%' ? maxHeight : undefined,
+        overflow: 'hidden'
       }}
     >
       {entries.length === 0 ? (
@@ -188,7 +189,7 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
         </div>
       ) : (
         <>
-          <CustomScrollbar maxHeight={totalPages > 1 ? `calc(${maxHeight} - 56px)` : maxHeight} paddingMode="compact" className="flex-1">
+          <CustomScrollbar maxHeight={totalPages > 1 ? `calc(${maxHeight} - 56px)` : maxHeight} paddingMode="compact" className="flex-1 min-h-0">
             <div>
               {visibleEntries.map((entry) => (
                 <LogEntryRow key={entry.id} entry={entry} />
@@ -196,25 +197,28 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
             </div>
           </CustomScrollbar>
 
-          {/* Pagination Controls */}
-          <div
-            className="flex-shrink-0 px-4 py-3"
-            style={{
-              borderTop: '1px solid var(--theme-border-secondary)',
-              backgroundColor: 'var(--theme-bg-secondary)'
-            }}
-          >
-            <Pagination
-              currentPage={currentPage}
-              totalPages={totalPages}
-              totalItems={entries.length}
-              itemsPerPage={ENTRIES_PER_PAGE}
-              onPageChange={handlePageChange}
-              itemLabel="entries"
-              showCard={false}
-              parentPadding="none"
-            />
-          </div>
+          {/* Pagination Controls - only show when multiple pages */}
+          {totalPages > 1 && (
+            <div
+              className="flex-shrink-0 px-4 py-3"
+              style={{
+                borderTop: '1px solid var(--theme-border-secondary)',
+                backgroundColor: 'var(--theme-bg-secondary)'
+              }}
+            >
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                totalItems={entries.length}
+                itemsPerPage={ENTRIES_PER_PAGE}
+                onPageChange={handlePageChange}
+                itemLabel="entries"
+                showCard={false}
+                parentPadding="none"
+                compact
+              />
+            </div>
+          )}
         </>
       )}
     </div>

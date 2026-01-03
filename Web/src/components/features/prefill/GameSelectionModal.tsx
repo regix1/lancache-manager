@@ -180,78 +180,105 @@ export function GameSelectionModal({
             <div className="absolute inset-0">
               <CustomScrollbar maxHeight="100%" className="h-full" paddingMode="compact">
               <div>
-                {sortedGames.map(game => {
-                  const isSelected = localSelected.has(game.appId);
-                  return (
-                    <button
-                      key={game.appId}
-                      onClick={() => toggleGame(game.appId)}
-                      className="w-full flex items-center gap-3 px-4 py-3 text-left smooth-transition"
+                {/* Selected games section */}
+                {sortedGames.some(g => localSelected.has(g.appId)) && (
+                  <>
+                    <div
+                      className="px-4 py-2 text-xs font-semibold uppercase tracking-wider"
                       style={{
-                        backgroundColor: isSelected
-                          ? 'color-mix(in srgb, var(--theme-primary) 10%, transparent)'
-                          : 'transparent',
+                        backgroundColor: 'color-mix(in srgb, var(--theme-primary) 15%, var(--theme-bg-tertiary))',
+                        color: 'var(--theme-primary)',
                         borderBottom: '1px solid var(--theme-border-secondary)'
                       }}
-                      onMouseEnter={(e) => {
-                        if (!isSelected) {
-                          e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = isSelected
-                          ? 'color-mix(in srgb, var(--theme-primary) 10%, transparent)'
-                          : 'transparent';
-                      }}
                     >
-                      {/* Checkbox */}
-                      <div
-                        className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center smooth-transition"
+                      Selected ({localSelected.size})
+                    </div>
+                    {sortedGames.filter(g => localSelected.has(g.appId)).map(game => (
+                      <button
+                        key={game.appId}
+                        onClick={() => toggleGame(game.appId)}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-left smooth-transition"
                         style={{
-                          backgroundColor: isSelected
-                            ? 'var(--theme-primary)'
-                            : 'transparent',
-                          border: isSelected
-                            ? '2px solid var(--theme-primary)'
-                            : '2px solid var(--theme-border-primary)'
+                          backgroundColor: 'color-mix(in srgb, var(--theme-primary) 10%, transparent)',
+                          borderBottom: '1px solid var(--theme-border-secondary)'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = 'color-mix(in srgb, var(--theme-primary) 15%, transparent)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = 'color-mix(in srgb, var(--theme-primary) 10%, transparent)';
                         }}
                       >
-                        {isSelected && (
-                          <Check className="h-3 w-3" style={{ color: 'white' }} />
-                        )}
-                      </div>
-
-                      {/* Game info */}
-                      <div className="flex-1 min-w-0">
                         <div
-                          className="truncate font-medium"
-                          style={{ color: 'var(--theme-text-primary)' }}
-                        >
-                          {game.name}
-                        </div>
-                        <div
-                          className="text-xs"
-                          style={{ color: 'var(--theme-text-muted)' }}
-                        >
-                          App ID: {game.appId}
-                        </div>
-                      </div>
-
-                      {/* Selected indicator */}
-                      {isSelected && (
-                        <div
-                          className="flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-medium"
+                          className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center"
                           style={{
-                            backgroundColor: 'color-mix(in srgb, var(--theme-primary) 15%, transparent)',
-                            color: 'var(--theme-primary)'
+                            backgroundColor: 'var(--theme-primary)',
+                            border: '2px solid var(--theme-primary)'
                           }}
                         >
-                          Selected
+                          <Check className="h-3 w-3" style={{ color: 'white' }} />
                         </div>
-                      )}
-                    </button>
-                  );
-                })}
+                        <div className="flex-1 min-w-0">
+                          <div className="truncate font-medium" style={{ color: 'var(--theme-text-primary)' }}>
+                            {game.name}
+                          </div>
+                          <div className="text-xs" style={{ color: 'var(--theme-text-muted)' }}>
+                            App ID: {game.appId}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </>
+                )}
+
+                {/* Available games section */}
+                {sortedGames.some(g => !localSelected.has(g.appId)) && (
+                  <>
+                    <div
+                      className="sticky top-0 z-10 px-4 py-2 text-xs font-semibold uppercase tracking-wider"
+                      style={{
+                        backgroundColor: 'var(--theme-bg-tertiary)',
+                        color: 'var(--theme-text-muted)',
+                        borderBottom: '1px solid var(--theme-border-secondary)'
+                      }}
+                    >
+                      Available Games ({sortedGames.filter(g => !localSelected.has(g.appId)).length})
+                    </div>
+                    {sortedGames.filter(g => !localSelected.has(g.appId)).map(game => (
+                      <button
+                        key={game.appId}
+                        onClick={() => toggleGame(game.appId)}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-left smooth-transition"
+                        style={{
+                          backgroundColor: 'transparent',
+                          borderBottom: '1px solid var(--theme-border-secondary)'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = 'transparent';
+                        }}
+                      >
+                        <div
+                          className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center"
+                          style={{
+                            backgroundColor: 'transparent',
+                            border: '2px solid var(--theme-border-primary)'
+                          }}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="truncate font-medium" style={{ color: 'var(--theme-text-primary)' }}>
+                            {game.name}
+                          </div>
+                          <div className="text-xs" style={{ color: 'var(--theme-text-muted)' }}>
+                            App ID: {game.appId}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </>
+                )}
               </div>
               </CustomScrollbar>
             </div>
