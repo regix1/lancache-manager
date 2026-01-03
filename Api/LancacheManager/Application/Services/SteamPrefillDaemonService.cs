@@ -397,6 +397,31 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     }
 
     /// <summary>
+    /// Cancels a running prefill operation.
+    /// Sends cancel-prefill command to the daemon to abort the download.
+    /// </summary>
+    public async Task CancelPrefillAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        if (!_sessions.TryGetValue(sessionId, out var session))
+        {
+            throw new KeyNotFoundException($"Session not found: {sessionId}");
+        }
+
+        _logger.LogInformation("Cancelling prefill for session {SessionId}", sessionId);
+
+        try
+        {
+            await session.Client.CancelPrefillAsync(cancellationToken);
+            _logger.LogInformation("Prefill cancelled for session {SessionId}", sessionId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error sending cancel-prefill to daemon for session {SessionId}", sessionId);
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Gets owned games for a logged-in session
     /// </summary>
     public async Task<List<OwnedGame>> GetOwnedGamesAsync(string sessionId, CancellationToken cancellationToken = default)

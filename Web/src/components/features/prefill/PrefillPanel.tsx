@@ -12,6 +12,7 @@ import {
   Loader2,
   ScrollText,
   X,
+  XCircle,
   Clock,
   AlertCircle,
   Play,
@@ -640,6 +641,19 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     }
   }, [session, addLog]);
 
+  const handleCancelPrefill = useCallback(async () => {
+    if (!session || !hubConnection.current) return;
+
+    try {
+      await hubConnection.current.invoke('CancelPrefill', session.id);
+      addLog('info', 'Prefill cancellation requested');
+      setPrefillProgress(null);
+    } catch (err) {
+      console.error('Failed to cancel prefill:', err);
+      addLog('error', 'Failed to cancel prefill');
+    }
+  }, [session, addLog]);
+
   const handleOpenAuthModal = useCallback(() => {
     authActions.resetAuthForm();
     setShowAuthModal(true);
@@ -839,9 +853,20 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                 <Download className="h-4 w-4 text-primary animate-pulse" />
                 <CardTitle className="text-base">Downloading</CardTitle>
               </div>
-              <span className="text-sm text-muted-foreground">
-                {formatBytes(prefillProgress.bytesPerSecond)}/s
-              </span>
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-muted-foreground">
+                  {formatBytes(prefillProgress.bytesPerSecond)}/s
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCancelPrefill}
+                  className="h-7 text-xs"
+                >
+                  <XCircle className="h-3 w-3 mr-1" />
+                  Cancel
+                </Button>
+              </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-3">

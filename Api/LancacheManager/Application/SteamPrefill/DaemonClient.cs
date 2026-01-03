@@ -200,6 +200,14 @@ public sealed class DaemonClient : IDisposable
     }
 
     /// <summary>
+    /// Cancels a running prefill operation in the daemon.
+    /// </summary>
+    public async Task CancelPrefillAsync(CancellationToken cancellationToken = default)
+    {
+        await SendCommandAsync("cancel-prefill", timeout: TimeSpan.FromSeconds(10), cancellationToken: cancellationToken);
+    }
+
+    /// <summary>
     /// Start login process
     /// </summary>
     public async Task<CredentialChallenge?> StartLoginAsync(

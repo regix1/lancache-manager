@@ -161,6 +161,17 @@ public class PrefillDaemonHub : Hub
     }
 
     /// <summary>
+    /// Cancels a running prefill operation
+    /// </summary>
+    public async Task CancelPrefill(string sessionId)
+    {
+        ValidateSessionAccess(sessionId, out var session);
+
+        _logger.LogInformation("Cancelling prefill for session {SessionId}", sessionId);
+        await _daemonService.CancelPrefillAsync(sessionId);
+    }
+
+    /// <summary>
     /// Gets the daemon status for a session
     /// </summary>
     public async Task<DaemonStatus?> GetStatus(string sessionId)
