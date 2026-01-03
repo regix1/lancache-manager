@@ -73,10 +73,10 @@ const formatTime = (date: Date): string => {
 
 const LogEntryRow = memo(({ entry }: { entry: LogEntry }) => (
   <div
-    className="flex items-center gap-3 py-2 px-4 transition-colors"
+    className="flex items-start gap-3 py-3 px-4 transition-colors"
     style={{
       borderBottom: '1px solid var(--theme-border-secondary)',
-      minHeight: '40px'
+      minHeight: '56px'
     }}
     onMouseEnter={(e) => {
       e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';

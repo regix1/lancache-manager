@@ -198,7 +198,7 @@ public class CacheController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error calculating cache size");
-            return StatusCode(500, new ErrorResponse { Error = "Failed to calculate cache size", Details = ex.Message });
+            return StatusCode(500, new ErrorResponse { Error = "Failed to calculate cache size. Check server logs for details." });
         }
     }
 
@@ -470,13 +470,13 @@ public class CacheController : ControllerBase
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error during corruption removal for service: {Service}", service);
-                _removalTracker.CompleteCorruptionRemoval(service, false, ex.Message);
+                _removalTracker.CompleteCorruptionRemoval(service, false, "Operation failed. Check server logs for details.");
                 await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
                 {
                     service,
                     operationId,
                     success = false,
-                    error = ex.Message
+                    error = "Operation failed. Check server logs for details."
                 });
             }
         });
@@ -602,14 +602,14 @@ public class CacheController : ControllerBase
                 _logger.LogError(ex, "Error during service removal for: {Service}", name);
 
                 // Complete tracking with error
-                _removalTracker.CompleteServiceRemoval(name, false, error: ex.Message);
+                _removalTracker.CompleteServiceRemoval(name, false, error: "Operation failed. Check server logs for details.");
 
                 // Send SignalR notification on failure
                 await _hubContext.Clients.All.SendAsync("ServiceRemovalComplete", new
                 {
                     success = false,
                     serviceName = name,
-                    message = $"Failed to remove {name} service: {ex.Message}"
+                    message = $"Failed to remove {name} service. Check server logs for details."
                 });
             }
         });

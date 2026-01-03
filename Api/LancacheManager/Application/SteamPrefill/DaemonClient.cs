@@ -257,14 +257,6 @@ public sealed class DaemonClient : IDisposable
         // Use cmd_ prefix like other commands - daemon watches for cmd_*.json
         var filePath = Path.Combine(_commandsDir, $"cmd_{encrypted.ChallengeId}.json");
 
-        // Debug: log what we're writing
-        Console.WriteLine($"[DEBUG] Writing credential file: {filePath}");
-        Console.WriteLine($"[DEBUG] Challenge ID: {challenge.ChallengeId}");
-        Console.WriteLine($"[DEBUG] Server public key length: {Convert.FromBase64String(challenge.ServerPublicKey).Length}");
-        Console.WriteLine($"[DEBUG] Client public key: {encrypted.ClientPublicKey[..20]}...");
-        Console.WriteLine($"[DEBUG] Encrypted credential length: {Convert.FromBase64String(encrypted.EncryptedCredential).Length}");
-        Console.WriteLine($"[DEBUG] JSON content:\n{json}");
-
         await File.WriteAllTextAsync(filePath, json, cancellationToken);
 
         // Delete challenge file

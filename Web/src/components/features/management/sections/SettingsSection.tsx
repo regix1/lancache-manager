@@ -1,13 +1,5 @@
 import React, { useCallback, Suspense } from 'react';
-import {
-  Shield,
-  Sparkles,
-  Settings,
-  ToggleLeft,
-  ToggleRight,
-  Gauge,
-  RotateCw
-} from 'lucide-react';
+import { Shield, Sparkles, Settings, ToggleLeft, ToggleRight, Gauge, RotateCw } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
@@ -33,23 +25,29 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
   const { addNotification } = useNotifications();
 
   // Error/Success handlers for AuthenticationManager
-  const handleError = useCallback((message: string) => {
-    addNotification({
-      type: 'generic',
-      status: 'failed',
-      message,
-      details: { notificationType: 'error' }
-    });
-  }, [addNotification]);
+  const handleError = useCallback(
+    (message: string) => {
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message,
+        details: { notificationType: 'error' }
+      });
+    },
+    [addNotification]
+  );
 
-  const handleSuccess = useCallback((message: string) => {
-    addNotification({
-      type: 'generic',
-      status: 'completed',
-      message,
-      details: { notificationType: 'success' }
-    });
-  }, [addNotification]);
+  const handleSuccess = useCallback(
+    (message: string) => {
+      addNotification({
+        type: 'generic',
+        status: 'completed',
+        message,
+        details: { notificationType: 'success' }
+      });
+    },
+    [addNotification]
+  );
 
   return (
     <div
@@ -60,9 +58,7 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
     >
       {/* Section Header */}
       <div className="mb-6">
-        <h2 className="text-xl font-semibold text-themed-primary mb-1">
-          Settings
-        </h2>
+        <h2 className="text-xl font-semibold text-themed-primary mb-1">Settings</h2>
         <p className="text-themed-secondary text-sm">
           Manage authentication, demo mode, and display preferences
         </p>
@@ -98,10 +94,7 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
               <p className="text-xs text-themed-muted">Test the interface with simulated data</p>
             </div>
           </div>
-          <div
-            className="p-4 rounded-lg"
-            style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-          >
+          <div className="p-4 rounded-lg" style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex-1">
                 <p className="text-themed-primary text-sm font-medium">Mock Data</p>
@@ -114,7 +107,11 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
                 variant={mockMode ? 'filled' : 'outline'}
                 color={mockMode ? 'blue' : undefined}
                 leftSection={
-                  mockMode ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />
+                  mockMode ? (
+                    <ToggleRight className="w-4 h-4" />
+                  ) : (
+                    <ToggleLeft className="w-4 h-4" />
+                  )
                 }
                 className="w-full sm:w-36"
               >
@@ -145,14 +142,38 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
           <DisplayPreferences />
         </Card>
 
+        {/* Log Rotation Card */}
+        <Card>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-cyan">
+              <RotateCw className="w-5 h-5 icon-cyan" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-themed-primary">Nginx Log Rotation</h3>
+              <p className="text-xs text-themed-muted">
+                Signal nginx to reopen log files after manipulation
+              </p>
+            </div>
+          </div>
+          <LogRotationManager
+            isAuthenticated={isAuthenticated}
+            onError={handleError}
+            onSuccess={handleSuccess}
+          />
+        </Card>
+
         {/* Performance Optimizations Card */}
         <Card>
           <div className="flex items-center gap-3 mb-4">
-            <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${optimizationsEnabled ? 'icon-bg-orange' : 'icon-bg-gray'}`}>
+            <div
+              className={`w-10 h-10 rounded-lg flex items-center justify-center ${optimizationsEnabled ? 'icon-bg-orange' : 'icon-bg-gray'}`}
+            >
               <Gauge className={`w-5 h-5 ${optimizationsEnabled ? 'icon-orange' : 'icon-gray'}`} />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-themed-primary">Performance Optimizations</h3>
+              <h3 className="text-lg font-semibold text-themed-primary">
+                Performance Optimizations
+              </h3>
               <p className="text-xs text-themed-muted">Garbage collection and memory management</p>
             </div>
           </div>
@@ -171,29 +192,19 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
               <div>
                 <p className="font-medium">Performance optimizations are disabled</p>
                 <p className="text-sm mt-1">
-                  Enable the <code className="px-1.5 py-0.5 rounded text-xs" style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}>ENABLE_GC_OPTIMIZATION</code> environment variable in your Docker container to access garbage collection settings.
+                  Enable the{' '}
+                  <code
+                    className="px-1.5 py-0.5 rounded text-xs"
+                    style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+                  >
+                    ENABLE_GC_OPTIMIZATION
+                  </code>{' '}
+                  environment variable in your Docker container to access garbage collection
+                  settings.
                 </p>
               </div>
             </Alert>
           )}
-        </Card>
-
-        {/* Log Rotation Card */}
-        <Card>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-cyan">
-              <RotateCw className="w-5 h-5 icon-cyan" />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-themed-primary">Nginx Log Rotation</h3>
-              <p className="text-xs text-themed-muted">Signal nginx to reopen log files after manipulation</p>
-            </div>
-          </div>
-          <LogRotationManager
-            isAuthenticated={isAuthenticated}
-            onError={handleError}
-            onSuccess={handleSuccess}
-          />
         </Card>
       </div>
     </div>

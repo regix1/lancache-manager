@@ -21,14 +21,16 @@ public class FileBrowserController : ControllerBase
     {
         _logger = logger;
         _configuration = configuration;
-        
+
         // Parse allowed paths from configuration
         // Format: comma-separated list of paths, e.g., "/data,/mnt,C:\data"
-        // Empty = allow all paths (for backward compatibility, but logs warning)
+        // Default: /data and /mnt for common Docker mount points
         var allowedPathsConfig = _configuration["Security:AllowedBrowsePaths"];
         if (string.IsNullOrWhiteSpace(allowedPathsConfig))
         {
-            _allowedPaths = new List<string>(); // Empty = unrestricted (backward compat)
+            // Default to /data and /mnt - common Docker mount points for databases
+            _allowedPaths = new List<string> { "/data", "/mnt" };
+            _logger.LogInformation("FileBrowser: Using default allowed paths /data and /mnt. Configure Security:AllowedBrowsePaths to customize.");
         }
         else
         {
@@ -44,14 +46,8 @@ public class FileBrowserController : ControllerBase
     /// </summary>
     private bool IsPathAllowed(string path)
     {
-        // If no restrictions configured, allow all (backward compatibility)
-        if (_allowedPaths.Count == 0)
-        {
-            return true;
-        }
-
         var fullPath = Path.GetFullPath(path);
-        return _allowedPaths.Any(allowed => 
+        return _allowedPaths.Any(allowed =>
             fullPath.StartsWith(allowed, StringComparison.OrdinalIgnoreCase));
     }
 
@@ -190,148 +186,83 @@ public class FileBrowserController : ControllerBase
     }
 
     /// <summary>
-    /// Get common locations where DeveLanCacheUI databases might be located
-    /// Filtered by allowed paths if Security:AllowedBrowsePaths is configured
+    /// Get common locations where databases might be located
+    /// Used for browsing to find .db files for import
     /// </summary>
     private List<FileSystemItemDto> GetCommonLocations()
     {
         var locations = new List<FileSystemItemDto>();
-        
-        // If allowed paths are configured, return only those
-        if (_allowedPaths.Count > 0)
+
+        // Always include configured allowed paths first
+        foreach (var allowedPath in _allowedPaths)
         {
-            foreach (var allowedPath in _allowedPaths)
+            if (Directory.Exists(allowedPath))
             {
-                if (Directory.Exists(allowedPath))
+                try
                 {
-                    try
+                    var dirInfo = new DirectoryInfo(allowedPath);
+                    locations.Add(new FileSystemItemDto
                     {
-                        var dirInfo = new DirectoryInfo(allowedPath);
-                        locations.Add(new FileSystemItemDto
-                        {
-                            Name = allowedPath,
-                            Path = allowedPath,
-                            IsDirectory = true,
-                            LastModified = dirInfo.LastWriteTime,
-                            IsAccessible = true
-                        });
-                    }
-                    catch
-                    {
-                        locations.Add(new FileSystemItemDto
-                        {
-                            Name = allowedPath,
-                            Path = allowedPath,
-                            IsDirectory = true,
-                            LastModified = DateTime.MinValue,
-                            IsAccessible = false
-                        });
-                    }
+                        Name = allowedPath,
+                        Path = allowedPath,
+                        IsDirectory = true,
+                        LastModified = dirInfo.LastWriteTime,
+                        IsAccessible = true
+                    });
                 }
-            }
-            return locations;
-        }
-        
-        // No restrictions configured - return default common paths
-        var commonPaths = new List<string>();
-
-        // Detect OS and add appropriate paths
-        if (OperatingSystem.IsLinux() || OperatingSystem.IsFreeBSD())
-        {
-            commonPaths.AddRange(new[]
-            {
-                "/data",
-                "/mnt",
-                "/var/lib",
-                "/opt",
-                "/home",
-                "/app",
-                "/config"
-            });
-        }
-        else if (OperatingSystem.IsWindows())
-        {
-            commonPaths.AddRange(new[]
-            {
-                "C:\\data",
-                "C:\\ProgramData",
-                "C:\\Users",
-                "D:\\",
-                "H:\\"
-            });
-        }
-        else if (OperatingSystem.IsMacOS())
-        {
-            commonPaths.AddRange(new[]
-            {
-                "/Users",
-                "/Applications",
-                "/Volumes"
-            });
-        }
-
-        // Add current directory
-        try
-        {
-            var currentDir = Directory.GetCurrentDirectory();
-            locations.Add(new FileSystemItemDto
-            {
-                Name = "Current Directory",
-                Path = currentDir,
-                IsDirectory = true,
-                LastModified = Directory.GetLastWriteTime(currentDir),
-                IsAccessible = true
-            });
-        }
-        catch { /* Ignore */ }
-
-        // Add root
-        if (OperatingSystem.IsLinux() || OperatingSystem.IsFreeBSD() || OperatingSystem.IsMacOS())
-        {
-            locations.Add(new FileSystemItemDto
-            {
-                Name = "Root (/)",
-                Path = "/",
-                IsDirectory = true,
-                LastModified = DateTime.MinValue,
-                IsAccessible = true
-            });
-        }
-        else if (OperatingSystem.IsWindows())
-        {
-            // Add drive letters
-            try
-            {
-                var drives = DriveInfo.GetDrives()
-                    .Where(d => d.IsReady)
-                    .OrderBy(d => d.Name);
-
-                foreach (var drive in drives)
+                catch
                 {
                     locations.Add(new FileSystemItemDto
                     {
-                        Name = $"{drive.Name} ({drive.VolumeLabel})",
-                        Path = drive.RootDirectory.FullName,
+                        Name = allowedPath,
+                        Path = allowedPath,
                         IsDirectory = true,
                         LastModified = DateTime.MinValue,
-                        IsAccessible = true
+                        IsAccessible = false
                     });
+                }
+            }
+        }
+
+        // Add common OS-specific locations for database discovery
+        var commonPaths = new List<string>();
+
+        if (OperatingSystem.IsLinux() || OperatingSystem.IsFreeBSD())
+        {
+            commonPaths.AddRange(new[] { "/var/lib", "/opt", "/home", "/app", "/config" });
+        }
+        else if (OperatingSystem.IsWindows())
+        {
+            commonPaths.AddRange(new[] { "C:\\data", "C:\\ProgramData" });
+            // Add available drives
+            try
+            {
+                foreach (var drive in DriveInfo.GetDrives().Where(d => d.IsReady))
+                {
+                    if (!commonPaths.Contains(drive.RootDirectory.FullName))
+                    {
+                        commonPaths.Add(drive.RootDirectory.FullName);
+                    }
                 }
             }
             catch { /* Ignore */ }
         }
+        else if (OperatingSystem.IsMacOS())
+        {
+            commonPaths.AddRange(new[] { "/Users", "/Volumes" });
+        }
 
-        // Add common locations that exist
+        // Add common paths that exist and aren't already in the list
         foreach (var path in commonPaths)
         {
-            if (Directory.Exists(path))
+            if (Directory.Exists(path) && !_allowedPaths.Any(p => p.Equals(path, StringComparison.OrdinalIgnoreCase)))
             {
                 try
                 {
                     var dirInfo = new DirectoryInfo(path);
                     locations.Add(new FileSystemItemDto
                     {
-                        Name = $"Common: {path}",
+                        Name = path,
                         Path = path,
                         IsDirectory = true,
                         LastModified = dirInfo.LastWriteTime,
@@ -342,7 +273,7 @@ public class FileBrowserController : ControllerBase
                 {
                     locations.Add(new FileSystemItemDto
                     {
-                        Name = $"Common: {path}",
+                        Name = path,
                         Path = path,
                         IsDirectory = true,
                         LastModified = DateTime.MinValue,

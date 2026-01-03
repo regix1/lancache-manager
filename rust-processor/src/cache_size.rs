@@ -119,6 +119,50 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
+/// Print deletion time estimates with dynamic recommendations based on actual calculated times
+fn print_deletion_time_recommendations(estimates: &EstimatedDeletionTimes, is_network_fs: bool) {
+    eprintln!("\nEstimated deletion times (based on filesystem calibration):");
+    
+    let preserve = estimates.preserve_seconds;
+    let full = estimates.full_seconds;
+    let rsync = estimates.rsync_seconds;
+    
+    // Find the fastest mode
+    let fastest = preserve.min(full).min(rsync);
+    
+    // Determine indicators for each mode
+    let preserve_indicator = if preserve == fastest {
+        " ✓ Fastest"
+    } else if is_network_fs && preserve > fastest * 2.0 {
+        " ⚠ Slow on NFS"
+    } else {
+        ""
+    };
+    
+    let full_indicator = if full == fastest {
+        " ✓ Fastest"
+    } else {
+        ""
+    };
+    
+    let rsync_indicator = if rsync == fastest {
+        if is_network_fs {
+            " ✓ Fastest (recommended for NFS)"
+        } else {
+            " ✓ Fastest"
+        }
+    } else if is_network_fs && rsync <= fastest * 1.5 {
+        // Rsync is close to fastest and we're on NFS - still recommend for safety
+        " (safe for NFS)"
+    } else {
+        ""
+    };
+    
+    eprintln!("  Safe Mode (preserve): {}{}", estimates.preserve_formatted, preserve_indicator);
+    eprintln!("  Fast Mode (full): {}{}", estimates.full_formatted, full_indicator);
+    eprintln!("  Rsync Mode: {}{}", estimates.rsync_formatted, rsync_indicator);
+}
+
 fn write_progress(progress_path: &Path, progress: &ProgressData) -> Result<()> {
     let json = serde_json::to_string_pretty(progress)?;
 
@@ -592,7 +636,8 @@ fn estimate_deletion_times_dynamic(
     let preserve_seconds = (total_files as f64 / effective_preserve_rate).max(0.1);
 
     // === FAST MODE ===
-    // Interpolate full mode rate (dirs/sec with remove_dir_all)
+    // Fast mode uses remove_dir_all which also scales with file count
+    // Similar to rsync: time = overhead + file_processing_time
     let full_rate = interpolate_rate(
         scenarios,
         files_per_dir,
@@ -600,15 +645,47 @@ fn estimate_deletion_times_dynamic(
         |s| s.full_dirs_per_sec,
     );
 
-    let effective_full_rate = if full_rate > 0.0 {
-        full_rate * parallel_efficiency
+    let full_seconds = if full_rate > 0.0 {
+        // Get average files per dir from calibration
+        let avg_cal_files: f64 = scenarios.iter()
+            .filter(|s| s.full_dirs_per_sec > 0.0)
+            .map(|s| s.files_per_dir as f64)
+            .sum::<f64>()
+            / scenarios.iter().filter(|s| s.full_dirs_per_sec > 0.0).count().max(1) as f64;
+
+        // Time per calibration directory
+        let time_per_cal_dir = 1.0 / full_rate;
+
+        // Estimate file deletion rate (remove_dir_all is fast)
+        let file_rate = if calibration.is_network_fs {
+            // NFS: slower due to network latency per file
+            500.0
+        } else {
+            // Local: very fast
+            10000.0
+        };
+
+        // Calculate overhead per directory
+        let file_time_per_cal = avg_cal_files / file_rate;
+        let overhead_per_dir = (time_per_cal_dir - file_time_per_cal).max(0.001);
+
+        // Scale for real cache
+        let total_overhead = hex_dirs as f64 * overhead_per_dir / parallel_efficiency;
+        let total_file_time = total_files as f64 / file_rate / parallel_efficiency;
+
+        (total_overhead + total_file_time).max(0.1)
     } else {
         1.0
     };
-    let full_seconds = (hex_dirs as f64 / effective_full_rate).max(0.1);
 
     // === RSYNC MODE ===
-    // Interpolate rsync rate from measured scenarios
+    // Rsync has two components: overhead per call + time proportional to files
+    // rsync_time = (num_calls * overhead) + (total_files / file_rate)
+    //
+    // From calibration we measure dirs/sec which combines both factors.
+    // For small calibration dirs, overhead dominates. For large real dirs, file count dominates.
+
+    // Get calibration data for rsync
     let rsync_rate = interpolate_rate(
         scenarios,
         files_per_dir,
@@ -616,14 +693,48 @@ fn estimate_deletion_times_dynamic(
         |s| s.rsync_dirs_per_sec,
     );
 
-    let effective_rsync_rate = if rsync_rate > 0.0 {
-        // rsync has its own parallelism, but we can run multiple rsync processes
-        rsync_rate * (cpu_count / 2.0).min(4.0)
+    // Calculate rsync time using a model that accounts for both overhead and file processing
+    let rsync_seconds = if rsync_rate > 0.0 {
+        // Get the average files_per_dir from calibration scenarios to estimate overhead vs file-rate
+        let avg_cal_files: f64 = scenarios.iter()
+            .filter(|s| s.rsync_dirs_per_sec > 0.0)
+            .map(|s| s.files_per_dir as f64)
+            .sum::<f64>()
+            / scenarios.iter().filter(|s| s.rsync_dirs_per_sec > 0.0).count().max(1) as f64;
+
+        // Estimate overhead per rsync call from calibration
+        // If we process dirs at rsync_rate with avg_cal_files each, the time per dir is 1/rsync_rate
+        // This time includes both overhead and file processing
+        let time_per_cal_dir = 1.0 / rsync_rate;
+
+        // Rsync file processing rate varies by filesystem
+        // Based on real-world NFS observations: ~3000-4000 files/sec with parallelism
+        let estimated_file_rate = if calibration.is_network_fs {
+            // NFS: rsync is efficient but network adds latency
+            // Conservative estimate based on actual measurements
+            4000.0
+        } else {
+            // Local: much faster due to no network overhead
+            15000.0
+        };
+
+        // Overhead per call = total_time - file_time
+        let file_time_per_cal = avg_cal_files / estimated_file_rate;
+        let overhead_per_call = (time_per_cal_dir - file_time_per_cal).max(0.02); // Min 20ms overhead
+
+        // Calculate total rsync time for real cache
+        // With parallelism, we can run multiple rsync processes
+        let parallel_workers = (cpu_count as f64 / 2.0).min(4.0);
+
+        // Total time = (calls * overhead / workers) + (total_files / file_rate / workers)
+        let call_overhead_time = (hex_dirs as f64 * overhead_per_call) / parallel_workers;
+        let file_processing_time = total_files as f64 / estimated_file_rate / parallel_workers;
+
+        (call_overhead_time + file_processing_time).max(0.1)
     } else {
-        // Fallback: use fast mode rate as approximation
-        effective_full_rate
+        // Fallback: use fast mode estimate
+        full_seconds
     };
-    let rsync_seconds = (hex_dirs as f64 / effective_rsync_rate).max(0.1);
 
     EstimatedDeletionTimes {
         preserve_seconds,
@@ -917,10 +1028,7 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
         }
     };
 
-    eprintln!("\nEstimated deletion times (based on filesystem calibration):");
-    eprintln!("  Safe Mode (preserve): {}", estimates.preserve_formatted);
-    eprintln!("  Fast Mode (full): {}", estimates.full_formatted);
-    eprintln!("  Rsync Mode: {}", estimates.rsync_formatted);
+    print_deletion_time_recommendations(&estimates, false);
 
     let result = CacheSizeResult {
         total_bytes: final_bytes,
@@ -1091,10 +1199,7 @@ fn calculate_cache_size_network(
         }
     };
 
-    eprintln!("\nEstimated deletion times (based on filesystem calibration):");
-    eprintln!("  Safe Mode (preserve): {} ⚠ Slow on NFS", estimates.preserve_formatted);
-    eprintln!("  Fast Mode (full): {}", estimates.full_formatted);
-    eprintln!("  Rsync Mode: {} ✓ Recommended for NFS", estimates.rsync_formatted);
+    print_deletion_time_recommendations(&estimates, true);
 
     let result = CacheSizeResult {
         total_bytes,

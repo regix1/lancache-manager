@@ -504,6 +504,37 @@ public class SystemController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// PUT /api/system/log-rotation/schedule - Update log rotation schedule
+    /// </summary>
+    [HttpPut("log-rotation/schedule")]
+    [RequireAuth]
+    public async Task<IActionResult> UpdateLogRotationSchedule([FromBody] UpdateLogRotationScheduleRequest request)
+    {
+        if (request.ScheduleHours < 0 || request.ScheduleHours > 168)
+        {
+            return BadRequest(new { success = false, message = "Schedule hours must be between 0 (disabled) and 168 (1 week)" });
+        }
+
+        _logger.LogInformation("Log rotation schedule update requested: {Hours} hours", request.ScheduleHours);
+        var success = await _logRotationService.UpdateScheduleAsync(request.ScheduleHours);
+
+        if (success)
+        {
+            var status = _logRotationService.GetStatus();
+            return Ok(new { success = true, message = "Log rotation schedule updated", status });
+        }
+        else
+        {
+            return BadRequest(new { success = false, message = "Failed to update schedule" });
+        }
+    }
+
+    public class UpdateLogRotationScheduleRequest
+    {
+        public int ScheduleHours { get; set; }
+    }
+
     public class SetAllowedTimeFormatsRequest
     {
         public List<string> Formats { get; set; } = new();

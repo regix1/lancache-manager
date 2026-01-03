@@ -351,7 +351,7 @@ public class CacheClearingService : IHostedService
                                 operation.BytesDeleted = totalBytesDeleted + (long)progressData.BytesDeleted;
                                 operation.FilesDeleted = totalFilesDeleted + (long)progressData.FilesDeleted;
                                 operation.PercentComplete = (double)operation.DirectoriesProcessed / operation.TotalDirectories * 100;
-                                operation.StatusMessage = $"[{dsName}] {progressData.Message}";
+                                operation.StatusMessage = $"[{GetDeleteModeDisplayName()}] {progressData.Message}";
 
                                 await NotifyProgress(operation);
 
@@ -370,7 +370,7 @@ public class CacheClearingService : IHostedService
                                     var activeInfo = progressData.ActiveCount > 0
                                         ? $" | Active: {progressData.ActiveCount} [{string.Join(", ", progressData.ActiveDirectories)}]"
                                         : "";
-                                    _logger.LogInformation($"[{dsName}] Cache Clear Progress: {operation.PercentComplete:F1}% complete - {operation.DirectoriesProcessed}/{operation.TotalDirectories} directories cleared{activeInfo}");
+                                    _logger.LogInformation($"[{GetDeleteModeDisplayName()}] Cache Clear Progress: {operation.PercentComplete:F1}% complete - {operation.DirectoriesProcessed}/{operation.TotalDirectories} directories cleared{activeInfo}");
                                     lastLoggedDirs = progressData.DirectoriesProcessed;
                                     lastLogTime = DateTime.UtcNow;
                                 }
@@ -405,7 +405,7 @@ public class CacheClearingService : IHostedService
                         throw new Exception($"Rust cache_cleaner failed for {dsName} with exit code {process.ExitCode}: {error}");
                     }
 
-                    _logger.LogInformation($"[{dsName}] Rust cache cleaner output: {output}");
+                    _logger.LogInformation($"[{GetDeleteModeDisplayName()}] Rust cache cleaner output: {output}");
 
                     // Read final progress for this datasource
                     var finalProgress = await _rustProcessHelper.ReadProgressFileAsync<RustCacheProgress>(progressFile);
@@ -832,6 +832,17 @@ public class CacheClearingService : IHostedService
     public string GetDeleteMode()
     {
         return _deleteMode;
+    }
+
+    private string GetDeleteModeDisplayName()
+    {
+        return _deleteMode switch
+        {
+            "preserve" => "Safe Mode",
+            "full" => "Fast Mode",
+            "rsync" => "Rsync Mode",
+            _ => _deleteMode
+        };
     }
 
     public bool IsRsyncAvailable()
