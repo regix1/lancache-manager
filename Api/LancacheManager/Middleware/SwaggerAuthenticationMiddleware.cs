@@ -5,7 +5,7 @@ namespace LancacheManager.Middleware;
 /// <summary>
 /// Middleware for Swagger endpoint protection
 /// - In development: Allow full access for easier debugging
-/// - In production: Optionally require authentication based on Security:ProtectSwagger setting
+/// - In production: Requires authentication by default (Security:ProtectSwagger=true)
 /// - Swagger UI provides built-in "Authorize" button for entering API key
 /// </summary>
 public class SwaggerAuthenticationMiddleware
@@ -43,8 +43,8 @@ public class SwaggerAuthenticationMiddleware
             return;
         }
 
-        // Check if swagger protection is enabled (default: false for backward compatibility)
-        var protectSwagger = _configuration.GetValue<bool>("Security:ProtectSwagger", false);
+        // Check if swagger protection is enabled (default: true for security)
+        var protectSwagger = _configuration.GetValue<bool>("Security:ProtectSwagger", true);
         if (!protectSwagger)
         {
             await _next(context);
