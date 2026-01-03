@@ -177,110 +177,121 @@ export function GameSelectionModal({
               )}
             </div>
           ) : (
-            <div className="absolute inset-0">
-              <CustomScrollbar maxHeight="100%" className="h-full" paddingMode="compact">
-              <div>
-                {/* Selected games section */}
-                {sortedGames.some(g => localSelected.has(g.appId)) && (
-                  <>
-                    <div
-                      className="px-4 py-2 text-xs font-semibold uppercase tracking-wider"
-                      style={{
-                        backgroundColor: 'color-mix(in srgb, var(--theme-primary) 15%, var(--theme-bg-tertiary))',
-                        color: 'var(--theme-primary)',
-                        borderBottom: '1px solid var(--theme-border-secondary)'
-                      }}
-                    >
-                      Selected ({localSelected.size})
-                    </div>
-                    {sortedGames.filter(g => localSelected.has(g.appId)).map(game => (
-                      <button
-                        key={game.appId}
-                        onClick={() => toggleGame(game.appId)}
-                        className="w-full flex items-center gap-3 px-4 py-3 text-left smooth-transition"
-                        style={{
-                          backgroundColor: 'color-mix(in srgb, var(--theme-primary) 10%, transparent)',
-                          borderBottom: '1px solid var(--theme-border-secondary)'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.backgroundColor = 'color-mix(in srgb, var(--theme-primary) 15%, transparent)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.backgroundColor = 'color-mix(in srgb, var(--theme-primary) 10%, transparent)';
-                        }}
-                      >
-                        <div
-                          className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center"
+            <div className="absolute inset-0 flex flex-col overflow-hidden rounded-lg">
+              {/* Selected games section - sticky at top */}
+              {sortedGames.some(g => localSelected.has(g.appId)) && (
+                <div
+                  className="flex-shrink-0"
+                  style={{
+                    maxHeight: '40%',
+                    display: 'flex',
+                    flexDirection: 'column'
+                  }}
+                >
+                  <div
+                    className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0"
+                    style={{
+                      backgroundColor: 'color-mix(in srgb, var(--theme-primary) 15%, var(--theme-bg-tertiary))',
+                      color: 'var(--theme-primary)',
+                      borderBottom: '1px solid var(--theme-border-secondary)'
+                    }}
+                  >
+                    Selected ({localSelected.size})
+                  </div>
+                  <CustomScrollbar maxHeight="100%" className="flex-1 min-h-0" paddingMode="compact">
+                    <div>
+                      {sortedGames.filter(g => localSelected.has(g.appId)).map(game => (
+                        <button
+                          key={game.appId}
+                          onClick={() => toggleGame(game.appId)}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-left smooth-transition"
                           style={{
-                            backgroundColor: 'var(--theme-primary)',
-                            border: '2px solid var(--theme-primary)'
+                            backgroundColor: 'color-mix(in srgb, var(--theme-primary) 10%, transparent)',
+                            borderBottom: '1px solid var(--theme-border-secondary)'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = 'color-mix(in srgb, var(--theme-primary) 15%, transparent)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = 'color-mix(in srgb, var(--theme-primary) 10%, transparent)';
                           }}
                         >
-                          <Check className="h-3 w-3" style={{ color: 'white' }} />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="truncate font-medium" style={{ color: 'var(--theme-text-primary)' }}>
-                            {game.name}
+                          <div
+                            className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center"
+                            style={{
+                              backgroundColor: 'var(--theme-primary)',
+                              border: '2px solid var(--theme-primary)'
+                            }}
+                          >
+                            <Check className="h-3 w-3" style={{ color: 'white' }} />
                           </div>
-                          <div className="text-xs" style={{ color: 'var(--theme-text-muted)' }}>
-                            App ID: {game.appId}
+                          <div className="flex-1 min-w-0">
+                            <div className="truncate font-medium" style={{ color: 'var(--theme-text-primary)' }}>
+                              {game.name}
+                            </div>
+                            <div className="text-xs" style={{ color: 'var(--theme-text-muted)' }}>
+                              App ID: {game.appId}
+                            </div>
                           </div>
-                        </div>
-                      </button>
-                    ))}
-                  </>
-                )}
-
-                {/* Available games section */}
-                {sortedGames.some(g => !localSelected.has(g.appId)) && (
-                  <>
-                    <div
-                      className="sticky top-0 z-10 px-4 py-2 text-xs font-semibold uppercase tracking-wider"
-                      style={{
-                        backgroundColor: 'var(--theme-bg-tertiary)',
-                        color: 'var(--theme-text-muted)',
-                        borderBottom: '1px solid var(--theme-border-secondary)'
-                      }}
-                    >
-                      Available Games ({sortedGames.filter(g => !localSelected.has(g.appId)).length})
+                        </button>
+                      ))}
                     </div>
-                    {sortedGames.filter(g => !localSelected.has(g.appId)).map(game => (
-                      <button
-                        key={game.appId}
-                        onClick={() => toggleGame(game.appId)}
-                        className="w-full flex items-center gap-3 px-4 py-3 text-left smooth-transition"
-                        style={{
-                          backgroundColor: 'transparent',
-                          borderBottom: '1px solid var(--theme-border-secondary)'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.backgroundColor = 'transparent';
-                        }}
-                      >
-                        <div
-                          className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center"
+                  </CustomScrollbar>
+                </div>
+              )}
+
+              {/* Available games section */}
+              {sortedGames.some(g => !localSelected.has(g.appId)) && (
+                <div className="flex-1 min-h-0 flex flex-col">
+                  <div
+                    className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0"
+                    style={{
+                      backgroundColor: 'var(--theme-bg-tertiary)',
+                      color: 'var(--theme-text-muted)',
+                      borderBottom: '1px solid var(--theme-border-secondary)'
+                    }}
+                  >
+                    Available Games ({sortedGames.filter(g => !localSelected.has(g.appId)).length})
+                  </div>
+                  <CustomScrollbar maxHeight="100%" className="flex-1 min-h-0" paddingMode="compact">
+                    <div>
+                      {sortedGames.filter(g => !localSelected.has(g.appId)).map(game => (
+                        <button
+                          key={game.appId}
+                          onClick={() => toggleGame(game.appId)}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-left smooth-transition"
                           style={{
                             backgroundColor: 'transparent',
-                            border: '2px solid var(--theme-border-primary)'
+                            borderBottom: '1px solid var(--theme-border-secondary)'
                           }}
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="truncate font-medium" style={{ color: 'var(--theme-text-primary)' }}>
-                            {game.name}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = 'transparent';
+                          }}
+                        >
+                          <div
+                            className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center"
+                            style={{
+                              backgroundColor: 'transparent',
+                              border: '2px solid var(--theme-border-primary)'
+                            }}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="truncate font-medium" style={{ color: 'var(--theme-text-primary)' }}>
+                              {game.name}
+                            </div>
+                            <div className="text-xs" style={{ color: 'var(--theme-text-muted)' }}>
+                              App ID: {game.appId}
+                            </div>
                           </div>
-                          <div className="text-xs" style={{ color: 'var(--theme-text-muted)' }}>
-                            App ID: {game.appId}
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </>
-                )}
-              </div>
-              </CustomScrollbar>
+                        </button>
+                      ))}
+                    </div>
+                  </CustomScrollbar>
+                </div>
+              )}
             </div>
           )}
         </div>

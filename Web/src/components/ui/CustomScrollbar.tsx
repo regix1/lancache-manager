@@ -183,6 +183,7 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
           msOverflowStyle: 'none', // IE/Edge
           WebkitOverflowScrolling: 'touch', // Smooth scrolling on iOS
           willChange: 'scroll-position',
+          borderRadius: 'inherit',
         }}
       >
         <style>{`
