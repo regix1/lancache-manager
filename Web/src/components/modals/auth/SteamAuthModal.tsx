@@ -11,6 +11,8 @@ interface SteamAuthModalProps {
   actions: SteamAuthActions;
   /** If true, uses daemon mode behavior (cancel ends session instead of switching to manual code) */
   isPrefillMode?: boolean;
+  /** Called when user cancels during device confirmation in prefill mode - should end session */
+  onCancelLogin?: () => void;
 }
 
 export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
@@ -18,7 +20,8 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
   onClose,
   state,
   actions,
-  isPrefillMode = false
+  isPrefillMode = false,
+  onCancelLogin
 }) => {
   const {
     loading,
@@ -67,6 +70,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
   const handleCancelDeviceConfirmation = () => {
     cancelPendingRequest();
     actions.resetAuthForm();
+    onCancelLogin?.(); // This should end the session
     onClose();
   };
 
@@ -274,7 +278,8 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
           )}
         </div>
 
-        {/* Action Buttons */}
+        {/* Action Buttons - hide when waiting for mobile confirmation in prefill mode (has its own cancel) */}
+        {!(isPrefillMode && waitingForMobileConfirmation) && (
         <div className="flex gap-3 pt-2 border-t border-themed-secondary">
           <Button
             variant="default"
@@ -307,6 +312,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
             </Button>
           )}
         </div>
+        )}
       </div>
     </Modal>
   );

@@ -175,6 +175,31 @@ public sealed class DaemonClient : IDisposable
     }
 
     /// <summary>
+    /// Clears all pending challenge files to allow a fresh login attempt
+    /// </summary>
+    public void ClearPendingChallenges()
+    {
+        try
+        {
+            var challengeFiles = Directory.GetFiles(_responsesDir, "auth_challenge_*.json");
+            foreach (var file in challengeFiles)
+            {
+                try { File.Delete(file); } catch { }
+            }
+        }
+        catch { }
+    }
+
+    /// <summary>
+    /// Cancels a pending login attempt in the daemon.
+    /// This clears credential challenges and resets the daemon to accept a new login.
+    /// </summary>
+    public async Task CancelLoginAsync(CancellationToken cancellationToken = default)
+    {
+        await SendCommandAsync("cancel-login", timeout: TimeSpan.FromSeconds(10), cancellationToken: cancellationToken);
+    }
+
+    /// <summary>
     /// Start login process
     /// </summary>
     public async Task<CredentialChallenge?> StartLoginAsync(

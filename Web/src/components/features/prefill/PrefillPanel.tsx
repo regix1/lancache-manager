@@ -629,6 +629,17 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     onSessionEnd?.();
   }, [session, onSessionEnd]);
 
+  const handleCancelLogin = useCallback(async () => {
+    if (!session || !hubConnection.current) return;
+
+    try {
+      await hubConnection.current.invoke('CancelLogin', session.id);
+      addLog('info', 'Login cancelled');
+    } catch (err) {
+      console.error('Failed to cancel login:', err);
+    }
+  }, [session, addLog]);
+
   const handleOpenAuthModal = useCallback(() => {
     authActions.resetAuthForm();
     setShowAuthModal(true);
@@ -671,6 +682,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         state={authState}
         actions={authActions}
         isPrefillMode={true}
+        onCancelLogin={handleCancelLogin}
       />
 
       {/* Game Selection Modal */}

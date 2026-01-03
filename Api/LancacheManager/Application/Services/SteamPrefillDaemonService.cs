@@ -363,6 +363,40 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     }
 
     /// <summary>
+    /// Cancels a pending login attempt and resets auth state.
+    /// Sends cancel-login command to the daemon to abort any pending credential waits.
+    /// </summary>
+    public async Task CancelLoginAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        if (!_sessions.TryGetValue(sessionId, out var session))
+        {
+            throw new KeyNotFoundException($"Session not found: {sessionId}");
+        }
+
+        _logger.LogInformation("Cancelling login for session {SessionId}", sessionId);
+
+        try
+        {
+            // Send cancel-login command to daemon - this will abort any pending credential waits
+            await session.Client.CancelLoginAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error sending cancel-login to daemon for session {SessionId}", sessionId);
+            // Continue with local cleanup even if daemon command fails
+        }
+
+        // Also clear any pending challenge files on our side
+        session.Client.ClearPendingChallenges();
+
+        // Reset auth state to allow a new login attempt
+        session.AuthState = DaemonAuthState.NotAuthenticated;
+        await NotifyAuthStateChangeAsync(session);
+
+        _logger.LogInformation("Login cancelled for session {SessionId}, ready for new attempt", sessionId);
+    }
+
+    /// <summary>
     /// Gets owned games for a logged-in session
     /// </summary>
     public async Task<List<OwnedGame>> GetOwnedGamesAsync(string sessionId, CancellationToken cancellationToken = default)

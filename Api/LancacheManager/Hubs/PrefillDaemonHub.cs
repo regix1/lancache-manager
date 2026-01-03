@@ -150,6 +150,17 @@ public class PrefillDaemonHub : Hub
     }
 
     /// <summary>
+    /// Cancels a pending login attempt and resets auth state
+    /// </summary>
+    public async Task CancelLogin(string sessionId)
+    {
+        ValidateSessionAccess(sessionId, out var session);
+
+        _logger.LogInformation("Cancelling login for session {SessionId}", sessionId);
+        await _daemonService.CancelLoginAsync(sessionId);
+    }
+
+    /// <summary>
     /// Gets the daemon status for a session
     /// </summary>
     public async Task<DaemonStatus?> GetStatus(string sessionId)
