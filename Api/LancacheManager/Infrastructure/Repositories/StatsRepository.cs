@@ -136,50 +136,7 @@ public class StatsRepository : IStatsRepository
     /// <summary>
     /// Get active downloads grouped by game
     /// </summary>
-    public async Task<List<Download>> GetActiveDownloadsAsync(CancellationToken cancellationToken = default)
-    {
-        // Get all active downloads
-        var activeDownloads = await _context.Downloads
-            .AsNoTracking()
-            .Where(d => d.IsActive && (d.CacheHitBytes + d.CacheMissBytes) > 0 && (!d.GameAppId.HasValue || d.GameAppId.Value != 0))
-            .OrderByDescending(d => d.StartTimeUtc)
-            .ToListAsync(cancellationToken);
-
-        // Group chunks by game to show as single download
-        var grouped = activeDownloads
-            .GroupBy(d => new
-            {
-                GameKey = d.GameAppId.HasValue ? d.GameAppId.Value.ToString() : (d.DepotId?.ToString() ?? "unknown"),
-                ClientIp = d.ClientIp,
-                Service = d.Service
-            })
-            .Select(group =>
-            {
-                var first = group.OrderByDescending(d => !string.IsNullOrEmpty(d.GameName) && d.GameName != "Unknown Steam Game").First();
-
-                return new Download
-                {
-                    Id = first.Id,
-                    Service = first.Service,
-                    ClientIp = first.ClientIp,
-                    StartTimeUtc = DateTime.SpecifyKind(group.Min(d => d.StartTimeUtc), DateTimeKind.Utc),
-                    EndTimeUtc = default(DateTime),
-                    StartTimeLocal = group.Min(d => d.StartTimeLocal),
-                    EndTimeLocal = default(DateTime),
-                    CacheHitBytes = group.Sum(d => d.CacheHitBytes),
-                    CacheMissBytes = group.Sum(d => d.CacheMissBytes),
-                    IsActive = true,
-                    GameName = first.GameName,
-                    GameAppId = first.GameAppId,
-                    GameImageUrl = first.GameImageUrl,
-                    DepotId = first.DepotId
-                };
-            })
-            .OrderByDescending(d => d.StartTimeUtc)
-            .ToList();
-
-        return grouped;
-    }
+    
 
     /// <summary>
     /// Get top games by download count or bytes

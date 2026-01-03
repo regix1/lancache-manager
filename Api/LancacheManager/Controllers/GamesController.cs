@@ -40,40 +40,6 @@ public class GamesController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/games - List games in cache
-    /// This could be expanded to return actual game list if needed
-    /// </summary>
-    [HttpGet]
-    public async Task<IActionResult> GetGames()
-    {
-        // For now, return cached detection results
-        // Could be expanded to scan cache and return actual game list
-        var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync();
-        return Ok(new GameListResponse
-        {
-            Message = "Use GET /api/games/detect/cached for detection results",
-            CachedResults = cachedResults
-        });
-    }
-
-    /// <summary>
-    /// GET /api/games/{appId} - Get game details (if available)
-    /// </summary>
-    [HttpGet("{appId}")]
-    public async Task<IActionResult> GetGame(int appId)
-    {
-        var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync();
-        var gameInfo = cachedResults?.Games?.FirstOrDefault(g => g.GameAppId == appId);
-
-        if (gameInfo == null)
-        {
-            return NotFound(new NotFoundResponse { Error = $"Game not found: {appId}" });
-        }
-
-        return Ok(gameInfo);
-    }
-
-    /// <summary>
     /// DELETE /api/games/{appId} - Remove game from cache
     /// RESTful: DELETE is proper method for removing resources
     /// </summary>
@@ -310,22 +276,4 @@ public class GamesController : ControllerBase
         });
     }
 
-    /// <summary>
-    /// POST /api/games/detect/resolve-unknown - Resolve unknown games in cache using available depot mappings
-    /// Updates cached "Unknown Game (Depot X)" entries when mappings become available
-    /// </summary>
-    [HttpPost("detect/resolve-unknown")]
-    public async Task<IActionResult> ResolveUnknownGames()
-    {
-        var resolvedCount = await _gameCacheDetectionService.ResolveUnknownGamesInCacheAsync();
-
-        return Ok(new ResolveUnknownGamesResponse
-        {
-            Success = true,
-            ResolvedCount = resolvedCount,
-            Message = resolvedCount > 0
-                ? $"Resolved {resolvedCount} unknown game(s) using depot mappings"
-                : "No unknown games could be resolved (no matching depot mappings found)"
-        });
-    }
 }

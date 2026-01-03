@@ -497,15 +497,6 @@ public class CancellationResponse
 // ============================================================
 
 /// <summary>
-/// Response for game list endpoint
-/// </summary>
-public class GameListResponse
-{
-    public string Message { get; set; } = string.Empty;
-    public object? CachedResults { get; set; }
-}
-
-/// <summary>
 /// Response for game removal operation start
 /// </summary>
 public class GameRemovalStartResponse
@@ -546,16 +537,6 @@ public class CachedDetectionResponse
     public int TotalGamesDetected { get; set; }
     public int TotalServicesDetected { get; set; }
     public string? LastDetectionTime { get; set; }
-}
-
-/// <summary>
-/// Response for resolving unknown games
-/// </summary>
-public class ResolveUnknownGamesResponse
-{
-    public bool Success { get; set; }
-    public int ResolvedCount { get; set; }
-    public string Message { get; set; } = string.Empty;
 }
 
 // ============================================================
