@@ -1254,9 +1254,9 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
         {/* Right Column - Activity Log */}
         <div className="xl:col-span-1">
-          <Card padding="none" className="flex flex-col overflow-hidden" style={{ maxHeight: '600px' }}>
+          <Card padding="none" className="overflow-hidden">
             <div
-              className="px-4 pt-4 pb-3 flex items-center gap-3 flex-shrink-0"
+              className="px-4 pt-4 pb-3 flex items-center gap-3"
               style={{
                 borderBottom: '1px solid var(--theme-border-primary)'
               }}
@@ -1272,11 +1272,10 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                 <p className="text-xs text-themed-muted">Status updates and output</p>
               </div>
             </div>
-            <CardContent className="flex-1 p-0 overflow-hidden min-h-0">
+            <CardContent className="p-0">
               <ActivityLog
                 entries={logEntries}
-                maxHeight="100%"
-                className="h-full border-0 rounded-none"
+                className="border-0 rounded-none"
               />
             </CardContent>
           </Card>

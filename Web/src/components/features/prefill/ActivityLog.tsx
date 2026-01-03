@@ -33,7 +33,6 @@ export interface LogEntry {
 
 interface ActivityLogProps {
   entries: LogEntry[];
-  maxHeight?: string;
   className?: string;
 }
 
@@ -143,29 +142,16 @@ const LogEntryRow = memo(({ entry, isLast }: { entry: LogEntry; isLast: boolean 
 LogEntryRow.displayName = 'LogEntryRow';
 
 const ENTRIES_PER_PAGE = 10;
-const PAGINATION_HEIGHT = 44; // Fixed height for pagination footer
 
-export function ActivityLog({ entries, maxHeight = '400px', className = '' }: ActivityLogProps) {
+export function ActivityLog({ entries, className = '' }: ActivityLogProps) {
   const shouldAutoScroll = useRef(true);
   const [currentPage, setCurrentPage] = useState(1);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Calculate pagination
   const totalPages = Math.ceil(entries.length / ENTRIES_PER_PAGE);
   const startIndex = (currentPage - 1) * ENTRIES_PER_PAGE;
   const endIndex = startIndex + ENTRIES_PER_PAGE;
   const visibleEntries = entries.slice(startIndex, endIndex);
-
-  // Check if using percentage-based height (needs flex layout) or fixed height (can use calc)
-  const hasPagination = totalPages > 1;
-  const isPercentageHeight = maxHeight.includes('%');
-
-  // For percentage heights, we use flex layout. For fixed heights, we use calc.
-  const scrollAreaMaxHeight = isPercentageHeight
-    ? undefined // Let flex handle it
-    : hasPagination
-      ? `calc(${maxHeight} - ${PAGINATION_HEIGHT}px)`
-      : maxHeight;
 
   // Auto-advance to last page when new entries are added
   useEffect(() => {
@@ -175,35 +161,10 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
     }
   }, [entries.length]);
 
-  // Auto-scroll to bottom when new entries are added on current page
-  useEffect(() => {
-    if (scrollContainerRef.current && shouldAutoScroll.current) {
-      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
-    }
-  }, [visibleEntries]);
-
-  // Listen for scroll events to detect if user scrolled up
-  useEffect(() => {
-    const scrollableElement = scrollContainerRef.current;
-    if (!scrollableElement) return;
-
-    const handleScroll = () => {
-      const { scrollTop, scrollHeight, clientHeight } = scrollableElement;
-      shouldAutoScroll.current = scrollHeight - scrollTop - clientHeight < 50;
-    };
-
-    scrollableElement.addEventListener('scroll', handleScroll);
-    return () => scrollableElement.removeEventListener('scroll', handleScroll);
-  }, []);
-
   const handlePageChange = (page: number) => {
     if (page < 1 || page > totalPages) return;
     setCurrentPage(page);
     shouldAutoScroll.current = page === totalPages;
-    // Scroll to top of new page
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop = 0;
-    }
   };
 
   const startItem = startIndex + 1;
@@ -211,22 +172,17 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
 
   return (
     <div
-      className={`${className} flex flex-col`}
+      className={`${className}`}
       style={{
         backgroundColor: 'var(--theme-bg-tertiary)',
         borderRadius: 'var(--theme-border-radius-lg, 0.75rem)',
         border: '1px solid var(--theme-border-secondary)',
         overflow: 'hidden',
-        // For percentage heights, set height to fill container
-        ...(isPercentageHeight ? { height: maxHeight } : {}),
       }}
     >
       {entries.length === 0 ? (
         /* Empty State */
-        <div
-          className="flex flex-col items-center justify-center py-12 px-6 flex-1"
-          style={isPercentageHeight ? {} : { height: maxHeight }}
-        >
+        <div className="flex flex-col items-center justify-center py-12 px-6">
           <div
             className="relative w-14 h-14 rounded-xl flex items-center justify-center mb-3"
             style={{
@@ -253,36 +209,28 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
         </div>
       ) : (
         <>
-          {/* Scrollable Log Entries Area - uses flex for % heights, calc for fixed heights */}
-          <div
-            ref={scrollContainerRef}
-            className={`overflow-y-auto overflow-x-hidden ${isPercentageHeight ? 'flex-1 min-h-0' : ''}`}
-            style={{
-              ...(scrollAreaMaxHeight ? { maxHeight: scrollAreaMaxHeight } : {}),
-              scrollbarWidth: 'thin',
-              scrollbarColor: 'var(--theme-scrollbar-thumb) var(--theme-scrollbar-track)',
-            }}
-          >
-            <div className="py-1">
-              {visibleEntries.map((entry, index) => (
-                <LogEntryRow
-                  key={entry.id}
-                  entry={entry}
-                  isLast={index === visibleEntries.length - 1}
-                />
-              ))}
-            </div>
+          {/* Log Entries - max 10 per page */}
+          <div className={`pt-1 ${totalPages <= 1 ? 'pb-2' : 'pb-1'}`}>
+            {visibleEntries.map((entry, index) => (
+              <LogEntryRow
+                key={entry.id}
+                entry={entry}
+                isLast={index === visibleEntries.length - 1}
+              />
+            ))}
           </div>
 
-          {/* Fixed Pagination Footer - flex-shrink-0 keeps it always visible */}
+          {/* Pagination Footer */}
           {totalPages > 1 && (
             <div
-              className="flex-shrink-0 flex items-center justify-between px-2 sm:px-3"
+              className="flex items-center justify-between px-2 sm:px-3"
               style={{
-                height: '44px',
-                minHeight: '44px',
+                height: '48px',
+                minHeight: '48px',
                 borderTop: '1px solid var(--theme-border-secondary)',
                 backgroundColor: 'var(--theme-bg-secondary)',
+                borderBottomLeftRadius: 'var(--theme-border-radius-lg, 0.75rem)',
+                borderBottomRightRadius: 'var(--theme-border-radius-lg, 0.75rem)',
               }}
             >
               {/* Entry count - hidden on very small screens */}
