@@ -1,5 +1,6 @@
-import { useEffect, useRef, memo } from 'react';
+import { useEffect, useRef, useState, memo } from 'react';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
+import { Pagination } from '@components/ui/Pagination';
 import {
   CheckCircle2,
   AlertCircle,
@@ -105,9 +106,26 @@ const LogEntryRow = memo(({ entry }: { entry: LogEntry }) => (
 
 LogEntryRow.displayName = 'LogEntryRow';
 
+const ENTRIES_PER_PAGE = 20;
+
 export function ActivityLog({ entries, maxHeight = '400px', className = '' }: ActivityLogProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const shouldAutoScroll = useRef(true);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Calculate pagination
+  const totalPages = Math.ceil(entries.length / ENTRIES_PER_PAGE);
+  const startIndex = (currentPage - 1) * ENTRIES_PER_PAGE;
+  const endIndex = startIndex + ENTRIES_PER_PAGE;
+  const visibleEntries = entries.slice(startIndex, endIndex);
+
+  // Auto-advance to last page when new entries are added (if on last page)
+  useEffect(() => {
+    const newTotalPages = Math.ceil(entries.length / ENTRIES_PER_PAGE);
+    if (shouldAutoScroll.current && newTotalPages > 0) {
+      setCurrentPage(newTotalPages);
+    }
+  }, [entries.length]);
 
   // Auto-scroll to bottom when new entries are added
   useEffect(() => {
@@ -118,7 +136,7 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
         scrollableElement.scrollTop = scrollableElement.scrollHeight;
       }
     }
-  }, [entries]);
+  }, [visibleEntries]);
 
   // Listen for scroll events to detect if user scrolled up
   useEffect(() => {
@@ -136,10 +154,16 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
     }
   }, []);
 
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    // Re-enable auto-scroll if going to last page, disable otherwise
+    shouldAutoScroll.current = page === totalPages;
+  };
+
   return (
     <div
       ref={scrollRef}
-      className={className}
+      className={`${className} flex flex-col`}
       style={{
         backgroundColor: 'var(--theme-bg-tertiary)',
         borderRadius: 'var(--theme-border-radius-lg, 0.5rem)',
@@ -150,7 +174,7 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
     >
       {entries.length === 0 ? (
         <div
-          className="flex flex-col items-center justify-center py-12"
+          className="flex flex-col items-center justify-center py-12 flex-1"
           style={{ color: 'var(--theme-text-muted)' }}
         >
           <div
@@ -163,13 +187,27 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
           <p className="text-xs mt-1 opacity-70">Commands and status updates will appear here</p>
         </div>
       ) : (
-        <CustomScrollbar maxHeight={maxHeight} paddingMode="compact">
-          <div>
-            {entries.map((entry) => (
-              <LogEntryRow key={entry.id} entry={entry} />
-            ))}
-          </div>
-        </CustomScrollbar>
+        <>
+          <CustomScrollbar maxHeight={totalPages > 1 ? `calc(${maxHeight} - 56px)` : maxHeight} paddingMode="compact" className="flex-1">
+            <div>
+              {visibleEntries.map((entry) => (
+                <LogEntryRow key={entry.id} entry={entry} />
+              ))}
+            </div>
+          </CustomScrollbar>
+
+          {/* Pagination Controls */}
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={entries.length}
+            itemsPerPage={ENTRIES_PER_PAGE}
+            onPageChange={handlePageChange}
+            itemLabel="entries"
+            showCard={false}
+            parentPadding="none"
+          />
+        </>
       )}
     </div>
   );
