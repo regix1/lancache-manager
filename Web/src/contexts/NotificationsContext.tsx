@@ -2,26 +2,26 @@ import React, { createContext, useContext, useState, useCallback, type ReactNode
 import { useSignalR } from './SignalRContext';
 import themeService from '@services/theme.service';
 import type {
-  ProcessingProgressPayload,
-  FastProcessingCompletePayload,
-  LogRemovalProgressPayload,
-  LogRemovalCompletePayload,
-  GameRemovalProgressPayload,
-  GameRemovalCompletePayload,
-  ServiceRemovalProgressPayload,
-  ServiceRemovalCompletePayload,
-  CorruptionRemovalStartedPayload,
-  CorruptionRemovalCompletePayload,
-  GameDetectionStartedPayload,
-  GameDetectionCompletePayload,
-  DatabaseResetProgressPayload,
-  CacheClearProgressPayload,
-  CacheClearCompletePayload,
-  DepotMappingStartedPayload,
-  DepotMappingProgressPayload,
-  DepotMappingCompletePayload,
-  SteamSessionErrorPayload,
-  ShowToastPayload
+  ProcessingProgressEvent,
+  FastProcessingCompleteEvent,
+  LogRemovalProgressEvent,
+  LogRemovalCompleteEvent,
+  GameRemovalProgressEvent,
+  GameRemovalCompleteEvent,
+  ServiceRemovalProgressEvent,
+  ServiceRemovalCompleteEvent,
+  CorruptionRemovalStartedEvent,
+  CorruptionRemovalCompleteEvent,
+  GameDetectionStartedEvent,
+  GameDetectionCompleteEvent,
+  DatabaseResetProgressEvent,
+  CacheClearProgressEvent,
+  CacheClearCompleteEvent,
+  DepotMappingStartedEvent,
+  DepotMappingProgressEvent,
+  DepotMappingCompleteEvent,
+  SteamSessionErrorEvent,
+  ShowToastEvent
 } from './SignalRContext/types';
 
 // Notification timing constants
@@ -273,9 +273,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
   // SignalR Event Handlers - centralized notification management
   React.useEffect(() => {
     // Log Processing Progress
-    const handleProcessingProgress = (payload: ProcessingProgressPayload) => {
-      const currentProgress = payload.percentComplete || payload.progress || 0;
-      const status = payload.status || 'processing';
+    const handleProcessingProgress = (event: ProcessingProgressEvent) => {
+      const currentProgress = event.percentComplete || event.progress || 0;
+      const status = event.status || 'processing';
       // Use fixed ID for log_processing - deterministic so we can always schedule auto-dismiss
       const fixedNotificationId = 'log_processing';
 
@@ -293,7 +293,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               type: 'log_processing' as const,
               status: 'completed' as const,
               message: 'Processing Complete!',
-              detailMessage: `Successfully processed ${payload.entriesProcessed?.toLocaleString() || 0} entries`,
+              detailMessage: `Successfully processed ${event.entriesProcessed?.toLocaleString() || 0} entries`,
               progress: 100,
               startedAt: new Date()
             }
@@ -303,8 +303,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         // Schedule auto-dismiss - use fixed ID so we don't depend on callback timing
         scheduleAutoDismiss(fixedNotificationId);
       } else {
-        const message = `Processing: ${payload.mbProcessed?.toFixed(1) || 0} MB of ${payload.mbTotal?.toFixed(1) || 0} MB`;
-        const detailMessage = `${payload.entriesProcessed?.toLocaleString() || 0} of ${payload.totalLines?.toLocaleString() || 0} entries`;
+        const message = `Processing: ${event.mbProcessed?.toFixed(1) || 0} MB of ${event.mbTotal?.toFixed(1) || 0} MB`;
+        const detailMessage = `${event.entriesProcessed?.toLocaleString() || 0} of ${event.totalLines?.toLocaleString() || 0} entries`;
 
         // Use setNotifications to get current state (avoid stale closure)
         setNotifications((prev) => {
@@ -326,10 +326,10 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                   progress: Math.min(99.9, currentProgress),
                   details: {
                     ...n.details,
-                    mbProcessed: payload.mbProcessed,
-                    mbTotal: payload.mbTotal,
-                    entriesProcessed: payload.entriesProcessed,
-                    totalLines: payload.totalLines
+                    mbProcessed: event.mbProcessed,
+                    mbTotal: event.mbTotal,
+                    entriesProcessed: event.entriesProcessed,
+                    totalLines: event.totalLines
                   }
                 };
               }
@@ -346,10 +346,10 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               progress: Math.min(99.9, currentProgress),
               startedAt: new Date(),
               details: {
-                mbProcessed: payload.mbProcessed,
-                mbTotal: payload.mbTotal,
-                entriesProcessed: payload.entriesProcessed,
-                totalLines: payload.totalLines
+                mbProcessed: event.mbProcessed,
+                mbTotal: event.mbTotal,
+                entriesProcessed: event.entriesProcessed,
+                totalLines: event.totalLines
               }
             };
 
@@ -367,7 +367,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       }
     };
 
-    const handleFastProcessingComplete = (result: FastProcessingCompletePayload) => {
+    const handleFastProcessingComplete = (result: FastProcessingCompleteEvent) => {
       // Clear from localStorage
       localStorage.removeItem('log_processing_notification');
       // Use fixed ID for log_processing - deterministic so we can always schedule auto-dismiss
@@ -395,16 +395,16 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Log Entry Removal (removing entries from log files)
-    const handleLogRemovalProgress = (payload: LogRemovalProgressPayload) => {
-      const notificationId = `log_removal-${payload.service}`;
+    const handleLogRemovalProgress = (event: LogRemovalProgressEvent) => {
+      const notificationId = `log_removal-${event.service}`;
 
-      if (payload.status === 'starting' || payload.status === 'removing') {
+      if (event.status === 'starting' || event.status === 'removing') {
         // Create message that shows removal count during processing
-        const linesRemoved = payload.linesRemoved || 0;
+        const linesRemoved = event.linesRemoved || 0;
         const message =
           linesRemoved > 0
-            ? `Removing ${payload.service} entries (${linesRemoved.toLocaleString()} removed)...`
-            : payload.message || `Removing ${payload.service} entries...`;
+            ? `Removing ${event.service} entries (${linesRemoved.toLocaleString()} removed)...`
+            : event.message || `Removing ${event.service} entries...`;
 
         // Use setNotifications to get current state (avoid stale closure)
         setNotifications((prev) => {
@@ -415,12 +415,12 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                 return {
                   ...n,
                   message,
-                  progress: payload.percentComplete || 0,
+                  progress: event.percentComplete || 0,
                   details: {
                     ...n.details,
-                    service: payload.service,
-                    linesProcessed: payload.linesProcessed || 0,
-                    linesRemoved: payload.linesRemoved || 0
+                    service: event.service,
+                    linesProcessed: event.linesProcessed || 0,
+                    linesRemoved: event.linesRemoved || 0
                   }
                 };
               }
@@ -434,12 +434,12 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               type: 'log_removal' as const,
               status: 'running' as const,
               message,
-              progress: payload.percentComplete || 0,
+              progress: event.percentComplete || 0,
               startedAt: new Date(),
               details: {
-                service: payload.service,
-                linesProcessed: payload.linesProcessed || 0,
-                linesRemoved: payload.linesRemoved || 0
+                service: event.service,
+                linesProcessed: event.linesProcessed || 0,
+                linesRemoved: event.linesRemoved || 0
               }
             };
 
@@ -455,8 +455,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       }
     };
 
-    const handleLogRemovalComplete = (payload: LogRemovalCompletePayload) => {
-      const notificationId = `log_removal-${payload.service}`;
+    const handleLogRemovalComplete = (event: LogRemovalCompleteEvent) => {
+      const notificationId = `log_removal-${event.service}`;
 
       // Clear from localStorage
       localStorage.removeItem('log_removal_notification');
@@ -468,8 +468,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             return {
               ...n,
               progress: 100,
-              message: payload.success
-                ? (payload.message || `Successfully removed ${payload.service} log entries (${payload.linesProcessed || 0} lines processed)`)
+              message: event.success
+                ? (event.message || `Successfully removed ${event.service} log entries (${event.linesProcessed || 0} lines processed)`)
                 : n.message
             };
           }
@@ -479,23 +479,23 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
       // After animation delay, update status to completed/failed
       setTimeout(() => {
-        if (payload.success) {
+        if (event.success) {
           updateNotification(notificationId, {
             status: 'completed'
           });
         } else {
           updateNotification(notificationId, {
             status: 'failed',
-            error: payload.message || 'Removal failed'
+            error: event.message || 'Removal failed'
           });
         }
       }, 800); // Match CSS animation duration
     };
 
     // Game Removal Progress - updates existing notification with progress details
-    const handleGameRemovalProgress = (payload: GameRemovalProgressPayload) => {
-      console.log('[NotificationsContext] GameRemovalProgress received:', payload);
-      const notificationId = `game_removal-${payload.gameAppId}`;
+    const handleGameRemovalProgress = (event: GameRemovalProgressEvent) => {
+      console.log('[NotificationsContext] GameRemovalProgress received:', event);
+      const notificationId = `game_removal-${event.gameAppId}`;
 
       setNotifications((prev) => {
         const existing = prev.find((n) => n.id === notificationId);
@@ -505,13 +505,13 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             id: notificationId,
             type: 'game_removal' as const,
             status: 'running' as const,
-            message: payload.message || `Removing ${payload.gameName}...`,
+            message: event.message || `Removing ${event.gameName}...`,
             startedAt: new Date(),
             details: {
-              gameAppId: payload.gameAppId,
-              gameName: payload.gameName,
-              filesDeleted: payload.filesDeleted,
-              bytesFreed: payload.bytesFreed
+              gameAppId: event.gameAppId,
+              gameName: event.gameName,
+              filesDeleted: event.filesDeleted,
+              bytesFreed: event.bytesFreed
             }
           };
 
@@ -529,11 +529,11 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           if (n.id === notificationId) {
             return {
               ...n,
-              message: payload.message || n.message,
+              message: event.message || n.message,
               details: {
                 ...n.details,
-                filesDeleted: payload.filesDeleted ?? n.details?.filesDeleted,
-                bytesFreed: payload.bytesFreed ?? n.details?.bytesFreed
+                filesDeleted: event.filesDeleted ?? n.details?.filesDeleted,
+                bytesFreed: event.bytesFreed ?? n.details?.bytesFreed
               }
             };
           }
@@ -543,9 +543,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Service Removal Progress - updates existing notification with progress details
-    const handleServiceRemovalProgress = (payload: ServiceRemovalProgressPayload) => {
-      console.log('[NotificationsContext] ServiceRemovalProgress received:', payload);
-      const notificationId = `service_removal-${payload.serviceName}`;
+    const handleServiceRemovalProgress = (event: ServiceRemovalProgressEvent) => {
+      console.log('[NotificationsContext] ServiceRemovalProgress received:', event);
+      const notificationId = `service_removal-${event.serviceName}`;
 
       setNotifications((prev) => {
         const existing = prev.find((n) => n.id === notificationId);
@@ -555,12 +555,12 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             id: notificationId,
             type: 'service_removal' as const,
             status: 'running' as const,
-            message: payload.message || `Removing ${payload.serviceName} service...`,
+            message: event.message || `Removing ${event.serviceName} service...`,
             startedAt: new Date(),
             details: {
-              service: payload.serviceName,
-              filesDeleted: payload.filesDeleted,
-              bytesFreed: payload.bytesFreed
+              service: event.serviceName,
+              filesDeleted: event.filesDeleted,
+              bytesFreed: event.bytesFreed
             }
           };
 
@@ -578,11 +578,11 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           if (n.id === notificationId) {
             return {
               ...n,
-              message: payload.message || n.message,
+              message: event.message || n.message,
               details: {
                 ...n.details,
-                filesDeleted: payload.filesDeleted ?? n.details?.filesDeleted,
-                bytesFreed: payload.bytesFreed ?? n.details?.bytesFreed
+                filesDeleted: event.filesDeleted ?? n.details?.filesDeleted,
+                bytesFreed: event.bytesFreed ?? n.details?.bytesFreed
               }
             };
           }
@@ -592,9 +592,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Game Removal Complete
-    const handleGameRemovalComplete = (payload: GameRemovalCompletePayload) => {
-      console.log('[NotificationsContext] GameRemovalComplete received:', payload);
-      const notificationId = `game_removal-${payload.gameAppId}`;
+    const handleGameRemovalComplete = (event: GameRemovalCompleteEvent) => {
+      console.log('[NotificationsContext] GameRemovalComplete received:', event);
+      const notificationId = `game_removal-${event.gameAppId}`;
       console.log('[NotificationsContext] Looking for notification ID:', notificationId);
 
       // Clear from localStorage
@@ -610,22 +610,22 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
         return prev.map((n) => {
           if (n.id === notificationId) {
-            if (payload.success) {
+            if (event.success) {
               return {
                 ...n,
                 status: 'completed' as const,
                 details: {
                   ...n.details,
-                  filesDeleted: payload.filesDeleted,
-                  bytesFreed: payload.bytesFreed,
-                  logEntriesRemoved: payload.logEntriesRemoved
+                  filesDeleted: event.filesDeleted,
+                  bytesFreed: event.bytesFreed,
+                  logEntriesRemoved: event.logEntriesRemoved
                 }
               };
             } else {
               return {
                 ...n,
                 status: 'failed' as const,
-                error: payload.message || 'Removal failed'
+                error: event.message || 'Removal failed'
               };
             }
           }
@@ -638,9 +638,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Service Removal Complete
-    const handleServiceRemovalComplete = (payload: ServiceRemovalCompletePayload) => {
-      console.log('[NotificationsContext] ServiceRemovalComplete received:', payload);
-      const notificationId = `service_removal-${payload.serviceName}`;
+    const handleServiceRemovalComplete = (event: ServiceRemovalCompleteEvent) => {
+      console.log('[NotificationsContext] ServiceRemovalComplete received:', event);
+      const notificationId = `service_removal-${event.serviceName}`;
       console.log('[NotificationsContext] Looking for notification ID:', notificationId);
 
       // Clear from localStorage
@@ -656,22 +656,22 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
         return prev.map((n) => {
           if (n.id === notificationId) {
-            if (payload.success) {
+            if (event.success) {
               return {
                 ...n,
                 status: 'completed' as const,
                 details: {
                   ...n.details,
-                  filesDeleted: payload.filesDeleted,
-                  bytesFreed: payload.bytesFreed,
-                  logEntriesRemoved: payload.logEntriesRemoved
+                  filesDeleted: event.filesDeleted,
+                  bytesFreed: event.bytesFreed,
+                  logEntriesRemoved: event.logEntriesRemoved
                 }
               };
             } else {
               return {
                 ...n,
                 status: 'failed' as const,
-                error: payload.message || 'Removal failed'
+                error: event.message || 'Removal failed'
               };
             }
           }
@@ -684,9 +684,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Corruption Removal Started
-    const handleCorruptionRemovalStarted = (payload: CorruptionRemovalStartedPayload) => {
-      console.log('[NotificationsContext] CorruptionRemovalStarted received:', payload);
-      const notificationId = `corruption_removal-${payload.service}`;
+    const handleCorruptionRemovalStarted = (event: CorruptionRemovalStartedEvent) => {
+      console.log('[NotificationsContext] CorruptionRemovalStarted received:', event);
+      const notificationId = `corruption_removal-${event.service}`;
 
       // Remove any existing corruption removal notifications for this service and add new one
       setNotifications((prev) => {
@@ -695,11 +695,11 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           id: notificationId,
           type: 'corruption_removal' as const,
           status: 'running' as const,
-          message: payload.message || `Removing corrupted chunks for ${payload.service}...`,
+          message: event.message || `Removing corrupted chunks for ${event.service}...`,
           startedAt: new Date(),
           progress: 0,
           details: {
-            operationId: payload.operationId
+            operationId: event.operationId
           }
         };
 
@@ -714,9 +714,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Corruption Removal Complete
-    const handleCorruptionRemovalComplete = (payload: CorruptionRemovalCompletePayload) => {
-      console.log('[NotificationsContext] CorruptionRemovalComplete received:', payload);
-      const notificationId = `corruption_removal-${payload.service}`;
+    const handleCorruptionRemovalComplete = (event: CorruptionRemovalCompleteEvent) => {
+      console.log('[NotificationsContext] CorruptionRemovalComplete received:', event);
+      const notificationId = `corruption_removal-${event.service}`;
 
       // Clear from localStorage
       localStorage.removeItem('corruption_removal_notification');
@@ -734,8 +734,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             return {
               ...n,
               progress: 100,
-              message: payload.success
-                ? (payload.message || `Successfully removed corrupted chunks for ${payload.service}`)
+              message: event.success
+                ? (event.message || `Successfully removed corrupted chunks for ${event.service}`)
                 : n.message
             };
           }
@@ -748,7 +748,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         setNotifications((prev) => {
           return prev.map((n) => {
             if (n.id === notificationId) {
-              if (payload.success) {
+              if (event.success) {
                 return {
                   ...n,
                   status: 'completed' as const
@@ -757,7 +757,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                 return {
                   ...n,
                   status: 'failed' as const,
-                  error: payload.error || payload.message || 'Corruption removal failed'
+                  error: event.error || event.message || 'Corruption removal failed'
                 };
               }
             }
@@ -771,9 +771,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Game Detection Started
-    const handleGameDetectionStarted = (payload: GameDetectionStartedPayload) => {
-      console.log('[NotificationsContext] GameDetectionStarted received:', payload);
-      const notificationId = `game_detection-${payload.operationId}`;
+    const handleGameDetectionStarted = (event: GameDetectionStartedEvent) => {
+      console.log('[NotificationsContext] GameDetectionStarted received:', event);
+      const notificationId = `game_detection-${event.operationId}`;
 
       // Remove any existing game detection notifications and add new one
       setNotifications((prev) => {
@@ -782,12 +782,12 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           id: notificationId,
           type: 'game_detection' as const,
           status: 'running' as const,
-          message: payload.message || 'Running game cache detection...',
+          message: event.message || 'Running game cache detection...',
           startedAt: new Date(),
           progress: 0,
           details: {
-            operationId: payload.operationId,
-            scanType: payload.scanType
+            operationId: event.operationId,
+            scanType: event.scanType
           }
         };
 
@@ -802,9 +802,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Game Detection Complete
-    const handleGameDetectionComplete = (payload: GameDetectionCompletePayload) => {
-      console.log('[NotificationsContext] GameDetectionComplete received:', payload);
-      const notificationId = `game_detection-${payload.operationId}`;
+    const handleGameDetectionComplete = (event: GameDetectionCompleteEvent) => {
+      console.log('[NotificationsContext] GameDetectionComplete received:', event);
+      const notificationId = `game_detection-${event.operationId}`;
 
       // Clear from localStorage
       localStorage.removeItem('game_detection_notification');
@@ -819,19 +819,19 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           const id = `game_detection-${Date.now()}`;
           scheduleAutoDismiss(id);
 
-          if (payload.success) {
+          if (event.success) {
             return [
               ...prev,
               {
                 id,
                 type: 'game_detection' as const,
                 status: 'completed' as const,
-                message: payload.message || 'Game detection complete',
+                message: event.message || 'Game detection complete',
                 progress: 100,
                 startedAt: new Date(),
                 details: {
-                  totalGamesDetected: payload.totalGamesDetected || 0,
-                  totalServicesDetected: payload.totalServicesDetected || 0
+                  totalGamesDetected: event.totalGamesDetected || 0,
+                  totalServicesDetected: event.totalServicesDetected || 0
                 }
               }
             ];
@@ -842,9 +842,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                 id,
                 type: 'game_detection' as const,
                 status: 'failed' as const,
-                message: payload.message || 'Game detection failed',
+                message: event.message || 'Game detection failed',
                 startedAt: new Date(),
-                error: payload.error || 'Detection failed'
+                error: event.error || 'Detection failed'
               }
             ];
           }
@@ -853,23 +853,23 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         // Update the notification
         const updated = prev.map((n) => {
           if (n.id === notificationId) {
-            if (payload.success) {
+            if (event.success) {
               return {
                 ...n,
                 status: 'completed' as const,
-                message: payload.message || 'Game detection complete',
+                message: event.message || 'Game detection complete',
                 progress: 100,
                 details: {
                   ...n.details,
-                  totalGamesDetected: payload.totalGamesDetected || 0,
-                  totalServicesDetected: payload.totalServicesDetected || 0
+                  totalGamesDetected: event.totalGamesDetected || 0,
+                  totalServicesDetected: event.totalServicesDetected || 0
                 }
               };
             } else {
               return {
                 ...n,
                 status: 'failed' as const,
-                error: payload.error || payload.message || 'Game detection failed'
+                error: event.error || event.message || 'Game detection failed'
               };
             }
           }
@@ -884,25 +884,25 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Database Reset
-    const handleDatabaseResetProgress = (payload: DatabaseResetProgressPayload) => {
+    const handleDatabaseResetProgress = (event: DatabaseResetProgressEvent) => {
       const notificationId = 'database-reset';
 
-      if (isCompleteStatus(payload.status)) {
+      if (isCompleteStatus(event.status)) {
         // Clear from localStorage
         localStorage.removeItem('database_reset_notification');
 
         updateNotification(notificationId, {
           status: 'completed',
-          message: payload.message || 'Database reset completed',
+          message: event.message || 'Database reset completed',
           progress: 100
         });
-      } else if (isErrorStatus(payload.status)) {
+      } else if (isErrorStatus(event.status)) {
         // Clear from localStorage
         localStorage.removeItem('database_reset_notification');
 
         updateNotification(notificationId, {
           status: 'failed',
-          error: payload.message
+          error: event.message
         });
       } else {
         // Use setNotifications to get current state (avoid stale closure)
@@ -913,8 +913,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               if (n.id === notificationId) {
                 return {
                   ...n,
-                  message: payload.message || 'Resetting database...',
-                  progress: payload.percentComplete || 0
+                  message: event.message || 'Resetting database...',
+                  progress: event.percentComplete || 0
                 };
               }
               return n;
@@ -926,8 +926,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               id: notificationId,
               type: 'database_reset' as const,
               status: 'running' as const,
-              message: payload.message || 'Resetting database...',
-              progress: payload.percentComplete || 0,
+              message: event.message || 'Resetting database...',
+              progress: event.percentComplete || 0,
               startedAt: new Date()
             };
 
@@ -944,7 +944,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Cache Clear Progress
-    const handleCacheClearProgress = (payload: CacheClearProgressPayload) => {
+    const handleCacheClearProgress = (event: CacheClearProgressEvent) => {
       const notificationId = 'cache_clearing';
 
       // Use setNotifications to get current state (avoid stale closure)
@@ -955,14 +955,14 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             if (n.id === notificationId) {
               return {
                 ...n,
-                message: payload.statusMessage || 'Clearing cache...',
-                progress: payload.percentComplete || 0,
+                message: event.statusMessage || 'Clearing cache...',
+                progress: event.percentComplete || 0,
                 details: {
                   ...n.details,
-                  filesDeleted: payload.filesDeleted || 0,
-                  directoriesProcessed: payload.directoriesProcessed || 0,
-                  bytesDeleted: payload.bytesDeleted || 0,
-                  operationId: payload.operationId || n.details?.operationId
+                  filesDeleted: event.filesDeleted || 0,
+                  directoriesProcessed: event.directoriesProcessed || 0,
+                  bytesDeleted: event.bytesDeleted || 0,
+                  operationId: event.operationId || n.details?.operationId
                 }
               };
             }
@@ -975,14 +975,14 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             id: notificationId,
             type: 'cache_clearing' as const,
             status: 'running' as const,
-            message: payload.statusMessage || 'Clearing cache...',
-            progress: payload.percentComplete || 0,
+            message: event.statusMessage || 'Clearing cache...',
+            progress: event.percentComplete || 0,
             startedAt: new Date(),
             details: {
-              filesDeleted: payload.filesDeleted || 0,
-              directoriesProcessed: payload.directoriesProcessed || 0,
-              bytesDeleted: payload.bytesDeleted || 0,
-              operationId: payload.operationId
+              filesDeleted: event.filesDeleted || 0,
+              directoriesProcessed: event.directoriesProcessed || 0,
+              bytesDeleted: event.bytesDeleted || 0,
+              operationId: event.operationId
             }
           };
 
@@ -998,8 +998,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Cache Clear Complete
-    const handleCacheClearComplete = (payload: CacheClearCompletePayload) => {
-      console.log('[NotificationsContext] CacheClearComplete received:', payload);
+    const handleCacheClearComplete = (event: CacheClearCompleteEvent) => {
+      console.log('[NotificationsContext] CacheClearComplete received:', event);
       const notificationId = 'cache_clearing';
 
       // Clear from localStorage
@@ -1015,22 +1015,22 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
         return prev.map((n) => {
           if (n.id === notificationId) {
-            if (payload.success) {
+            if (event.success) {
               return {
                 ...n,
                 status: 'completed' as const,
-                message: payload.message || 'Cache cleared successfully',
+                message: event.message || 'Cache cleared successfully',
                 details: {
                   ...n.details,
-                  filesDeleted: payload.filesDeleted,
-                  directoriesProcessed: payload.directoriesProcessed
+                  filesDeleted: event.filesDeleted,
+                  directoriesProcessed: event.directoriesProcessed
                 }
               };
             } else {
               return {
                 ...n,
                 status: 'failed' as const,
-                error: payload.error || payload.message || 'Cache clear failed'
+                error: event.error || event.message || 'Cache clear failed'
               };
             }
           }
@@ -1043,8 +1043,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Depot Mapping Started
-    const handleDepotMappingStarted = (payload: DepotMappingStartedPayload) => {
-      console.log('[NotificationsContext] DepotMappingStarted received:', payload);
+    const handleDepotMappingStarted = (event: DepotMappingStartedEvent) => {
+      console.log('[NotificationsContext] DepotMappingStarted received:', event);
       const notificationId = 'depot_mapping';
 
       // Remove any existing depot mapping notifications (including completed/failed ones) and add new one
@@ -1054,11 +1054,11 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           id: notificationId,
           type: 'depot_mapping' as const,
           status: 'running' as const,
-          message: payload.message || 'Starting depot mapping scan...',
+          message: event.message || 'Starting depot mapping scan...',
           startedAt: new Date(),
           progress: 0,
           details: {
-            isLoggedOn: payload.isLoggedOn
+            isLoggedOn: event.isLoggedOn
           }
         };
 
@@ -1073,8 +1073,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Depot Mapping Progress
-    const handleDepotMappingProgress = (payload: DepotMappingProgressPayload) => {
-      console.log('[NotificationsContext] DepotMappingProgress received:', payload);
+    const handleDepotMappingProgress = (event: DepotMappingProgressEvent) => {
+      console.log('[NotificationsContext] DepotMappingProgress received:', event);
       const notificationId = 'depot_mapping';
 
       // Use setNotifications to get current state (avoid stale closure)
@@ -1090,17 +1090,17 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             id: notificationId,
             type: 'depot_mapping' as const,
             status: 'running' as const,
-            message: payload.message || payload.status || 'Processing depot mappings...',
+            message: event.message || event.status || 'Processing depot mappings...',
             startedAt: new Date(),
-            progress: payload.percentComplete || 0,
+            progress: event.percentComplete || 0,
             details: {
-              isLoggedOn: payload.isLoggedOn
+              isLoggedOn: event.isLoggedOn
             },
             detailMessage: (() => {
-              if (payload.processedBatches !== undefined && payload.totalBatches !== undefined) {
-                return `${payload.processedBatches.toLocaleString()} / ${payload.totalBatches.toLocaleString()} batches${
-                  payload.depotMappingsFound !== undefined
-                    ? ` • ${payload.depotMappingsFound.toLocaleString()} mappings found`
+              if (event.processedBatches !== undefined && event.totalBatches !== undefined) {
+                return `${event.processedBatches.toLocaleString()} / ${event.totalBatches.toLocaleString()} batches${
+                  event.depotMappingsFound !== undefined
+                    ? ` • ${event.depotMappingsFound.toLocaleString()} mappings found`
                     : ''
                 }`;
               }
@@ -1120,27 +1120,27 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             if (n.id === notificationId) {
               const updated = {
                 ...n,
-                progress: payload.percentComplete || 0,
-                message: payload.message || payload.status || 'Processing depot mappings...',
+                progress: event.percentComplete || 0,
+                message: event.message || event.status || 'Processing depot mappings...',
                 details: {
                   ...n.details,
                   isLoggedOn:
-                    payload.isLoggedOn !== undefined ? payload.isLoggedOn : n.details?.isLoggedOn
+                    event.isLoggedOn !== undefined ? event.isLoggedOn : n.details?.isLoggedOn
                 },
                 detailMessage: (() => {
                   // PICS scan progress (processedBatches exists)
-                  if (payload.processedBatches !== undefined && payload.totalBatches !== undefined) {
-                    return `${payload.processedBatches.toLocaleString()} / ${payload.totalBatches.toLocaleString()} batches${
-                      payload.depotMappingsFound !== undefined
-                        ? ` • ${payload.depotMappingsFound.toLocaleString()} mappings found`
+                  if (event.processedBatches !== undefined && event.totalBatches !== undefined) {
+                    return `${event.processedBatches.toLocaleString()} / ${event.totalBatches.toLocaleString()} batches${
+                      event.depotMappingsFound !== undefined
+                        ? ` • ${event.depotMappingsFound.toLocaleString()} mappings found`
                         : ''
                     }`;
                   }
                   // Download mapping progress (processedMappings exists)
-                  if (payload.processedMappings !== undefined && payload.totalMappings !== undefined) {
-                    return `${payload.processedMappings.toLocaleString()} / ${payload.totalMappings.toLocaleString()} downloads${
-                      payload.mappingsApplied !== undefined
-                        ? ` • ${payload.mappingsApplied.toLocaleString()} mappings applied`
+                  if (event.processedMappings !== undefined && event.totalMappings !== undefined) {
+                    return `${event.processedMappings.toLocaleString()} / ${event.totalMappings.toLocaleString()} downloads${
+                      event.mappingsApplied !== undefined
+                        ? ` • ${event.mappingsApplied.toLocaleString()} mappings applied`
                         : ''
                     }`;
                   }
@@ -1162,12 +1162,12 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Depot Mapping Complete (added as new handler)
-    const handleDepotMappingComplete = (payload: DepotMappingCompletePayload) => {
-      console.log('[NotificationsContext] DepotMappingComplete received:', payload);
+    const handleDepotMappingComplete = (event: DepotMappingCompleteEvent) => {
+      console.log('[NotificationsContext] DepotMappingComplete received:', event);
       const notificationId = 'depot_mapping';
 
       // Handle cancellation
-      if (payload.cancelled) {
+      if (event.cancelled) {
         setNotifications((prev) => {
           const existing = prev.find((n) => n.id === notificationId);
           if (!existing) {
@@ -1199,9 +1199,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         return;
       }
 
-      if (payload.success) {
+      if (event.success) {
         // Check if this was an incremental scan - if so, animate to 100% first
-        const isIncremental = payload.scanMode === 'incremental';
+        const isIncremental = event.scanMode === 'incremental';
 
         if (isIncremental) {
           // Animate progress to 100%
@@ -1229,7 +1229,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                         progress: newProgress,
                         message:
                           newProgress >= 100
-                            ? payload.message || 'Depot mapping completed successfully'
+                            ? event.message || 'Depot mapping completed successfully'
                             : n.message
                       }
                     : n
@@ -1256,11 +1256,11 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                         return {
                           ...n,
                           status: 'completed' as const,
-                          message: payload.message || 'Depot mapping completed successfully',
+                          message: event.message || 'Depot mapping completed successfully',
                           details: {
                             ...n.details,
-                            totalMappings: payload.totalMappings,
-                            downloadsUpdated: payload.downloadsUpdated
+                            totalMappings: event.totalMappings,
+                            downloadsUpdated: event.downloadsUpdated
                           }
                         };
                       }
@@ -1291,11 +1291,11 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                 return {
                   ...n,
                   status: 'completed' as const,
-                  message: payload.message || `Depot mapping completed successfully`,
+                  message: event.message || `Depot mapping completed successfully`,
                   details: {
                     ...n.details,
-                    totalMappings: payload.totalMappings,
-                    downloadsUpdated: payload.downloadsUpdated
+                    totalMappings: event.totalMappings,
+                    downloadsUpdated: event.downloadsUpdated
                   }
                 };
               }
@@ -1306,7 +1306,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         }
       } else {
         // Check if this is a "change gap too large" error that requires showing the modal
-        const errorMessage = payload.error || payload.message || 'Depot mapping failed';
+        const errorMessage = event.error || event.message || 'Depot mapping failed';
         const requiresFullScan =
           errorMessage.includes('change gap is too large') ||
           errorMessage.includes('requires full scan') ||
@@ -1334,12 +1334,12 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Steam Session Error - handles session replacement, auth failures, etc.
-    const handleSteamSessionError = (payload: SteamSessionErrorPayload) => {
-      console.log('[NotificationsContext] SteamSessionError received:', payload);
+    const handleSteamSessionError = (event: SteamSessionErrorEvent) => {
+      console.log('[NotificationsContext] SteamSessionError received:', event);
 
       // Determine title based on error type
       const getTitle = () => {
-        switch (payload.errorType) {
+        switch (event.errorType) {
           case 'SessionReplaced':
           case 'LoggedInElsewhere':
             return 'Steam Session Replaced';
@@ -1360,7 +1360,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       const id = addNotification({
         type: 'generic',
         status: 'failed',
-        message: `${getTitle()}: ${payload.message || 'Steam session error occurred'}`,
+        message: `${getTitle()}: ${event.message || 'Steam session error occurred'}`,
         details: {
           notificationType: 'error'
         }
@@ -1452,7 +1452,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
   // Listen for custom toast notifications (e.g., preference changes)
   React.useEffect(() => {
     const handleShowToast = (event: Event) => {
-      const customEvent = event as CustomEvent<ShowToastPayload>;
+      const customEvent = event as CustomEvent<ShowToastEvent>;
       const { type, message, duration } = customEvent.detail;
 
       const notificationId = addNotification({

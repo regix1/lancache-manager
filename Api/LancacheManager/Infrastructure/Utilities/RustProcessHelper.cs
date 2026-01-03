@@ -462,7 +462,7 @@ public class ProcessExecutionResult
 }
 
 /// <summary>
-/// Result of a Rust executable execution with data payload
+/// Result of a Rust executable execution with data result
 /// </summary>
 public class RustExecutionResult
 {

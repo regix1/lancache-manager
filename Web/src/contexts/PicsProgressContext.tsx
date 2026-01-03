@@ -1,9 +1,9 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import { useSignalR } from '@contexts/SignalRContext';
 import type {
-  DepotMappingStartedPayload,
-  DepotMappingProgressPayload,
-  DepotMappingCompletePayload
+  DepotMappingStartedEvent,
+  DepotMappingProgressEvent,
+  DepotMappingCompleteEvent
 } from '@contexts/SignalRContext/types';
 
 /**
@@ -157,48 +157,48 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
   useEffect(() => {
     if (mockMode) return;
 
-    const handleDepotMappingStarted = (payload: DepotMappingStartedPayload) => {
-      console.log('[PicsProgress] Depot mapping started:', payload);
+    const handleDepotMappingStarted = (event: DepotMappingStartedEvent) => {
+      console.log('[PicsProgress] Depot mapping started:', event);
       setProgress((prev) =>
         prev
           ? {
               ...prev,
               isProcessing: true,
-              status: payload.status || 'Running',
-              totalApps: payload.totalApps || prev.totalApps,
-              processedApps: payload.processedApps || 0,
+              status: event.status || 'Running',
+              totalApps: event.totalApps || prev.totalApps,
+              processedApps: event.processedApps || 0,
               // Backend sends 'percentComplete', map it to 'progressPercent'
-              progressPercent: payload.percentComplete ?? payload.progressPercent ?? 0,
-              startTime: payload.startTime || new Date().toISOString()
+              progressPercent: event.percentComplete ?? event.progressPercent ?? 0,
+              startTime: event.startTime || new Date().toISOString()
             }
           : null
       );
     };
 
-    const handleDepotMappingProgress = (payload: DepotMappingProgressPayload) => {
-      console.log('[PicsProgress] Depot mapping progress:', payload);
+    const handleDepotMappingProgress = (event: DepotMappingProgressEvent) => {
+      console.log('[PicsProgress] Depot mapping progress:', event);
       setProgress((prev) =>
         prev
           ? {
               ...prev,
               isProcessing: true,
-              status: payload.status || prev.status,
-              totalApps: payload.totalApps || prev.totalApps,
-              processedApps: payload.processedApps || prev.processedApps,
-              totalBatches: payload.totalBatches || prev.totalBatches,
-              processedBatches: payload.processedBatches || prev.processedBatches,
+              status: event.status || prev.status,
+              totalApps: event.totalApps || prev.totalApps,
+              processedApps: event.processedApps || prev.processedApps,
+              totalBatches: event.totalBatches || prev.totalBatches,
+              processedBatches: event.processedBatches || prev.processedBatches,
               // Backend sends 'percentComplete', map it to 'progressPercent'
-              progressPercent: payload.percentComplete ?? payload.progressPercent ?? prev.progressPercent,
-              depotMappingsFound: payload.depotMappingsFound || prev.depotMappingsFound,
-              failedBatches: payload.failedBatches,
-              remainingApps: payload.remainingApps
+              progressPercent: event.percentComplete ?? event.progressPercent ?? prev.progressPercent,
+              depotMappingsFound: event.depotMappingsFound || prev.depotMappingsFound,
+              failedBatches: event.failedBatches,
+              remainingApps: event.remainingApps
             }
           : null
       );
     };
 
-    const handleDepotMappingComplete = (payload: DepotMappingCompletePayload) => {
-      console.log('[PicsProgress] Depot mapping complete:', payload);
+    const handleDepotMappingComplete = (event: DepotMappingCompleteEvent) => {
+      console.log('[PicsProgress] Depot mapping complete:', event);
       const now = new Date().toISOString();
       setProgress((prev) =>
         prev
@@ -207,9 +207,9 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
               isProcessing: false,
               status: 'Completed',
               progressPercent: 100,
-              processedApps: payload.totalApps || prev.totalApps,
-              processedBatches: payload.totalBatches || prev.totalBatches,
-              depotMappingsFound: payload.depotMappingsFound || prev.depotMappingsFound,
+              processedApps: event.totalApps || prev.totalApps,
+              processedBatches: event.totalBatches || prev.totalBatches,
+              depotMappingsFound: event.depotMappingsFound || prev.depotMappingsFound,
               lastCrawlTime: now,
               // Calculate next crawl time (convert hours to seconds)
               nextCrawlIn: prev.crawlIntervalHours ? prev.crawlIntervalHours * 3600 : undefined

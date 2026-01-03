@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import ApiService from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext';
-import type { SteamAutoLogoutPayload } from '@contexts/SignalRContext/types';
+import type { SteamAutoLogoutEvent } from '@contexts/SignalRContext/types';
 
 export type SteamAuthMode = 'anonymous' | 'authenticated';
 
@@ -72,12 +72,12 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
 
   // Listen for SteamAutoLogout SignalR events
   useEffect(() => {
-    const handleSteamAutoLogout = (payload: SteamAutoLogoutPayload) => {
-      console.log('[SteamAuth] Received SteamAutoLogout event:', payload);
+    const handleSteamAutoLogout = (event: SteamAutoLogoutEvent) => {
+      console.log('[SteamAuth] Received SteamAutoLogout event:', event);
       // Update local state to reflect logout
       setSteamAuthMode('anonymous');
       setUsername('');
-      setAutoLogoutMessage(payload.message);
+      setAutoLogoutMessage(event.message);
     };
 
     signalR.on('SteamAutoLogout', handleSteamAutoLogout);

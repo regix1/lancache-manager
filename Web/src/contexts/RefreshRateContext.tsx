@@ -4,8 +4,8 @@ import { useSignalR } from '@contexts/SignalRContext';
 import { useAuth } from '@contexts/AuthContext';
 import authService from '@services/auth.service';
 import type {
-  GuestRefreshRateUpdatedPayload,
-  DefaultGuestRefreshRateChangedPayload
+  GuestRefreshRateUpdatedEvent,
+  DefaultGuestRefreshRateChangedEvent
 } from '@contexts/SignalRContext/types';
 
 interface RefreshRateContextType {
@@ -97,7 +97,7 @@ export const RefreshRateProvider: React.FC<RefreshRateProviderProps> = ({ childr
   // Listen for SignalR events
   useEffect(() => {
     // Handle admin pushing a new rate to this specific guest
-    const handleGuestRefreshRateUpdated = (data: GuestRefreshRateUpdatedPayload) => {
+    const handleGuestRefreshRateUpdated = (data: GuestRefreshRateUpdatedEvent) => {
       console.log('[RefreshRate] Received GuestRefreshRateUpdated:', data);
       if (data.refreshRate && data.refreshRate in REFRESH_RATES) {
         setRefreshRateState(data.refreshRate as RefreshRate);
@@ -105,7 +105,7 @@ export const RefreshRateProvider: React.FC<RefreshRateProviderProps> = ({ childr
     };
 
     // Handle default guest rate change (affects guests using default)
-    const handleDefaultGuestRefreshRateChanged = (data: DefaultGuestRefreshRateChangedPayload) => {
+    const handleDefaultGuestRefreshRateChanged = (data: DefaultGuestRefreshRateChangedEvent) => {
       console.log('[RefreshRate] Received DefaultGuestRefreshRateChanged:', data);
       // Only update if this is a guest user (they might be using the default)
       if (authMode === 'guest' && data.refreshRate && data.refreshRate in REFRESH_RATES) {

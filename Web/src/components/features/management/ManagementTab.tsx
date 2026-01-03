@@ -4,8 +4,8 @@ import { useNotifications } from '@contexts/NotificationsContext';
 import { useMockMode } from '@contexts/MockModeContext';
 import { useSignalR } from '@contexts/SignalRContext';
 import type {
-  LogRemovalCompletePayload,
-  CorruptionRemovalCompletePayload
+  LogRemovalCompleteEvent,
+  CorruptionRemovalCompleteEvent
 } from '@contexts/SignalRContext/types';
 import { useAuth } from '@contexts/AuthContext';
 import { useSteamAuth } from '@contexts/SteamAuthContext';
@@ -177,15 +177,15 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
   useEffect(() => {
     if (mockMode) return;
 
-    const handleLogRemovalComplete = async (payload: LogRemovalCompletePayload) => {
-      if (payload.success) {
+    const handleLogRemovalComplete = async (result: LogRemovalCompleteEvent) => {
+      if (result.success) {
         await refreshLogRemovalRef.current();
       }
       // State is derived from notifications, no need to clear operation state
     };
 
-    const handleCorruptionRemovalComplete = async (payload: CorruptionRemovalCompletePayload) => {
-      if (payload.success) {
+    const handleCorruptionRemovalComplete = async (result: CorruptionRemovalCompleteEvent) => {
+      if (result.success) {
         await refreshCorruptionRef.current();
       }
     };

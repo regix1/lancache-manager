@@ -144,16 +144,15 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
       <Alert color="yellow">
         <div>
           <p className="font-medium">Log rotation is disabled</p>
-          <p className="text-sm mt-1">
-            Enable{' '}
-            <code
-              className="px-1.5 py-0.5 rounded text-xs"
-              style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-            >
-              NginxLogRotation:Enabled
-            </code>{' '}
-            in your configuration and ensure the Docker socket is mounted.
+          <p className="text-sm mt-1 mb-2">
+            Add the following environment variable to your docker-compose.yml:
           </p>
+          <pre
+            className="px-3 py-2 rounded text-xs overflow-x-auto"
+            style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+          >
+            - NginxLogRotation__Enabled=true
+          </pre>
         </div>
       </Alert>
     );

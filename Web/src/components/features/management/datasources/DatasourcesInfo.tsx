@@ -8,7 +8,7 @@ import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/
 import { Tooltip } from '@components/ui/Tooltip';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { useSignalR } from '@contexts/SignalRContext';
-import type { FastProcessingCompletePayload } from '@contexts/SignalRContext/types';
+import type { FastProcessingCompleteEvent } from '@contexts/SignalRContext/types';
 import { useNotifications } from '@contexts/NotificationsContext';
 import type { Config, DatasourceInfo, DatasourceLogPosition } from '../../../../types';
 
@@ -94,7 +94,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 
   // Listen for processing complete events to refresh positions
   useEffect(() => {
-    const handleProcessingComplete = async (_payload: FastProcessingCompletePayload) => {
+    const handleProcessingComplete = async (_result: FastProcessingCompleteEvent) => {
       console.log('[DatasourcesManager] Processing complete, refreshing positions');
       try {
         const positions = await fetchLogPositions();

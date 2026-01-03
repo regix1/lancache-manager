@@ -52,14 +52,14 @@ export const GuestConfigProvider: React.FC<GuestConfigProviderProps> = ({ childr
 
   // Listen for real-time guest duration updates via SignalR
   useEffect(() => {
-    const handleDurationUpdate = (payload: { durationHours: number }) => {
-      console.log('[GuestConfig] Duration updated via SignalR:', payload.durationHours);
-      setGuestDurationHours(payload.durationHours);
+    const handleDurationUpdate = (update: { durationHours: number }) => {
+      console.log('[GuestConfig] Duration updated via SignalR:', update.durationHours);
+      setGuestDurationHours(update.durationHours);
     };
 
-    const handleLockUpdate = (payload: { isLocked: boolean }) => {
-      console.log('[GuestConfig] Lock status updated via SignalR:', payload.isLocked);
-      setGuestModeLocked(payload.isLocked);
+    const handleLockUpdate = (update: { isLocked: boolean }) => {
+      console.log('[GuestConfig] Lock status updated via SignalR:', update.isLocked);
+      setGuestModeLocked(update.isLocked);
     };
 
     signalR.on('GuestDurationUpdated', handleDurationUpdate);

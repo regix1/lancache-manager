@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import authService, { type AuthMode } from '@services/auth.service';
 import { useSignalR } from './SignalRContext';
-import type { GuestPrefillPermissionChangedPayload } from './SignalRContext/types';
+import type { GuestPrefillPermissionChangedEvent } from './SignalRContext/types';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -66,17 +66,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   // Listen for SignalR events that affect prefill permission
   useEffect(() => {
-    const handlePrefillPermissionChanged = (payload: GuestPrefillPermissionChangedPayload) => {
+    const handlePrefillPermissionChanged = (event: GuestPrefillPermissionChangedEvent) => {
       // Check if this event is for the current device
       const currentDeviceId = authService.getDeviceId();
-      if (payload.deviceId === currentDeviceId) {
-        console.log('[Auth] Prefill permission changed via SignalR:', payload.enabled);
-        setPrefillEnabled(payload.enabled);
-        if (payload.expiresAt) {
-          const expiresAt = new Date(payload.expiresAt);
+      if (event.deviceId === currentDeviceId) {
+        console.log('[Auth] Prefill permission changed via SignalR:', event.enabled);
+        setPrefillEnabled(event.enabled);
+        if (event.expiresAt) {
+          const expiresAt = new Date(event.expiresAt);
           const remaining = Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 60000));
           setPrefillTimeRemaining(remaining);
-        } else if (!payload.enabled) {
+        } else if (!event.enabled) {
           setPrefillTimeRemaining(null);
         }
       }

@@ -69,12 +69,12 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
     fetchHistory();
 
     // SignalR handler with debouncing and throttling
-    const handleSpeedUpdate = (payload: DownloadSpeedSnapshot) => {
+    const handleSpeedUpdate = (speedData: DownloadSpeedSnapshot) => {
       if (pendingSpeedUpdateRef.current) {
         clearTimeout(pendingSpeedUpdateRef.current);
       }
 
-      const newCount = payload.gameSpeeds?.length ?? 0;
+      const newCount = speedData.gameSpeeds?.length ?? 0;
 
       // ALWAYS accept updates immediately when active games count changes
       // This ensures the badge count updates instantly when downloads start/finish
@@ -84,7 +84,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
       if (countChanged) {
         lastSpeedUpdateRef.current = Date.now();
         lastActiveCountRef.current = newCount;
-        setSpeedSnapshot(payload);
+        setSpeedSnapshot(speedData);
         return;
       }
 
@@ -97,7 +97,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
         if (timeSinceLastUpdate >= minInterval) {
           lastSpeedUpdateRef.current = now;
           lastActiveCountRef.current = newCount;
-          setSpeedSnapshot(payload);
+          setSpeedSnapshot(speedData);
         }
         pendingSpeedUpdateRef.current = null;
       }, 100);

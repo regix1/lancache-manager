@@ -104,9 +104,9 @@ export const SIGNALR_REFRESH_EVENTS = [
 
 export type SignalRRefreshEvent = (typeof SIGNALR_REFRESH_EVENTS)[number];
 
-// SignalR Payload Types
+// SignalR Event Types
 
-export interface ProcessingProgressPayload {
+export interface ProcessingProgressEvent {
   percentComplete?: number;
   progress?: number;
   status?: string;
@@ -118,13 +118,13 @@ export interface ProcessingProgressPayload {
   linesProcessed?: number;
 }
 
-export interface FastProcessingCompletePayload {
+export interface FastProcessingCompleteEvent {
   entriesProcessed?: number;
   linesProcessed?: number;
   elapsed?: number;
 }
 
-export interface DownloadSpeedUpdatePayload {
+export interface DownloadSpeedUpdateEvent {
   timestampUtc: string;
   totalBytesPerSecond: number;
   gameSpeeds: {
@@ -152,7 +152,7 @@ export interface DownloadSpeedUpdatePayload {
   hasActiveDownloads: boolean;
 }
 
-export interface NetworkBandwidthUpdatePayload {
+export interface NetworkBandwidthUpdateEvent {
   timestampUtc: string;
   interfaceName: string;
   downloadBytesPerSecond: number;
@@ -163,7 +163,7 @@ export interface NetworkBandwidthUpdatePayload {
   errorMessage?: string;
 }
 
-export interface LogRemovalProgressPayload {
+export interface LogRemovalProgressEvent {
   service: string;
   status: 'starting' | 'removing' | 'complete' | 'error';
   message?: string;
@@ -172,14 +172,14 @@ export interface LogRemovalProgressPayload {
   linesRemoved?: number;
 }
 
-export interface LogRemovalCompletePayload {
+export interface LogRemovalCompleteEvent {
   service: string;
   success: boolean;
   message?: string;
   linesProcessed?: number;
 }
 
-export interface GameRemovalProgressPayload {
+export interface GameRemovalProgressEvent {
   gameAppId: number;
   gameName: string;
   message?: string;
@@ -187,7 +187,7 @@ export interface GameRemovalProgressPayload {
   bytesFreed?: number;
 }
 
-export interface GameRemovalCompletePayload {
+export interface GameRemovalCompleteEvent {
   gameAppId: number;
   success: boolean;
   message?: string;
@@ -196,14 +196,14 @@ export interface GameRemovalCompletePayload {
   logEntriesRemoved?: number;
 }
 
-export interface ServiceRemovalProgressPayload {
+export interface ServiceRemovalProgressEvent {
   serviceName: string;
   message?: string;
   filesDeleted?: number;
   bytesFreed?: number;
 }
 
-export interface ServiceRemovalCompletePayload {
+export interface ServiceRemovalCompleteEvent {
   serviceName: string;
   success: boolean;
   message?: string;
@@ -212,26 +212,26 @@ export interface ServiceRemovalCompletePayload {
   logEntriesRemoved?: number;
 }
 
-export interface CorruptionRemovalStartedPayload {
+export interface CorruptionRemovalStartedEvent {
   service: string;
   operationId?: string;
   message?: string;
 }
 
-export interface CorruptionRemovalCompletePayload {
+export interface CorruptionRemovalCompleteEvent {
   service: string;
   success: boolean;
   message?: string;
   error?: string;
 }
 
-export interface GameDetectionStartedPayload {
+export interface GameDetectionStartedEvent {
   operationId: string;
   scanType?: 'full' | 'incremental';
   message?: string;
 }
 
-export interface GameDetectionCompletePayload {
+export interface GameDetectionCompleteEvent {
   operationId: string;
   success: boolean;
   message?: string;
@@ -240,13 +240,13 @@ export interface GameDetectionCompletePayload {
   totalServicesDetected?: number;
 }
 
-export interface DatabaseResetProgressPayload {
+export interface DatabaseResetProgressEvent {
   status: string;
   message?: string;
   percentComplete?: number;
 }
 
-export interface CacheClearProgressPayload {
+export interface CacheClearProgressEvent {
   operationId?: string;
   statusMessage?: string;
   percentComplete?: number;
@@ -255,7 +255,7 @@ export interface CacheClearProgressPayload {
   bytesDeleted?: number;
 }
 
-export interface CacheClearCompletePayload {
+export interface CacheClearCompleteEvent {
   success: boolean;
   message?: string;
   error?: string;
@@ -263,7 +263,7 @@ export interface CacheClearCompletePayload {
   directoriesProcessed?: number;
 }
 
-export interface DepotMappingStartedPayload {
+export interface DepotMappingStartedEvent {
   message?: string;
   isLoggedOn?: boolean;
   status?: string;
@@ -275,7 +275,7 @@ export interface DepotMappingStartedPayload {
   startTime?: string;
 }
 
-export interface DepotMappingProgressPayload {
+export interface DepotMappingProgressEvent {
   percentComplete?: number;
   progressPercent?: number;
   message?: string;
@@ -293,7 +293,7 @@ export interface DepotMappingProgressPayload {
   remainingApps?: number[];
 }
 
-export interface DepotMappingCompletePayload {
+export interface DepotMappingCompleteEvent {
   success: boolean;
   cancelled?: boolean;
   scanMode?: 'incremental' | 'full' | 'github';
@@ -306,48 +306,48 @@ export interface DepotMappingCompletePayload {
   depotMappingsFound?: number;
 }
 
-export interface SteamSessionErrorPayload {
+export interface SteamSessionErrorEvent {
   errorType: string;
   message?: string;
   sessionReplacedCount?: number;
 }
 
-export interface SteamAutoLogoutPayload {
+export interface SteamAutoLogoutEvent {
   message: string;
   reason: string;
   replacementCount: number;
   timestamp: string;
 }
 
-export interface ShowToastPayload {
+export interface ShowToastEvent {
   type: 'success' | 'error' | 'info' | 'warning';
   message: string;
   duration?: number;
 }
 
-export interface PreferenceChangePayload {
+export interface PreferenceChangeEvent {
   key: string;
   value: unknown;
 }
 
-export interface GuestRefreshRateUpdatedPayload {
+export interface GuestRefreshRateUpdatedEvent {
   refreshRate: string;
 }
 
-export interface DefaultGuestRefreshRateChangedPayload {
+export interface DefaultGuestRefreshRateChangedEvent {
   refreshRate: string;
 }
 
-export interface DefaultGuestPreferencesChangedPayload {
+export interface DefaultGuestPreferencesChangedEvent {
   key: string;
   value: boolean;
 }
 
-export interface AllowedTimeFormatsChangedPayload {
+export interface AllowedTimeFormatsChangedEvent {
   formats: string[];
 }
 
-export interface PrefillProgressPayload {
+export interface PrefillProgressEvent {
   state: string;
   currentAppId: number;
   currentAppName?: string;
@@ -367,7 +367,7 @@ export interface PrefillProgressPayload {
   updatedAt: string;
 }
 
-export interface GuestPrefillPermissionChangedPayload {
+export interface GuestPrefillPermissionChangedEvent {
   deviceId: string;
   enabled: boolean;
   expiresAt?: string;

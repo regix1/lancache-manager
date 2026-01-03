@@ -1,18 +1,18 @@
 import { API_BASE } from '../utils/constants';
 import authService from './auth.service';
 
-// SignalR payload types for preference updates
-interface PreferencesUpdatedPayload {
+// SignalR data types for preference updates
+interface PreferencesUpdatedEvent {
   sessionId: string;
   preferences: UserPreferences;
 }
 
-interface SessionRevokedPayload {
+interface SessionRevokedEvent {
   deviceId: string;
   sessionType: 'authenticated' | 'guest';
 }
 
-interface DefaultGuestThemeChangedPayload {
+interface DefaultGuestThemeChangedEvent {
   newThemeId: string;
 }
 
@@ -280,7 +280,7 @@ class PreferencesService {
     let recentlyDispatchedSessionsCleared = false;
 
     // Handle preference updates
-    const handlePreferencesUpdated = (payload: PreferencesUpdatedPayload) => {
+    const handlePreferencesUpdated = (data: PreferencesUpdatedEvent) => {
       if (isProcessingUpdate) {
         // console.log('[PreferencesService] Already processing update, skipping duplicate');
         return;
@@ -289,7 +289,7 @@ class PreferencesService {
       try {
         isProcessingUpdate = true;
 
-        const { sessionId, preferences: newPreferences } = payload;
+        const { sessionId, preferences: newPreferences } = data;
 
         // Check if this update is for the current user's session
         const deviceId = authService.getDeviceId();
@@ -305,7 +305,7 @@ class PreferencesService {
         // Get old preferences before updating
         const oldPrefs = this.preferences;
 
-        // Parse new preferences from SignalR payload
+        // Parse new preferences from SignalR data
         const updatedPrefs: UserPreferences = {
           selectedTheme: newPreferences.selectedTheme || null,
           sharpCorners: newPreferences.sharpCorners || false,
@@ -399,8 +399,8 @@ class PreferencesService {
     };
 
     // Handle session revoked - check if it's our session and logout immediately
-    const handleSessionRevoked = (payload: SessionRevokedPayload) => {
-      const { deviceId, sessionType } = payload;
+    const handleSessionRevoked = (data: SessionRevokedEvent) => {
+      const { deviceId, sessionType } = data;
       const revocationKey = `${deviceId}-${sessionType}`;
 
       // CRITICAL: Skip if we just processed this revocation in the last 5 seconds
@@ -411,7 +411,7 @@ class PreferencesService {
       }
 
       try {
-        console.log('[PreferencesService] UserSessionRevoked event received:', payload);
+        console.log('[PreferencesService] UserSessionRevoked event received:', data);
 
         // Add to recent set FIRST to block duplicates immediately
         recentRevocations.add(revocationKey);
@@ -451,10 +451,10 @@ class PreferencesService {
     };
 
     // Handle default guest theme changed - auto-update guests using default theme
-    const handleDefaultGuestThemeChanged = (payload: DefaultGuestThemeChangedPayload) => {
-      // console.log('[PreferencesService] DefaultGuestThemeChanged event received:', payload);
+    const handleDefaultGuestThemeChanged = (data: DefaultGuestThemeChangedEvent) => {
+      // console.log('[PreferencesService] DefaultGuestThemeChanged event received:', data);
 
-      const { newThemeId } = payload;
+      const { newThemeId } = data;
 
       // Only apply to guest users
       if (authService.authMode !== 'guest') {

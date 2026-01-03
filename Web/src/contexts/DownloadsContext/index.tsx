@@ -203,8 +203,8 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
     };
 
     // Handler for database reset completion
-    const handleDatabaseResetProgress = (payload: { status?: string }) => {
-      const status = (payload.status || '').toLowerCase();
+    const handleDatabaseResetProgress = (event: { status?: string }) => {
+      const status = (event.status || '').toLowerCase();
       if (status === 'completed' || status === 'complete' || status === 'done') {
         setTimeout(() => fetchDownloads(), 500);
       }

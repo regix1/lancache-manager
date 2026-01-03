@@ -66,15 +66,15 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
 
   // Subscribe to SignalR database reset progress events (no polling - SignalR only)
   useEffect(() => {
-    const handleDatabaseResetProgress = (payload: {
+    const handleDatabaseResetProgress = (event: {
       isProcessing?: boolean;
       percentComplete?: number;
       message?: string;
       status?: string;
     }) => {
-      console.log('[AuthModal] DatabaseResetProgress:', payload);
+      console.log('[AuthModal] DatabaseResetProgress:', event);
 
-      const statusLower = (payload.status || '').toLowerCase();
+      const statusLower = (event.status || '').toLowerCase();
       const isComplete = statusLower === 'completed' || statusLower === 'complete' || statusLower === 'done';
       const isError = statusLower === 'error' || statusLower === 'failed';
 
@@ -82,7 +82,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
         setResetStatus({
           isResetting: false,
           percentComplete: 100,
-          message: payload.message || 'Database reset completed',
+          message: event.message || 'Database reset completed',
           status: 'completed'
         });
         setResetJustCompleted(true);
@@ -91,7 +91,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
         setResetStatus({
           isResetting: false,
           percentComplete: 0,
-          message: payload.message || 'Database reset failed',
+          message: event.message || 'Database reset failed',
           status: 'error'
         });
         setResetJustCompleted(true);
@@ -99,9 +99,9 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
       } else {
         setResetStatus({
           isResetting: true,
-          percentComplete: payload.percentComplete || 0,
-          message: payload.message || 'Resetting database...',
-          status: payload.status || 'running'
+          percentComplete: event.percentComplete || 0,
+          message: event.message || 'Resetting database...',
+          status: event.status || 'running'
         });
       }
     };
@@ -115,9 +115,9 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
 
   // Subscribe directly to GuestModeLockChanged for fast updates
   useEffect(() => {
-    const handleGuestModeLockChanged = (payload: { isLocked: boolean }) => {
-      console.log('[AuthModal] GuestModeLockChanged received:', payload.isLocked);
-      setLocalGuestModeLocked(payload.isLocked);
+    const handleGuestModeLockChanged = (event: { isLocked: boolean }) => {
+      console.log('[AuthModal] GuestModeLockChanged received:', event.isLocked);
+      setLocalGuestModeLocked(event.isLocked);
     };
 
     on('GuestModeLockChanged', handleGuestModeLockChanged);

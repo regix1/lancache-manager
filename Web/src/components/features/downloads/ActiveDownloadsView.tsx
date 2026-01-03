@@ -47,13 +47,13 @@ const ActiveDownloadsView: React.FC = () => {
     fetchSpeeds();
 
     // SignalR handler with debouncing and throttling
-    const handleSpeedUpdate = (payload: DownloadSpeedSnapshot) => {
+    const handleSpeedUpdate = (speedData: DownloadSpeedSnapshot) => {
       // Clear any pending update
       if (pendingUpdateRef.current) {
         clearTimeout(pendingUpdateRef.current);
       }
 
-      const newCount = payload.gameSpeeds?.length ?? 0;
+      const newCount = speedData.gameSpeeds?.length ?? 0;
 
       // ALWAYS accept updates immediately when active games count changes
       // This ensures "download finished" events are never throttled
@@ -63,7 +63,7 @@ const ActiveDownloadsView: React.FC = () => {
       if (countChanged) {
         lastUpdateRef.current = Date.now();
         lastActiveCountRef.current = newCount;
-        setSpeedSnapshot(payload);
+        setSpeedSnapshot(speedData);
         setLoading(false);
         return;
       }
@@ -81,7 +81,7 @@ const ActiveDownloadsView: React.FC = () => {
         if (timeSinceLastUpdate >= minInterval) {
           lastUpdateRef.current = now;
           lastActiveCountRef.current = newCount;
-          setSpeedSnapshot(payload);
+          setSpeedSnapshot(speedData);
           setLoading(false);
         }
         pendingUpdateRef.current = null;

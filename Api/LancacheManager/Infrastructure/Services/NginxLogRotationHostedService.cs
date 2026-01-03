@@ -229,25 +229,25 @@ public class NginxLogRotationHostedService : BackgroundService
     {
         try
         {
-            var success = await _rotationService.ReopenNginxLogsAsync();
+            var result = await _rotationService.ReopenNginxLogsAsync();
 
             lock (_statusLock)
             {
                 _lastRotationTime = DateTime.UtcNow;
-                _lastRotationSuccess = success;
-                _lastRotationError = success ? null : "Rotation command failed";
+                _lastRotationSuccess = result.Success;
+                _lastRotationError = result.ErrorMessage;
             }
 
-            if (success)
+            if (result.Success)
             {
                 _logger.LogInformation("Log rotation completed successfully (trigger: {Trigger})", trigger);
             }
             else
             {
-                _logger.LogWarning("Log rotation failed (trigger: {Trigger})", trigger);
+                _logger.LogWarning("Log rotation failed (trigger: {Trigger}): {Error}", trigger, result.ErrorMessage);
             }
 
-            return success;
+            return result.Success;
         }
         catch (Exception ex)
         {

@@ -4,8 +4,8 @@ import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
 import { useSignalR } from '@contexts/SignalRContext';
 import type {
-  ProcessingProgressPayload,
-  FastProcessingCompletePayload
+  ProcessingProgressEvent,
+  FastProcessingCompleteEvent
 } from '@contexts/SignalRContext/types';
 import ApiService from '@services/api.service';
 import type { Config, DatasourceInfo } from '../../../types';
@@ -90,20 +90,20 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
   };
 
   useEffect(() => {
-    const handleProcessingProgress = (payload: ProcessingProgressPayload) => {
-      const currentProgress = payload.percentComplete || payload.progress || 0;
-      const status = payload.status || 'processing';
+    const handleProcessingProgress = (progress: ProcessingProgressEvent) => {
+      const currentProgress = progress.percentComplete || progress.progress || 0;
+      const status = progress.status || 'processing';
 
       if (isCompleteStatus(status)) {
         setProgress({
           isProcessing: false,
           progress: 100,
           status: 'complete',
-          entriesProcessed: payload.entriesProcessed,
-          linesProcessed: payload.linesProcessed || payload.totalLines,
-          totalLines: payload.totalLines,
-          mbProcessed: payload.mbTotal,
-          mbTotal: payload.mbTotal
+          entriesProcessed: progress.entriesProcessed,
+          linesProcessed: progress.linesProcessed || progress.totalLines,
+          totalLines: progress.totalLines,
+          mbProcessed: progress.mbTotal,
+          mbTotal: progress.mbTotal
         });
         setComplete(true);
         setProcessing(false);
@@ -114,22 +114,22 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
         isProcessing: true,
         progress: Math.min(99.9, currentProgress),
         status: status,
-        mbProcessed: payload.mbProcessed,
-        mbTotal: payload.mbTotal,
-        entriesProcessed: payload.entriesProcessed,
-        totalLines: payload.totalLines,
-        linesProcessed: payload.linesProcessed
+        mbProcessed: progress.mbProcessed,
+        mbTotal: progress.mbTotal,
+        entriesProcessed: progress.entriesProcessed,
+        totalLines: progress.totalLines,
+        linesProcessed: progress.linesProcessed
       });
     };
 
-    const handleFastProcessingComplete = (payload: FastProcessingCompletePayload) => {
+    const handleFastProcessingComplete = (progress: FastProcessingCompleteEvent) => {
       setProgress({
         isProcessing: false,
         progress: 100,
         status: 'complete',
-        entriesProcessed: payload.entriesProcessed,
-        linesProcessed: payload.linesProcessed,
-        totalLines: payload.linesProcessed
+        entriesProcessed: progress.entriesProcessed,
+        linesProcessed: progress.linesProcessed,
+        totalLines: progress.linesProcessed
       });
       setComplete(true);
       setProcessing(false);

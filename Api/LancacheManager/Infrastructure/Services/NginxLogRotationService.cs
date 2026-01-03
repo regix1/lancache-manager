@@ -3,6 +3,24 @@ using System.Diagnostics;
 namespace LancacheManager.Infrastructure.Services;
 
 /// <summary>
+/// Result of a log rotation operation
+/// </summary>
+public class LogRotationResult
+{
+    public bool Success { get; set; }
+    public string? ErrorMessage { get; set; }
+    public bool DockerSocketMissing { get; set; }
+
+    public static LogRotationResult Succeeded() => new() { Success = true };
+    public static LogRotationResult Failed(string message, bool dockerSocketMissing = false) => new()
+    {
+        Success = false,
+        ErrorMessage = message,
+        DockerSocketMissing = dockerSocketMissing
+    };
+}
+
+/// <summary>
 /// Service to signal nginx to reopen log files after log manipulation operations
 /// This prevents the monolithic container from losing access to access.log
 /// </summary>
@@ -23,7 +41,7 @@ public class NginxLogRotationService
     /// Signals nginx in the monolithic container to reopen log files
     /// Auto-detects the container or uses configured name
     /// </summary>
-    public async Task<bool> ReopenNginxLogsAsync()
+    public async Task<LogRotationResult> ReopenNginxLogsAsync()
     {
         try
         {
@@ -32,19 +50,20 @@ public class NginxLogRotationService
             if (!enabled)
             {
                 _logger.LogDebug("Nginx log rotation is disabled in configuration");
-                return false;
+                return LogRotationResult.Failed("Log rotation is disabled in configuration");
             }
 
             // Try to auto-detect container name if not explicitly configured
             var configuredName = _configuration.GetValue<string>("NginxLogRotation:ContainerName");
-            var containerName = !string.IsNullOrEmpty(configuredName)
-                ? configuredName
+            var (containerName, detectionError) = !string.IsNullOrEmpty(configuredName)
+                ? (configuredName, (string?)null)
                 : await DetectMonolithicContainerAsync();
 
             if (string.IsNullOrEmpty(containerName))
             {
-                _logger.LogWarning("Could not find monolithic container. Set NginxLogRotation:ContainerName in appsettings.json to specify container name.");
-                return false;
+                var errorMsg = detectionError ?? "Could not find monolithic container";
+                _logger.LogWarning("{Error}. Set NginxLogRotation:ContainerName in appsettings.json to specify container name.", errorMsg);
+                return LogRotationResult.Failed(errorMsg, detectionError?.Contains("Docker socket") == true);
             }
 
             _logger.LogInformation("Signaling nginx to reopen logs in container: {ContainerName}", containerName);
@@ -64,22 +83,22 @@ public class NginxLogRotationService
             if (execSuccess)
             {
                 _logger.LogInformation("Successfully sent USR1 to nginx master process in {ContainerName}", containerName);
-                return true;
+                return LogRotationResult.Succeeded();
             }
 
             if (directSignalSuccess)
             {
                 // First method worked, assume it was successful
-                return true;
+                return LogRotationResult.Succeeded();
             }
 
             _logger.LogWarning("Failed to signal nginx to reopen logs in {ContainerName}", containerName);
-            return false;
+            return LogRotationResult.Failed($"Failed to signal nginx in container '{containerName}'");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error while attempting to signal nginx log rotation");
-            return false;
+            return LogRotationResult.Failed(ex.Message);
         }
     }
 
@@ -87,7 +106,8 @@ public class NginxLogRotationService
     /// Auto-detect the monolithic container by looking for containers with nginx
     /// and matching volume mounts for /data/logs and /data/cache
     /// </summary>
-    private async Task<string?> DetectMonolithicContainerAsync()
+    /// <returns>A tuple of (container name, error message). If container is found, error is null.</returns>
+    private async Task<(string? ContainerName, string? Error)> DetectMonolithicContainerAsync()
     {
         try
         {
@@ -96,10 +116,11 @@ public class NginxLogRotationService
             // Check if docker socket is accessible
             if (!File.Exists("/var/run/docker.sock"))
             {
+                var error = "Docker socket not mounted. Add /var/run/docker.sock:/var/run/docker.sock:ro to your volumes.";
                 _logger.LogWarning("Docker socket not found at /var/run/docker.sock. " +
                     "Mount the docker socket to enable nginx log rotation: " +
                     "volumes: - /var/run/docker.sock:/var/run/docker.sock:ro");
-                return null;
+                return (null, error);
             }
 
             // Get all running containers with nginx
@@ -116,8 +137,9 @@ public class NginxLogRotationService
             using var process = Process.Start(processStartInfo);
             if (process == null)
             {
+                var error = "Docker command failed. Ensure Docker socket is mounted.";
                 _logger.LogWarning("Failed to start docker ps command. Docker socket may not be mounted.");
-                return null;
+                return (null, error);
             }
 
             var stdout = await process.StandardOutput.ReadToEndAsync();
@@ -129,7 +151,7 @@ public class NginxLogRotationService
                 var errorMsg = string.IsNullOrWhiteSpace(stderr) ? "Unknown error" : stderr.Trim();
                 _logger.LogWarning("docker ps command failed with exit code {ExitCode}: {Error}. " +
                     "Docker socket may not be mounted or accessible.", process.ExitCode, errorMsg);
-                return null;
+                return (null, $"Docker command failed: {errorMsg}");
             }
 
             var containers = stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries);
@@ -149,7 +171,7 @@ public class NginxLogRotationService
                 if (nameLower.Contains("monolithic") || nameLower.Contains("lancache"))
                 {
                     _logger.LogInformation("Auto-detected monolithic container: {ContainerName}", containerName);
-                    return containerName;
+                    return (containerName, null);
                 }
             }
 
@@ -163,17 +185,17 @@ public class NginxLogRotationService
                 if (hasNginx)
                 {
                     _logger.LogInformation("Found container with nginx (no name match): {ContainerName}", containerName);
-                    return containerName;
+                    return (containerName, null);
                 }
             }
 
             _logger.LogWarning("No suitable container found for nginx log rotation");
-            return null;
+            return (null, "No container with nginx found");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error detecting monolithic container");
-            return null;
+            return (null, ex.Message);
         }
     }
 

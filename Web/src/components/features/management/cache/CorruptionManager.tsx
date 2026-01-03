@@ -14,7 +14,7 @@ import {
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useSignalR } from '@contexts/SignalRContext';
-import type { CorruptionRemovalCompletePayload } from '@contexts/SignalRContext/types';
+import type { CorruptionRemovalCompleteEvent } from '@contexts/SignalRContext/types';
 import { useNotifications } from '@contexts/NotificationsContext';
 import { Card } from '@components/ui/Card';
 import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
@@ -67,8 +67,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   useEffect(() => {
     if (!signalR) return;
 
-    const handleCorruptionRemovalComplete = async (payload: CorruptionRemovalCompletePayload) => {
-      if (payload.success) {
+    const handleCorruptionRemovalComplete = async (result: CorruptionRemovalCompleteEvent) => {
+      if (result.success) {
         try {
           const corruption = await ApiService.getCorruptionSummary(true);
           setCorruptionSummary(corruption);
@@ -76,7 +76,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
           console.error('Failed to refresh after corruption removal:', err);
         }
       } else {
-        onError?.(payload.error || 'Corruption removal failed');
+        onError?.(result.error || 'Corruption removal failed');
       }
     };
 

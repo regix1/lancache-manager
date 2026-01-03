@@ -197,7 +197,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     fetchSpeeds();
 
     // SignalR handler with debouncing and throttling
-    const handleSpeedUpdate = (payload: DownloadSpeedSnapshot) => {
+    const handleSpeedUpdate = (speedData: DownloadSpeedSnapshot) => {
       // Clear any pending update
       if (pendingUpdateRef.current) {
         clearTimeout(pendingUpdateRef.current);
@@ -215,7 +215,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
 
         if (timeSinceLastUpdate >= minInterval) {
           lastUpdateRef.current = now;
-          setSpeedSnapshot(payload);
+          setSpeedSnapshot(speedData);
         }
         pendingUpdateRef.current = null;
       }, 100);

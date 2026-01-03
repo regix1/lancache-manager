@@ -3,9 +3,9 @@ import { Cloud, Database, Loader2, AlertTriangle, ArrowLeft, CheckCircle } from 
 import { Button } from '@components/ui/Button';
 import { useSignalR } from '@contexts/SignalRContext';
 import type {
-  DepotMappingStartedPayload,
-  DepotMappingProgressPayload,
-  DepotMappingCompletePayload
+  DepotMappingStartedEvent,
+  DepotMappingProgressEvent,
+  DepotMappingCompleteEvent
 } from '@contexts/SignalRContext/types';
 import ApiService from '@services/api.service';
 
@@ -53,25 +53,25 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
-    const handleDepotMappingStarted = (payload: DepotMappingStartedPayload) => {
-      if (payload.scanMode === 'github') {
+    const handleDepotMappingStarted = (event: DepotMappingStartedEvent) => {
+      if (event.scanMode === 'github') {
         setInitializing(true);
         setSelectedMethod('cloud');
-        setDownloadStatus(payload.message || 'Downloading depot mappings from GitHub...');
+        setDownloadStatus(event.message || 'Downloading depot mappings from GitHub...');
         setProgress(0);
       }
     };
 
-    const handleDepotMappingProgress = (payload: DepotMappingProgressPayload) => {
+    const handleDepotMappingProgress = (event: DepotMappingProgressEvent) => {
       if (selectedMethod === 'cloud') {
-        setProgress(payload.percentComplete || 0);
-        setDownloadStatus(payload.message || 'Processing depot mappings...');
+        setProgress(event.percentComplete || 0);
+        setDownloadStatus(event.message || 'Processing depot mappings...');
       }
     };
 
-    const handleDepotMappingComplete = (payload: DepotMappingCompletePayload) => {
-      if (payload.scanMode === 'github') {
-        if (payload.success) {
+    const handleDepotMappingComplete = (event: DepotMappingCompleteEvent) => {
+      if (event.scanMode === 'github') {
+        if (event.success) {
           setDownloadStatus('Success! Depot mappings imported.');
           setProgress(100);
           setInitializing(false);
@@ -81,7 +81,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
             onComplete();
           }, 1500);
         } else {
-          setError(payload.error || payload.message || 'Failed to download depot data');
+          setError(event.error || event.message || 'Failed to download depot data');
           setInitializing(false);
           setSelectedMethod(null);
           setDownloadStatus(null);
