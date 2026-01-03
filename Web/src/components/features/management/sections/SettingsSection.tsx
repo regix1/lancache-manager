@@ -13,12 +13,14 @@ import LogRotationManager from '../LogRotationManager';
 interface SettingsSectionProps {
   onApiKeyRegenerated?: () => void;
   optimizationsEnabled: boolean;
+  logRotationEnabled: boolean;
   isAuthenticated: boolean;
 }
 
 const SettingsSection: React.FC<SettingsSectionProps> = ({
   onApiKeyRegenerated,
   optimizationsEnabled,
+  logRotationEnabled,
   isAuthenticated
 }) => {
   const { mockMode, setMockMode } = useMockMode();
@@ -145,8 +147,10 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
         {/* Log Rotation Card */}
         <Card>
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-cyan">
-              <RotateCw className="w-5 h-5 icon-cyan" />
+            <div
+              className={`w-10 h-10 rounded-lg flex items-center justify-center ${logRotationEnabled ? 'icon-bg-cyan' : 'icon-bg-gray'}`}
+            >
+              <RotateCw className={`w-5 h-5 ${logRotationEnabled ? 'icon-cyan' : 'icon-gray'}`} />
             </div>
             <div>
               <h3 className="text-lg font-semibold text-themed-primary">Nginx Log Rotation</h3>
@@ -155,11 +159,30 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
               </p>
             </div>
           </div>
-          <LogRotationManager
-            isAuthenticated={isAuthenticated}
-            onError={handleError}
-            onSuccess={handleSuccess}
-          />
+          {logRotationEnabled ? (
+            <LogRotationManager
+              isAuthenticated={isAuthenticated}
+              onError={handleError}
+              onSuccess={handleSuccess}
+            />
+          ) : (
+            <Alert color="yellow">
+              <div>
+                <p className="font-medium">Nginx log rotation is disabled</p>
+                <p className="text-sm mt-1">
+                  Enable{' '}
+                  <code
+                    className="px-1.5 py-0.5 rounded text-xs"
+                    style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+                  >
+                    NginxLogRotation:Enabled
+                  </code>{' '}
+                  in your configuration and ensure the Docker socket is mounted in your
+                  docker-compose.yml file.
+                </p>
+              </div>
+            </Alert>
+          )}
         </Card>
 
         {/* Performance Optimizations Card */}

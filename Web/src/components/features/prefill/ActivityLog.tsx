@@ -37,16 +37,16 @@ interface ActivityLogProps {
   className?: string;
 }
 
-// Type-to-style mapping for consistent theming
+// Type-to-style mapping using theme-aware color-mix for backgrounds
 const typeStyles: Record<LogEntryType, { color: string; bgColor: string; icon: typeof Info }> = {
-  success: { color: 'var(--theme-success)', bgColor: 'rgba(34, 197, 94, 0.1)', icon: CheckCircle2 },
-  error: { color: 'var(--theme-error)', bgColor: 'rgba(239, 68, 68, 0.1)', icon: XCircle },
-  warning: { color: 'var(--theme-warning)', bgColor: 'rgba(245, 158, 11, 0.1)', icon: AlertCircle },
-  download: { color: 'var(--theme-primary)', bgColor: 'rgba(59, 130, 246, 0.1)', icon: Download },
-  auth: { color: 'var(--theme-steam)', bgColor: 'rgba(102, 192, 244, 0.1)', icon: LogIn },
-  progress: { color: 'var(--theme-primary)', bgColor: 'rgba(59, 130, 246, 0.1)', icon: Loader2 },
-  command: { color: 'var(--theme-accent)', bgColor: 'rgba(168, 85, 247, 0.1)', icon: Terminal },
-  info: { color: 'var(--theme-text-muted)', bgColor: 'rgba(148, 163, 184, 0.08)', icon: Info }
+  success: { color: 'var(--theme-success)', bgColor: 'color-mix(in srgb, var(--theme-success) 12%, transparent)', icon: CheckCircle2 },
+  error: { color: 'var(--theme-error)', bgColor: 'color-mix(in srgb, var(--theme-error) 12%, transparent)', icon: XCircle },
+  warning: { color: 'var(--theme-warning)', bgColor: 'color-mix(in srgb, var(--theme-warning) 12%, transparent)', icon: AlertCircle },
+  download: { color: 'var(--theme-primary)', bgColor: 'color-mix(in srgb, var(--theme-primary) 12%, transparent)', icon: Download },
+  auth: { color: 'var(--theme-steam)', bgColor: 'color-mix(in srgb, var(--theme-steam) 12%, transparent)', icon: LogIn },
+  progress: { color: 'var(--theme-primary)', bgColor: 'color-mix(in srgb, var(--theme-primary) 12%, transparent)', icon: Loader2 },
+  command: { color: 'var(--theme-accent)', bgColor: 'color-mix(in srgb, var(--theme-accent) 12%, transparent)', icon: Terminal },
+  info: { color: 'var(--theme-text-muted)', bgColor: 'color-mix(in srgb, var(--theme-text-muted) 8%, transparent)', icon: Info }
 };
 
 const LogIcon = memo(({ type }: { type: LogEntryType }) => {
@@ -58,8 +58,8 @@ const LogIcon = memo(({ type }: { type: LogEntryType }) => {
     <div
       className="flex items-center justify-center rounded-md flex-shrink-0"
       style={{
-        width: '28px',
-        height: '28px',
+        width: '26px',
+        height: '26px',
         backgroundColor: style.bgColor,
       }}
     >
@@ -87,11 +87,9 @@ const LogEntryRow = memo(({ entry, isLast }: { entry: LogEntry; isLast: boolean 
 
   return (
     <div
-      className="group flex items-start gap-3 px-4 py-3 transition-all duration-150"
+      className="group flex items-start gap-3 px-3 py-2.5 transition-colors duration-100"
       style={{
         borderBottom: isLast ? 'none' : '1px solid var(--theme-border-secondary)',
-        borderLeft: `3px solid ${style.color}`,
-        minHeight: '60px',
         backgroundColor: 'transparent',
       }}
       onMouseEnter={(e) => {
@@ -100,23 +98,28 @@ const LogEntryRow = memo(({ entry, isLast }: { entry: LogEntry; isLast: boolean 
       onMouseLeave={(e) => {
         e.currentTarget.style.backgroundColor = 'transparent';
       }}
-      title={entry.details ? `${entry.message}\n${entry.details}` : undefined}
     >
       {/* Timestamp */}
       <span
-        className="text-[11px] font-mono flex-shrink-0 tabular-nums pt-1 opacity-60 group-hover:opacity-100 transition-opacity"
+        className="text-[11px] font-mono flex-shrink-0 tabular-nums pt-1.5 opacity-50 group-hover:opacity-80 transition-opacity"
         style={{ color: 'var(--theme-text-muted)', letterSpacing: '0.02em' }}
       >
         {formatTime(entry.timestamp)}
       </span>
 
+      {/* Color indicator line */}
+      <div
+        className="w-0.5 self-stretch rounded-full flex-shrink-0 opacity-60"
+        style={{ backgroundColor: style.color, minHeight: '20px' }}
+      />
+
       {/* Icon */}
       <LogIcon type={entry.type} />
 
-      {/* Message */}
+      {/* Message content */}
       <div className="flex-1 min-w-0 pt-0.5">
         <p
-          className="text-[13px] leading-relaxed"
+          className="text-[13px] leading-snug"
           style={{
             color: 'var(--theme-text-primary)',
             wordBreak: 'break-word'
@@ -126,7 +129,7 @@ const LogEntryRow = memo(({ entry, isLast }: { entry: LogEntry; isLast: boolean 
         </p>
         {entry.details && (
           <p
-            className="text-xs mt-1 opacity-70"
+            className="text-xs mt-0.5 opacity-60"
             style={{ color: 'var(--theme-text-muted)' }}
           >
             {entry.details}
@@ -140,11 +143,11 @@ const LogEntryRow = memo(({ entry, isLast }: { entry: LogEntry; isLast: boolean 
 LogEntryRow.displayName = 'LogEntryRow';
 
 const ENTRIES_PER_PAGE = 10;
-const PAGINATION_HEIGHT = 52; // Fixed height for pagination footer
 
 export function ActivityLog({ entries, maxHeight = '400px', className = '' }: ActivityLogProps) {
   const shouldAutoScroll = useRef(true);
   const [currentPage, setCurrentPage] = useState(1);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Calculate pagination
   const totalPages = Math.ceil(entries.length / ENTRIES_PER_PAGE);
@@ -160,19 +163,16 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
     }
   }, [entries.length]);
 
-  // Get reference to scrollable element
-  const scrollableRef = useRef<HTMLDivElement>(null);
-
-  // Auto-scroll to bottom when new entries are added
+  // Auto-scroll to bottom when new entries are added on current page
   useEffect(() => {
-    if (scrollableRef.current && shouldAutoScroll.current) {
-      scrollableRef.current.scrollTop = scrollableRef.current.scrollHeight;
+    if (scrollContainerRef.current && shouldAutoScroll.current) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
     }
   }, [visibleEntries]);
 
   // Listen for scroll events to detect if user scrolled up
   useEffect(() => {
-    const scrollableElement = scrollableRef.current;
+    const scrollableElement = scrollContainerRef.current;
     if (!scrollableElement) return;
 
     const handleScroll = () => {
@@ -188,6 +188,10 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
     if (page < 1 || page > totalPages) return;
     setCurrentPage(page);
     shouldAutoScroll.current = page === totalPages;
+    // Scroll to top of new page
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = 0;
+    }
   };
 
   const startItem = startIndex + 1;
@@ -198,98 +202,87 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
       className={`${className} flex flex-col`}
       style={{
         backgroundColor: 'var(--theme-bg-tertiary)',
-        borderRadius: '10px',
+        borderRadius: 'var(--theme-border-radius-lg, 0.75rem)',
         border: '1px solid var(--theme-border-secondary)',
-        height: maxHeight === '100%' ? '100%' : undefined,
-        maxHeight: maxHeight !== '100%' ? maxHeight : undefined,
+        height: maxHeight,
+        maxHeight: maxHeight,
         overflow: 'hidden',
       }}
     >
       {entries.length === 0 ? (
         /* Empty State */
-        <div
-          className="flex flex-col items-center justify-center flex-1 py-16 px-6"
-        >
+        <div className="flex flex-col items-center justify-center flex-1 py-12 px-6">
           <div
-            className="relative w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
+            className="relative w-14 h-14 rounded-xl flex items-center justify-center mb-3"
             style={{
               backgroundColor: 'var(--theme-bg-secondary)',
-              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)'
             }}
           >
             <Activity
-              className="h-7 w-7"
-              style={{ color: 'var(--theme-text-muted)', opacity: 0.5 }}
-            />
-            {/* Subtle pulse ring */}
-            <div
-              className="absolute inset-0 rounded-2xl animate-ping"
-              style={{
-                backgroundColor: 'var(--theme-primary)',
-                opacity: 0.05,
-                animationDuration: '2s'
-              }}
+              className="h-6 w-6"
+              style={{ color: 'var(--theme-text-muted)', opacity: 0.4 }}
             />
           </div>
           <p
-            className="text-sm font-medium mb-1"
+            className="text-sm font-medium mb-0.5"
             style={{ color: 'var(--theme-text-primary)' }}
           >
             Waiting for activity
           </p>
           <p
-            className="text-xs text-center max-w-[200px]"
-            style={{ color: 'var(--theme-text-muted)', opacity: 0.7 }}
+            className="text-xs text-center max-w-[180px]"
+            style={{ color: 'var(--theme-text-muted)', opacity: 0.6 }}
           >
             Commands and status updates will appear here
           </p>
         </div>
       ) : (
         <>
-          {/* Scrollable Log Entries - takes remaining space */}
+          {/* Scrollable Log Entries Area - min-h-0 is crucial for flex overflow */}
           <div
-            ref={scrollableRef}
-            className="flex-1 min-h-0 overflow-y-auto"
+            ref={scrollContainerRef}
+            className="flex-1 overflow-y-auto overflow-x-hidden min-h-0"
             style={{
               scrollbarWidth: 'thin',
-              scrollbarColor: 'var(--theme-scrollbar-thumb) var(--theme-scrollbar-track)'
+              scrollbarColor: 'var(--theme-scrollbar-thumb) var(--theme-scrollbar-track)',
             }}
           >
-            <div>
+            <div className="py-1">
               {visibleEntries.map((entry, index) => (
                 <LogEntryRow
                   key={entry.id}
                   entry={entry}
-                  isLast={index === visibleEntries.length - 1 && totalPages <= 1}
+                  isLast={index === visibleEntries.length - 1}
                 />
               ))}
             </div>
           </div>
 
-          {/* Pagination Footer - Always visible, fixed at bottom */}
+          {/* Fixed Pagination Footer - flex-shrink-0 keeps it always visible */}
           {totalPages > 1 && (
             <div
-              className="flex-shrink-0 flex items-center justify-between px-4"
+              className="flex-shrink-0 flex items-center justify-between px-3"
               style={{
-                height: `${PAGINATION_HEIGHT}px`,
+                height: '44px',
+                minHeight: '44px',
                 borderTop: '1px solid var(--theme-border-secondary)',
                 backgroundColor: 'var(--theme-bg-secondary)',
               }}
             >
               {/* Entry count */}
               <span
-                className="text-xs tabular-nums"
+                className="text-[11px] tabular-nums"
                 style={{ color: 'var(--theme-text-muted)' }}
               >
                 {startItem}–{endItem} of {entries.length}
               </span>
 
               {/* Navigation controls */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => handlePageChange(currentPage - 1)}
                   disabled={currentPage === 1}
-                  className="flex items-center justify-center w-8 h-8 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                  className="flex items-center justify-center w-7 h-7 rounded-md transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                   style={{
                     backgroundColor: 'var(--theme-bg-tertiary)',
                     border: '1px solid var(--theme-border-secondary)',
@@ -307,12 +300,12 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
                   }}
                   aria-label="Previous page"
                 >
-                  <ChevronLeft size={16} />
+                  <ChevronLeft size={14} />
                 </button>
 
                 {/* Page indicator */}
                 <span
-                  className="text-xs font-medium tabular-nums px-2 min-w-[60px] text-center"
+                  className="text-[11px] font-medium tabular-nums px-1.5 min-w-[48px] text-center"
                   style={{ color: 'var(--theme-text-primary)' }}
                 >
                   {currentPage} / {totalPages}
@@ -321,7 +314,7 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
                 <button
                   onClick={() => handlePageChange(currentPage + 1)}
                   disabled={currentPage === totalPages}
-                  className="flex items-center justify-center w-8 h-8 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                  className="flex items-center justify-center w-7 h-7 rounded-md transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                   style={{
                     backgroundColor: 'var(--theme-bg-tertiary)',
                     border: '1px solid var(--theme-border-secondary)',
@@ -339,7 +332,7 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
                   }}
                   aria-label="Next page"
                 >
-                  <ChevronRight size={16} />
+                  <ChevronRight size={14} />
                 </button>
               </div>
             </div>

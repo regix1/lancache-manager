@@ -164,11 +164,17 @@ public class FileBrowserController : ControllerBase
                 _logger.LogWarning("Access denied to files in directory: {Path}", path);
             }
 
-            // Get parent directory
+            // Get parent directory - only if it's within allowed paths
+            // If parent is outside allowed paths, set to null so UI navigates to home
             string? parentPath = null;
             if (directoryInfo.Parent != null)
             {
-                parentPath = directoryInfo.Parent.FullName;
+                var parentFullPath = directoryInfo.Parent.FullName;
+                if (IsPathAllowed(parentFullPath))
+                {
+                    parentPath = parentFullPath;
+                }
+                // else: parentPath stays null, meaning "back" should go to home/root
             }
 
             return Ok(new DirectoryListResponse
@@ -186,14 +192,14 @@ public class FileBrowserController : ControllerBase
     }
 
     /// <summary>
-    /// Get common locations where databases might be located
-    /// Used for browsing to find .db files for import
+    /// Get allowed locations where databases might be located
+    /// Only returns paths that are explicitly configured in AllowedBrowsePaths
     /// </summary>
     private List<FileSystemItemDto> GetCommonLocations()
     {
         var locations = new List<FileSystemItemDto>();
 
-        // Always include configured allowed paths first
+        // Only show configured allowed paths - no other locations
         foreach (var allowedPath in _allowedPaths)
         {
             if (Directory.Exists(allowedPath))
@@ -222,64 +228,17 @@ public class FileBrowserController : ControllerBase
                     });
                 }
             }
-        }
-
-        // Add common OS-specific locations for database discovery
-        var commonPaths = new List<string>();
-
-        if (OperatingSystem.IsLinux() || OperatingSystem.IsFreeBSD())
-        {
-            commonPaths.AddRange(new[] { "/var/lib", "/opt", "/home", "/app", "/config" });
-        }
-        else if (OperatingSystem.IsWindows())
-        {
-            commonPaths.AddRange(new[] { "C:\\data", "C:\\ProgramData" });
-            // Add available drives
-            try
+            else
             {
-                foreach (var drive in DriveInfo.GetDrives().Where(d => d.IsReady))
+                // Show the allowed path even if it doesn't exist (marked as inaccessible)
+                locations.Add(new FileSystemItemDto
                 {
-                    if (!commonPaths.Contains(drive.RootDirectory.FullName))
-                    {
-                        commonPaths.Add(drive.RootDirectory.FullName);
-                    }
-                }
-            }
-            catch { /* Ignore */ }
-        }
-        else if (OperatingSystem.IsMacOS())
-        {
-            commonPaths.AddRange(new[] { "/Users", "/Volumes" });
-        }
-
-        // Add common paths that exist and aren't already in the list
-        foreach (var path in commonPaths)
-        {
-            if (Directory.Exists(path) && !_allowedPaths.Any(p => p.Equals(path, StringComparison.OrdinalIgnoreCase)))
-            {
-                try
-                {
-                    var dirInfo = new DirectoryInfo(path);
-                    locations.Add(new FileSystemItemDto
-                    {
-                        Name = path,
-                        Path = path,
-                        IsDirectory = true,
-                        LastModified = dirInfo.LastWriteTime,
-                        IsAccessible = true
-                    });
-                }
-                catch
-                {
-                    locations.Add(new FileSystemItemDto
-                    {
-                        Name = path,
-                        Path = path,
-                        IsDirectory = true,
-                        LastModified = DateTime.MinValue,
-                        IsAccessible = false
-                    });
-                }
+                    Name = allowedPath,
+                    Path = allowedPath,
+                    IsDirectory = true,
+                    LastModified = DateTime.MinValue,
+                    IsAccessible = false
+                });
             }
         }
 
@@ -289,6 +248,7 @@ public class FileBrowserController : ControllerBase
     /// <summary>
     /// GET /api/filebrowser/search - Search for .db files
     /// Query params: searchPath (directory to search in), pattern (filename pattern)
+    /// Special case: searchPath="/" searches within all allowed paths
     /// </summary>
     [HttpGet("search")]
     [RequireAuth]
@@ -296,9 +256,26 @@ public class FileBrowserController : ControllerBase
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(searchPath))
+            var results = new List<FileSystemItemDto>();
+            var searchPattern = string.IsNullOrWhiteSpace(pattern) ? "*.db" : pattern;
+
+            // Special case: root path "/" - search within all allowed paths
+            if (string.IsNullOrWhiteSpace(searchPath) || searchPath == "/")
             {
-                searchPath = "/";
+                foreach (var allowedPath in _allowedPaths)
+                {
+                    if (Directory.Exists(allowedPath))
+                    {
+                        SearchDirectory(allowedPath, searchPattern, results, 0, 3);
+                    }
+                }
+
+                return Ok(new FileSearchResponse
+                {
+                    SearchPath = "/",
+                    Pattern = searchPattern,
+                    Results = results.OrderBy(r => r.Path).ToList()
+                });
             }
 
             // Security: Validate path is within allowed directories
@@ -312,9 +289,6 @@ public class FileBrowserController : ControllerBase
             {
                 return BadRequest(new ErrorResponse { Error = "Search path does not exist" });
             }
-
-            var results = new List<FileSystemItemDto>();
-            var searchPattern = string.IsNullOrWhiteSpace(pattern) ? "*.db" : pattern;
 
             // Search up to 3 levels deep to avoid long searches
             SearchDirectory(searchPath, searchPattern, results, 0, 3);
