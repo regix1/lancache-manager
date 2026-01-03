@@ -26,6 +26,10 @@ public class DeviceAuthService
         _configuration = configuration;
         _contextFactory = contextFactory;
 
+        // First, migrate any sessions using old insecure key derivation
+        MigrateInsecureSessions();
+        
+        // Then load valid device registrations
         LoadDeviceRegistrations();
     }
 
@@ -393,20 +397,67 @@ public class DeviceAuthService
 
     private byte[] DeriveKeyFromDeviceId(string deviceId)
     {
-        // Derive a 256-bit key from the device ID combined with a server-side secret
-        // The secret adds protection even if an attacker knows the device ID
-        var serverSecret = _configuration["Security:DeviceKeySecret"];
-        
-        // If no secret is configured, use the API key as the secret (always exists)
-        // This ensures backward compatibility while still providing protection
-        if (string.IsNullOrEmpty(serverSecret))
-        {
-            serverSecret = _apiKeyService.GetOrCreateApiKey();
-        }
+        // Derive a 256-bit key from the device ID combined with the API key as server-side secret
+        // This prevents attackers from deriving the key even if they know the device ID
+        // Note: Changing the API key will invalidate all device sessions (security feature)
+        var serverSecret = _apiKeyService.GetOrCreateApiKey();
         
         using var sha256 = SHA256.Create();
         var hash = sha256.ComputeHash(Encoding.UTF8.GetBytes($"LancacheManager_{serverSecret}_{deviceId}_v2"));
         return hash;
+    }
+    
+    /// <summary>
+    /// Migrate sessions from old key derivation (v1) to new secure derivation (v2)
+    /// This clears sessions that can't be decrypted with the new key
+    /// </summary>
+    private void MigrateInsecureSessions()
+    {
+        try
+        {
+            using var context = _contextFactory.CreateDbContext();
+            var sessions = context.UserSessions
+                .Where(s => !s.IsGuest && !s.IsRevoked && !string.IsNullOrEmpty(s.ApiKey))
+                .ToList();
+            
+            var invalidSessions = new List<string>();
+            
+            foreach (var session in sessions)
+            {
+                try
+                {
+                    // Try to decrypt with new key derivation
+                    var decrypted = DecryptApiKey(session.ApiKey!, session.DeviceId);
+                    if (string.IsNullOrEmpty(decrypted))
+                    {
+                        invalidSessions.Add(session.DeviceId);
+                    }
+                }
+                catch
+                {
+                    invalidSessions.Add(session.DeviceId);
+                }
+            }
+            
+            if (invalidSessions.Count > 0)
+            {
+                // Remove sessions with old key derivation - users will need to re-authenticate
+                var toRemove = context.UserSessions
+                    .Where(s => invalidSessions.Contains(s.DeviceId))
+                    .ToList();
+                
+                context.UserSessions.RemoveRange(toRemove);
+                context.SaveChanges();
+                
+                _logger.LogWarning(
+                    "Security upgrade: Cleared {Count} device sessions using old key derivation. Users will need to re-authenticate.",
+                    invalidSessions.Count);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during session migration");
+        }
     }
 
     private void SaveDeviceRegistration(DeviceRegistration registration)
