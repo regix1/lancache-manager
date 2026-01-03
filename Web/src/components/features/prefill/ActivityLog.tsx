@@ -197,16 +197,24 @@ export function ActivityLog({ entries, maxHeight = '400px', className = '' }: Ac
           </CustomScrollbar>
 
           {/* Pagination Controls */}
-          <Pagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            totalItems={entries.length}
-            itemsPerPage={ENTRIES_PER_PAGE}
-            onPageChange={handlePageChange}
-            itemLabel="entries"
-            showCard={false}
-            parentPadding="none"
-          />
+          <div
+            className="flex-shrink-0 px-4 py-3"
+            style={{
+              borderTop: '1px solid var(--theme-border-secondary)',
+              backgroundColor: 'var(--theme-bg-secondary)'
+            }}
+          >
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={entries.length}
+              itemsPerPage={ENTRIES_PER_PAGE}
+              onPageChange={handlePageChange}
+              itemLabel="entries"
+              showCard={false}
+              parentPadding="none"
+            />
+          </div>
         </>
       )}
     </div>
