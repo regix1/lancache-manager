@@ -8,22 +8,23 @@ namespace LancacheManager.Controllers;
 /// <summary>
 /// REST API endpoints for Steam Prefill daemon sessions.
 /// Uses secure encrypted credential exchange for authentication.
+///
+/// Authorization:
+/// - [RequireAuth] = Authenticated users only (admin endpoints)
+/// - [RequirePrefillAccess] = Authenticated users OR guests with prefill permission
 /// </summary>
 [ApiController]
 [Route("api/prefill-daemon")]
 public class PrefillDaemonController : ControllerBase
 {
     private readonly SteamPrefillDaemonService _daemonService;
-    private readonly DeviceAuthService _deviceAuthService;
     private readonly ILogger<PrefillDaemonController> _logger;
 
     public PrefillDaemonController(
         SteamPrefillDaemonService daemonService,
-        DeviceAuthService deviceAuthService,
         ILogger<PrefillDaemonController> logger)
     {
         _daemonService = daemonService;
-        _deviceAuthService = deviceAuthService;
         _logger = logger;
     }
 
@@ -31,13 +32,9 @@ public class PrefillDaemonController : ControllerBase
     /// Gets all active daemon sessions (admin only)
     /// </summary>
     [HttpGet("sessions")]
+    [RequireAuth]
     public ActionResult<IEnumerable<DaemonSessionDto>> GetAllSessions()
     {
-        if (!IsAuthenticated())
-        {
-            return Unauthorized();
-        }
-
         var sessions = _daemonService.GetAllSessions()
             .Select(DaemonSessionDto.FromSession);
 
@@ -48,13 +45,10 @@ public class PrefillDaemonController : ControllerBase
     /// Gets sessions for the current user
     /// </summary>
     [HttpGet("sessions/mine")]
+    [RequirePrefillAccess]
     public ActionResult<IEnumerable<DaemonSessionDto>> GetMySessions()
     {
-        var deviceId = GetDeviceId();
-        if (string.IsNullOrEmpty(deviceId))
-        {
-            return Unauthorized();
-        }
+        var deviceId = GetDeviceId()!; // Attribute guarantees this is not null
 
         var sessions = _daemonService.GetUserSessions(deviceId)
             .Select(DaemonSessionDto.FromSession);
@@ -66,13 +60,10 @@ public class PrefillDaemonController : ControllerBase
     /// Gets a specific session
     /// </summary>
     [HttpGet("sessions/{sessionId}")]
+    [RequirePrefillAccess]
     public ActionResult<DaemonSessionDto> GetSession(string sessionId)
     {
-        var deviceId = GetDeviceId();
-        if (string.IsNullOrEmpty(deviceId))
-        {
-            return Unauthorized();
-        }
+        var deviceId = GetDeviceId()!;
 
         var session = _daemonService.GetSession(sessionId);
         if (session == null)
@@ -92,18 +83,10 @@ public class PrefillDaemonController : ControllerBase
     /// Creates a new daemon session
     /// </summary>
     [HttpPost("sessions")]
+    [RequirePrefillAccess]
     public async Task<ActionResult<DaemonSessionDto>> CreateSession()
     {
-        var deviceId = GetDeviceId();
-        if (string.IsNullOrEmpty(deviceId))
-        {
-            return Unauthorized();
-        }
-
-        if (!IsAuthenticated())
-        {
-            return Unauthorized(new { message = "Authentication required to create daemon sessions" });
-        }
+        var deviceId = GetDeviceId()!;
 
         try
         {
@@ -126,13 +109,10 @@ public class PrefillDaemonController : ControllerBase
     /// Gets the daemon status for a session
     /// </summary>
     [HttpGet("sessions/{sessionId}/status")]
+    [RequirePrefillAccess]
     public async Task<ActionResult<DaemonStatus>> GetSessionStatus(string sessionId)
     {
-        var deviceId = GetDeviceId();
-        if (string.IsNullOrEmpty(deviceId))
-        {
-            return Unauthorized();
-        }
+        var deviceId = GetDeviceId()!;
 
         var session = _daemonService.GetSession(sessionId);
         if (session == null)
@@ -159,13 +139,10 @@ public class PrefillDaemonController : ControllerBase
     /// Returns a credential challenge if credentials are needed.
     /// </summary>
     [HttpPost("sessions/{sessionId}/login")]
+    [RequirePrefillAccess]
     public async Task<ActionResult<CredentialChallenge>> StartLogin(string sessionId)
     {
-        var deviceId = GetDeviceId();
-        if (string.IsNullOrEmpty(deviceId))
-        {
-            return Unauthorized();
-        }
+        var deviceId = GetDeviceId()!;
 
         var session = _daemonService.GetSession(sessionId);
         if (session == null)
@@ -207,13 +184,10 @@ public class PrefillDaemonController : ControllerBase
     /// Provides an encrypted credential in response to a challenge
     /// </summary>
     [HttpPost("sessions/{sessionId}/credential")]
+    [RequirePrefillAccess]
     public async Task<ActionResult> ProvideCredential(string sessionId, [FromBody] ProvideCredentialRequest request)
     {
-        var deviceId = GetDeviceId();
-        if (string.IsNullOrEmpty(deviceId))
-        {
-            return Unauthorized();
-        }
+        var deviceId = GetDeviceId()!;
 
         var session = _daemonService.GetSession(sessionId);
         if (session == null)
@@ -251,13 +225,10 @@ public class PrefillDaemonController : ControllerBase
     /// Waits for the next credential challenge (polling endpoint)
     /// </summary>
     [HttpGet("sessions/{sessionId}/challenge")]
+    [RequirePrefillAccess]
     public async Task<ActionResult<CredentialChallenge>> WaitForChallenge(string sessionId, [FromQuery] int timeoutSeconds = 30)
     {
-        var deviceId = GetDeviceId();
-        if (string.IsNullOrEmpty(deviceId))
-        {
-            return Unauthorized();
-        }
+        var deviceId = GetDeviceId()!;
 
         var session = _daemonService.GetSession(sessionId);
         if (session == null)
@@ -290,13 +261,10 @@ public class PrefillDaemonController : ControllerBase
     /// Gets owned games for a logged-in session
     /// </summary>
     [HttpGet("sessions/{sessionId}/games")]
+    [RequirePrefillAccess]
     public async Task<ActionResult<List<OwnedGame>>> GetOwnedGames(string sessionId)
     {
-        var deviceId = GetDeviceId();
-        if (string.IsNullOrEmpty(deviceId))
-        {
-            return Unauthorized();
-        }
+        var deviceId = GetDeviceId()!;
 
         var session = _daemonService.GetSession(sessionId);
         if (session == null)
@@ -329,13 +297,10 @@ public class PrefillDaemonController : ControllerBase
     /// Sets selected apps for prefill
     /// </summary>
     [HttpPost("sessions/{sessionId}/selected-apps")]
+    [RequirePrefillAccess]
     public async Task<ActionResult> SetSelectedApps(string sessionId, [FromBody] SetSelectedAppsRequest request)
     {
-        var deviceId = GetDeviceId();
-        if (string.IsNullOrEmpty(deviceId))
-        {
-            return Unauthorized();
-        }
+        var deviceId = GetDeviceId()!;
 
         var session = _daemonService.GetSession(sessionId);
         if (session == null)
@@ -373,13 +338,10 @@ public class PrefillDaemonController : ControllerBase
     /// Starts a prefill operation
     /// </summary>
     [HttpPost("sessions/{sessionId}/prefill")]
+    [RequirePrefillAccess]
     public async Task<ActionResult<PrefillResult>> StartPrefill(string sessionId, [FromBody] StartPrefillRequest? request)
     {
-        var deviceId = GetDeviceId();
-        if (string.IsNullOrEmpty(deviceId))
-        {
-            return Unauthorized();
-        }
+        var deviceId = GetDeviceId()!;
 
         var session = _daemonService.GetSession(sessionId);
         if (session == null)
@@ -421,13 +383,10 @@ public class PrefillDaemonController : ControllerBase
     /// Terminates a daemon session
     /// </summary>
     [HttpDelete("sessions/{sessionId}")]
+    [RequirePrefillAccess]
     public async Task<ActionResult> TerminateSession(string sessionId)
     {
-        var deviceId = GetDeviceId();
-        if (string.IsNullOrEmpty(deviceId))
-        {
-            return Unauthorized();
-        }
+        var deviceId = GetDeviceId()!;
 
         var session = _daemonService.GetSession(sessionId);
         if (session == null)
@@ -445,7 +404,7 @@ public class PrefillDaemonController : ControllerBase
     }
 
     /// <summary>
-    /// Gets daemon service status
+    /// Gets daemon service status (public endpoint)
     /// </summary>
     [HttpGet("status")]
     public ActionResult GetStatus()
@@ -454,6 +413,7 @@ public class PrefillDaemonController : ControllerBase
 
         return Ok(new
         {
+            dockerAvailable = _daemonService.IsDockerAvailable,
             activeSessions = sessions.Count,
             maxSessionsPerUser = 1,
             sessionTimeoutMinutes = 120
@@ -463,12 +423,6 @@ public class PrefillDaemonController : ControllerBase
     private string? GetDeviceId()
     {
         return Request.Headers["X-Device-Id"].FirstOrDefault();
-    }
-
-    private bool IsAuthenticated()
-    {
-        var deviceId = GetDeviceId();
-        return !string.IsNullOrEmpty(deviceId) && _deviceAuthService.ValidateDevice(deviceId);
     }
 
     #region Request DTOs

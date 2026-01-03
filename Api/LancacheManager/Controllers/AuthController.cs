@@ -121,6 +121,8 @@ public class AuthController : ControllerBase
         // Priority 4: Check for guest session (handles guest mode page refresh)
         string? authMode = null;
         int? guestTimeRemaining = null;
+        bool? prefillEnabled = null;
+        int? prefillTimeRemaining = null;
         if (!isAuthenticated)
         {
             var requestDeviceId = Request.Headers["X-Device-Id"].FirstOrDefault();
@@ -137,8 +139,21 @@ public class AuthController : ControllerBase
                     {
                         var remaining = guestSession.ExpiresAt - DateTime.UtcNow;
                         guestTimeRemaining = (int)Math.Ceiling(remaining.TotalMinutes);
+
+                        // Check prefill permission
+                        prefillEnabled = guestSession.PrefillEnabled && !guestSession.IsPrefillExpired;
+                        if (prefillEnabled == true && guestSession.PrefillExpiresAt.HasValue)
+                        {
+                            var prefillRemaining = guestSession.PrefillExpiresAt.Value - DateTime.UtcNow;
+                            prefillTimeRemaining = (int)Math.Ceiling(prefillRemaining.TotalMinutes);
+                            if (prefillTimeRemaining <= 0)
+                            {
+                                prefillEnabled = false;
+                                prefillTimeRemaining = null;
+                            }
+                        }
                     }
-                    _logger.LogDebug("Valid guest session found for device {DeviceId}, expires in {Minutes} minutes", requestDeviceId, guestTimeRemaining);
+                    _logger.LogDebug("Valid guest session found for device {DeviceId}, expires in {Minutes} minutes, prefill={Prefill}", requestDeviceId, guestTimeRemaining, prefillEnabled);
                 }
                 else if (reason == "expired")
                 {
@@ -217,7 +232,10 @@ public class AuthController : ControllerBase
             HasData = hasData,
             HasEverBeenSetup = hasEverBeenSetup,
             HasBeenInitialized = hasBeenInitialized,
-            HasDataLoaded = hasDataLoaded
+            HasDataLoaded = hasDataLoaded,
+            // Prefill permission for guests
+            PrefillEnabled = prefillEnabled,
+            PrefillTimeRemaining = prefillTimeRemaining
         });
     }
 
@@ -343,5 +361,108 @@ public class AuthController : ControllerBase
     public class SetGuestLockRequest
     {
         public bool IsLocked { get; set; }
+    }
+
+    /// <summary>
+    /// GET /api/auth/guest/prefill/config - Get guest prefill configuration
+    /// </summary>
+    [HttpGet("guest/prefill/config")]
+    [RequireAuth]
+    public IActionResult GetGuestPrefillConfig()
+    {
+        var enabledByDefault = _stateService.GetGuestPrefillEnabledByDefault();
+        var durationHours = _stateService.GetGuestPrefillDurationHours();
+
+        return Ok(new
+        {
+            enabledByDefault,
+            durationHours,
+            message = "Guest prefill configuration retrieved successfully"
+        });
+    }
+
+    /// <summary>
+    /// POST /api/auth/guest/prefill/config - Update guest prefill configuration
+    /// </summary>
+    [HttpPost("guest/prefill/config")]
+    [RequireAuth]
+    public IActionResult SetGuestPrefillConfig([FromBody] SetGuestPrefillConfigRequest request)
+    {
+        _stateService.SetGuestPrefillEnabledByDefault(request.EnabledByDefault);
+
+        // Validate duration (1 or 2 hours only)
+        if (request.DurationHours == 1 || request.DurationHours == 2)
+        {
+            _stateService.SetGuestPrefillDurationHours(request.DurationHours);
+        }
+
+        _logger.LogInformation("Guest prefill config updated: EnabledByDefault={Enabled}, Duration={Hours}h",
+            request.EnabledByDefault, request.DurationHours);
+
+        return Ok(new
+        {
+            success = true,
+            enabledByDefault = _stateService.GetGuestPrefillEnabledByDefault(),
+            durationHours = _stateService.GetGuestPrefillDurationHours(),
+            message = "Guest prefill configuration updated successfully"
+        });
+    }
+
+    /// <summary>
+    /// POST /api/auth/guest/prefill/toggle/{deviceId} - Toggle prefill permission for a specific guest session
+    /// </summary>
+    [HttpPost("guest/prefill/toggle/{deviceId}")]
+    [RequireAuth]
+    public async Task<IActionResult> ToggleGuestPrefill(string deviceId, [FromBody] ToggleGuestPrefillRequest request)
+    {
+        var session = _guestSessionService.GetSessionByDeviceId(deviceId);
+        if (session == null)
+        {
+            return NotFound(new { success = false, error = "Guest session not found" });
+        }
+
+        var success = _guestSessionService.SetPrefillPermission(deviceId, request.Enabled, request.DurationHours);
+        if (!success)
+        {
+            return BadRequest(new { success = false, error = "Failed to update prefill permission" });
+        }
+
+        // Get updated session info
+        var updatedSession = _guestSessionService.GetSessionByDeviceId(deviceId);
+
+        _logger.LogInformation("Prefill permission {Action} for guest {DeviceId}, expires: {Expires}",
+            request.Enabled ? "enabled" : "disabled",
+            deviceId,
+            updatedSession?.PrefillExpiresAt);
+
+        // Notify the guest via SignalR so their UI updates immediately
+        await _hubContext.Clients.All.SendAsync("GuestPrefillPermissionChanged", new
+        {
+            deviceId,
+            enabled = updatedSession?.PrefillEnabled ?? false,
+            expiresAt = updatedSession?.PrefillExpiresAt?.ToString("o")
+        });
+
+        return Ok(new
+        {
+            success = true,
+            prefillEnabled = updatedSession?.PrefillEnabled ?? false,
+            prefillExpiresAt = updatedSession?.PrefillExpiresAt,
+            message = request.Enabled
+                ? $"Prefill access granted for {request.DurationHours ?? _stateService.GetGuestPrefillDurationHours()} hour(s)"
+                : "Prefill access revoked"
+        });
+    }
+
+    public class SetGuestPrefillConfigRequest
+    {
+        public bool EnabledByDefault { get; set; }
+        public int DurationHours { get; set; } = 2;
+    }
+
+    public class ToggleGuestPrefillRequest
+    {
+        public bool Enabled { get; set; }
+        public int? DurationHours { get; set; }
     }
 }

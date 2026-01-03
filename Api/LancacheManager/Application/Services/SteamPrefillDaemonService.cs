@@ -27,6 +27,11 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     private const int DefaultSessionTimeoutMinutes = 120;
     private const string DefaultDockerImage = "ghcr.io/regix1/steam-prefill-daemon:latest";
 
+    /// <summary>
+    /// Indicates whether Docker is available and connected.
+    /// </summary>
+    public bool IsDockerAvailable => _dockerClient != null;
+
     public SteamPrefillDaemonService(
         ILogger<SteamPrefillDaemonService> logger,
         IHubContext<PrefillDaemonHub> hubContext,
@@ -71,7 +76,9 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Docker client created but cannot connect. Ensure Docker socket is mounted.");
+                // Log clean message without stack trace - Docker not running is expected in many setups
+                _logger.LogWarning("Docker is not available - Steam Prefill feature will be disabled. Start Docker Desktop to enable it.");
+                _logger.LogTrace(ex, "Docker connection error details");
                 _dockerClient = null;
             }
 
@@ -83,7 +90,9 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to initialize Docker client. Container management will be unavailable.");
+            // Log clean message without stack trace
+            _logger.LogWarning("Failed to initialize Docker client - Steam Prefill feature will be disabled.");
+            _logger.LogTrace(ex, "Docker initialization error details");
             _dockerClient = null;
         }
 
@@ -117,7 +126,8 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     {
         if (_dockerClient == null)
         {
-            throw new InvalidOperationException("Docker client not initialized. Cannot create session.");
+            throw new InvalidOperationException(
+                "Docker is not running or not accessible. Please start Docker Desktop and try again.");
         }
 
         // Check if user already has an active session - return it instead of creating a new one

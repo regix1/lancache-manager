@@ -57,6 +57,9 @@ public class GuestSessionService
         public bool IsRevoked { get; set; }
         public DateTime? RevokedAt { get; set; }
         public string? RevokedBy { get; set; }
+        // Prefill permissions
+        public bool PrefillEnabled { get; set; }
+        public DateTime? PrefillExpiresAt { get; set; }
     }
 
     public class CreateGuestSessionRequest
@@ -82,6 +85,10 @@ public class GuestSessionService
         public bool IsRevoked { get; set; }
         public DateTime? RevokedAt { get; set; }
         public string? RevokedBy { get; set; }
+        // Prefill permissions
+        public bool PrefillEnabled { get; set; }
+        public DateTime? PrefillExpiresAt { get; set; }
+        public bool IsPrefillExpired => PrefillExpiresAt.HasValue && PrefillExpiresAt.Value <= DateTime.UtcNow;
     }
 
     /// <summary>
@@ -91,6 +98,10 @@ public class GuestSessionService
     {
         try
         {
+            // Get default prefill settings
+            var prefillEnabledByDefault = _stateRepository.GetGuestPrefillEnabledByDefault();
+            var prefillDurationHours = _stateRepository.GetGuestPrefillDurationHours();
+
             var session = new GuestSession
             {
                 DeviceId = request.DeviceId,
@@ -102,7 +113,10 @@ public class GuestSessionService
                 CreatedAt = DateTime.UtcNow,
                 ExpiresAt = DateTime.UtcNow.AddHours(GetGuestSessionDurationHours()),
                 LastSeenAt = DateTime.UtcNow,
-                IsRevoked = false
+                IsRevoked = false,
+                // Initialize prefill permissions from defaults
+                PrefillEnabled = prefillEnabledByDefault,
+                PrefillExpiresAt = prefillEnabledByDefault ? DateTime.UtcNow.AddHours(prefillDurationHours) : null
             };
 
             SaveGuestSession(session);
@@ -234,7 +248,10 @@ public class GuestSessionService
                     IsExpired = session.ExpiresAt <= DateTime.UtcNow,
                     IsRevoked = session.IsRevoked,
                     RevokedAt = session.RevokedAt.HasValue ? DateTime.SpecifyKind(session.RevokedAt.Value, DateTimeKind.Utc) : null,
-                    RevokedBy = session.RevokedBy
+                    RevokedBy = session.RevokedBy,
+                    // Prefill permissions
+                    PrefillEnabled = session.PrefillEnabled,
+                    PrefillExpiresAt = session.PrefillExpiresAt.HasValue ? DateTime.SpecifyKind(session.PrefillExpiresAt.Value, DateTimeKind.Utc) : null
                 });
             }
         }
@@ -270,12 +287,52 @@ public class GuestSessionService
                     IsExpired = session.ExpiresAt <= DateTime.UtcNow,
                     IsRevoked = session.IsRevoked,
                     RevokedAt = session.RevokedAt.HasValue ? DateTime.SpecifyKind(session.RevokedAt.Value, DateTimeKind.Utc) : null,
-                    RevokedBy = session.RevokedBy
+                    RevokedBy = session.RevokedBy,
+                    // Prefill permissions
+                    PrefillEnabled = session.PrefillEnabled,
+                    PrefillExpiresAt = session.PrefillExpiresAt.HasValue ? DateTime.SpecifyKind(session.PrefillExpiresAt.Value, DateTimeKind.Utc) : null
                 };
             }
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Set prefill permission for a guest session
+    /// </summary>
+    public bool SetPrefillPermission(string deviceId, bool enabled, int? durationHours = null)
+    {
+        try
+        {
+            lock (_cacheLock)
+            {
+                if (_sessionCache.TryGetValue(deviceId, out var session))
+                {
+                    session.PrefillEnabled = enabled;
+                    if (enabled)
+                    {
+                        var hours = durationHours ?? _stateRepository.GetGuestPrefillDurationHours();
+                        session.PrefillExpiresAt = DateTime.UtcNow.AddHours(hours);
+                    }
+                    else
+                    {
+                        session.PrefillExpiresAt = null;
+                    }
+                    SaveGuestSession(session);
+                    _logger.LogInformation("Prefill permission {Action} for guest session: {DeviceId}, expires: {Expires}",
+                        enabled ? "enabled" : "disabled", deviceId, session.PrefillExpiresAt);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error setting prefill permission for guest session: {DeviceId}", deviceId);
+            return false;
+        }
     }
 
     /// <summary>
@@ -420,6 +477,9 @@ public class GuestSessionService
                 existingSession.RevokedAtUtc = session.RevokedAt;
                 existingSession.RevokedBy = session.RevokedBy;
                 existingSession.IsGuest = true; // Ensure session is marked as guest (handles downgrade from authenticated)
+                // Prefill permissions
+                existingSession.PrefillEnabled = session.PrefillEnabled;
+                existingSession.PrefillExpiresAtUtc = session.PrefillExpiresAt;
             }
             else
             {
@@ -437,7 +497,10 @@ public class GuestSessionService
                     LastSeenAtUtc = session.LastSeenAt ?? DateTime.UtcNow,
                     IsRevoked = session.IsRevoked,
                     RevokedAtUtc = session.RevokedAt,
-                    RevokedBy = session.RevokedBy
+                    RevokedBy = session.RevokedBy,
+                    // Prefill permissions
+                    PrefillEnabled = session.PrefillEnabled,
+                    PrefillExpiresAtUtc = session.PrefillExpiresAt
                 };
                 context.UserSessions.Add(userSession);
             }
@@ -483,7 +546,12 @@ public class GuestSessionService
                         RevokedAt = userSession.RevokedAtUtc.HasValue
                             ? DateTime.SpecifyKind(userSession.RevokedAtUtc.Value, DateTimeKind.Utc)
                             : (DateTime?)null,
-                        RevokedBy = userSession.RevokedBy
+                        RevokedBy = userSession.RevokedBy,
+                        // Prefill permissions
+                        PrefillEnabled = userSession.PrefillEnabled,
+                        PrefillExpiresAt = userSession.PrefillExpiresAtUtc.HasValue
+                            ? DateTime.SpecifyKind(userSession.PrefillExpiresAtUtc.Value, DateTimeKind.Utc)
+                            : (DateTime?)null
                     };
 
                     _sessionCache[session.DeviceId] = session;

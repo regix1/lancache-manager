@@ -73,6 +73,9 @@ public class AuthStatusResponse
     public bool HasEverBeenSetup { get; set; }
     public bool HasBeenInitialized { get; set; }
     public bool HasDataLoaded { get; set; }
+    // Prefill permission for guests
+    public bool? PrefillEnabled { get; set; }
+    public int? PrefillTimeRemaining { get; set; } // minutes
 }
 
 /// <summary>

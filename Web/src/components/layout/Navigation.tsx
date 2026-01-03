@@ -6,10 +6,11 @@ interface NavigationProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   authMode?: AuthMode;
+  prefillEnabled?: boolean;
 }
 
 const Navigation: React.FC<NavigationProps> = React.memo(
-  ({ activeTab, setActiveTab, authMode = 'unauthenticated' }) => {
+  ({ activeTab, setActiveTab, authMode = 'unauthenticated', prefillEnabled = false }) => {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [menuHeight, setMenuHeight] = useState(0);
     const menuContentRef = useRef<HTMLDivElement>(null);
@@ -22,19 +23,19 @@ const Navigation: React.FC<NavigationProps> = React.memo(
     }, [authMode, mobileMenuOpen]); // Recalculate when tabs change or menu opens
 
     const allTabs = [
-      { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, requiresAuth: false, guestOnly: false },
-      { id: 'downloads', label: 'Downloads', icon: Download, requiresAuth: false, guestOnly: false },
-      { id: 'clients', label: 'Clients', icon: Laptop, requiresAuth: false, guestOnly: false },
-      { id: 'authenticate', label: 'Authenticate', icon: Key, requiresAuth: false, guestOnly: true },
-      { id: 'prefill', label: 'Prefill', icon: Terminal, requiresAuth: false, guestOnly: false },
-      { id: 'users', label: 'Users', icon: Users, requiresAuth: true, guestOnly: false },
-      { id: 'events', label: 'Events', icon: CalendarDays, requiresAuth: true, guestOnly: false },
-      { id: 'management', label: 'Management', icon: Settings, requiresAuth: true, guestOnly: false }
+      { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, requiresAuth: false, guestOnly: false, guestOrder: 1, authOrder: 1 },
+      { id: 'downloads', label: 'Downloads', icon: Download, requiresAuth: false, guestOnly: false, guestOrder: 2, authOrder: 2 },
+      { id: 'clients', label: 'Clients', icon: Laptop, requiresAuth: false, guestOnly: false, guestOrder: 3, authOrder: 3 },
+      { id: 'prefill', label: 'Prefill', icon: Terminal, requiresAuth: false, guestOnly: false, requiresPrefill: true, guestOrder: 4, authOrder: 7 },
+      { id: 'authenticate', label: 'Authenticate', icon: Key, requiresAuth: false, guestOnly: true, guestOrder: 5, authOrder: 0 },
+      { id: 'users', label: 'Users', icon: Users, requiresAuth: true, guestOnly: false, guestOrder: 0, authOrder: 4 },
+      { id: 'events', label: 'Events', icon: CalendarDays, requiresAuth: true, guestOnly: false, guestOrder: 0, authOrder: 5 },
+      { id: 'management', label: 'Management', icon: Settings, requiresAuth: true, guestOnly: false, guestOrder: 0, authOrder: 8 }
     ];
 
-    // Filter tabs based on authentication
+    // Filter and sort tabs based on authentication and prefill permission
     const tabs = useMemo(() => {
-      return allTabs.filter((tab) => {
+      const filtered = allTabs.filter((tab) => {
         // Show auth-required tabs only to authenticated users
         if (tab.requiresAuth) {
           return authMode === 'authenticated';
@@ -43,10 +44,18 @@ const Navigation: React.FC<NavigationProps> = React.memo(
         if (tab.guestOnly) {
           return authMode === 'guest';
         }
+        // Prefill tab: show to authenticated users OR guests with prefill permission
+        if ('requiresPrefill' in tab && tab.requiresPrefill) {
+          return authMode === 'authenticated' || prefillEnabled;
+        }
         // Show public tabs to everyone
         return true;
       });
-    }, [authMode]);
+      
+      // Sort by appropriate order based on auth mode
+      const orderKey = authMode === 'authenticated' ? 'authOrder' : 'guestOrder';
+      return filtered.sort((a, b) => a[orderKey] - b[orderKey]);
+    }, [authMode, prefillEnabled]);
 
     const TabButton: React.FC<{
       tab: (typeof tabs)[0];
@@ -194,8 +203,10 @@ const Navigation: React.FC<NavigationProps> = React.memo(
     );
   },
   (prevProps, nextProps) => {
-    // Only re-render if activeTab or authMode changes
-    return prevProps.activeTab === nextProps.activeTab && prevProps.authMode === nextProps.authMode;
+    // Only re-render if activeTab, authMode, or prefillEnabled changes
+    return prevProps.activeTab === nextProps.activeTab &&
+           prevProps.authMode === nextProps.authMode &&
+           prevProps.prefillEnabled === nextProps.prefillEnabled;
   }
 );
 

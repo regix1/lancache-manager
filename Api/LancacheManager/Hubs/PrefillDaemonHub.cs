@@ -9,20 +9,25 @@ namespace LancacheManager.Hubs;
 /// SignalR hub for Steam Prefill daemon sessions.
 /// Provides real-time updates for authentication state changes and prefill progress.
 /// Uses secure encrypted credential exchange.
+///
+/// Authorization: Allows authenticated users OR guests with prefill permission.
 /// </summary>
 public class PrefillDaemonHub : Hub
 {
     private readonly SteamPrefillDaemonService _daemonService;
     private readonly DeviceAuthService _deviceAuthService;
+    private readonly GuestSessionService _guestSessionService;
     private readonly ILogger<PrefillDaemonHub> _logger;
 
     public PrefillDaemonHub(
         SteamPrefillDaemonService daemonService,
         DeviceAuthService deviceAuthService,
+        GuestSessionService guestSessionService,
         ILogger<PrefillDaemonHub> logger)
     {
         _daemonService = daemonService;
         _deviceAuthService = deviceAuthService;
+        _guestSessionService = guestSessionService;
         _logger = logger;
     }
 
@@ -31,15 +36,49 @@ public class PrefillDaemonHub : Hub
         var httpContext = Context.GetHttpContext();
         var deviceId = httpContext?.Request.Query["deviceId"].FirstOrDefault();
 
-        if (string.IsNullOrEmpty(deviceId) || !_deviceAuthService.ValidateDevice(deviceId))
+        if (string.IsNullOrEmpty(deviceId))
         {
-            _logger.LogWarning("Unauthorized prefill daemon hub connection attempt from {ConnectionId}", Context.ConnectionId);
+            _logger.LogWarning("Prefill daemon hub connection attempt without device ID from {ConnectionId}", Context.ConnectionId);
+            Context.Abort();
+            return;
+        }
+
+        // Check if user has prefill access (authenticated OR guest with prefill permission)
+        if (!HasPrefillAccess(deviceId))
+        {
+            _logger.LogWarning("Unauthorized prefill daemon hub connection attempt from {ConnectionId}, DeviceId: {DeviceId}", Context.ConnectionId, deviceId);
             Context.Abort();
             return;
         }
 
         _logger.LogDebug("Prefill daemon hub connected: {ConnectionId}, DeviceId: {DeviceId}", Context.ConnectionId, deviceId);
         await base.OnConnectedAsync();
+    }
+
+    /// <summary>
+    /// Checks if the user has prefill access (authenticated OR guest with prefill permission)
+    /// </summary>
+    private bool HasPrefillAccess(string deviceId)
+    {
+        // Authenticated users always have access
+        if (_deviceAuthService.ValidateDevice(deviceId))
+        {
+            return true;
+        }
+
+        // Check if guest has prefill permission
+        var guestSession = _guestSessionService.GetSessionByDeviceId(deviceId);
+        if (guestSession != null)
+        {
+            var (isValid, _) = _guestSessionService.ValidateSessionWithReason(deviceId);
+            if (isValid && guestSession.PrefillEnabled && !guestSession.IsPrefillExpired)
+            {
+                _logger.LogDebug("Guest with prefill permission granted hub access for device {DeviceId}", deviceId);
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public override async Task OnDisconnectedAsync(Exception? exception)
@@ -81,7 +120,8 @@ public class PrefillDaemonHub : Hub
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogWarning(ex, "Failed to create session for device {DeviceId}", deviceId);
+            // Log clean message without stack trace for expected errors (e.g., Docker not available)
+            _logger.LogWarning("Failed to create session for device {DeviceId}: {Message}", deviceId, ex.Message);
             throw new HubException(ex.Message);
         }
         catch (Exception ex)

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Settings2, Loader2, Globe, MapPin } from 'lucide-react';
+import { Settings2, Loader2, Globe, MapPin, Download, AlertTriangle } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
@@ -7,6 +7,11 @@ import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
 import { useSignalR } from '@contexts/SignalRContext';
 import { ThemeOption, durationOptions, refreshRateOptions, showToast } from './types';
+
+const prefillDurationOptions = [
+  { value: '1', label: '1 hour' },
+  { value: '2', label: '2 hours' }
+];
 
 type TimeSettingValue = 'server-24h' | 'server-12h' | 'local-24h' | 'local-12h';
 
@@ -58,6 +63,14 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   const [loadingDefaultPrefs, setLoadingDefaultPrefs] = useState(false);
   const [updatingDefaultPref, setUpdatingDefaultPref] = useState<string | null>(null);
   const [updatingAllowedFormats, setUpdatingAllowedFormats] = useState(false);
+
+  // Prefill permission state
+  const [prefillConfig, setPrefillConfig] = useState({
+    enabledByDefault: false,
+    durationHours: 2
+  });
+  const [loadingPrefillConfig, setLoadingPrefillConfig] = useState(false);
+  const [updatingPrefillConfig, setUpdatingPrefillConfig] = useState(false);
 
   // Helper to update default time format based on a format value
   const updateDefaultTimeFormat = async (format: TimeSettingValue) => {
@@ -230,8 +243,60 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     }
   };
 
+  // Prefill config functions
+  const loadPrefillConfig = async () => {
+    try {
+      setLoadingPrefillConfig(true);
+      const response = await fetch('/api/auth/guest/prefill/config', {
+        headers: ApiService.getHeaders()
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setPrefillConfig({
+          enabledByDefault: data.enabledByDefault ?? false,
+          durationHours: data.durationHours ?? 2
+        });
+      }
+    } catch (err) {
+      console.error('Failed to load prefill config:', err);
+    } finally {
+      setLoadingPrefillConfig(false);
+    }
+  };
+
+  const updatePrefillConfig = async (enabledByDefault: boolean, durationHours: number) => {
+    try {
+      setUpdatingPrefillConfig(true);
+      const response = await fetch('/api/auth/guest/prefill/config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...ApiService.getHeaders()
+        },
+        body: JSON.stringify({ enabledByDefault, durationHours })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setPrefillConfig({
+          enabledByDefault: data.enabledByDefault,
+          durationHours: data.durationHours
+        });
+        showToast('success', 'Prefill configuration updated');
+      } else {
+        const errorData = await response.json();
+        showToast('error', errorData.error || 'Failed to update prefill configuration');
+      }
+    } catch (err: unknown) {
+      showToast('error', getErrorMessage(err) || 'Failed to update prefill configuration');
+    } finally {
+      setUpdatingPrefillConfig(false);
+    }
+  };
+
   useEffect(() => {
     loadDefaultGuestPreferences();
+    loadPrefillConfig();
 
     on('DefaultGuestPreferencesChanged', handleDefaultGuestPreferencesChanged);
     on('AllowedTimeFormatsChanged', handleAllowedTimeFormatsChanged);
@@ -315,6 +380,83 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
                 style={{ color: 'var(--theme-primary)' }}
               />
             )}
+          </div>
+        </div>
+
+        {/* Prefill Permissions */}
+        <div className="config-section">
+          <div className="config-section-title flex items-center gap-2">
+            <Download className="w-4 h-4" style={{ color: 'var(--theme-primary)' }} />
+            Prefill Permissions
+          </div>
+          <p className="text-sm mb-3" style={{ color: 'var(--theme-text-muted)' }}>
+            Control guest access to the Prefill tab. Permissions are time-limited and can be granted per-session.
+          </p>
+          <div className="space-y-3">
+            {/* Default Enabled Toggle */}
+            <div
+              className="toggle-row cursor-pointer"
+              onClick={() =>
+                !loadingPrefillConfig &&
+                !updatingPrefillConfig &&
+                updatePrefillConfig(!prefillConfig.enabledByDefault, prefillConfig.durationHours)
+              }
+            >
+              <div>
+                <div className="toggle-row-label">Enable by Default</div>
+                <div className="toggle-row-description">
+                  New guests automatically get prefill access
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {updatingPrefillConfig && (
+                  <Loader2
+                    className="w-4 h-4 animate-spin"
+                    style={{ color: 'var(--theme-primary)' }}
+                  />
+                )}
+                <div
+                  className={`modern-toggle ${prefillConfig.enabledByDefault ? 'checked' : ''}`}
+                >
+                  <span className="toggle-thumb" />
+                </div>
+              </div>
+            </div>
+
+            {/* Warning for enabled by default */}
+            {prefillConfig.enabledByDefault && (
+              <div
+                className="flex items-start gap-2 p-3 rounded-md text-sm"
+                style={{
+                  backgroundColor: 'var(--theme-warning-bg, rgba(234, 179, 8, 0.1))',
+                  border: '1px solid var(--theme-warning, #eab308)',
+                  color: 'var(--theme-warning, #eab308)'
+                }}
+              >
+                <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <span>
+                  Security risk: All new guests will be able to trigger prefills. Consider keeping
+                  this off and granting access per-session instead.
+                </span>
+              </div>
+            )}
+
+            {/* Duration Dropdown */}
+            <div>
+              <div className="toggle-row-label mb-1.5">Permission Duration</div>
+              <EnhancedDropdown
+                options={prefillDurationOptions}
+                value={prefillConfig.durationHours.toString()}
+                onChange={(value) =>
+                  updatePrefillConfig(prefillConfig.enabledByDefault, Number(value))
+                }
+                disabled={updatingPrefillConfig || loadingPrefillConfig}
+                className="w-48"
+              />
+              <div className="toggle-row-description mt-1">
+                How long prefill access lasts after being granted
+              </div>
+            </div>
           </div>
         </div>
 

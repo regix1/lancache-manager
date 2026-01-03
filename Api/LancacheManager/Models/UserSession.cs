@@ -32,6 +32,11 @@ public class UserSession
     // API Key (encrypted) - only for authenticated users
     public string? ApiKey { get; set; }
 
+    // Prefill permissions - for guest users only
+    // When enabled, guest can access the Prefill tab until expiry
+    public bool PrefillEnabled { get; set; }
+    public DateTime? PrefillExpiresAtUtc { get; set; }
+
     // Navigation property
     public UserPreferences? Preferences { get; set; }
 }

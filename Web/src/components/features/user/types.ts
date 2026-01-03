@@ -15,6 +15,10 @@ export interface Session {
   revokedAt?: string | null;
   revokedBy?: string | null;
   type: 'authenticated' | 'guest';
+  // Prefill permissions (for guests only)
+  prefillEnabled?: boolean;
+  prefillExpiresAt?: string | null;
+  isPrefillExpired?: boolean;
 }
 
 export interface UserPreferences {

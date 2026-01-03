@@ -1,5 +1,7 @@
-import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import authService, { type AuthMode } from '@services/auth.service';
+import { useSignalR } from './SignalRContext';
+import type { GuestPrefillPermissionChangedPayload } from './SignalRContext/types';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -8,6 +10,9 @@ interface AuthContextType {
   refreshAuth: () => Promise<void>;
   setAuthMode: (mode: AuthMode) => void;
   setIsAuthenticated: (value: boolean) => void;
+  // Prefill permission for guests
+  prefillEnabled: boolean;
+  prefillTimeRemaining: number | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -28,29 +33,61 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>('unauthenticated');
   const [isLoading, setIsLoading] = useState(true);
+  const [prefillEnabled, setPrefillEnabled] = useState(false);
+  const [prefillTimeRemaining, setPrefillTimeRemaining] = useState<number | null>(null);
+  const signalR = useSignalR();
 
-  const fetchAuth = async () => {
+  const fetchAuth = useCallback(async () => {
     try {
       const authResult = await authService.checkAuth();
       setIsAuthenticated(authResult.isAuthenticated);
       setAuthMode(authResult.authMode);
+      setPrefillEnabled(authResult.prefillEnabled ?? false);
+      setPrefillTimeRemaining(authResult.prefillTimeRemaining ?? null);
       setIsLoading(false);
     } catch (error) {
       console.error('[Auth] Failed to check auth status:', error);
       setIsAuthenticated(false);
       setAuthMode('unauthenticated');
+      setPrefillEnabled(false);
+      setPrefillTimeRemaining(null);
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const refreshAuth = async () => {
+  const refreshAuth = useCallback(async () => {
     await fetchAuth();
-  };
+  }, [fetchAuth]);
 
   // Initial fetch
   useEffect(() => {
     fetchAuth();
-  }, []);
+  }, [fetchAuth]);
+
+  // Listen for SignalR events that affect prefill permission
+  useEffect(() => {
+    const handlePrefillPermissionChanged = (payload: GuestPrefillPermissionChangedPayload) => {
+      // Check if this event is for the current device
+      const currentDeviceId = authService.getDeviceId();
+      if (payload.deviceId === currentDeviceId) {
+        console.log('[Auth] Prefill permission changed via SignalR:', payload.enabled);
+        setPrefillEnabled(payload.enabled);
+        if (payload.expiresAt) {
+          const expiresAt = new Date(payload.expiresAt);
+          const remaining = Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 60000));
+          setPrefillTimeRemaining(remaining);
+        } else if (!payload.enabled) {
+          setPrefillTimeRemaining(null);
+        }
+      }
+    };
+
+    signalR.on('GuestPrefillPermissionChanged', handlePrefillPermissionChanged);
+
+    return () => {
+      signalR.off('GuestPrefillPermissionChanged', handlePrefillPermissionChanged);
+    };
+  }, [signalR]);
 
   // Listen for auth state changes from handleUnauthorized and other events
   useEffect(() => {
@@ -145,7 +182,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         isLoading,
         refreshAuth,
         setAuthMode,
-        setIsAuthenticated
+        setIsAuthenticated,
+        prefillEnabled,
+        prefillTimeRemaining
       }}
     >
       {children}

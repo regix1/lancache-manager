@@ -72,7 +72,8 @@ export const SIGNALR_EVENTS = [
   'ClientGroupMemberRemoved',
   'PrefillProgress',
   'StatusChanged',
-  'PrefillStateChanged'
+  'PrefillStateChanged',
+  'GuestPrefillPermissionChanged'
 ] as const;
 
 export type SignalREvent = (typeof SIGNALR_EVENTS)[number];
@@ -364,5 +365,11 @@ export interface PrefillProgressPayload {
   totalBytesTransferred: number;
   totalTimeSeconds: number;
   updatedAt: string;
+}
+
+export interface GuestPrefillPermissionChangedPayload {
+  deviceId: string;
+  enabled: boolean;
+  expiresAt?: string;
 }
 
