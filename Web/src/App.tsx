@@ -15,6 +15,7 @@ import { GuestConfigProvider } from '@contexts/GuestConfigContext';
 import { PicsProgressProvider } from '@contexts/PicsProgressContext';
 import { SetupStatusProvider, useSetupStatus } from '@contexts/SetupStatusContext';
 import { SteamAuthProvider, useSteamAuth } from '@contexts/SteamAuthContext';
+import { PrefillProvider } from '@contexts/PrefillContext';
 import { AuthProvider, useAuth } from '@contexts/AuthContext';
 import { SteamWebApiStatusProvider, useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 import { TimezoneProvider } from '@contexts/TimezoneContext';
@@ -717,6 +718,7 @@ const App: React.FC = () => {
                     <GuestConfigProvider>
                       <SetupStatusProvider>
                         <SteamAuthProvider>
+                          <PrefillProvider>
                           <PicsProgressProviderWithMockMode>
                             <NotificationsProvider>
                               <CacheSizeProvider>
@@ -736,6 +738,7 @@ const App: React.FC = () => {
                               </CacheSizeProvider>
                             </NotificationsProvider>
                           </PicsProgressProviderWithMockMode>
+                          </PrefillProvider>
                         </SteamAuthProvider>
                       </SetupStatusProvider>
                     </GuestConfigProvider>

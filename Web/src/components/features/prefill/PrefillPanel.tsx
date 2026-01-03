@@ -4,8 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../ui/Card';
 import { Button } from '../../ui/Button';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { usePrefillSteamAuth } from '@hooks/usePrefillSteamAuth';
-import { ActivityLog, createLogEntry, type LogEntry, type LogEntryType } from './ActivityLog';
+import { ActivityLog, type LogEntryType } from './ActivityLog';
 import { GameSelectionModal, type OwnedGame } from './GameSelectionModal';
+import { usePrefillContext } from '@contexts/PrefillContext';
 import authService from '@services/auth.service';
 import { SIGNALR_BASE, API_BASE } from '@utils/constants';
 import {
@@ -149,6 +150,9 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const hubConnection = useRef<HubConnection | null>(null);
   const initializationAttempted = useRef(false);
 
+  // Use context for log entries (persists across tab switches)
+  const { logEntries, addLog, clearLogs } = usePrefillContext();
+
   const [session, setSession] = useState<PrefillSessionDto | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
@@ -158,7 +162,6 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const [timeRemaining, setTimeRemaining] = useState<number>(0);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
 
   // Game selection state
   const [ownedGames, setOwnedGames] = useState<OwnedGame[]>([]);
@@ -178,11 +181,6 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     bytesPerSecond: number;
     elapsedSeconds: number;
   } | null>(null);
-
-  // Helper to add log entries
-  const addLog = useCallback((type: LogEntryType, message: string, details?: string) => {
-    setLogEntries(prev => [...prev, createLogEntry(type, message, details)]);
-  }, []);
 
   // Steam auth hook for container-based authentication
   const {
@@ -482,7 +480,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const createSession = useCallback(async () => {
     setIsCreating(true);
     setError(null);
-    setLogEntries([]); // Clear previous logs
+    clearLogs(); // Clear previous logs
 
     try {
       // Connect to hub if not connected
@@ -526,7 +524,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       addLog('error', errorMessage);
       setIsCreating(false);
     }
-  }, [connectToHub, formatTimeRemaining, addLog]);
+  }, [connectToHub, formatTimeRemaining, addLog, clearLogs]);
 
   // Helper to call prefill REST API (bypasses SignalR serialization issues)
   const callPrefillApi = useCallback(async (
