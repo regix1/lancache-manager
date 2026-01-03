@@ -194,6 +194,10 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     },
     onError: () => {
       // Keep modal open on error to allow retry
+    },
+    onDeviceConfirmationTimeout: () => {
+      // Close modal and show End Session button
+      setShowAuthModal(false);
     }
   });
 
@@ -666,6 +670,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         onClose={() => setShowAuthModal(false)}
         state={authState}
         actions={authActions}
+        isPrefillMode={true}
       />
 
       {/* Game Selection Modal */}

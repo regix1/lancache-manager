@@ -18,6 +18,7 @@ export interface UsePrefillSteamAuthOptions {
   hubConnection: HubConnection | null;
   onSuccess?: () => void;
   onError?: (message: string) => void;
+  onDeviceConfirmationTimeout?: () => void;
 }
 
 // Timeout for device confirmation (60 seconds - users need time to notice and approve)
@@ -28,7 +29,7 @@ const DEVICE_CONFIRMATION_TIMEOUT_MS = 60000;
  * Uses SignalR hub methods to handle encrypted credential exchange.
  */
 export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
-  const { sessionId, hubConnection, onSuccess, onError } = options;
+  const { sessionId, hubConnection, onSuccess, onError, onDeviceConfirmationTimeout } = options;
   const { addNotification } = useNotifications();
 
   const [loading, setLoading] = useState(false);
@@ -146,21 +147,31 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     };
   }, [hubConnection, sessionId]);
 
-  // Timeout for device confirmation - switch to manual 2FA code entry after timeout
+  // Timeout for device confirmation - notify user and suggest ending session
   useEffect(() => {
     if (waitingForMobileConfirmation) {
       deviceConfirmationTimeoutRef.current = setTimeout(() => {
-        console.log('[usePrefillSteamAuth] Device confirmation timed out, switching to manual code');
+        console.log('[usePrefillSteamAuth] Device confirmation timed out');
+        // Reset all auth state
+        setUsername('');
+        setPassword('');
+        setTwoFactorCode('');
+        setEmailCode('');
+        setNeedsTwoFactor(false);
+        setNeedsEmailCode(false);
         setWaitingForMobileConfirmation(false);
+        setUseManualCode(false);
+        setLoading(false);
+        setPendingChallenge(null);
         isWaitingForDeviceConfirmationRef.current = false;
-        setNeedsTwoFactor(true);
-        setUseManualCode(true);
+
         addNotification({
           type: 'generic',
           status: 'failed',
-          message: 'Device confirmation timed out. Please enter your Steam Guard code manually.',
+          message: 'Device confirmation timed out. Please click "End Session" and try again.',
           details: { notificationType: 'warning' }
         });
+        onDeviceConfirmationTimeout?.();
       }, DEVICE_CONFIRMATION_TIMEOUT_MS);
 
       return () => {
@@ -170,7 +181,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         }
       };
     }
-  }, [waitingForMobileConfirmation, addNotification]);
+  }, [waitingForMobileConfirmation, addNotification, onDeviceConfirmationTimeout]);
 
   const cancelPendingRequest = useCallback(() => {
     setLoading(false);
@@ -362,9 +373,11 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
 
             // For device-confirmation, DON'T treat this as success yet
             // We wait for AuthStateChanged to trigger onSuccess
+            // Return false so modal stays open
             if (nextChallenge.credentialType === 'device-confirmation') {
               console.log('[usePrefillSteamAuth] Device confirmation required, waiting for approval...');
-              // Don't call onSuccess here - wait for AuthStateChanged
+              setLoading(false);
+              return false; // Modal should stay open
             }
           } else {
             // No more challenges - check if we were waiting for device confirmation
@@ -372,21 +385,29 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
               // WaitForChallenge timed out but we're in device confirmation mode
               // Wait for AuthStateChanged instead of assuming success
               console.log('[usePrefillSteamAuth] WaitForChallenge returned null during device confirmation, waiting for AuthStateChanged...');
+              setLoading(false);
+              return false; // Modal should stay open
             } else {
               // Normal login success
               resetAuthForm();
               onSuccess?.();
+              setLoading(false);
+              return true;
             }
           }
         } else {
           // Unexpected challenge type
           setPendingChallenge(passChallenge);
           handleChallengeType(passChallenge);
+          setLoading(false);
+          return false; // Need more input
         }
       } else {
         // Handle other initial challenge types
         setPendingChallenge(challenge);
         handleChallengeType(challenge);
+        setLoading(false);
+        return false; // Need more input
       }
 
       setLoading(false);

@@ -9,13 +9,16 @@ interface SteamAuthModalProps {
   onClose: () => void;
   state: SteamLoginFlowState;
   actions: SteamAuthActions;
+  /** If true, uses daemon mode behavior (cancel ends session instead of switching to manual code) */
+  isPrefillMode?: boolean;
 }
 
 export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
   opened,
   onClose,
   state,
-  actions
+  actions,
+  isPrefillMode = false
 }) => {
   const {
     loading,
@@ -51,12 +54,20 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
     }
   };
 
+  // For regular mode: switch to manual 2FA code entry
   const handleSwitchToManualCode = () => {
     cancelPendingRequest();
     actions.setWaitingForMobileConfirmation(false);
     actions.setNeedsTwoFactor(true);
     actions.setUseManualCode(true);
     actions.setTwoFactorCode('');
+  };
+
+  // For prefill mode: cancel and close (daemon may be stuck, needs session restart)
+  const handleCancelDeviceConfirmation = () => {
+    cancelPendingRequest();
+    actions.resetAuthForm();
+    onClose();
   };
 
   // Determine current step for visual indicator
@@ -112,17 +123,28 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                   <span className="text-sm">Waiting for response...</span>
                 </div>
                 <p className="text-xs text-themed-muted mt-2 max-w-xs">
-                  Steam sessions expire after ~2 minutes. If it times out, you'll be prompted to enter a 2FA code instead.
+                  {isPrefillMode
+                    ? 'If approval times out, you may need to click "End Session" and try again.'
+                    : 'Steam sessions expire after ~2 minutes. If it times out, you\'ll be prompted to enter a 2FA code instead.'}
                 </p>
               </div>
 
               <div className="border-t border-themed-secondary pt-4">
-                <button
-                  onClick={handleSwitchToManualCode}
-                  className="w-full text-center text-sm text-themed-accent hover:underline"
-                >
-                  Enter 2FA code manually instead
-                </button>
+                {isPrefillMode ? (
+                  <button
+                    onClick={handleCancelDeviceConfirmation}
+                    className="w-full text-center text-sm text-themed-accent hover:underline"
+                  >
+                    Cancel and try again later
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleSwitchToManualCode}
+                    className="w-full text-center text-sm text-themed-accent hover:underline"
+                  >
+                    Enter 2FA code manually instead
+                  </button>
+                )}
               </div>
             </div>
           )}
