@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Logs, PlayCircle, RefreshCw } from 'lucide-react';
+import { Logs, PlayCircle } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -208,8 +208,8 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
           <HelpDefinition term="Process" termColor="green">
             Import log entries into the database from current position
           </HelpDefinition>
-          <HelpDefinition term="Reset Position" termColor="blue">
-            Choose to start from beginning or end of log file
+          <HelpDefinition term="Reposition" termColor="blue">
+            Set where to start processing: beginning (reprocess all) or end (new entries only)
           </HelpDefinition>
           {hasMultiple && (
             <HelpDefinition term="Datasource" termColor="purple">
@@ -234,7 +234,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
         onClick={() => setResetModal({ datasource: null, all: true })}
         disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated}
       >
-        Reset
+        Reposition
       </Button>
       <Button
         variant="filled"
@@ -310,14 +310,13 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                       <Button
                         variant="outline"
                         size="sm"
-                        leftSection={<RefreshCw className="w-3 h-3" />}
                         onClick={(e) => {
                           e.stopPropagation();
                           setResetModal({ datasource: ds.name, all: false });
                         }}
                         disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated || !ds.enabled}
                       >
-                        Reset
+                        Reposition
                       </Button>
                       <Button
                         variant="filled"
@@ -342,14 +341,14 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
         </div>
       </Card>
 
-      {/* Reset Position Modal */}
+      {/* Reposition Log Modal */}
       <Modal
         opened={resetModal !== null}
         onClose={() => setResetModal(null)}
         title={
           resetModal?.all
-            ? 'Reset All Log Positions'
-            : `Reset Log: ${resetModal?.datasource}`
+            ? 'Reposition All Logs'
+            : `Reposition Log: ${resetModal?.datasource}`
         }
       >
         <div className="space-y-4">

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { FileText, AlertTriangle, RefreshCw, Loader2 } from 'lucide-react';
+import { FileText, AlertTriangle, RefreshCw, Loader2, Trash2 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useNotifications } from '@contexts/NotificationsContext';
@@ -81,6 +81,8 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
   const [datasourceCounts, setDatasourceCounts] = useState<DatasourceServiceCounts[]>([]);
   const [expandedDatasources, setExpandedDatasources] = useState<Set<string>>(new Set());
   const [pendingServiceRemoval, setPendingServiceRemoval] = useState<{ datasource: string; service: string } | null>(null);
+  const [pendingLogFileDeletion, setPendingLogFileDeletion] = useState<string | null>(null);
+  const [deletingLogFile, setDeletingLogFile] = useState<string | null>(null);
   const [showMoreServices, setShowMoreServices] = useState<Record<string, boolean>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -177,6 +179,30 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
     },
     [authMode, onError]
   );
+
+  const executeDeleteLogFile = async (datasourceName: string) => {
+    if (authMode !== 'authenticated') {
+      onError?.('Full authentication required for management operations');
+      return;
+    }
+
+    setPendingLogFileDeletion(null);
+    setDeletingLogFile(datasourceName);
+
+    try {
+      await ApiService.deleteLogFile(datasourceName);
+      // Refresh data after deletion
+      await loadData(true);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const errorMessage = errMsg?.includes('read-only')
+        ? 'Logs directory is read-only. Remove :ro from docker-compose volume mount.'
+        : errMsg || 'Failed to delete log file';
+      onError?.(errorMessage);
+    } finally {
+      setDeletingLogFile(null);
+    }
+  };
 
   const getServicesForDatasource = useCallback((ds: DatasourceServiceCounts) => {
     const allServices = Object.keys(ds.serviceCounts).filter((s) => ds.serviceCounts[s] > 0);
@@ -332,7 +358,34 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
                     >
                       {hasEntries ? (
                         <>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 pt-3">
+                          {/* Delete entire log file button */}
+                          <div className="flex justify-end pt-2 pb-1">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              color="red"
+                              leftSection={<Trash2 className="w-3 h-3" />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPendingLogFileDeletion(ds.datasource);
+                              }}
+                              disabled={
+                                mockMode ||
+                                !!activeLogRemoval ||
+                                !!startingServiceRemoval ||
+                                !!deletingLogFile ||
+                                authMode !== 'authenticated' ||
+                                !ds.logsWritable ||
+                                !dockerSocketAvailable ||
+                                checkingPermissions
+                              }
+                              loading={deletingLogFile === ds.datasource}
+                            >
+                              Delete Log File
+                            </Button>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                             {displayed.map((service) => {
                               const key = `${ds.datasource}:${service}`;
                               return (
@@ -447,6 +500,60 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
               loading={!!startingServiceRemoval}
             >
               Remove Logs
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Delete Log File Confirmation Modal */}
+      <Modal
+        opened={pendingLogFileDeletion !== null}
+        onClose={() => {
+          if (!deletingLogFile) {
+            setPendingLogFileDeletion(null);
+          }
+        }}
+        title={
+          <div className="flex items-center space-x-3">
+            <Trash2 className="w-6 h-6 text-themed-error" />
+            <span>Delete Entire Log File</span>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-themed-secondary">
+            Delete the entire <strong>access.log</strong> file for{' '}
+            <strong>{pendingLogFileDeletion}</strong>? This will remove all download history
+            for this datasource.
+          </p>
+
+          <Alert color="red">
+            <div>
+              <p className="text-sm font-medium mb-2">Warning - Destructive Action:</p>
+              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
+                <li>This will permanently delete all log entries</li>
+                <li>Download history and statistics will be lost</li>
+                <li>This action cannot be undone</li>
+                <li>Cached game files will remain intact</li>
+              </ul>
+            </div>
+          </Alert>
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button
+              variant="default"
+              onClick={() => setPendingLogFileDeletion(null)}
+              disabled={!!deletingLogFile}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="filled"
+              color="red"
+              onClick={() => pendingLogFileDeletion && executeDeleteLogFile(pendingLogFileDeletion)}
+              loading={!!deletingLogFile}
+            >
+              Delete Log File
             </Button>
           </div>
         </div>

@@ -10,6 +10,7 @@ import type {
   CacheClearStatus,
   ProcessingStatus,
   ClearCacheResponse,
+  MessageResponse,
   Config,
   DashboardStats,
   HourlyActivityResponse,
@@ -611,6 +612,23 @@ class ApiService {
       return await this.handleResponse<OperationResponse>(res);
     } catch (error: unknown) {
       console.error('removeServiceFromDatasourceLogs error:', error);
+      throw error;
+    }
+  }
+
+  // Delete entire log file for a datasource (requires auth)
+  static async deleteLogFile(datasourceName: string): Promise<MessageResponse> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/logs/datasources/${encodeURIComponent(datasourceName)}/file`,
+        this.getFetchOptions({
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+      return await this.handleResponse<MessageResponse>(res);
+    } catch (error: unknown) {
+      console.error('deleteLogFile error:', error);
       throw error;
     }
   }

@@ -562,6 +562,119 @@ public class LogsController : ControllerBase
     }
 
     /// <summary>
+    /// DELETE /api/logs/datasources/{datasourceName}/file - Delete the entire access.log file for a datasource
+    /// This is a destructive operation that removes all log history for the datasource
+    /// </summary>
+    [HttpDelete("datasources/{datasourceName}/file")]
+    [RequireAuth]
+    public async Task<IActionResult> DeleteLogFile(string datasourceName)
+    {
+        var datasource = _datasourceService.GetDatasource(datasourceName);
+        if (datasource == null)
+        {
+            return NotFound(new NotFoundResponse { Error = $"Datasource '{datasourceName}' not found" });
+        }
+
+        if (!datasource.LogsWritable)
+        {
+            return BadRequest(new ConflictResponse { Error = $"Logs directory is read-only for datasource '{datasourceName}'" });
+        }
+
+        var accessLogPath = Path.Combine(datasource.LogPath, "access.log");
+
+        if (!System.IO.File.Exists(accessLogPath))
+        {
+            return NotFound(new NotFoundResponse { Error = $"Log file not found: {accessLogPath}" });
+        }
+
+        try
+        {
+            // Get file size before deletion for logging
+            var fileInfo = new FileInfo(accessLogPath);
+            var fileSize = fileInfo.Length;
+
+            // Delete the file
+            System.IO.File.Delete(accessLogPath);
+
+            // Reset the log position to 0 for this datasource
+            _stateRepository.SetLogPosition(datasourceName, 0);
+            _stateRepository.SetLogTotalLines(datasourceName, 0);
+
+            _logger.LogInformation(
+                "Deleted log file for datasource '{Datasource}': {Path} ({Size} bytes)",
+                datasourceName, accessLogPath, fileSize);
+
+            // Signal nginx to reopen logs (if docker socket is available)
+            try
+            {
+                await SignalNginxToReopenLogs();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to signal nginx to reopen logs after deletion");
+                // Don't fail the operation - the file was deleted successfully
+            }
+
+            return Ok(new MessageResponse
+            {
+                Message = $"Log file deleted successfully for datasource '{datasourceName}'"
+            });
+        }
+        catch (IOException ex)
+        {
+            _logger.LogError(ex, "Failed to delete log file: {Path}", accessLogPath);
+            return StatusCode(500, new ConflictResponse { Error = $"Failed to delete log file: {ex.Message}" });
+        }
+    }
+
+    /// <summary>
+    /// Signal nginx container to reopen log files (used after log deletion)
+    /// </summary>
+    private async Task SignalNginxToReopenLogs()
+    {
+        var dockerSocketPath = "/var/run/docker.sock";
+        if (!System.IO.File.Exists(dockerSocketPath))
+        {
+            _logger.LogDebug("Docker socket not available, skipping nginx signal");
+            return;
+        }
+
+        try
+        {
+            // Use docker exec to send USR1 signal to nginx
+            var process = new System.Diagnostics.Process
+            {
+                StartInfo = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "docker",
+                    Arguments = "exec lancache nginx -s reopen",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+
+            process.Start();
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode == 0)
+            {
+                _logger.LogDebug("Successfully signaled nginx to reopen logs");
+            }
+            else
+            {
+                var stderr = await process.StandardError.ReadToEndAsync();
+                _logger.LogWarning("Failed to signal nginx (exit code {Code}): {Error}", process.ExitCode, stderr);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error signaling nginx to reopen logs");
+        }
+    }
+
+    /// <summary>
     /// GET /api/logs/remove/status - Get status of log removal operation
     /// </summary>
     [HttpGet("remove/status")]

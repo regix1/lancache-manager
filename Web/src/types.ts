@@ -224,6 +224,10 @@ export interface ClearCacheResponse {
   message: string;
 }
 
+export interface MessageResponse {
+  message: string;
+}
+
 export interface DatasourceInfo {
   name: string;
   cachePath: string;
