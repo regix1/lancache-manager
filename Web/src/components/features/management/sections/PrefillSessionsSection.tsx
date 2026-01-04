@@ -31,6 +31,9 @@ import ApiService, {
 } from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
+import { useSignalR } from '@contexts/SignalRContext';
+import { cleanIpAddress } from '@components/features/user/types';
+import type { DaemonSessionCreatedEvent, DaemonSessionUpdatedEvent, DaemonSessionTerminatedEvent } from '@contexts/SignalRContext/types';
 
 interface PrefillSessionsSectionProps {
   isAuthenticated: boolean;
@@ -101,6 +104,8 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   onError,
   onSuccess
 }) => {
+  const { on, off } = useSignalR();
+
   // Sessions state
   const [sessions, setSessions] = useState<PrefillSessionDto[]>([]);
   const [activeSessions, setActiveSessions] = useState<DaemonSessionDto[]>([]);
@@ -165,6 +170,39 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   useEffect(() => {
     loadBans();
   }, [loadBans]);
+
+  // SignalR subscriptions for real-time updates
+  useEffect(() => {
+    const handleSessionCreated = (session: DaemonSessionCreatedEvent) => {
+      setActiveSessions(prev => {
+        // Check if session already exists
+        if (prev.some(s => s.id === session.id)) return prev;
+        return [...prev, session as DaemonSessionDto];
+      });
+    };
+
+    const handleSessionUpdated = (session: DaemonSessionUpdatedEvent) => {
+      setActiveSessions(prev =>
+        prev.map(s => s.id === session.id ? session as DaemonSessionDto : s)
+      );
+    };
+
+    const handleSessionTerminated = (event: DaemonSessionTerminatedEvent) => {
+      setActiveSessions(prev => prev.filter(s => s.id !== event.sessionId));
+      // Reload session history to show the terminated session
+      loadSessions();
+    };
+
+    on('DaemonSessionCreated', handleSessionCreated);
+    on('DaemonSessionUpdated', handleSessionUpdated);
+    on('DaemonSessionTerminated', handleSessionTerminated);
+
+    return () => {
+      off('DaemonSessionCreated', handleSessionCreated);
+      off('DaemonSessionUpdated', handleSessionUpdated);
+      off('DaemonSessionTerminated', handleSessionTerminated);
+    };
+  }, [on, off, loadSessions]);
 
   // Terminate a single session
   const handleTerminateSession = async (sessionId: string) => {
@@ -396,7 +434,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                           {session.ipAddress && (
                             <div className="flex items-center gap-1.5">
                               <Network className="w-3 h-3 flex-shrink-0" />
-                              <span className="font-mono">{session.ipAddress}</span>
+                              <span className="font-mono">{cleanIpAddress(session.ipAddress)}</span>
                             </div>
                           )}
                           {(session.operatingSystem || session.browser) && (

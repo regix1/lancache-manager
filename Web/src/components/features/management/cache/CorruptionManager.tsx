@@ -2,10 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   AlertTriangle,
   Loader2,
-  RefreshCw,
   ChevronDown,
-  ChevronUp,
-  Search
+  ChevronUp
 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
@@ -44,7 +42,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   onError,
   onReloadRef
 }) => {
-  const { notifications } = useNotifications();
+  const { notifications, addNotification } = useNotifications();
   const signalR = useSignalR();
 
   // State
@@ -76,7 +74,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
     : null;
 
   // Load cached data from database
-  const loadCachedData = useCallback(async () => {
+  const loadCachedData = useCallback(async (showNotification: boolean = false) => {
     setIsLoading(true);
     setLoadError(null);
     try {
@@ -85,10 +83,44 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
         setCorruptionSummary(cached.corruptionCounts);
         setLastDetectionTime(cached.lastDetectionTime || null);
         setHasCachedResults(true);
+
+        // Show notification only when explicitly requested or once per session
+        const sessionKey = 'corruptionManager_loadedNotificationShown';
+        const alreadyShownThisSession = sessionStorage.getItem(sessionKey) === 'true';
+        const totalCorrupted = Object.values(cached.corruptionCounts).reduce((a, b) => a + b, 0);
+        const serviceCount = Object.keys(cached.corruptionCounts).filter(k => cached.corruptionCounts![k] > 0).length;
+
+        if (showNotification || !alreadyShownThisSession) {
+          if (totalCorrupted > 0) {
+            addNotification({
+              type: 'generic',
+              status: 'completed',
+              message: `Loaded previous results: ${totalCorrupted.toLocaleString()} corrupted chunk${totalCorrupted !== 1 ? 's' : ''} across ${serviceCount} service${serviceCount !== 1 ? 's' : ''}`,
+              details: { notificationType: 'info' }
+            });
+          } else if (showNotification) {
+            addNotification({
+              type: 'generic',
+              status: 'completed',
+              message: 'No corrupted chunks found in previous scan',
+              details: { notificationType: 'success' }
+            });
+          }
+          sessionStorage.setItem(sessionKey, 'true');
+        }
       } else {
         setCorruptionSummary({});
         setLastDetectionTime(null);
         setHasCachedResults(false);
+
+        if (showNotification) {
+          addNotification({
+            type: 'generic',
+            status: 'completed',
+            message: 'No previous corruption scan results found',
+            details: { notificationType: 'info' }
+          });
+        }
       }
       setHasInitiallyLoaded(true);
     } catch (err: unknown) {
@@ -99,7 +131,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [addNotification]);
 
   // Start a background scan
   const startScan = useCallback(async () => {
@@ -160,15 +192,12 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
     };
   }, [signalR, onError, startScan]);
 
-  // Initial load and auto-scan
+  // Initial load - load cached data without auto-scanning (matches GameCacheDetector pattern)
   useEffect(() => {
     if (!hasInitiallyLoaded) {
       loadDirectoryPermissions();
-      // Load cached data first, then auto-start scan
-      loadCachedData().then(() => {
-        // Auto-start scan when page loads
-        startScan();
-      });
+      // Only load cached data - don't auto-start scan
+      loadCachedData();
     }
 
     if (onReloadRef) {
@@ -251,7 +280,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
     .sort((a, b) => b[1] - a[1]);
 
   const isReadOnly = logsReadOnly || cacheReadOnly;
-  const hasData = hasCachedResults && corruptionList.length >= 0;
 
   // Help content
   const helpContent = (
@@ -278,9 +306,9 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   // Action buttons for header
   const headerActions = (
     <div className="flex items-center gap-2">
-      <Tooltip content="Load cached corruption data" position="top">
+      <Tooltip content="Load previous scan results from database" position="top">
         <Button
-          onClick={() => loadCachedData()}
+          onClick={() => loadCachedData(true)}
           disabled={isLoading || isScanning || !!removingCorruption}
           variant="subtle"
           size="sm"
@@ -319,12 +347,18 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
           actions={headerActions}
         />
 
-        {/* Last Detection Time */}
-        {hasCachedResults && lastDetectionTime && (
-          <div className="text-xs text-themed-muted mb-4 flex items-center gap-1">
-            <RefreshCw className="w-3 h-3" />
-            Results from previous scan: {formattedLastDetection}
-          </div>
+        {/* Previous Results Badge - matches GameCacheDetector pattern */}
+        {hasCachedResults && lastDetectionTime && !isScanning && !isLoading && (
+          <Alert color="blue" className="mb-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium">
+                Results from previous scan
+              </span>
+              <span className="text-xs text-themed-muted">
+                {formattedLastDetection}
+              </span>
+            </div>
+          </Alert>
         )}
 
         {/* Scanning Status */}
@@ -383,7 +417,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
                     size="sm"
                     onClick={() => startScan()}
                     className="mt-2"
-                    leftSection={<RefreshCw className="w-3 h-3" />}
                   >
                     Try Again
                   </Button>
@@ -393,7 +426,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
 
             {isLoading && !isScanning ? (
               <LoadingState message="Loading cached data..." />
-            ) : !loadError && hasData && corruptionList.length > 0 ? (
+            ) : !loadError && hasCachedResults && corruptionList.length > 0 ? (
               <div className="space-y-3">
                 {corruptionList.map(([service, count]) => (
                   <div
@@ -523,16 +556,17 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
                   </div>
                 ))}
               </div>
-            ) : !loadError && hasData ? (
+            ) : !loadError && hasCachedResults && corruptionList.length === 0 ? (
               <EmptyState
+                icon={AlertTriangle}
                 title="No corrupted chunks detected"
                 subtitle="Cache appears healthy - all chunks are being served successfully"
               />
-            ) : !isScanning && !isLoading ? (
+            ) : !loadError && !hasCachedResults && !isScanning && !isLoading ? (
               <EmptyState
-                icon={Search}
+                icon={AlertTriangle}
                 title="No cached data available"
-                subtitle="Click the scan button in the header to detect corrupted cache chunks"
+                subtitle="Click the Scan button to detect corrupted cache chunks"
               />
             ) : null}
           </>

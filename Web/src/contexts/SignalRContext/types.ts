@@ -75,7 +75,10 @@ export const SIGNALR_EVENTS = [
   'PrefillProgress',
   'StatusChanged',
   'PrefillStateChanged',
-  'GuestPrefillPermissionChanged'
+  'GuestPrefillPermissionChanged',
+  'DaemonSessionCreated',
+  'DaemonSessionUpdated',
+  'DaemonSessionTerminated'
 ] as const;
 
 export type SignalREvent = (typeof SIGNALR_EVENTS)[number];
@@ -389,3 +392,35 @@ export interface GuestPrefillPermissionChangedEvent {
   expiresAt?: string;
 }
 
+export interface DaemonSessionCreatedEvent {
+  id: string;
+  userId: string;
+  containerName: string;
+  status: string;
+  createdAt: string;
+  ipAddress?: string;
+  operatingSystem?: string;
+  browser?: string;
+  lastSeenAt: string;
+  steamUsername?: string;
+  isPrefilling: boolean;
+}
+
+export interface DaemonSessionUpdatedEvent {
+  id: string;
+  userId: string;
+  containerName: string;
+  status: string;
+  createdAt: string;
+  ipAddress?: string;
+  operatingSystem?: string;
+  browser?: string;
+  lastSeenAt: string;
+  steamUsername?: string;
+  isPrefilling: boolean;
+}
+
+export interface DaemonSessionTerminatedEvent {
+  sessionId: string;
+  reason: string;
+}

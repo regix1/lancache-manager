@@ -15,6 +15,7 @@ using Microsoft.EntityFrameworkCore;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
 using OpenTelemetry.Metrics;
+using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -122,6 +123,17 @@ builder.Services.AddCors(options =>
                 .AllowCredentials();
         }
     });
+});
+
+// Configure forwarded headers for reverse proxy support (nginx, Cloudflare, Traefik, etc.)
+// This ensures we get the real client IP instead of the proxy IP
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    // Clear default known networks/proxies to accept forwarded headers from any source
+    // In production behind a trusted proxy, you may want to restrict this
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
 });
 
 // Configure API options
@@ -496,6 +508,10 @@ using (var scope = app.Services.CreateScope())
     var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
     apiKeyService.DisplayApiKey(configuration, deviceAuthService); // This will create and display the API key (or show auth disabled message)
 }
+
+// MUST be first: Handle forwarded headers from reverse proxies (nginx, Cloudflare, etc.)
+// This ensures HttpContext.Connection.RemoteIpAddress returns the real client IP
+app.UseForwardedHeaders();
 
 app.UseCors("AllowAll");
 

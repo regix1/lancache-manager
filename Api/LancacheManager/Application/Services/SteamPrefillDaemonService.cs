@@ -381,6 +381,9 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
         _logger.LogInformation("Created daemon session {SessionId} for user {UserId}", sessionId, userId);
 
+        // Broadcast session creation to all clients for real-time updates
+        await _hubContext.Clients.All.SendAsync("DaemonSessionCreated", DaemonSessionDto.FromSession(session));
+
         return session;
     }
 
@@ -488,6 +491,9 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
             _logger.LogInformation("Captured Steam username for session {SessionId}: {Username}",
                 sessionId, credential);
+
+            // Broadcast session update to all clients for real-time updates
+            await _hubContext.Clients.All.SendAsync("DaemonSessionUpdated", DaemonSessionDto.FromSession(session));
         }
 
         _logger.LogInformation("Providing encrypted {CredentialType} for session {SessionId}",
@@ -621,6 +627,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
         session.IsPrefilling = true;
         await NotifyPrefillStateChangeAsync(session, "started");
+        await _hubContext.Clients.All.SendAsync("DaemonSessionUpdated", DaemonSessionDto.FromSession(session));
 
         try
         {
@@ -631,6 +638,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         finally
         {
             session.IsPrefilling = false;
+            await _hubContext.Clients.All.SendAsync("DaemonSessionUpdated", DaemonSessionDto.FromSession(session));
         }
     }
 
@@ -711,6 +719,13 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
         session.Status = DaemonSessionStatus.Terminated;
         session.EndedAt = DateTime.UtcNow;
+
+        // Broadcast session termination to all clients for real-time updates
+        await _hubContext.Clients.All.SendAsync("DaemonSessionTerminated", new
+        {
+            sessionId = session.Id,
+            reason = reason
+        });
 
         // Cancel any ongoing operations immediately
         session.CancellationTokenSource.Cancel();
