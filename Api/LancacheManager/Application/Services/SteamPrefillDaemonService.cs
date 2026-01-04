@@ -1108,6 +1108,11 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             }
 
             var json = await File.ReadAllTextAsync(filePath);
+            
+            // Log raw JSON for debugging (temporarily at Info level)
+            _logger.LogInformation("Raw prefill progress JSON: {Json}", json.Length > 500 ? json[..500] + "..." : json);
+            
+            // Note: PropertyNameCaseInsensitive handles camelCase/PascalCase
             var progress = JsonSerializer.Deserialize<PrefillProgress>(json, new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true
@@ -1115,6 +1120,10 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
             if (progress != null)
             {
+                // Log parsed values for debugging (temporarily at Info level)
+                _logger.LogInformation("Parsed progress - AppId: {AppId}, AppName: {AppName}, BytesDownloaded: {Bytes}, TotalBytes: {Total}, TotalTransferred: {TotalTransferred}",
+                    progress.CurrentAppId, progress.CurrentAppName, progress.BytesDownloaded, progress.TotalBytes, progress.TotalBytesTransferred);
+                    
                 await NotifyPrefillProgressAsync(session, progress);
             }
         }
