@@ -430,8 +430,8 @@ public class PrefillSessionService
 
         await context.SaveChangesAsync();
 
-        _logger.LogDebug("Completed prefill entry for session {SessionId}: {AppName} ({AppId}) - {Status}",
-            sessionId, entry.AppName, appId, status);
+        _logger.LogInformation("Completed prefill entry for session {SessionId}: {AppName} ({AppId}) - {Status}, Bytes: {Bytes}/{Total}",
+            sessionId, entry.AppName, appId, status, bytesDownloaded, totalBytes);
 
         return entry;
     }

@@ -1228,7 +1228,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                         session.CurrentBytesDownloaded,  // Use stored bytes, not progress.BytesDownloaded
                         session.CurrentTotalBytes);      // Use stored total, not progress.TotalBytes
 
-                    _logger.LogDebug("Completed prefill history for app {AppId} ({AppName}) in session {SessionId}: {Bytes}/{Total}",
+                    _logger.LogInformation("Completed prefill history for app {AppId} ({AppName}) in session {SessionId}: {Bytes}/{Total} bytes",
                         session.PreviousAppId, session.PreviousAppName, session.Id,
                         session.CurrentBytesDownloaded, session.CurrentTotalBytes);
 
@@ -1305,8 +1305,22 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         session.CurrentAppId = progress.CurrentAppId;
         session.CurrentAppName = progress.CurrentAppName;
         
-        // Update total bytes transferred from progress
-        session.TotalBytesTransferred = progress.TotalBytesTransferred;
+        // Calculate total bytes transferred ourselves since daemon doesn't track it
+        // Use progress.TotalBytesTransferred if available, otherwise calculate from bytesDownloaded
+        if (progress.TotalBytesTransferred > 0)
+        {
+            session.TotalBytesTransferred = progress.TotalBytesTransferred;
+        }
+        else
+        {
+            // When transitioning to a new app, add the completed app's bytes to the running total
+            if (appInfoChanged && session.CurrentBytesDownloaded > 0)
+            {
+                session.CompletedBytesTransferred += session.CurrentBytesDownloaded;
+            }
+            // Total = completed games + current game progress (for real-time display)
+            session.TotalBytesTransferred = session.CompletedBytesTransferred + progress.BytesDownloaded;
+        }
 
         // Broadcast session update to all clients when app info changes (for admin pages - both hubs)
         if (appInfoChanged)
@@ -1545,8 +1559,14 @@ public class DaemonSession
 
     /// <summary>
     /// Total bytes transferred during this session (cumulative across all games)
+    /// This includes completed games + current game progress for real-time display
     /// </summary>
     public long TotalBytesTransferred { get; set; }
+    
+    /// <summary>
+    /// Bytes from completed games (used to calculate TotalBytesTransferred)
+    /// </summary>
+    public long CompletedBytesTransferred { get; set; }
 
     /// <summary>
     /// Current app's bytes downloaded (tracked before transition to record final values)
