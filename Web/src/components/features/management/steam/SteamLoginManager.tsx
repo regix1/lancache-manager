@@ -164,8 +164,14 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
               </div>
               <Button
                 size="xs"
-                variant="subtle"
+                variant="filled"
                 onClick={clearAutoLogoutMessage}
+                style={{
+                  backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                  color: 'var(--theme-button-text)',
+                  border: 'none'
+                }}
+                className="hover:!bg-white/30"
               >
                 Dismiss
               </Button>

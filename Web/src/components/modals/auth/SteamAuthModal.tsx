@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Key, Lock, Loader2, Shield, Mail, Smartphone } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { type SteamLoginFlowState, type SteamAuthActions } from '@hooks/useSteamAuthentication';
+import { useSignalR } from '@contexts/SignalRContext';
 
 interface SteamAuthModalProps {
   opened: boolean;
@@ -23,6 +24,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
   isPrefillMode = false,
   onCancelLogin
 }) => {
+  const { on, off } = useSignalR();
   const {
     loading,
     needsTwoFactor,
@@ -47,7 +49,31 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
   // Track if a submit is in progress to prevent spam clicks
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
+  // Listen for SteamAutoLogout event - if session is replaced, close the modal
+  useEffect(() => {
+    if (!opened) return;
+
+    const handleAutoLogout = () => {
+      console.log('[SteamAuthModal] Received auto-logout event, closing modal');
+      cancelPendingRequest();
+      actions.resetAuthForm();
+      onClose();
+    };
+
+    on('SteamAutoLogout', handleAutoLogout);
+    return () => {
+      off('SteamAutoLogout', handleAutoLogout);
+    };
+  }, [opened, on, off, cancelPendingRequest, actions, onClose]);
+
   const handleCloseModal = () => {
+    // Allow closing when waiting for mobile confirmation (user should be able to cancel)
+    if (waitingForMobileConfirmation) {
+      cancelPendingRequest();
+      actions.resetAuthForm();
+      onClose();
+      return;
+    }
     if (!loading && !isSubmitting) {
       onClose();
     }
@@ -295,7 +321,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
           <Button
             variant="default"
             onClick={handleCloseModal}
-            disabled={loading || isSubmitting}
+            disabled={(loading || isSubmitting) && !waitingForMobileConfirmation}
             className="flex-1"
           >
             Cancel
