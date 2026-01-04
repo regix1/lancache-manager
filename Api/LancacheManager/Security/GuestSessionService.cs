@@ -1,5 +1,6 @@
 using LancacheManager.Data;
 using LancacheManager.Infrastructure.Repositories;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -242,16 +243,16 @@ public class GuestSessionService
                     IpAddress = session.IpAddress,
                     OperatingSystem = session.OperatingSystem,
                     Browser = session.Browser,
-                    CreatedAt = DateTime.SpecifyKind(session.CreatedAt, DateTimeKind.Utc),
-                    LastSeenAt = session.LastSeenAt.HasValue ? DateTime.SpecifyKind(session.LastSeenAt.Value, DateTimeKind.Utc) : null,
-                    ExpiresAt = DateTime.SpecifyKind(session.ExpiresAt, DateTimeKind.Utc),
+                    CreatedAt = session.CreatedAt.AsUtc(),
+                    LastSeenAt = session.LastSeenAt.AsUtc(),
+                    ExpiresAt = session.ExpiresAt.AsUtc(),
                     IsExpired = session.ExpiresAt <= DateTime.UtcNow,
                     IsRevoked = session.IsRevoked,
-                    RevokedAt = session.RevokedAt.HasValue ? DateTime.SpecifyKind(session.RevokedAt.Value, DateTimeKind.Utc) : null,
+                    RevokedAt = session.RevokedAt.AsUtc(),
                     RevokedBy = session.RevokedBy,
                     // Prefill permissions
                     PrefillEnabled = session.PrefillEnabled,
-                    PrefillExpiresAt = session.PrefillExpiresAt.HasValue ? DateTime.SpecifyKind(session.PrefillExpiresAt.Value, DateTimeKind.Utc) : null
+                    PrefillExpiresAt = session.PrefillExpiresAt.AsUtc()
                 });
             }
         }
@@ -281,16 +282,16 @@ public class GuestSessionService
                     IpAddress = session.IpAddress,
                     OperatingSystem = session.OperatingSystem,
                     Browser = session.Browser,
-                    CreatedAt = DateTime.SpecifyKind(session.CreatedAt, DateTimeKind.Utc),
-                    LastSeenAt = session.LastSeenAt.HasValue ? DateTime.SpecifyKind(session.LastSeenAt.Value, DateTimeKind.Utc) : null,
-                    ExpiresAt = DateTime.SpecifyKind(session.ExpiresAt, DateTimeKind.Utc),
+                    CreatedAt = session.CreatedAt.AsUtc(),
+                    LastSeenAt = session.LastSeenAt.AsUtc(),
+                    ExpiresAt = session.ExpiresAt.AsUtc(),
                     IsExpired = session.ExpiresAt <= DateTime.UtcNow,
                     IsRevoked = session.IsRevoked,
-                    RevokedAt = session.RevokedAt.HasValue ? DateTime.SpecifyKind(session.RevokedAt.Value, DateTimeKind.Utc) : null,
+                    RevokedAt = session.RevokedAt.AsUtc(),
                     RevokedBy = session.RevokedBy,
                     // Prefill permissions
                     PrefillEnabled = session.PrefillEnabled,
-                    PrefillExpiresAt = session.PrefillExpiresAt.HasValue ? DateTime.SpecifyKind(session.PrefillExpiresAt.Value, DateTimeKind.Utc) : null
+                    PrefillExpiresAt = session.PrefillExpiresAt.AsUtc()
                 };
             }
         }
@@ -536,22 +537,15 @@ public class GuestSessionService
                         IpAddress = userSession.IpAddress,
                         OperatingSystem = userSession.OperatingSystem,
                         Browser = userSession.Browser,
-                        CreatedAt = DateTime.SpecifyKind(userSession.CreatedAtUtc, DateTimeKind.Utc),
-                        ExpiresAt = DateTime.SpecifyKind(
-                            userSession.ExpiresAtUtc ?? DateTime.UtcNow.AddHours(GetGuestSessionDurationHours()),
-                            DateTimeKind.Utc
-                        ),
-                        LastSeenAt = DateTime.SpecifyKind(userSession.LastSeenAtUtc, DateTimeKind.Utc),
+                        CreatedAt = userSession.CreatedAtUtc.AsUtc(),
+                        ExpiresAt = (userSession.ExpiresAtUtc ?? DateTime.UtcNow.AddHours(GetGuestSessionDurationHours())).AsUtc(),
+                        LastSeenAt = userSession.LastSeenAtUtc.AsUtc(),
                         IsRevoked = userSession.IsRevoked,
-                        RevokedAt = userSession.RevokedAtUtc.HasValue
-                            ? DateTime.SpecifyKind(userSession.RevokedAtUtc.Value, DateTimeKind.Utc)
-                            : (DateTime?)null,
+                        RevokedAt = userSession.RevokedAtUtc.AsUtc(),
                         RevokedBy = userSession.RevokedBy,
                         // Prefill permissions
                         PrefillEnabled = userSession.PrefillEnabled,
-                        PrefillExpiresAt = userSession.PrefillExpiresAtUtc.HasValue
-                            ? DateTime.SpecifyKind(userSession.PrefillExpiresAtUtc.Value, DateTimeKind.Utc)
-                            : (DateTime?)null
+                        PrefillExpiresAt = userSession.PrefillExpiresAtUtc.AsUtc()
                     };
 
                     _sessionCache[session.DeviceId] = session;

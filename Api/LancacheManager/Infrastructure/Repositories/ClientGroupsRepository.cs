@@ -1,5 +1,6 @@
 using LancacheManager.Data;
 using LancacheManager.Infrastructure.Repositories.Interfaces;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -26,14 +27,11 @@ public class ClientGroupsRepository : IClientGroupsRepository
 
         foreach (var group in groups)
         {
-            group.CreatedAtUtc = DateTime.SpecifyKind(group.CreatedAtUtc, DateTimeKind.Utc);
-            if (group.UpdatedAtUtc.HasValue)
-            {
-                group.UpdatedAtUtc = DateTime.SpecifyKind(group.UpdatedAtUtc.Value, DateTimeKind.Utc);
-            }
+            group.CreatedAtUtc = group.CreatedAtUtc.AsUtc();
+            group.UpdatedAtUtc = group.UpdatedAtUtc.AsUtc();
             foreach (var member in group.Members)
             {
-                member.AddedAtUtc = DateTime.SpecifyKind(member.AddedAtUtc, DateTimeKind.Utc);
+                member.AddedAtUtc = member.AddedAtUtc.AsUtc();
             }
         }
 
@@ -49,14 +47,11 @@ public class ClientGroupsRepository : IClientGroupsRepository
 
         if (group != null)
         {
-            group.CreatedAtUtc = DateTime.SpecifyKind(group.CreatedAtUtc, DateTimeKind.Utc);
-            if (group.UpdatedAtUtc.HasValue)
-            {
-                group.UpdatedAtUtc = DateTime.SpecifyKind(group.UpdatedAtUtc.Value, DateTimeKind.Utc);
-            }
+            group.CreatedAtUtc = group.CreatedAtUtc.AsUtc();
+            group.UpdatedAtUtc = group.UpdatedAtUtc.AsUtc();
             foreach (var member in group.Members)
             {
-                member.AddedAtUtc = DateTime.SpecifyKind(member.AddedAtUtc, DateTimeKind.Utc);
+                member.AddedAtUtc = member.AddedAtUtc.AsUtc();
             }
         }
 
@@ -72,14 +67,11 @@ public class ClientGroupsRepository : IClientGroupsRepository
 
         if (group != null)
         {
-            group.CreatedAtUtc = DateTime.SpecifyKind(group.CreatedAtUtc, DateTimeKind.Utc);
-            if (group.UpdatedAtUtc.HasValue)
-            {
-                group.UpdatedAtUtc = DateTime.SpecifyKind(group.UpdatedAtUtc.Value, DateTimeKind.Utc);
-            }
+            group.CreatedAtUtc = group.CreatedAtUtc.AsUtc();
+            group.UpdatedAtUtc = group.UpdatedAtUtc.AsUtc();
             foreach (var member in group.Members)
             {
-                member.AddedAtUtc = DateTime.SpecifyKind(member.AddedAtUtc, DateTimeKind.Utc);
+                member.AddedAtUtc = member.AddedAtUtc.AsUtc();
             }
         }
 
@@ -97,14 +89,11 @@ public class ClientGroupsRepository : IClientGroupsRepository
         if (member?.ClientGroup != null)
         {
             var group = member.ClientGroup;
-            group.CreatedAtUtc = DateTime.SpecifyKind(group.CreatedAtUtc, DateTimeKind.Utc);
-            if (group.UpdatedAtUtc.HasValue)
-            {
-                group.UpdatedAtUtc = DateTime.SpecifyKind(group.UpdatedAtUtc.Value, DateTimeKind.Utc);
-            }
+            group.CreatedAtUtc = group.CreatedAtUtc.AsUtc();
+            group.UpdatedAtUtc = group.UpdatedAtUtc.AsUtc();
             foreach (var m in group.Members)
             {
-                m.AddedAtUtc = DateTime.SpecifyKind(m.AddedAtUtc, DateTimeKind.Utc);
+                m.AddedAtUtc = m.AddedAtUtc.AsUtc();
             }
             return group;
         }
@@ -118,7 +107,7 @@ public class ClientGroupsRepository : IClientGroupsRepository
         _context.ClientGroups.Add(group);
         await _context.SaveChangesAsync(cancellationToken);
 
-        group.CreatedAtUtc = DateTime.SpecifyKind(group.CreatedAtUtc, DateTimeKind.Utc);
+        group.CreatedAtUtc = group.CreatedAtUtc.AsUtc();
 
         _logger.LogInformation("Created client group: {Nickname} (ID: {Id})", group.Nickname, group.Id);
         return group;
@@ -141,11 +130,11 @@ public class ClientGroupsRepository : IClientGroupsRepository
 
         await _context.SaveChangesAsync(cancellationToken);
 
-        existing.CreatedAtUtc = DateTime.SpecifyKind(existing.CreatedAtUtc, DateTimeKind.Utc);
-        existing.UpdatedAtUtc = DateTime.SpecifyKind(existing.UpdatedAtUtc!.Value, DateTimeKind.Utc);
+        existing.CreatedAtUtc = existing.CreatedAtUtc.AsUtc();
+        existing.UpdatedAtUtc = existing.UpdatedAtUtc.AsUtc();
         foreach (var member in existing.Members)
         {
-            member.AddedAtUtc = DateTime.SpecifyKind(member.AddedAtUtc, DateTimeKind.Utc);
+            member.AddedAtUtc = member.AddedAtUtc.AsUtc();
         }
 
         _logger.LogInformation("Updated client group: {Nickname} (ID: {Id})", existing.Nickname, existing.Id);
@@ -190,7 +179,7 @@ public class ClientGroupsRepository : IClientGroupsRepository
         _context.ClientGroupMembers.Add(member);
         await _context.SaveChangesAsync(cancellationToken);
 
-        member.AddedAtUtc = DateTime.SpecifyKind(member.AddedAtUtc, DateTimeKind.Utc);
+        member.AddedAtUtc = member.AddedAtUtc.AsUtc();
 
         _logger.LogInformation("Added IP {ClientIp} to client group {Nickname} (ID: {Id})", clientIp, group.Nickname, groupId);
         return member;

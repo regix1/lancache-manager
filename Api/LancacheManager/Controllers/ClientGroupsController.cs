@@ -1,10 +1,12 @@
 using LancacheManager.Application.DTOs;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Repositories.Interfaces;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
+using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 
 namespace LancacheManager.Controllers;
 
@@ -62,14 +64,14 @@ public class ClientGroupsController : ControllerBase
             var group = await _clientGroupsRepository.GetGroupByIdAsync(id);
             if (group == null)
             {
-                return NotFound(new { error = "Client group not found" });
+                return NotFound(ApiResponse.NotFound("Client group"));
             }
             return Ok(ToDto(group));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting client group {Id}", id);
-            return StatusCode(500, new { error = "Failed to get client group" });
+            return StatusCode(500, ApiResponse.InternalError("getting client group"));
         }
     }
 
@@ -84,14 +86,14 @@ public class ClientGroupsController : ControllerBase
         {
             if (string.IsNullOrWhiteSpace(request.Nickname))
             {
-                return BadRequest(new { error = "Nickname is required" });
+                return BadRequest(ApiResponse.Required("Nickname"));
             }
 
             // Check for duplicate nickname
             var existing = await _clientGroupsRepository.GetGroupByNicknameAsync(request.Nickname);
             if (existing != null)
             {
-                return BadRequest(new { error = "A client group with this nickname already exists" });
+                return BadRequest(ApiResponse.Duplicate("client group", "nickname"));
             }
 
             var group = new ClientGroup
@@ -130,7 +132,7 @@ public class ClientGroupsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error creating client group");
-            return StatusCode(500, new { error = "Failed to create client group" });
+            return StatusCode(500, ApiResponse.InternalError("creating client group"));
         }
     }
 
@@ -146,19 +148,19 @@ public class ClientGroupsController : ControllerBase
             var existing = await _clientGroupsRepository.GetGroupByIdAsync(id);
             if (existing == null)
             {
-                return NotFound(new { error = "Client group not found" });
+                return NotFound(ApiResponse.NotFound("Client group"));
             }
 
             if (string.IsNullOrWhiteSpace(request.Nickname))
             {
-                return BadRequest(new { error = "Nickname is required" });
+                return BadRequest(ApiResponse.Required("Nickname"));
             }
 
             // Check for duplicate nickname (excluding self)
             var duplicate = await _clientGroupsRepository.GetGroupByNicknameAsync(request.Nickname);
             if (duplicate != null && duplicate.Id != id)
             {
-                return BadRequest(new { error = "A client group with this nickname already exists" });
+                return BadRequest(ApiResponse.Duplicate("client group", "nickname"));
             }
 
             existing.Nickname = request.Nickname.Trim();
@@ -175,7 +177,7 @@ public class ClientGroupsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error updating client group {Id}", id);
-            return StatusCode(500, new { error = "Failed to update client group" });
+            return StatusCode(500, ApiResponse.InternalError("updating client group"));
         }
     }
 
@@ -191,7 +193,7 @@ public class ClientGroupsController : ControllerBase
             var existing = await _clientGroupsRepository.GetGroupByIdAsync(id);
             if (existing == null)
             {
-                return NotFound(new { error = "Client group not found" });
+                return NotFound(ApiResponse.NotFound("Client group"));
             }
 
             await _clientGroupsRepository.DeleteGroupAsync(id);
@@ -204,7 +206,7 @@ public class ClientGroupsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error deleting client group {Id}", id);
-            return StatusCode(500, new { error = "Failed to delete client group" });
+            return StatusCode(500, ApiResponse.InternalError("deleting client group"));
         }
     }
 
@@ -220,12 +222,12 @@ public class ClientGroupsController : ControllerBase
             var group = await _clientGroupsRepository.GetGroupByIdAsync(id);
             if (group == null)
             {
-                return NotFound(new { error = "Client group not found" });
+                return NotFound(ApiResponse.NotFound("Client group"));
             }
 
             if (string.IsNullOrWhiteSpace(request.ClientIp))
             {
-                return BadRequest(new { error = "Client IP is required" });
+                return BadRequest(ApiResponse.Required("Client IP"));
             }
 
             await _clientGroupsRepository.AddMemberAsync(id, request.ClientIp.Trim());
@@ -235,18 +237,18 @@ public class ClientGroupsController : ControllerBase
             var dto = ToDto(updated!);
 
             // Notify clients via SignalR
-            await _hubContext.Clients.All.SendAsync("ClientGroupMemberAdded", new { groupId = id, clientIp = request.ClientIp.Trim() });
+            await _hubContext.Clients.All.SendAsync("ClientGroupMemberAdded", new ClientGroupMemberAdded(id, request.ClientIp.Trim()));
 
             return Ok(dto);
         }
         catch (InvalidOperationException ex)
         {
-            return BadRequest(new { error = ex.Message });
+            return BadRequest(ApiResponse.Error(ex.Message));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error adding member to client group {Id}", id);
-            return StatusCode(500, new { error = "Failed to add member to client group" });
+            return StatusCode(500, ApiResponse.InternalError("adding member to client group"));
         }
     }
 
@@ -262,20 +264,20 @@ public class ClientGroupsController : ControllerBase
             var group = await _clientGroupsRepository.GetGroupByIdAsync(id);
             if (group == null)
             {
-                return NotFound(new { error = "Client group not found" });
+                return NotFound(ApiResponse.NotFound("Client group"));
             }
 
             await _clientGroupsRepository.RemoveMemberAsync(id, ip);
 
             // Notify clients via SignalR
-            await _hubContext.Clients.All.SendAsync("ClientGroupMemberRemoved", new { groupId = id, clientIp = ip });
+            await _hubContext.Clients.All.SendAsync("ClientGroupMemberRemoved", new ClientGroupMemberRemoved(id, ip));
 
             return NoContent();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error removing member from client group {Id}", id);
-            return StatusCode(500, new { error = "Failed to remove member from client group" });
+            return StatusCode(500, ApiResponse.InternalError("removing member from client group"));
         }
     }
 

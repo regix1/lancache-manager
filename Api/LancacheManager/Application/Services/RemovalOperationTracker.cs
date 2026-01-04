@@ -3,14 +3,22 @@ using System.Collections.Concurrent;
 namespace LancacheManager.Application.Services;
 
 /// <summary>
+/// Types of removal operations tracked by the system.
+/// </summary>
+public enum RemovalOperationType
+{
+    Game,
+    Service,
+    Corruption
+}
+
+/// <summary>
 /// Tracks active removal operations (game, service, corruption) so they can be queried on page refresh.
 /// This allows the frontend to restore progress state when navigating away and back.
 /// </summary>
 public class RemovalOperationTracker
 {
-    private readonly ConcurrentDictionary<string, RemovalOperation> _gameRemovals = new();
-    private readonly ConcurrentDictionary<string, RemovalOperation> _serviceRemovals = new();
-    private readonly ConcurrentDictionary<string, RemovalOperation> _corruptionRemovals = new();
+    private readonly ConcurrentDictionary<(RemovalOperationType Type, string Key), RemovalOperation> _operations = new();
     private readonly ILogger<RemovalOperationTracker> _logger;
 
     public RemovalOperationTracker(ILogger<RemovalOperationTracker> logger)
@@ -18,26 +26,25 @@ public class RemovalOperationTracker
         _logger = logger;
     }
 
-    // Game Removal Operations
-    public void StartGameRemoval(int appId, string gameName)
+    #region Generic Core Methods
+
+    private void StartRemoval(RemovalOperationType type, string key, string id, string name, string message)
     {
-        var key = appId.ToString();
         var operation = new RemovalOperation
         {
-            Id = key,
-            Name = gameName,
+            Id = id,
+            Name = name,
             Status = "running",
             StartedAt = DateTime.UtcNow,
-            Message = $"Removing {gameName}..."
+            Message = message
         };
-        _gameRemovals[key] = operation;
-        _logger.LogInformation("Started tracking game removal for AppId: {AppId}", appId);
+        _operations[(type, key)] = operation;
+        _logger.LogInformation("Started tracking {Type} removal for: {Name}", type, name);
     }
 
-    public void UpdateGameRemoval(int appId, string status, string message, int? filesDeleted = null, long? bytesFreed = null)
+    private void UpdateRemoval(RemovalOperationType type, string key, string status, string message, int? filesDeleted = null, long? bytesFreed = null)
     {
-        var key = appId.ToString();
-        if (_gameRemovals.TryGetValue(key, out var operation))
+        if (_operations.TryGetValue((type, key), out var operation))
         {
             operation.Status = status;
             operation.Message = message;
@@ -50,10 +57,9 @@ public class RemovalOperationTracker
         }
     }
 
-    public void CompleteGameRemoval(int appId, bool success, int filesDeleted = 0, long bytesFreed = 0, string? error = null)
+    private void CompleteRemoval(RemovalOperationType type, string key, bool success, int filesDeleted = 0, long bytesFreed = 0, string? error = null)
     {
-        var key = appId.ToString();
-        if (_gameRemovals.TryGetValue(key, out var operation))
+        if (_operations.TryGetValue((type, key), out var operation))
         {
             operation.Status = success ? "complete" : "failed";
             operation.FilesDeleted = filesDeleted;
@@ -62,142 +68,121 @@ public class RemovalOperationTracker
             operation.CompletedAt = DateTime.UtcNow;
 
             // Clean up after a short delay to allow final status queries
-            _ = Task.Delay(TimeSpan.FromSeconds(10)).ContinueWith(_ => _gameRemovals.TryRemove(key, out RemovalOperation? _removed));
+            _ = Task.Delay(TimeSpan.FromSeconds(10)).ContinueWith(task => 
+                _operations.TryRemove((type, key), out RemovalOperation? _removed));
         }
-        _logger.LogInformation("Completed tracking game removal for AppId: {AppId}, Success: {Success}", appId, success);
+        _logger.LogInformation("Completed tracking {Type} removal for key: {Key}, Success: {Success}", type, key, success);
+    }
+
+    private RemovalOperation? GetRemovalStatus(RemovalOperationType type, string key)
+    {
+        return _operations.TryGetValue((type, key), out var operation) ? operation : null;
+    }
+
+    private IEnumerable<RemovalOperation> GetActiveRemovals(RemovalOperationType type)
+    {
+        return _operations
+            .Where(kvp => kvp.Key.Type == type && kvp.Value.Status != "complete" && kvp.Value.Status != "failed")
+            .Select(kvp => kvp.Value);
+    }
+
+    #endregion
+
+    #region Game Removal Operations
+
+    public void StartGameRemoval(int appId, string gameName)
+    {
+        var key = appId.ToString();
+        StartRemoval(RemovalOperationType.Game, key, key, gameName, $"Removing {gameName}...");
+    }
+
+    public void UpdateGameRemoval(int appId, string status, string message, int? filesDeleted = null, long? bytesFreed = null)
+    {
+        UpdateRemoval(RemovalOperationType.Game, appId.ToString(), status, message, filesDeleted, bytesFreed);
+    }
+
+    public void CompleteGameRemoval(int appId, bool success, int filesDeleted = 0, long bytesFreed = 0, string? error = null)
+    {
+        CompleteRemoval(RemovalOperationType.Game, appId.ToString(), success, filesDeleted, bytesFreed, error);
     }
 
     public RemovalOperation? GetGameRemovalStatus(int appId)
     {
-        var key = appId.ToString();
-        return _gameRemovals.TryGetValue(key, out var operation) ? operation : null;
+        return GetRemovalStatus(RemovalOperationType.Game, appId.ToString());
     }
 
     public IEnumerable<RemovalOperation> GetActiveGameRemovals()
     {
-        // Include all non-completed statuses (running, removing_cache, removing_database, etc.)
-        return _gameRemovals.Values.Where(o => o.Status != "complete" && o.Status != "failed");
+        return GetActiveRemovals(RemovalOperationType.Game);
     }
 
-    // Service Removal Operations
+    #endregion
+
+    #region Service Removal Operations
+
     public void StartServiceRemoval(string serviceName)
     {
         var key = serviceName.ToLowerInvariant();
-        var operation = new RemovalOperation
-        {
-            Id = key,
-            Name = serviceName,
-            Status = "running",
-            StartedAt = DateTime.UtcNow,
-            Message = $"Removing {serviceName}..."
-        };
-        _serviceRemovals[key] = operation;
-        _logger.LogInformation("Started tracking service removal for: {Service}", serviceName);
+        StartRemoval(RemovalOperationType.Service, key, key, serviceName, $"Removing {serviceName}...");
     }
 
     public void UpdateServiceRemoval(string serviceName, string status, string message, int? filesDeleted = null, long? bytesFreed = null)
     {
-        var key = serviceName.ToLowerInvariant();
-        if (_serviceRemovals.TryGetValue(key, out var operation))
-        {
-            operation.Status = status;
-            operation.Message = message;
-            operation.FilesDeleted = filesDeleted ?? operation.FilesDeleted;
-            operation.BytesFreed = bytesFreed ?? operation.BytesFreed;
-            if (status == "complete" || status == "failed")
-            {
-                operation.CompletedAt = DateTime.UtcNow;
-            }
-        }
+        UpdateRemoval(RemovalOperationType.Service, serviceName.ToLowerInvariant(), status, message, filesDeleted, bytesFreed);
     }
 
     public void CompleteServiceRemoval(string serviceName, bool success, int filesDeleted = 0, long bytesFreed = 0, string? error = null)
     {
-        var key = serviceName.ToLowerInvariant();
-        if (_serviceRemovals.TryGetValue(key, out var operation))
-        {
-            operation.Status = success ? "complete" : "failed";
-            operation.FilesDeleted = filesDeleted;
-            operation.BytesFreed = bytesFreed;
-            operation.Error = error;
-            operation.CompletedAt = DateTime.UtcNow;
-
-            // Clean up after a short delay
-            _ = Task.Delay(TimeSpan.FromSeconds(10)).ContinueWith(_ => _serviceRemovals.TryRemove(key, out RemovalOperation? _removed));
-        }
-        _logger.LogInformation("Completed tracking service removal for: {Service}, Success: {Success}", serviceName, success);
+        CompleteRemoval(RemovalOperationType.Service, serviceName.ToLowerInvariant(), success, filesDeleted, bytesFreed, error);
     }
 
     public RemovalOperation? GetServiceRemovalStatus(string serviceName)
     {
-        var key = serviceName.ToLowerInvariant();
-        return _serviceRemovals.TryGetValue(key, out var operation) ? operation : null;
+        return GetRemovalStatus(RemovalOperationType.Service, serviceName.ToLowerInvariant());
     }
 
     public IEnumerable<RemovalOperation> GetActiveServiceRemovals()
     {
-        // Include all non-completed statuses (running, removing_cache, removing_database, etc.)
-        return _serviceRemovals.Values.Where(o => o.Status != "complete" && o.Status != "failed");
+        return GetActiveRemovals(RemovalOperationType.Service);
     }
 
-    // Corruption Removal Operations
+    #endregion
+
+    #region Corruption Removal Operations
+
     public void StartCorruptionRemoval(string serviceName, string operationId)
     {
         var key = serviceName.ToLowerInvariant();
-        var operation = new RemovalOperation
-        {
-            Id = operationId,
-            Name = serviceName,
-            Status = "running",
-            StartedAt = DateTime.UtcNow,
-            Message = $"Removing corrupted chunks for {serviceName}..."
-        };
-        _corruptionRemovals[key] = operation;
-        _logger.LogInformation("Started tracking corruption removal for: {Service}", serviceName);
+        StartRemoval(RemovalOperationType.Corruption, key, operationId, serviceName, $"Removing corrupted chunks for {serviceName}...");
     }
 
     public void UpdateCorruptionRemoval(string serviceName, string status, string message)
     {
-        var key = serviceName.ToLowerInvariant();
-        if (_corruptionRemovals.TryGetValue(key, out var operation))
-        {
-            operation.Status = status;
-            operation.Message = message;
-            if (status == "complete" || status == "failed")
-            {
-                operation.CompletedAt = DateTime.UtcNow;
-            }
-        }
+        UpdateRemoval(RemovalOperationType.Corruption, serviceName.ToLowerInvariant(), status, message);
     }
 
     public void CompleteCorruptionRemoval(string serviceName, bool success, string? error = null)
     {
-        var key = serviceName.ToLowerInvariant();
-        if (_corruptionRemovals.TryGetValue(key, out var operation))
-        {
-            operation.Status = success ? "complete" : "failed";
-            operation.Error = error;
-            operation.CompletedAt = DateTime.UtcNow;
-
-            // Clean up after a short delay
-            _ = Task.Delay(TimeSpan.FromSeconds(10)).ContinueWith(_ => _corruptionRemovals.TryRemove(key, out RemovalOperation? _removed));
-        }
-        _logger.LogInformation("Completed tracking corruption removal for: {Service}, Success: {Success}", serviceName, success);
+        CompleteRemoval(RemovalOperationType.Corruption, serviceName.ToLowerInvariant(), success, 0, 0, error);
     }
 
     public RemovalOperation? GetCorruptionRemovalStatus(string serviceName)
     {
-        var key = serviceName.ToLowerInvariant();
-        return _corruptionRemovals.TryGetValue(key, out var operation) ? operation : null;
+        return GetRemovalStatus(RemovalOperationType.Corruption, serviceName.ToLowerInvariant());
     }
 
     public IEnumerable<RemovalOperation> GetActiveCorruptionRemovals()
     {
-        // Include all non-completed statuses (running, removing, etc.)
-        return _corruptionRemovals.Values.Where(o => o.Status != "complete" && o.Status != "failed");
+        return GetActiveRemovals(RemovalOperationType.Corruption);
     }
 
-    // Get all active removals (for universal recovery)
+    #endregion
+
+    #region Aggregate Methods
+
+    /// <summary>
+    /// Get all active removals across all types (for universal recovery).
+    /// </summary>
     public ActiveRemovalsStatus GetAllActiveRemovals()
     {
         return new ActiveRemovalsStatus
@@ -207,6 +192,8 @@ public class RemovalOperationTracker
             CorruptionRemovals = GetActiveCorruptionRemovals().ToList()
         };
     }
+
+    #endregion
 }
 
 public class RemovalOperation

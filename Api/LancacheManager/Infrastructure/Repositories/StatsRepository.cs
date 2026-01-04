@@ -1,6 +1,7 @@
 using LancacheManager.Application.DTOs;
 using LancacheManager.Data;
 using LancacheManager.Infrastructure.Repositories.Interfaces;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -44,7 +45,7 @@ public class StatsRepository : IStatsRepository
         // Fix timezone for proper JSON serialization
         foreach (var stat in stats)
         {
-            stat.LastActivityUtc = DateTime.SpecifyKind(stat.LastActivityUtc, DateTimeKind.Utc);
+            stat.LastActivityUtc = stat.LastActivityUtc.AsUtc();
         }
 
         return stats;
@@ -92,7 +93,7 @@ public class StatsRepository : IStatsRepository
                     TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
                     TotalDownloads = g.Count(),
                     TotalDurationSeconds = totalDuration,
-                    LastActivityUtc = DateTime.SpecifyKind(g.Max(d => d.StartTimeUtc), DateTimeKind.Utc),
+                    LastActivityUtc = g.Max(d => d.StartTimeUtc).AsUtc(),
                     LastActivityLocal = g.Max(d => d.StartTimeUtc)
                 };
             })
@@ -118,10 +119,10 @@ public class StatsRepository : IStatsRepository
         // NOTE: Using EndTime - StartTime instead of querying LogEntries for performance
         foreach (var download in downloads)
         {
-            download.StartTimeUtc = DateTime.SpecifyKind(download.StartTimeUtc, DateTimeKind.Utc);
+            download.StartTimeUtc = download.StartTimeUtc.AsUtc();
             if (download.EndTimeUtc != default(DateTime))
             {
-                download.EndTimeUtc = DateTime.SpecifyKind(download.EndTimeUtc, DateTimeKind.Utc);
+                download.EndTimeUtc = download.EndTimeUtc.AsUtc();
                 // Calculate duration from EndTime - StartTime
                 if (download.EndTimeUtc > download.StartTimeUtc)
                 {
@@ -143,7 +144,7 @@ public class StatsRepository : IStatsRepository
     /// </summary>
     public async Task<List<GameStat>> GetTopGamesAsync(int limit = 10, string period = "7d", string sortBy = "downloads", CancellationToken cancellationToken = default)
     {
-        var cutoff = GetCutoffTime(period, DateTime.UtcNow);
+        var cutoff = TimeUtils.GetCutoffTime(period, DateTime.UtcNow);
 
         var downloads = await _context.Downloads
             .AsNoTracking()
@@ -174,20 +175,5 @@ public class StatsRepository : IStatsRepository
         };
 
         return sortedStats.Take(limit).ToList();
-    }
-
-    private DateTime GetCutoffTime(string period, DateTime now)
-    {
-        return period.ToLower() switch
-        {
-            "1h" => now.AddHours(-1),
-            "6h" => now.AddHours(-6),
-            "12h" => now.AddHours(-12),
-            "24h" => now.AddHours(-24),
-            "7d" => now.AddDays(-7),
-            "30d" => now.AddDays(-30),
-            "all" => DateTime.MinValue,
-            _ => now.AddHours(-24)
-        };
     }
 }

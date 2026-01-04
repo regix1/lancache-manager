@@ -62,7 +62,7 @@ public class MetricsController : ControllerBase
     {
         if (request.Interval < 5 || request.Interval > 60)
         {
-            return BadRequest(new { error = "Interval must be between 5 and 60 seconds" });
+            return BadRequest(ApiResponse.Invalid("Interval must be between 5 and 60 seconds"));
         }
 
         _metricsService.SetUpdateInterval(request.Interval);

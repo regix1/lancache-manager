@@ -1,6 +1,8 @@
+using LancacheManager.Application.DTOs;
 using LancacheManager.Data;
 using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Infrastructure.Repositories.Interfaces;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
@@ -67,10 +69,10 @@ public class DownloadsController : ControllerBase
                     // Fix timezone: Ensure UTC DateTime values are marked as UTC for proper JSON serialization
                     foreach (var download in downloads)
                     {
-                        download.StartTimeUtc = DateTime.SpecifyKind(download.StartTimeUtc, DateTimeKind.Utc);
-                        if (download.EndTimeUtc != default(DateTime))
+                        download.StartTimeUtc = download.StartTimeUtc.AsUtc();
+                            if (download.EndTimeUtc != default(DateTime))
                         {
-                            download.EndTimeUtc = DateTime.SpecifyKind(download.EndTimeUtc, DateTimeKind.Utc);
+                            download.EndTimeUtc = download.EndTimeUtc.AsUtc();
                         }
                     }
                 }
@@ -113,14 +115,14 @@ public class DownloadsController : ControllerBase
 
             if (download == null)
             {
-                return NotFound(new { error = "Download not found" });
+                return NotFound(ApiResponse.NotFound("Download"));
             }
 
             // Fix timezone
-            download.StartTimeUtc = DateTime.SpecifyKind(download.StartTimeUtc, DateTimeKind.Utc);
+            download.StartTimeUtc = download.StartTimeUtc.AsUtc();
             if (download.EndTimeUtc != default)
             {
-                download.EndTimeUtc = DateTime.SpecifyKind(download.EndTimeUtc, DateTimeKind.Utc);
+                download.EndTimeUtc = download.EndTimeUtc.AsUtc();
             }
 
             // Get events for this download
@@ -150,7 +152,7 @@ public class DownloadsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting download {Id}", id);
-            return StatusCode(500, new { error = "Failed to get download" });
+            return StatusCode(500, ApiResponse.InternalError("getting download"));
         }
     }
 
@@ -262,10 +264,10 @@ public class DownloadsController : ControllerBase
             // Build response
             var result = downloads.Select(d =>
             {
-                d.StartTimeUtc = DateTime.SpecifyKind(d.StartTimeUtc, DateTimeKind.Utc);
+                d.StartTimeUtc = d.StartTimeUtc.AsUtc();
                 if (d.EndTimeUtc != default)
                 {
-                    d.EndTimeUtc = DateTime.SpecifyKind(d.EndTimeUtc, DateTimeKind.Utc);
+                    d.EndTimeUtc = d.EndTimeUtc.AsUtc();
                 }
 
                 eventsLookup.TryGetValue(d.Id, out var downloadEvents);

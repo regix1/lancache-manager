@@ -674,12 +674,9 @@ public class DeviceAuthService
                     Hostname = null,
                     OperatingSystem = session.OperatingSystem ?? string.Empty,
                     Browser = session.Browser ?? string.Empty,
-                    RegisteredAt = DateTime.SpecifyKind(session.CreatedAtUtc, DateTimeKind.Utc),
-                    LastSeenAt = DateTime.SpecifyKind(session.LastSeenAtUtc, DateTimeKind.Utc),
-                    ExpiresAt = DateTime.SpecifyKind(
-                        session.ExpiresAtUtc ?? DateTime.MaxValue,
-                        DateTimeKind.Utc
-                    ),
+                    RegisteredAt = session.CreatedAtUtc.AsUtc(),
+                    LastSeenAt = session.LastSeenAtUtc.AsUtc(),
+                    ExpiresAt = (session.ExpiresAtUtc ?? DateTime.MaxValue).AsUtc(),
                     IsExpired = session.ExpiresAtUtc.HasValue && session.ExpiresAtUtc <= DateTime.UtcNow
                 });
             }

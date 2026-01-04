@@ -1,3 +1,4 @@
+using LancacheManager.Application.DTOs;
 using LancacheManager.Application.Services;
 using LancacheManager.Models;
 using LancacheManager.Security;
@@ -109,7 +110,7 @@ public class PrefillAdminController : ControllerBase
 
         await _daemonService.TerminateSessionAsync(sessionId, reason, force, adminDeviceId);
 
-        return Ok(new { message = "Session terminated" });
+        return Ok(ApiResponse.Message("Session terminated"));
     }
 
     /// <summary>
@@ -185,7 +186,7 @@ public class PrefillAdminController : ControllerBase
 
         if (ban == null)
         {
-            return BadRequest(new { message = "Could not ban user - session has no username. User may not have logged in yet." });
+            return BadRequest(ApiResponse.Error("Could not ban user - session has no username. User may not have logged in yet."));
         }
 
         // Also terminate the session
@@ -216,7 +217,7 @@ public class PrefillAdminController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(request.Username))
         {
-            return BadRequest(new { message = "Username is required." });
+            return BadRequest(ApiResponse.Required("Username"));
         }
 
         var adminDeviceId = GetDeviceId();
@@ -257,12 +258,12 @@ public class PrefillAdminController : ControllerBase
 
         if (!success)
         {
-            return NotFound(new { message = "Ban not found or already lifted" });
+            return NotFound(ApiResponse.Error("Ban not found or already lifted"));
         }
 
         _logger.LogInformation("Admin {AdminId} lifted ban {BanId}", adminDeviceId, banId);
 
-        return Ok(new { message = "Ban lifted" });
+        return Ok(ApiResponse.Message("Ban lifted"));
     }
 
     #endregion

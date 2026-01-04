@@ -1,9 +1,12 @@
+using LancacheManager.Application.DTOs;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Repositories.Interfaces;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
+using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 
 namespace LancacheManager.Controllers;
 
@@ -104,14 +107,14 @@ public class EventsController : ControllerBase
             var evt = await _eventsRepository.GetEventByIdAsync(id);
             if (evt == null)
             {
-                return NotFound(new { error = "Event not found" });
+                return NotFound(ApiResponse.NotFound("Event"));
             }
             return Ok(evt);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting event {Id}", id);
-            return StatusCode(500, new { error = "Failed to get event" });
+            return StatusCode(500, ApiResponse.InternalError("getting event"));
         }
     }
 
@@ -126,7 +129,7 @@ public class EventsController : ControllerBase
         {
             if (string.IsNullOrWhiteSpace(request.Name))
             {
-                return BadRequest(new { error = "Event name is required" });
+                return BadRequest(ApiResponse.Required("Event name"));
             }
 
             var startUtc = DateTimeOffset.FromUnixTimeSeconds(request.StartTime).UtcDateTime;
@@ -134,7 +137,7 @@ public class EventsController : ControllerBase
 
             if (endUtc <= startUtc)
             {
-                return BadRequest(new { error = "End time must be after start time" });
+                return BadRequest(ApiResponse.Invalid("End time must be after start time"));
             }
 
             var evt = new Event
@@ -158,7 +161,7 @@ public class EventsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error creating event");
-            return StatusCode(500, new { error = "Failed to create event" });
+            return StatusCode(500, ApiResponse.InternalError("creating event"));
         }
     }
 
@@ -174,12 +177,12 @@ public class EventsController : ControllerBase
             var existing = await _eventsRepository.GetEventByIdAsync(id);
             if (existing == null)
             {
-                return NotFound(new { error = "Event not found" });
+                return NotFound(ApiResponse.NotFound("Event"));
             }
 
             if (string.IsNullOrWhiteSpace(request.Name))
             {
-                return BadRequest(new { error = "Event name is required" });
+                return BadRequest(ApiResponse.Required("Event name"));
             }
 
             var startUtc = DateTimeOffset.FromUnixTimeSeconds(request.StartTime).UtcDateTime;
@@ -187,7 +190,7 @@ public class EventsController : ControllerBase
 
             if (endUtc <= startUtc)
             {
-                return BadRequest(new { error = "End time must be after start time" });
+                return BadRequest(ApiResponse.Invalid("End time must be after start time"));
             }
 
             existing.Name = request.Name;
@@ -208,7 +211,7 @@ public class EventsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error updating event {Id}", id);
-            return StatusCode(500, new { error = "Failed to update event" });
+            return StatusCode(500, ApiResponse.InternalError("updating event"));
         }
     }
 
@@ -224,7 +227,7 @@ public class EventsController : ControllerBase
             var existing = await _eventsRepository.GetEventByIdAsync(id);
             if (existing == null)
             {
-                return NotFound(new { error = "Event not found" });
+                return NotFound(ApiResponse.NotFound("Event"));
             }
 
             await _eventsRepository.DeleteEventAsync(id);
@@ -237,7 +240,7 @@ public class EventsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error deleting event {Id}", id);
-            return StatusCode(500, new { error = "Failed to delete event" });
+            return StatusCode(500, ApiResponse.InternalError("deleting event"));
         }
     }
 
@@ -254,7 +257,7 @@ public class EventsController : ControllerBase
             var evt = await _eventsRepository.GetEventByIdAsync(id);
             if (evt == null)
             {
-                return NotFound(new { error = "Event not found" });
+                return NotFound(ApiResponse.NotFound("Event"));
             }
 
             var downloads = await _eventsRepository.GetDownloadsForEventAsync(id, taggedOnly);
@@ -279,20 +282,20 @@ public class EventsController : ControllerBase
             var evt = await _eventsRepository.GetEventByIdAsync(eventId);
             if (evt == null)
             {
-                return NotFound(new { error = "Event not found" });
+                return NotFound(ApiResponse.NotFound("Event"));
             }
 
             await _eventsRepository.TagDownloadAsync(eventId, downloadId, autoTagged: false);
 
             // Notify clients via SignalR
-            await _hubContext.Clients.All.SendAsync("DownloadTagged", new { eventId, downloadId });
+            await _hubContext.Clients.All.SendAsync("DownloadTagged", new DownloadTagged(eventId, downloadId));
 
-            return Ok(new { message = "Download tagged to event" });
+            return Ok(ApiResponse.Message("Download tagged to event"));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error tagging download {DownloadId} to event {EventId}", downloadId, eventId);
-            return StatusCode(500, new { error = "Failed to tag download" });
+            return StatusCode(500, ApiResponse.InternalError("tagging download"));
         }
     }
 
@@ -311,7 +314,7 @@ public class EventsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error untagging download {DownloadId} from event {EventId}", downloadId, eventId);
-            return StatusCode(500, new { error = "Failed to untag download" });
+            return StatusCode(500, ApiResponse.InternalError("untagging download"));
         }
     }
 }

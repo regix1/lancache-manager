@@ -2,9 +2,11 @@ using LancacheManager.Application.DTOs;
 using LancacheManager.Application.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services.Interfaces;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
+using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 
 namespace LancacheManager.Controllers;
 
@@ -62,28 +64,16 @@ public class GamesController : ControllerBase
             try
             {
                 // Send progress update
-                await _hubContext.Clients.All.SendAsync("GameRemovalProgress", new
-                {
-                    gameAppId = appId,
-                    gameName,
-                    status = "removing_cache",
-                    message = $"Deleting cache files for {gameName}..."
-                });
+                await _hubContext.Clients.All.SendAsync("GameRemovalProgress",
+                    new GameRemovalProgress(appId, gameName, "removing_cache", $"Deleting cache files for {gameName}..."));
                 _removalTracker.UpdateGameRemoval(appId, "removing_cache", $"Deleting cache files for {gameName}...");
 
                 // Use CacheManagementService which actually deletes files via Rust binary
                 var report = await _cacheManagementService.RemoveGameFromCache((uint)appId);
 
                 // Send progress update
-                await _hubContext.Clients.All.SendAsync("GameRemovalProgress", new
-                {
-                    gameAppId = appId,
-                    gameName,
-                    status = "removing_database",
-                    message = $"Updating database...",
-                    filesDeleted = report.CacheFilesDeleted,
-                    bytesFreed = report.TotalBytesFreed
-                });
+                await _hubContext.Clients.All.SendAsync("GameRemovalProgress",
+                    new GameRemovalProgress(appId, gameName, "removing_database", "Updating database...", report.CacheFilesDeleted, (long)report.TotalBytesFreed));
                 _removalTracker.UpdateGameRemoval(appId, "removing_database", "Updating database...", report.CacheFilesDeleted, (long)report.TotalBytesFreed);
 
                 // Also remove from detection cache so it doesn't show in UI
@@ -96,16 +86,8 @@ public class GamesController : ControllerBase
                 _removalTracker.CompleteGameRemoval(appId, true, report.CacheFilesDeleted, (long)report.TotalBytesFreed);
 
                 // Send SignalR notification on success
-                await _hubContext.Clients.All.SendAsync("GameRemovalComplete", new
-                {
-                    success = true,
-                    gameAppId = appId,
-                    gameName,
-                    filesDeleted = report.CacheFilesDeleted,
-                    bytesFreed = report.TotalBytesFreed,
-                    logEntriesRemoved = report.LogEntriesRemoved,
-                    message = $"Successfully removed {gameName} from cache"
-                });
+                await _hubContext.Clients.All.SendAsync("GameRemovalComplete",
+                    new GameRemovalComplete(true, appId, gameName, $"Successfully removed {gameName} from cache", report.CacheFilesDeleted, (long)report.TotalBytesFreed, report.LogEntriesRemoved));
             }
             catch (Exception ex)
             {
@@ -115,12 +97,8 @@ public class GamesController : ControllerBase
                 _removalTracker.CompleteGameRemoval(appId, false, error: ex.Message);
 
                 // Send SignalR notification on failure
-                await _hubContext.Clients.All.SendAsync("GameRemovalComplete", new
-                {
-                    success = false,
-                    gameAppId = appId,
-                    message = $"Failed to remove game {appId}: {ex.Message}"
-                });
+                await _hubContext.Clients.All.SendAsync("GameRemovalComplete",
+                    new GameRemovalComplete(false, appId, Message: $"Failed to remove game {appId}: {ex.Message}"));
             }
         });
 
@@ -263,7 +241,7 @@ public class GamesController : ControllerBase
 
         // Return in the format expected by frontend
         // Ensure StartTime is treated as UTC for proper timezone conversion on frontend
-        var lastDetectionTimeUtc = DateTime.SpecifyKind(cachedResults.StartTime, DateTimeKind.Utc);
+        var lastDetectionTimeUtc = cachedResults.StartTime.AsUtc();
 
         return Ok(new CachedDetectionResponse
         {

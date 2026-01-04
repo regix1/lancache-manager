@@ -3,6 +3,7 @@ using LancacheManager.Configuration;
 using LancacheManager.Data;
 using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Infrastructure.Repositories.Interfaces;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
@@ -219,7 +220,7 @@ public class StatsController : ControllerBase
             TotalDownloads = totalDownloads,
             TotalDurationSeconds = totalDurationSeconds,
             AverageBytesPerSecond = averageBytesPerSecond,
-            LastActivityUtc = DateTime.SpecifyKind(lastActivityUtc, DateTimeKind.Utc)
+            LastActivityUtc = lastActivityUtc.AsUtc()
         };
     }
 
@@ -247,7 +248,7 @@ public class StatsController : ControllerBase
             else if (!string.IsNullOrEmpty(since) && since != "all")
             {
                 // Parse time period string for backwards compatibility
-                var cutoffTime = ParseTimePeriod(since);
+                var cutoffTime = TimeUtils.ParseTimePeriod(since);
                 if (cutoffTime.HasValue)
                 {
                     query = query.Where(d => d.StartTimeUtc >= cutoffTime.Value);
@@ -273,7 +274,7 @@ public class StatsController : ControllerBase
             // Fix timezone for proper JSON serialization
             foreach (var stat in serviceStats)
             {
-                stat.LastActivityUtc = DateTime.SpecifyKind(stat.LastActivityUtc, DateTimeKind.Utc);
+                stat.LastActivityUtc = stat.LastActivityUtc.AsUtc();
             }
 
             return Ok(serviceStats);
@@ -563,7 +564,7 @@ public class StatsController : ControllerBase
             DateTime? endDateTime = endTime.HasValue
                 ? DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime
                 : (DateTime?)null;
-            var intervalMinutes = ParseInterval(interval);
+            var intervalMinutes = TimeUtils.ParseInterval(interval);
 
             // Get cache info for current size/capacity
             long currentCacheSize = 0;
@@ -628,7 +629,7 @@ public class StatsController : ControllerBase
             {
                 cumulative += dp.GrowthFromPrevious;
                 dp.CumulativeCacheMissBytes = cumulative;
-                dp.Timestamp = DateTime.SpecifyKind(dp.Timestamp, DateTimeKind.Utc);
+                dp.Timestamp = dp.Timestamp.AsUtc();
             }
 
             // Calculate trend and statistics using period-over-period comparison
@@ -946,46 +947,4 @@ public class StatsController : ControllerBase
         };
     }
 
-    // Helper method to parse time period strings
-    private DateTime? ParseTimePeriod(string period)
-    {
-        var now = DateTime.UtcNow;
-
-        return period?.ToLower() switch
-        {
-            null or "" or "all" => null,
-            "15m" => now.AddMinutes(-15),
-            "30m" => now.AddMinutes(-30),
-            "1h" => now.AddHours(-1),
-            "6h" => now.AddHours(-6),
-            "12h" => now.AddHours(-12),
-            "24h" or "1d" => now.AddDays(-1),
-            "48h" or "2d" => now.AddDays(-2),
-            "7d" or "1w" => now.AddDays(-7),
-            "14d" or "2w" => now.AddDays(-14),
-            "30d" or "1m" => now.AddDays(-30),
-            "90d" or "3m" => now.AddDays(-90),
-            "365d" or "1y" => now.AddDays(-365),
-            _ => null
-        };
-    }
-
-    // Helper method to parse interval strings
-    private int ParseInterval(string interval)
-    {
-        return interval.ToLower() switch
-        {
-            "5min" => 5,
-            "10min" => 10,
-            "15min" => 15,
-            "30min" => 30,
-            "hourly" or "1h" => 60,
-            "2h" => 120,
-            "4h" => 240,
-            "6h" => 360,
-            "12h" => 720,
-            "daily" or "1d" => 1440,
-            _ => 60 // Default to hourly
-        };
-    }
 }

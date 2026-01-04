@@ -1,3 +1,4 @@
+using LancacheManager.Application.DTOs;
 using LancacheManager.Application.Services;
 using LancacheManager.Application.SteamPrefill;
 using LancacheManager.Security;
@@ -96,12 +97,12 @@ public class PrefillDaemonController : ControllerBase
         }
         catch (InvalidOperationException ex)
         {
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(ApiResponse.Error(ex.Message));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to create daemon session for device {DeviceId}", deviceId);
-            return StatusCode(500, new { message = "Failed to create daemon session" });
+            return StatusCode(500, ApiResponse.InternalError("creating daemon session"));
         }
     }
 
@@ -168,7 +169,7 @@ public class PrefillDaemonController : ControllerBase
                 {
                     return Ok(new { message = "Already logged in", status = "logged-in" });
                 }
-                return BadRequest(new { message = "Login timeout - daemon may not be ready" });
+                return BadRequest(ApiResponse.Error("Login timeout - daemon may not be ready"));
             }
 
             return Ok(challenge);
@@ -176,7 +177,7 @@ public class PrefillDaemonController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error starting login for session {SessionId}", sessionId);
-            return StatusCode(500, new { message = ex.Message });
+            return StatusCode(500, ApiResponse.Error(ex.Message));
         }
     }
 
@@ -202,7 +203,7 @@ public class PrefillDaemonController : ControllerBase
 
         if (request.Challenge == null || string.IsNullOrEmpty(request.Credential))
         {
-            return BadRequest(new { message = "Challenge and credential required" });
+            return BadRequest(ApiResponse.Required("Challenge and credential"));
         }
 
         try
@@ -212,12 +213,12 @@ public class PrefillDaemonController : ControllerBase
 
             await _daemonService.ProvideCredentialAsync(sessionId, request.Challenge, request.Credential);
 
-            return Ok(new { message = "Credential sent" });
+            return Ok(ApiResponse.Message("Credential sent"));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error providing credential for session {SessionId}", sessionId);
-            return StatusCode(500, new { message = ex.Message });
+            return StatusCode(500, ApiResponse.Error(ex.Message));
         }
     }
 
@@ -284,12 +285,12 @@ public class PrefillDaemonController : ControllerBase
         }
         catch (InvalidOperationException ex)
         {
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(ApiResponse.Error(ex.Message));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting owned games for session {SessionId}", sessionId);
-            return StatusCode(500, new { message = ex.Message });
+            return StatusCode(500, ApiResponse.Error(ex.Message));
         }
     }
 
@@ -315,7 +316,7 @@ public class PrefillDaemonController : ControllerBase
 
         if (request.AppIds == null || request.AppIds.Count == 0)
         {
-            return BadRequest(new { message = "AppIds required" });
+            return BadRequest(ApiResponse.Required("AppIds"));
         }
 
         try
@@ -325,12 +326,12 @@ public class PrefillDaemonController : ControllerBase
         }
         catch (InvalidOperationException ex)
         {
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(ApiResponse.Error(ex.Message));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error setting selected apps for session {SessionId}", sessionId);
-            return StatusCode(500, new { message = ex.Message });
+            return StatusCode(500, ApiResponse.Error(ex.Message));
         }
     }
 
@@ -370,12 +371,12 @@ public class PrefillDaemonController : ControllerBase
         }
         catch (InvalidOperationException ex)
         {
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(ApiResponse.Error(ex.Message));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during prefill for session {SessionId}", sessionId);
-            return StatusCode(500, new { message = ex.Message });
+            return StatusCode(500, ApiResponse.Error(ex.Message));
         }
     }
 

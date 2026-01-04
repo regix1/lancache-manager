@@ -1436,3 +1436,92 @@ public class MetricsStatusResponse
     public string Endpoint { get; set; } = string.Empty;
     public string AuthMethod { get; set; } = string.Empty;
 }
+
+// ============================================================
+// Common API Response Helpers
+// ============================================================
+
+/// <summary>
+/// Static factory methods for common API responses.
+/// Reduces inline anonymous object creation across controllers.
+/// </summary>
+public static class ApiResponse
+{
+    // ==================== Error Responses ====================
+
+    /// <summary>Creates a standard error response object.</summary>
+    public static ErrorResponse Error(string error, string? details = null) => new()
+    {
+        Error = error,
+        Details = details
+    };
+
+    /// <summary>Creates a not found response for a specific entity type.</summary>
+    public static NotFoundResponse NotFound(string entityType) => new()
+    {
+        Error = $"{entityType} not found"
+    };
+
+    /// <summary>Creates a not found response with operation ID.</summary>
+    public static NotFoundResponse NotFound(string entityType, string operationId) => new()
+    {
+        Error = $"{entityType} not found",
+        OperationId = operationId
+    };
+
+    /// <summary>Creates a conflict response (e.g., operation already running).</summary>
+    public static ConflictResponse Conflict(string error) => new()
+    {
+        Error = error
+    };
+
+    // ==================== Success Responses ====================
+
+    /// <summary>Creates a simple success message response.</summary>
+    public static MessageResponse Success(string message) => new()
+    {
+        Success = true,
+        Message = message
+    };
+
+    /// <summary>Creates a message-only response object.</summary>
+    public static object Message(string message) => new { message };
+
+    /// <summary>Creates a success response with custom data.</summary>
+    public static object Ok(string message) => new { message };
+
+    // ==================== Validation Responses ====================
+
+    /// <summary>Creates an error response for missing required fields.</summary>
+    public static ErrorResponse Required(string fieldName) => new()
+    {
+        Error = $"{fieldName} is required"
+    };
+
+    /// <summary>Creates an error response for invalid values.</summary>
+    public static ErrorResponse Invalid(string message) => new()
+    {
+        Error = message
+    };
+
+    /// <summary>Creates an error response for duplicate entries.</summary>
+    public static ErrorResponse Duplicate(string entityType, string fieldName) => new()
+    {
+        Error = $"A {entityType.ToLower()} with this {fieldName.ToLower()} already exists"
+    };
+
+    // ==================== Internal Error Responses ====================
+
+    /// <summary>Creates an internal server error response.</summary>
+    public static ErrorResponse InternalError(string operation) => new()
+    {
+        Error = $"An error occurred while {operation}. Check server logs for details."
+    };
+
+    /// <summary>Creates an internal server error response with details.</summary>
+    public static ErrorResponse InternalError(string operation, string details) => new()
+    {
+        Error = $"An error occurred while {operation}",
+        Details = details
+    };
+}

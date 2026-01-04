@@ -1,5 +1,6 @@
 using LancacheManager.Data;
 using LancacheManager.Infrastructure.Repositories.Interfaces;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -25,13 +26,10 @@ public class EventsRepository : IEventsRepository
 
         foreach (var evt in events)
         {
-            evt.StartTimeUtc = DateTime.SpecifyKind(evt.StartTimeUtc, DateTimeKind.Utc);
-            evt.EndTimeUtc = DateTime.SpecifyKind(evt.EndTimeUtc, DateTimeKind.Utc);
-            evt.CreatedAtUtc = DateTime.SpecifyKind(evt.CreatedAtUtc, DateTimeKind.Utc);
-            if (evt.UpdatedAtUtc.HasValue)
-            {
-                evt.UpdatedAtUtc = DateTime.SpecifyKind(evt.UpdatedAtUtc.Value, DateTimeKind.Utc);
-            }
+            evt.StartTimeUtc = evt.StartTimeUtc.AsUtc();
+            evt.EndTimeUtc = evt.EndTimeUtc.AsUtc();
+            evt.CreatedAtUtc = evt.CreatedAtUtc.AsUtc();
+            evt.UpdatedAtUtc = evt.UpdatedAtUtc.AsUtc();
         }
 
         return events;
@@ -48,13 +46,10 @@ public class EventsRepository : IEventsRepository
 
         foreach (var evt in events)
         {
-            evt.StartTimeUtc = DateTime.SpecifyKind(evt.StartTimeUtc, DateTimeKind.Utc);
-            evt.EndTimeUtc = DateTime.SpecifyKind(evt.EndTimeUtc, DateTimeKind.Utc);
-            evt.CreatedAtUtc = DateTime.SpecifyKind(evt.CreatedAtUtc, DateTimeKind.Utc);
-            if (evt.UpdatedAtUtc.HasValue)
-            {
-                evt.UpdatedAtUtc = DateTime.SpecifyKind(evt.UpdatedAtUtc.Value, DateTimeKind.Utc);
-            }
+            evt.StartTimeUtc = evt.StartTimeUtc.AsUtc();
+            evt.EndTimeUtc = evt.EndTimeUtc.AsUtc();
+            evt.CreatedAtUtc = evt.CreatedAtUtc.AsUtc();
+            evt.UpdatedAtUtc = evt.UpdatedAtUtc.AsUtc();
         }
 
         return events;
@@ -73,13 +68,10 @@ public class EventsRepository : IEventsRepository
 
         foreach (var evt in events)
         {
-            evt.StartTimeUtc = DateTime.SpecifyKind(evt.StartTimeUtc, DateTimeKind.Utc);
-            evt.EndTimeUtc = DateTime.SpecifyKind(evt.EndTimeUtc, DateTimeKind.Utc);
-            evt.CreatedAtUtc = DateTime.SpecifyKind(evt.CreatedAtUtc, DateTimeKind.Utc);
-            if (evt.UpdatedAtUtc.HasValue)
-            {
-                evt.UpdatedAtUtc = DateTime.SpecifyKind(evt.UpdatedAtUtc.Value, DateTimeKind.Utc);
-            }
+            evt.StartTimeUtc = evt.StartTimeUtc.AsUtc();
+            evt.EndTimeUtc = evt.EndTimeUtc.AsUtc();
+            evt.CreatedAtUtc = evt.CreatedAtUtc.AsUtc();
+            evt.UpdatedAtUtc = evt.UpdatedAtUtc.AsUtc();
         }
 
         return events;
@@ -93,13 +85,10 @@ public class EventsRepository : IEventsRepository
 
         if (evt != null)
         {
-            evt.StartTimeUtc = DateTime.SpecifyKind(evt.StartTimeUtc, DateTimeKind.Utc);
-            evt.EndTimeUtc = DateTime.SpecifyKind(evt.EndTimeUtc, DateTimeKind.Utc);
-            evt.CreatedAtUtc = DateTime.SpecifyKind(evt.CreatedAtUtc, DateTimeKind.Utc);
-            if (evt.UpdatedAtUtc.HasValue)
-            {
-                evt.UpdatedAtUtc = DateTime.SpecifyKind(evt.UpdatedAtUtc.Value, DateTimeKind.Utc);
-            }
+            evt.StartTimeUtc = evt.StartTimeUtc.AsUtc();
+            evt.EndTimeUtc = evt.EndTimeUtc.AsUtc();
+            evt.CreatedAtUtc = evt.CreatedAtUtc.AsUtc();
+            evt.UpdatedAtUtc = evt.UpdatedAtUtc.AsUtc();
         }
 
         return evt;
@@ -111,9 +100,9 @@ public class EventsRepository : IEventsRepository
         _context.Events.Add(evt);
         await _context.SaveChangesAsync(cancellationToken);
 
-        evt.StartTimeUtc = DateTime.SpecifyKind(evt.StartTimeUtc, DateTimeKind.Utc);
-        evt.EndTimeUtc = DateTime.SpecifyKind(evt.EndTimeUtc, DateTimeKind.Utc);
-        evt.CreatedAtUtc = DateTime.SpecifyKind(evt.CreatedAtUtc, DateTimeKind.Utc);
+        evt.StartTimeUtc = evt.StartTimeUtc.AsUtc();
+        evt.EndTimeUtc = evt.EndTimeUtc.AsUtc();
+        evt.CreatedAtUtc = evt.CreatedAtUtc.AsUtc();
 
         _logger.LogInformation("Created event: {Name} (ID: {Id})", evt.Name, evt.Id);
         return evt;
@@ -138,10 +127,10 @@ public class EventsRepository : IEventsRepository
 
         await _context.SaveChangesAsync(cancellationToken);
 
-        existing.StartTimeUtc = DateTime.SpecifyKind(existing.StartTimeUtc, DateTimeKind.Utc);
-        existing.EndTimeUtc = DateTime.SpecifyKind(existing.EndTimeUtc, DateTimeKind.Utc);
-        existing.CreatedAtUtc = DateTime.SpecifyKind(existing.CreatedAtUtc, DateTimeKind.Utc);
-        existing.UpdatedAtUtc = DateTime.SpecifyKind(existing.UpdatedAtUtc!.Value, DateTimeKind.Utc);
+        existing.StartTimeUtc = existing.StartTimeUtc.AsUtc();
+        existing.EndTimeUtc = existing.EndTimeUtc.AsUtc();
+        existing.CreatedAtUtc = existing.CreatedAtUtc.AsUtc();
+        existing.UpdatedAtUtc = existing.UpdatedAtUtc.AsUtc();
 
         _logger.LogInformation("Updated event: {Name} (ID: {Id})", existing.Name, existing.Id);
         return existing;
@@ -193,10 +182,10 @@ public class EventsRepository : IEventsRepository
 
         foreach (var download in downloads)
         {
-            download.StartTimeUtc = DateTime.SpecifyKind(download.StartTimeUtc, DateTimeKind.Utc);
+            download.StartTimeUtc = download.StartTimeUtc.AsUtc();
             if (download.EndTimeUtc != default)
             {
-                download.EndTimeUtc = DateTime.SpecifyKind(download.EndTimeUtc, DateTimeKind.Utc);
+                download.EndTimeUtc = download.EndTimeUtc.AsUtc();
             }
         }
 

@@ -7,6 +7,7 @@ using LancacheManager.Infrastructure.Services.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Security;
 using LancacheManager.Hubs;
+using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 
@@ -397,7 +398,7 @@ public class CacheController : ControllerBase
             return Ok(new CachedCorruptionResponse { HasCachedResults = false });
         }
 
-        var lastDetectionTimeUtc = DateTime.SpecifyKind(cachedResults.LastDetectionTime, DateTimeKind.Utc);
+        var lastDetectionTimeUtc = cachedResults.LastDetectionTime.AsUtc();
 
         return Ok(new CachedCorruptionResponse
         {
@@ -471,13 +472,8 @@ public class CacheController : ControllerBase
         _removalTracker.StartCorruptionRemoval(service, operationId);
 
         // Send start notification via SignalR
-        _ = _hubContext.Clients.All.SendAsync("CorruptionRemovalStarted", new
-        {
-            service,
-            operationId,
-            message = $"Starting corruption removal for {service}...",
-            timestamp = DateTime.UtcNow
-        });
+        _ = _hubContext.Clients.All.SendAsync("CorruptionRemovalStarted",
+            new CorruptionRemovalStarted(service, operationId, $"Starting corruption removal for {service}...", DateTime.UtcNow));
 
         _ = Task.Run(async () =>
         {
@@ -509,25 +505,15 @@ public class CacheController : ControllerBase
                         await _nginxLogRotationService.ReopenNginxLogsAsync();
 
                         _removalTracker.CompleteCorruptionRemoval(service, true);
-                        await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
-                        {
-                            service,
-                            operationId,
-                            success = true,
-                            message = $"Successfully removed corrupted chunks for {service}"
-                        });
+                        await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete",
+                            new CorruptionRemovalComplete(true, service, operationId, $"Successfully removed corrupted chunks for {service}"));
                     }
                     else
                     {
                         _logger.LogError("Corruption removal failed for service {Service}: {Error}", service, result.Error);
                         _removalTracker.CompleteCorruptionRemoval(service, false, result.Error);
-                        await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
-                        {
-                            service,
-                            operationId,
-                            success = false,
-                            error = result.Error
-                        });
+                        await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete",
+                            new CorruptionRemovalComplete(false, service, operationId, Error: result.Error));
                     }
                 }
                 finally
@@ -541,13 +527,8 @@ public class CacheController : ControllerBase
             {
                 _logger.LogError(ex, "Error during corruption removal for service: {Service}", service);
                 _removalTracker.CompleteCorruptionRemoval(service, false, "Operation failed. Check server logs for details.");
-                await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
-                {
-                    service,
-                    operationId,
-                    success = false,
-                    error = "Operation failed. Check server logs for details."
-                });
+                await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete",
+                    new CorruptionRemovalComplete(false, service, operationId, Error: "Operation failed. Check server logs for details."));
             }
         });
 
@@ -625,26 +606,16 @@ public class CacheController : ControllerBase
             try
             {
                 // Send progress update
-                await _hubContext.Clients.All.SendAsync("ServiceRemovalProgress", new
-                {
-                    serviceName = name,
-                    status = "removing_cache",
-                    message = $"Deleting cache files for {name}..."
-                });
+                await _hubContext.Clients.All.SendAsync("ServiceRemovalProgress",
+                    new ServiceRemovalProgress(name, "removing_cache", $"Deleting cache files for {name}..."));
                 _removalTracker.UpdateServiceRemoval(name, "removing_cache", $"Deleting cache files for {name}...");
 
                 // Use CacheManagementService which actually deletes files via Rust binary
                 var report = await _cacheService.RemoveServiceFromCache(name);
 
                 // Send progress update
-                await _hubContext.Clients.All.SendAsync("ServiceRemovalProgress", new
-                {
-                    serviceName = name,
-                    status = "removing_database",
-                    message = $"Updating database...",
-                    filesDeleted = report.CacheFilesDeleted,
-                    bytesFreed = report.TotalBytesFreed
-                });
+                await _hubContext.Clients.All.SendAsync("ServiceRemovalProgress",
+                    new ServiceRemovalProgress(name, "removing_database", "Updating database...", report.CacheFilesDeleted, (long)report.TotalBytesFreed));
                 _removalTracker.UpdateServiceRemoval(name, "removing_database", "Updating database...", report.CacheFilesDeleted, (long)report.TotalBytesFreed);
 
                 // Also remove from detection cache so it doesn't show in UI
@@ -657,15 +628,8 @@ public class CacheController : ControllerBase
                 _removalTracker.CompleteServiceRemoval(name, true, report.CacheFilesDeleted, (long)report.TotalBytesFreed);
 
                 // Send SignalR notification on success
-                await _hubContext.Clients.All.SendAsync("ServiceRemovalComplete", new
-                {
-                    success = true,
-                    serviceName = name,
-                    filesDeleted = report.CacheFilesDeleted,
-                    bytesFreed = report.TotalBytesFreed,
-                    logEntriesRemoved = report.LogEntriesRemoved,
-                    message = $"Successfully removed {name} service from cache"
-                });
+                await _hubContext.Clients.All.SendAsync("ServiceRemovalComplete",
+                    new ServiceRemovalComplete(true, name, $"Successfully removed {name} service from cache", report.CacheFilesDeleted, (long)report.TotalBytesFreed, report.LogEntriesRemoved));
             }
             catch (Exception ex)
             {
@@ -675,12 +639,8 @@ public class CacheController : ControllerBase
                 _removalTracker.CompleteServiceRemoval(name, false, error: "Operation failed. Check server logs for details.");
 
                 // Send SignalR notification on failure
-                await _hubContext.Clients.All.SendAsync("ServiceRemovalComplete", new
-                {
-                    success = false,
-                    serviceName = name,
-                    message = $"Failed to remove {name} service. Check server logs for details."
-                });
+                await _hubContext.Clients.All.SendAsync("ServiceRemovalComplete",
+                    new ServiceRemovalComplete(false, name, $"Failed to remove {name} service. Check server logs for details."));
             }
         });
 
