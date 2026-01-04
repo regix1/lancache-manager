@@ -771,82 +771,230 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         ) : (
           <>
             <div className="space-y-2">
-              {sessions.map(session => (
-                <Card key={session.id}>
-                  <CardContent className="py-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div
-                          className="w-8 h-8 rounded flex items-center justify-center"
-                          style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                        >
-                          <Container className="w-4 h-4 text-themed-muted" />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-sm text-themed-primary">
-                              {session.containerName || session.sessionId.slice(0, 8)}
-                            </span>
-                            <StatusBadge status={session.status} isLive={session.isLive} />
-                            {session.isAuthenticated && (
-                              <Tooltip content="Steam authenticated">
-                                <CheckCircle className="w-4 h-4" style={{ color: 'var(--theme-icon-green)' }} />
-                              </Tooltip>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-3 text-xs text-themed-muted mt-1">
-                            <span>
-                              Created: <FormattedTimestamp timestamp={session.createdAtUtc} />
-                            </span>
-                            {session.endedAtUtc && (
-                              <span>
-                                Ended: <FormattedTimestamp timestamp={session.endedAtUtc} />
-                              </span>
-                            )}
-                            {session.steamUsername && (
-                              <span className="flex items-center gap-1">
-                                User: {session.steamUsername}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
+              {sessions.map(session => {
+                const sessionHistory = historyData[session.sessionId];
+                const totalBytesFromHistory = sessionHistory
+                  ? sessionHistory.reduce((sum, e) => sum + e.bytesDownloaded, 0)
+                  : 0;
+                const gamesCount = sessionHistory?.length || 0;
 
-                      {isAuthenticated && session.isLive && (
+                return (
+                  <Card key={session.id}>
+                    <CardContent className="py-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div
+                            className="w-8 h-8 rounded flex items-center justify-center"
+                            style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+                          >
+                            <Container className="w-4 h-4 text-themed-muted" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-mono text-sm text-themed-primary">
+                                {session.containerName || session.sessionId.slice(0, 8)}
+                              </span>
+                              <StatusBadge status={session.status} isLive={session.isLive} />
+                              {session.isAuthenticated && (
+                                <Tooltip content="Steam authenticated">
+                                  <CheckCircle className="w-4 h-4" style={{ color: 'var(--theme-icon-green)' }} />
+                                </Tooltip>
+                              )}
+                              {/* Show summary badges if history is loaded */}
+                              {gamesCount > 0 && (
+                                <Tooltip content={`${gamesCount} game${gamesCount !== 1 ? 's' : ''} prefilled`}>
+                                  <span
+                                    className="px-1.5 py-0.5 rounded text-xs flex items-center gap-1"
+                                    style={{
+                                      backgroundColor: 'color-mix(in srgb, var(--theme-primary) 15%, transparent)',
+                                      color: 'var(--theme-primary)'
+                                    }}
+                                  >
+                                    <Gamepad2 className="w-3 h-3" />
+                                    {gamesCount}
+                                  </span>
+                                </Tooltip>
+                              )}
+                              {totalBytesFromHistory > 0 && (
+                                <Tooltip content="Total data downloaded">
+                                  <span
+                                    className="px-1.5 py-0.5 rounded text-xs"
+                                    style={{
+                                      backgroundColor: 'color-mix(in srgb, var(--theme-icon-green) 15%, transparent)',
+                                      color: 'var(--theme-icon-green)'
+                                    }}
+                                  >
+                                    {formatBytes(totalBytesFromHistory)}
+                                  </span>
+                                </Tooltip>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3 text-xs text-themed-muted mt-1">
+                              <span>
+                                Created: <FormattedTimestamp timestamp={session.createdAtUtc} />
+                              </span>
+                              {session.endedAtUtc && (
+                                <span>
+                                  Ended: <FormattedTimestamp timestamp={session.endedAtUtc} />
+                                </span>
+                              )}
+                              {session.steamUsername && (
+                                <span className="flex items-center gap-1">
+                                  User: {session.steamUsername}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
                         <div className="flex items-center gap-2">
-                          {session.steamUsername && (
-                            <Tooltip content="Ban this Steam user">
-                              <Button
-                                variant="subtle"
-                                size="sm"
-                                color="red"
-                                onClick={() => setBanConfirm({ sessionId: session.sessionId, reason: '' })}
-                              >
-                                <Ban className="w-4 h-4" />
-                              </Button>
-                            </Tooltip>
-                          )}
-                          <Tooltip content="Terminate session">
+                          {/* History expand/collapse button */}
+                          <Tooltip content={expandedHistory.has(session.sessionId) ? "Hide history" : "View prefill history"}>
                             <Button
                               variant="subtle"
                               size="sm"
-                              color="red"
-                              onClick={() => handleTerminateSession(session.sessionId)}
-                              disabled={terminatingSession === session.sessionId}
+                              onClick={() => toggleHistory(session.sessionId)}
                             >
-                              {terminatingSession === session.sessionId ? (
+                              {loadingHistory.has(session.sessionId) ? (
                                 <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : expandedHistory.has(session.sessionId) ? (
+                                <ChevronUp className="w-4 h-4" />
                               ) : (
-                                <StopCircle className="w-4 h-4" />
+                                <ChevronDown className="w-4 h-4" />
                               )}
                             </Button>
                           </Tooltip>
+
+                          {isAuthenticated && session.isLive && (
+                            <>
+                              {session.steamUsername && (
+                                <Tooltip content="Ban this Steam user">
+                                  <Button
+                                    variant="subtle"
+                                    size="sm"
+                                    color="red"
+                                    onClick={() => setBanConfirm({ sessionId: session.sessionId, reason: '' })}
+                                  >
+                                    <Ban className="w-4 h-4" />
+                                  </Button>
+                                </Tooltip>
+                              )}
+                              <Tooltip content="Terminate session">
+                                <Button
+                                  variant="subtle"
+                                  size="sm"
+                                  color="red"
+                                  onClick={() => handleTerminateSession(session.sessionId)}
+                                  disabled={terminatingSession === session.sessionId}
+                                >
+                                  {terminatingSession === session.sessionId ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <StopCircle className="w-4 h-4" />
+                                  )}
+                                </Button>
+                              </Tooltip>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Expandable prefill history for session history */}
+                      {expandedHistory.has(session.sessionId) && (
+                        <div
+                          className="mt-4 pt-4"
+                          style={{ borderTop: '1px solid var(--theme-border-primary)' }}
+                        >
+                          <div className="flex items-center gap-2 mb-3">
+                            <Gamepad2 className="w-4 h-4 text-themed-muted" />
+                            <span className="text-sm font-medium text-themed-secondary">Prefill History</span>
+                          </div>
+
+                          {loadingHistory.has(session.sessionId) ? (
+                            <div className="flex items-center gap-2 py-4 justify-center">
+                              <Loader2 className="w-4 h-4 animate-spin text-themed-muted" />
+                              <span className="text-sm text-themed-muted">Loading history...</span>
+                            </div>
+                          ) : !sessionHistory || sessionHistory.length === 0 ? (
+                            <div className="text-center py-4 text-sm text-themed-muted">
+                              No prefill history recorded
+                            </div>
+                          ) : (() => {
+                            const currentPage = historyPage[session.sessionId] || 1;
+                            const totalPages = Math.ceil(sessionHistory.length / historyPageSize);
+                            const startIdx = (currentPage - 1) * historyPageSize;
+                            const paginatedEntries = sessionHistory.slice(startIdx, startIdx + historyPageSize);
+
+                            return (
+                              <>
+                                {/* Summary stats */}
+                                <div className="flex items-center gap-4 mb-3 text-xs text-themed-muted">
+                                  <span>{sessionHistory.length} game{sessionHistory.length !== 1 ? 's' : ''} prefilled</span>
+                                  {totalBytesFromHistory > 0 && (
+                                    <span>Total: {formatBytes(totalBytesFromHistory)}</span>
+                                  )}
+                                </div>
+
+                                <div className="space-y-2">
+                                  {paginatedEntries.map(entry => (
+                                    <div
+                                      key={entry.id}
+                                      className="flex items-center justify-between gap-3 p-2 rounded"
+                                      style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+                                    >
+                                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                                        <Gamepad2 className="w-4 h-4 text-themed-muted flex-shrink-0" />
+                                        <div className="min-w-0 flex-1">
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-sm font-medium text-themed-primary truncate">
+                                              {entry.appName || `App ${entry.appId}`}
+                                            </span>
+                                            <HistoryStatusBadge status={entry.status} />
+                                          </div>
+                                          <div className="flex items-center gap-3 text-[10px] text-themed-muted mt-0.5">
+                                            <span>Started: <FormattedTimestamp timestamp={entry.startedAtUtc} /></span>
+                                            {entry.completedAtUtc && (
+                                              <span>Completed: <FormattedTimestamp timestamp={entry.completedAtUtc} /></span>
+                                            )}
+                                            {entry.bytesDownloaded > 0 && (
+                                              <span>{formatBytes(entry.bytesDownloaded)}</span>
+                                            )}
+                                          </div>
+                                          {entry.errorMessage && (
+                                            <div className="flex items-center gap-1 mt-1 text-[10px]" style={{ color: 'var(--theme-icon-red)' }}>
+                                              <XCircle className="w-3 h-3" />
+                                              <span className="truncate">{entry.errorMessage}</span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+
+                                {/* Pagination */}
+                                {totalPages > 1 && (
+                                  <div className="mt-3 flex justify-center">
+                                    <Pagination
+                                      currentPage={currentPage}
+                                      totalPages={totalPages}
+                                      totalItems={sessionHistory.length}
+                                      itemsPerPage={historyPageSize}
+                                      onPageChange={(newPage) => setHistoryPage(prev => ({ ...prev, [session.sessionId]: newPage }))}
+                                      itemLabel="games"
+                                      compact
+                                    />
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
                       )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
 
             {totalPages > 1 && (

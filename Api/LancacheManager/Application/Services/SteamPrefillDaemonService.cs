@@ -1109,9 +1109,6 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
             var json = await File.ReadAllTextAsync(filePath);
             
-            // Log raw JSON for debugging (temporarily at Info level)
-            _logger.LogInformation("Raw prefill progress JSON: {Json}", json.Length > 500 ? json[..500] + "..." : json);
-            
             // Note: PropertyNameCaseInsensitive handles camelCase/PascalCase
             var progress = JsonSerializer.Deserialize<PrefillProgress>(json, new JsonSerializerOptions
             {
@@ -1120,10 +1117,9 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
             if (progress != null)
             {
-                // Log parsed values for debugging (temporarily at Info level)
-                _logger.LogInformation("Parsed progress - AppId: {AppId}, AppName: {AppName}, BytesDownloaded: {Bytes}, TotalBytes: {Total}, TotalTransferred: {TotalTransferred}",
-                    progress.CurrentAppId, progress.CurrentAppName, progress.BytesDownloaded, progress.TotalBytes, progress.TotalBytesTransferred);
-                    
+                _logger.LogDebug("Parsed progress - AppId: {AppId}, AppName: {AppName}, BytesDownloaded: {Bytes}, TotalBytes: {Total}",
+                    progress.CurrentAppId, progress.CurrentAppName, progress.BytesDownloaded, progress.TotalBytes);
+
                 await NotifyPrefillProgressAsync(session, progress);
             }
         }
@@ -1214,30 +1210,30 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         // Track history: detect game transitions
         if (appInfoChanged && progress.CurrentAppId > 0)
         {
-            // If there was a previous app being prefilled, complete its history entry
+            // If there was an app being prefilled, complete its history entry
             // Use the STORED bytes (from before the transition), not progress bytes (which are for the new app)
-            if (session.PreviousAppId > 0)
+            if (session.CurrentAppId > 0)
             {
                 try
                 {
-                    // Complete the previous app's entry using stored values
+                    // Complete the current app's entry using stored values (this is the app that just finished)
                     await _sessionService.CompletePrefillEntryAsync(
                         session.Id,
-                        session.PreviousAppId,
+                        session.CurrentAppId,
                         "Completed",
                         session.CurrentBytesDownloaded,  // Use stored bytes, not progress.BytesDownloaded
                         session.CurrentTotalBytes);      // Use stored total, not progress.TotalBytes
 
                     _logger.LogInformation("Completed prefill history for app {AppId} ({AppName}) in session {SessionId}: {Bytes}/{Total} bytes",
-                        session.PreviousAppId, session.PreviousAppName, session.Id,
+                        session.CurrentAppId, session.CurrentAppName, session.Id,
                         session.CurrentBytesDownloaded, session.CurrentTotalBytes);
 
                     // Broadcast history update
-                    await BroadcastPrefillHistoryUpdatedAsync(session.Id, session.PreviousAppId, "Completed");
+                    await BroadcastPrefillHistoryUpdatedAsync(session.Id, session.CurrentAppId, "Completed");
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to complete prefill history entry for app {AppId}", session.PreviousAppId);
+                    _logger.LogWarning(ex, "Failed to complete prefill history entry for app {AppId}", session.CurrentAppId);
                 }
             }
 
