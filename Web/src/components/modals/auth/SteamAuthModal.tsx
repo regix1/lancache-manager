@@ -44,16 +44,27 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
     cancelPendingRequest
   } = actions;
 
+  // Track if a submit is in progress to prevent spam clicks
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+
   const handleCloseModal = () => {
-    if (!loading) {
+    if (!loading && !isSubmitting) {
       onClose();
     }
   };
 
   const handleSubmit = async () => {
-    const success = await handleAuthenticate();
-    if (success) {
-      onClose();
+    // Prevent multiple clicks - check immediately before any async work
+    if (isSubmitting || loading) return;
+    setIsSubmitting(true);
+
+    try {
+      const success = await handleAuthenticate();
+      if (success) {
+        onClose();
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -284,7 +295,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
           <Button
             variant="default"
             onClick={handleCloseModal}
-            disabled={loading}
+            disabled={loading || isSubmitting}
             className="flex-1"
           >
             Cancel
@@ -296,13 +307,14 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
               onClick={handleSubmit}
               disabled={
                 loading ||
+                isSubmitting ||
                 (!needsTwoFactor && !needsEmailCode && (!username.trim() || !password.trim())) ||
                 (useManualCode && !twoFactorCode.trim())
               }
               className="flex-1"
             >
-              {loading && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-              {loading
+              {(loading || isSubmitting) && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+              {loading || isSubmitting
                 ? 'Authenticating...'
                 : needsEmailCode
                   ? 'Verify'

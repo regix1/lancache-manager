@@ -1528,6 +1528,12 @@ export interface DaemonSessionDto {
   endedAt?: string;
   expiresAt: string;
   timeRemainingSeconds: number;
+  // Client info for admin visibility
+  ipAddress?: string;
+  operatingSystem?: string;
+  browser?: string;
+  lastSeenAt: string;
+  steamUsername?: string;
 }
 
 export interface PrefillSessionsResponse {

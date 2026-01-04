@@ -3,6 +3,7 @@ using LancacheManager.Application.DTOs;
 using LancacheManager.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Repositories.Interfaces;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
@@ -151,7 +152,7 @@ public class DevicesController : ControllerBase
                     // Create new UserSession for direct authentication
                     _logger.LogInformation("Creating UserSession for direct authentication: {DeviceId}", request.DeviceId);
 
-                    var (os, browser) = ParseUserAgent(userAgent);
+                    var (os, browser) = UserAgentParser.Parse(userAgent);
 
                     var newUserSession = new UserSession
                     {
@@ -193,75 +194,6 @@ public class DevicesController : ControllerBase
 
     // Note: Device/session revocation has been moved to SessionsController
     // Use DELETE /api/sessions/{id} for revoking both authenticated devices and guest sessions
-
-    private (string? os, string? browser) ParseUserAgent(string? userAgent)
-    {
-        if (string.IsNullOrEmpty(userAgent))
-        {
-            return (null, null);
-        }
-
-        string? os = null;
-        string? browser = null;
-
-        // Detect OS
-        if (userAgent.Contains("Windows NT 10.0"))
-            os = "Windows 10/11";
-        else if (userAgent.Contains("Windows NT 6.3"))
-            os = "Windows 8.1";
-        else if (userAgent.Contains("Windows NT 6.2"))
-            os = "Windows 8";
-        else if (userAgent.Contains("Windows NT 6.1"))
-            os = "Windows 7";
-        else if (userAgent.Contains("Windows"))
-            os = "Windows";
-        else if (userAgent.Contains("Mac OS X"))
-        {
-            var match = System.Text.RegularExpressions.Regex.Match(userAgent, @"Mac OS X (\d+[._]\d+)");
-            os = match.Success ? $"macOS {match.Groups[1].Value.Replace('_', '.')}" : "macOS";
-        }
-        else if (userAgent.Contains("Linux"))
-            os = "Linux";
-        else if (userAgent.Contains("Android"))
-        {
-            var match = System.Text.RegularExpressions.Regex.Match(userAgent, @"Android (\d+(\.\d+)?)");
-            os = match.Success ? $"Android {match.Groups[1].Value}" : "Android";
-        }
-        else if (userAgent.Contains("iPhone") || userAgent.Contains("iPad"))
-        {
-            var match = System.Text.RegularExpressions.Regex.Match(userAgent, @"OS (\d+_\d+)");
-            os = match.Success ? $"iOS {match.Groups[1].Value.Replace('_', '.')}" : "iOS";
-        }
-
-        // Detect Browser
-        if (userAgent.Contains("Edg/"))
-        {
-            var match = System.Text.RegularExpressions.Regex.Match(userAgent, @"Edg/([\d.]+)");
-            browser = match.Success ? $"Edge {match.Groups[1].Value}" : "Edge";
-        }
-        else if (userAgent.Contains("OPR/") || userAgent.Contains("Opera/"))
-        {
-            var match = System.Text.RegularExpressions.Regex.Match(userAgent, @"(?:OPR|Opera)/([\d.]+)");
-            browser = match.Success ? $"Opera {match.Groups[1].Value}" : "Opera";
-        }
-        else if (userAgent.Contains("Chrome/"))
-        {
-            var match = System.Text.RegularExpressions.Regex.Match(userAgent, @"Chrome/([\d.]+)");
-            browser = match.Success ? $"Chrome {match.Groups[1].Value}" : "Chrome";
-        }
-        else if (userAgent.Contains("Safari/") && !userAgent.Contains("Chrome"))
-        {
-            var match = System.Text.RegularExpressions.Regex.Match(userAgent, @"Version/([\d.]+)");
-            browser = match.Success ? $"Safari {match.Groups[1].Value}" : "Safari";
-        }
-        else if (userAgent.Contains("Firefox/"))
-        {
-            var match = System.Text.RegularExpressions.Regex.Match(userAgent, @"Firefox/([\d.]+)");
-            browser = match.Success ? $"Firefox {match.Groups[1].Value}" : "Firefox";
-        }
-
-        return (os, browser);
-    }
 
     public class RegisterDeviceRequest
     {

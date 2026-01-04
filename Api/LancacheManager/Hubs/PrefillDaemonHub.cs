@@ -110,8 +110,12 @@ public class PrefillDaemonHub : Hub
 
         try
         {
+            var httpContext = Context.GetHttpContext();
+            var ipAddress = httpContext?.Connection.RemoteIpAddress?.ToString();
+            var userAgent = httpContext?.Request.Headers["User-Agent"].FirstOrDefault();
+
             _logger.LogInformation("Creating daemon session for device {DeviceId}", deviceId);
-            var session = await _daemonService.CreateSessionAsync(deviceId);
+            var session = await _daemonService.CreateSessionAsync(deviceId, ipAddress, userAgent);
 
             // Subscribe this connection to session events
             _daemonService.AddSubscriber(session.Id, Context.ConnectionId);

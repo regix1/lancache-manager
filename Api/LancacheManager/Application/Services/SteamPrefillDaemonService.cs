@@ -4,6 +4,7 @@ using Docker.DotNet;
 using Docker.DotNet.Models;
 using LancacheManager.Application.SteamPrefill;
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.SignalR;
 
@@ -212,7 +213,11 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     /// Creates a new daemon session for a user.
     /// Spawns a Docker container with dedicated command/response directories.
     /// </summary>
-    public async Task<DaemonSession> CreateSessionAsync(string userId, CancellationToken cancellationToken = default)
+    public async Task<DaemonSession> CreateSessionAsync(
+        string userId,
+        string? ipAddress = null,
+        string? userAgent = null,
+        CancellationToken cancellationToken = default)
     {
         if (_dockerClient == null)
         {
@@ -339,6 +344,9 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             throw new InvalidOperationException($"Container crashed immediately. Ensure image '{imageName}' exists and is properly configured.");
         }
 
+        // Parse user agent for OS and browser info
+        var (os, browser) = UserAgentParser.Parse(userAgent);
+
         var session = new DaemonSession
         {
             Id = sessionId,
@@ -347,7 +355,12 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             ContainerName = containerName,
             CommandsDir = commandsDir,
             ResponsesDir = responsesDir,
-            ExpiresAt = DateTime.UtcNow.AddMinutes(GetSessionTimeoutMinutes())
+            ExpiresAt = DateTime.UtcNow.AddMinutes(GetSessionTimeoutMinutes()),
+            IpAddress = ipAddress,
+            UserAgent = userAgent,
+            OperatingSystem = os,
+            Browser = browser,
+            LastSeenAt = DateTime.UtcNow
         };
 
         // Create daemon client
@@ -1327,6 +1340,15 @@ public class DaemonSession
     /// </summary>
     public string? SteamUsername { get; set; }
 
+    /// <summary>
+    /// Client connection info for admin visibility
+    /// </summary>
+    public string? IpAddress { get; init; }
+    public string? UserAgent { get; init; }
+    public string? OperatingSystem { get; init; }
+    public string? Browser { get; init; }
+    public DateTime LastSeenAt { get; set; } = DateTime.UtcNow;
+
     public DaemonClient Client { get; set; } = null!;
     public FileSystemWatcher? StatusWatcher { get; set; }
     public HashSet<string> SubscribedConnections { get; } = new();
@@ -1367,6 +1389,13 @@ public class DaemonSessionDto
     public DateTime ExpiresAt { get; set; }
     public int TimeRemainingSeconds { get; set; }
 
+    // Client info for admin visibility
+    public string? IpAddress { get; set; }
+    public string? OperatingSystem { get; set; }
+    public string? Browser { get; set; }
+    public DateTime LastSeenAt { get; set; }
+    public string? SteamUsername { get; set; }
+
     public static DaemonSessionDto FromSession(DaemonSession session)
     {
         return new DaemonSessionDto
@@ -1380,7 +1409,12 @@ public class DaemonSessionDto
             CreatedAt = session.CreatedAt,
             EndedAt = session.EndedAt,
             ExpiresAt = session.ExpiresAt,
-            TimeRemainingSeconds = Math.Max(0, (int)(session.ExpiresAt - DateTime.UtcNow).TotalSeconds)
+            TimeRemainingSeconds = Math.Max(0, (int)(session.ExpiresAt - DateTime.UtcNow).TotalSeconds),
+            IpAddress = session.IpAddress,
+            OperatingSystem = session.OperatingSystem,
+            Browser = session.Browser,
+            LastSeenAt = session.LastSeenAt,
+            SteamUsername = session.SteamUsername
         };
     }
 }

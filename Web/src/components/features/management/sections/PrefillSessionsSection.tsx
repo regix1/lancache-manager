@@ -9,7 +9,12 @@ import {
   AlertTriangle,
   Clock,
   Loader2,
-  RefreshCw
+  RefreshCw,
+  Network,
+  Monitor,
+  User,
+  Eye,
+  Fingerprint
 } from 'lucide-react';
 import { Card, CardContent } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -348,29 +353,24 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             {activeSessions.map(session => (
               <Card key={session.id}>
                 <CardContent className="py-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-4 flex-1 min-w-0">
                       <div
-                        className="w-10 h-10 rounded-lg flex items-center justify-center"
+                        className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
                         style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
                       >
                         <Container className="w-5 h-5 text-themed-muted" />
                       </div>
-                      <div>
-                        <div className="flex items-center gap-2">
+                      <div className="flex-1 min-w-0">
+                        {/* Header row */}
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-mono text-sm text-themed-primary">
                             {session.containerName}
                           </span>
                           <StatusBadge status={session.status} isLive />
-                        </div>
-                        <div className="flex items-center gap-3 text-xs text-themed-muted mt-1">
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
-                            Started: <FormattedTimestamp timestamp={session.createdAt} />
-                          </span>
                           {session.isPrefilling && (
                             <span
-                              className="flex items-center gap-1 px-1.5 py-0.5 rounded"
+                              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs"
                               style={{
                                 backgroundColor: 'color-mix(in srgb, var(--theme-primary) 20%, transparent)',
                                 color: 'var(--theme-primary)'
@@ -380,11 +380,51 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                             </span>
                           )}
                         </div>
+
+                        {/* Steam username if available */}
+                        {session.steamUsername && (
+                          <div className="flex items-center gap-1.5 mt-1.5 text-sm">
+                            <User className="w-3.5 h-3.5" style={{ color: 'var(--theme-steam)' }} />
+                            <span className="font-medium" style={{ color: 'var(--theme-steam)' }}>
+                              {session.steamUsername}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Client info grid */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs text-themed-muted">
+                          {session.ipAddress && (
+                            <div className="flex items-center gap-1.5">
+                              <Network className="w-3 h-3 flex-shrink-0" />
+                              <span className="font-mono">{session.ipAddress}</span>
+                            </div>
+                          )}
+                          {(session.operatingSystem || session.browser) && (
+                            <div className="flex items-center gap-1.5">
+                              <Monitor className="w-3 h-3 flex-shrink-0" />
+                              <span className="truncate">
+                                {[session.operatingSystem, session.browser].filter(Boolean).join(' · ')}
+                              </span>
+                            </div>
+                          )}
+                          <div className="flex items-center gap-1.5">
+                            <Clock className="w-3 h-3 flex-shrink-0" />
+                            <span>Created: <FormattedTimestamp timestamp={session.createdAt} /></span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <Eye className="w-3 h-3 flex-shrink-0" />
+                            <span>Last seen: <FormattedTimestamp timestamp={session.lastSeenAt} /></span>
+                          </div>
+                          <div className="flex items-center gap-1.5 sm:col-span-2">
+                            <Fingerprint className="w-3 h-3 flex-shrink-0" />
+                            <span className="font-mono text-[10px] truncate opacity-70">{session.userId}</span>
+                          </div>
+                        </div>
                       </div>
                     </div>
 
                     {isAuthenticated && (
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-shrink-0">
                         <Tooltip content="Ban this Steam user">
                           <Button
                             variant="subtle"
