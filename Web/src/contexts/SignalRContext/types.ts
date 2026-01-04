@@ -405,13 +405,17 @@ export interface DaemonSessionCreatedEvent {
   userId: string;
   containerName: string;
   status: string;
+  authState: string;
+  isPrefilling: boolean;
   createdAt: string;
+  endedAt?: string;
+  expiresAt: string;
+  timeRemainingSeconds: number;
   ipAddress?: string;
   operatingSystem?: string;
   browser?: string;
   lastSeenAt: string;
   steamUsername?: string;
-  isPrefilling: boolean;
 }
 
 export interface DaemonSessionUpdatedEvent {
@@ -419,13 +423,17 @@ export interface DaemonSessionUpdatedEvent {
   userId: string;
   containerName: string;
   status: string;
+  authState: string;
+  isPrefilling: boolean;
   createdAt: string;
+  endedAt?: string;
+  expiresAt: string;
+  timeRemainingSeconds: number;
   ipAddress?: string;
   operatingSystem?: string;
   browser?: string;
   lastSeenAt: string;
   steamUsername?: string;
-  isPrefilling: boolean;
 }
 
 export interface DaemonSessionTerminatedEvent {

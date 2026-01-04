@@ -212,10 +212,30 @@ public class AuthController : ControllerBase
         {
             try
             {
+                // Check 1: Direct device ID match in bans
                 isBanned = _dbContext.BannedSteamUsers
                     .Any(b => b.BannedDeviceId == checkDeviceId && 
                               !b.IsLifted && 
                               (b.ExpiresAtUtc == null || b.ExpiresAtUtc > DateTime.UtcNow));
+
+                // Check 2: If not found by device ID, check if any sessions from this device
+                // have a username that is banned (handles same user, different device scenarios)
+                if (!isBanned)
+                {
+                    var usernames = _dbContext.PrefillSessions
+                        .Where(s => s.DeviceId == checkDeviceId && !string.IsNullOrEmpty(s.SteamUsername))
+                        .Select(s => s.SteamUsername!.ToLower())
+                        .Distinct()
+                        .ToList();
+
+                    if (usernames.Any())
+                    {
+                        isBanned = _dbContext.BannedSteamUsers
+                            .Any(b => usernames.Contains(b.Username.ToLower()) &&
+                                      !b.IsLifted &&
+                                      (b.ExpiresAtUtc == null || b.ExpiresAtUtc > DateTime.UtcNow));
+                    }
+                }
             }
             catch (Exception ex)
             {
