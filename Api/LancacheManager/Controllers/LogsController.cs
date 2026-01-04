@@ -25,6 +25,7 @@ public class LogsController : ControllerBase
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly DatasourceService _datasourceService;
     private readonly StateRepository _stateRepository;
+    private readonly NginxLogRotationService _nginxLogRotationService;
 
     public LogsController(
         RustLogProcessorService rustLogProcessorService,
@@ -33,7 +34,8 @@ public class LogsController : ControllerBase
         IPathResolver pathResolver,
         RustProcessHelper rustProcessHelper,
         DatasourceService datasourceService,
-        StateRepository stateRepository)
+        StateRepository stateRepository,
+        NginxLogRotationService nginxLogRotationService)
     {
         _rustLogProcessorService = rustLogProcessorService;
         _rustLogRemovalService = rustLogRemovalService;
@@ -42,6 +44,7 @@ public class LogsController : ControllerBase
         _rustProcessHelper = rustProcessHelper;
         _datasourceService = datasourceService;
         _stateRepository = stateRepository;
+        _nginxLogRotationService = nginxLogRotationService;
     }
 
     /// <summary>
@@ -605,13 +608,10 @@ public class LogsController : ControllerBase
                 datasourceName, accessLogPath, fileSize);
 
             // Signal nginx to reopen logs (if docker socket is available)
-            try
+            var rotationResult = await _nginxLogRotationService.ReopenNginxLogsAsync();
+            if (!rotationResult.Success)
             {
-                await SignalNginxToReopenLogs();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to signal nginx to reopen logs after deletion");
+                _logger.LogWarning("Failed to signal nginx to reopen logs: {Error}", rotationResult.ErrorMessage);
                 // Don't fail the operation - the file was deleted successfully
             }
 
@@ -624,53 +624,6 @@ public class LogsController : ControllerBase
         {
             _logger.LogError(ex, "Failed to delete log file: {Path}", accessLogPath);
             return StatusCode(500, new ConflictResponse { Error = $"Failed to delete log file: {ex.Message}" });
-        }
-    }
-
-    /// <summary>
-    /// Signal nginx container to reopen log files (used after log deletion)
-    /// </summary>
-    private async Task SignalNginxToReopenLogs()
-    {
-        var dockerSocketPath = "/var/run/docker.sock";
-        if (!System.IO.File.Exists(dockerSocketPath))
-        {
-            _logger.LogDebug("Docker socket not available, skipping nginx signal");
-            return;
-        }
-
-        try
-        {
-            // Use docker exec to send USR1 signal to nginx
-            var process = new System.Diagnostics.Process
-            {
-                StartInfo = new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = "docker",
-                    Arguments = "exec lancache nginx -s reopen",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
-            };
-
-            process.Start();
-            await process.WaitForExitAsync();
-
-            if (process.ExitCode == 0)
-            {
-                _logger.LogDebug("Successfully signaled nginx to reopen logs");
-            }
-            else
-            {
-                var stderr = await process.StandardError.ReadToEndAsync();
-                _logger.LogWarning("Failed to signal nginx (exit code {Code}): {Error}", process.ExitCode, stderr);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error signaling nginx to reopen logs");
         }
     }
 
