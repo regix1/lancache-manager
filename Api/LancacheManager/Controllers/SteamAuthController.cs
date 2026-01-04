@@ -87,6 +87,13 @@ public class SteamAuthController : ControllerBase
 
                 _logger.LogInformation("Steam authentication successful for user: {Username}", request.Username);
 
+                // Auto-start PICS rebuild if requested
+                if (request.AutoStartPicsRebuild)
+                {
+                    _logger.LogInformation("Auto-starting PICS depot mapping rebuild after login");
+                    _steamKit2Service.TryStartRebuild();
+                }
+
                 return Ok(new SteamLoginResponse
                 {
                     Success = true,
