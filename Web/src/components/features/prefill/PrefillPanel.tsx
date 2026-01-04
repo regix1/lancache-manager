@@ -31,8 +31,13 @@ import {
   Eye,
   Zap,
   Timer,
-  Shield
+  Shield,
+  Settings,
+  Monitor,
+  Cpu
 } from 'lucide-react';
+import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
+import { MultiSelectDropdown, type MultiSelectOption } from '@components/ui/MultiSelectDropdown';
 
 // Auth states from backend - matches SteamAuthState enum
 type SteamAuthState =
@@ -157,6 +162,24 @@ const UTILITY_COMMANDS: CommandButton[] = [
   }
 ];
 
+// Operating system options for prefill (multi-select)
+const OS_OPTIONS: MultiSelectOption[] = [
+  { value: 'windows', label: 'Windows', description: 'Windows game depots' },
+  { value: 'linux', label: 'Linux', description: 'Native Linux depots' },
+  { value: 'macos', label: 'macOS', description: 'macOS depots' }
+];
+
+// Max concurrency/thread options
+const THREAD_OPTIONS: DropdownOption[] = [
+  { value: 'default', label: 'Auto', description: 'Let daemon decide (recommended)' },
+  { value: '1', label: '1 Thread', description: 'Minimal bandwidth usage' },
+  { value: '2', label: '2 Threads', description: 'Low bandwidth usage' },
+  { value: '4', label: '4 Threads', description: 'Moderate bandwidth' },
+  { value: '8', label: '8 Threads', description: 'High bandwidth' },
+  { value: '16', label: '16 Threads', description: 'Very high bandwidth' },
+  { value: '32', label: '32 Threads', description: 'Maximum performance' }
+];
+
 export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const hubConnection = useRef<HubConnection | null>(null);
   const initializationAttempted = useRef(false);
@@ -179,6 +202,10 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const [selectedAppIds, setSelectedAppIds] = useState<number[]>([]);
   const [showGameSelection, setShowGameSelection] = useState(false);
   const [isLoadingGames, setIsLoadingGames] = useState(false);
+
+  // Prefill settings state
+  const [selectedOS, setSelectedOS] = useState<string[]>(['windows', 'linux', 'macos']);
+  const [maxConcurrency, setMaxConcurrency] = useState<string>('default');
 
   // Prefill progress state
   const [prefillProgress, setPrefillProgress] = useState<{
@@ -551,13 +578,26 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       force?: boolean;
     } = {}
   ) => {
+    // Build the full request with settings
+    const requestBody: Record<string, unknown> = { ...options };
+
+    // Add OS selection (only if not all platforms selected)
+    if (selectedOS.length > 0 && selectedOS.length < 3) {
+      requestBody.operatingSystems = selectedOS;
+    }
+
+    // Add max concurrency if not default
+    if (maxConcurrency !== 'default') {
+      requestBody.maxConcurrency = parseInt(maxConcurrency, 10);
+    }
+
     const response = await fetch(`${API_BASE}/prefill-daemon/sessions/${sessionId}/prefill`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         ...authService.getAuthHeaders()
       },
-      body: JSON.stringify(options)
+      body: JSON.stringify(requestBody)
     });
 
     if (!response.ok) {
@@ -566,7 +606,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     }
 
     return response.json();
-  }, []);
+  }, [selectedOS, maxConcurrency]);
 
   const executeCommand = useCallback(async (commandType: CommandType) => {
     if (!session || !hubConnection.current) return;
@@ -1203,6 +1243,44 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {SELECTION_COMMANDS.map(renderCommandButton)}
+                </div>
+              </div>
+
+              {/* Download Settings */}
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-themed-muted mb-3 flex items-center gap-2">
+                  <Settings className="h-3.5 w-3.5" />
+                  Download Settings
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* OS Selection */}
+                  <div>
+                    <label className="text-sm font-medium text-themed-secondary mb-1.5 flex items-center gap-2">
+                      <Monitor className="h-3.5 w-3.5" />
+                      Target Platforms
+                    </label>
+                    <MultiSelectDropdown
+                      options={OS_OPTIONS}
+                      values={selectedOS}
+                      onChange={setSelectedOS}
+                      disabled={isExecuting || !isLoggedIn}
+                      minSelections={1}
+                      placeholder="Select platforms"
+                    />
+                  </div>
+                  {/* Thread/Concurrency Selection */}
+                  <div>
+                    <label className="text-sm font-medium text-themed-secondary mb-1.5 flex items-center gap-2">
+                      <Cpu className="h-3.5 w-3.5" />
+                      Download Threads
+                    </label>
+                    <EnhancedDropdown
+                      options={THREAD_OPTIONS}
+                      value={maxConcurrency}
+                      onChange={setMaxConcurrency}
+                      disabled={isExecuting || !isLoggedIn}
+                    />
+                  </div>
                 </div>
               </div>
 

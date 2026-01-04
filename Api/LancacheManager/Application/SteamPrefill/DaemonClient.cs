@@ -328,6 +328,7 @@ public sealed class DaemonClient : IDisposable
         int? top = null,
         bool force = false,
         List<string>? operatingSystems = null,
+        int? maxConcurrency = null,
         CancellationToken cancellationToken = default)
     {
         var parameters = new Dictionary<string, string>();
@@ -336,8 +337,12 @@ public sealed class DaemonClient : IDisposable
         if (recentlyPurchased) parameters["recentlyPurchased"] = "true";
         if (top.HasValue) parameters["top"] = top.Value.ToString();
         if (force) parameters["force"] = "true";
-        if (operatingSystems != null && operatingSystems.Count > 0)
-            parameters["os"] = string.Join(",", operatingSystems);
+        if (maxConcurrency.HasValue && maxConcurrency.Value > 0)
+            parameters["maxConcurrency"] = maxConcurrency.Value.ToString();
+        // Always include all OS platforms by default - prefill daemon should cache all depots regardless of server OS
+        parameters["os"] = operatingSystems != null && operatingSystems.Count > 0
+            ? string.Join(",", operatingSystems)
+            : "windows,linux,macos";
 
         var response = await SendCommandAsync("prefill", parameters,
             timeout: TimeSpan.FromHours(24),

@@ -635,6 +635,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         int? top = null,
         bool force = false,
         List<string>? operatingSystems = null,
+        int? maxConcurrency = null,
         CancellationToken cancellationToken = default)
     {
         if (!_sessions.TryGetValue(sessionId, out var session))
@@ -652,7 +653,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
         try
         {
-            var result = await session.Client.PrefillAsync(all, recent, recentlyPurchased, top, force, operatingSystems, cancellationToken);
+            var result = await session.Client.PrefillAsync(all, recent, recentlyPurchased, top, force, operatingSystems, maxConcurrency, cancellationToken);
             await NotifyPrefillStateChangeAsync(session, result.Success ? "completed" : "failed");
 
             // Complete the last in-progress entry if any (the final game)

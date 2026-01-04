@@ -365,7 +365,9 @@ public class PrefillDaemonController : ControllerBase
                 recent: request?.Recent ?? false,
                 recentlyPurchased: request?.RecentlyPurchased ?? false,
                 top: request?.Top,
-                force: request?.Force ?? false);
+                force: request?.Force ?? false,
+                operatingSystems: request?.OperatingSystems,
+                maxConcurrency: request?.MaxConcurrency);
 
             return Ok(result);
         }
@@ -446,6 +448,8 @@ public class PrefillDaemonController : ControllerBase
         public bool RecentlyPurchased { get; set; }
         public int? Top { get; set; }
         public bool Force { get; set; }
+        public List<string>? OperatingSystems { get; set; }
+        public int? MaxConcurrency { get; set; }
     }
 
     #endregion
