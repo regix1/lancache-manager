@@ -388,6 +388,7 @@ const DataSection: React.FC<DataSectionProps> = ({
             setShowClearModal(false);
           }
         }}
+        size="lg"
         title={
           <div className="flex items-center space-x-3">
             <AlertTriangle className="w-6 h-6 text-themed-warning" />
