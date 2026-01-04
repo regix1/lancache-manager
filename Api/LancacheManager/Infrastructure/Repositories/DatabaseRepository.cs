@@ -290,7 +290,7 @@ public class DatabaseRepository : IDatabaseRepository
             });
 
             // Validate table names to prevent SQL injection
-            var validTables = new HashSet<string> { "LogEntries", "Downloads", "ClientStats", "ServiceStats", "SteamDepotMappings", "CachedGameDetections", "UserSessions", "UserPreferences", "Events", "EventDownloads" };
+            var validTables = new HashSet<string> { "LogEntries", "Downloads", "ClientStats", "ServiceStats", "SteamDepotMappings", "CachedGameDetections", "CachedCorruptionDetections", "ClientGroups", "UserSessions", "UserPreferences", "Events", "EventDownloads", "PrefillSessions", "BannedSteamUsers" };
             var tablesToClear = tableNames.Where(t => validTables.Contains(t)).ToList();
 
             if (tablesToClear.Count == 0)
@@ -319,10 +319,14 @@ public class DatabaseRepository : IDatabaseRepository
                     "ServiceStats" => await context.ServiceStats.CountAsync(),
                     "SteamDepotMappings" => await context.SteamDepotMappings.CountAsync(),
                     "CachedGameDetections" => await context.CachedGameDetections.CountAsync(),
+                    "CachedCorruptionDetections" => await context.CachedCorruptionDetections.CountAsync(),
+                    "ClientGroups" => await context.ClientGroups.CountAsync(),
                     "UserSessions" => await context.UserSessions.CountAsync(),
                     "UserPreferences" => await context.UserPreferences.CountAsync(),
                     "Events" => await context.Events.CountAsync(),
                     "EventDownloads" => await context.EventDownloads.CountAsync(),
+                    "PrefillSessions" => await context.PrefillSessions.CountAsync(),
+                    "BannedSteamUsers" => await context.BannedSteamUsers.CountAsync(),
                     _ => 0
                 };
                 totalRows += count;
@@ -348,17 +352,25 @@ public class DatabaseRepository : IDatabaseRepository
                 // PRIORITY ORDER:
                 // 1. UserSessions - ALWAYS FIRST to immediately invalidate all sessions
                 // 2. UserPreferences - Must be deleted before UserSessions FK cascade
-                // 3. LogEntries - Must be deleted before Downloads FK
-                // 4. Downloads - Has FK dependency on LogEntries
-                // 5. All others - No dependencies
+                // 3. PrefillHistoryEntries - FK dependency on PrefillSessions
+                // 4. PrefillSessions - Must be after PrefillHistoryEntries
+                // 5. EventDownloads - FK dependency from Events and Downloads
+                // 6. LogEntries - Must be deleted before Downloads FK
+                // 7. Downloads - Has FK dependency on LogEntries
+                // 8. Events - EventDownloads depend on this
+                // 9. ClientGroupMembers - FK dependency on ClientGroups
+                // 10. ClientGroups - Must be after ClientGroupMembers
+                // 11. All others - No dependencies
                 var orderedTables = tablesToClear.OrderBy(t =>
-                    t == "UserSessions" ? 0 :      // HIGHEST PRIORITY - invalidate sessions first
-                    t == "UserPreferences" ? 1 :   // Second - FK dependency on UserSessions
-                    t == "EventDownloads" ? 2 :    // Third - FK dependency from Events and Downloads
-                    t == "LogEntries" ? 3 :        // Fourth - FK dependency from Downloads
-                    t == "Downloads" ? 4 :         // Fifth - depends on LogEntries
-                    t == "Events" ? 5 :            // Sixth - EventDownloads depend on this
-                    6).ToList();
+                    t == "UserSessions" ? 0 :           // HIGHEST PRIORITY - invalidate sessions first
+                    t == "UserPreferences" ? 1 :        // Second - FK dependency on UserSessions
+                    t == "PrefillSessions" ? 2 :        // Third - PrefillHistoryEntries FK dependency (cascade will handle)
+                    t == "EventDownloads" ? 3 :         // Fourth - FK dependency from Events and Downloads
+                    t == "LogEntries" ? 4 :             // Fifth - FK dependency from Downloads
+                    t == "Downloads" ? 5 :              // Sixth - depends on LogEntries
+                    t == "Events" ? 6 :                 // Seventh - EventDownloads depend on this
+                    t == "ClientGroups" ? 7 :           // Eighth - ClientGroupMembers FK dependency (cascade will handle)
+                    8).ToList();
 
                 // Special case: If deleting Downloads but NOT LogEntries, we must null out the foreign keys first
                 if (tablesToClear.Contains("Downloads") && !tablesToClear.Contains("LogEntries"))
@@ -651,6 +663,93 @@ public class DatabaseRepository : IDatabaseRepository
                             percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                             status = "deleting",
                             message = $"Cleared event download links ({eventDownloadsCount:N0} rows)",
+                            timestamp = DateTime.UtcNow
+                        });
+                        break;
+
+                    case "CachedCorruptionDetections":
+                        // Use ExecuteDeleteAsync for direct deletion
+                        var corruptionDetectionCount = await context.CachedCorruptionDetections.ExecuteDeleteAsync();
+                        _logger.LogInformation($"Cleared {corruptionDetectionCount:N0} cached corruption detections");
+                        deletedRows += corruptionDetectionCount;
+
+                        await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+                        {
+                            isProcessing = true,
+                            percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
+                            status = "deleting",
+                            message = $"Cleared corruption detection cache ({corruptionDetectionCount:N0} rows)",
+                            timestamp = DateTime.UtcNow
+                        });
+                        break;
+
+                    case "ClientGroups":
+                        // Use ExecuteDeleteAsync for direct deletion
+                        // Note: ClientGroupMembers will be cascade deleted due to FK constraint
+                        var clientGroupsCount = await context.ClientGroups.ExecuteDeleteAsync();
+                        _logger.LogInformation($"Cleared {clientGroupsCount:N0} client groups (and associated members via cascade)");
+                        deletedRows += clientGroupsCount;
+
+                        await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+                        {
+                            isProcessing = true,
+                            percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
+                            status = "deleting",
+                            message = $"Cleared client groups ({clientGroupsCount:N0} rows)",
+                            timestamp = DateTime.UtcNow
+                        });
+
+                        // Notify frontend to clear client groups cache
+                        await _hubContext.Clients.All.SendAsync("ClientGroupsCleared", new
+                        {
+                            message = "All client groups have been cleared",
+                            timestamp = DateTime.UtcNow
+                        });
+                        break;
+
+                    case "PrefillSessions":
+                        // Use ExecuteDeleteAsync for direct deletion
+                        // Note: PrefillHistoryEntries will be cascade deleted due to FK constraint
+                        var prefillSessionsCount = await context.PrefillSessions.ExecuteDeleteAsync();
+                        _logger.LogInformation($"Cleared {prefillSessionsCount:N0} prefill sessions (and associated history via cascade)");
+                        deletedRows += prefillSessionsCount;
+
+                        await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+                        {
+                            isProcessing = true,
+                            percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
+                            status = "deleting",
+                            message = $"Cleared prefill sessions ({prefillSessionsCount:N0} rows)",
+                            timestamp = DateTime.UtcNow
+                        });
+
+                        // Notify frontend to clear prefill sessions cache
+                        await _hubContext.Clients.All.SendAsync("PrefillSessionsCleared", new
+                        {
+                            message = "All prefill sessions have been cleared",
+                            timestamp = DateTime.UtcNow
+                        });
+                        break;
+
+                    case "BannedSteamUsers":
+                        // Use ExecuteDeleteAsync for direct deletion
+                        var bannedUsersCount = await context.BannedSteamUsers.ExecuteDeleteAsync();
+                        _logger.LogInformation($"Cleared {bannedUsersCount:N0} banned Steam users");
+                        deletedRows += bannedUsersCount;
+
+                        await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+                        {
+                            isProcessing = true,
+                            percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
+                            status = "deleting",
+                            message = $"Cleared banned Steam users ({bannedUsersCount:N0} rows)",
+                            timestamp = DateTime.UtcNow
+                        });
+
+                        // Notify frontend to refresh banned users
+                        await _hubContext.Clients.All.SendAsync("BannedSteamUsersCleared", new
+                        {
+                            message = "All banned Steam users have been cleared",
                             timestamp = DateTime.UtcNow
                         });
                         break;

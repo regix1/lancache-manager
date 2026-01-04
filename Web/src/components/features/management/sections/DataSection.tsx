@@ -25,67 +25,105 @@ interface DataSectionProps {
   onDataRefresh: () => void;
 }
 
-// Table definitions with descriptions
+// Table definitions with descriptions and affected pages
 const tables = [
   {
     name: 'LogEntries',
     label: 'Log Entries',
     description: 'Raw access log entries from nginx cache logs',
-    details: 'Individual log line records used for analytics and reporting'
+    details: 'Individual log line records used for analytics and reporting',
+    affectedPages: 'Dashboard • Downloads • Analytics • Charts'
   },
   {
     name: 'Downloads',
     label: 'Downloads',
     description: 'Download records with game associations and statistics',
-    details: 'Tracked downloads with game names, sizes, and timestamps'
+    details: 'Tracked downloads with game names, sizes, and timestamps',
+    affectedPages: 'Dashboard • Downloads • Clients • Analytics'
   },
   {
     name: 'ClientStats',
     label: 'Client Statistics',
     description: 'Per-client download statistics and metrics',
-    details: 'Bandwidth and download counts grouped by IP address'
+    details: 'Bandwidth and download counts grouped by IP address',
+    affectedPages: 'Dashboard • Clients tab'
   },
   {
     name: 'ServiceStats',
     label: 'Service Statistics',
     description: 'Per-service (Steam, Epic, etc.) download statistics',
-    details: 'Total downloads and bandwidth usage by CDN service'
+    details: 'Total downloads and bandwidth usage by CDN service',
+    affectedPages: 'Dashboard service cards • Charts'
   },
   {
     name: 'SteamDepotMappings',
     label: 'Steam Depot Mappings',
     description: 'Depot ID to game name associations from SteamKit',
-    details: 'Mappings used to identify which game a depot belongs to. Also clears game names from existing downloads.'
+    details: 'Mappings used to identify which game a depot belongs to. Also clears game names from existing downloads.',
+    affectedPages: 'Dashboard • Downloads • All game name displays'
   },
   {
     name: 'CachedGameDetections',
-    label: 'Game Cache Detection',
+    label: 'Cache Detection Results',
     description: 'Cached results from game and service detection scans',
-    details: 'Pre-computed game and service detections from cache files to speed up dashboard loading'
+    details: 'Pre-computed game and service detections from cache files to speed up dashboard loading',
+    affectedPages: 'Cache tab • Game detection cards'
+  },
+  {
+    name: 'CachedCorruptionDetections',
+    label: 'Corruption Detection Cache',
+    description: 'Cached results from cache file corruption analysis',
+    details: 'Pre-computed corruption detection results to speed up corruption status checks',
+    affectedPages: 'Cache tab • Corruption detection'
+  },
+  {
+    name: 'ClientGroups',
+    label: 'Client Groups',
+    description: 'Named groups for organizing clients/machines',
+    details: 'User-defined groups with nicknames and colors. Also clears group member associations.',
+    affectedPages: 'Clients tab • Client group labels'
   },
   {
     name: 'Events',
     label: 'Events',
     description: 'Custom events for tracking LAN parties and gaming sessions',
-    details: 'User-created events with date ranges. Clears associated download links via cascade.'
+    details: 'User-created events with date ranges. Clears associated download links via cascade.',
+    affectedPages: 'Events tab • Downloads event filters'
   },
   {
     name: 'EventDownloads',
     label: 'Event Download Links',
     description: 'Associations between events and downloads',
-    details: 'Links connecting downloads to events (both auto-tagged and manual)'
+    details: 'Links connecting downloads to events (both auto-tagged and manual)',
+    affectedPages: 'Events tab • Downloads event tags'
+  },
+  {
+    name: 'PrefillSessions',
+    label: 'Prefill Sessions',
+    description: 'Steam-lancache-prefill session tracking',
+    details: 'Active and historical prefill sessions with status and configuration. Also clears prefill history.',
+    affectedPages: 'Management → Prefill Sessions section'
+  },
+  {
+    name: 'BannedSteamUsers',
+    label: 'Banned Steam Users',
+    description: 'Steam accounts blocked from prefill operations',
+    details: 'Users banned due to authentication failures or rate limiting',
+    affectedPages: 'Management → Prefill Sessions section'
   },
   {
     name: 'UserSessions',
     label: 'User Sessions',
     description: 'Active and historical user session records',
-    details: 'Session tracking with device info, IP addresses, and authentication status'
+    details: 'Session tracking with device info, IP addresses, and authentication status',
+    affectedPages: 'All users will be logged out'
   },
   {
     name: 'UserPreferences',
     label: 'User Preferences',
     description: 'Per-session user interface preferences',
-    details: 'Theme selections and UI customization settings linked to sessions'
+    details: 'Theme selections and UI customization settings linked to sessions',
+    affectedPages: 'Theme and UI settings reset to defaults'
   }
 ];
 
@@ -307,6 +345,10 @@ const DataSection: React.FC<DataSectionProps> = ({
                 <div className="flex-1 min-w-0">
                   <div className="font-medium text-themed-primary">{table.label}</div>
                   <div className="text-sm text-themed-secondary mt-1 line-clamp-1">{table.description}</div>
+                  <div className="text-xs text-themed-muted mt-1.5 flex items-center gap-1">
+                    <span className="opacity-70">Affects:</span>
+                    <span className="text-themed-warning">{table.affectedPages}</span>
+                  </div>
                 </div>
               </label>
             ))}
@@ -367,6 +409,10 @@ const DataSection: React.FC<DataSectionProps> = ({
               >
                 <div className="font-medium text-themed-primary">{table.label}</div>
                 <div className="text-sm text-themed-secondary mt-1">{table.description}</div>
+                <div className="text-xs mt-2 flex items-center gap-1.5">
+                  <span className="text-themed-muted">Affects:</span>
+                  <span className="text-themed-warning font-medium">{table.affectedPages}</span>
+                </div>
               </div>
             ))}
           </div>
@@ -389,6 +435,15 @@ const DataSection: React.FC<DataSectionProps> = ({
                 )}
                 {selectedTables.includes('UserSessions') && (
                   <li className="font-semibold">All registered devices will be cleared - you will need to re-authenticate</li>
+                )}
+                {selectedTables.includes('ClientGroups') && (
+                  <li>All client groups and their member associations will be permanently deleted</li>
+                )}
+                {selectedTables.includes('PrefillSessions') && (
+                  <li>All prefill sessions and their history entries will be permanently deleted</li>
+                )}
+                {selectedTables.includes('BannedSteamUsers') && (
+                  <li>All banned Steam users will be unblocked and can prefill again</li>
                 )}
               </ul>
             </div>

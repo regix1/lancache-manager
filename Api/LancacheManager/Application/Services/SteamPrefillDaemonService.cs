@@ -1281,6 +1281,9 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         session.PreviousAppName = session.CurrentAppName;
         session.CurrentAppId = progress.CurrentAppId;
         session.CurrentAppName = progress.CurrentAppName;
+        
+        // Update total bytes transferred from progress
+        session.TotalBytesTransferred = progress.TotalBytesTransferred;
 
         // Broadcast session update to all clients when app info changes (for admin pages - both hubs)
         if (appInfoChanged)
@@ -1518,6 +1521,11 @@ public class DaemonSession
     public string? PreviousAppName { get; set; }
 
     /// <summary>
+    /// Total bytes transferred during this session (cumulative across all games)
+    /// </summary>
+    public long TotalBytesTransferred { get; set; }
+
+    /// <summary>
     /// Client connection info for admin visibility
     /// </summary>
     public string? IpAddress { get; init; }
@@ -1576,6 +1584,11 @@ public class DaemonSessionDto
     // Current prefill progress info for admin visibility
     public uint CurrentAppId { get; set; }
     public string? CurrentAppName { get; set; }
+    
+    /// <summary>
+    /// Total bytes transferred during this session (cumulative across all games)
+    /// </summary>
+    public long TotalBytesTransferred { get; set; }
 
     public static DaemonSessionDto FromSession(DaemonSession session)
     {
@@ -1597,7 +1610,8 @@ public class DaemonSessionDto
             LastSeenAt = session.LastSeenAt,
             SteamUsername = session.SteamUsername,
             CurrentAppId = session.CurrentAppId,
-            CurrentAppName = session.CurrentAppName
+            CurrentAppName = session.CurrentAppName,
+            TotalBytesTransferred = session.TotalBytesTransferred
         };
     }
 }

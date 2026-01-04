@@ -1551,6 +1551,8 @@ export interface DaemonSessionDto {
   // Current prefill progress info for admin visibility
   currentAppId?: number;
   currentAppName?: string;
+  // Total bytes transferred during this session
+  totalBytesTransferred?: number;
 }
 
 export interface PrefillSessionsResponse {

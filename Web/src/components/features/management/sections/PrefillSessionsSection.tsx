@@ -180,6 +180,8 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set());
   const [historyData, setHistoryData] = useState<Record<string, PrefillHistoryEntryDto[]>>({});
   const [loadingHistory, setLoadingHistory] = useState<Set<string>>(new Set());
+  const [historyPage, setHistoryPage] = useState<Record<string, number>>({});
+  const historyPageSize = 5;
 
   // Load sessions
   const loadSessions = useCallback(async () => {
@@ -510,6 +512,19 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                               {session.currentAppName ? `Prefilling: ${session.currentAppName}` : 'Prefilling'}
                             </span>
                           )}
+                          {session.totalBytesTransferred && session.totalBytesTransferred > 0 && (
+                            <Tooltip content="Total data downloaded this session">
+                              <span
+                                className="px-1.5 py-0.5 rounded text-xs"
+                                style={{
+                                  backgroundColor: 'color-mix(in srgb, var(--theme-icon-green) 15%, transparent)',
+                                  color: 'var(--theme-icon-green)'
+                                }}
+                              >
+                                {formatBytes(session.totalBytesTransferred)}
+                              </span>
+                            </Tooltip>
+                          )}
                         </div>
 
                         {/* Steam username if available */}
@@ -627,44 +642,78 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                         <div className="text-center py-4 text-sm text-themed-muted">
                           No prefill history yet
                         </div>
-                      ) : (
-                        <div className="space-y-2">
-                          {historyData[session.id].map(entry => (
-                            <div
-                              key={entry.id}
-                              className="flex items-center justify-between gap-3 p-2 rounded"
-                              style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                            >
-                              <div className="flex items-center gap-2 min-w-0 flex-1">
-                                <Gamepad2 className="w-4 h-4 text-themed-muted flex-shrink-0" />
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-sm font-medium text-themed-primary truncate">
-                                      {entry.appName || `App ${entry.appId}`}
-                                    </span>
-                                    <HistoryStatusBadge status={entry.status} />
-                                  </div>
-                                  <div className="flex items-center gap-3 text-[10px] text-themed-muted mt-0.5">
-                                    <span>Started: <FormattedTimestamp timestamp={entry.startedAtUtc} /></span>
-                                    {entry.completedAtUtc && (
-                                      <span>Completed: <FormattedTimestamp timestamp={entry.completedAtUtc} /></span>
-                                    )}
-                                    {entry.bytesDownloaded > 0 && (
-                                      <span>{formatBytes(entry.bytesDownloaded)}</span>
-                                    )}
-                                  </div>
-                                  {entry.errorMessage && (
-                                    <div className="flex items-center gap-1 mt-1 text-[10px]" style={{ color: 'var(--theme-icon-red)' }}>
-                                      <XCircle className="w-3 h-3" />
-                                      <span className="truncate">{entry.errorMessage}</span>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
+                      ) : (() => {
+                        const allEntries = historyData[session.id];
+                        const currentPage = historyPage[session.id] || 1;
+                        const totalPages = Math.ceil(allEntries.length / historyPageSize);
+                        const startIdx = (currentPage - 1) * historyPageSize;
+                        const paginatedEntries = allEntries.slice(startIdx, startIdx + historyPageSize);
+                        const totalBytes = allEntries.reduce((sum, e) => sum + e.bytesDownloaded, 0);
+
+                        return (
+                          <>
+                            {/* Summary stats */}
+                            <div className="flex items-center gap-4 mb-3 text-xs text-themed-muted">
+                              <span>{allEntries.length} game{allEntries.length !== 1 ? 's' : ''} prefilled</span>
+                              {totalBytes > 0 && (
+                                <span>Total: {formatBytes(totalBytes)}</span>
+                              )}
                             </div>
-                          ))}
-                        </div>
-                      )}
+
+                            <div className="space-y-2">
+                              {paginatedEntries.map(entry => (
+                                <div
+                                  key={entry.id}
+                                  className="flex items-center justify-between gap-3 p-2 rounded"
+                                  style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+                                >
+                                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                                    <Gamepad2 className="w-4 h-4 text-themed-muted flex-shrink-0" />
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-sm font-medium text-themed-primary truncate">
+                                          {entry.appName || `App ${entry.appId}`}
+                                        </span>
+                                        <HistoryStatusBadge status={entry.status} />
+                                      </div>
+                                      <div className="flex items-center gap-3 text-[10px] text-themed-muted mt-0.5">
+                                        <span>Started: <FormattedTimestamp timestamp={entry.startedAtUtc} /></span>
+                                        {entry.completedAtUtc && (
+                                          <span>Completed: <FormattedTimestamp timestamp={entry.completedAtUtc} /></span>
+                                        )}
+                                        {entry.bytesDownloaded > 0 && (
+                                          <span>{formatBytes(entry.bytesDownloaded)}</span>
+                                        )}
+                                      </div>
+                                      {entry.errorMessage && (
+                                        <div className="flex items-center gap-1 mt-1 text-[10px]" style={{ color: 'var(--theme-icon-red)' }}>
+                                          <XCircle className="w-3 h-3" />
+                                          <span className="truncate">{entry.errorMessage}</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Pagination */}
+                            {totalPages > 1 && (
+                              <div className="mt-3 flex justify-center">
+                                <Pagination
+                                  currentPage={currentPage}
+                                  totalPages={totalPages}
+                                  totalItems={allEntries.length}
+                                  itemsPerPage={historyPageSize}
+                                  onPageChange={(newPage) => setHistoryPage(prev => ({ ...prev, [session.id]: newPage }))}
+                                  itemLabel="games"
+                                  compact
+                                />
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   )}
                 </CardContent>
