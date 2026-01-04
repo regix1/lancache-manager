@@ -23,6 +23,28 @@ public class DownloadHub : Hub
         _logger = logger;
     }
 
+    /// <summary>
+    /// Called by authenticated clients to join the AuthenticatedUsersGroup.
+    /// This handles the case where the SignalR connection was established before auth was validated.
+    /// </summary>
+    public async Task JoinAuthenticatedGroup()
+    {
+        var httpContext = Context.GetHttpContext();
+        var deviceId = httpContext?.Request.Query["deviceId"].FirstOrDefault();
+
+        if (!string.IsNullOrEmpty(deviceId) && _deviceAuthService.ValidateDevice(deviceId))
+        {
+            await Groups.AddToGroupAsync(Context.ConnectionId, AuthenticatedUsersGroup);
+            _logger.LogInformation("SignalR client joined AuthenticatedUsersGroup: ConnectionId={ConnectionId}, DeviceId={DeviceId}",
+                Context.ConnectionId, deviceId);
+        }
+        else
+        {
+            _logger.LogWarning("SignalR client attempted to join AuthenticatedUsersGroup but is not authenticated: ConnectionId={ConnectionId}, DeviceId={DeviceId}",
+                Context.ConnectionId, deviceId ?? "null");
+        }
+    }
+
     public override async Task OnConnectedAsync()
     {
         // Extract deviceId from query string (passed by frontend)

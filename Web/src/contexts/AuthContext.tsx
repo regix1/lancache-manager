@@ -177,6 +177,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     };
   }, [signalR, authMode]);
 
+  // Join the AuthenticatedUsersGroup when SignalR is connected and user is authenticated
+  // This handles the case where SignalR connected before authentication was validated
+  useEffect(() => {
+    if (signalR.isConnected && authMode === 'authenticated') {
+      console.log('[Auth] Joining AuthenticatedUsersGroup via SignalR');
+      signalR.invoke('JoinAuthenticatedGroup').catch((err) => {
+        console.error('[Auth] Failed to join AuthenticatedUsersGroup:', err);
+      });
+    }
+  }, [signalR.isConnected, signalR.invoke, authMode]);
+
   return (
     <AuthContext.Provider
       value={{

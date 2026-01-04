@@ -512,7 +512,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                               {session.currentAppName ? `Prefilling: ${session.currentAppName}` : 'Prefilling'}
                             </span>
                           )}
-                          {session.totalBytesTransferred && session.totalBytesTransferred > 0 && (
+                          {(session.totalBytesTransferred ?? 0) > 0 && (
                             <Tooltip content="Total data downloaded this session">
                               <span
                                 className="px-1.5 py-0.5 rounded text-xs"
@@ -521,7 +521,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                                   color: 'var(--theme-icon-green)'
                                 }}
                               >
-                                {formatBytes(session.totalBytesTransferred)}
+                                {formatBytes(session.totalBytesTransferred!)}
                               </span>
                             </Tooltip>
                           )}

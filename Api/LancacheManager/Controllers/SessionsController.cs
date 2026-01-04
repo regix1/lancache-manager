@@ -319,6 +319,7 @@ public class SessionsController : ControllerBase
 
             // Notify authenticated users (admins viewing UserTab) that this session's lastSeenAt was updated
             // Only send to authenticated group to avoid warnings on guest clients
+            _logger.LogDebug("Broadcasting SessionLastSeenUpdated for guest {DeviceId}", deviceId);
             await _hubContext.Clients.Group(Hubs.DownloadHub.AuthenticatedUsersGroup).SendAsync("SessionLastSeenUpdated", new
             {
                 deviceId = deviceId,

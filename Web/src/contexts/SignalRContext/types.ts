@@ -13,6 +13,9 @@ export interface SignalRContextType {
   on: (eventName: string, handler: EventHandler) => void;
   off: (eventName: string, handler: EventHandler) => void;
 
+  // Invoke hub methods
+  invoke: (methodName: string, ...args: unknown[]) => Promise<void>;
+
   // Connection info
   connectionId: string | null;
 }

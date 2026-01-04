@@ -1206,20 +1206,22 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         if (appInfoChanged && progress.CurrentAppId > 0)
         {
             // If there was a previous app being prefilled, complete its history entry
+            // Use the STORED bytes (from before the transition), not progress bytes (which are for the new app)
             if (session.PreviousAppId > 0)
             {
                 try
                 {
-                    // Complete the previous app's entry (assume success since we're moving on)
+                    // Complete the previous app's entry using stored values
                     await _sessionService.CompletePrefillEntryAsync(
                         session.Id,
                         session.PreviousAppId,
                         "Completed",
-                        progress.BytesDownloaded,
-                        progress.TotalBytes);
+                        session.CurrentBytesDownloaded,  // Use stored bytes, not progress.BytesDownloaded
+                        session.CurrentTotalBytes);      // Use stored total, not progress.TotalBytes
 
-                    _logger.LogDebug("Completed prefill history for app {AppId} ({AppName}) in session {SessionId}",
-                        session.PreviousAppId, session.PreviousAppName, session.Id);
+                    _logger.LogDebug("Completed prefill history for app {AppId} ({AppName}) in session {SessionId}: {Bytes}/{Total}",
+                        session.PreviousAppId, session.PreviousAppName, session.Id,
+                        session.CurrentBytesDownloaded, session.CurrentTotalBytes);
 
                     // Broadcast history update
                     await BroadcastPrefillHistoryUpdatedAsync(session.Id, session.PreviousAppId, "Completed");
@@ -1245,6 +1247,10 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             {
                 _logger.LogWarning(ex, "Failed to start prefill history entry for app {AppId}", progress.CurrentAppId);
             }
+
+            // Reset bytes tracking for the new app
+            session.CurrentBytesDownloaded = 0;
+            session.CurrentTotalBytes = 0;
         }
 
         // Handle completion/failure states
@@ -1255,6 +1261,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                 try
                 {
                     var status = progress.State == "completed" ? "Completed" : "Failed";
+                    // For completion states, use the current progress values (they're for the current app)
                     await _sessionService.CompletePrefillEntryAsync(
                         session.Id,
                         session.CurrentAppId,
@@ -1274,6 +1281,13 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                     _logger.LogWarning(ex, "Failed to complete prefill history entry for app {AppId}", session.CurrentAppId);
                 }
             }
+        }
+
+        // Track current app's bytes BEFORE updating app info (so we have final values for next transition)
+        if (!appInfoChanged && progress.CurrentAppId > 0)
+        {
+            session.CurrentBytesDownloaded = progress.BytesDownloaded;
+            session.CurrentTotalBytes = progress.TotalBytes;
         }
 
         // Update previous app tracking before changing current
@@ -1524,6 +1538,12 @@ public class DaemonSession
     /// Total bytes transferred during this session (cumulative across all games)
     /// </summary>
     public long TotalBytesTransferred { get; set; }
+
+    /// <summary>
+    /// Current app's bytes downloaded (tracked before transition to record final values)
+    /// </summary>
+    public long CurrentBytesDownloaded { get; set; }
+    public long CurrentTotalBytes { get; set; }
 
     /// <summary>
     /// Client connection info for admin visibility

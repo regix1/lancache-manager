@@ -78,6 +78,23 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
     }
   }, []);
 
+  // Invoke a hub method
+  const invoke = useCallback(async (methodName: string, ...args: unknown[]) => {
+    if (
+      connectionRef.current &&
+      connectionRef.current.state === signalR.HubConnectionState.Connected
+    ) {
+      try {
+        await connectionRef.current.invoke(methodName, ...args);
+      } catch (error) {
+        console.error(`[SignalR] Error invoking ${methodName}:`, error);
+        throw error;
+      }
+    } else {
+      console.warn(`[SignalR] Cannot invoke ${methodName}: not connected`);
+    }
+  }, []);
+
   // Setup SignalR connection
   const setupConnection = useCallback(async () => {
     // Don't connect in mock mode
@@ -318,9 +335,10 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
       connectionState,
       on,
       off,
+      invoke,
       connectionId
     }),
-    [isConnected, connectionState, on, off, connectionId]
+    [isConnected, connectionState, on, off, invoke, connectionId]
   );
 
   return <SignalRContext.Provider value={value}>{children}</SignalRContext.Provider>;
