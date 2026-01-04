@@ -1223,7 +1223,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
 
           <Alert color="red">
             <p className="text-sm">
-              The ban is based on the Steam username hash. The same user cannot create a new session.
+              The ban is based on the Steam username. The same user cannot create a new session.
             </p>
           </Alert>
 
