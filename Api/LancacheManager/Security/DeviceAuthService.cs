@@ -725,6 +725,19 @@ public class DeviceAuthService
     }
 
     /// <summary>
+    /// Clear the in-memory device cache. Called when UserSessions table is cleared.
+    /// </summary>
+    public void ClearCache()
+    {
+        lock (_cacheLock)
+        {
+            var count = _deviceCache.Count;
+            _deviceCache.Clear();
+            _logger.LogInformation("Cleared {Count} device registrations from in-memory cache", count);
+        }
+    }
+
+    /// <summary>
     /// Device information for display (no sensitive data)
     /// </summary>
     public class DeviceInfo

@@ -585,4 +585,17 @@ public class GuestSessionService
         _stateRepository.SetGuestSessionDurationHours(hours);
         _logger.LogInformation("Guest session duration updated to {Hours} hours (persisted to state.json)", hours);
     }
+
+    /// <summary>
+    /// Clear the in-memory session cache. Called when UserSessions table is cleared.
+    /// </summary>
+    public void ClearCache()
+    {
+        lock (_cacheLock)
+        {
+            var count = _sessionCache.Count;
+            _sessionCache.Clear();
+            _logger.LogInformation("Cleared {Count} guest sessions from in-memory cache", count);
+        }
+    }
 }

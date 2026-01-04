@@ -4,6 +4,7 @@ using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Repositories.Interfaces;
 using LancacheManager.Infrastructure.Services.Interfaces;
 using LancacheManager.Models;
+using LancacheManager.Security;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Concurrent;
@@ -20,6 +21,8 @@ public class DatabaseRepository : IDatabaseRepository
     private readonly SteamKit2Service _steamKit2Service;
     private readonly StateRepository _stateRepository;
     private readonly DatasourceService _datasourceService;
+    private readonly GuestSessionService _guestSessionService;
+    private readonly DeviceAuthService _deviceAuthService;
     private static readonly ConcurrentDictionary<string, bool> _activeResetOperations = new();
     private static ResetProgressInfo _currentResetProgress = new();
 
@@ -41,7 +44,9 @@ public class DatabaseRepository : IDatabaseRepository
         IDbContextFactory<AppDbContext> dbContextFactory,
         SteamKit2Service steamKit2Service,
         StateRepository stateRepository,
-        DatasourceService datasourceService)
+        DatasourceService datasourceService,
+        GuestSessionService guestSessionService,
+        DeviceAuthService deviceAuthService)
     {
         _context = context;
         _hubContext = hubContext;
@@ -51,6 +56,8 @@ public class DatabaseRepository : IDatabaseRepository
         _steamKit2Service = steamKit2Service;
         _stateRepository = stateRepository;
         _datasourceService = datasourceService;
+        _guestSessionService = guestSessionService;
+        _deviceAuthService = deviceAuthService;
     }
 
     public bool IsResetOperationRunning => _activeResetOperations.Any();
@@ -603,6 +610,12 @@ public class DatabaseRepository : IDatabaseRepository
                         var userSessionsCount = await context.UserSessions.ExecuteDeleteAsync();
                         _logger.LogInformation($"Cleared {userSessionsCount:N0} user sessions");
                         deletedRows += userSessionsCount;
+
+                        // CRITICAL: Clear in-memory caches for both guest sessions and device registrations
+                        // Without this, the services would still serve cached sessions from memory
+                        _logger.LogInformation("Clearing in-memory session caches...");
+                        _guestSessionService.ClearCache();
+                        _deviceAuthService.ClearCache();
 
                         await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
                         {
