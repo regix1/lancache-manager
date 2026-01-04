@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Database, Loader2, CheckCircle, XCircle, FolderOpen } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Database, Loader2, CheckCircle, XCircle, FolderOpen, RefreshCw, Search } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
 import ApiService from '@services/api.service';
@@ -26,6 +26,17 @@ interface ImportResult {
   backupPath?: string;
 }
 
+interface FileSystemItem {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  size: number;
+  lastModified: string;
+  isAccessible: boolean;
+}
+
+type InputMode = 'auto' | 'browse' | 'manual';
+
 export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> = ({
   onComplete,
   onSkip
@@ -44,7 +55,9 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
   const [importing, setImporting] = useState(false);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
-  const [useBrowser, setUseBrowser] = useState(true);
+  const [inputMode, setInputMode] = useState<InputMode>('auto');
+  const [autoSearching, setAutoSearching] = useState(false);
+  const [foundDatabases, setFoundDatabases] = useState<FileSystemItem[]>([]);
 
   useEffect(() => {
     if (connectionString) {
@@ -61,6 +74,31 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
   useEffect(() => {
     storage.setItem('importOverwriteExisting', overwriteExisting.toString());
   }, [overwriteExisting]);
+
+  // Auto-search for databases when in auto mode
+  const searchForDatabases = useCallback(async () => {
+    setAutoSearching(true);
+    try {
+      const res = await fetch(
+        '/api/filebrowser/search?searchPath=/',
+        ApiService.getFetchOptions({ method: 'GET' })
+      );
+      const result = await ApiService.handleResponse<{ results: FileSystemItem[] }>(res);
+      setFoundDatabases(result.results);
+    } catch (error) {
+      console.error('Failed to search for databases:', error);
+      setFoundDatabases([]);
+    } finally {
+      setAutoSearching(false);
+    }
+  }, []);
+
+  // Trigger search when switching to auto mode
+  useEffect(() => {
+    if (inputMode === 'auto' && foundDatabases.length === 0) {
+      searchForDatabases();
+    }
+  }, [inputMode, foundDatabases.length, searchForDatabases]);
 
   const handleValidate = async () => {
     if (!connectionString.trim()) {
@@ -113,7 +151,19 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
   const handleFileSelect = (path: string) => {
     setConnectionString(path);
     setValidationResult(null);
-    setUseBrowser(false);
+    setInputMode('manual');
+  };
+
+  const handleAutoSelect = (item: FileSystemItem) => {
+    setConnectionString(item.path);
+    setValidationResult(null);
+  };
+
+  const formatSize = (bytes: number): string => {
+    if (bytes === 0) return '-';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
   };
 
   return (
@@ -154,9 +204,19 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
       {/* Mode Toggle */}
       <div className="flex items-center justify-center gap-2">
         <Button
-          onClick={() => setUseBrowser(true)}
+          onClick={() => setInputMode('auto')}
           size="xs"
-          variant={useBrowser ? 'filled' : 'default'}
+          variant={inputMode === 'auto' ? 'filled' : 'default'}
+          color="blue"
+          disabled={importing || !!importResult}
+        >
+          <Search className="w-3 h-3 mr-1" />
+          Auto
+        </Button>
+        <Button
+          onClick={() => setInputMode('browse')}
+          size="xs"
+          variant={inputMode === 'browse' ? 'filled' : 'default'}
           color="blue"
           disabled={importing || !!importResult}
         >
@@ -164,9 +224,9 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
           Browse
         </Button>
         <Button
-          onClick={() => setUseBrowser(false)}
+          onClick={() => setInputMode('manual')}
           size="xs"
-          variant={!useBrowser ? 'filled' : 'default'}
+          variant={inputMode === 'manual' ? 'filled' : 'default'}
           color="blue"
           disabled={importing || !!importResult}
         >
@@ -174,10 +234,86 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
         </Button>
       </div>
 
-      {/* File Selection */}
-      {useBrowser ? (
+      {/* Auto Mode - Found Databases */}
+      {inputMode === 'auto' && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-themed-secondary">
+              {autoSearching ? 'Searching for databases...' : `Found ${foundDatabases.length} database(s)`}
+            </p>
+            <Button
+              onClick={searchForDatabases}
+              disabled={autoSearching || importing || !!importResult}
+              variant="subtle"
+              size="xs"
+            >
+              {autoSearching ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <RefreshCw className="w-3 h-3" />
+              )}
+            </Button>
+          </div>
+
+          {autoSearching ? (
+            <div
+              className="flex items-center justify-center py-8 rounded-lg"
+              style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+            >
+              <Loader2 className="w-5 h-5 animate-spin text-themed-secondary mr-2" />
+              <span className="text-sm text-themed-secondary">Searching for databases...</span>
+            </div>
+          ) : foundDatabases.length > 0 ? (
+            <div
+              className="rounded-lg border overflow-hidden"
+              style={{ borderColor: 'var(--theme-border-secondary)' }}
+            >
+              <div className="max-h-[180px] overflow-y-auto custom-scrollbar">
+                {foundDatabases.map((item, index) => (
+                  <button
+                    key={index}
+                    onClick={() => handleAutoSelect(item)}
+                    disabled={importing || !!importResult}
+                    className={`w-full px-3 py-2.5 flex items-center gap-3 transition-all text-left border-b last:border-b-0
+                      hover:bg-themed-hover cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed
+                      ${connectionString === item.path ? 'bg-themed-accent-subtle ring-1 ring-inset ring-themed-accent' : ''}
+                    `}
+                    style={{ borderColor: 'var(--theme-border-secondary)' }}
+                  >
+                    <div className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center icon-bg-green">
+                      <Database className="w-4 h-4 icon-green" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-themed-primary truncate text-sm">{item.name}</div>
+                      <div className="text-xs text-themed-muted mt-0.5 truncate">{item.path}</div>
+                    </div>
+                    <div className="text-xs text-themed-muted flex-shrink-0">
+                      {formatSize(item.size)}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div
+              className="flex flex-col items-center justify-center py-6 rounded-lg"
+              style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+            >
+              <Search className="w-8 h-8 text-themed-muted mb-2" />
+              <p className="text-sm text-themed-secondary font-medium">No database files found</p>
+              <p className="text-xs text-themed-muted mt-1">Try using Browse or Manual mode</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Browse Mode */}
+      {inputMode === 'browse' && (
         <FileBrowser onSelectFile={handleFileSelect} isAuthenticated={true} mockMode={false} />
-      ) : (
+      )}
+
+      {/* Manual Mode */}
+      {inputMode === 'manual' && (
         <div>
           <label className="block text-sm font-medium text-themed-secondary mb-1.5">
             Database File Path
@@ -193,6 +329,19 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
             className="w-full px-3 py-2.5 themed-input"
             disabled={importing || !!importResult}
           />
+        </div>
+      )}
+
+      {/* Selected Database Display (for auto mode) */}
+      {inputMode === 'auto' && connectionString && (
+        <div
+          className="p-3 rounded-lg flex items-center gap-2"
+          style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+        >
+          <Database className="w-4 h-4 text-themed-secondary" />
+          <span className="text-sm text-themed-primary font-medium truncate flex-1">
+            {connectionString}
+          </span>
         </div>
       )}
 

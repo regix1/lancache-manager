@@ -473,10 +473,11 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
 
       {/* Main Card */}
       <div
-        className="relative z-10 w-full max-w-4xl rounded-xl border overflow-hidden"
+        className="relative z-10 w-full max-w-4xl rounded-xl border overflow-hidden flex flex-col"
         style={{
           backgroundColor: 'var(--theme-bg-secondary)',
-          borderColor: 'var(--theme-border-primary)'
+          borderColor: 'var(--theme-border-primary)',
+          maxHeight: 'min(calc(100vh - 2rem), 800px)'
         }}
       >
         {/* Header */}
@@ -532,7 +533,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         </div>
 
         {/* Content */}
-        <div className="p-8">
+        <div className="p-8 overflow-y-auto min-h-0">
           {renderStep()}
         </div>
       </div>
