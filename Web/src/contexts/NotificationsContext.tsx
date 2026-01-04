@@ -12,6 +12,8 @@ import type {
   ServiceRemovalCompleteEvent,
   CorruptionRemovalStartedEvent,
   CorruptionRemovalCompleteEvent,
+  CorruptionDetectionStartedEvent,
+  CorruptionDetectionCompleteEvent,
   GameDetectionStartedEvent,
   GameDetectionCompleteEvent,
   DatabaseResetProgressEvent,
@@ -53,6 +55,7 @@ export type NotificationType =
   | 'service_removal'  // Removing cache files for a service
   | 'game_removal'
   | 'corruption_removal'
+  | 'corruption_detection'  // Scanning for corrupted chunks
   | 'database_reset'
   | 'depot_mapping'
   | 'game_detection'
@@ -161,6 +164,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     const persistentKeys = [
       'depot_mapping_notification',
       'corruption_removal_notification',
+      'corruption_detection_notification',
       'game_detection_notification',
       'log_processing_notification',
       'log_removal_notification',
@@ -883,6 +887,117 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       scheduleAutoDismiss(notificationId);
     };
 
+    // Corruption Detection Started
+    const handleCorruptionDetectionStarted = (event: CorruptionDetectionStartedEvent) => {
+      console.log('[NotificationsContext] CorruptionDetectionStarted received:', event);
+      const notificationId = `corruption_detection-${event.operationId}`;
+
+      // Remove any existing corruption detection notifications and add new one
+      setNotifications((prev) => {
+        const filtered = prev.filter((n) => n.type !== 'corruption_detection');
+        const newNotification: UnifiedNotification = {
+          id: notificationId,
+          type: 'corruption_detection' as const,
+          status: 'running' as const,
+          message: event.message || 'Scanning for corrupted cache chunks...',
+          startedAt: new Date(),
+          progress: 0,
+          details: {
+            operationId: event.operationId
+          }
+        };
+
+        // Persist to localStorage for recovery on page refresh
+        localStorage.setItem('corruption_detection_notification', JSON.stringify(newNotification));
+
+        return [
+          ...filtered,
+          newNotification
+        ];
+      });
+    };
+
+    // Corruption Detection Complete
+    const handleCorruptionDetectionComplete = (event: CorruptionDetectionCompleteEvent) => {
+      console.log('[NotificationsContext] CorruptionDetectionComplete received:', event);
+      const notificationId = `corruption_detection-${event.operationId}`;
+
+      // Clear from localStorage
+      localStorage.removeItem('corruption_detection_notification');
+
+      // Use setNotifications to get current state (avoid stale closure)
+      setNotifications((prev) => {
+        const existing = prev.find((n) => n.id === notificationId);
+
+        if (!existing) {
+          // Detection completed so fast that no notification was created yet (race condition)
+          // Create a notification and immediately mark it as complete
+          const id = `corruption_detection-${Date.now()}`;
+          scheduleAutoDismiss(id);
+
+          if (event.success) {
+            const totalCorrupted = event.totalCorruptedChunks || 0;
+            const message = totalCorrupted > 0
+              ? `Found ${totalCorrupted.toLocaleString()} corrupted chunk${totalCorrupted !== 1 ? 's' : ''}`
+              : 'No corrupted chunks detected';
+            return [
+              ...prev,
+              {
+                id,
+                type: 'corruption_detection' as const,
+                status: 'completed' as const,
+                message,
+                progress: 100,
+                startedAt: new Date()
+              }
+            ];
+          } else {
+            return [
+              ...prev,
+              {
+                id,
+                type: 'corruption_detection' as const,
+                status: 'failed' as const,
+                message: event.message || 'Corruption scan failed',
+                startedAt: new Date(),
+                error: event.error || 'Scan failed'
+              }
+            ];
+          }
+        }
+
+        // Update the notification
+        const updated = prev.map((n) => {
+          if (n.id === notificationId) {
+            if (event.success) {
+              const totalCorrupted = event.totalCorruptedChunks || 0;
+              const message = totalCorrupted > 0
+                ? `Found ${totalCorrupted.toLocaleString()} corrupted chunk${totalCorrupted !== 1 ? 's' : ''}`
+                : 'No corrupted chunks detected';
+              return {
+                ...n,
+                status: 'completed' as const,
+                message,
+                progress: 100
+              };
+            } else {
+              return {
+                ...n,
+                status: 'failed' as const,
+                error: event.error || event.message || 'Corruption scan failed'
+              };
+            }
+          }
+          return n;
+        });
+
+        return updated;
+      });
+
+      // Schedule auto-dismiss
+      scheduleAutoDismiss(notificationId);
+    };
+
     // Database Reset
     const handleDatabaseResetProgress = (event: DatabaseResetProgressEvent) => {
       const notificationId = 'database-reset';
@@ -1385,6 +1500,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     signalR.on('ServiceRemovalComplete', handleServiceRemovalComplete);
     signalR.on('CorruptionRemovalStarted', handleCorruptionRemovalStarted);
     signalR.on('CorruptionRemovalComplete', handleCorruptionRemovalComplete);
+    signalR.on('CorruptionDetectionStarted', handleCorruptionDetectionStarted);
+    signalR.on('CorruptionDetectionComplete', handleCorruptionDetectionComplete);
     signalR.on('GameDetectionStarted', handleGameDetectionStarted);
     signalR.on('GameDetectionComplete', handleGameDetectionComplete);
     signalR.on('CacheClearProgress', handleCacheClearProgress);
@@ -1407,6 +1524,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       signalR.off('ServiceRemovalComplete', handleServiceRemovalComplete);
       signalR.off('CorruptionRemovalStarted', handleCorruptionRemovalStarted);
       signalR.off('CorruptionRemovalComplete', handleCorruptionRemovalComplete);
+      signalR.off('CorruptionDetectionStarted', handleCorruptionDetectionStarted);
+      signalR.off('CorruptionDetectionComplete', handleCorruptionDetectionComplete);
       signalR.off('GameDetectionStarted', handleGameDetectionStarted);
       signalR.off('GameDetectionComplete', handleGameDetectionComplete);
       signalR.off('CacheClearProgress', handleCacheClearProgress);
@@ -1490,6 +1609,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           recoverCacheClearing(),
           recoverDatabaseReset(),
           recoverGameDetection(),
+          recoverCorruptionDetection(),
           recoverCacheRemovals()
         ]);
       } catch (err) {
@@ -1955,6 +2075,82 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                         id: recoveryNotificationId, // Ensure consistent ID
                         status: 'completed' as NotificationStatus,
                         message: 'Game detection completed',
+                        progress: 100
+                      };
+                    }
+                    return n;
+                  });
+                }
+                return prev;
+              });
+
+              // Schedule auto-dismiss using deterministic ID
+              scheduleAutoDismiss(recoveryNotificationId);
+            }
+          }
+        }
+      } catch (err) {
+        // Silently fail - operation not running
+      }
+    };
+
+    const recoverCorruptionDetection = async () => {
+      try {
+        const response = await fetch('/api/cache/corruption/detect/status');
+        if (response.ok) {
+          const data = await response.json();
+
+          if (data.isRunning && data.operationId) {
+            const notificationId = `corruption_detection-${data.operationId}`;
+
+            setNotifications((prev) => {
+              // Remove any existing corruption_detection notifications and add fresh one from backend
+              const filtered = prev.filter((n) => n.type !== 'corruption_detection');
+              return [
+                ...filtered,
+                {
+                  id: notificationId,
+                  type: 'corruption_detection' as NotificationType,
+                  status: 'running' as NotificationStatus,
+                  message: data.message || 'Scanning for corrupted cache chunks...',
+                  progress: 0,
+                  startedAt: new Date(),
+                  details: {
+                    operationId: data.operationId
+                  }
+                }
+              ];
+            });
+
+            console.log('[NotificationsContext] Recovered corruption detection notification');
+          } else {
+            // Backend says NOT running - clear any stale state from localStorage
+            const savedNotification = localStorage.getItem('corruption_detection_notification');
+            if (savedNotification) {
+              console.log('[NotificationsContext] Clearing stale corruption detection state - backend is idle');
+              localStorage.removeItem('corruption_detection_notification');
+
+              // Get operationId from saved notification for deterministic ID
+              let operationId = 'unknown';
+              try {
+                const parsed = JSON.parse(savedNotification);
+                operationId = parsed.details?.operationId || 'unknown';
+              } catch {
+                // Use default
+              }
+              const recoveryNotificationId = `corruption_detection-${operationId}`;
+
+              // Mark any restored notification as completed
+              setNotifications((prev) => {
+                const existing = prev.find((n) => n.type === 'corruption_detection' && n.status === 'running');
+                if (existing) {
+                  return prev.map((n) => {
+                    if (n.type === 'corruption_detection' && n.status === 'running') {
+                      return {
+                        ...n,
+                        id: recoveryNotificationId,
+                        status: 'completed' as NotificationStatus,
+                        message: 'Corruption scan completed',
                         progress: 100
                       };
                     }

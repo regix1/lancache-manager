@@ -76,6 +76,8 @@ public class AuthStatusResponse
     // Prefill permission for guests
     public bool? PrefillEnabled { get; set; }
     public int? PrefillTimeRemaining { get; set; } // minutes
+    // Whether the current device is banned from prefill
+    public bool IsBanned { get; set; }
 }
 
 /// <summary>

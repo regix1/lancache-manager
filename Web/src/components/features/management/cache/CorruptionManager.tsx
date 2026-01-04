@@ -9,8 +9,7 @@ import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useSignalR } from '@contexts/SignalRContext';
 import type {
-  CorruptionRemovalCompleteEvent,
-  CorruptionDetectionCompleteEvent
+  CorruptionRemovalCompleteEvent
 } from '@contexts/SignalRContext/types';
 import { useNotifications } from '@contexts/NotificationsContext';
 import { Card } from '@components/ui/Card';
@@ -45,6 +44,18 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   const { notifications, addNotification } = useNotifications();
   const signalR = useSignalR();
 
+  // Derive corruption detection scan state from notifications (standardized pattern like GameCacheDetector)
+  const activeCorruptionDetectionNotification = notifications.find(
+    n => n.type === 'corruption_detection' && n.status === 'running'
+  );
+  const isScanningFromNotification = !!activeCorruptionDetectionNotification;
+
+  // Track local starting state for immediate UI feedback before SignalR events arrive
+  const [isStartingScan, setIsStartingScan] = useState(false);
+
+  // Combined scanning state: either notification says running OR we're in starting phase
+  const isScanning = isScanningFromNotification || isStartingScan;
+
   // State
   const [corruptionSummary, setCorruptionSummary] = useState<Record<string, number>>({});
   const [pendingCorruptionRemoval, setPendingCorruptionRemoval] = useState<string | null>(null);
@@ -52,7 +63,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   const [corruptionDetails, setCorruptionDetails] = useState<Record<string, CorruptedChunkDetail[]>>({});
   const [loadingDetails, setLoadingDetails] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isScanning, setIsScanning] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [hasInitiallyLoaded, setHasInitiallyLoaded] = useState(false);
   const [logsReadOnly, setLogsReadOnly] = useState(false);
@@ -135,42 +145,66 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
 
   // Start a background scan
   const startScan = useCallback(async () => {
-    if (isScanning) return;
+    if (isScanning || mockMode) return;
 
-    setIsScanning(true);
+    setIsStartingScan(true);
     setLoadError(null);
+    setCorruptionSummary({});
+    setLastDetectionTime(null);
+    setHasCachedResults(false);
+
     try {
+      // Start background detection - SignalR will send CorruptionDetectionStarted event
       await ApiService.startCorruptionDetection();
-      // The scan runs in the background, we'll get results via SignalR
+      // Note: NotificationsContext will create a notification via SignalR (CorruptionDetectionStarted event)
     } catch (err: unknown) {
       console.error('Failed to start corruption scan:', err);
       setLoadError(
         (err instanceof Error ? err.message : String(err)) || 'Failed to start corruption scan'
       );
-      setIsScanning(false);
+      setIsStartingScan(false);
     }
-  }, [isScanning]);
+  }, [isScanning, mockMode]);
 
-  // Listen for CorruptionDetectionComplete event
+  // Listen for corruption detection completion via notifications
   useEffect(() => {
-    if (!signalR) return;
+    // Handle corruption detection completion - ONLY if we were starting a scan
+    if (isStartingScan) {
+      const corruptionDetectionCompleteNotifs = notifications.filter(
+        n => n.type === 'corruption_detection' && n.status === 'completed'
+      );
+      if (corruptionDetectionCompleteNotifs.length > 0) {
+        console.log('[CorruptionManager] Corruption detection completed, loading results from database');
+        setIsStartingScan(false);
 
-    const handleDetectionComplete = async (result: CorruptionDetectionCompleteEvent) => {
-      setIsScanning(false);
-      if (result.success) {
-        // Reload cached data to get fresh results
-        await loadCachedData();
-      } else {
-        setLoadError(result.error || 'Corruption scan failed');
+        // Load fresh results from the database (backend already saved them)
+        const loadResults = async () => {
+          try {
+            const result = await ApiService.getCachedCorruptionDetection();
+            if (result.hasCachedResults && result.corruptionCounts) {
+              setCorruptionSummary(result.corruptionCounts);
+              setLastDetectionTime(result.lastDetectionTime || null);
+              setHasCachedResults(true);
+            }
+          } catch (err) {
+            console.error('[CorruptionManager] Failed to load detection results:', err);
+          }
+        };
+        loadResults();
       }
-    };
 
-    signalR.on('CorruptionDetectionComplete', handleDetectionComplete);
-
-    return () => {
-      signalR.off('CorruptionDetectionComplete', handleDetectionComplete);
-    };
-  }, [signalR, loadCachedData]);
+      // Handle corruption detection failure - ONLY if we were starting a scan
+      const corruptionDetectionFailedNotifs = notifications.filter(
+        n => n.type === 'corruption_detection' && n.status === 'failed'
+      );
+      if (corruptionDetectionFailedNotifs.length > 0) {
+        console.error('[CorruptionManager] Corruption detection failed');
+        setIsStartingScan(false);
+        const failedNotif = corruptionDetectionFailedNotifs[0];
+        setLoadError(failedNotif.error || 'Corruption scan failed');
+      }
+    }
+  }, [notifications, isStartingScan]);
 
   // Listen for CorruptionRemovalComplete event
   useEffect(() => {

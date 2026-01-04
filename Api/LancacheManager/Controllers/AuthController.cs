@@ -205,6 +205,24 @@ public class AuthController : ControllerBase
             _logger.LogWarning(ex, "Failed to check if data has been loaded");
         }
 
+        // Check if device is banned from prefill
+        bool isBanned = false;
+        var checkDeviceId = deviceId ?? Request.Headers["X-Device-Id"].FirstOrDefault();
+        if (!string.IsNullOrEmpty(checkDeviceId))
+        {
+            try
+            {
+                isBanned = _dbContext.BannedSteamUsers
+                    .Any(b => b.BannedDeviceId == checkDeviceId && 
+                              !b.IsLifted && 
+                              (b.ExpiresAtUtc == null || b.ExpiresAtUtc > DateTime.UtcNow));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to check if device is banned");
+            }
+        }
+
         // If authentication is disabled, always return authenticated
         if (!authEnabled)
         {
@@ -217,7 +235,8 @@ public class AuthController : ControllerBase
                 HasData = hasData,
                 HasEverBeenSetup = hasEverBeenSetup,
                 HasBeenInitialized = hasBeenInitialized,
-                HasDataLoaded = hasDataLoaded
+                HasDataLoaded = hasDataLoaded,
+                IsBanned = isBanned
             });
         }
 
@@ -235,7 +254,9 @@ public class AuthController : ControllerBase
             HasDataLoaded = hasDataLoaded,
             // Prefill permission for guests
             PrefillEnabled = prefillEnabled,
-            PrefillTimeRemaining = prefillTimeRemaining
+            PrefillTimeRemaining = prefillTimeRemaining,
+            // Ban status for prefill access
+            IsBanned = isBanned
         });
     }
 

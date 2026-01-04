@@ -7,10 +7,11 @@ interface NavigationProps {
   setActiveTab: (tab: string) => void;
   authMode?: AuthMode;
   prefillEnabled?: boolean;
+  isBanned?: boolean;
 }
 
 const Navigation: React.FC<NavigationProps> = React.memo(
-  ({ activeTab, setActiveTab, authMode = 'unauthenticated', prefillEnabled = false }) => {
+  ({ activeTab, setActiveTab, authMode = 'unauthenticated', prefillEnabled = false, isBanned = false }) => {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [menuHeight, setMenuHeight] = useState(0);
     const menuContentRef = useRef<HTMLDivElement>(null);
@@ -44,8 +45,9 @@ const Navigation: React.FC<NavigationProps> = React.memo(
         if (tab.guestOnly) {
           return authMode === 'guest';
         }
-        // Prefill tab: show to authenticated users OR guests with prefill permission
+        // Prefill tab: show to authenticated users OR guests with prefill permission, but hide if banned
         if ('requiresPrefill' in tab && tab.requiresPrefill) {
+          if (isBanned) return false;
           return authMode === 'authenticated' || prefillEnabled;
         }
         // Show public tabs to everyone
@@ -55,7 +57,7 @@ const Navigation: React.FC<NavigationProps> = React.memo(
       // Sort by appropriate order based on auth mode
       const orderKey = authMode === 'authenticated' ? 'authOrder' : 'guestOrder';
       return filtered.sort((a, b) => a[orderKey] - b[orderKey]);
-    }, [authMode, prefillEnabled]);
+    }, [authMode, prefillEnabled, isBanned]);
 
     const TabButton: React.FC<{
       tab: (typeof tabs)[0];

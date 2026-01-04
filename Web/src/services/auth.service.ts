@@ -25,6 +25,8 @@ interface AuthCheckResponse {
   // Prefill permission for guests
   prefillEnabled?: boolean;
   prefillTimeRemaining?: number; // minutes
+  // Ban status - hides prefill tab when banned
+  isBanned?: boolean;
 }
 
 interface RegisterResponse {

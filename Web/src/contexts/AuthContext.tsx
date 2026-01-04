@@ -13,6 +13,8 @@ interface AuthContextType {
   // Prefill permission for guests
   prefillEnabled: boolean;
   prefillTimeRemaining: number | null;
+  // Ban status - hides prefill tab when banned
+  isBanned: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -35,6 +37,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [prefillEnabled, setPrefillEnabled] = useState(false);
   const [prefillTimeRemaining, setPrefillTimeRemaining] = useState<number | null>(null);
+  const [isBanned, setIsBanned] = useState(false);
   const signalR = useSignalR();
 
   const fetchAuth = useCallback(async () => {
@@ -44,6 +47,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setAuthMode(authResult.authMode);
       setPrefillEnabled(authResult.prefillEnabled ?? false);
       setPrefillTimeRemaining(authResult.prefillTimeRemaining ?? null);
+      setIsBanned(authResult.isBanned ?? false);
       setIsLoading(false);
     } catch (error) {
       console.error('[Auth] Failed to check auth status:', error);
@@ -51,6 +55,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setAuthMode('unauthenticated');
       setPrefillEnabled(false);
       setPrefillTimeRemaining(null);
+      setIsBanned(false);
       setIsLoading(false);
     }
   }, []);
@@ -184,7 +189,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         setAuthMode,
         setIsAuthenticated,
         prefillEnabled,
-        prefillTimeRemaining
+        prefillTimeRemaining,
+        isBanned
       }}
     >
       {children}

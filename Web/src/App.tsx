@@ -74,7 +74,7 @@ const AppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const { connectionStatus } = useStats();
   const { setupStatus, isLoading: checkingSetupStatus, markSetupCompleted } = useSetupStatus();
-  const { isAuthenticated, authMode, isLoading: checkingAuth, refreshAuth, prefillEnabled } = useAuth();
+  const { isAuthenticated, authMode, isLoading: checkingAuth, refreshAuth, prefillEnabled, isBanned } = useAuth();
   const { status: steamApiStatus, refresh: refreshSteamWebApiStatus } = useSteamWebApiStatus();
   const { refreshSteamAuth } = useSteamAuth();
   const [depotInitialized, setDepotInitialized] = useState<boolean | null>(null);
@@ -695,7 +695,7 @@ const AppContent: React.FC = () => {
         <Header
           connectionStatus={connectionStatus as 'connected' | 'disconnected' | 'reconnecting'}
         />
-        <Navigation activeTab={activeTab} setActiveTab={setActiveTab} authMode={authMode} prefillEnabled={prefillEnabled} />
+        <Navigation activeTab={activeTab} setActiveTab={setActiveTab} authMode={authMode} prefillEnabled={prefillEnabled} isBanned={isBanned} />
         {/* Only show Universal Notification Bar to authenticated users */}
         {authMode === 'authenticated' && <UniversalNotificationBar />}
         <main className="container mx-auto px-4 py-6 flex-grow">{renderContent()}</main>
