@@ -501,30 +501,6 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                             {session.containerName}
                           </span>
                           <StatusBadge status={session.status} isLive />
-                          {session.isPrefilling && (
-                            <span
-                              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs"
-                              style={{
-                                backgroundColor: 'color-mix(in srgb, var(--theme-primary) 20%, transparent)',
-                                color: 'var(--theme-primary)'
-                              }}
-                            >
-                              {session.currentAppName ? `Prefilling: ${session.currentAppName}` : 'Prefilling'}
-                            </span>
-                          )}
-                          {(session.totalBytesTransferred ?? 0) > 0 && (
-                            <Tooltip content="Total data downloaded this session">
-                              <span
-                                className="px-1.5 py-0.5 rounded text-xs"
-                                style={{
-                                  backgroundColor: 'color-mix(in srgb, var(--theme-icon-green) 15%, transparent)',
-                                  color: 'var(--theme-icon-green)'
-                                }}
-                              >
-                                {formatBytes(session.totalBytesTransferred!)}
-                              </span>
-                            </Tooltip>
-                          )}
                         </div>
 
                         {/* Steam username if available */}
@@ -534,6 +510,29 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                             <span className="font-medium" style={{ color: 'var(--theme-steam)' }}>
                               {session.steamUsername}
                             </span>
+                          </div>
+                        )}
+
+                        {/* Prefilling status - shown prominently when active */}
+                        {session.isPrefilling && (
+                          <div className="flex items-center gap-2 mt-2">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: 'var(--theme-primary)' }} />
+                            <span className="text-sm" style={{ color: 'var(--theme-primary)' }}>
+                              {session.currentAppName || 'Prefilling...'}
+                            </span>
+                            {(session.totalBytesTransferred ?? 0) > 0 && (
+                              <span className="text-sm text-themed-muted">
+                                · {formatBytes(session.totalBytesTransferred!)} downloaded
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Show downloaded amount when not prefilling but has data */}
+                        {!session.isPrefilling && (session.totalBytesTransferred ?? 0) > 0 && (
+                          <div className="flex items-center gap-1.5 mt-2 text-sm text-themed-muted">
+                            <CheckCircle className="w-3.5 h-3.5" style={{ color: 'var(--theme-icon-green)' }} />
+                            <span>{formatBytes(session.totalBytesTransferred!)} downloaded</span>
                           </div>
                         )}
 

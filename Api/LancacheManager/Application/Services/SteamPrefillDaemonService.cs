@@ -763,7 +763,29 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
         _logger.LogInformation("Terminating session {SessionId}: {Reason} (force={Force})", sessionId, reason, force);
 
-        // Cancel any in-progress history entries
+        // Complete any in-progress history entry with current bytes before cancelling
+        if (session.CurrentAppId > 0)
+        {
+            try
+            {
+                await _sessionService.CompletePrefillEntryAsync(
+                    session.Id,
+                    session.CurrentAppId,
+                    "Cancelled",
+                    session.CurrentBytesDownloaded,
+                    session.CurrentTotalBytes,
+                    $"Session terminated: {reason}");
+
+                _logger.LogInformation("Completed in-progress prefill entry for app {AppId} on session termination: {Bytes}/{Total} bytes",
+                    session.CurrentAppId, session.CurrentBytesDownloaded, session.CurrentTotalBytes);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to complete prefill entry for app {AppId} on termination", session.CurrentAppId);
+            }
+        }
+
+        // Cancel any remaining in-progress history entries (shouldn't be any, but just in case)
         await _sessionService.CancelPrefillEntriesAsync(sessionId);
 
         // Persist termination to database
@@ -1318,13 +1340,11 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             session.TotalBytesTransferred = session.CompletedBytesTransferred + progress.BytesDownloaded;
         }
 
-        // Broadcast session update to all clients when app info changes (for admin pages - both hubs)
-        if (appInfoChanged)
-        {
-            var progressDto = DaemonSessionDto.FromSession(session);
-            await _hubContext.Clients.All.SendAsync("DaemonSessionUpdated", progressDto);
-            await _downloadHubContext.Clients.All.SendAsync("DaemonSessionUpdated", progressDto);
-        }
+        // Broadcast session update to all clients on every progress (for admin pages - both hubs)
+        // This ensures totalBytesTransferred updates in real-time
+        var progressDto = DaemonSessionDto.FromSession(session);
+        await _hubContext.Clients.All.SendAsync("DaemonSessionUpdated", progressDto);
+        await _downloadHubContext.Clients.All.SendAsync("DaemonSessionUpdated", progressDto);
 
         // Send detailed progress to subscribed connections (the user doing the prefill)
         foreach (var connectionId in session.SubscribedConnections.ToList())
