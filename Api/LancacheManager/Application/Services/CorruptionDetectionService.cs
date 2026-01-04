@@ -354,6 +354,7 @@ public class CorruptionDetectionService
 /// </summary>
 public class CorruptionSummaryData
 {
+    [System.Text.Json.Serialization.JsonPropertyName("service_counts")]
     public Dictionary<string, long>? ServiceCounts { get; set; }
 }
 

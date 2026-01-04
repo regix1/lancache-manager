@@ -79,7 +79,8 @@ export const SIGNALR_EVENTS = [
   'SteamUserBanned',
   'DaemonSessionCreated',
   'DaemonSessionUpdated',
-  'DaemonSessionTerminated'
+  'DaemonSessionTerminated',
+  'PrefillHistoryUpdated'
 ] as const;
 
 export type SignalREvent = (typeof SIGNALR_EVENTS)[number];
@@ -453,4 +454,10 @@ export interface UserSessionRevokedEvent {
 
 export interface GuestDurationUpdatedEvent {
   durationMinutes: number;
+}
+
+export interface PrefillHistoryUpdatedEvent {
+  sessionId: string;
+  appId: number;
+  status: string;
 }

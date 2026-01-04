@@ -14,7 +14,11 @@ import {
   Monitor,
   User,
   Eye,
-  Fingerprint
+  Fingerprint,
+  ChevronDown,
+  ChevronUp,
+  Gamepad2,
+  XCircle
 } from 'lucide-react';
 import { Card, CardContent } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -27,13 +31,14 @@ import { Checkbox } from '@components/ui/Checkbox';
 import ApiService, {
   PrefillSessionDto,
   DaemonSessionDto,
-  BannedSteamUserDto
+  BannedSteamUserDto,
+  PrefillHistoryEntryDto
 } from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useSignalR } from '@contexts/SignalRContext';
 import { cleanIpAddress } from '@components/features/user/types';
-import type { DaemonSessionCreatedEvent, DaemonSessionUpdatedEvent, DaemonSessionTerminatedEvent } from '@contexts/SignalRContext/types';
+import type { DaemonSessionCreatedEvent, DaemonSessionUpdatedEvent, DaemonSessionTerminatedEvent, PrefillHistoryUpdatedEvent } from '@contexts/SignalRContext/types';
 
 interface PrefillSessionsSectionProps {
   isAuthenticated: boolean;
@@ -47,6 +52,46 @@ interface PrefillSessionsSectionProps {
 const FormattedTimestamp: React.FC<{ timestamp: string | undefined }> = ({ timestamp }) => {
   const formattedTime = useFormattedDateTime(timestamp);
   return <>{formattedTime}</>;
+};
+
+// Helper function for formatting bytes
+const formatBytes = (bytes: number): string => {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+};
+
+// Prefill history status badge
+const HistoryStatusBadge: React.FC<{ status: string }> = ({ status }) => {
+  const getStatusStyle = () => {
+    switch (status.toLowerCase()) {
+      case 'completed':
+        return { bg: 'var(--theme-icon-green)', text: '#fff' };
+      case 'inprogress':
+        return { bg: 'var(--theme-primary)', text: '#fff' };
+      case 'failed':
+      case 'error':
+        return { bg: 'var(--theme-icon-red)', text: '#fff' };
+      case 'cancelled':
+        return { bg: 'var(--theme-icon-orange)', text: '#fff' };
+      default:
+        return { bg: 'var(--theme-bg-tertiary)', text: 'var(--theme-text-secondary)' };
+    }
+  };
+
+  const colors = getStatusStyle();
+  const displayStatus = status === 'InProgress' ? 'In Progress' : status;
+
+  return (
+    <span
+      className="px-1.5 py-0.5 rounded text-[10px] font-medium"
+      style={{ backgroundColor: colors.bg, color: colors.text }}
+    >
+      {displayStatus}
+    </span>
+  );
 };
 
 // Status badge component
@@ -131,6 +176,11 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   const [banConfirm, setBanConfirm] = useState<{ sessionId: string; reason: string } | null>(null);
   const [liftBanConfirm, setLiftBanConfirm] = useState<BannedSteamUserDto | null>(null);
 
+  // Prefill history states
+  const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set());
+  const [historyData, setHistoryData] = useState<Record<string, PrefillHistoryEntryDto[]>>({});
+  const [loadingHistory, setLoadingHistory] = useState<Set<string>>(new Set());
+
   // Load sessions
   const loadSessions = useCallback(async () => {
     setLoadingSessions(true);
@@ -161,6 +211,40 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       setLoadingBans(false);
     }
   }, [includeLifted, onError]);
+
+  // Load prefill history for a session
+  const loadHistory = useCallback(async (sessionId: string) => {
+    setLoadingHistory(prev => new Set(prev).add(sessionId));
+    try {
+      const history = await ApiService.getPrefillSessionHistory(sessionId);
+      setHistoryData(prev => ({ ...prev, [sessionId]: history }));
+    } catch (error) {
+      onError(getErrorMessage(error));
+    } finally {
+      setLoadingHistory(prev => {
+        const next = new Set(prev);
+        next.delete(sessionId);
+        return next;
+      });
+    }
+  }, [onError]);
+
+  // Toggle history expansion
+  const toggleHistory = useCallback((sessionId: string) => {
+    setExpandedHistory(prev => {
+      const next = new Set(prev);
+      if (next.has(sessionId)) {
+        next.delete(sessionId);
+      } else {
+        next.add(sessionId);
+        // Load history if not already loaded
+        if (!historyData[sessionId]) {
+          loadHistory(sessionId);
+        }
+      }
+      return next;
+    });
+  }, [historyData, loadHistory]);
 
   // Initial load
   useEffect(() => {
@@ -193,16 +277,25 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       loadSessions();
     };
 
+    const handlePrefillHistoryUpdated = (event: PrefillHistoryUpdatedEvent) => {
+      // Reload history for this session if it's currently expanded
+      if (expandedHistory.has(event.sessionId)) {
+        loadHistory(event.sessionId);
+      }
+    };
+
     on('DaemonSessionCreated', handleSessionCreated);
     on('DaemonSessionUpdated', handleSessionUpdated);
     on('DaemonSessionTerminated', handleSessionTerminated);
+    on('PrefillHistoryUpdated', handlePrefillHistoryUpdated);
 
     return () => {
       off('DaemonSessionCreated', handleSessionCreated);
       off('DaemonSessionUpdated', handleSessionUpdated);
       off('DaemonSessionTerminated', handleSessionTerminated);
+      off('PrefillHistoryUpdated', handlePrefillHistoryUpdated);
     };
-  }, [on, off, loadSessions]);
+  }, [on, off, loadSessions, expandedHistory, loadHistory]);
 
   // Terminate a single session
   const handleTerminateSession = async (sessionId: string) => {
@@ -461,41 +554,119 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                       </div>
                     </div>
 
-                    {isAuthenticated && (
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <Tooltip content="Ban this Steam user">
-                          <Button
-                            variant="subtle"
-                            size="sm"
-                            color="red"
-                            onClick={() => setBanConfirm({ sessionId: session.id, reason: '' })}
-                            disabled={banningSession === session.id}
-                          >
-                            {banningSession === session.id ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <Ban className="w-4 h-4" />
-                            )}
-                          </Button>
-                        </Tooltip>
-                        <Tooltip content="Terminate session">
-                          <Button
-                            variant="subtle"
-                            size="sm"
-                            color="red"
-                            onClick={() => handleTerminateSession(session.id)}
-                            disabled={terminatingSession === session.id}
-                          >
-                            {terminatingSession === session.id ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <StopCircle className="w-4 h-4" />
-                            )}
-                          </Button>
-                        </Tooltip>
-                      </div>
-                    )}
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <Tooltip content={expandedHistory.has(session.id) ? "Hide history" : "View prefill history"}>
+                        <Button
+                          variant="subtle"
+                          size="sm"
+                          onClick={() => toggleHistory(session.id)}
+                        >
+                          {loadingHistory.has(session.id) ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : expandedHistory.has(session.id) ? (
+                            <ChevronUp className="w-4 h-4" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4" />
+                          )}
+                        </Button>
+                      </Tooltip>
+                      {isAuthenticated && (
+                        <>
+                          <Tooltip content="Ban this Steam user">
+                            <Button
+                              variant="subtle"
+                              size="sm"
+                              color="red"
+                              onClick={() => setBanConfirm({ sessionId: session.id, reason: '' })}
+                              disabled={banningSession === session.id}
+                            >
+                              {banningSession === session.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Ban className="w-4 h-4" />
+                              )}
+                            </Button>
+                          </Tooltip>
+                          <Tooltip content="Terminate session">
+                            <Button
+                              variant="subtle"
+                              size="sm"
+                              color="red"
+                              onClick={() => handleTerminateSession(session.id)}
+                              disabled={terminatingSession === session.id}
+                            >
+                              {terminatingSession === session.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <StopCircle className="w-4 h-4" />
+                              )}
+                            </Button>
+                          </Tooltip>
+                        </>
+                      )}
+                    </div>
                   </div>
+
+                  {/* Expandable prefill history */}
+                  {expandedHistory.has(session.id) && (
+                    <div
+                      className="mt-4 pt-4"
+                      style={{ borderTop: '1px solid var(--theme-border-primary)' }}
+                    >
+                      <div className="flex items-center gap-2 mb-3">
+                        <Gamepad2 className="w-4 h-4 text-themed-muted" />
+                        <span className="text-sm font-medium text-themed-secondary">Prefill History</span>
+                      </div>
+
+                      {loadingHistory.has(session.id) ? (
+                        <div className="flex items-center gap-2 py-4 justify-center">
+                          <Loader2 className="w-4 h-4 animate-spin text-themed-muted" />
+                          <span className="text-sm text-themed-muted">Loading history...</span>
+                        </div>
+                      ) : !historyData[session.id] || historyData[session.id].length === 0 ? (
+                        <div className="text-center py-4 text-sm text-themed-muted">
+                          No prefill history yet
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {historyData[session.id].map(entry => (
+                            <div
+                              key={entry.id}
+                              className="flex items-center justify-between gap-3 p-2 rounded"
+                              style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+                            >
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                <Gamepad2 className="w-4 h-4 text-themed-muted flex-shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-medium text-themed-primary truncate">
+                                      {entry.appName || `App ${entry.appId}`}
+                                    </span>
+                                    <HistoryStatusBadge status={entry.status} />
+                                  </div>
+                                  <div className="flex items-center gap-3 text-[10px] text-themed-muted mt-0.5">
+                                    <span>Started: <FormattedTimestamp timestamp={entry.startedAtUtc} /></span>
+                                    {entry.completedAtUtc && (
+                                      <span>Completed: <FormattedTimestamp timestamp={entry.completedAtUtc} /></span>
+                                    )}
+                                    {entry.bytesDownloaded > 0 && (
+                                      <span>{formatBytes(entry.bytesDownloaded)}</span>
+                                    )}
+                                  </div>
+                                  {entry.errorMessage && (
+                                    <div className="flex items-center gap-1 mt-1 text-[10px]" style={{ color: 'var(--theme-icon-red)' }}>
+                                      <XCircle className="w-3 h-3" />
+                                      <span className="truncate">{entry.errorMessage}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             ))}

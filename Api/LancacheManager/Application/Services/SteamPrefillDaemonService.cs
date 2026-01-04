@@ -575,6 +575,16 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         try
         {
             await session.Client.CancelPrefillAsync(cancellationToken);
+
+            // Cancel any in-progress history entries
+            await _sessionService.CancelPrefillEntriesAsync(sessionId);
+
+            // Broadcast history update if there was a current app
+            if (session.CurrentAppId > 0)
+            {
+                await BroadcastPrefillHistoryUpdatedAsync(sessionId, session.CurrentAppId, "Cancelled");
+            }
+
             _logger.LogInformation("Prefill cancelled for session {SessionId}", sessionId);
         }
         catch (Exception ex)
@@ -633,6 +643,8 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         }
 
         session.IsPrefilling = true;
+        session.PreviousAppId = 0;
+        session.PreviousAppName = null;
         await NotifyPrefillStateChangeAsync(session, "started");
         var startDto = DaemonSessionDto.FromSession(session);
         await _hubContext.Clients.All.SendAsync("DaemonSessionUpdated", startDto);
@@ -642,6 +654,28 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         {
             var result = await session.Client.PrefillAsync(all, recent, recentlyPurchased, top, force, operatingSystems, cancellationToken);
             await NotifyPrefillStateChangeAsync(session, result.Success ? "completed" : "failed");
+
+            // Complete the last in-progress entry if any (the final game)
+            if (session.CurrentAppId > 0)
+            {
+                try
+                {
+                    await _sessionService.CompletePrefillEntryAsync(
+                        session.Id,
+                        session.CurrentAppId,
+                        result.Success ? "Completed" : "Failed",
+                        0, 0, // bytes will be in the result
+                        result.Success ? null : "Prefill ended");
+
+                    await BroadcastPrefillHistoryUpdatedAsync(session.Id, session.CurrentAppId,
+                        result.Success ? "Completed" : "Failed");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to complete final prefill history entry");
+                }
+            }
+
             return result;
         }
         finally
@@ -649,6 +683,8 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             session.IsPrefilling = false;
             session.CurrentAppId = 0;
             session.CurrentAppName = null;
+            session.PreviousAppId = 0;
+            session.PreviousAppName = null;
             var endDto = DaemonSessionDto.FromSession(session);
             await _hubContext.Clients.All.SendAsync("DaemonSessionUpdated", endDto);
             await _downloadHubContext.Clients.All.SendAsync("DaemonSessionUpdated", endDto);
@@ -726,6 +762,9 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         }
 
         _logger.LogInformation("Terminating session {SessionId}: {Reason} (force={Force})", sessionId, reason, force);
+
+        // Cancel any in-progress history entries
+        await _sessionService.CancelPrefillEntriesAsync(sessionId);
 
         // Persist termination to database
         await _sessionService.TerminateSessionAsync(sessionId, reason, terminatedBy);
@@ -1163,6 +1202,83 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         var appInfoChanged = session.CurrentAppId != progress.CurrentAppId ||
                              session.CurrentAppName != progress.CurrentAppName;
 
+        // Track history: detect game transitions
+        if (appInfoChanged && progress.CurrentAppId > 0)
+        {
+            // If there was a previous app being prefilled, complete its history entry
+            if (session.PreviousAppId > 0)
+            {
+                try
+                {
+                    // Complete the previous app's entry (assume success since we're moving on)
+                    await _sessionService.CompletePrefillEntryAsync(
+                        session.Id,
+                        session.PreviousAppId,
+                        "Completed",
+                        progress.BytesDownloaded,
+                        progress.TotalBytes);
+
+                    _logger.LogDebug("Completed prefill history for app {AppId} ({AppName}) in session {SessionId}",
+                        session.PreviousAppId, session.PreviousAppName, session.Id);
+
+                    // Broadcast history update
+                    await BroadcastPrefillHistoryUpdatedAsync(session.Id, session.PreviousAppId, "Completed");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to complete prefill history entry for app {AppId}", session.PreviousAppId);
+                }
+            }
+
+            // Start a new history entry for the current app
+            try
+            {
+                await _sessionService.StartPrefillEntryAsync(session.Id, progress.CurrentAppId, progress.CurrentAppName);
+
+                _logger.LogDebug("Started prefill history for app {AppId} ({AppName}) in session {SessionId}",
+                    progress.CurrentAppId, progress.CurrentAppName, session.Id);
+
+                // Broadcast history update
+                await BroadcastPrefillHistoryUpdatedAsync(session.Id, progress.CurrentAppId, "InProgress");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to start prefill history entry for app {AppId}", progress.CurrentAppId);
+            }
+        }
+
+        // Handle completion/failure states
+        if (progress.State == "completed" || progress.State == "failed" || progress.State == "error")
+        {
+            if (session.CurrentAppId > 0)
+            {
+                try
+                {
+                    var status = progress.State == "completed" ? "Completed" : "Failed";
+                    await _sessionService.CompletePrefillEntryAsync(
+                        session.Id,
+                        session.CurrentAppId,
+                        status,
+                        progress.BytesDownloaded,
+                        progress.TotalBytes,
+                        progress.ErrorMessage);
+
+                    _logger.LogDebug("Completed prefill history for app {AppId} ({AppName}) with status {Status}",
+                        session.CurrentAppId, session.CurrentAppName, status);
+
+                    // Broadcast history update
+                    await BroadcastPrefillHistoryUpdatedAsync(session.Id, session.CurrentAppId, status);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to complete prefill history entry for app {AppId}", session.CurrentAppId);
+                }
+            }
+        }
+
+        // Update previous app tracking before changing current
+        session.PreviousAppId = session.CurrentAppId;
+        session.PreviousAppName = session.CurrentAppName;
         session.CurrentAppId = progress.CurrentAppId;
         session.CurrentAppName = progress.CurrentAppName;
 
@@ -1188,6 +1304,13 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                 session.SubscribedConnections.Remove(connectionId);
             }
         }
+    }
+
+    private async Task BroadcastPrefillHistoryUpdatedAsync(string sessionId, uint appId, string status)
+    {
+        var historyEvent = new { sessionId, appId, status };
+        await _hubContext.Clients.All.SendAsync("PrefillHistoryUpdated", historyEvent);
+        await _downloadHubContext.Clients.All.SendAsync("PrefillHistoryUpdated", historyEvent);
     }
 
     private async Task NotifySessionEndedAsync(DaemonSession session, string reason)
@@ -1387,6 +1510,12 @@ public class DaemonSession
     /// </summary>
     public uint CurrentAppId { get; set; }
     public string? CurrentAppName { get; set; }
+
+    /// <summary>
+    /// Previous app ID for tracking history transitions
+    /// </summary>
+    public uint PreviousAppId { get; set; }
+    public string? PreviousAppName { get; set; }
 
     /// <summary>
     /// Client connection info for admin visibility

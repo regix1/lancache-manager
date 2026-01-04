@@ -367,6 +367,128 @@ public class PrefillSessionService
 
     #endregion
 
+    #region Prefill History
+
+    /// <summary>
+    /// Records the start of a game prefill.
+    /// </summary>
+    public async Task<PrefillHistoryEntry> StartPrefillEntryAsync(
+        string sessionId,
+        uint appId,
+        string? appName)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+
+        var entry = new PrefillHistoryEntry
+        {
+            SessionId = sessionId,
+            AppId = appId,
+            AppName = appName,
+            StartedAtUtc = DateTime.UtcNow,
+            Status = "InProgress"
+        };
+
+        context.PrefillHistoryEntries.Add(entry);
+        await context.SaveChangesAsync();
+
+        _logger.LogDebug("Started prefill entry for session {SessionId}: {AppName} ({AppId})",
+            sessionId, appName, appId);
+
+        return entry;
+    }
+
+    /// <summary>
+    /// Updates a prefill entry when the game download completes.
+    /// </summary>
+    public async Task<PrefillHistoryEntry?> CompletePrefillEntryAsync(
+        string sessionId,
+        uint appId,
+        string status,
+        long bytesDownloaded,
+        long totalBytes,
+        string? errorMessage = null)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+
+        var entry = await context.PrefillHistoryEntries
+            .Where(e => e.SessionId == sessionId && e.AppId == appId && e.Status == "InProgress")
+            .OrderByDescending(e => e.StartedAtUtc)
+            .FirstOrDefaultAsync();
+
+        if (entry == null)
+        {
+            _logger.LogWarning("No in-progress prefill entry found for session {SessionId}, app {AppId}",
+                sessionId, appId);
+            return null;
+        }
+
+        entry.CompletedAtUtc = DateTime.UtcNow;
+        entry.Status = status;
+        entry.BytesDownloaded = bytesDownloaded;
+        entry.TotalBytes = totalBytes;
+        entry.ErrorMessage = errorMessage;
+
+        await context.SaveChangesAsync();
+
+        _logger.LogDebug("Completed prefill entry for session {SessionId}: {AppName} ({AppId}) - {Status}",
+            sessionId, entry.AppName, appId, status);
+
+        return entry;
+    }
+
+    /// <summary>
+    /// Gets prefill history for a session.
+    /// </summary>
+    public async Task<List<PrefillHistoryEntry>> GetPrefillHistoryAsync(string sessionId)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+
+        return await context.PrefillHistoryEntries
+            .Where(e => e.SessionId == sessionId)
+            .OrderByDescending(e => e.StartedAtUtc)
+            .ToListAsync();
+    }
+
+    /// <summary>
+    /// Gets the current in-progress prefill entry for a session.
+    /// </summary>
+    public async Task<PrefillHistoryEntry?> GetCurrentPrefillEntryAsync(string sessionId)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+
+        return await context.PrefillHistoryEntries
+            .Where(e => e.SessionId == sessionId && e.Status == "InProgress")
+            .OrderByDescending(e => e.StartedAtUtc)
+            .FirstOrDefaultAsync();
+    }
+
+    /// <summary>
+    /// Marks all in-progress entries for a session as cancelled.
+    /// Called when a prefill operation is cancelled or session terminates.
+    /// </summary>
+    public async Task CancelPrefillEntriesAsync(string sessionId)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+
+        var entries = await context.PrefillHistoryEntries
+            .Where(e => e.SessionId == sessionId && e.Status == "InProgress")
+            .ToListAsync();
+
+        foreach (var entry in entries)
+        {
+            entry.CompletedAtUtc = DateTime.UtcNow;
+            entry.Status = "Cancelled";
+        }
+
+        if (entries.Count > 0)
+        {
+            await context.SaveChangesAsync();
+            _logger.LogDebug("Cancelled {Count} prefill entries for session {SessionId}", entries.Count, sessionId);
+        }
+    }
+
+    #endregion
+
     #region Admin Operations
 
     /// <summary>

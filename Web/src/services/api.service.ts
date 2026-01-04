@@ -1397,6 +1397,20 @@ class ApiService {
     }
   }
 
+  // Get prefill history for a specific session
+  static async getPrefillSessionHistory(
+    sessionId: string,
+    signal?: AbortSignal
+  ): Promise<PrefillHistoryEntryDto[]> {
+    try {
+      const res = await fetch(`${API_BASE}/prefill-admin/sessions/${sessionId}/history`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<PrefillHistoryEntryDto[]>(res);
+    } catch (error: unknown) {
+      if (!isAbortError(error)) console.error('getPrefillSessionHistory error:', error);
+      throw error;
+    }
+  }
+
   // Terminate a specific prefill session
   static async terminatePrefillSession(
     sessionId: string,
@@ -1558,6 +1572,19 @@ export interface BannedSteamUserDto {
   liftedAtUtc?: string;
   liftedBy?: string;
   isActive: boolean;
+}
+
+export interface PrefillHistoryEntryDto {
+  id: number;
+  sessionId: string;
+  appId: number;
+  appName?: string;
+  startedAtUtc: string;
+  completedAtUtc?: string;
+  bytesDownloaded: number;
+  totalBytes: number;
+  status: string;
+  errorMessage?: string;
 }
 
 export default ApiService;

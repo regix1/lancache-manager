@@ -22,6 +22,7 @@ public class AppDbContext : DbContext
     public DbSet<ClientGroupMember> ClientGroupMembers { get; set; }
     public DbSet<BannedSteamUser> BannedSteamUsers { get; set; }
     public DbSet<PrefillSession> PrefillSessions { get; set; }
+    public DbSet<PrefillHistoryEntry> PrefillHistoryEntries { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -247,5 +248,26 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<PrefillSession>()
             .HasIndex(p => p.CreatedAtUtc)
             .HasDatabaseName("IX_PrefillSessions_CreatedAtUtc");
+
+        // PrefillHistoryEntry configuration
+        modelBuilder.Entity<PrefillHistoryEntry>()
+            .HasIndex(h => h.SessionId)
+            .HasDatabaseName("IX_PrefillHistoryEntries_SessionId");
+
+        modelBuilder.Entity<PrefillHistoryEntry>()
+            .HasIndex(h => h.AppId)
+            .HasDatabaseName("IX_PrefillHistoryEntries_AppId");
+
+        modelBuilder.Entity<PrefillHistoryEntry>()
+            .HasIndex(h => h.StartedAtUtc)
+            .HasDatabaseName("IX_PrefillHistoryEntries_StartedAtUtc");
+
+        // Configure one-to-many relationship
+        modelBuilder.Entity<PrefillHistoryEntry>()
+            .HasOne(h => h.Session)
+            .WithMany(s => s.PrefillHistory)
+            .HasForeignKey(h => h.SessionId)
+            .HasPrincipalKey(s => s.SessionId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

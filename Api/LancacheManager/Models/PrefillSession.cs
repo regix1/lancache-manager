@@ -86,4 +86,9 @@ public class PrefillSession
     /// </summary>
     [MaxLength(100)]
     public string? TerminatedBy { get; set; }
+
+    /// <summary>
+    /// History of games prefilled during this session
+    /// </summary>
+    public ICollection<PrefillHistoryEntry> PrefillHistory { get; set; } = new List<PrefillHistoryEntry>();
 }

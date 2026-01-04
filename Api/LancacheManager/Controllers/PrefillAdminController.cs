@@ -99,6 +99,29 @@ public class PrefillAdminController : ControllerBase
     }
 
     /// <summary>
+    /// Gets prefill history for a specific session.
+    /// </summary>
+    [HttpGet("sessions/{sessionId}/history")]
+    public async Task<ActionResult<List<PrefillHistoryEntryDto>>> GetSessionHistory(string sessionId)
+    {
+        var history = await _sessionService.GetPrefillHistoryAsync(sessionId);
+
+        return Ok(history.Select(h => new PrefillHistoryEntryDto
+        {
+            Id = h.Id,
+            SessionId = h.SessionId,
+            AppId = h.AppId,
+            AppName = h.AppName,
+            StartedAtUtc = h.StartedAtUtc,
+            CompletedAtUtc = h.CompletedAtUtc,
+            BytesDownloaded = h.BytesDownloaded,
+            TotalBytes = h.TotalBytes,
+            Status = h.Status,
+            ErrorMessage = h.ErrorMessage
+        }).ToList());
+    }
+
+    /// <summary>
     /// Terminates a specific session.
     /// </summary>
     [HttpPost("sessions/{sessionId}/terminate")]
@@ -340,6 +363,20 @@ public class BannedSteamUserDto
     public DateTime? LiftedAtUtc { get; set; }
     public string? LiftedBy { get; set; }
     public bool IsActive { get; set; }
+}
+
+public class PrefillHistoryEntryDto
+{
+    public int Id { get; set; }
+    public string SessionId { get; set; } = string.Empty;
+    public uint AppId { get; set; }
+    public string? AppName { get; set; }
+    public DateTime StartedAtUtc { get; set; }
+    public DateTime? CompletedAtUtc { get; set; }
+    public long BytesDownloaded { get; set; }
+    public long TotalBytes { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public string? ErrorMessage { get; set; }
 }
 
 public class TerminateSessionRequest
