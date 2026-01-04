@@ -52,11 +52,6 @@ const MemoryDiagnostics: React.FC = () => {
 
   useEffect(() => {
     fetchMemoryStats();
-
-    // Auto-refresh every 5 seconds
-    const interval = setInterval(fetchMemoryStats, 5000);
-
-    return () => clearInterval(interval);
   }, []);
 
   if (loading) {

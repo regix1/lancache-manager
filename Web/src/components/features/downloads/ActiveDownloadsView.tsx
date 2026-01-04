@@ -98,22 +98,6 @@ const ActiveDownloadsView: React.FC = () => {
     };
   }, [signalR, getRefreshInterval, fetchSpeeds]);
 
-  // Refresh speeds when tab becomes visible
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        // Reset throttle and fetch fresh data
-        lastUpdateRef.current = 0;
-        fetchSpeeds();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [fetchSpeeds]);
-
   // Use speedSnapshot for all active download data (real-time from Rust speed tracker)
   const hasActiveDownloads = speedSnapshot?.hasActiveDownloads || false;
   const games = speedSnapshot?.gameSpeeds || [];

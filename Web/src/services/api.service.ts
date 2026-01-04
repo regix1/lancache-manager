@@ -1534,6 +1534,9 @@ export interface DaemonSessionDto {
   browser?: string;
   lastSeenAt: string;
   steamUsername?: string;
+  // Current prefill progress info for admin visibility
+  currentAppId?: number;
+  currentAppName?: string;
 }
 
 export interface PrefillSessionsResponse {

@@ -77,24 +77,6 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     }
   }, [mockMode]);
 
-  // Refresh positions periodically
-  useEffect(() => {
-    if (mockMode || !signalR.isConnected) return;
-
-    const refreshPositions = async () => {
-      try {
-        const positions = await fetchLogPositions();
-        setLogPositions(positions);
-      } catch (err) {
-        console.error('Failed to refresh log positions:', err);
-      }
-    };
-
-    // Refresh every 30 seconds
-    const interval = setInterval(refreshPositions, 30000);
-    return () => clearInterval(interval);
-  }, [mockMode, signalR.isConnected]);
-
   // Listen for processing complete events to refresh positions
   useEffect(() => {
     const handleProcessingComplete = async (_result: FastProcessingCompleteEvent) => {

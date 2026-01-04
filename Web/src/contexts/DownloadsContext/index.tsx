@@ -228,23 +228,6 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   // PAGE VISIBILITY - Refresh when tab becomes visible
   // ============================================
 
-  useEffect(() => {
-    if (mockMode) return;
-
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        // Tab became visible - trigger immediate refresh
-        // Reset the last refresh time to allow immediate fetch
-        lastSignalRRefresh.current = 0;
-        fetchDownloads();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [mockMode, fetchDownloads]);
 
   // ============================================
   // EFFECTS

@@ -87,9 +87,6 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
 
   useEffect(() => {
     fetchStatus();
-    // Refresh status every minute
-    const interval = setInterval(fetchStatus, 60000);
-    return () => clearInterval(interval);
   }, [fetchStatus]);
 
   const handleForceRotation = async () => {

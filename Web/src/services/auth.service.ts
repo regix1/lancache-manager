@@ -3,15 +3,6 @@ import { getErrorMessage } from '@utils/error';
 
 export type AuthMode = 'authenticated' | 'guest' | 'expired' | 'unauthenticated';
 
-// Session info returned from the sessions API
-interface SessionInfo {
-  id: string;
-  type: 'authenticated' | 'guest';
-  deviceName?: string;
-  createdAt?: string;
-  lastActivity?: string;
-}
-
 interface AuthCheckResponse {
   requiresAuth: boolean;
   isAuthenticated: boolean;
@@ -67,8 +58,7 @@ class AuthService {
 
     console.log('[Auth] Device ID generated from browser fingerprint:', this.deviceId.substring(0, 20) + '...');
     console.log('[Auth] Authentication managed via HttpOnly cookies');
-
-    this.startGuestModeTimer();
+    // Session revocation is handled via SignalR events (UserSessionRevoked) in AuthContext
   }
 
   private getOrCreateDeviceId(): string {
@@ -76,79 +66,6 @@ class AuthService {
     // Device ID is deterministic based on browser characteristics
     // No localStorage needed - fingerprint is stable across sessions
     return BrowserFingerprint.getDeviceId();
-  }
-
-  private startGuestModeTimer(): void {
-    // Check guest mode status and device validity frequently
-    setInterval(() => {
-      this.checkGuestModeExpiry();
-      this.checkDeviceStillValid();
-    }, 15000); // Check every 15 seconds for faster device revocation detection
-
-    // Initial check
-    this.checkGuestModeExpiry();
-    this.checkDeviceStillValid();
-  }
-
-  private async checkDeviceStillValid(): Promise<void> {
-    // CRITICAL: Skip check if upgrade is in progress to prevent race conditions
-    if (this.isUpgrading) {
-      console.log('[Auth] Skipping device check - upgrade in progress');
-      return;
-    }
-
-    // Only check if we're authenticated
-    if (this.authMode !== 'authenticated' || !this.isAuthenticated) {
-      return;
-    }
-
-    try {
-      // Check if our device ID still exists in the sessions list
-      const response = await fetch(`${API_URL}/api/sessions`, {
-        headers: this.getAuthHeaders()
-      });
-
-      // Handle 401 Unauthorized - device/API key is invalid
-      if (response.status === 401) {
-        console.warn('[Auth] Received 401 during device validation - authentication is invalid');
-        this.handleUnauthorized();
-        window.dispatchEvent(new CustomEvent('auth-session-revoked', {
-          detail: { reason: 'Your session is no longer valid. Please authenticate again.' }
-        }));
-        return;
-      }
-
-      if (response.ok) {
-        const result = await response.json();
-        const sessions = result.sessions || [];
-
-        // Check if our device ID exists in the authenticated sessions
-        const ourDeviceExists = sessions.some(
-          (session: SessionInfo) => session.type === 'authenticated' && session.id === this.deviceId
-        );
-
-        // If our device was deleted, clear local auth state
-        if (!ourDeviceExists) {
-          console.warn('[Auth] Device session was deleted - clearing local auth');
-          // Don't call logout() because that tries to hit the backend which will fail
-          // with 400 since the device is already revoked. Just clear local state.
-          this.handleUnauthorized();
-          window.dispatchEvent(new CustomEvent('auth-session-revoked', {
-            detail: { reason: 'Your device session was deleted by an administrator' }
-          }));
-          // State update will trigger authentication modal
-        }
-      }
-    } catch (error) {
-      // Silently fail - don't log out on network errors
-      console.error('[Auth] Failed to validate device session:', error);
-    }
-  }
-
-  private checkGuestModeExpiry(): void {
-    // Guest expiry is managed by backend via HttpOnly cookies
-    // Backend will return 401 when guest session expires
-    // This method kept for compatibility but no action needed
   }
 
   public async startGuestMode(): Promise<void> {

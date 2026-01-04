@@ -235,22 +235,6 @@ const Dashboard: React.FC = () => {
     };
   }, [signalR, getRefreshInterval, fetchSpeeds]);
 
-  // Refresh speeds when tab becomes visible
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        // Reset throttle and fetch fresh data
-        lastSpeedUpdateRef.current = 0;
-        fetchSpeeds();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [fetchSpeeds]);
-
   // Filter out services with only small files (< 1MB) and 0-byte files from dashboard data
   const filteredLatestDownloads = useMemo(() => {
     return latestDownloads.filter((download) => {

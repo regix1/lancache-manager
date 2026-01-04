@@ -414,7 +414,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                                 color: 'var(--theme-primary)'
                               }}
                             >
-                              Prefilling
+                              {session.currentAppName ? `Prefilling: ${session.currentAppName}` : 'Prefilling'}
                             </span>
                           )}
                         </div>

@@ -105,34 +105,19 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
 
     signalR.on('DownloadSpeedUpdate', handleSpeedUpdate);
 
-    // Periodically refresh history (every 30s) since SignalR doesn't push this
-    const historyInterval = setInterval(fetchHistory, 30000);
+    // Listen for data refresh events to update history
+    signalR.on('DownloadsRefresh', fetchHistory);
+    signalR.on('FastProcessingComplete', fetchHistory);
 
     return () => {
       signalR.off('DownloadSpeedUpdate', handleSpeedUpdate);
-      clearInterval(historyInterval);
+      signalR.off('DownloadsRefresh', fetchHistory);
+      signalR.off('FastProcessingComplete', fetchHistory);
       if (pendingSpeedUpdateRef.current) {
         clearTimeout(pendingSpeedUpdateRef.current);
       }
     };
   }, [signalR, getRefreshInterval, fetchSpeeds, fetchHistory]);
-
-  // Refresh speeds when tab becomes visible
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        // Reset throttle and fetch fresh data
-        lastSpeedUpdateRef.current = 0;
-        fetchSpeeds();
-        fetchHistory();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [fetchSpeeds, fetchHistory]);
 
   // Use speedSnapshot for all active download data (real-time from Rust speed tracker)
   const isActive = speedSnapshot?.hasActiveDownloads || false;

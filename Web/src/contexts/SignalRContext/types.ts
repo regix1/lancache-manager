@@ -416,6 +416,8 @@ export interface DaemonSessionCreatedEvent {
   browser?: string;
   lastSeenAt: string;
   steamUsername?: string;
+  currentAppId?: number;
+  currentAppName?: string;
 }
 
 export interface DaemonSessionUpdatedEvent {
@@ -434,9 +436,21 @@ export interface DaemonSessionUpdatedEvent {
   browser?: string;
   lastSeenAt: string;
   steamUsername?: string;
+  currentAppId?: number;
+  currentAppName?: string;
 }
 
 export interface DaemonSessionTerminatedEvent {
   sessionId: string;
   reason: string;
+}
+
+export interface UserSessionRevokedEvent {
+  deviceId?: string;
+  sessionId?: string;
+  reason?: string;
+}
+
+export interface GuestDurationUpdatedEvent {
+  durationMinutes: number;
 }

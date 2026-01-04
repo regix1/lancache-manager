@@ -19,6 +19,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 {
     private readonly ILogger<SteamPrefillDaemonService> _logger;
     private readonly IHubContext<PrefillDaemonHub> _hubContext;
+    private readonly IHubContext<DownloadHub> _downloadHubContext;
     private readonly IConfiguration _configuration;
     private readonly PrefillSessionService _sessionService;
     private readonly ConcurrentDictionary<string, DaemonSession> _sessions = new();
@@ -38,11 +39,13 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     public SteamPrefillDaemonService(
         ILogger<SteamPrefillDaemonService> logger,
         IHubContext<PrefillDaemonHub> hubContext,
+        IHubContext<DownloadHub> downloadHubContext,
         IConfiguration configuration,
         PrefillSessionService sessionService)
     {
         _logger = logger;
         _hubContext = hubContext;
+        _downloadHubContext = downloadHubContext;
         _configuration = configuration;
         _sessionService = sessionService;
     }
@@ -381,8 +384,10 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
         _logger.LogInformation("Created daemon session {SessionId} for user {UserId}", sessionId, userId);
 
-        // Broadcast session creation to all clients for real-time updates
-        await _hubContext.Clients.All.SendAsync("DaemonSessionCreated", DaemonSessionDto.FromSession(session));
+        // Broadcast session creation to all clients for real-time updates (both hubs)
+        var sessionDto = DaemonSessionDto.FromSession(session);
+        await _hubContext.Clients.All.SendAsync("DaemonSessionCreated", sessionDto);
+        await _downloadHubContext.Clients.All.SendAsync("DaemonSessionCreated", sessionDto);
 
         return session;
     }
@@ -492,8 +497,10 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             _logger.LogInformation("Captured Steam username for session {SessionId}: {Username}",
                 sessionId, credential);
 
-            // Broadcast session update to all clients for real-time updates
-            await _hubContext.Clients.All.SendAsync("DaemonSessionUpdated", DaemonSessionDto.FromSession(session));
+            // Broadcast session update to all clients for real-time updates (both hubs)
+            var updatedDto = DaemonSessionDto.FromSession(session);
+            await _hubContext.Clients.All.SendAsync("DaemonSessionUpdated", updatedDto);
+            await _downloadHubContext.Clients.All.SendAsync("DaemonSessionUpdated", updatedDto);
         }
 
         _logger.LogInformation("Providing encrypted {CredentialType} for session {SessionId}",
@@ -627,7 +634,9 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
         session.IsPrefilling = true;
         await NotifyPrefillStateChangeAsync(session, "started");
-        await _hubContext.Clients.All.SendAsync("DaemonSessionUpdated", DaemonSessionDto.FromSession(session));
+        var startDto = DaemonSessionDto.FromSession(session);
+        await _hubContext.Clients.All.SendAsync("DaemonSessionUpdated", startDto);
+        await _downloadHubContext.Clients.All.SendAsync("DaemonSessionUpdated", startDto);
 
         try
         {
@@ -638,7 +647,11 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         finally
         {
             session.IsPrefilling = false;
-            await _hubContext.Clients.All.SendAsync("DaemonSessionUpdated", DaemonSessionDto.FromSession(session));
+            session.CurrentAppId = 0;
+            session.CurrentAppName = null;
+            var endDto = DaemonSessionDto.FromSession(session);
+            await _hubContext.Clients.All.SendAsync("DaemonSessionUpdated", endDto);
+            await _downloadHubContext.Clients.All.SendAsync("DaemonSessionUpdated", endDto);
         }
     }
 
@@ -720,12 +733,10 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         session.Status = DaemonSessionStatus.Terminated;
         session.EndedAt = DateTime.UtcNow;
 
-        // Broadcast session termination to all clients for real-time updates
-        await _hubContext.Clients.All.SendAsync("DaemonSessionTerminated", new
-        {
-            sessionId = session.Id,
-            reason = reason
-        });
+        // Broadcast session termination to all clients for real-time updates (both hubs)
+        var terminatedEvent = new { sessionId = session.Id, reason = reason };
+        await _hubContext.Clients.All.SendAsync("DaemonSessionTerminated", terminatedEvent);
+        await _downloadHubContext.Clients.All.SendAsync("DaemonSessionTerminated", terminatedEvent);
 
         // Cancel any ongoing operations immediately
         session.CancellationTokenSource.Cancel();
@@ -1148,6 +1159,22 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
     private async Task NotifyPrefillProgressAsync(DaemonSession session, PrefillProgress progress)
     {
+        // Update session's current app info for admin visibility
+        var appInfoChanged = session.CurrentAppId != progress.CurrentAppId ||
+                             session.CurrentAppName != progress.CurrentAppName;
+
+        session.CurrentAppId = progress.CurrentAppId;
+        session.CurrentAppName = progress.CurrentAppName;
+
+        // Broadcast session update to all clients when app info changes (for admin pages - both hubs)
+        if (appInfoChanged)
+        {
+            var progressDto = DaemonSessionDto.FromSession(session);
+            await _hubContext.Clients.All.SendAsync("DaemonSessionUpdated", progressDto);
+            await _downloadHubContext.Clients.All.SendAsync("DaemonSessionUpdated", progressDto);
+        }
+
+        // Send detailed progress to subscribed connections (the user doing the prefill)
         foreach (var connectionId in session.SubscribedConnections.ToList())
         {
             try
@@ -1356,6 +1383,12 @@ public class DaemonSession
     public string? SteamUsername { get; set; }
 
     /// <summary>
+    /// Current prefill progress info for admin visibility
+    /// </summary>
+    public uint CurrentAppId { get; set; }
+    public string? CurrentAppName { get; set; }
+
+    /// <summary>
     /// Client connection info for admin visibility
     /// </summary>
     public string? IpAddress { get; init; }
@@ -1411,6 +1444,10 @@ public class DaemonSessionDto
     public DateTime LastSeenAt { get; set; }
     public string? SteamUsername { get; set; }
 
+    // Current prefill progress info for admin visibility
+    public uint CurrentAppId { get; set; }
+    public string? CurrentAppName { get; set; }
+
     public static DaemonSessionDto FromSession(DaemonSession session)
     {
         return new DaemonSessionDto
@@ -1429,7 +1466,9 @@ public class DaemonSessionDto
             OperatingSystem = session.OperatingSystem,
             Browser = session.Browser,
             LastSeenAt = session.LastSeenAt,
-            SteamUsername = session.SteamUsername
+            SteamUsername = session.SteamUsername,
+            CurrentAppId = session.CurrentAppId,
+            CurrentAppName = session.CurrentAppName
         };
     }
 }

@@ -266,25 +266,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     on('SessionLastSeenUpdated', handleSessionLastSeenUpdated);
     on('UserPreferencesUpdated', handleUserPreferencesUpdated);
 
-    const pollInterval = setInterval(() => {
-      loadSessions(false);
-    }, 30000);
-
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        loadSessions(false);
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
     return () => {
       off('UserSessionRevoked', handleSessionRevoked);
       off('UserSessionsCleared', handleSessionsCleared);
       off('UserSessionCreated', handleSessionCreated);
       off('SessionLastSeenUpdated', handleSessionLastSeenUpdated);
       off('UserPreferencesUpdated', handleUserPreferencesUpdated);
-      clearInterval(pollInterval);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [
     loadSessions,

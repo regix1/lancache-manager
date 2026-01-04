@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import authService, { type AuthMode } from '@services/auth.service';
 import { useSignalR } from './SignalRContext';
-import type { GuestPrefillPermissionChangedEvent, SteamUserBannedEvent } from './SignalRContext/types';
+import type { GuestPrefillPermissionChangedEvent, SteamUserBannedEvent, UserSessionRevokedEvent, GuestDurationUpdatedEvent } from './SignalRContext/types';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -139,66 +139,43 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     };
   }, []);
 
-  // Reduced polling for specific scenarios (device revocation, guest expiration)
-  // Only polls when user is authenticated or in guest mode
+  // Listen for session revocation via SignalR (replaces polling for device revocation)
   useEffect(() => {
-    if (isLoading) return;
-
-    // Only set up polling if we're authenticated or in guest/expired mode
-    const needsPolling = authService.authMode === 'authenticated' ||
-                         authService.authMode === 'guest' ||
-                         authService.authMode === 'expired';
-
-    if (!needsPolling) {
-      return; // No polling needed for unauthenticated users
-    }
-
-    let lastAuthState = authService.isAuthenticated;
-    let lastAuthMode = authService.authMode;
-
-    const interval = setInterval(async () => {
-      const currentAuthState = authService.isAuthenticated;
-      const currentAuthMode = authService.authMode;
-
-      // Only update state if values actually changed
-      if (currentAuthState !== lastAuthState) {
-        setIsAuthenticated(currentAuthState);
-        lastAuthState = currentAuthState;
+    const handleSessionRevoked = (event: UserSessionRevokedEvent) => {
+      const currentDeviceId = authService.getDeviceId();
+      if (event.deviceId === currentDeviceId || event.sessionId === currentDeviceId) {
+        console.warn('[Auth] Device session was revoked via SignalR:', event.reason);
+        setIsAuthenticated(false);
+        setAuthMode('unauthenticated');
+        authService.clearAuth();
       }
-      if (currentAuthMode !== lastAuthMode) {
-        setAuthMode(currentAuthMode);
-        lastAuthMode = currentAuthMode;
-      }
+    };
 
-      // Re-check auth with backend to detect revoked devices
-      if (currentAuthState && authService.authMode === 'authenticated') {
-        try {
-          const result = await authService.checkAuth();
-          if (!result.isAuthenticated || result.authMode !== 'authenticated') {
-            // Device was revoked! Update state to show authentication modal
-            console.warn('[Auth] Device authentication was revoked.');
-            setIsAuthenticated(false);
-            setAuthMode('unauthenticated');
-            lastAuthState = false;
-            lastAuthMode = 'unauthenticated';
-          }
-        } catch (error) {
-          console.error('[Auth] Failed to verify authentication:', error);
+    signalR.on('UserSessionRevoked', handleSessionRevoked);
+
+    return () => {
+      signalR.off('UserSessionRevoked', handleSessionRevoked);
+    };
+  }, [signalR]);
+
+  // Listen for guest duration updates via SignalR (replaces polling for guest expiration)
+  useEffect(() => {
+    const handleGuestDurationUpdated = (event: GuestDurationUpdatedEvent) => {
+      if (authMode === 'guest') {
+        console.log('[Auth] Guest duration updated via SignalR:', event.durationMinutes);
+        setPrefillTimeRemaining(event.durationMinutes);
+        if (event.durationMinutes <= 0) {
+          setAuthMode('expired');
         }
       }
+    };
 
-      // Re-check auth if in guest mode to get updated time
-      if (authService.authMode === 'guest' || authService.authMode === 'expired') {
-        const result = await authService.checkAuth();
-        if (result.authMode !== lastAuthMode) {
-          setAuthMode(result.authMode);
-          lastAuthMode = result.authMode;
-        }
-      }
-    }, 30000); // Reduced to 30 seconds (was 5 seconds)
+    signalR.on('GuestDurationUpdated', handleGuestDurationUpdated);
 
-    return () => clearInterval(interval);
-  }, [isLoading, authMode]);
+    return () => {
+      signalR.off('GuestDurationUpdated', handleGuestDurationUpdated);
+    };
+  }, [signalR, authMode]);
 
   return (
     <AuthContext.Provider
