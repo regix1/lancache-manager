@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import authService, { type AuthMode } from '@services/auth.service';
 import { useSignalR } from './SignalRContext';
-import type { GuestPrefillPermissionChangedEvent } from './SignalRContext/types';
+import type { GuestPrefillPermissionChangedEvent, SteamUserBannedEvent } from './SignalRContext/types';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -91,6 +91,27 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     return () => {
       signalR.off('GuestPrefillPermissionChanged', handlePrefillPermissionChanged);
+    };
+  }, [signalR]);
+
+  // Listen for SignalR events that indicate this device was banned
+  useEffect(() => {
+    const handleSteamUserBanned = (event: SteamUserBannedEvent) => {
+      // Check if this event is for the current device
+      const currentDeviceId = authService.getDeviceId();
+      if (event.deviceId === currentDeviceId) {
+        console.log('[Auth] Device banned via SignalR:', event.username);
+        setIsBanned(true);
+        // Also disable prefill access
+        setPrefillEnabled(false);
+        setPrefillTimeRemaining(null);
+      }
+    };
+
+    signalR.on('SteamUserBanned', handleSteamUserBanned);
+
+    return () => {
+      signalR.off('SteamUserBanned', handleSteamUserBanned);
     };
   }, [signalR]);
 

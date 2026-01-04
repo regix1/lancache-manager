@@ -1,8 +1,10 @@
 using LancacheManager.Application.DTOs;
 using LancacheManager.Application.Services;
+using LancacheManager.Hubs;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Controllers;
 
@@ -18,15 +20,18 @@ public class PrefillAdminController : ControllerBase
     private readonly PrefillSessionService _sessionService;
     private readonly SteamPrefillDaemonService _daemonService;
     private readonly ILogger<PrefillAdminController> _logger;
+    private readonly IHubContext<DownloadHub> _hubContext;
 
     public PrefillAdminController(
         PrefillSessionService sessionService,
         SteamPrefillDaemonService daemonService,
-        ILogger<PrefillAdminController> logger)
+        ILogger<PrefillAdminController> logger,
+        IHubContext<DownloadHub> hubContext)
     {
         _sessionService = sessionService;
         _daemonService = daemonService;
         _logger = logger;
+        _hubContext = hubContext;
     }
 
     private string? GetDeviceId() =>
@@ -192,6 +197,18 @@ public class PrefillAdminController : ControllerBase
         // Also terminate the session
         await _daemonService.TerminateSessionAsync(sessionId, "Banned by admin", true, adminDeviceId);
 
+        // Notify the banned device via SignalR so their UI updates immediately
+        if (!string.IsNullOrEmpty(ban.BannedDeviceId))
+        {
+            await _hubContext.Clients.All.SendAsync("SteamUserBanned", new
+            {
+                deviceId = ban.BannedDeviceId,
+                username = ban.Username,
+                reason = ban.BanReason,
+                expiresAt = ban.ExpiresAtUtc?.ToString("o")
+            });
+        }
+
         _logger.LogWarning("Admin {AdminId} banned Steam user {Username} from session {SessionId}. Reason: {Reason}",
             adminDeviceId, ban.Username, sessionId, request.Reason);
 
@@ -228,6 +245,18 @@ public class PrefillAdminController : ControllerBase
             request.DeviceId,
             adminDeviceId,
             request.ExpiresAt);
+
+        // Notify the banned device via SignalR so their UI updates immediately
+        if (!string.IsNullOrEmpty(ban.BannedDeviceId))
+        {
+            await _hubContext.Clients.All.SendAsync("SteamUserBanned", new
+            {
+                deviceId = ban.BannedDeviceId,
+                username = ban.Username,
+                reason = ban.BanReason,
+                expiresAt = ban.ExpiresAtUtc?.ToString("o")
+            });
+        }
 
         _logger.LogWarning("Admin {AdminId} banned Steam user {Username}. Reason: {Reason}",
             adminDeviceId, ban.Username, request.Reason);

@@ -76,6 +76,7 @@ export const SIGNALR_EVENTS = [
   'StatusChanged',
   'PrefillStateChanged',
   'GuestPrefillPermissionChanged',
+  'SteamUserBanned',
   'DaemonSessionCreated',
   'DaemonSessionUpdated',
   'DaemonSessionTerminated'
@@ -389,6 +390,13 @@ export interface PrefillProgressEvent {
 export interface GuestPrefillPermissionChangedEvent {
   deviceId: string;
   enabled: boolean;
+  expiresAt?: string;
+}
+
+export interface SteamUserBannedEvent {
+  deviceId: string;
+  username: string;
+  reason?: string;
   expiresAt?: string;
 }
 
