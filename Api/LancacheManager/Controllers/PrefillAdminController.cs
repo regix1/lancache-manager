@@ -58,7 +58,7 @@ public class PrefillAdminController : ControllerBase
                 DeviceId = s.DeviceId,
                 ContainerId = s.ContainerId,
                 ContainerName = s.ContainerName,
-                SteamUsernameHash = s.SteamUsernameHash,
+                SteamUsername = liveSession?.SteamUsername ?? s.SteamUsername,
                 Status = liveSession?.Status.ToString() ?? s.Status,
                 IsAuthenticated = liveSession?.AuthState == DaemonAuthState.Authenticated || s.IsAuthenticated,
                 IsPrefilling = liveSession?.IsPrefilling ?? s.IsPrefilling,
@@ -153,7 +153,7 @@ public class PrefillAdminController : ControllerBase
         return Ok(bans.Select(b => new BannedSteamUserDto
         {
             Id = b.Id,
-            UsernameHash = b.UsernameHash,
+            Username = b.Username,
             BanReason = b.BanReason,
             BannedDeviceId = b.BannedDeviceId,
             BannedAtUtc = b.BannedAtUtc,
@@ -168,7 +168,7 @@ public class PrefillAdminController : ControllerBase
 
     /// <summary>
     /// Bans a Steam user by session ID.
-    /// Looks up the username hash from the session.
+    /// Looks up the username from the session.
     /// </summary>
     [HttpPost("bans/by-session/{sessionId}")]
     public async Task<ActionResult<BannedSteamUserDto>> BanBySession(
@@ -185,19 +185,19 @@ public class PrefillAdminController : ControllerBase
 
         if (ban == null)
         {
-            return BadRequest(new { message = "Could not ban user - session has no username hash. User may not have logged in yet." });
+            return BadRequest(new { message = "Could not ban user - session has no username. User may not have logged in yet." });
         }
 
         // Also terminate the session
         await _daemonService.TerminateSessionAsync(sessionId, "Banned by admin", true, adminDeviceId);
 
-        _logger.LogWarning("Admin {AdminId} banned Steam user from session {SessionId}. Hash: {Hash}, Reason: {Reason}",
-            adminDeviceId, sessionId, ban.UsernameHash[..8], request.Reason);
+        _logger.LogWarning("Admin {AdminId} banned Steam user {Username} from session {SessionId}. Reason: {Reason}",
+            adminDeviceId, ban.Username, sessionId, request.Reason);
 
         return Ok(new BannedSteamUserDto
         {
             Id = ban.Id,
-            UsernameHash = ban.UsernameHash,
+            Username = ban.Username,
             BanReason = ban.BanReason,
             BannedDeviceId = ban.BannedDeviceId,
             BannedAtUtc = ban.BannedAtUtc,
@@ -209,32 +209,32 @@ public class PrefillAdminController : ControllerBase
     }
 
     /// <summary>
-    /// Bans a Steam user by username hash.
+    /// Bans a Steam user by username.
     /// </summary>
     [HttpPost("bans")]
-    public async Task<ActionResult<BannedSteamUserDto>> BanByHash([FromBody] BanByHashRequest request)
+    public async Task<ActionResult<BannedSteamUserDto>> BanByUsername([FromBody] BanByUsernameRequest request)
     {
-        if (string.IsNullOrEmpty(request.UsernameHash) || request.UsernameHash.Length != 64)
+        if (string.IsNullOrWhiteSpace(request.Username))
         {
-            return BadRequest(new { message = "Invalid username hash. Must be a 64-character SHA-256 hash." });
+            return BadRequest(new { message = "Username is required." });
         }
 
         var adminDeviceId = GetDeviceId();
 
         var ban = await _sessionService.BanUserAsync(
-            request.UsernameHash,
+            request.Username,
             request.Reason,
             request.DeviceId,
             adminDeviceId,
             request.ExpiresAt);
 
-        _logger.LogWarning("Admin {AdminId} banned Steam user by hash. Hash: {Hash}, Reason: {Reason}",
-            adminDeviceId, ban.UsernameHash[..8], request.Reason);
+        _logger.LogWarning("Admin {AdminId} banned Steam user {Username}. Reason: {Reason}",
+            adminDeviceId, ban.Username, request.Reason);
 
         return Ok(new BannedSteamUserDto
         {
             Id = ban.Id,
-            UsernameHash = ban.UsernameHash,
+            Username = ban.Username,
             BanReason = ban.BanReason,
             BannedDeviceId = ban.BannedDeviceId,
             BannedAtUtc = ban.BannedAtUtc,
@@ -285,7 +285,7 @@ public class PrefillSessionDto
     public string DeviceId { get; set; } = string.Empty;
     public string? ContainerId { get; set; }
     public string? ContainerName { get; set; }
-    public string? SteamUsernameHash { get; set; }
+    public string? SteamUsername { get; set; }
     public string Status { get; set; } = string.Empty;
     public bool IsAuthenticated { get; set; }
     public bool IsPrefilling { get; set; }
@@ -300,7 +300,7 @@ public class PrefillSessionDto
 public class BannedSteamUserDto
 {
     public int Id { get; set; }
-    public string UsernameHash { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
     public string? BanReason { get; set; }
     public string? BannedDeviceId { get; set; }
     public DateTime BannedAtUtc { get; set; }
@@ -324,9 +324,9 @@ public class BanRequest
     public DateTime? ExpiresAt { get; set; }
 }
 
-public class BanByHashRequest
+public class BanByUsernameRequest
 {
-    public string UsernameHash { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
     public string? Reason { get; set; }
     public string? DeviceId { get; set; }
     public DateTime? ExpiresAt { get; set; }

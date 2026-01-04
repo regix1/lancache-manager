@@ -9,8 +9,7 @@ import {
   AlertTriangle,
   Clock,
   Loader2,
-  RefreshCw,
-  Hash
+  RefreshCw
 } from 'lucide-react';
 import { Card, CardContent } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -506,13 +505,10 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                                 Ended: <FormattedTimestamp timestamp={session.endedAtUtc} />
                               </span>
                             )}
-                            {session.steamUsernameHash && (
-                              <Tooltip content={`Hash: ${session.steamUsernameHash.slice(0, 16)}...`}>
-                                <span className="flex items-center gap-1">
-                                  <Hash className="w-3 h-3" />
-                                  User linked
-                                </span>
-                              </Tooltip>
+                            {session.steamUsername && (
+                              <span className="flex items-center gap-1">
+                                User: {session.steamUsername}
+                              </span>
                             )}
                           </div>
                         </div>
@@ -520,7 +516,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
 
                       {isAuthenticated && session.isLive && (
                         <div className="flex items-center gap-2">
-                          {session.steamUsernameHash && (
+                          {session.steamUsername && (
                             <Tooltip content="Ban this Steam user">
                               <Button
                                 variant="subtle"
@@ -632,11 +628,9 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <Tooltip content={ban.usernameHash}>
-                            <span className="font-mono text-sm text-themed-primary">
-                              {ban.usernameHash.slice(0, 16)}...
-                            </span>
-                          </Tooltip>
+                          <span className="font-mono text-sm text-themed-primary">
+                            {ban.username || 'Unknown'}
+                          </span>
                           {ban.isActive ? (
                             <span
                               className="px-2 py-0.5 rounded text-xs font-medium"
@@ -830,12 +824,9 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
             >
               <div className="text-sm">
-                <div className="flex items-center gap-2">
-                  <Hash className="w-4 h-4 text-themed-muted" />
-                  <span className="font-mono text-themed-primary">
-                    {liftBanConfirm.usernameHash.slice(0, 24)}...
-                  </span>
-                </div>
+                <span className="font-mono text-themed-primary">
+                  {liftBanConfirm.username || 'Unknown'}
+                </span>
                 {liftBanConfirm.banReason && (
                   <div className="mt-2 text-themed-muted">
                     Reason: {liftBanConfirm.banReason}

@@ -1464,9 +1464,9 @@ class ApiService {
     }
   }
 
-  // Ban a Steam user by username hash
-  static async banSteamUserByHash(
-    usernameHash: string,
+  // Ban a Steam user by username
+  static async banSteamUserByUsername(
+    username: string,
     reason?: string,
     deviceId?: string,
     expiresAt?: string
@@ -1475,11 +1475,11 @@ class ApiService {
       const res = await fetch(`${API_BASE}/prefill-admin/bans`, this.getFetchOptions({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ usernameHash, reason, deviceId, expiresAt })
+        body: JSON.stringify({ username, reason, deviceId, expiresAt })
       }));
       return await this.handleResponse<BannedSteamUserDto>(res);
     } catch (error: unknown) {
-      console.error('banSteamUserByHash error:', error);
+      console.error('banSteamUserByUsername error:', error);
       throw error;
     }
   }
@@ -1505,7 +1505,7 @@ export interface PrefillSessionDto {
   deviceId: string;
   containerId?: string;
   containerName?: string;
-  steamUsernameHash?: string;
+  steamUsername?: string;
   status: string;
   isAuthenticated: boolean;
   isPrefilling: boolean;
@@ -1539,7 +1539,7 @@ export interface PrefillSessionsResponse {
 
 export interface BannedSteamUserDto {
   id: number;
-  usernameHash: string;
+  username: string;
   banReason?: string;
   bannedDeviceId?: string;
   bannedAtUtc: string;

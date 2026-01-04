@@ -214,11 +214,10 @@ public sealed class DaemonClient : IDisposable
         TimeSpan? timeout = null,
         CancellationToken cancellationToken = default)
     {
-        var existingChallenge = await GetPendingChallengeAsync(cancellationToken);
-        if (existingChallenge != null)
-        {
-            return existingChallenge;
-        }
+        // Always clear pending challenges before starting a new login
+        // Previous login attempts may have left stale challenge files that the daemon
+        // is no longer waiting for (e.g., after a cancel or timeout)
+        ClearPendingChallenges();
 
         // Send login command (don't wait for response)
         _ = SendCommandAsync("login", cancellationToken: cancellationToken);

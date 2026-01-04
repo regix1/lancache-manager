@@ -170,6 +170,16 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                     // Mark as cleaned in database
                     await _sessionService.MarkOrphanedSessionCleanedAsync(container.ID);
                 }
+                catch (DockerApiException ex) when (ex.Message.Contains("removal") && ex.Message.Contains("already in progress"))
+                {
+                    // Another cleanup operation is already removing this container - that's fine
+                    _logger.LogDebug("Container {Id} removal already in progress, skipping", container.ID[..12]);
+                }
+                catch (DockerContainerNotFoundException)
+                {
+                    // Container was already removed (AutoRemove or concurrent cleanup)
+                    _logger.LogDebug("Container {Id} already removed", container.ID[..12]);
+                }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Failed to cleanup orphaned container {Id}", container.ID[..12]);
@@ -442,22 +452,29 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         // If this is the username credential, capture it and check for bans
         if (challenge.CredentialType.Equals("username", StringComparison.OrdinalIgnoreCase))
         {
-            var usernameHash = PrefillSessionService.HashUsername(credential);
-            session.SteamUsernameHash = usernameHash;
+            session.SteamUsername = credential;
 
             // Check if this user is banned
-            if (await _sessionService.IsUsernameBannedAsync(usernameHash))
+            if (await _sessionService.IsUsernameBannedAsync(credential))
             {
-                _logger.LogWarning("Blocked banned Steam user from logging in. Session: {SessionId}, Hash: {Hash}",
-                    sessionId, usernameHash[..8]);
+                _logger.LogWarning("Blocked banned Steam user {Username} from logging in. Session: {SessionId}",
+                    credential, sessionId);
+
+                // Clean up the pending challenge so the next login attempt starts fresh
+                session.Client.ClearPendingChallenges();
+
+                // Reset auth state to allow for a clean error display
+                session.AuthState = DaemonAuthState.NotAuthenticated;
+                await NotifyAuthStateChangeAsync(session);
+
                 throw new UnauthorizedAccessException("This Steam account has been banned from using prefill.");
             }
 
-            // Update the database record with the username hash
-            await _sessionService.SetSessionUsernameHashAsync(sessionId, usernameHash);
+            // Update the database record with the username
+            await _sessionService.SetSessionUsernameAsync(sessionId, credential);
 
-            _logger.LogInformation("Captured Steam username hash for session {SessionId}: {Hash}",
-                sessionId, usernameHash[..8]);
+            _logger.LogInformation("Captured Steam username for session {SessionId}: {Username}",
+                sessionId, credential);
         }
 
         _logger.LogInformation("Providing encrypted {CredentialType} for session {SessionId}",
@@ -1305,10 +1322,10 @@ public class DaemonSession
     public DateTime ExpiresAt { get; init; }
 
     /// <summary>
-    /// SHA-256 hash of the Steam username (set when user provides username credential).
-    /// Used for ban checking and admin visibility.
+    /// The Steam username (set when user provides username credential).
+    /// Used for ban display and admin visibility.
     /// </summary>
-    public string? SteamUsernameHash { get; set; }
+    public string? SteamUsername { get; set; }
 
     public DaemonClient Client { get; set; } = null!;
     public FileSystemWatcher? StatusWatcher { get; set; }

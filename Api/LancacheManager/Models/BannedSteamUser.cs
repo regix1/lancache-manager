@@ -3,8 +3,7 @@ using System.ComponentModel.DataAnnotations;
 namespace LancacheManager.Models;
 
 /// <summary>
-/// Tracks banned Steam users by their hashed username.
-/// The username is SHA-256 hashed for privacy - we can verify bans without storing plaintext usernames.
+/// Tracks banned Steam users by their username.
 /// </summary>
 public class BannedSteamUser
 {
@@ -12,12 +11,11 @@ public class BannedSteamUser
     public int Id { get; set; }
 
     /// <summary>
-    /// SHA-256 hash of the Steam username (lowercase, trimmed).
-    /// This is deterministic - same username always produces the same hash.
+    /// The Steam username that was banned (stored lowercase for case-insensitive matching).
     /// </summary>
     [Required]
-    [MaxLength(64)]
-    public string UsernameHash { get; set; } = string.Empty;
+    [MaxLength(100)]
+    public string Username { get; set; } = string.Empty;
 
     /// <summary>
     /// Reason for the ban (optional, for admin reference)

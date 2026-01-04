@@ -38,11 +38,10 @@ public class PrefillSession
     public string? ContainerName { get; set; }
 
     /// <summary>
-    /// SHA-256 hash of the Steam username used for login
-    /// Set when the user provides their username credential
+    /// The Steam username used for login (stored lowercase for ban identification)
     /// </summary>
-    [MaxLength(64)]
-    public string? SteamUsernameHash { get; set; }
+    [MaxLength(100)]
+    public string? SteamUsername { get; set; }
 
     /// <summary>
     /// Session status: Active, Terminated, Expired, Orphaned

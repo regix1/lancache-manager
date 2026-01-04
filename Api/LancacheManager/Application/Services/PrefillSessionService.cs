@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using LancacheManager.Data;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
@@ -23,40 +21,23 @@ public class PrefillSessionService
         _logger = logger;
     }
 
-    #region Username Hashing
-
-    /// <summary>
-    /// Hashes a Steam username using SHA-256.
-    /// The username is normalized (lowercase, trimmed) before hashing.
-    /// </summary>
-    public static string HashUsername(string username)
-    {
-        if (string.IsNullOrWhiteSpace(username))
-            return string.Empty;
-
-        var normalized = username.Trim().ToLowerInvariant();
-        var bytes = Encoding.UTF8.GetBytes(normalized);
-        var hash = SHA256.HashData(bytes);
-        return Convert.ToHexString(hash).ToLowerInvariant();
-    }
-
-    #endregion
-
     #region Ban Management
 
     /// <summary>
-    /// Checks if a Steam username hash is banned.
+    /// Checks if a Steam username is banned.
     /// Returns true if the user is banned and the ban is active.
+    /// Comparison is case-insensitive.
     /// </summary>
-    public async Task<bool> IsUsernameBannedAsync(string usernameHash)
+    public async Task<bool> IsUsernameBannedAsync(string username)
     {
-        if (string.IsNullOrEmpty(usernameHash))
+        if (string.IsNullOrEmpty(username))
             return false;
 
+        var normalizedUsername = username.Trim().ToLowerInvariant();
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         var ban = await context.BannedSteamUsers
-            .Where(b => b.UsernameHash == usernameHash && !b.IsLifted)
+            .Where(b => b.Username == normalizedUsername && !b.IsLifted)
             .Where(b => b.ExpiresAtUtc == null || b.ExpiresAtUtc > DateTime.UtcNow)
             .FirstOrDefaultAsync();
 
@@ -64,40 +45,35 @@ public class PrefillSessionService
     }
 
     /// <summary>
-    /// Checks if a plaintext Steam username is banned.
-    /// </summary>
-    public Task<bool> IsUsernameBannedByPlaintextAsync(string username)
-    {
-        var hash = HashUsername(username);
-        return IsUsernameBannedAsync(hash);
-    }
-
-    /// <summary>
-    /// Bans a Steam user by their username hash.
+    /// Bans a Steam user by their username.
     /// </summary>
     public async Task<BannedSteamUser> BanUserAsync(
-        string usernameHash,
+        string username,
         string? reason = null,
         string? deviceId = null,
         string? bannedBy = null,
         DateTime? expiresAt = null)
     {
+        if (string.IsNullOrWhiteSpace(username))
+            throw new ArgumentException("Username is required", nameof(username));
+
+        var normalizedUsername = username.Trim().ToLowerInvariant();
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         // Check if already banned
         var existingBan = await context.BannedSteamUsers
-            .Where(b => b.UsernameHash == usernameHash && !b.IsLifted)
+            .Where(b => b.Username == normalizedUsername && !b.IsLifted)
             .FirstOrDefaultAsync();
 
         if (existingBan != null)
         {
-            _logger.LogInformation("User with hash {Hash} is already banned", usernameHash[..8]);
+            _logger.LogInformation("User {Username} is already banned", username);
             return existingBan;
         }
 
         var ban = new BannedSteamUser
         {
-            UsernameHash = usernameHash,
+            Username = normalizedUsername,
             BanReason = reason,
             BannedDeviceId = deviceId,
             BannedBy = bannedBy ?? "admin",
@@ -108,8 +84,8 @@ public class PrefillSessionService
         context.BannedSteamUsers.Add(ban);
         await context.SaveChangesAsync();
 
-        _logger.LogWarning("Banned Steam user with hash {Hash}. Reason: {Reason}",
-            usernameHash[..8], reason ?? "No reason provided");
+        _logger.LogWarning("Banned Steam user {Username}. Reason: {Reason}",
+            username, reason ?? "No reason provided");
 
         return ban;
     }
@@ -131,8 +107,8 @@ public class PrefillSessionService
 
         await context.SaveChangesAsync();
 
-        _logger.LogInformation("Lifted ban {BanId} for user with hash {Hash}",
-            banId, ban.UsernameHash[..8]);
+        _logger.LogInformation("Lifted ban {BanId} for user {Username}",
+            banId, ban.Username);
 
         return true;
     }
@@ -200,10 +176,10 @@ public class PrefillSessionService
     }
 
     /// <summary>
-    /// Updates the Steam username hash for a session.
+    /// Updates the Steam username for a session.
     /// Called when the user provides their username credential.
     /// </summary>
-    public async Task SetSessionUsernameHashAsync(string sessionId, string usernameHash)
+    public async Task SetSessionUsernameAsync(string sessionId, string username)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
@@ -212,10 +188,10 @@ public class PrefillSessionService
 
         if (session != null)
         {
-            session.SteamUsernameHash = usernameHash;
+            session.SteamUsername = username.Trim().ToLowerInvariant();
             await context.SaveChangesAsync();
 
-            _logger.LogDebug("Set username hash for session {SessionId}", sessionId);
+            _logger.LogDebug("Set username for session {SessionId}: {Username}", sessionId, username);
         }
     }
 
@@ -394,7 +370,7 @@ public class PrefillSessionService
     #region Admin Operations
 
     /// <summary>
-    /// Bans a user by session ID (looks up the username hash from the session).
+    /// Bans a user by session ID (looks up the username from the session).
     /// </summary>
     public async Task<BannedSteamUser?> BanUserBySessionAsync(
         string sessionId,
@@ -407,14 +383,14 @@ public class PrefillSessionService
         var session = await context.PrefillSessions
             .FirstOrDefaultAsync(s => s.SessionId == sessionId);
 
-        if (session?.SteamUsernameHash == null)
+        if (string.IsNullOrEmpty(session?.SteamUsername))
         {
-            _logger.LogWarning("Cannot ban user for session {SessionId} - no username hash found", sessionId);
+            _logger.LogWarning("Cannot ban user for session {SessionId} - no username found", sessionId);
             return null;
         }
 
         return await BanUserAsync(
-            session.SteamUsernameHash,
+            session.SteamUsername,
             reason,
             session.DeviceId,
             bannedBy,

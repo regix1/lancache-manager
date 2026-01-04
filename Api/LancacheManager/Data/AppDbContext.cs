@@ -211,8 +211,8 @@ public class AppDbContext : DbContext
 
         // BannedSteamUser configuration
         modelBuilder.Entity<BannedSteamUser>()
-            .HasIndex(b => b.UsernameHash)
-            .HasDatabaseName("IX_BannedSteamUsers_UsernameHash");
+            .HasIndex(b => b.Username)
+            .HasDatabaseName("IX_BannedSteamUsers_Username");
 
         modelBuilder.Entity<BannedSteamUser>()
             .HasIndex(b => b.BannedAtUtc)
@@ -237,8 +237,8 @@ public class AppDbContext : DbContext
             .HasDatabaseName("IX_PrefillSessions_ContainerId");
 
         modelBuilder.Entity<PrefillSession>()
-            .HasIndex(p => p.SteamUsernameHash)
-            .HasDatabaseName("IX_PrefillSessions_SteamUsernameHash");
+            .HasIndex(p => p.SteamUsername)
+            .HasDatabaseName("IX_PrefillSessions_SteamUsername");
 
         modelBuilder.Entity<PrefillSession>()
             .HasIndex(p => p.Status)
