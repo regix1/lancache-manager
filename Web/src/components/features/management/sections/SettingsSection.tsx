@@ -212,17 +212,15 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
             <Alert color="yellow">
               <div>
                 <p className="font-medium">Performance optimizations are disabled</p>
-                <p className="text-sm mt-1">
-                  Enable the{' '}
-                  <code
-                    className="px-1.5 py-0.5 rounded text-xs"
-                    style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                  >
-                    ENABLE_GC_OPTIMIZATION
-                  </code>{' '}
-                  environment variable in your Docker container to access garbage collection
-                  settings.
+                <p className="text-sm mt-1 mb-2">
+                  Add the following environment variable to your docker-compose.yml:
                 </p>
+                <pre
+                  className="px-3 py-2 rounded text-xs overflow-x-auto"
+                  style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+                >
+                  - Optimizations__EnableGarbageCollectionManagement=true
+                </pre>
               </div>
             </Alert>
           )}

@@ -542,6 +542,18 @@ public class CachedDetectionResponse
     public string? LastDetectionTime { get; set; }
 }
 
+/// <summary>
+/// Response for cached corruption detection results
+/// </summary>
+public class CachedCorruptionResponse
+{
+    public bool HasCachedResults { get; set; }
+    public Dictionary<string, long>? CorruptionCounts { get; set; }
+    public int TotalServicesWithCorruption { get; set; }
+    public long TotalCorruptedChunks { get; set; }
+    public string? LastDetectionTime { get; set; }
+}
+
 // ============================================================
 // Depot Controller DTOs
 // ============================================================

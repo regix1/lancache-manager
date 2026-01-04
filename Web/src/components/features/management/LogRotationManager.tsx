@@ -4,6 +4,7 @@ import { Alert } from '@components/ui/Alert';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { formatDateTime } from '@utils/formatters';
 import { RefreshCw, Clock, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { LoadingState } from '@components/ui/ManagerCard';
 
 const SCHEDULE_OPTIONS: DropdownOption[] = [
   { value: '0', label: 'Disabled', description: 'No automatic rotation' },
@@ -124,11 +125,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
   };
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-8">
-        <Loader2 className="w-6 h-6 animate-spin text-themed-muted" />
-      </div>
-    );
+    return <LoadingState message="Loading log rotation status..." />;
   }
 
   if (!status) {
@@ -247,13 +244,8 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
           onClick={handleForceRotation}
           disabled={!isAuthenticated || isRotating}
           variant="outline"
-          leftSection={
-            isRotating ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <RefreshCw className="w-4 h-4" />
-            )
-          }
+          loading={isRotating}
+          leftSection={!isRotating ? <RefreshCw className="w-4 h-4" /> : undefined}
         >
           {isRotating ? 'Rotating...' : 'Rotate Now'}
         </Button>

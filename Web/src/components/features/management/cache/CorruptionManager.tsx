@@ -1,20 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   AlertTriangle,
   Loader2,
   RefreshCw,
   ChevronDown,
   ChevronUp,
-  Lock,
-  CheckCircle,
-  XCircle,
-  ScrollText,
-  HardDrive
+  Search
 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useSignalR } from '@contexts/SignalRContext';
-import type { CorruptionRemovalCompleteEvent } from '@contexts/SignalRContext/types';
+import type {
+  CorruptionRemovalCompleteEvent,
+  CorruptionDetectionCompleteEvent
+} from '@contexts/SignalRContext/types';
 import { useNotifications } from '@contexts/NotificationsContext';
 import { Card } from '@components/ui/Card';
 import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
@@ -22,6 +21,14 @@ import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { Tooltip } from '@components/ui/Tooltip';
+import {
+  ManagerCardHeader,
+  LoadingState,
+  EmptyState,
+  ReadOnlyBadge,
+  ScanningState
+} from '@components/ui/ManagerCard';
+import { useFormattedDateTime } from '@/hooks/useFormattedDateTime';
 import type { CorruptedChunkDetail } from '@/types';
 
 interface CorruptionManagerProps {
@@ -46,7 +53,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   const [expandedCorruptionService, setExpandedCorruptionService] = useState<string | null>(null);
   const [corruptionDetails, setCorruptionDetails] = useState<Record<string, CorruptedChunkDetail[]>>({});
   const [loadingDetails, setLoadingDetails] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [hasInitiallyLoaded, setHasInitiallyLoaded] = useState(false);
   const [logsReadOnly, setLogsReadOnly] = useState(false);
@@ -54,6 +62,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   const [dockerSocketAvailable, setDockerSocketAvailable] = useState(true);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [startingCorruptionRemoval, setStartingCorruptionRemoval] = useState<string | null>(null);
+  const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
+  const [hasCachedResults, setHasCachedResults] = useState(false);
+
+  const formattedLastDetection = useFormattedDateTime(lastDetectionTime);
 
   // Derive active corruption removal from notifications
   const activeCorruptionRemovalNotification = notifications.find(
@@ -63,18 +75,79 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
     ? (activeCorruptionRemovalNotification.id.replace('corruption_removal-', '') as string)
     : null;
 
+  // Load cached data from database
+  const loadCachedData = useCallback(async () => {
+    setIsLoading(true);
+    setLoadError(null);
+    try {
+      const cached = await ApiService.getCachedCorruptionDetection();
+      if (cached.hasCachedResults && cached.corruptionCounts) {
+        setCorruptionSummary(cached.corruptionCounts);
+        setLastDetectionTime(cached.lastDetectionTime || null);
+        setHasCachedResults(true);
+      } else {
+        setCorruptionSummary({});
+        setLastDetectionTime(null);
+        setHasCachedResults(false);
+      }
+      setHasInitiallyLoaded(true);
+    } catch (err: unknown) {
+      console.error('Failed to load cached corruption data:', err);
+      setLoadError(
+        (err instanceof Error ? err.message : String(err)) || 'Failed to load cached data'
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Start a background scan
+  const startScan = useCallback(async () => {
+    if (isScanning) return;
+
+    setIsScanning(true);
+    setLoadError(null);
+    try {
+      await ApiService.startCorruptionDetection();
+      // The scan runs in the background, we'll get results via SignalR
+    } catch (err: unknown) {
+      console.error('Failed to start corruption scan:', err);
+      setLoadError(
+        (err instanceof Error ? err.message : String(err)) || 'Failed to start corruption scan'
+      );
+      setIsScanning(false);
+    }
+  }, [isScanning]);
+
+  // Listen for CorruptionDetectionComplete event
+  useEffect(() => {
+    if (!signalR) return;
+
+    const handleDetectionComplete = async (result: CorruptionDetectionCompleteEvent) => {
+      setIsScanning(false);
+      if (result.success) {
+        // Reload cached data to get fresh results
+        await loadCachedData();
+      } else {
+        setLoadError(result.error || 'Corruption scan failed');
+      }
+    };
+
+    signalR.on('CorruptionDetectionComplete', handleDetectionComplete);
+
+    return () => {
+      signalR.off('CorruptionDetectionComplete', handleDetectionComplete);
+    };
+  }, [signalR, loadCachedData]);
+
   // Listen for CorruptionRemovalComplete event
   useEffect(() => {
     if (!signalR) return;
 
     const handleCorruptionRemovalComplete = async (result: CorruptionRemovalCompleteEvent) => {
       if (result.success) {
-        try {
-          const corruption = await ApiService.getCorruptionSummary(true);
-          setCorruptionSummary(corruption);
-        } catch (err) {
-          console.error('Failed to refresh after corruption removal:', err);
-        }
+        // Start a new scan after removal to refresh data
+        await startScan();
       } else {
         onError?.(result.error || 'Corruption removal failed');
       }
@@ -85,36 +158,23 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
     return () => {
       signalR.off('CorruptionRemovalComplete', handleCorruptionRemovalComplete);
     };
-  }, [signalR, onError]);
+  }, [signalR, onError, startScan]);
 
+  // Initial load and auto-scan
   useEffect(() => {
     if (!hasInitiallyLoaded) {
-      setTimeout(() => {
-        loadData();
-      }, 100);
       loadDirectoryPermissions();
+      // Load cached data first, then auto-start scan
+      loadCachedData().then(() => {
+        // Auto-start scan when page loads
+        startScan();
+      });
     }
 
     if (onReloadRef) {
-      onReloadRef.current = () => loadData(true);
+      onReloadRef.current = () => startScan();
     }
-  }, [hasInitiallyLoaded, onReloadRef]);
-
-  const loadData = async (forceRefresh = false) => {
-    setIsLoading(true);
-    setLoadError(null);
-    try {
-      const corruption = await ApiService.getCorruptionSummary(forceRefresh);
-      setCorruptionSummary(corruption);
-      setLoadError(null);
-      setHasInitiallyLoaded(true);
-    } catch (err: unknown) {
-      console.error('Failed to load corruption data:', err);
-      setLoadError((err instanceof Error ? err.message : String(err)) || 'Failed to load corruption data');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  }, [hasInitiallyLoaded, onReloadRef, loadCachedData, startScan]);
 
   const loadDirectoryPermissions = async () => {
     try {
@@ -152,7 +212,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
       await ApiService.removeCorruptedChunks(service);
     } catch (err: unknown) {
       console.error('Removal failed:', err);
-      onError?.((err instanceof Error ? err.message : String(err)) || `Failed to remove corrupted chunks for ${service}`);
+      onError?.(
+        (err instanceof Error ? err.message : String(err)) ||
+          `Failed to remove corrupted chunks for ${service}`
+      );
     } finally {
       setStartingCorruptionRemoval(null);
     }
@@ -172,7 +235,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
         const details = await ApiService.getCorruptionDetails(service);
         setCorruptionDetails((prev) => ({ ...prev, [service]: details }));
       } catch (err: unknown) {
-        onError?.((err instanceof Error ? err.message : String(err)) || `Failed to load corruption details for ${service}`);
+        onError?.(
+          (err instanceof Error ? err.message : String(err)) ||
+            `Failed to load corruption details for ${service}`
+        );
         setExpandedCorruptionService(null);
       } finally {
         setLoadingDetails(null);
@@ -185,81 +251,86 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
     .sort((a, b) => b[1] - a[1]);
 
   const isReadOnly = logsReadOnly || cacheReadOnly;
+  const hasData = hasCachedResults && corruptionList.length >= 0;
+
+  // Help content
+  const helpContent = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title="What This Does">
+        Identifies cache chunks with 3+ repeated MISS requests, indicating the cached file
+        is corrupted and needs to be redownloaded.
+      </HelpSection>
+
+      <HelpSection title="What Removal Deletes" variant="subtle">
+        <ul className="list-disc list-inside text-sm space-y-1">
+          <li><strong>Cache files</strong> - corrupted chunks from disk</li>
+          <li><strong>Log entries</strong> - related entries from access.log</li>
+          <li><strong>Database records</strong> - download sessions with corruption</li>
+        </ul>
+      </HelpSection>
+
+      <HelpNote type="warning">
+        Removal affects both cache and logs - requires write access to both.
+      </HelpNote>
+    </HelpPopover>
+  );
+
+  // Action buttons for header
+  const headerActions = (
+    <div className="flex items-center gap-2">
+      <Tooltip content="Load cached corruption data" position="top">
+        <Button
+          onClick={() => loadCachedData()}
+          disabled={isLoading || isScanning || !!removingCorruption}
+          variant="subtle"
+          size="sm"
+        >
+          {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Load'}
+        </Button>
+      </Tooltip>
+      <Tooltip content="Scan for corrupted cache chunks" position="top">
+        <Button
+          onClick={() => startScan()}
+          disabled={isLoading || isScanning || !!removingCorruption}
+          variant="filled"
+          color="blue"
+          size="sm"
+        >
+          {isScanning ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Scan'}
+        </Button>
+      </Tooltip>
+    </div>
+  );
 
   return (
     <>
       <Card>
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-red flex-shrink-0">
-              <AlertTriangle className="w-5 h-5 icon-red" />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-themed-primary">Corruption Detection</h3>
-              <p className="text-xs text-themed-muted">Find and fix corrupted cache files</p>
-            </div>
-            <HelpPopover position="left" width={320}>
-              <HelpSection title="What This Does">
-                Identifies cache chunks with 3+ repeated MISS requests, indicating
-                the cached file is corrupted and needs to be redownloaded.
-              </HelpSection>
+        <ManagerCardHeader
+          icon={AlertTriangle}
+          iconColor="red"
+          title="Corruption Detection"
+          subtitle="Find and fix corrupted cache files"
+          helpContent={helpContent}
+          permissions={{
+            logsReadOnly,
+            cacheReadOnly,
+            checkingPermissions
+          }}
+          actions={headerActions}
+        />
 
-              <HelpSection title="What Removal Deletes" variant="subtle">
-                <ul className="list-disc list-inside text-sm space-y-1">
-                  <li><strong>Cache files</strong> - corrupted chunks from disk</li>
-                  <li><strong>Log entries</strong> - related entries from access.log</li>
-                  <li><strong>Database records</strong> - download sessions with corruption</li>
-                </ul>
-              </HelpSection>
+        {/* Last Detection Time */}
+        {hasCachedResults && lastDetectionTime && (
+          <div className="text-xs text-themed-muted mb-4 flex items-center gap-1">
+            <RefreshCw className="w-3 h-3" />
+            Results from previous scan: {formattedLastDetection}
+          </div>
+        )}
 
-              <HelpNote type="warning">
-                Removal affects both cache and logs - requires write access to both.
-              </HelpNote>
-            </HelpPopover>
-          </div>
-          <div className="flex items-center gap-3">
-            {!checkingPermissions && (
-              <div className="flex items-center gap-2">
-                <Tooltip content={logsReadOnly ? 'Logs are read-only' : 'Logs are writable'} position="top">
-                  <span className="flex items-center gap-0.5">
-                    <ScrollText className="w-3.5 h-3.5 text-themed-muted" />
-                    {logsReadOnly ? (
-                      <XCircle className="w-4 h-4" style={{ color: 'var(--theme-warning)' }} />
-                    ) : (
-                      <CheckCircle className="w-4 h-4" style={{ color: 'var(--theme-success-text)' }} />
-                    )}
-                  </span>
-                </Tooltip>
-                <Tooltip content={cacheReadOnly ? 'Cache is read-only' : 'Cache is writable'} position="top">
-                  <span className="flex items-center gap-0.5">
-                    <HardDrive className="w-3.5 h-3.5 text-themed-muted" />
-                    {cacheReadOnly ? (
-                      <XCircle className="w-4 h-4" style={{ color: 'var(--theme-warning)' }} />
-                    ) : (
-                      <CheckCircle className="w-4 h-4" style={{ color: 'var(--theme-success-text)' }} />
-                    )}
-                  </span>
-                </Tooltip>
-              </div>
-            )}
-            <button
-              onClick={() => loadData(true)}
-              disabled={isLoading || !!removingCorruption}
-              className="hover-btn p-2 rounded-lg disabled:opacity-50 flex items-center justify-center"
-              style={{
-                color: 'var(--theme-text-muted)',
-                backgroundColor: 'transparent'
-              }}
-              title="Refresh data"
-            >
-              {isLoading ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <RefreshCw className="w-4 h-4" />
-              )}
-            </button>
-          </div>
-        </div>
+        {/* Scanning Status */}
+        {isScanning && (
+          <ScanningState message="Scanning logs for corrupted chunks... This may take several minutes for large log files." />
+        )}
 
         {/* Read-Only Warning */}
         {isReadOnly && (
@@ -273,9 +344,9 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
                     : 'Cache directory is read-only'}
               </p>
               <p className="text-sm mt-1">
-                Corruption removal requires write access to both logs and cache.
-                Remove <code className="bg-themed-tertiary px-1 rounded">:ro</code> from your
-                docker-compose volume mounts.
+                Corruption removal requires write access to both logs and cache. Remove{' '}
+                <code className="bg-themed-tertiary px-1 rounded">:ro</code> from your docker-compose
+                volume mounts.
               </p>
             </div>
           </Alert>
@@ -289,9 +360,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
               <p className="text-sm mt-1">
                 Corruption removal requires signaling nginx to reopen logs afterward.
               </p>
-              <p className="text-sm mt-2">
-                Add to your docker-compose.yml volumes:
-              </p>
+              <p className="text-sm mt-2">Add to your docker-compose.yml volumes:</p>
               <code className="block bg-themed-tertiary px-2 py-1 rounded text-xs mt-1">
                 - /var/run/docker.sock:/var/run/docker.sock:ro
               </code>
@@ -301,19 +370,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
 
         {/* Content */}
         {isReadOnly || !dockerSocketAvailable ? (
-          <div className="flex items-center justify-center py-4">
-            <span
-              className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 border"
-              style={{
-                backgroundColor: 'var(--theme-warning-bg)',
-                color: 'var(--theme-warning)',
-                borderColor: 'var(--theme-warning)'
-              }}
-            >
-              <Lock className="w-3 h-3" />
-              {isReadOnly ? 'Read-only' : 'Docker socket required'}
-            </span>
-          </div>
+          <ReadOnlyBadge message={isReadOnly ? 'Read-only' : 'Docker socket required'} />
         ) : (
           <>
             {loadError && (
@@ -324,7 +381,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
                   <Button
                     variant="default"
                     size="sm"
-                    onClick={() => loadData()}
+                    onClick={() => startScan()}
                     className="mt-2"
                     leftSection={<RefreshCw className="w-3 h-3" />}
                   >
@@ -334,17 +391,9 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
               </Alert>
             )}
 
-            {isLoading ? (
-              <div className="flex flex-col items-center justify-center py-8 gap-3">
-                <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
-                <p className="text-sm text-themed-secondary">
-                  Scanning logs for corrupted chunks...
-                </p>
-                <p className="text-xs text-themed-muted">
-                  This may take several minutes for large log files
-                </p>
-              </div>
-            ) : !loadError && corruptionList.length > 0 ? (
+            {isLoading && !isScanning ? (
+              <LoadingState message="Loading cached data..." />
+            ) : !loadError && hasData && corruptionList.length > 0 ? (
               <div className="space-y-3">
                 {corruptionList.map(([service, count]) => (
                   <div
@@ -395,9 +444,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
                           variant="filled"
                           color="red"
                           size="sm"
-                          loading={removingCorruption === service || startingCorruptionRemoval === service}
+                          loading={
+                            removingCorruption === service || startingCorruptionRemoval === service
+                          }
                         >
-                          {removingCorruption !== service && startingCorruptionRemoval !== service ? 'Remove All' : 'Removing...'}
+                          {removingCorruption !== service && startingCorruptionRemoval !== service
+                            ? 'Remove All'
+                            : 'Removing...'}
                         </Button>
                       </Tooltip>
                     </div>
@@ -470,14 +523,18 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
                   </div>
                 ))}
               </div>
-            ) : (
-              <div className="text-center py-8 text-themed-muted">
-                <div className="mb-2">No corrupted chunks detected</div>
-                <div className="text-xs">
-                  Cache appears healthy - all chunks are being served successfully
-                </div>
-              </div>
-            )}
+            ) : !loadError && hasData ? (
+              <EmptyState
+                title="No corrupted chunks detected"
+                subtitle="Cache appears healthy - all chunks are being served successfully"
+              />
+            ) : !isScanning && !isLoading ? (
+              <EmptyState
+                icon={Search}
+                title="No cached data available"
+                subtitle="Click the scan button in the header to detect corrupted cache chunks"
+              />
+            ) : null}
           </>
         )}
       </Card>
@@ -502,15 +559,9 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
             <div>
               <p className="text-sm font-medium mb-2">This will DELETE:</p>
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>
-                  <strong>Cache files</strong> from disk for corrupted chunks
-                </li>
-                <li>
-                  <strong>Log entries</strong> from access.log for these chunks
-                </li>
-                <li>
-                  <strong>Database records</strong> for download sessions with corruption
-                </li>
+                <li><strong>Cache files</strong> from disk for corrupted chunks</li>
+                <li><strong>Log entries</strong> from access.log for these chunks</li>
+                <li><strong>Database records</strong> for download sessions with corruption</li>
               </ul>
             </div>
           </Alert>
@@ -534,11 +585,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
             <Button variant="default" onClick={() => setPendingCorruptionRemoval(null)}>
               Cancel
             </Button>
-            <Button
-              variant="filled"
-              color="red"
-              onClick={confirmRemoveCorruption}
-            >
+            <Button variant="filled" color="red" onClick={confirmRemoveCorruption}>
               Delete Cache & Logs
             </Button>
           </div>

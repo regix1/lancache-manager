@@ -13,12 +13,15 @@ public class AppDbContext : DbContext
     public DbSet<LogEntryRecord> LogEntries { get; set; }
     public DbSet<CachedGameDetection> CachedGameDetections { get; set; }
     public DbSet<CachedServiceDetection> CachedServiceDetections { get; set; }
+    public DbSet<CachedCorruptionDetection> CachedCorruptionDetections { get; set; }
     public DbSet<UserSession> UserSessions { get; set; }
     public DbSet<UserPreferences> UserPreferences { get; set; }
     public DbSet<Event> Events { get; set; }
     public DbSet<EventDownload> EventDownloads { get; set; }
     public DbSet<ClientGroup> ClientGroups { get; set; }
     public DbSet<ClientGroupMember> ClientGroupMembers { get; set; }
+    public DbSet<BannedSteamUser> BannedSteamUsers { get; set; }
+    public DbSet<PrefillSession> PrefillSessions { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -205,5 +208,44 @@ public class AppDbContext : DbContext
             .WithMany(cg => cg.Members)
             .HasForeignKey(cgm => cgm.ClientGroupId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // BannedSteamUser configuration
+        modelBuilder.Entity<BannedSteamUser>()
+            .HasIndex(b => b.UsernameHash)
+            .HasDatabaseName("IX_BannedSteamUsers_UsernameHash");
+
+        modelBuilder.Entity<BannedSteamUser>()
+            .HasIndex(b => b.BannedAtUtc)
+            .HasDatabaseName("IX_BannedSteamUsers_BannedAtUtc");
+
+        modelBuilder.Entity<BannedSteamUser>()
+            .HasIndex(b => b.IsLifted)
+            .HasDatabaseName("IX_BannedSteamUsers_IsLifted");
+
+        // PrefillSession configuration
+        modelBuilder.Entity<PrefillSession>()
+            .HasIndex(p => p.SessionId)
+            .HasDatabaseName("IX_PrefillSessions_SessionId")
+            .IsUnique();
+
+        modelBuilder.Entity<PrefillSession>()
+            .HasIndex(p => p.DeviceId)
+            .HasDatabaseName("IX_PrefillSessions_DeviceId");
+
+        modelBuilder.Entity<PrefillSession>()
+            .HasIndex(p => p.ContainerId)
+            .HasDatabaseName("IX_PrefillSessions_ContainerId");
+
+        modelBuilder.Entity<PrefillSession>()
+            .HasIndex(p => p.SteamUsernameHash)
+            .HasDatabaseName("IX_PrefillSessions_SteamUsernameHash");
+
+        modelBuilder.Entity<PrefillSession>()
+            .HasIndex(p => p.Status)
+            .HasDatabaseName("IX_PrefillSessions_Status");
+
+        modelBuilder.Entity<PrefillSession>()
+            .HasIndex(p => p.CreatedAtUtc)
+            .HasDatabaseName("IX_PrefillSessions_CreatedAtUtc");
     }
 }

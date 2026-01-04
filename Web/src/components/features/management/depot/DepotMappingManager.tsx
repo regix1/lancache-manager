@@ -12,6 +12,7 @@ import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 import { formatNextCrawlTime, toTotalSeconds } from '@utils/timeFormatters';
 import { storage } from '@utils/storage';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
+import { ManagerCardHeader } from '@components/ui/ManagerCard';
 
 interface DepotMappingManagerProps {
   isAuthenticated: boolean;
@@ -616,40 +617,38 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
   return (
     <>
       <Card>
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-indigo">
-            <Database className="w-5 h-5 icon-indigo" />
-          </div>
-          <h3 className="text-lg font-semibold text-themed-primary">Depot Mapping</h3>
-          <HelpPopover position="left" width={320}>
-            <HelpSection title="Scan Modes">
-              <div className="space-y-1.5">
-                <HelpDefinition term="Incremental" termColor="blue">
-                  Fetch only changed apps — fast updates
-                </HelpDefinition>
-                <HelpDefinition term="Full" termColor="green">
-                  Fetch all ~300k apps — slower but complete
-                </HelpDefinition>
-                <HelpDefinition term="GitHub" termColor="purple">
-                  Download pre-built depot data (290k+ depots, updated hourly)
-                </HelpDefinition>
-              </div>
-            </HelpSection>
+        <ManagerCardHeader
+          icon={Database}
+          iconColor="indigo"
+          title="Depot Mapping"
+          subtitle="Automatically identifies Steam games from depot IDs"
+          helpContent={
+            <HelpPopover position="left" width={320}>
+              <HelpSection title="Scan Modes">
+                <div className="space-y-1.5">
+                  <HelpDefinition term="Incremental" termColor="blue">
+                    Fetch only changed apps — fast updates
+                  </HelpDefinition>
+                  <HelpDefinition term="Full" termColor="green">
+                    Fetch all ~300k apps — slower but complete
+                  </HelpDefinition>
+                  <HelpDefinition term="GitHub" termColor="purple">
+                    Download pre-built depot data (290k+ depots, updated hourly)
+                  </HelpDefinition>
+                </div>
+              </HelpSection>
 
-            <HelpSection title="Settings" variant="subtle">
-              Automatic Schedule runs in the background at your chosen interval.
-              Apply Now uses the selected source for immediate updates.
-            </HelpSection>
+              <HelpSection title="Settings" variant="subtle">
+                Automatic Schedule runs in the background at your chosen interval.
+                Apply Now uses the selected source for immediate updates.
+              </HelpSection>
 
-            <HelpNote type="info">
-              GitHub mode uses a fixed 30-minute interval to stay in sync with hourly updates.
-            </HelpNote>
-          </HelpPopover>
-        </div>
-
-        <p className="text-themed-secondary mb-4">
-          Automatically identifies Steam games from depot IDs in download history
-        </p>
+              <HelpNote type="info">
+                GitHub mode uses a fixed 30-minute interval to stay in sync with hourly updates.
+              </HelpNote>
+            </HelpPopover>
+          }
+        />
 
         {/* GitHub Download In Progress */}
         {githubDownloading && (

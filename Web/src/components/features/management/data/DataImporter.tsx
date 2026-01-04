@@ -16,6 +16,11 @@ import { Alert } from '@components/ui/Alert';
 import { Checkbox } from '@components/ui/Checkbox';
 import { Modal } from '@components/ui/Modal';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
+import {
+  ManagerCardHeader,
+  LoadingState,
+  EmptyState
+} from '@components/ui/ManagerCard';
 import ApiService from '@services/api.service';
 import FileBrowser from '../file-browser/FileBrowser';
 
@@ -215,58 +220,55 @@ const DataImporter: React.FC<DataImporterProps> = ({
     return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
   };
 
+  // Help content
+  const helpContent = (
+    <HelpPopover position="left" width={340}>
+      <HelpSection title="Input Methods">
+        <div className="space-y-1.5">
+          <HelpDefinition term="Browse" termColor="blue">
+            Navigate to select your SQLite database file
+          </HelpDefinition>
+          <HelpDefinition term="Manual" termColor="green">
+            Paste the file path directly
+          </HelpDefinition>
+        </div>
+      </HelpSection>
+
+      <HelpSection title="Compatibility" variant="subtle">
+        Only compatible with DeveLanCacheUI_Backend SQLite databases.
+        Mount external databases as Docker volumes.
+      </HelpSection>
+
+      <HelpNote type="warning">
+        Stop the external application before importing to avoid database locks.
+      </HelpNote>
+    </HelpPopover>
+  );
+
+  // Header actions - compatibility badge
+  const headerActions = (
+    <div
+      className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm"
+      style={{
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        border: '1px solid var(--theme-border-secondary)'
+      }}
+    >
+      <Database className="w-4 h-4 icon-purple" />
+      <span className="text-themed-secondary font-medium">DeveLanCacheUI_Backend</span>
+    </div>
+  );
+
   return (
     <Card>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
-            <Upload className="w-5 h-5 icon-purple" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-lg font-semibold text-themed-primary">
-                Import Historical Data
-              </h3>
-              <HelpPopover position="left" width={340}>
-                <HelpSection title="Input Methods">
-                  <div className="space-y-1.5">
-                    <HelpDefinition term="Browse" termColor="blue">
-                      Navigate to select your SQLite database file
-                    </HelpDefinition>
-                    <HelpDefinition term="Manual" termColor="green">
-                      Paste the file path directly
-                    </HelpDefinition>
-                  </div>
-                </HelpSection>
-
-                <HelpSection title="Compatibility" variant="subtle">
-                  Only compatible with DeveLanCacheUI_Backend SQLite databases.
-                  Mount external databases as Docker volumes.
-                </HelpSection>
-
-                <HelpNote type="warning">
-                  Stop the external application before importing to avoid database locks.
-                </HelpNote>
-              </HelpPopover>
-            </div>
-            <p className="text-xs text-themed-muted">
-              Import from DeveLanCacheUI_Backend databases only
-            </p>
-          </div>
-        </div>
-
-        {/* Compatibility Badge */}
-        <div
-          className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm"
-          style={{
-            backgroundColor: 'var(--theme-bg-tertiary)',
-            border: '1px solid var(--theme-border-secondary)'
-          }}
-        >
-          <Database className="w-4 h-4 icon-purple" />
-          <span className="text-themed-secondary font-medium">DeveLanCacheUI_Backend</span>
-        </div>
-      </div>
+      <ManagerCardHeader
+        icon={Upload}
+        iconColor="purple"
+        title="Import Historical Data"
+        subtitle="Import from DeveLanCacheUI_Backend databases only"
+        helpContent={helpContent}
+        actions={headerActions}
+      />
 
       {mockMode && (
         <Alert color="yellow" className="mb-4">
@@ -336,25 +338,22 @@ const DataImporter: React.FC<DataImporterProps> = ({
               <p className="text-sm text-themed-secondary">
                 {autoSearching ? 'Searching for databases...' : `Found ${foundDatabases.length} database(s)`}
               </p>
-              <button
+              <Button
                 onClick={searchForDatabases}
                 disabled={autoSearching || mockMode || !isAuthenticated}
-                className="p-1.5 rounded-lg transition-colors hover:bg-themed-hover disabled:opacity-50"
-                style={{ color: 'var(--theme-text-muted)' }}
-                title="Refresh search"
+                variant="subtle"
+                size="sm"
               >
                 {autoSearching ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
                   <RefreshCw className="w-4 h-4" />
                 )}
-              </button>
+              </Button>
             </div>
 
             {autoSearching ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
-              </div>
+              <LoadingState message="Searching for databases..." />
             ) : foundDatabases.length > 0 ? (
               <div
                 className="rounded-lg border overflow-hidden"
@@ -386,14 +385,11 @@ const DataImporter: React.FC<DataImporterProps> = ({
                 </div>
               </div>
             ) : (
-              <div
-                className="text-center py-8 rounded-lg"
-                style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-              >
-                <Search className="w-8 h-8 mx-auto mb-2 text-themed-muted opacity-50" />
-                <p className="text-sm text-themed-muted">No database files found</p>
-                <p className="text-xs text-themed-muted mt-1">Try using Browse or Manual mode</p>
-              </div>
+              <EmptyState
+                icon={Search}
+                title="No database files found"
+                subtitle="Try using Browse or Manual mode"
+              />
             )}
           </div>
         )}

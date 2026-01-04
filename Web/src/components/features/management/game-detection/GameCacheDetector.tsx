@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { HardDrive, Loader2, Lock, CheckCircle, XCircle, ScrollText, Database, Server } from 'lucide-react';
+import { HardDrive, Loader2, Database, Server } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -10,6 +10,12 @@ import { AccordionSection } from '@components/ui/AccordionSection';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { useNotifications } from '@contexts/NotificationsContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
+import {
+  ManagerCardHeader,
+  LoadingState,
+  EmptyState,
+  ReadOnlyBadge
+} from '@components/ui/ManagerCard';
 import GamesList from './GamesList';
 import ServicesList from './ServicesList';
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
@@ -558,69 +564,87 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const hasResults = filteredGames.length > 0 || filteredServices.length > 0;
   const allExpanded = servicesExpanded && gamesExpanded;
 
+  // Help content
+  const helpContent = (
+    <HelpPopover position="left" width={340}>
+      <HelpSection title="Removal">
+        <div className="space-y-1.5">
+          <HelpDefinition term="Game" termColor="green">
+            Removes cache files, log entries, and database records
+          </HelpDefinition>
+          <HelpDefinition term="Service" termColor="purple">
+            Cleans up non-game caches (Riot, Blizzard, Epic, WSUS)
+          </HelpDefinition>
+        </div>
+      </HelpSection>
+
+      <HelpSection title="How It Works" variant="subtle">
+        Scans database for games and services, verifies cache files exist on disk,
+        then displays size and file count for each.
+      </HelpSection>
+
+      <HelpNote type="info">
+        Access logs must be processed first to populate the database.
+      </HelpNote>
+    </HelpPopover>
+  );
+
+  // Header actions - scan buttons
+  const headerActions = (
+    <div className="flex items-center gap-2">
+      <Tooltip content="Load previous detection results from database">
+        <Button
+          onClick={handleLoadData}
+          disabled={loading || mockMode || checkingPermissions}
+          variant="subtle"
+          size="sm"
+        >
+          {loading && scanType === 'load' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Load'}
+        </Button>
+      </Tooltip>
+
+      <Tooltip content={!hasProcessedLogs && !checkingLogs ? "Process access logs first" : "Quick scan for new items"}>
+        <Button
+          onClick={handleIncrementalScan}
+          disabled={loading || mockMode || checkingPermissions || !hasProcessedLogs || checkingLogs}
+          variant="subtle"
+          size="sm"
+        >
+          {loading && scanType === 'incremental' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Quick'}
+        </Button>
+      </Tooltip>
+
+      <Tooltip content={!hasProcessedLogs && !checkingLogs ? "Process access logs first" : "Full scan from scratch"}>
+        <Button
+          onClick={handleFullScan}
+          disabled={loading || mockMode || checkingPermissions || !hasProcessedLogs || checkingLogs}
+          variant="filled"
+          color="blue"
+          size="sm"
+        >
+          {loading && scanType === 'full' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Full Scan'}
+        </Button>
+      </Tooltip>
+    </div>
+  );
+
   return (
     <>
       <Card>
         <div className="space-y-4">
-          {/* Header Row: Title + Help on left, Permissions on right */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
-                <HardDrive className="w-5 h-5 icon-purple" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-themed-primary">Game Cache Detection</h3>
-                <p className="text-xs text-themed-muted">Scan cache to find games and services with stored files</p>
-              </div>
-              <HelpPopover position="left" width={340}>
-                <HelpSection title="Removal">
-                  <div className="space-y-1.5">
-                    <HelpDefinition term="Game" termColor="green">
-                      Removes cache files, log entries, and database records
-                    </HelpDefinition>
-                    <HelpDefinition term="Service" termColor="purple">
-                      Cleans up non-game caches (Riot, Blizzard, Epic, WSUS)
-                    </HelpDefinition>
-                  </div>
-                </HelpSection>
-
-                <HelpSection title="How It Works" variant="subtle">
-                  Scans database for games and services, verifies cache files exist on disk,
-                  then displays size and file count for each.
-                </HelpSection>
-
-                <HelpNote type="info">
-                  Access logs must be processed first to populate the database.
-                </HelpNote>
-              </HelpPopover>
-            </div>
-            <div className="flex items-center gap-3">
-              {!checkingPermissions && (
-                <div className="flex items-center gap-2">
-                  <Tooltip content={datasources.some(ds => !ds.logsWritable) ? 'Logs are read-only' : 'Logs are writable'} position="top">
-                    <span className="flex items-center gap-0.5">
-                      <ScrollText className="w-3.5 h-3.5 text-themed-muted" />
-                      {datasources.some(ds => !ds.logsWritable) ? (
-                        <XCircle className="w-4 h-4" style={{ color: 'var(--theme-warning)' }} />
-                      ) : (
-                        <CheckCircle className="w-4 h-4" style={{ color: 'var(--theme-success-text)' }} />
-                      )}
-                    </span>
-                  </Tooltip>
-                  <Tooltip content={cacheReadOnly ? 'Cache is read-only (removal disabled)' : 'Cache is writable'} position="top">
-                    <span className="flex items-center gap-0.5">
-                      <HardDrive className="w-3.5 h-3.5 text-themed-muted" />
-                      {cacheReadOnly ? (
-                        <XCircle className="w-4 h-4" style={{ color: 'var(--theme-warning)' }} />
-                      ) : (
-                        <CheckCircle className="w-4 h-4" style={{ color: 'var(--theme-success-text)' }} />
-                      )}
-                    </span>
-                  </Tooltip>
-                </div>
-              )}
-            </div>
-          </div>
+          <ManagerCardHeader
+            icon={HardDrive}
+            iconColor="purple"
+            title="Game Cache Detection"
+            subtitle="Scan cache to find games and services with stored files"
+            helpContent={helpContent}
+            permissions={{
+              logsReadOnly: datasources.some(ds => !ds.logsWritable),
+              cacheReadOnly,
+              checkingPermissions
+            }}
+            actions={headerActions}
+          />
 
           {/* Read-Only Warning */}
           {cacheReadOnly && (
@@ -634,135 +658,39 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   </p>
                 </div>
               </Alert>
-              <div className="flex items-center justify-center py-4">
-                <span
-                  className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 border"
-                  style={{
-                    backgroundColor: 'var(--theme-warning-bg)',
-                    color: 'var(--theme-warning)',
-                    borderColor: 'var(--theme-warning)'
-                  }}
-                >
-                  <Lock className="w-3 h-3" />
-                  Read-only
-                </span>
-              </div>
+              <ReadOnlyBadge />
             </>
           )}
 
-          {/* Header Row 3: Actions + Datasource Filter */}
-          {!cacheReadOnly && (
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-              {/* Action Buttons */}
-              <div className="flex items-center gap-2 flex-1">
-                <Tooltip content="Load previous detection results from database">
-                  <Button
-                    onClick={handleLoadData}
-                    disabled={loading || mockMode || checkingPermissions}
-                    variant="default"
-                    size="sm"
-                    leftSection={loading && scanType === 'load' ? <Loader2 className="w-4 h-4 animate-spin" /> : undefined}
-                  >
-                    {loading && scanType === 'load' ? 'Loading...' : 'Load Data'}
-                  </Button>
-                </Tooltip>
-
-                {(() => {
-                  const incrementalButton = (
-                    <Button
-                      onClick={handleIncrementalScan}
-                      disabled={
-                        loading ||
-                        mockMode ||
-                        checkingPermissions ||
-                        !hasProcessedLogs ||
-                        checkingLogs
-                      }
-                      variant="default"
-                      size="sm"
-                      leftSection={loading && scanType === 'incremental' ? <Loader2 className="w-4 h-4 animate-spin" /> : undefined}
-                    >
-                      {loading && scanType === 'incremental' ? 'Scanning...' : 'Quick Scan'}
-                    </Button>
-                  );
-
-                  return !hasProcessedLogs && !checkingLogs ? (
-                    <Tooltip content="Process access logs first. LogEntries are required for detection.">
-                      {incrementalButton}
-                    </Tooltip>
-                  ) : (
-                    <Tooltip content="Scan for new games and services only (faster)">
-                      {incrementalButton}
-                    </Tooltip>
-                  );
-                })()}
-
-                {(() => {
-                  const fullButton = (
-                    <Button
-                      onClick={handleFullScan}
-                      disabled={
-                        loading ||
-                        mockMode ||
-                        checkingPermissions ||
-                        !hasProcessedLogs ||
-                        checkingLogs
-                      }
-                      variant="filled"
-                      color="blue"
-                      size="sm"
-                      leftSection={loading && scanType === 'full' ? <Loader2 className="w-4 h-4 animate-spin" /> : undefined}
-                    >
-                      {loading && scanType === 'full' ? 'Scanning...' : 'Full Scan'}
-                    </Button>
-                  );
-
-                  return !hasProcessedLogs && !checkingLogs ? (
-                    <Tooltip content="Process access logs first. LogEntries are required for detection.">
-                      {fullButton}
-                    </Tooltip>
-                  ) : (
-                    <Tooltip content="Scan all games and services from scratch (slower)">
-                      {fullButton}
-                    </Tooltip>
-                  );
-                })()}
-              </div>
-
-              {/* Datasource Filter (dropdown style if multiple) */}
-              {datasources.length > 1 && (
-                <EnhancedDropdown
-                  options={[
-                    { value: '', label: 'All datasources' },
-                    ...datasources.map((ds): DropdownOption => ({
-                      value: ds.name,
-                      label: ds.name
-                    }))
-                  ]}
-                  value={selectedDatasource || ''}
-                  onChange={(value) => setSelectedDatasource(value || null)}
-                  placeholder="All datasources"
-                  compactMode
-                  cleanStyle
-                  prefix="Filter:"
-                />
-              )}
+          {/* Datasource Filter */}
+          {!cacheReadOnly && datasources.length > 1 && (
+            <div className="flex justify-end">
+              <EnhancedDropdown
+                options={[
+                  { value: '', label: 'All datasources' },
+                  ...datasources.map((ds): DropdownOption => ({
+                    value: ds.name,
+                    label: ds.name
+                  }))
+                ]}
+                value={selectedDatasource || ''}
+                onChange={(value) => setSelectedDatasource(value || null)}
+                placeholder="All datasources"
+                compactMode
+                cleanStyle
+                prefix="Filter:"
+              />
             </div>
           )}
 
           {/* Loading State */}
           {loading && (
-            <div className="flex flex-col items-center justify-center py-8 gap-3">
-              <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
-              <p className="text-sm text-themed-secondary">
-                {datasources.length > 1
-                  ? `Scanning database and ${datasources.length} cache directories...`
-                  : 'Scanning database and cache directory...'}
-              </p>
-              <p className="text-xs text-themed-muted">
-                This may take several minutes for large databases and cache directories
-              </p>
-            </div>
+            <LoadingState
+              message={datasources.length > 1
+                ? `Scanning database and ${datasources.length} cache directories...`
+                : 'Scanning database and cache directory...'}
+              submessage="This may take several minutes for large databases and cache directories"
+            />
           )}
 
           {!cacheReadOnly && !loading && (
@@ -859,40 +787,24 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
               {/* Empty State */}
               {!hasResults && !error && (
-                <div className="text-center py-8 text-themed-muted">
-                  <HardDrive className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                  {selectedDatasource ? (
-                    <>
-                      <div className="mb-2">No games or services found in {selectedDatasource}</div>
-                      <Button
-                        variant="subtle"
-                        size="sm"
-                        onClick={() => setSelectedDatasource(null)}
-                      >
-                        Clear filter
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      <div className="mb-2">No games or services with cache files detected</div>
-                      {!hasProcessedLogs && !checkingLogs ? (
-                        <div className="text-xs space-y-1">
-                          <div className="text-themed-warning font-medium">
-                            Database has no LogEntries
-                          </div>
-                          <div>
-                            Process access logs to populate the database. Detection requires
-                            LogEntries to match cache files.
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="text-xs">
-                          Click &quot;Full Scan&quot; to scan your cache directory
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
+                <EmptyState
+                  icon={HardDrive}
+                  title={selectedDatasource
+                    ? `No games or services found in ${selectedDatasource}`
+                    : 'No games or services with cache files detected'}
+                  subtitle={!hasProcessedLogs && !checkingLogs
+                    ? 'Process access logs to populate the database first'
+                    : 'Click "Full Scan" to scan your cache directory'}
+                  action={selectedDatasource ? (
+                    <Button
+                      variant="subtle"
+                      size="sm"
+                      onClick={() => setSelectedDatasource(null)}
+                    >
+                      Clear filter
+                    </Button>
+                  ) : undefined}
+                />
               )}
             </>
           )}

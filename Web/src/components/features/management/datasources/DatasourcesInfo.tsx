@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { Logs, PlayCircle, RefreshCw, CheckCircle, XCircle, ScrollText } from 'lucide-react';
+import { Logs, PlayCircle, RefreshCw } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
-import { Tooltip } from '@components/ui/Tooltip';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { useSignalR } from '@contexts/SignalRContext';
 import type { FastProcessingCompleteEvent } from '@contexts/SignalRContext/types';
 import { useNotifications } from '@contexts/NotificationsContext';
+import {
+  ManagerCardHeader,
+  LoadingState
+} from '@components/ui/ManagerCard';
 import type { Config, DatasourceInfo, DatasourceLogPosition } from '../../../../types';
 
 interface DatasourcesManagerProps {
@@ -198,20 +201,6 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     return `${pos.position.toLocaleString()} / ${pos.totalLines.toLocaleString()} (${percent}%)`;
   };
 
-  if (loading) {
-    return (
-      <Card>
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
-            <Logs className="w-5 h-5 icon-purple" />
-          </div>
-          <h3 className="text-lg font-semibold text-themed-primary">Log Processing</h3>
-        </div>
-        <p className="text-themed-muted">Loading...</p>
-      </Card>
-    );
-  }
-
   // Get datasources - ensure at least one exists
   const datasources = config?.dataSources && config.dataSources.length > 0
     ? config.dataSources
@@ -229,83 +218,85 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   // Check if any datasource has read-only logs
   const logsReadOnly = datasources.some(ds => !ds.logsWritable);
 
+  // Help content
+  const helpContent = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title="Log Processing">
+        <div className="space-y-1.5">
+          <HelpDefinition term="Process" termColor="green">
+            Import log entries into the database from current position
+          </HelpDefinition>
+          <HelpDefinition term="Reset Position" termColor="blue">
+            Choose to start from beginning or end of log file
+          </HelpDefinition>
+          {hasMultiple && (
+            <HelpDefinition term="Datasource" termColor="purple">
+              A named cache/logs directory pair for separate LANCache instances
+            </HelpDefinition>
+          )}
+        </div>
+      </HelpSection>
+
+      <HelpNote type="info">
+        Rust processor includes duplicate detection to avoid reimporting entries.
+      </HelpNote>
+    </HelpPopover>
+  );
+
+  // Header actions - main action buttons
+  const headerActions = (
+    <div className="flex items-center gap-2">
+      <Button
+        variant="subtle"
+        size="sm"
+        onClick={() => setResetModal({ datasource: null, all: true })}
+        disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated}
+      >
+        Reset
+      </Button>
+      <Button
+        variant="filled"
+        color="green"
+        size="sm"
+        onClick={handleProcessAll}
+        disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated}
+        loading={actionLoading === 'all'}
+      >
+        Process All
+      </Button>
+    </div>
+  );
+
+  if (loading) {
+    return (
+      <Card>
+        <ManagerCardHeader
+          icon={Logs}
+          iconColor="purple"
+          title="Log Processing"
+          subtitle="Loading..."
+          helpContent={helpContent}
+          permissions={{ logsReadOnly, checkingPermissions: true }}
+        />
+        <LoadingState message="Loading datasources..." />
+      </Card>
+    );
+  }
+
   return (
     <>
       <Card>
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
-              <Logs className="w-5 h-5 icon-purple" />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-themed-primary">Log Processing</h3>
-              <p className="text-xs text-themed-muted">
-                {hasMultiple
-                  ? `${datasources.length} datasources configured`
-                  : 'Import historical data or monitor new downloads'}
-              </p>
-            </div>
-            <HelpPopover position="left" width={320}>
-              <HelpSection title="Log Processing">
-                <div className="space-y-1.5">
-                  <HelpDefinition term="Process" termColor="green">
-                    Import log entries into the database from current position
-                  </HelpDefinition>
-                  <HelpDefinition term="Reset Position" termColor="blue">
-                    Choose to start from beginning or end of log file
-                  </HelpDefinition>
-                  {hasMultiple && (
-                    <HelpDefinition term="Datasource" termColor="purple">
-                      A named cache/logs directory pair for separate LANCache instances
-                    </HelpDefinition>
-                  )}
-                </div>
-              </HelpSection>
-
-              <HelpNote type="info">
-                Rust processor includes duplicate detection to avoid reimporting entries.
-              </HelpNote>
-            </HelpPopover>
-          </div>
-          <div className="flex items-center gap-2">
-            <Tooltip content={logsReadOnly ? 'Logs are read-only' : 'Logs are writable'} position="top">
-              <span className="flex items-center gap-0.5">
-                <ScrollText className="w-3.5 h-3.5 text-themed-muted" />
-                {logsReadOnly ? (
-                  <XCircle className="w-4 h-4" style={{ color: 'var(--theme-warning)' }} />
-                ) : (
-                  <CheckCircle className="w-4 h-4" style={{ color: 'var(--theme-success-text)' }} />
-                )}
-              </span>
-            </Tooltip>
-          </div>
-        </div>
-
-        {/* Process All button */}
-        <div className="mb-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <Button
-              variant="default"
-              leftSection={<RefreshCw className="w-4 h-4" />}
-              onClick={() => setResetModal({ datasource: null, all: true })}
-              disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated}
-              fullWidth
-            >
-              Reset All Log Positions
-            </Button>
-            <Button
-              variant="filled"
-              color="green"
-              leftSection={<PlayCircle className="w-4 h-4" />}
-              onClick={handleProcessAll}
-              disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated}
-              loading={actionLoading === 'all'}
-              fullWidth
-            >
-              Process All Logs
-            </Button>
-          </div>
-        </div>
+        <ManagerCardHeader
+          icon={Logs}
+          iconColor="purple"
+          title="Log Processing"
+          subtitle={hasMultiple
+            ? `${datasources.length} datasources configured`
+            : 'Import historical data or monitor new downloads'}
+          helpContent={helpContent}
+          permissions={{ logsReadOnly, checkingPermissions: false }}
+          actions={headerActions}
+        />
 
         {/* Datasource list */}
         <div className="space-y-3">

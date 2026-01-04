@@ -31,11 +31,13 @@ public class CacheController : ControllerBase
     private readonly IHubContext<DownloadHub> _hubContext;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly NginxLogRotationService _nginxLogRotationService;
+    private readonly CorruptionDetectionService _corruptionDetectionService;
 
     public CacheController(
         CacheManagementService cacheService,
         CacheClearingService cacheClearingService,
         GameCacheDetectionService gameCacheDetectionService,
+        CorruptionDetectionService corruptionDetectionService,
         RemovalOperationTracker removalTracker,
         IConfiguration configuration,
         ILogger<CacheController> logger,
@@ -48,6 +50,7 @@ public class CacheController : ControllerBase
         _cacheService = cacheService;
         _cacheClearingService = cacheClearingService;
         _gameCacheDetectionService = gameCacheDetectionService;
+        _corruptionDetectionService = corruptionDetectionService;
         _removalTracker = removalTracker;
         _configuration = configuration;
         _logger = logger;
@@ -370,13 +373,73 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/cache/corruption/summary - Get corruption summary for all services
+    /// GET /api/cache/corruption/summary - Get corruption summary for all services (synchronous, for backwards compatibility)
+    /// Consider using GET /api/cache/corruption/cached for cached results or POST /api/cache/corruption/detect for background scanning.
     /// </summary>
     [HttpGet("corruption/summary")]
     public async Task<IActionResult> GetCorruptionSummary([FromQuery] bool forceRefresh = false)
     {
         var summary = await _cacheService.GetCorruptionSummary(forceRefresh);
         return Ok(summary);
+    }
+
+    /// <summary>
+    /// GET /api/cache/corruption/cached - Get cached corruption detection results
+    /// Returns immediately with cached results (if available) without running a new scan.
+    /// </summary>
+    [HttpGet("corruption/cached")]
+    public async Task<IActionResult> GetCachedCorruptionDetection()
+    {
+        var cachedResults = await _corruptionDetectionService.GetCachedDetectionAsync();
+
+        if (cachedResults == null)
+        {
+            return Ok(new CachedCorruptionResponse { HasCachedResults = false });
+        }
+
+        var lastDetectionTimeUtc = DateTime.SpecifyKind(cachedResults.LastDetectionTime, DateTimeKind.Utc);
+
+        return Ok(new CachedCorruptionResponse
+        {
+            HasCachedResults = true,
+            CorruptionCounts = cachedResults.CorruptionCounts,
+            TotalServicesWithCorruption = cachedResults.TotalServicesWithCorruption,
+            TotalCorruptedChunks = cachedResults.TotalCorruptedChunks,
+            LastDetectionTime = lastDetectionTimeUtc.ToString("o")
+        });
+    }
+
+    /// <summary>
+    /// POST /api/cache/corruption/detect - Start a background corruption detection scan
+    /// Returns immediately with an operation ID. Results sent via SignalR when complete.
+    /// </summary>
+    [HttpPost("corruption/detect")]
+    public async Task<IActionResult> StartCorruptionDetection()
+    {
+        var operationId = await _corruptionDetectionService.StartDetectionAsync();
+        return Accepted(new { operationId, message = "Corruption detection started", status = "running" });
+    }
+
+    /// <summary>
+    /// GET /api/cache/corruption/detect/status - Get the status of the active corruption detection operation
+    /// </summary>
+    [HttpGet("corruption/detect/status")]
+    public IActionResult GetCorruptionDetectionStatus()
+    {
+        var activeOp = _corruptionDetectionService.GetActiveOperation();
+        if (activeOp == null)
+        {
+            return Ok(new { isRunning = false });
+        }
+
+        return Ok(new
+        {
+            isRunning = activeOp.Status == "running",
+            operationId = activeOp.OperationId,
+            status = activeOp.Status,
+            message = activeOp.Message,
+            startTime = activeOp.StartTime.ToString("o")
+        });
     }
 
     /// <summary>

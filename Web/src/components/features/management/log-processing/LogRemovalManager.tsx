@@ -1,14 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-  FileText,
-  AlertTriangle,
-  Loader2,
-  RefreshCw,
-  Lock,
-  CheckCircle,
-  XCircle,
-  ScrollText
-} from 'lucide-react';
+import { FileText, AlertTriangle, RefreshCw, Loader2 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useNotifications } from '@contexts/NotificationsContext';
@@ -19,6 +10,12 @@ import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { Tooltip } from '@components/ui/Tooltip';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
+import {
+  ManagerCardHeader,
+  LoadingState,
+  EmptyState,
+  ReadOnlyBadge
+} from '@components/ui/ManagerCard';
 import type { DatasourceServiceCounts } from '@/types';
 
 // Main services that should always be shown first
@@ -203,68 +200,58 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
     Object.values(ds.serviceCounts).some(count => count > 0)
   );
 
+  const isReadOnly = logsReadOnly || !dockerSocketAvailable;
+
+  // Help content
+  const helpContent = (
+    <HelpPopover position="left" width={320}>
+      <HelpSection title="What This Does">
+        Removes entries for a specific service from your access.log files.
+        This reduces log file size and can improve processing performance.
+      </HelpSection>
+
+      <HelpSection title="What It Affects" variant="subtle">
+        <ul className="list-disc list-inside text-sm space-y-1">
+          <li>Log files (entries removed)</li>
+          <li>Database records (cleaned up)</li>
+        </ul>
+      </HelpSection>
+
+      <HelpNote type="info">
+        Cache files remain intact - only log entries are removed.
+      </HelpNote>
+    </HelpPopover>
+  );
+
+  // Header actions
+  const headerActions = (
+    <Tooltip content="Refresh service counts" position="top">
+      <Button
+        onClick={() => loadData(true)}
+        disabled={isLoading || !!activeLogRemoval}
+        variant="subtle"
+        size="sm"
+      >
+        {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Refresh'}
+      </Button>
+    </Tooltip>
+  );
+
   return (
     <>
       <Card>
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-orange">
-              <FileText className="w-5 h-5 icon-orange" />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-themed-primary">Log Removal</h3>
-              <p className="text-xs text-themed-muted">Remove service entries from log files</p>
-            </div>
-            <HelpPopover position="left" width={320}>
-              <HelpSection title="What This Does">
-                Removes entries for a specific service from your access.log files.
-                This reduces log file size and can improve processing performance.
-              </HelpSection>
-
-              <HelpSection title="What It Affects" variant="subtle">
-                <ul className="list-disc list-inside text-sm space-y-1">
-                  <li>Log files (entries removed)</li>
-                  <li>Database records (cleaned up)</li>
-                </ul>
-              </HelpSection>
-
-              <HelpNote type="info">
-                Cache files remain intact - only log entries are removed.
-              </HelpNote>
-            </HelpPopover>
-          </div>
-          <div className="flex items-center gap-3">
-            {/* Permission status */}
-            {!checkingPermissions && (
-              <Tooltip content={logsReadOnly ? 'Logs are read-only' : 'Logs are writable'} position="top">
-                <span className="flex items-center gap-0.5">
-                  <ScrollText className="w-3.5 h-3.5 text-themed-muted" />
-                  {logsReadOnly ? (
-                    <XCircle className="w-4 h-4" style={{ color: 'var(--theme-warning)' }} />
-                  ) : (
-                    <CheckCircle className="w-4 h-4" style={{ color: 'var(--theme-success-text)' }} />
-                  )}
-                </span>
-              </Tooltip>
-            )}
-            <button
-              onClick={() => loadData(true)}
-              disabled={isLoading || !!activeLogRemoval}
-              className="hover-btn p-2 rounded-lg disabled:opacity-50 flex items-center justify-center"
-              style={{
-                color: 'var(--theme-text-muted)',
-                backgroundColor: 'transparent'
-              }}
-              title="Refresh data"
-            >
-              {isLoading ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <RefreshCw className="w-4 h-4" />
-              )}
-            </button>
-          </div>
-        </div>
+        <ManagerCardHeader
+          icon={FileText}
+          iconColor="orange"
+          title="Log Removal"
+          subtitle="Remove service entries from log files"
+          helpContent={helpContent}
+          permissions={{
+            logsReadOnly,
+            checkingPermissions
+          }}
+          actions={headerActions}
+        />
 
         {/* Read-Only Warning */}
         {logsReadOnly && (
@@ -298,20 +285,8 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
         )}
 
         {/* Content */}
-        {logsReadOnly || !dockerSocketAvailable ? (
-          <div className="flex items-center justify-center py-4">
-            <span
-              className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 border"
-              style={{
-                backgroundColor: 'var(--theme-warning-bg)',
-                color: 'var(--theme-warning)',
-                borderColor: 'var(--theme-warning)'
-              }}
-            >
-              <Lock className="w-3 h-3" />
-              {logsReadOnly ? 'Read-only' : 'Docker socket required'}
-            </span>
-          </div>
+        {isReadOnly ? (
+          <ReadOnlyBadge message={logsReadOnly ? 'Read-only' : 'Docker socket required'} />
         ) : (
           <>
             {loadError && (
@@ -333,15 +308,10 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
             )}
 
             {isLoading ? (
-              <div className="flex flex-col items-center justify-center py-8 gap-3">
-                <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
-                <p className="text-sm text-themed-secondary">
-                  Scanning log files for services...
-                </p>
-                <p className="text-xs text-themed-muted">
-                  This may take several minutes for large log files
-                </p>
-              </div>
+              <LoadingState
+                message="Scanning log files for services..."
+                submessage="This may take several minutes for large log files"
+              />
             ) : !loadError && hasAnyLogEntries ? (
               <div className="space-y-3">
                 {datasourceCounts.map((ds) => {
@@ -418,12 +388,10 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
                 })}
               </div>
             ) : (
-              <div className="text-center py-8 text-themed-muted">
-                <div className="mb-2">No services with log entries found</div>
-                <div className="text-xs">
-                  Services appear here when they have downloadable content in the logs
-                </div>
-              </div>
+              <EmptyState
+                title="No services with log entries found"
+                subtitle="Services appear here when they have downloadable content in the logs"
+              />
             )}
           </>
         )}

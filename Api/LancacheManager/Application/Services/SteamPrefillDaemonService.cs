@@ -4,6 +4,7 @@ using Docker.DotNet;
 using Docker.DotNet.Models;
 using LancacheManager.Application.SteamPrefill;
 using LancacheManager.Hubs;
+using LancacheManager.Models;
 using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Application.Services;
@@ -18,6 +19,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     private readonly ILogger<SteamPrefillDaemonService> _logger;
     private readonly IHubContext<PrefillDaemonHub> _hubContext;
     private readonly IConfiguration _configuration;
+    private readonly PrefillSessionService _sessionService;
     private readonly ConcurrentDictionary<string, DaemonSession> _sessions = new();
     private DockerClient? _dockerClient;
     private Timer? _cleanupTimer;
@@ -35,11 +37,13 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     public SteamPrefillDaemonService(
         ILogger<SteamPrefillDaemonService> logger,
         IHubContext<PrefillDaemonHub> hubContext,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        PrefillSessionService sessionService)
     {
         _logger = logger;
         _hubContext = hubContext;
         _configuration = configuration;
+        _sessionService = sessionService;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -86,6 +90,9 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             if (_dockerClient != null)
             {
                 await EnsureImageExistsAsync(cancellationToken);
+
+                // Cleanup orphaned containers from previous runs
+                await CleanupOrphanedContainersAsync(cancellationToken);
             }
         }
         catch (Exception ex)
@@ -100,6 +107,79 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         _cleanupTimer = new Timer(CleanupExpiredSessions, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
 
         _logger.LogInformation("SteamPrefillDaemonService started. Docker available: {DockerAvailable}", _dockerClient != null);
+    }
+
+    /// <summary>
+    /// Cleans up orphaned prefill daemon containers from previous app runs.
+    /// Looks for containers matching the prefill-daemon-* naming pattern.
+    /// </summary>
+    private async Task CleanupOrphanedContainersAsync(CancellationToken cancellationToken)
+    {
+        if (_dockerClient == null) return;
+
+        try
+        {
+            // Mark any "Active" sessions in DB as orphaned
+            var orphanedSessions = await _sessionService.MarkOrphanedSessionsAsync();
+
+            // Find all running prefill daemon containers
+            var containers = await _dockerClient.Containers.ListContainersAsync(
+                new ContainersListParameters
+                {
+                    All = true,
+                    Filters = new Dictionary<string, IDictionary<string, bool>>
+                    {
+                        ["name"] = new Dictionary<string, bool>
+                        {
+                            ["prefill-daemon-"] = true
+                        }
+                    }
+                },
+                cancellationToken);
+
+            if (containers.Count == 0)
+            {
+                _logger.LogInformation("No orphaned prefill daemon containers found");
+                return;
+            }
+
+            _logger.LogWarning("Found {Count} orphaned prefill daemon containers to cleanup", containers.Count);
+
+            foreach (var container in containers)
+            {
+                try
+                {
+                    // Stop and remove the container
+                    if (container.State == "running")
+                    {
+                        await _dockerClient.Containers.StopContainerAsync(
+                            container.ID,
+                            new ContainerStopParameters { WaitBeforeKillSeconds = 1 },
+                            cancellationToken);
+                    }
+
+                    await _dockerClient.Containers.RemoveContainerAsync(
+                        container.ID,
+                        new ContainerRemoveParameters { Force = true },
+                        cancellationToken);
+
+                    _logger.LogInformation("Cleaned up orphaned container: {Name} ({Id})",
+                        container.Names.FirstOrDefault() ?? "unknown",
+                        container.ID[..12]);
+
+                    // Mark as cleaned in database
+                    await _sessionService.MarkOrphanedSessionCleanedAsync(container.ID);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to cleanup orphaned container {Id}", container.ID[..12]);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during orphaned container cleanup");
+        }
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -268,6 +348,14 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
         _sessions[sessionId] = session;
 
+        // Persist session to database for admin visibility and orphan tracking
+        await _sessionService.CreateSessionAsync(
+            sessionId,
+            userId,
+            containerId,
+            containerName,
+            session.ExpiresAt);
+
         _logger.LogInformation("Created daemon session {SessionId} for user {UserId}", sessionId, userId);
 
         return session;
@@ -349,6 +437,27 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         if (!_sessions.TryGetValue(sessionId, out var session))
         {
             throw new KeyNotFoundException($"Session not found: {sessionId}");
+        }
+
+        // If this is the username credential, capture it and check for bans
+        if (challenge.CredentialType.Equals("username", StringComparison.OrdinalIgnoreCase))
+        {
+            var usernameHash = PrefillSessionService.HashUsername(credential);
+            session.SteamUsernameHash = usernameHash;
+
+            // Check if this user is banned
+            if (await _sessionService.IsUsernameBannedAsync(usernameHash))
+            {
+                _logger.LogWarning("Blocked banned Steam user from logging in. Session: {SessionId}, Hash: {Hash}",
+                    sessionId, usernameHash[..8]);
+                throw new UnauthorizedAccessException("This Steam account has been banned from using prefill.");
+            }
+
+            // Update the database record with the username hash
+            await _sessionService.SetSessionUsernameHashAsync(sessionId, usernameHash);
+
+            _logger.LogInformation("Captured Steam username hash for session {SessionId}: {Hash}",
+                sessionId, usernameHash[..8]);
         }
 
         _logger.LogInformation("Providing encrypted {CredentialType} for session {SessionId}",
@@ -558,7 +667,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     /// Terminates a session and cleans up resources
     /// </summary>
     /// <param name="force">If true, kills the container immediately without graceful shutdown</param>
-    public async Task TerminateSessionAsync(string sessionId, string reason = "User requested", bool force = false)
+    public async Task TerminateSessionAsync(string sessionId, string reason = "User requested", bool force = false, string? terminatedBy = null)
     {
         if (!_sessions.TryRemove(sessionId, out var session))
         {
@@ -566,6 +675,9 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         }
 
         _logger.LogInformation("Terminating session {SessionId}: {Reason} (force={Force})", sessionId, reason, force);
+
+        // Persist termination to database
+        await _sessionService.TerminateSessionAsync(sessionId, reason, terminatedBy);
 
         session.Status = DaemonSessionStatus.Terminated;
         session.EndedAt = DateTime.UtcNow;
@@ -1191,6 +1303,12 @@ public class DaemonSession
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public DateTime? EndedAt { get; set; }
     public DateTime ExpiresAt { get; init; }
+
+    /// <summary>
+    /// SHA-256 hash of the Steam username (set when user provides username credential).
+    /// Used for ban checking and admin visibility.
+    /// </summary>
+    public string? SteamUsernameHash { get; set; }
 
     public DaemonClient Client { get; set; } = null!;
     public FileSystemWatcher? StatusWatcher { get; set; }

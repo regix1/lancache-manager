@@ -45,6 +45,8 @@ export const SIGNALR_EVENTS = [
   'CacheClearComplete',
   'CorruptionRemovalStarted',
   'CorruptionRemovalComplete',
+  'CorruptionDetectionStarted',
+  'CorruptionDetectionComplete',
   'GameDetectionStarted',
   'GameDetectionComplete',
   'GuestDurationUpdated',
@@ -223,6 +225,20 @@ export interface CorruptionRemovalCompleteEvent {
   success: boolean;
   message?: string;
   error?: string;
+}
+
+export interface CorruptionDetectionStartedEvent {
+  operationId: string;
+  message?: string;
+}
+
+export interface CorruptionDetectionCompleteEvent {
+  operationId: string;
+  success: boolean;
+  message?: string;
+  error?: string;
+  totalServicesWithCorruption?: number;
+  totalCorruptedChunks?: number;
 }
 
 export interface GameDetectionStartedEvent {

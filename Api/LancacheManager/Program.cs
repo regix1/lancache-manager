@@ -340,6 +340,12 @@ builder.Services.AddHostedService(provider => provider.GetRequiredService<CacheC
 // Register GameCacheDetectionService
 builder.Services.AddSingleton<GameCacheDetectionService>();
 
+// Register CorruptionDetectionService
+builder.Services.AddSingleton<CorruptionDetectionService>();
+
+// Register PrefillSessionService for ban management and session persistence
+builder.Services.AddSingleton<PrefillSessionService>();
+
 // Register SteamPrefillDaemonService for secure daemon-based prefill management
 builder.Services.AddSingleton<SteamPrefillDaemonService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<SteamPrefillDaemonService>());

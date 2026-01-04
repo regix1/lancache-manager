@@ -768,7 +768,7 @@ class ApiService {
   }
 
 
-  // Get corruption summary (counts of corrupted chunks per service)
+  // Get corruption summary (counts of corrupted chunks per service) - synchronous, for backwards compatibility
   static async getCorruptionSummary(forceRefresh = false): Promise<Record<string, number>> {
     try {
       const url = `${API_BASE}/cache/corruption/summary${forceRefresh ? '?forceRefresh=true' : ''}`;
@@ -778,6 +778,70 @@ class ApiService {
       return await this.handleResponse<Record<string, number>>(res);
     } catch (error) {
       console.error('getCorruptionSummary error:', error);
+      throw error;
+    }
+  }
+
+  // Get cached corruption detection results (returns immediately without running a scan)
+  static async getCachedCorruptionDetection(): Promise<{
+    hasCachedResults: boolean;
+    corruptionCounts?: Record<string, number>;
+    totalServicesWithCorruption?: number;
+    totalCorruptedChunks?: number;
+    lastDetectionTime?: string;
+  }> {
+    try {
+      const res = await fetch(`${API_BASE}/cache/corruption/cached`, this.getFetchOptions({
+        signal: AbortSignal.timeout(30000) // 30 seconds for large datasets
+      }));
+      return await this.handleResponse<{
+        hasCachedResults: boolean;
+        corruptionCounts?: Record<string, number>;
+        totalServicesWithCorruption?: number;
+        totalCorruptedChunks?: number;
+        lastDetectionTime?: string;
+      }>(res);
+    } catch (error) {
+      console.error('getCachedCorruptionDetection error:', error);
+      throw error;
+    }
+  }
+
+  // Start background corruption detection scan
+  static async startCorruptionDetection(): Promise<{ operationId: string; message: string; status: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/cache/corruption/detect`, this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      }));
+      return await this.handleResponse<{ operationId: string; message: string; status: string }>(res);
+    } catch (error) {
+      console.error('startCorruptionDetection error:', error);
+      throw error;
+    }
+  }
+
+  // Get corruption detection status
+  static async getCorruptionDetectionStatus(): Promise<{
+    isRunning: boolean;
+    operationId?: string;
+    status?: string;
+    message?: string;
+    startTime?: string;
+  }> {
+    try {
+      const res = await fetch(`${API_BASE}/cache/corruption/detect/status`, this.getFetchOptions({
+        signal: AbortSignal.timeout(10000)
+      }));
+      return await this.handleResponse<{
+        isRunning: boolean;
+        operationId?: string;
+        status?: string;
+        message?: string;
+        startTime?: string;
+      }>(res);
+    } catch (error) {
+      console.error('getCorruptionDetectionStatus error:', error);
       throw error;
     }
   }
@@ -1299,6 +1363,192 @@ class ApiService {
       throw error;
     }
   }
+
+  // =====================
+  // Prefill Admin APIs
+  // =====================
+
+  // Get prefill sessions (paginated)
+  static async getPrefillSessions(
+    page = 1,
+    pageSize = 20,
+    status?: string,
+    signal?: AbortSignal
+  ): Promise<PrefillSessionsResponse> {
+    try {
+      const params = new URLSearchParams({ page: page.toString(), pageSize: pageSize.toString() });
+      if (status) params.set('status', status);
+      const res = await fetch(`${API_BASE}/prefill-admin/sessions?${params}`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<PrefillSessionsResponse>(res);
+    } catch (error: unknown) {
+      if (!isAbortError(error)) console.error('getPrefillSessions error:', error);
+      throw error;
+    }
+  }
+
+  // Get active prefill sessions (in-memory)
+  static async getActivePrefillSessions(signal?: AbortSignal): Promise<DaemonSessionDto[]> {
+    try {
+      const res = await fetch(`${API_BASE}/prefill-admin/sessions/active`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<DaemonSessionDto[]>(res);
+    } catch (error: unknown) {
+      if (!isAbortError(error)) console.error('getActivePrefillSessions error:', error);
+      throw error;
+    }
+  }
+
+  // Terminate a specific prefill session
+  static async terminatePrefillSession(
+    sessionId: string,
+    reason?: string,
+    force = false
+  ): Promise<{ message: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/prefill-admin/sessions/${sessionId}/terminate`, this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason, force })
+      }));
+      return await this.handleResponse<{ message: string }>(res);
+    } catch (error: unknown) {
+      console.error('terminatePrefillSession error:', error);
+      throw error;
+    }
+  }
+
+  // Terminate all prefill sessions
+  static async terminateAllPrefillSessions(reason?: string, force = true): Promise<{ message: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/prefill-admin/sessions/terminate-all`, this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason, force })
+      }));
+      return await this.handleResponse<{ message: string }>(res);
+    } catch (error: unknown) {
+      console.error('terminateAllPrefillSessions error:', error);
+      throw error;
+    }
+  }
+
+  // Get Steam user bans
+  static async getSteamBans(includeLifted = false, signal?: AbortSignal): Promise<BannedSteamUserDto[]> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/prefill-admin/bans?includeLifted=${includeLifted}`,
+        this.getFetchOptions({ signal })
+      );
+      return await this.handleResponse<BannedSteamUserDto[]>(res);
+    } catch (error: unknown) {
+      if (!isAbortError(error)) console.error('getSteamBans error:', error);
+      throw error;
+    }
+  }
+
+  // Ban a Steam user by session ID
+  static async banSteamUserBySession(
+    sessionId: string,
+    reason?: string,
+    expiresAt?: string
+  ): Promise<BannedSteamUserDto> {
+    try {
+      const res = await fetch(`${API_BASE}/prefill-admin/bans/by-session/${sessionId}`, this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason, expiresAt })
+      }));
+      return await this.handleResponse<BannedSteamUserDto>(res);
+    } catch (error: unknown) {
+      console.error('banSteamUserBySession error:', error);
+      throw error;
+    }
+  }
+
+  // Ban a Steam user by username hash
+  static async banSteamUserByHash(
+    usernameHash: string,
+    reason?: string,
+    deviceId?: string,
+    expiresAt?: string
+  ): Promise<BannedSteamUserDto> {
+    try {
+      const res = await fetch(`${API_BASE}/prefill-admin/bans`, this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ usernameHash, reason, deviceId, expiresAt })
+      }));
+      return await this.handleResponse<BannedSteamUserDto>(res);
+    } catch (error: unknown) {
+      console.error('banSteamUserByHash error:', error);
+      throw error;
+    }
+  }
+
+  // Lift a Steam user ban
+  static async liftSteamBan(banId: number): Promise<{ message: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/prefill-admin/bans/${banId}/lift`, this.getFetchOptions({
+        method: 'POST'
+      }));
+      return await this.handleResponse<{ message: string }>(res);
+    } catch (error: unknown) {
+      console.error('liftSteamBan error:', error);
+      throw error;
+    }
+  }
+}
+
+// Prefill admin types
+export interface PrefillSessionDto {
+  id: number;
+  sessionId: string;
+  deviceId: string;
+  containerId?: string;
+  containerName?: string;
+  steamUsernameHash?: string;
+  status: string;
+  isAuthenticated: boolean;
+  isPrefilling: boolean;
+  createdAtUtc: string;
+  endedAtUtc?: string;
+  expiresAtUtc: string;
+  terminationReason?: string;
+  terminatedBy?: string;
+  isLive: boolean;
+}
+
+export interface DaemonSessionDto {
+  id: string;
+  userId: string;
+  containerName: string;
+  status: string;
+  authState: string;
+  isPrefilling: boolean;
+  createdAt: string;
+  endedAt?: string;
+  expiresAt: string;
+  timeRemainingSeconds: number;
+}
+
+export interface PrefillSessionsResponse {
+  sessions: PrefillSessionDto[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface BannedSteamUserDto {
+  id: number;
+  usernameHash: string;
+  banReason?: string;
+  bannedDeviceId?: string;
+  bannedAtUtc: string;
+  bannedBy?: string;
+  expiresAtUtc?: string;
+  isLifted: boolean;
+  liftedAtUtc?: string;
+  liftedBy?: string;
+  isActive: boolean;
 }
 
 export default ApiService;

@@ -20,7 +20,8 @@ import {
   StorageSection,
   DataSection,
   PreferencesSection,
-  ClientsSection
+  ClientsSection,
+  PrefillSessionsSection
 } from './sections';
 
 // Main Management Tab Component
@@ -284,6 +285,17 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
       case 'clients':
         return (
           <ClientsSection
+            isAuthenticated={isAuthenticated}
+            authMode={authMode}
+            mockMode={mockMode}
+            onError={addError}
+            onSuccess={setSuccess}
+          />
+        );
+
+      case 'prefill-sessions':
+        return (
+          <PrefillSessionsSection
             isAuthenticated={isAuthenticated}
             authMode={authMode}
             mockMode={mockMode}

@@ -6,6 +6,7 @@ import {
   Settings,
   Users,
   Palette,
+  Container,
   type LucideIcon
 } from 'lucide-react';
 
@@ -15,7 +16,8 @@ export type ManagementSection =
   | 'storage'
   | 'data'
   | 'preferences'
-  | 'clients';
+  | 'clients'
+  | 'prefill-sessions';
 
 interface TabConfig {
   id: ManagementSection;
@@ -67,6 +69,13 @@ const tabs: TabConfig[] = [
     shortLabel: 'Clients',
     icon: Users,
     description: 'Assign nicknames to client IPs'
+  },
+  {
+    id: 'prefill-sessions',
+    label: 'Prefill Sessions',
+    shortLabel: 'Prefill',
+    icon: Container,
+    description: 'Manage Steam Prefill daemon sessions'
   }
 ];
 

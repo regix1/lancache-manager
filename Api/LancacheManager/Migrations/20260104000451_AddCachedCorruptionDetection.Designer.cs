@@ -3,6 +3,7 @@ using System;
 using LancacheManager.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,65 +11,14 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace LancacheManager.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260104000451_AddCachedCorruptionDetection")]
+    partial class AddCachedCorruptionDetection
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.10");
-
-            modelBuilder.Entity("LancacheManager.Models.BannedSteamUser", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("BanReason")
-                        .HasMaxLength(500)
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("BannedAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("BannedBy")
-                        .HasMaxLength(100)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("BannedDeviceId")
-                        .HasMaxLength(100)
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("ExpiresAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("IsLifted")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime?>("LiftedAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("LiftedBy")
-                        .HasMaxLength(100)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("UsernameHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("BannedAtUtc")
-                        .HasDatabaseName("IX_BannedSteamUsers_BannedAtUtc");
-
-                    b.HasIndex("IsLifted")
-                        .HasDatabaseName("IX_BannedSteamUsers_IsLifted");
-
-                    b.HasIndex("UsernameHash")
-                        .HasDatabaseName("IX_BannedSteamUsers_UsernameHash");
-
-                    b.ToTable("BannedSteamUsers");
-                });
 
             modelBuilder.Entity("LancacheManager.Models.CachedCorruptionDetection", b =>
                 {
@@ -506,86 +456,6 @@ namespace LancacheManager.Migrations
                         .HasDatabaseName("IX_LogEntries_DuplicateCheck");
 
                     b.ToTable("LogEntries");
-                });
-
-            modelBuilder.Entity("LancacheManager.Models.PrefillSession", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("ContainerId")
-                        .HasMaxLength(100)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ContainerName")
-                        .HasMaxLength(100)
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("DeviceId")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("EndedAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("ExpiresAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("IsAuthenticated")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<bool>("IsPrefilling")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("SessionId")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("SteamUsernameHash")
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("TerminatedBy")
-                        .HasMaxLength(100)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("TerminationReason")
-                        .HasMaxLength(200)
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ContainerId")
-                        .HasDatabaseName("IX_PrefillSessions_ContainerId");
-
-                    b.HasIndex("CreatedAtUtc")
-                        .HasDatabaseName("IX_PrefillSessions_CreatedAtUtc");
-
-                    b.HasIndex("DeviceId")
-                        .HasDatabaseName("IX_PrefillSessions_DeviceId");
-
-                    b.HasIndex("SessionId")
-                        .IsUnique()
-                        .HasDatabaseName("IX_PrefillSessions_SessionId");
-
-                    b.HasIndex("Status")
-                        .HasDatabaseName("IX_PrefillSessions_Status");
-
-                    b.HasIndex("SteamUsernameHash")
-                        .HasDatabaseName("IX_PrefillSessions_SteamUsernameHash");
-
-                    b.ToTable("PrefillSessions");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.ServiceStats", b =>
