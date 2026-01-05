@@ -143,6 +143,20 @@ services:
       # and you have ./data:/data, set this to /srv/lancache/data
       # - Prefill__HostDataPath=/srv/lancache/data
 
+      # Network configuration for prefill containers (AUTO-DETECTED)
+      # The app auto-detects your lancache-dns setup:
+      #   - If lancache-dns uses host networking → prefill uses host networking
+      #   - If lancache-dns uses bridge → prefill uses its IP for DNS
+      # Only set these if auto-detection fails or you have a custom setup.
+
+      # Network mode for prefill containers
+      # Options: "host", "bridge", or a custom Docker network name
+      # - Prefill__NetworkMode=host
+
+      # Explicit lancache-dns IP (only needed if auto-detection fails)
+      # Find with: docker inspect lancache-dns | grep IPAddress
+      # - Prefill__LancacheDnsIp=192.168.1.10
+
       #=========================================================================
       # ADVANCED - Multiple Datasources (Optional)
       # Configure multiple LANCache instances or outsourced services

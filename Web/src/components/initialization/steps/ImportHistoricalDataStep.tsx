@@ -389,13 +389,20 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
           ) : (
             <XCircle className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--theme-error)' }} />
           )}
-          <p
+          <div
             className="text-sm"
             style={{ color: validationResult.valid ? 'var(--theme-success-text)' : 'var(--theme-error-text)' }}
           >
-            {validationResult.message}
-            {validationResult.recordCount !== undefined && ` Found ${validationResult.recordCount.toLocaleString()} records.`}
-          </p>
+            <p>
+              {validationResult.message}
+              {validationResult.recordCount != null && ` Found ${validationResult.recordCount.toLocaleString()} records.`}
+            </p>
+            {!validationResult.valid && validationResult.message.includes('DownloadEvents') && (
+              <p className="mt-1 text-xs opacity-80">
+                Make sure to select a database from DeveLanCacheUI_Backend.
+              </p>
+            )}
+          </div>
         </div>
       )}
 

@@ -143,7 +143,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
       setValidationResult(result);
 
       if (result.valid) {
-        onSuccess?.(`Connection validated! Found ${result.recordCount} records.`);
+        onSuccess?.(`Connection validated! Found ${result.recordCount?.toLocaleString() ?? 0} records.`);
       } else {
         onError?.(result.message);
       }
@@ -455,6 +455,11 @@ const DataImporter: React.FC<DataImporterProps> = ({
             <div>
               <p className="font-medium">Validation Failed</p>
               <p className="text-sm mt-1">{validationResult.message}</p>
+              {validationResult.message.includes('DownloadEvents') && (
+                <p className="text-xs mt-2 opacity-80">
+                  Make sure to select a database from DeveLanCacheUI_Backend.
+                </p>
+              )}
             </div>
           </Alert>
         )}

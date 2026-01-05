@@ -310,6 +310,8 @@ services:
 | `Prefill__SessionTimeoutMinutes` | 120 | Inactive session cleanup timeout. |
 | `Prefill__DaemonBasePath` | /data/prefill-sessions | Session data storage path. |
 | `Prefill__HostDataPath` | (auto) | Host path mapping to `/data`. Set only if auto-detection fails. |
+| `Prefill__LancacheDnsIp` | (auto) | IP of your lancache-dns container. Auto-detected if lancache-dns is running. |
+| `Prefill__NetworkMode` | (auto) | Network mode for prefill containers: `host`, `bridge`, or a network name. Auto-detected from lancache-dns. |
 
 -----
 
@@ -348,6 +350,25 @@ The Prefill tab lets you pre-download games to your cache before your LAN party 
 
 - Docker socket mounted (without `:ro`)
 - Authenticated as admin
+- Lancache-dns container running (or manual DNS configuration)
+
+### Network Configuration
+
+For prefill to work, the prefill container must resolve Steam CDN domains to your cache. The app **auto-detects** this in most cases:
+
+- If your lancache-dns uses `network_mode: host`, prefill containers will also use host networking
+- Otherwise, it uses the lancache-dns container's IP address for DNS resolution
+
+**Manual configuration** (if auto-detection fails):
+
+```yaml
+environment:
+  # Option 1: Use host networking (simplest for host-networked lancache-dns)
+  - Prefill__NetworkMode=host
+
+  # Option 2: Explicit DNS IP (for bridge-networked lancache-dns)
+  - Prefill__LancacheDnsIp=192.168.1.10
+```
 
 ### How It Works
 
@@ -570,6 +591,21 @@ ls -n /path/to/cache
 1. Ensure Docker socket is mounted without `:ro`
 2. Confirm you're authenticated as admin
 3. Check container logs for errors
+4. **HTTP 400 errors during download:** The prefill container can't resolve Steam CDN domains to your cache. Either:
+   - Set `Prefill__NetworkMode=host` if your lancache-dns uses host networking
+   - Set `Prefill__LancacheDnsIp` to your lancache-dns IP address
+   - The app auto-detects this if your lancache-dns container is running
+
+**Finding your lancache-dns IP:**
+```bash
+docker inspect lancache-dns | grep IPAddress
+```
+
+**Example for host networking setups:**
+```yaml
+environment:
+  - Prefill__NetworkMode=host
+```
 
 -----
 

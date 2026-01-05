@@ -263,6 +263,50 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         var containerName = $"prefill-daemon-{sessionId}";
         var imageName = GetImageName();
 
+        // Get network configuration for prefill container
+        // Auto-detect from lancache-dns container if not explicitly configured
+        var useHostNetworking = await ShouldUseHostNetworkingAsync(cancellationToken);
+        var lancacheDnsIp = useHostNetworking ? null : await GetLancacheDnsIpAsync(cancellationToken);
+        var explicitNetworkMode = GetNetworkMode();
+
+        // Build host config with proper network settings
+        var hostConfig = new HostConfig
+        {
+            Binds = new List<string>
+            {
+                $"{hostCommandsDir}:/commands",
+                $"{hostResponsesDir}:/responses"
+            },
+            AutoRemove = true
+        };
+
+        // Determine network configuration strategy:
+        // 1. If explicitly configured with NetworkMode, use that
+        // 2. If lancache-dns uses host networking, use host mode (auto-detected)
+        // 3. If we have a lancache-dns IP, use bridge with DNS config
+        // 4. Fallback: warn user that prefill may not work
+        if (!string.IsNullOrEmpty(explicitNetworkMode))
+        {
+            hostConfig.NetworkMode = explicitNetworkMode;
+            _logger.LogInformation("Configuring prefill container network mode (explicit): {NetworkMode}", explicitNetworkMode);
+        }
+        else if (useHostNetworking)
+        {
+            hostConfig.NetworkMode = "host";
+            _logger.LogInformation("Configuring prefill container to use host networking (auto-detected from lancache-dns)");
+        }
+        else if (!string.IsNullOrEmpty(lancacheDnsIp))
+        {
+            // Use bridge network with explicit DNS pointing to lancache-dns
+            hostConfig.DNS = new List<string> { lancacheDnsIp };
+            _logger.LogInformation("Configuring prefill container DNS to use lancache-dns: {DnsIp}", lancacheDnsIp);
+        }
+        else
+        {
+            _logger.LogWarning("Could not auto-detect lancache-dns configuration. Prefill may fail if the host's DNS " +
+                "doesn't resolve Steam CDN to lancache. Set Prefill__LancacheDnsIp or Prefill__NetworkMode=host.");
+        }
+
         var createResponse = await _dockerClient.Containers.CreateContainerAsync(
             new CreateContainerParameters
             {
@@ -275,15 +319,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                     $"PREFILL_COMMANDS_DIR=/commands",
                     $"PREFILL_RESPONSES_DIR=/responses"
                 },
-                HostConfig = new HostConfig
-                {
-                    Binds = new List<string>
-                    {
-                        $"{hostCommandsDir}:/commands",
-                        $"{hostResponsesDir}:/responses"
-                    },
-                    AutoRemove = true
-                }
+                HostConfig = hostConfig
             },
             cancellationToken);
 
@@ -1518,6 +1554,125 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     private int GetSessionTimeoutMinutes()
     {
         return _configuration.GetValue<int>("Prefill:SessionTimeoutMinutes", DefaultSessionTimeoutMinutes);
+    }
+
+    /// <summary>
+    /// Gets the lancache DNS IP for prefill containers.
+    /// Auto-detects from lancache-dns container if not explicitly configured.
+    /// </summary>
+    private async Task<string?> GetLancacheDnsIpAsync(CancellationToken cancellationToken = default)
+    {
+        // Check explicit configuration first
+        var configuredIp = _configuration["Prefill:LancacheDnsIp"];
+        if (!string.IsNullOrEmpty(configuredIp))
+        {
+            return configuredIp;
+        }
+
+        // Try to auto-detect from lancache-dns container
+        if (_dockerClient != null)
+        {
+            try
+            {
+                var containers = await _dockerClient.Containers.ListContainersAsync(
+                    new ContainersListParameters { All = false }, // Only running containers
+                    cancellationToken);
+
+                // Look for lancache-dns container by name patterns
+                var dnsContainer = containers.FirstOrDefault(c =>
+                    c.Names.Any(n =>
+                        n.Contains("lancache-dns", StringComparison.OrdinalIgnoreCase) ||
+                        n.Contains("lancachedns", StringComparison.OrdinalIgnoreCase) ||
+                        (n.Contains("dns", StringComparison.OrdinalIgnoreCase) && n.Contains("lancache", StringComparison.OrdinalIgnoreCase))));
+
+                if (dnsContainer != null)
+                {
+                    // Check if it's using host networking
+                    var inspect = await _dockerClient.Containers.InspectContainerAsync(dnsContainer.ID, cancellationToken);
+                    if (inspect.HostConfig.NetworkMode == "host")
+                    {
+                        // Container uses host networking - return null to indicate we should use host mode
+                        _logger.LogInformation("Detected lancache-dns using host networking. " +
+                            "Prefill containers will use host network mode for DNS resolution.");
+                        return null;
+                    }
+
+                    // Get container IP from default network
+                    var networks = inspect.NetworkSettings?.Networks;
+                    if (networks != null && networks.Count > 0)
+                    {
+                        var ip = networks.Values.FirstOrDefault()?.IPAddress;
+                        if (!string.IsNullOrEmpty(ip))
+                        {
+                            _logger.LogInformation("Auto-detected lancache-dns IP: {DnsIp} from container {ContainerName}",
+                                ip, dnsContainer.Names.FirstOrDefault());
+                            return ip;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to auto-detect lancache-dns IP");
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Determines if host network mode should be used based on lancache-dns configuration.
+    /// Returns true if lancache-dns uses host networking or if explicitly configured.
+    /// </summary>
+    private async Task<bool> ShouldUseHostNetworkingAsync(CancellationToken cancellationToken = default)
+    {
+        // Check explicit configuration first
+        var networkMode = _configuration["Prefill:NetworkMode"];
+        if (!string.IsNullOrEmpty(networkMode))
+        {
+            return networkMode.Equals("host", StringComparison.OrdinalIgnoreCase);
+        }
+
+        // Auto-detect: if lancache-dns uses host networking, we should too
+        if (_dockerClient != null)
+        {
+            try
+            {
+                var containers = await _dockerClient.Containers.ListContainersAsync(
+                    new ContainersListParameters { All = false },
+                    cancellationToken);
+
+                var dnsContainer = containers.FirstOrDefault(c =>
+                    c.Names.Any(n =>
+                        n.Contains("lancache-dns", StringComparison.OrdinalIgnoreCase) ||
+                        n.Contains("lancachedns", StringComparison.OrdinalIgnoreCase) ||
+                        (n.Contains("dns", StringComparison.OrdinalIgnoreCase) && n.Contains("lancache", StringComparison.OrdinalIgnoreCase))));
+
+                if (dnsContainer != null)
+                {
+                    var inspect = await _dockerClient.Containers.InspectContainerAsync(dnsContainer.ID, cancellationToken);
+                    if (inspect.HostConfig.NetworkMode == "host")
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to check lancache-dns network mode");
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Gets the network mode for prefill containers.
+    /// Options: "host" (use host networking), "bridge" (default), or a custom network name.
+    /// </summary>
+    private string? GetNetworkMode()
+    {
+        return _configuration["Prefill:NetworkMode"];
     }
 
     public void Dispose()

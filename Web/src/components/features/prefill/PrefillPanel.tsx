@@ -28,7 +28,6 @@ import {
   ShoppingCart,
   LogIn,
   CheckCircle2,
-  Eye,
   Zap,
   Timer,
   Shield,
@@ -66,7 +65,6 @@ interface PrefillPanelProps {
 
 type CommandType =
   | 'select-apps'
-  | 'select-status'
   | 'prefill'
   | 'prefill-all'
   | 'prefill-recent'
@@ -95,13 +93,6 @@ const SELECTION_COMMANDS: CommandButton[] = [
     icon: <List className="h-4 w-4" />,
     variant: 'filled',
     color: 'blue'
-  },
-  {
-    id: 'select-status',
-    label: 'View Selected',
-    description: 'Show selected apps',
-    icon: <Eye className="h-4 w-4" />,
-    variant: 'outline'
   }
 ];
 
@@ -206,6 +197,13 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   // Prefill settings state
   const [selectedOS, setSelectedOS] = useState<string[]>(['windows', 'linux', 'macos']);
   const [maxConcurrency, setMaxConcurrency] = useState<string>('default');
+
+  // Confirmation dialog state for large prefill operations
+  const [pendingConfirmCommand, setPendingConfirmCommand] = useState<CommandType | null>(null);
+  const [estimatedSize, setEstimatedSize] = useState<{ bytes: number; loading: boolean; error?: string }>({
+    bytes: 0,
+    loading: false
+  });
 
   // Prefill progress state
   const [prefillProgress, setPrefillProgress] = useState<{
@@ -635,24 +633,6 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           }
           break;
         }
-        case 'select-status': {
-          // Use local state - backend GetSelectedAppsStatus requires updated daemon
-          if (selectedAppIds.length === 0) {
-            addLog('warning', 'No games selected. Use "Select Apps" to choose games for prefill.');
-          } else {
-            const selectedNames = selectedAppIds.map(id => {
-              const game = ownedGames.find(g => g.appId === id);
-              return game ? game.name : `App ${id}`;
-            });
-            addLog('info', `${selectedAppIds.length} games selected for prefill:`);
-            const displayNames = selectedNames.slice(0, 10);
-            displayNames.forEach(name => addLog('info', `  • ${name}`));
-            if (selectedNames.length > 10) {
-              addLog('info', `  ... and ${selectedNames.length - 10} more`);
-            }
-          }
-          break;
-        }
         case 'prefill': {
           // Check if any games are selected
           if (selectedAppIds.length === 0) {
@@ -828,6 +808,79 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     };
   }, []);
 
+  // Commands that need confirmation before execution
+  const COMMANDS_REQUIRING_CONFIRMATION: CommandType[] = ['prefill', 'prefill-all', 'prefill-top'];
+
+  const getConfirmationMessage = (commandType: CommandType): { title: string; message: string } => {
+    switch (commandType) {
+      case 'prefill':
+        return {
+          title: 'Prefill Selected Games?',
+          message: `This will download ${selectedAppIds.length} selected game${selectedAppIds.length !== 1 ? 's' : ''} to your cache.`
+        };
+      case 'prefill-all':
+        return {
+          title: 'Prefill All Games?',
+          message: 'This will download ALL games in your Steam library. Depending on your library size, this could be hundreds of gigabytes and take many hours. Are you sure you want to continue?'
+        };
+      case 'prefill-top':
+        return {
+          title: 'Prefill Top 50 Games?',
+          message: 'This will download the 50 most popular games. This could be several hundred gigabytes of data. Are you sure you want to continue?'
+        };
+      default:
+        return { title: 'Confirm', message: 'Are you sure?' };
+    }
+  };
+
+  // Fetch estimated download size for selected apps
+  const fetchEstimatedSize = useCallback(async () => {
+    if (!session?.id || !hubConnection.current) return;
+
+    setEstimatedSize({ bytes: 0, loading: true });
+
+    try {
+      const status = await hubConnection.current.invoke('GetSelectedAppsStatus', session.id) as {
+        totalDownloadSize: number;
+        message?: string;
+      };
+      setEstimatedSize({ bytes: status.totalDownloadSize, loading: false });
+    } catch (error) {
+      console.error('Failed to fetch estimated size:', error);
+      setEstimatedSize({ bytes: 0, loading: false, error: 'Could not estimate size' });
+    }
+  }, [session?.id]);
+
+  // Handle button click - show confirmation for large operations
+  const handleCommandClick = useCallback(async (commandType: CommandType) => {
+    if (COMMANDS_REQUIRING_CONFIRMATION.includes(commandType)) {
+      setPendingConfirmCommand(commandType);
+      // Fetch estimated size for prefill selected (apps are already set)
+      if (commandType === 'prefill' && selectedAppIds.length > 0) {
+        await fetchEstimatedSize();
+      } else {
+        // For prefill-all and prefill-top, we can't easily estimate without selecting first
+        setEstimatedSize({ bytes: 0, loading: false });
+      }
+    } else {
+      executeCommand(commandType);
+    }
+  }, [executeCommand, selectedAppIds.length, fetchEstimatedSize]);
+
+  // Handle confirmation
+  const handleConfirmCommand = useCallback(() => {
+    if (pendingConfirmCommand) {
+      executeCommand(pendingConfirmCommand);
+      setPendingConfirmCommand(null);
+      setEstimatedSize({ bytes: 0, loading: false });
+    }
+  }, [pendingConfirmCommand, executeCommand]);
+
+  const handleCancelConfirm = useCallback(() => {
+    setPendingConfirmCommand(null);
+    setEstimatedSize({ bytes: 0, loading: false });
+  }, []);
+
   // Render command button - ALL commands disabled until logged in
   const renderCommandButton = (cmd: CommandButton) => {
     // Special handling for "Prefill Selected" - disable if no games selected
@@ -852,7 +905,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         key={cmd.id}
         variant={cmd.variant || 'default'}
         color={cmd.color}
-        onClick={() => executeCommand(cmd.id)}
+        onClick={() => handleCommandClick(cmd.id)}
         disabled={isDisabled}
         className="h-auto py-3 px-4 flex-col items-start gap-1"
         size="sm"
@@ -1003,6 +1056,72 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         onSave={handleSaveGameSelection}
         isLoading={isLoadingGames}
       />
+
+      {/* Large Prefill Confirmation Dialog */}
+      {pendingConfirmCommand && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}
+        >
+          <div
+            className="w-full max-w-md mx-4 p-6 rounded-xl shadow-2xl"
+            style={{
+              backgroundColor: 'var(--theme-bg-primary)',
+              border: '1px solid var(--theme-border-primary)'
+            }}
+          >
+            <div className="flex items-start gap-4">
+              <div
+                className="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0"
+                style={{ backgroundColor: 'color-mix(in srgb, var(--theme-warning) 15%, transparent)' }}
+              >
+                <AlertCircle className="h-6 w-6" style={{ color: 'var(--theme-warning)' }} />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-themed-primary">
+                  {getConfirmationMessage(pendingConfirmCommand).title}
+                </h3>
+                <p className="mt-2 text-sm text-themed-muted">
+                  {getConfirmationMessage(pendingConfirmCommand).message}
+                </p>
+                {/* Estimated download size */}
+                {pendingConfirmCommand === 'prefill' && (
+                  <div className="mt-3 p-3 rounded-lg" style={{ backgroundColor: 'var(--theme-bg-secondary)' }}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-themed-muted">Estimated download:</span>
+                      {estimatedSize.loading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" style={{ color: 'var(--theme-primary)' }} />
+                      ) : estimatedSize.error ? (
+                        <span className="text-sm text-themed-muted">{estimatedSize.error}</span>
+                      ) : (
+                        <span className="text-sm font-semibold" style={{ color: 'var(--theme-primary)' }}>
+                          {formatBytes(estimatedSize.bytes)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <Button
+                variant="outline"
+                onClick={handleCancelConfirm}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="filled"
+                color="blue"
+                onClick={handleConfirmCommand}
+                disabled={pendingConfirmCommand === 'prefill' && estimatedSize.loading}
+              >
+                {pendingConfirmCommand === 'prefill' ? 'Start Download' : 'Yes, Continue'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Header Bar */}
       <div
