@@ -179,57 +179,60 @@ services:
     ports:
       - "8080:80"
     volumes:
-      # Required: Data directory for database, API key, themes, cached images
       - ./data:/data
-
-      # Required: LANCache log directory (add :ro for read-only)
       - /mnt/lancache/logs:/logs:ro
-
-      # Required: LANCache cache directory
-      # Add :ro for monitoring-only, remove for cache clearing features
       - /mnt/lancache/cache:/cache:ro
-
-      # Optional: Docker socket for nginx log rotation and Steam Prefill
       - /var/run/docker.sock:/var/run/docker.sock
 
     environment:
-      #=== User/Group Settings ===#
+      #===========================================================
+      # REQUIRED - You must configure these for your environment
+      #===========================================================
+
+      # User/Group ID - match your LANCache filesystem permissions
       - PUID=33
       - PGID=33
-      - TZ=America/Chicago
-      - ASPNETCORE_URLS=http://+:80
 
-      #=== Path Settings ===#
+      # Your timezone
+      - TZ=America/Chicago
+
+      # Paths to your LANCache log file and cache directory
       - LanCache__LogPath=/logs/access.log
       - LanCache__CachePath=/cache
-      # - LanCache__AutoDiscoverDatasources=true
 
-      #=== Security Settings ===#
-      - Security__EnableAuthentication=true
-      - Security__MaxAdminDevices=3
-      - Security__RequireAuthForMetrics=false
+      #===========================================================
+      # OPTIONAL - Defaults work for most users (auto-detected)
+      #===========================================================
+
+      # Internal port binding (do not change)
+      - ASPNETCORE_URLS=http://+:80
+
+      # Security (all have sensible defaults)
+      # - Security__EnableAuthentication=true
+      # - Security__MaxAdminDevices=3
       # - Security__GuestSessionDurationHours=6
+      # - Security__RequireAuthForMetrics=false
       # - Security__ProtectSwagger=true
-      # - Security__AllowedOrigins=
 
-      #=== Nginx Log Rotation ===#
-      - NginxLogRotation__Enabled=true
-      - NginxLogRotation__ContainerName=
+      # Nginx log rotation (auto-detects container name)
+      # - NginxLogRotation__Enabled=true
+      # - NginxLogRotation__ContainerName=
       # - NginxLogRotation__ScheduleHours=24
 
-      #=== Optimization ===#
-      - Optimizations__EnableGarbageCollectionManagement=false
+      # Memory management (leave disabled unless needed)
+      # - Optimizations__EnableGarbageCollectionManagement=false
 
-      #=== Cache Clearing ===#
+      # Cache clearing mode
       # - CacheClear__DeleteMode=preserve
 
-      #=== Steam Prefill ===#
+      # Steam Prefill (all auto-detected)
       # - Prefill__DockerImage=ghcr.io/regix1/steam-prefill-daemon:latest
       # - Prefill__SessionTimeoutMinutes=120
       # - Prefill__DaemonBasePath=/data/prefill-sessions
-      # - Prefill__HostDataPath=/srv/lancache/data
+      # - Prefill__HostDataPath=
 
-      #=== Multiple Datasources ===#
+      # Multiple datasources (auto-discovery available)
+      # - LanCache__AutoDiscoverDatasources=true
       # - LanCache__DataSources__0__Name=Default
       # - LanCache__DataSources__0__CachePath=/cache
       # - LanCache__DataSources__0__LogPath=/logs

@@ -27,7 +27,7 @@ services:
 
     environment:
       #=========================================================================
-      # USER/GROUP SETTINGS
+      # REQUIRED - You must configure these for your environment
       #=========================================================================
 
       # User ID the application runs as (match your filesystem permissions)
@@ -41,35 +41,35 @@ services:
       # See: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
       - TZ=America/Chicago
 
-      # Internal port binding (required, do not change)
-      - ASPNETCORE_URLS=http://+:80
-
-      #=========================================================================
-      # PATH SETTINGS
-      #=========================================================================
-
       # Path to LANCache access log file (inside the container)
       - LanCache__LogPath=/logs/access.log
 
       # Path to LANCache cache directory (inside the container)
       - LanCache__CachePath=/cache
 
+      #=========================================================================
+      # OPTIONAL - Defaults work for most users (auto-detected or sensible defaults)
+      #=========================================================================
+
+      # Internal port binding (do not change unless you know what you're doing)
+      - ASPNETCORE_URLS=http://+:80
+
       # Auto-detect datasources by scanning for matching subdirectories
       # Scans /cache and /logs for folders that exist in both locations
       # Example: /cache/steam + /logs/steam → creates "Steam" datasource
       # - LanCache__AutoDiscoverDatasources=true
 
-      #=========================================================================
-      # SECURITY SETTINGS
-      #=========================================================================
+      #---------------------------------------------------------------------------
+      # Security Settings
+      #---------------------------------------------------------------------------
 
       # Master switch for authentication
       # true = require API key for admin features (recommended)
       # false = disable ALL authentication (development only)
-      - Security__EnableAuthentication=true
+      # - Security__EnableAuthentication=true
 
       # Number of devices that can share the same API key simultaneously
-      - Security__MaxAdminDevices=3
+      # - Security__MaxAdminDevices=3
 
       # Default guest session duration in hours (configurable in UI after first run)
       # - Security__GuestSessionDurationHours=6
@@ -77,7 +77,7 @@ services:
       # Require API key for Prometheus /metrics endpoint
       # true = Prometheus must use Bearer token authentication
       # false = /metrics endpoint is publicly accessible
-      - Security__RequireAuthForMetrics=false
+      # - Security__RequireAuthForMetrics=false
 
       # Require authentication to access Swagger API documentation
       # - Security__ProtectSwagger=true
@@ -86,34 +86,34 @@ services:
       # Example: http://localhost:3000,https://mysite.com
       # - Security__AllowedOrigins=
 
-      #=========================================================================
-      # NGINX LOG ROTATION
-      #=========================================================================
+      #---------------------------------------------------------------------------
+      # Nginx Log Rotation (auto-detects LANCache container)
+      #---------------------------------------------------------------------------
 
       # Automatically signal nginx to reopen logs after manipulation
       # Prevents LANCache monolithic container from losing log file handle
       # Requires docker.sock volume mount
-      - NginxLogRotation__Enabled=true
+      # - NginxLogRotation__Enabled=true
 
       # Name of the LANCache container (leave empty for auto-detection)
       # Auto-detection finds containers with "lancache" in the name
-      - NginxLogRotation__ContainerName=
+      # - NginxLogRotation__ContainerName=
 
       # How often to check for log rotation needs (in hours)
       # - NginxLogRotation__ScheduleHours=24
 
-      #=========================================================================
-      # OPTIMIZATION SETTINGS
-      #=========================================================================
+      #---------------------------------------------------------------------------
+      # Optimization Settings
+      #---------------------------------------------------------------------------
 
       # Show memory management controls in Management page
       # Enable for low-memory systems or if memory usage climbs over time
       # Most users should leave this disabled
-      - Optimizations__EnableGarbageCollectionManagement=false
+      # - Optimizations__EnableGarbageCollectionManagement=false
 
-      #=========================================================================
-      # CACHE CLEARING
-      #=========================================================================
+      #---------------------------------------------------------------------------
+      # Cache Clearing
+      #---------------------------------------------------------------------------
 
       # Default mode for cache clearing operations
       # "preserve" = keep directory structure, only delete files (safer)
@@ -121,11 +121,11 @@ services:
       # Can be changed in Management UI during runtime
       # - CacheClear__DeleteMode=preserve
 
-      #=========================================================================
-      # STEAM PREFILL
+      #---------------------------------------------------------------------------
+      # Steam Prefill (auto-detects host paths from container mounts)
       # Pre-download games to your cache before LAN parties
       # Powered by: https://github.com/tpill90/steam-lancache-prefill
-      #=========================================================================
+      #---------------------------------------------------------------------------
 
       # Docker image for per-user prefill containers
       # - Prefill__DockerImage=ghcr.io/regix1/steam-prefill-daemon:latest
@@ -144,7 +144,7 @@ services:
       # - Prefill__HostDataPath=/srv/lancache/data
 
       #=========================================================================
-      # MULTIPLE DATASOURCES (Optional)
+      # ADVANCED - Multiple Datasources (Optional)
       # Configure multiple LANCache instances or outsourced services
       # When DataSources are configured, LogPath/CachePath above are ignored
       #=========================================================================
