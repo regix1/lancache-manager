@@ -298,15 +298,15 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                 {/* Expanded content - Position info */}
                 <div className="pt-3 space-y-4">
                   {/* Access Log Section */}
-                  <div className="flex items-center justify-between p-3 rounded-lg bg-themed-tertiary">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 rounded-lg bg-themed-tertiary">
                     <div className="flex items-center gap-3">
-                      <Logs className="w-4 h-4 text-themed-muted" />
-                      <div>
+                      <Logs className="w-4 h-4 text-themed-muted flex-shrink-0" />
+                      <div className="min-w-0">
                         <div className="text-sm font-medium text-themed-primary">access.log</div>
-                        <div className="text-xs text-themed-muted">{formatPosition(position)}</div>
+                        <div className="text-xs text-themed-muted truncate">{formatPosition(position)}</div>
                       </div>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-shrink-0">
                       <Button
                         variant="outline"
                         size="sm"
@@ -315,6 +315,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                           setResetModal({ datasource: ds.name, all: false });
                         }}
                         disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated || !ds.enabled}
+                        className="flex-1 sm:flex-initial"
                       >
                         Reposition
                       </Button>
@@ -329,6 +330,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                         }}
                         disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated || !ds.enabled || position?.totalLines === 0}
                         loading={actionLoading === `access-${ds.name}`}
+                        className="flex-1 sm:flex-initial"
                       >
                         Process
                       </Button>

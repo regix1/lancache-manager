@@ -356,7 +356,7 @@ const DataSection: React.FC<DataSectionProps> = ({
 
           {/* Action Button */}
           <div
-            className="flex items-center justify-between pt-4 border-t"
+            className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-4 border-t"
             style={{ borderColor: 'var(--theme-border-primary)' }}
           >
             <div className="text-sm text-themed-secondary">
@@ -372,6 +372,7 @@ const DataSection: React.FC<DataSectionProps> = ({
               loading={loading}
               variant="filled"
               color="red"
+              className="w-full sm:w-auto"
             >
               <span className="hidden sm:inline">Clear Selected Tables</span>
               <span className="sm:hidden">Clear Selected</span>

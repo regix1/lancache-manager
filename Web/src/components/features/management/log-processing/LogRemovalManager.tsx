@@ -295,7 +295,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
         {/* Docker Socket Warning */}
         {!dockerSocketAvailable && !logsReadOnly && (
           <Alert color="orange" className="mb-6">
-            <div>
+            <div className="min-w-0">
               <p className="font-medium">Docker socket not available</p>
               <p className="text-sm mt-1">
                 Log removal requires signaling nginx to reopen logs afterward.
@@ -303,7 +303,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
               <p className="text-sm mt-2">
                 Add to your docker-compose.yml volumes:
               </p>
-              <code className="block bg-themed-tertiary px-2 py-1 rounded text-xs mt-1">
+              <code className="block bg-themed-tertiary px-2 py-1 rounded text-xs mt-1 break-all">
                 - /var/run/docker.sock:/var/run/docker.sock:ro
               </code>
             </div>
@@ -380,6 +380,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
                                 checkingPermissions
                               }
                               loading={deletingLogFile === ds.datasource}
+                              className="w-full sm:w-auto"
                             >
                               Delete Log File
                             </Button>

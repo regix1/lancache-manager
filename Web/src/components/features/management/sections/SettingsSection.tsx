@@ -167,13 +167,13 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
             />
           ) : (
             <Alert color="yellow">
-              <div>
+              <div className="min-w-0">
                 <p className="font-medium">Nginx log rotation is disabled</p>
                 <p className="text-sm mt-1 mb-2">
                   Add the following environment variable to your docker-compose.yml:
                 </p>
                 <pre
-                  className="px-3 py-2 rounded text-xs overflow-x-auto"
+                  className="px-3 py-2 rounded text-xs overflow-x-auto break-all whitespace-pre-wrap"
                   style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
                 >
                   - NginxLogRotation__Enabled=true
@@ -210,13 +210,13 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
             </Suspense>
           ) : (
             <Alert color="yellow">
-              <div>
+              <div className="min-w-0">
                 <p className="font-medium">Performance optimizations are disabled</p>
                 <p className="text-sm mt-1 mb-2">
                   Add the following environment variable to your docker-compose.yml:
                 </p>
                 <pre
-                  className="px-3 py-2 rounded text-xs overflow-x-auto"
+                  className="px-3 py-2 rounded text-xs overflow-x-auto break-all whitespace-pre-wrap"
                   style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
                 >
                   - Optimizations__EnableGarbageCollectionManagement=true

@@ -62,18 +62,18 @@ export const ManagerCardHeader: React.FC<ManagerCardHeaderProps> = ({
   actions
 }) => {
   return (
-    <div className="flex items-center justify-between mb-6">
-      <div className="flex items-center gap-3">
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 mb-6">
+      <div className="flex items-center gap-3 min-w-0">
         <div className={`w-10 h-10 rounded-lg flex items-center justify-center icon-bg-${iconColor} flex-shrink-0`}>
           <Icon className={`w-5 h-5 icon-${iconColor}`} />
         </div>
-        <div>
-          <h3 className="text-lg font-semibold text-themed-primary">{title}</h3>
-          <p className="text-xs text-themed-muted">{subtitle}</p>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-lg font-semibold text-themed-primary truncate">{title}</h3>
+          <p className="text-xs text-themed-muted truncate">{subtitle}</p>
         </div>
         {helpContent}
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end sm:justify-start flex-shrink-0">
         {permissions && !permissions.checkingPermissions && (
           <PermissionIndicators {...permissions} />
         )}

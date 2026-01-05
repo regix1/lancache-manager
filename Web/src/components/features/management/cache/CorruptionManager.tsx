@@ -423,13 +423,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
         {/* Docker Socket Warning */}
         {!dockerSocketAvailable && !isReadOnly && (
           <Alert color="orange" className="mb-6">
-            <div>
+            <div className="min-w-0">
               <p className="font-medium">Docker socket not available</p>
               <p className="text-sm mt-1">
                 Corruption removal requires signaling nginx to reopen logs afterward.
               </p>
               <p className="text-sm mt-2">Add to your docker-compose.yml volumes:</p>
-              <code className="block bg-themed-tertiary px-2 py-1 rounded text-xs mt-1">
+              <code className="block bg-themed-tertiary px-2 py-1 rounded text-xs mt-1 break-all">
                 - /var/run/docker.sock:/var/run/docker.sock:ro
               </code>
             </div>
@@ -471,28 +471,30 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
                       borderColor: 'var(--theme-border-secondary)'
                     }}
                   >
-                    <div className="flex items-center gap-2 p-3">
-                      <Button
-                        onClick={() => toggleCorruptionDetails(service)}
-                        variant="subtle"
-                        size="sm"
-                        className="flex-shrink-0"
-                        disabled={!!removingCorruption}
-                      >
-                        {expandedCorruptionService === service ? (
-                          <ChevronUp className="w-4 h-4" />
-                        ) : (
-                          <ChevronDown className="w-4 h-4" />
-                        )}
-                      </Button>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="capitalize font-medium text-themed-primary">
-                            {service}
-                          </span>
-                          <span className="text-xs text-themed-muted">
-                            ({count.toLocaleString()} corrupted chunk{count !== 1 ? 's' : ''})
-                          </span>
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 p-3">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <Button
+                          onClick={() => toggleCorruptionDetails(service)}
+                          variant="subtle"
+                          size="sm"
+                          className="flex-shrink-0"
+                          disabled={!!removingCorruption}
+                        >
+                          {expandedCorruptionService === service ? (
+                            <ChevronUp className="w-4 h-4" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4" />
+                          )}
+                        </Button>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            <span className="capitalize font-medium text-themed-primary">
+                              {service}
+                            </span>
+                            <span className="text-xs text-themed-muted">
+                              ({count.toLocaleString()} corrupted chunk{count !== 1 ? 's' : ''})
+                            </span>
+                          </div>
                         </div>
                       </div>
                       <Tooltip content="Delete cache files and remove log entries for corrupted chunks">
@@ -514,6 +516,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
                           loading={
                             removingCorruption === service || startingCorruptionRemoval === service
                           }
+                          className="w-full sm:w-auto flex-shrink-0"
                         >
                           {removingCorruption !== service && startingCorruptionRemoval !== service
                             ? 'Remove All'

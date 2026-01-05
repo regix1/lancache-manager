@@ -136,13 +136,13 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
   if (!status.enabled) {
     return (
       <Alert color="yellow">
-        <div>
+        <div className="min-w-0">
           <p className="font-medium">Log rotation is disabled</p>
           <p className="text-sm mt-1 mb-2">
             Add the following environment variable to your docker-compose.yml:
           </p>
           <pre
-            className="px-3 py-2 rounded text-xs overflow-x-auto"
+            className="px-3 py-2 rounded text-xs overflow-x-auto break-all whitespace-pre-wrap"
             style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
           >
             - NginxLogRotation__Enabled=true
@@ -232,7 +232,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
       </div>
 
       {/* Force Rotation Button */}
-      <div className="flex items-center justify-between pt-2">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
         <div>
           <p className="text-sm text-themed-primary font-medium">Manual Rotation</p>
           <p className="text-xs text-themed-muted">Signal nginx to reopen log files immediately</p>
@@ -243,6 +243,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
           variant="outline"
           loading={isRotating}
           leftSection={!isRotating ? <RefreshCw className="w-4 h-4" /> : undefined}
+          className="w-full sm:w-auto"
         >
           {isRotating ? 'Rotating...' : 'Rotate Now'}
         </Button>
