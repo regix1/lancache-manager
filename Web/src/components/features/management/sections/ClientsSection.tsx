@@ -4,11 +4,14 @@ import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
 import { Modal } from '@components/ui/Modal';
 import { Alert } from '@components/ui/Alert';
+import { Pagination } from '@components/ui/Pagination';
 import { useClientGroups } from '@contexts/ClientGroupContext';
 import { useStats } from '@contexts/StatsContext';
 import { Plus, Users, Trash2, Edit2, X, Loader2, User, AlertTriangle } from 'lucide-react';
 import ClientGroupModal from '@components/modals/ClientGroupModal';
 import type { ClientGroup } from '../../../../types';
+
+const UNGROUPED_IPS_PER_PAGE = 20;
 
 interface ClientsSectionProps {
   isAuthenticated: boolean;
@@ -37,6 +40,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
   const [deletingGroupId, setDeletingGroupId] = useState<number | null>(null);
   const [removingMember, setRemovingMember] = useState<{ groupId: number; ip: string } | null>(null);
   const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<ClientGroup | null>(null);
+  const [ungroupedPage, setUngroupedPage] = useState(1);
 
   // Get all IPs that are in groups
   const groupedIps = useMemo(() => {
@@ -51,6 +55,13 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
       .filter(stat => !stat.isGrouped && !groupedIps.has(stat.clientIp))
       .map(stat => stat.clientIp);
   }, [clientStats, groupedIps]);
+
+  // Pagination for ungrouped clients
+  const totalUngroupedPages = Math.ceil(ungroupedClients.length / UNGROUPED_IPS_PER_PAGE);
+  const paginatedUngroupedClients = useMemo(() => {
+    const startIndex = (ungroupedPage - 1) * UNGROUPED_IPS_PER_PAGE;
+    return ungroupedClients.slice(startIndex, startIndex + UNGROUPED_IPS_PER_PAGE);
+  }, [ungroupedClients, ungroupedPage]);
 
   const handleCreateGroup = () => {
     setEditingGroup(null);
@@ -287,7 +298,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                 These client IPs don't have nicknames assigned. Click "Add Nickname" above to give them friendly names.
               </p>
               <div className="flex flex-wrap gap-2">
-                {ungroupedClients.slice(0, 20).map(ip => (
+                {paginatedUngroupedClients.map(ip => (
                   <Tooltip key={ip} content={`Click "Add Nickname" to name this IP`}>
                     <div
                       className="px-2 py-1 rounded text-sm font-mono cursor-help"
@@ -300,15 +311,20 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                     </div>
                   </Tooltip>
                 ))}
-                {ungroupedClients.length > 20 && (
-                  <div
-                    className="px-2 py-1 rounded text-sm"
-                    style={{ color: 'var(--theme-text-muted)' }}
-                  >
-                    +{ungroupedClients.length - 20} more
-                  </div>
-                )}
               </div>
+              {totalUngroupedPages > 1 && (
+                <Pagination
+                  currentPage={ungroupedPage}
+                  totalPages={totalUngroupedPages}
+                  totalItems={ungroupedClients.length}
+                  itemsPerPage={UNGROUPED_IPS_PER_PAGE}
+                  onPageChange={setUngroupedPage}
+                  itemLabel="IPs"
+                  showCard={false}
+                  compact
+                  className="mt-3"
+                />
+              )}
             </CardContent>
           </Card>
         </div>

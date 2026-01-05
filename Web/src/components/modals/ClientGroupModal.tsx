@@ -1,9 +1,12 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { Plus, X, Loader2, AlertTriangle } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
+import { Pagination } from '@components/ui/Pagination';
 import { useClientGroups } from '@contexts/ClientGroupContext';
 import type { ClientGroup } from '../../types';
+
+const IPS_PER_PAGE = 20;
 
 interface ClientGroupModalProps {
   isOpen: boolean;
@@ -31,6 +34,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
   const [selectedIps, setSelectedIps] = useState<string[]>([]); // For create mode
   const [pendingIps, setPendingIps] = useState<string[]>([]); // For edit mode - IPs to add on save
   const [ipSearchQuery, setIpSearchQuery] = useState('');
+  const [ipPage, setIpPage] = useState(1);
 
   // Reset form when modal opens/closes or group changes
   useEffect(() => {
@@ -48,15 +52,48 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
       }
       setError(null);
       setIpSearchQuery('');
+      setIpPage(1);
     }
   }, [isOpen, group]);
+
+  // Reset page when search query changes
+  useEffect(() => {
+    setIpPage(1);
+  }, [ipSearchQuery]);
 
   const isEditing = group !== null;
 
   // Filter available IPs based on search query
-  const filteredIps = ungroupedIps.filter(ip =>
-    ip.toLowerCase().includes(ipSearchQuery.toLowerCase())
+  const filteredIps = useMemo(() =>
+    ungroupedIps.filter(ip =>
+      ip.toLowerCase().includes(ipSearchQuery.toLowerCase())
+    ),
+    [ungroupedIps, ipSearchQuery]
   );
+
+  // Pagination calculations for available IPs (excluding already selected/pending)
+  const availableIpsForCreate = useMemo(() =>
+    filteredIps.filter(ip => !selectedIps.includes(ip)),
+    [filteredIps, selectedIps]
+  );
+
+  const availableIpsForEdit = useMemo(() =>
+    filteredIps.filter(ip => !pendingIps.includes(ip)),
+    [filteredIps, pendingIps]
+  );
+
+  const totalPagesCreate = Math.ceil(availableIpsForCreate.length / IPS_PER_PAGE);
+  const totalPagesEdit = Math.ceil(availableIpsForEdit.length / IPS_PER_PAGE);
+
+  const paginatedIpsForCreate = useMemo(() => {
+    const startIndex = (ipPage - 1) * IPS_PER_PAGE;
+    return availableIpsForCreate.slice(startIndex, startIndex + IPS_PER_PAGE);
+  }, [availableIpsForCreate, ipPage]);
+
+  const paginatedIpsForEdit = useMemo(() => {
+    const startIndex = (ipPage - 1) * IPS_PER_PAGE;
+    return availableIpsForEdit.slice(startIndex, startIndex + IPS_PER_PAGE);
+  }, [availableIpsForEdit, ipPage]);
 
   const handleAddIp = (ip: string) => {
     if (!selectedIps.includes(ip)) {
@@ -308,28 +345,42 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
                     borderColor: 'var(--theme-border-primary)'
                   }}
                 >
-                  {filteredIps.filter(ip => !pendingIps.includes(ip)).length === 0 ? (
+                  {availableIpsForEdit.length === 0 ? (
                     <p className="text-sm text-themed-muted text-center py-2">
                       {ipSearchQuery ? 'No matching IPs' : 'No ungrouped IPs available'}
                     </p>
                   ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {filteredIps.filter(ip => !pendingIps.includes(ip)).slice(0, 10).map(ip => (
-                        <button
-                          key={ip}
-                          type="button"
-                          onClick={() => handleAddPendingIp(ip)}
-                          className="flex items-center gap-1 px-2 py-1 rounded text-sm font-mono transition-colors hover:bg-opacity-80"
-                          style={{
-                            backgroundColor: 'var(--theme-bg-secondary)',
-                            color: 'var(--theme-text-secondary)'
-                          }}
-                        >
-                          <Plus className="w-3 h-3" />
-                          {ip}
-                        </button>
-                      ))}
-                    </div>
+                    <>
+                      <div className="flex flex-wrap gap-2">
+                        {paginatedIpsForEdit.map(ip => (
+                          <button
+                            key={ip}
+                            type="button"
+                            onClick={() => handleAddPendingIp(ip)}
+                            className="flex items-center gap-1 px-2 py-1 rounded text-sm font-mono transition-colors hover:bg-opacity-80"
+                            style={{
+                              backgroundColor: 'var(--theme-bg-secondary)',
+                              color: 'var(--theme-text-secondary)'
+                            }}
+                          >
+                            <Plus className="w-3 h-3" />
+                            {ip}
+                          </button>
+                        ))}
+                      </div>
+                      {totalPagesEdit > 1 && (
+                        <Pagination
+                          currentPage={ipPage}
+                          totalPages={totalPagesEdit}
+                          totalItems={availableIpsForEdit.length}
+                          itemsPerPage={IPS_PER_PAGE}
+                          onPageChange={setIpPage}
+                          itemLabel="IPs"
+                          showCard={false}
+                          compact
+                        />
+                      )}
+                    </>
                   )}
                 </div>
               </>
@@ -389,28 +440,42 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
                     borderColor: 'var(--theme-border-primary)'
                   }}
                 >
-                  {filteredIps.filter(ip => !selectedIps.includes(ip)).length === 0 ? (
+                  {availableIpsForCreate.length === 0 ? (
                     <p className="text-sm text-themed-muted text-center py-2">
                       {ipSearchQuery ? 'No matching IPs' : 'All available IPs selected'}
                     </p>
                   ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {filteredIps.filter(ip => !selectedIps.includes(ip)).slice(0, 10).map(ip => (
-                        <button
-                          key={ip}
-                          type="button"
-                          onClick={() => handleAddIp(ip)}
-                          className="flex items-center gap-1 px-2 py-1 rounded text-sm font-mono transition-colors hover:bg-opacity-80"
-                          style={{
-                            backgroundColor: 'var(--theme-bg-secondary)',
-                            color: 'var(--theme-text-secondary)'
-                          }}
-                        >
-                          <Plus className="w-3 h-3" />
-                          {ip}
-                        </button>
-                      ))}
-                    </div>
+                    <>
+                      <div className="flex flex-wrap gap-2">
+                        {paginatedIpsForCreate.map(ip => (
+                          <button
+                            key={ip}
+                            type="button"
+                            onClick={() => handleAddIp(ip)}
+                            className="flex items-center gap-1 px-2 py-1 rounded text-sm font-mono transition-colors hover:bg-opacity-80"
+                            style={{
+                              backgroundColor: 'var(--theme-bg-secondary)',
+                              color: 'var(--theme-text-secondary)'
+                            }}
+                          >
+                            <Plus className="w-3 h-3" />
+                            {ip}
+                          </button>
+                        ))}
+                      </div>
+                      {totalPagesCreate > 1 && (
+                        <Pagination
+                          currentPage={ipPage}
+                          totalPages={totalPagesCreate}
+                          totalItems={availableIpsForCreate.length}
+                          itemsPerPage={IPS_PER_PAGE}
+                          onPageChange={setIpPage}
+                          itemLabel="IPs"
+                          showCard={false}
+                          compact
+                        />
+                      )}
+                    </>
                   )}
                 </div>
               </>
