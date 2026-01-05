@@ -988,7 +988,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
             ]}
             value={viewMode}
             onChange={(value) => setViewMode(value as 'recent' | 'active')}
-            size="sm"
+            size="md"
             showLabels={true}
           />
         </div>

@@ -210,6 +210,14 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
         </p>
       </div>
 
+      {/* Skip Notice */}
+      <div
+        className="p-3 rounded-lg text-center text-sm"
+        style={{ backgroundColor: 'var(--theme-info-bg)', color: 'var(--theme-info-text)' }}
+      >
+        Most users can skip this step. Only use if you have an existing database from a previous installation.
+      </div>
+
       {/* Success Message */}
       {importResult && (
         <div

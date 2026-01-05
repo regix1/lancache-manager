@@ -311,6 +311,10 @@ const DataImporter: React.FC<DataImporterProps> = ({
         </Alert>
       )}
 
+      <Alert color="blue" className="mb-4">
+        Most users can skip this feature. Only use if you have an existing database from a previous installation that you want to import.
+      </Alert>
+
       <div className="space-y-4">
         {/* Import Type Dropdown */}
         <div>

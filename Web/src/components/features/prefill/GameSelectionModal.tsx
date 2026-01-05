@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect, ChangeEvent } from 'react';
 import { Modal } from '../../ui/Modal';
 import { Button } from '../../ui/Button';
 import { CustomScrollbar } from '../../ui/CustomScrollbar';
-import { Search, Check, Gamepad2, Loader2, Import, ChevronDown } from 'lucide-react';
+import { Search, Check, Gamepad2, Loader2, Import } from 'lucide-react';
 
 export interface OwnedGame {
   appId: number;
@@ -171,94 +171,16 @@ export function GameSelectionModal({
       size="lg"
     >
       <div className="flex flex-col" style={{ height: '60vh' }}>
-        {/* Import Section - Collapsible */}
-        <div className="mb-3">
-          <button
+        {/* Search and actions */}
+        <div className="flex gap-2 mb-3">
+          <Button 
+            variant={showImport ? 'filled' : 'outline'} 
+            size="sm" 
             onClick={() => setShowImport(!showImport)}
-            className="flex items-center gap-2 text-sm font-medium smooth-transition"
-            style={{ color: 'var(--theme-primary)' }}
           >
             <Import className="h-4 w-4" />
             Import App IDs
-            <ChevronDown 
-              className={`h-4 w-4 smooth-transition ${showImport ? 'rotate-180' : ''}`} 
-            />
-          </button>
-          
-          {showImport && (
-            <div
-              className="mt-2 p-3 rounded-lg"
-              style={{
-                backgroundColor: 'var(--theme-bg-tertiary)',
-                border: '1px solid var(--theme-border-secondary)'
-              }}
-            >
-              <p className="text-xs mb-2" style={{ color: 'var(--theme-text-muted)' }}>
-                Paste Steam App IDs (comma-separated, JSON array, or one per line)
-              </p>
-              <textarea
-                value={importText}
-                onChange={(e) => {
-                  setImportText(e.target.value);
-                  setImportResult(null);
-                }}
-                placeholder="730, 570, 440 or [730, 570, 440]"
-                className="w-full px-3 py-2 text-sm rounded-lg resize-none smooth-transition"
-                style={{
-                  backgroundColor: 'var(--theme-bg-secondary)',
-                  border: '1px solid var(--theme-border-secondary)',
-                  color: 'var(--theme-text-primary)',
-                  outline: 'none',
-                  minHeight: '60px'
-                }}
-                onFocus={(e) => {
-                  e.currentTarget.style.borderColor = 'var(--theme-primary)';
-                }}
-                onBlur={(e) => {
-                  e.currentTarget.style.borderColor = 'var(--theme-border-secondary)';
-                }}
-              />
-              <div className="flex items-center gap-2 mt-2">
-                <Button 
-                  variant="filled" 
-                  size="sm" 
-                  onClick={handleImport}
-                  disabled={!importText.trim()}
-                >
-                  <Import className="h-3.5 w-3.5" />
-                  Import
-                </Button>
-                {importResult && (
-                  <span className="text-xs" style={{ color: 'var(--theme-text-muted)' }}>
-                    {importResult.added > 0 && (
-                      <span style={{ color: 'var(--theme-success)' }}>
-                        +{importResult.added} added
-                      </span>
-                    )}
-                    {importResult.alreadySelected > 0 && (
-                      <span>
-                        {importResult.added > 0 ? ', ' : ''}
-                        {importResult.alreadySelected} already selected
-                      </span>
-                    )}
-                    {importResult.notInLibrary.length > 0 && (
-                      <span style={{ color: 'var(--theme-warning)' }}>
-                        {(importResult.added > 0 || importResult.alreadySelected > 0) ? ', ' : ''}
-                        {importResult.notInLibrary.length} not in library
-                      </span>
-                    )}
-                    {importResult.added === 0 && importResult.alreadySelected === 0 && importResult.notInLibrary.length === 0 && (
-                      <span style={{ color: 'var(--theme-error)' }}>No valid App IDs found</span>
-                    )}
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Search and actions */}
-        <div className="flex gap-2 mb-3">
+          </Button>
           <div className="relative flex-1">
             <Search
               className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4"
@@ -293,6 +215,90 @@ export function GameSelectionModal({
             Clear
           </Button>
         </div>
+
+        {/* Import Section - Expandable */}
+        {showImport && (
+          <div
+            className="mb-3 p-3 rounded-lg"
+            style={{
+              backgroundColor: 'var(--theme-bg-tertiary)',
+              border: '1px solid var(--theme-primary)',
+              borderStyle: 'dashed'
+            }}
+          >
+            <p className="text-xs mb-2" style={{ color: 'var(--theme-text-muted)' }}>
+              Paste Steam App IDs from SteamPrefill or any comma-separated list
+            </p>
+            <textarea
+              value={importText}
+              onChange={(e) => {
+                setImportText(e.target.value);
+                setImportResult(null);
+              }}
+              placeholder="730, 570, 440 or [730, 570, 440] or paste selectedAppsToPrefill.json contents"
+              className="w-full px-3 py-2 text-sm rounded-lg resize-none smooth-transition"
+              style={{
+                backgroundColor: 'var(--theme-bg-secondary)',
+                border: '1px solid var(--theme-border-secondary)',
+                color: 'var(--theme-text-primary)',
+                outline: 'none',
+                minHeight: '70px'
+              }}
+              onFocus={(e) => {
+                e.currentTarget.style.borderColor = 'var(--theme-primary)';
+              }}
+              onBlur={(e) => {
+                e.currentTarget.style.borderColor = 'var(--theme-border-secondary)';
+              }}
+            />
+            <div className="flex items-center gap-2 mt-2">
+              <Button 
+                variant="filled" 
+                size="sm" 
+                onClick={handleImport}
+                disabled={!importText.trim()}
+              >
+                <Import className="h-3.5 w-3.5" />
+                Import
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => {
+                  setShowImport(false);
+                  setImportText('');
+                  setImportResult(null);
+                }}
+              >
+                Cancel
+              </Button>
+              {importResult && (
+                <span className="text-xs ml-auto" style={{ color: 'var(--theme-text-muted)' }}>
+                  {importResult.added > 0 && (
+                    <span style={{ color: 'var(--theme-success)' }}>
+                      +{importResult.added} added
+                    </span>
+                  )}
+                  {importResult.alreadySelected > 0 && (
+                    <span>
+                      {importResult.added > 0 ? ', ' : ''}
+                      {importResult.alreadySelected} already selected
+                    </span>
+                  )}
+                  {importResult.notInLibrary.length > 0 && (
+                    <span style={{ color: 'var(--theme-warning)' }}>
+                      {(importResult.added > 0 || importResult.alreadySelected > 0) ? ', ' : ''}
+                      {importResult.notInLibrary.length} not in library
+                    </span>
+                  )}
+                  {importResult.added === 0 && importResult.alreadySelected === 0 && importResult.notInLibrary.length === 0 && (
+                    <span style={{ color: 'var(--theme-error)' }}>No valid App IDs found</span>
+                  )}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Selection count */}
         <div className="text-sm mb-2" style={{ color: 'var(--theme-text-muted)' }}>

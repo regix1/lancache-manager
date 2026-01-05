@@ -29,15 +29,15 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
 }) => {
   const sizeClasses = {
     sm: {
-      container: 'p-0.5',
-      button: 'px-2 py-1',
+      container: 'p-[3px]',
+      button: 'px-2 py-1 rounded-md',
       icon: 14,
       text: 'text-xs'
     },
     md: {
-      container: 'p-1',
-      button: 'px-3 py-1.5',
-      icon: 16,
+      container: 'p-[3px]',
+      button: 'px-3 py-[0.4rem] rounded-[7px]',
+      icon: 14,
       text: 'text-xs'
     }
   };
@@ -46,7 +46,11 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
 
   return (
     <div
-      className={`inline-flex rounded-lg bg-themed-tertiary ${sizes.container} ${fullWidth ? 'w-full' : ''} ${className}`}
+      className={`inline-flex rounded-[10px] ${sizes.container} ${fullWidth ? 'w-full' : ''} ${className}`}
+      style={{
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        border: '1px solid var(--theme-border-secondary)'
+      }}
     >
       {options.map((option) => {
         const isActive = value === option.value;
@@ -57,19 +61,17 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
             key={option.value}
             onClick={() => !isDisabled && onChange(option.value)}
             disabled={isDisabled}
-            className={`${sizes.button} rounded-md transition-all flex items-center justify-center gap-1 font-medium whitespace-nowrap ${
+            className={`${sizes.button} transition-all flex items-center justify-center gap-[0.4rem] font-semibold whitespace-nowrap ${
               fullWidth ? 'flex-1' : ''
             } ${
-              isActive
-                ? 'bg-primary shadow-sm'
-                : isDisabled
-                  ? 'opacity-50 cursor-default'
-                  : 'text-themed-secondary hover:text-themed-primary hover:bg-[var(--theme-bg-secondary)]'
+              isDisabled && !isActive ? 'opacity-50 cursor-default' : ''
             }`}
             style={{
               backgroundColor: isActive ? 'var(--theme-primary)' : 'transparent',
-              color: isActive ? 'var(--theme-button-text)' : 'var(--theme-text-primary)',
-              cursor: isDisabled ? 'default' : 'pointer'
+              color: isActive ? 'var(--theme-button-text)' : 'var(--theme-text-muted)',
+              cursor: isDisabled ? 'default' : 'pointer',
+              boxShadow: isActive ? '0 2px 4px color-mix(in srgb, var(--theme-primary) 25%, transparent)' : 'none',
+              fontSize: '0.75rem'
             }}
             title={option.title || option.label}
           >
