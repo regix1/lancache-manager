@@ -8,124 +8,159 @@ services:
     ports:
       - "8080:80"
     volumes:
-      # Data directory - stores database, API key, themes, and cached images
+      # Required: Data directory for database, API key, themes, and cached images
       - ./data:/data
 
-      # LANCache log directory (read-only recommended)
-      - /mnt/logs:/logs:ro
+      # Required: LANCache log directory
+      # Add :ro for read-only (recommended for monitoring-only setups)
+      - /mnt/lancache/logs:/logs:ro
 
-      # LANCache cache directory
-      # Use :ro for read-only monitoring
+      # Required: LANCache cache directory
+      # Add :ro for read-only monitoring
       # Remove :ro to enable cache clearing, corruption removal, and game removal
-      - /mnt/cache:/cache:ro
+      - /mnt/lancache/cache:/cache:ro
 
-      # Docker socket for nginx log rotation and Steam Prefill containers
-      # Required for: nginx log rotation, spawning per-user prefill containers
-      # Note: Read-write access needed for prefill container management
+      # Optional: Docker socket for nginx log rotation and Steam Prefill
+      # Required for: signaling nginx to reopen logs, spawning prefill containers
+      # Remove :ro if using Steam Prefill (needs read-write for container management)
       - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      #=== User/Group Settings ===#
-      # PUID/PGID: User and group ID the application runs as after setup
-      # Set these to match your NFS/host filesystem permissions
-      # Common values: 1000 (default user), 33 (www-data on Debian/Ubuntu)
-      - PUID=33
-      - PGID=33
 
-      # TZ: Timezone for log timestamps and display
+    environment:
+      #=========================================================================
+      # USER/GROUP SETTINGS
+      #=========================================================================
+
+      # User ID the application runs as (match your filesystem permissions)
+      # Common values: 1000 (default user), 33 (www-data on Debian/Ubuntu)
+      - PUID=1000
+
+      # Group ID the application runs as
+      - PGID=1000
+
+      # Timezone for log timestamps and display
+      # See: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
       - TZ=America/Chicago
 
-      # ASPNETCORE_URLS: Internal port binding (required, do not change)
+      # Internal port binding (required, do not change)
       - ASPNETCORE_URLS=http://+:80
 
-      #=== Path Settings ===#
-      # Single datasource mode (default):
-      # LanCache__LogPath: Path to the LANCache access log file
+      #=========================================================================
+      # PATH SETTINGS
+      #=========================================================================
+
+      # Path to LANCache access log file (inside the container)
       - LanCache__LogPath=/logs/access.log
 
-      # LanCache__CachePath: Path to the LANCache cache directory
+      # Path to LANCache cache directory (inside the container)
       - LanCache__CachePath=/cache
 
-      #=== Multiple Datasources (Optional) ===#
-      # Configure multiple LANCache instances with separate log/cache directories.
-      # When DataSources are configured, LogPath and CachePath above are ignored.
-      # Uncomment and modify the examples below for multi-datasource support:
-      #
-      # - LanCache__DataSources__0__Name=Steam
-      # - LanCache__DataSources__0__CachePath=/mnt/cache/steam
-      # - LanCache__DataSources__0__LogPath=/mnt/logs/steam
-      # - LanCache__DataSources__0__Enabled=true
-      #
-      # - LanCache__DataSources__1__Name=Epic
-      # - LanCache__DataSources__1__CachePath=/mnt/cache/epic
-      # - LanCache__DataSources__1__LogPath=/mnt/logs/epic
-      # - LanCache__DataSources__1__Enabled=true
-
-      #=== Auto-Discovery (Alternative to Manual Datasources) ===#
-      # Automatically detect datasources by scanning for matching subdirectories.
-      # When enabled, the app scans /cache and /logs for subdirectories that exist
-      # in BOTH locations (e.g., /cache/steam + /logs/steam = "Steam" datasource).
-      # This is an alternative to manually configuring each DataSource above.
-      # Note: Explicit DataSources config takes priority over auto-discovery.
+      # Auto-detect datasources by scanning for matching subdirectories
+      # Scans /cache and /logs for folders that exist in both locations
+      # Example: /cache/steam + /logs/steam → creates "Steam" datasource
       # - LanCache__AutoDiscoverDatasources=true
 
-      #=== Security Settings ===#
-      # Security__EnableAuthentication: Master switch for authentication
+      #=========================================================================
+      # SECURITY SETTINGS
+      #=========================================================================
+
+      # Master switch for authentication
       # true = require API key for admin features (recommended)
-      # false = disable ALL authentication (dev/testing only)
+      # false = disable ALL authentication (development only)
       - Security__EnableAuthentication=true
 
-      # Security__MaxAdminDevices: Number of devices that can use the same API key
+      # Number of devices that can share the same API key simultaneously
       - Security__MaxAdminDevices=3
 
-      # Security__GuestSessionDurationHours: Initial default for guest session duration
-      # Only used on first startup - can be changed in Management UI afterwards
+      # Default guest session duration in hours (configurable in UI after first run)
       # - Security__GuestSessionDurationHours=6
 
-      # Security__RequireAuthForMetrics: Require API key for /metrics endpoint
-      # true = Prometheus/Grafana must use Bearer token authentication
+      # Require API key for Prometheus /metrics endpoint
+      # true = Prometheus must use Bearer token authentication
       # false = /metrics endpoint is publicly accessible
       - Security__RequireAuthForMetrics=false
 
-      #=== Nginx Log Rotation Settings ===#
-      # NginxLogRotation__Enabled: Auto-signal nginx to reopen logs after manipulation
-      # Prevents monolithic container from losing log file handle
+      # Require authentication to access Swagger API documentation
+      # - Security__ProtectSwagger=true
+
+      # Comma-separated list of allowed CORS origins (empty = allow all)
+      # Example: http://localhost:3000,https://mysite.com
+      # - Security__AllowedOrigins=
+
+      #=========================================================================
+      # NGINX LOG ROTATION
+      #=========================================================================
+
+      # Automatically signal nginx to reopen logs after manipulation
+      # Prevents LANCache monolithic container from losing log file handle
       # Requires docker.sock volume mount
       - NginxLogRotation__Enabled=true
 
-      # NginxLogRotation__ContainerName: Name of the LANCache container
-      # Leave empty for auto-detection, or specify container name (e.g., "lancache")
+      # Name of the LANCache container (leave empty for auto-detection)
+      # Auto-detection finds containers with "lancache" in the name
       - NginxLogRotation__ContainerName=
 
-      #=== Optimization Settings ===#
-      # Optimizations__EnableGarbageCollectionManagement: Enable GC controls in UI
-      # true = show memory management controls in Management page
-      # false = use default .NET garbage collection (recommended for most users)
-      # Enable this for low-memory systems or if memory usage climbs over time
+      # How often to check for log rotation needs (in hours)
+      # - NginxLogRotation__ScheduleHours=24
+
+      #=========================================================================
+      # OPTIMIZATION SETTINGS
+      #=========================================================================
+
+      # Show memory management controls in Management page
+      # Enable for low-memory systems or if memory usage climbs over time
+      # Most users should leave this disabled
       - Optimizations__EnableGarbageCollectionManagement=false
 
-      #=== Cache Clearing Settings ===#
-      # CacheClear__DeleteMode: Default mode for cache clearing on startup
-      # Can be changed in Management UI during runtime (does not persist)
-      # "preserve" = keep directory structure, only delete files (default, safer)
+      #=========================================================================
+      # CACHE CLEARING
+      #=========================================================================
+
+      # Default mode for cache clearing operations
+      # "preserve" = keep directory structure, only delete files (safer)
       # "full" = delete everything including directories (faster, more thorough)
+      # Can be changed in Management UI during runtime
       # - CacheClear__DeleteMode=preserve
 
-      #=== Steam Prefill Settings ===#
-      # Prefill__DockerImage: Docker image for per-user prefill containers
-      # Default: ghcr.io/regix1/steam-prefill-daemon:latest
+      #=========================================================================
+      # STEAM PREFILL
+      # Pre-download games to your cache before LAN parties
+      # Powered by: https://github.com/tpill90/steam-lancache-prefill
+      #=========================================================================
+
+      # Docker image for per-user prefill containers
       # - Prefill__DockerImage=ghcr.io/regix1/steam-prefill-daemon:latest
 
-      # Prefill__SessionTimeoutMinutes: How long prefill sessions last before auto-cleanup
-      # Default: 120 (2 hours)
+      # Session timeout in minutes (inactive sessions get cleaned up)
       # - Prefill__SessionTimeoutMinutes=120
 
-      # Prefill__DaemonBasePath: Base path for daemon session data (commands/responses)
-      # Must be inside /data to work with Docker sibling containers
-      # Default: /data/prefill-sessions
+      # Base path for daemon session data (commands/responses)
+      # Must be inside /data for Docker sibling container access
       # - Prefill__DaemonBasePath=/data/prefill-sessions
 
-      # Prefill__HostDataPath: The HOST path that maps to /data in this container
-      # Auto-detected by inspecting container mounts. Only set this if auto-detection fails.
-      # Example: If your docker-compose.yml is at /srv/lancache/docker-compose.yml
-      # and you have ./data:/data, then set this to /srv/lancache/data
+      # Host path that maps to /data in this container
+      # Auto-detected from container mounts. Only set if auto-detection fails.
+      # Example: If docker-compose.yml is at /srv/lancache/docker-compose.yml
+      # and you have ./data:/data, set this to /srv/lancache/data
       # - Prefill__HostDataPath=/srv/lancache/data
+
+      #=========================================================================
+      # MULTIPLE DATASOURCES (Optional)
+      # Configure multiple LANCache instances or outsourced services
+      # When DataSources are configured, LogPath/CachePath above are ignored
+      #=========================================================================
+
+      # Example: Main LANCache + outsourced Steam on separate drive
+      #
+      # - LanCache__DataSources__0__Name=Default
+      # - LanCache__DataSources__0__CachePath=/cache
+      # - LanCache__DataSources__0__LogPath=/logs
+      # - LanCache__DataSources__0__Enabled=true
+      #
+      # - LanCache__DataSources__1__Name=Steam
+      # - LanCache__DataSources__1__CachePath=/steam-cache
+      # - LanCache__DataSources__1__LogPath=/steam-logs
+      # - LanCache__DataSources__1__Enabled=true
+      #
+      # With additional volume mounts:
+      # - /mnt/steam-drive/cache:/steam-cache:ro
+      # - /mnt/steam-drive/logs:/steam-logs:ro

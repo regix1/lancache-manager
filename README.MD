@@ -1,8 +1,10 @@
 # LANCache Manager
 
-A web interface for monitoring and managing your LANCache. Track downloads, see which games are being cached, check bandwidth savings, and customize everything with themes.
+A web interface for monitoring and managing your [LANCache](https://lancache.net/). Track downloads in real-time, identify which games are being cached, measure bandwidth savings, and prefill your cache before LAN parties.
 
-## IMPORTANT: Docker Installation
+-----
+
+## Docker Installation
 
 > [!IMPORTANT]
 > **Always use the `latest` tag:**
@@ -11,142 +13,126 @@ A web interface for monitoring and managing your LANCache. Track downloads, see 
 > docker pull ghcr.io/regix1/lancache-manager:latest
 > ```
 >
-> GitHub's package page shows `:dev` in the installation command because dev builds are pushed more frequently. **`:dev` is unstable.**
->
-> **Use `:latest` for production. Use `:dev` only for testing.**
+> GitHub's package page shows `:dev` in the installation command because dev builds are pushed more frequently. The `:dev` tag is unstable and intended for testing only.
 
-## 📑 Table of Contents
+-----
 
-*Click the ⬆ arrow on any section to return here*
+## Table of Contents
 
 - [Screenshots](#screenshots)
 - [Features](#features)
 - [Quick Start](#quick-start)
-- [Getting Started](#getting-started)
-- [Admin Features](#admin-features)
+- [Docker Compose Reference](#docker-compose-reference)
+- [Configuration Options](#configuration-options)
+- [Tabs Overview](#tabs-overview)
+- [Steam Prefill](#steam-prefill)
 - [Custom Themes](#custom-themes)
-- [Optimization Settings](#optimization-settings)
-- [Image Caching](#image-caching)
-- [Nginx Log Rotation](#nginx-log-rotation)
-- [Depot Mappings](#depot-mappings)
-- [Grafana & Prometheus Integration](#grafana--prometheus-integration)
-- [API Examples](#api-examples)
+- [Grafana & Prometheus](#grafana--prometheus)
 - [Multiple Datasources](#multiple-datasources)
 - [Troubleshooting](#troubleshooting)
 - [Building from Source](#building-from-source)
-- [Contributing](#contributing)
-- [Support](#support)
-- [License](#license)
+- [Need Help?](#need-help)
 
----
+-----
 
 <a id="screenshots"></a>
-## Screenshots [⬆](#-table-of-contents)
+## Screenshots
 
 <div align="center">
 
 ### Dashboard
-<img width="1539" height="1085" alt="Dashboard Overview" src="https://github.com/user-attachments/assets/2eb41fb5-e3f1-4770-aeda-62b6fb324174" />
-<img width="1738" height="609" alt="Dashboard Charts" src="https://github.com/user-attachments/assets/56f668a1-526d-442f-b496-65021f2c0a68" />
+<img width="1517" height="1150" alt="Dashboard Overview" src="https://github.com/user-attachments/assets/a9a7e9a5-ca5d-44e0-ad80-fac163782ee9" />
+<img width="1526" height="988" alt="Dashboard Charts" src="https://github.com/user-attachments/assets/695c61cc-f2cd-4bc5-bbed-a5f7e6b0f11c" />
 
-*Stats at a glance - drag and drop to reorder cards, filter by time range*
+*Stats at a glance with draggable cards and time range filtering*
 
 ### Downloads
 
 **Normal View**
-<img width="1530" height="1254" alt="Downloads Tab - Normal View" src="https://github.com/user-attachments/assets/188b1e9d-05fa-40c3-8185-230e0b4cf32f" />
+<img width="1517" height="1236" alt="Downloads - Normal View" src="https://github.com/user-attachments/assets/29dbd4ba-ef24-4796-a527-ae50add3570d" />
 
 **Compact View**
-<img width="1533" height="1255" alt="Downloads Tab - Compact View" src="https://github.com/user-attachments/assets/8a882729-9274-4843-814d-2d01c877b737" />
+<img width="1527" height="1124" alt="Downloads - Compact View" src="https://github.com/user-attachments/assets/87f61e41-9c11-4aac-89a9-aad7e60f86f6" />
 
-*Switch between normal and compact views, filter and sort however you want*
+**Retro View**
+<img width="1516" height="1248" alt="Downloads - Retro View" src="https://github.com/user-attachments/assets/6588f68e-ee72-4226-ae08-f5bd92ff81c2" />
+
+*Three view modes to browse your cached games*
 
 ### Clients
-<img width="1550" height="911" alt="Clients" src="https://github.com/user-attachments/assets/8901db78-dca6-4a37-8139-ce87907e6c23" />
+<img width="1521" height="909" alt="Clients" src="https://github.com/user-attachments/assets/0a80fcdb-d51e-42a8-8d9b-1b0a436e2ab1" />
 
-*See which devices are using your cache*
+*Monitor which devices are using your cache*
 
 ### Users
-<img width="1527" height="1055" alt="Users" src="https://github.com/user-attachments/assets/e82c881d-bf5c-414d-9b23-2107f7042b0c" />
+<img width="1523" height="510" alt="Users - Session Overview" src="https://github.com/user-attachments/assets/0c5e4a95-7fad-4fa7-819d-bf49fc7355e0" />
+<img width="1497" height="899" alt="Users - Details" src="https://github.com/user-attachments/assets/84194a8c-e574-4e5e-abbb-a48840c32d36" />
 
-*Manage sessions and control access*
+*Manage sessions and access controls*
 
-### Management
+### Events
+<img width="1523" height="1249" alt="Events Calendar" src="https://github.com/user-attachments/assets/123dd833-d300-49e5-8023-62ea8d4e4acc" />
 
-**Authentication & Access**
-<img width="1563" height="599" alt="Authentication & Access" src="https://github.com/user-attachments/assets/9b08a54a-cfc4-44d0-bfa5-efa7237a6f9b" />
+*Calendar view of download activity and LAN events*
 
-**Integration & Services**
-<img width="1544" height="1244" alt="Integration & Services" src="https://github.com/user-attachments/assets/ad272fc0-8f3a-4e31-a6c9-e2b4a2116dcb" />
+### Prefill
+<img width="1522" height="1069" alt="Steam Prefill" src="https://github.com/user-attachments/assets/a42963cd-cf5a-45a4-a538-638bf43e7c06" />
 
-**Database Management**
-<img width="1521" height="1201" alt="Database Management" src="https://github.com/user-attachments/assets/b3398a91-fccf-4d0b-9fab-45c059278b55" />
-
-**Import Historical Data**
-<img width="1475" height="786" alt="Import Historical Data" src="https://github.com/user-attachments/assets/664ddff5-9656-422a-9630-3ec001c3f45b" />
-
-**Disk Cache Management and Log Processing**
-<img width="1483" height="608" alt="Disk Cache Management and Log Processing" src="https://github.com/user-attachments/assets/ca975cfb-970e-4d5e-b830-6d7166ded4cb" />
-
-**Depot Mapping**
-<img width="1472" height="745" alt="Depot Mapping" src="https://github.com/user-attachments/assets/736ef150-09f3-4acf-9ad7-5c6d6ac35928" />
-
-**Log & Cache Management**
-<img width="1481" height="663" alt="Log & Cache Management" src="https://github.com/user-attachments/assets/defae056-2e99-48e8-b3cb-5fadf21fdf30" />
-
-**Game Cache Detection**
-<img width="1481" height="490" alt="Game Cache Detection" src="https://github.com/user-attachments/assets/b2745ef0-ead8-47de-95d2-46bd03e5aa5a" />
-
-**Theme Management**
-<img width="1468" height="1079" alt="Theme Management" src="https://github.com/user-attachments/assets/00212a80-0f15-432b-9849-22967e7119f9" />
-
-*Manage cache, process logs, configure depot mappings, and tweak settings*
-
-### Theme Examples
-
-**Sage and Wood**
-<img width="1526" height="1085" alt="Sage and Wood Theme" src="https://github.com/user-attachments/assets/17d710e1-4b9b-4dd0-bac6-c9f89ef8b3f0" />
-
-**LANCache Unofficial**
-<img width="1527" height="1085" alt="LANCache Unofficial Theme" src="https://github.com/user-attachments/assets/7aa8d363-ab61-4e63-a50e-94021d95eb68" />
+*Pre-download games to your cache before your LAN party*
 
 </div>
 
+-----
+
 <a id="features"></a>
-## Features [⬆](#-table-of-contents)
+## Features
 
 ### Dashboard
-- **Draggable stat cards** - Reorder them how you want, hide the ones you don't care about
-- **Time range filtering** - Live, last hour, 24h, 7 days, 30 days, or custom date ranges
-- **Service breakdown** - See which services (Steam, Epic, etc.) are eating your bandwidth
-- **Recent downloads** - Quick view of what's been cached lately
-- **Top clients** - See who's downloading the most
+- **Draggable stat cards** - Reorder or hide cards to customize your view
+- **Time range filtering** - View stats for live, 1h, 24h, 7 days, 30 days, or custom ranges
+- **Service breakdown** - See bandwidth usage per platform (Steam, Epic, Battle.net, etc.)
+- **Recent downloads** - Quick view of what's been cached
+- **Top clients** - Identify your heaviest users
 
 ### Downloads
-- **Normal and Compact views** - Cards or list, your choice
-- **Sorting** - By date, size, cache efficiency, number of sessions, alphabetical
-- **Filtering** - By service, client, hide small files, hide unknown games
-- **Presets** - Pretty, Minimal, Show All, or tweak every setting yourself
-- **Export** - JSON or CSV
+- **Three view modes** - Normal (cards), Compact (list), and Retro (terminal style)
+- **Flexible sorting** - By date, size, cache efficiency, session count, or name
+- **Powerful filtering** - By service, client, or hide small/unknown downloads
+- **Data export** - JSON or CSV
 
-### Management (requires authentication)
-- **Cache operations** - Clear cache, remove specific games or services
-- **Log processing** - Reprocess logs, remove corruption
+### Clients
+- **Device tracking** - See all devices that have used your cache
+- **Client grouping** - Organize clients with custom names
+- **Bandwidth stats** - Track usage per client
+
+### Users
+- **Session management** - View active authenticated and guest sessions
+- **Guest access** - Configurable read-only access duration
+- **Access control** - Revoke sessions as needed
+
+### Events
+- **Calendar view** - Visualize download activity over time
+- **Custom events** - Create events for LAN parties
+- **Activity tracking** - See what was downloaded during each event
+
+### Prefill
+- **Steam integration** - Pre-download games directly to your cache
+- **Steam Guard support** - Works with all authentication methods
+- **Library selection** - Choose which games to prefill
+- **Real-time progress** - Monitor downloads as they happen
+
+### Management
+- **Cache operations** - Clear cache by service or remove specific games
+- **Log processing** - Reprocess logs, handle corruption
 - **Game detection** - See what games are in your cache with actual sizes
-- **Database management** - Clear specific tables without nuking everything
-- **Steam integration** - PICS authentication for depot mappings
+- **Depot mappings** - Download 290,000+ game mappings from GitHub
+- **Theme editor** - Create and import custom themes
+- **Prometheus metrics** - Export data to Grafana
 
-### Other Stuff
-- **Custom themes** - Build your own or grab community themes
-- **Prometheus metrics** - Export to Grafana
-- **Multi-device auth** - Share API key across devices (configurable limit)
-- **Guest mode** - Read-only access without API key
-- **Read-only volume support** - Works fine with `:ro` mounts
+-----
 
 <a id="quick-start"></a>
-## Quick Start [⬆](#-table-of-contents)
-
-### Basic Docker Run
+## Quick Start
 
 ```bash
 docker run -d \
@@ -161,7 +147,26 @@ docker run -d \
   ghcr.io/regix1/lancache-manager:latest
 ```
 
-### Docker Compose
+### Getting Your API Key
+
+```bash
+docker logs lancache-manager | grep "API Key"
+```
+
+The key is also saved to `/data/api_key.txt`.
+
+### First Steps
+
+1. Open `http://localhost:8080`
+2. Navigate to Management and enter your API key
+3. Click **Process Logs** to analyze your existing cache data
+
+-----
+
+<a id="docker-compose-reference"></a>
+## Docker Compose Reference
+
+A complete docker-compose.yml with all available options:
 
 ```yaml
 version: '3.8'
@@ -174,185 +179,155 @@ services:
     ports:
       - "8080:80"
     volumes:
-      # Data directory - stores database, API key, themes, and cached images
       - ./data:/data
-
-      # LANCache log directory (read-only recommended)
       - /mnt/logs:/logs:ro
-
-      # LANCache cache directory
-      # Use :ro for read-only monitoring
-      # Remove :ro to enable cache clearing, corruption removal, and game removal
       - /mnt/cache:/cache:ro
-
-      # Docker socket for nginx log rotation (optional)
-      # Allows signaling nginx to reopen logs after manipulation
-      # Set NginxLogRotation__Enabled=false and remove this line to disable
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      #=== User/Group Settings ===#
-      # PUID/PGID: User and group ID the application runs as after setup
-      # Set these to match your NFS/host filesystem permissions
       - PUID=33
       - PGID=33
-
-      # TZ: Timezone for log timestamps and display
       - TZ=America/Chicago
-
-      # ASPNETCORE_URLS: Internal port binding (required, do not change)
       - ASPNETCORE_URLS=http://+:80
-
-      #=== Path Settings ===#
-      # Single datasource mode (default):
-      # LanCache__LogPath: Path to the LANCache access log file
       - LanCache__LogPath=/logs/access.log
-
-      # LanCache__CachePath: Path to the LANCache cache directory
       - LanCache__CachePath=/cache
-
-      #=== Multiple Datasources (Optional) ===#
-      # Configure multiple LANCache instances with separate log/cache directories.
-      # When DataSources are configured, LogPath and CachePath above are ignored.
-      # Uncomment and modify the examples below for multi-datasource support:
-      #
-      # - LanCache__DataSources__0__Name=Steam
-      # - LanCache__DataSources__0__CachePath=/mnt/cache/steam
-      # - LanCache__DataSources__0__LogPath=/mnt/logs/steam
-      # - LanCache__DataSources__0__Enabled=true
-      #
-      # - LanCache__DataSources__1__Name=Epic
-      # - LanCache__DataSources__1__CachePath=/mnt/cache/epic
-      # - LanCache__DataSources__1__LogPath=/mnt/logs/epic
-      # - LanCache__DataSources__1__Enabled=true
-
-      #=== Auto-Discovery (Alternative to Manual Datasources) ===#
-      # Automatically detect datasources by scanning for matching subdirectories.
-      # When enabled, the app scans /cache and /logs for subdirectories that exist
-      # in BOTH locations (e.g., /cache/steam + /logs/steam = "Steam" datasource).
-      # This is an alternative to manually configuring each DataSource above.
-      # Note: Explicit DataSources config takes priority over auto-discovery.
-      # - LanCache__AutoDiscoverDatasources=true
-
-      #=== Security Settings ===#
-      # Security__EnableAuthentication: Master switch for authentication
-      # true = require API key for admin features (recommended)
-      # false = disable ALL authentication (dev/testing only)
       - Security__EnableAuthentication=true
-
-      # Security__MaxAdminDevices: Number of devices that can use the same API key
       - Security__MaxAdminDevices=3
-
-      # Security__GuestSessionDurationHours: Initial default for guest session duration
-      # Only used on first startup - can be changed in Management UI afterwards
-      # - Security__GuestSessionDurationHours=6
-
-      # Security__RequireAuthForMetrics: Require API key for /metrics endpoint
-      # true = Prometheus/Grafana must use Bearer token authentication
-      # false = /metrics endpoint is publicly accessible
       - Security__RequireAuthForMetrics=false
-
-      #=== Nginx Log Rotation Settings ===#
-      # NginxLogRotation__Enabled: Auto-signal nginx to reopen logs after manipulation
-      # Prevents monolithic container from losing log file handle
-      # Requires docker.sock volume mount
       - NginxLogRotation__Enabled=true
-
-      # NginxLogRotation__ContainerName: Name of the LANCache container
-      # Leave empty for auto-detection, or specify container name (e.g., "lancache")
       - NginxLogRotation__ContainerName=
-
-      #=== Optimization Settings ===#
-      # Optimizations__EnableGarbageCollectionManagement: Enable GC controls in UI
-      # true = show memory management controls in Management page
-      # false = use default .NET garbage collection (recommended for most users)
-      # Enable this for low-memory systems or if memory usage climbs over time
       - Optimizations__EnableGarbageCollectionManagement=false
-
-      #=== Cache Clearing Settings ===#
-      # CacheClear__DeleteMode: Default mode for cache clearing on startup
-      # Can be changed in Management UI during runtime (does not persist)
-      # "preserve" = keep directory structure, only delete files (default, safer)
-      # "full" = delete everything including directories (faster, more thorough)
-      # - CacheClear__DeleteMode=preserve
 ```
 
-Get your **API key**:
+> [!NOTE]
+> Remove `:ro` from the cache volume to enable cache clearing and game removal features. The Docker socket is required for nginx log rotation and Steam Prefill functionality.
 
-```bash
-docker logs lancache-manager | grep "API Key"
-```
+-----
 
-Also saved to `/data/api_key.txt`
+<a id="configuration-options"></a>
+## Configuration Options
 
-<a id="getting-started"></a>
-## Getting Started [⬆](#-table-of-contents)
+### Volumes
 
-1. Start the container
-2. Get your API key from the logs or `/data/api_key.txt`
-3. Open `http://localhost:8080`
-4. Go to Management and enter your API key
-5. Click "Process Logs" to start analyzing
+| Volume | Purpose | Notes |
+|--------|---------|-------|
+| `/data` | Database, API key, themes, cached images | Required |
+| `/logs` | LANCache access logs | Add `:ro` for read-only |
+| `/cache` | LANCache cached files | Add `:ro` for monitoring-only |
+| `/var/run/docker.sock` | Docker API access | Required for nginx rotation and Steam Prefill |
 
-### Multiple Directories
+### User/Group Settings
 
-You can configure multiple log and cache directory pairs:
-- **Manual configuration** - Define each datasource with `LanCache__DataSources__N__` environment variables
-- **Auto-discovery** - Enable `LanCache__AutoDiscoverDatasources=true` to automatically detect matching subdirectories in `/cache` and `/logs`
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PUID` | 33 | User ID the app runs as. Match your filesystem permissions. |
+| `PGID` | 33 | Group ID the app runs as. |
+| `TZ` | UTC | Timezone for log timestamps (e.g., `America/Chicago`). |
 
-See [Multiple Datasources](#multiple-datasources) for detailed configuration.
+### Path Settings
 
-### Read-Only Volumes
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LanCache__LogPath` | - | Path to the LANCache access log file. |
+| `LanCache__CachePath` | - | Path to the LANCache cache directory. |
+| `LanCache__AutoDiscoverDatasources` | false | Auto-detect datasources from matching subdirectories. |
 
-If you mount with `:ro`, you'll see lock badges in Management. Totally fine for monitoring.
+### Security
 
-**With read-only:**
-- View stats and downloads
-- Monitor performance
-- Track clients
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `Security__EnableAuthentication` | true | Require API key for admin features. Set `false` for dev only. |
+| `Security__MaxAdminDevices` | 3 | Number of devices that can share the same API key. |
+| `Security__GuestSessionDurationHours` | 6 | Default guest session length (configurable in UI). |
+| `Security__RequireAuthForMetrics` | false | Require API key for `/metrics` endpoint. |
+| `Security__ProtectSwagger` | true | Require auth for Swagger API docs. |
 
-**To enable management features:**
-```yaml
-volumes:
-  - /path/to/cache:/cache      # Can clear cache
-  - /path/to/logs:/logs:ro     # Keep logs read-only
-```
+### Nginx Log Rotation
 
-<a id="admin-features"></a>
-## Admin Features [⬆](#-table-of-contents)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NginxLogRotation__Enabled` | true | Signal nginx to reopen logs after manipulation. |
+| `NginxLogRotation__ContainerName` | (auto) | LANCache container name. Leave empty for auto-detection. |
+| `NginxLogRotation__ScheduleHours` | 24 | How often to check for rotation needs. |
 
-### User Management
+### Optimization
 
-- **Real-time sessions** - See who's connected, what devices they're using
-- **Session types** - Authenticated users get full access, guests get 6-hour read-only access
-- **Controls** - Revoke sessions, delete records
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `Optimizations__EnableGarbageCollectionManagement` | false | Enable memory management controls. Useful for low-memory systems. |
 
-### API Key
+### Cache Clearing
 
-- Auto-generated on first startup
-- Saved to `/data/api_key.txt`
-- Multi-device support (default 3 devices)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CacheClear__DeleteMode` | preserve | `preserve` keeps directory structure, `full` removes everything. |
 
-```yaml
-environment:
-  - Security__MaxAdminDevices=3
-```
+### Steam Prefill
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `Prefill__DockerImage` | ghcr.io/regix1/steam-prefill-daemon:latest | Docker image for prefill containers. |
+| `Prefill__SessionTimeoutMinutes` | 120 | Inactive session cleanup timeout. |
+| `Prefill__DaemonBasePath` | /data/prefill-sessions | Session data storage path. |
+| `Prefill__HostDataPath` | (auto) | Host path mapping to `/data`. Set only if auto-detection fails. |
+
+-----
+
+<a id="tabs-overview"></a>
+## Tabs Overview
+
+### Dashboard
+Your home base for cache statistics. View overall performance, recent activity, and service breakdowns. Stat cards are draggable—arrange them however you prefer.
+
+### Downloads
+Browse everything that's been cached. Choose between Normal view (cards with game art), Compact view (dense list for scanning), or Retro view (terminal aesthetic). Filter and sort to find what you're looking for.
+
+### Clients
+Track every device that has downloaded through your cache. Group clients together with friendly names to identify machines at your LAN party.
+
+### Users
+Manage active sessions. See who's connected, configure guest access duration, and revoke sessions when needed.
+
+### Events
+A calendar showing download activity over time. Create custom events to mark LAN parties, then review what got downloaded during each one.
+
+### Prefill
+Pre-download games to your cache before people arrive. Log in with Steam, select games from your library, and let them download overnight.
+
+### Management
+The admin panel (requires authentication). Process logs, clear cache, download depot mappings, configure Steam API access, manage themes, and handle database operations.
+
+-----
+
+<a id="steam-prefill"></a>
+## Steam Prefill
+
+The Prefill tab lets you pre-download games to your cache before your LAN party starts. This feature is powered by [steam-lancache-prefill](https://github.com/tpill90/steam-lancache-prefill) by [@tpill90](https://github.com/tpill90).
+
+### Requirements
+
+- Docker socket mounted (without `:ro`)
+- Authenticated as admin
+
+### How It Works
+
+1. Navigate to the Prefill tab
+2. Log in with your Steam account (Steam Guard supported)
+3. Select games from your library
+4. Start the prefill
+
+Downloads run in a separate container with real-time progress updates. When your guests arrive, the games are already cached and ready to serve at full speed.
+
+-----
 
 <a id="custom-themes"></a>
-## Custom Themes [⬆](#-table-of-contents)
+## Custom Themes
 
-### Built-in Options
+### Theme Editor
 
-- Create themes from scratch with the visual editor
+Navigate to **Management > Preferences > Theme Management** to:
+- Create themes from scratch with live preview
 - Browse and install community themes
-- Import/export as TOML files
-- Auto-updates for installed themes
-
-### Creating a Theme
-
-1. Go to **Management > Preferences > Theme Management**
-2. Click **Create Theme** or edit existing
-3. Customize colors with live preview
-4. Save and apply
+- Import/export themes as TOML files
 
 ### Theme Format
 
@@ -368,106 +343,30 @@ author = "Your Name"
 primaryColor = "#3b82f6"
 bgPrimary = "#111827"
 textPrimary = "#ffffff"
-# ... lots more options
 ```
 
-Themes save to `/data/themes/`
+Themes are stored in `/data/themes/`.
 
-<a id="optimization-settings"></a>
-## Optimization Settings [⬆](#-table-of-contents)
+-----
 
-### Memory Management
-
-Optional GC controls for low-memory systems. Disabled by default.
-
-```yaml
-environment:
-  - Optimizations__EnableGarbageCollectionManagement=true
-```
-
-Once enabled, you get controls in Management:
-- Collection aggressiveness
-- Memory threshold
-- Manual GC trigger
-
-**Use if:** Low memory system, memory climbing over time
-
-**Skip if:** 8GB+ RAM, performance matters more than memory
-
-<a id="image-caching"></a>
-## Image Caching [⬆](#-table-of-contents)
-
-Game artwork gets cached automatically to `/data/cached-img/`. Loads instantly after first fetch, auto-updates when Steam changes artwork.
-
-**Clear cache:**
-```bash
-docker stop lancache-manager
-rm -rf ./data/cached-img
-docker start lancache-manager
-```
-
-<a id="nginx-log-rotation"></a>
-## Nginx Log Rotation [⬆](#-table-of-contents)
-
-LANCache's monolithic container has an nginx quirk - when you rotate logs, nginx keeps writing to the old file handle. This tool can signal nginx automatically.
-
-### Setup
-
-```yaml
-volumes:
-  - /var/run/docker.sock:/var/run/docker.sock:ro
-
-environment:
-  - NginxLogRotation__Enabled=true
-  - NginxLogRotation__ContainerName=   # leave empty for auto-detect
-```
-
-**Security:** Socket is read-only, only runs `docker exec` to send signals.
-
-**Manual alternative:**
-```bash
-docker exec lancache nginx -s reopen
-```
-
-<a id="depot-mappings"></a>
-## Depot Mappings [⬆](#-table-of-contents)
-
-Game identification uses mappings from [lancache-pics](https://github.com/regix1/lancache-pics) - 290,000+ depot mappings, updated every 4 hours.
-
-**Download mappings:**
-1. Go to **Management > Depot Mappings**
-2. Click **Download from GitHub**
-3. Wait 1-2 minutes
-
-For private depots or unrecognized games, add custom mappings in the same section.
-
-### Steam Web API Key (Optional)
-
-For access to playtest and restricted games, you can configure a Steam Web API key:
-
-1. Get your API key from [Steam Web API](https://steamcommunity.com/dev/apikey)
-2. Go to **Management > Steam Web API Status**
-3. Click **Configure API Key** and enter your key
-
-**Note:** Most users don't need this. The GitHub mappings cover the vast majority of games.
-
-<a id="grafana--prometheus-integration"></a>
-## Grafana & Prometheus Integration [⬆](#-table-of-contents)
+<a id="grafana--prometheus"></a>
+## Grafana & Prometheus
 
 ### Available Metrics
 
-- `lancache_cache_capacity_bytes` - Total storage
-- `lancache_cache_size_bytes` - Used space
-- `lancache_cache_hit_bytes_total` - Bandwidth saved
-- `lancache_cache_miss_bytes_total` - New data cached
-- `lancache_active_downloads` - Current downloads
-- `lancache_cache_hit_ratio` - Effectiveness (0-1)
-- `lancache_downloads_by_service` - Per-service breakdown
-- `lancache_bytes_served_by_service` - Bandwidth per service
+| Metric | Description |
+|--------|-------------|
+| `lancache_cache_capacity_bytes` | Total storage capacity |
+| `lancache_cache_size_bytes` | Currently used space |
+| `lancache_cache_hit_bytes_total` | Bandwidth saved (cache hits) |
+| `lancache_cache_miss_bytes_total` | New data downloaded |
+| `lancache_active_downloads` | Current active downloads |
+| `lancache_cache_hit_ratio` | Cache effectiveness (0-1) |
+| `lancache_downloads_by_service` | Downloads per service |
+| `lancache_bytes_served_by_service` | Bandwidth per service |
 
-### Prometheus Config
+### Prometheus Configuration
 
-**No auth:**
 ```yaml
 scrape_configs:
   - job_name: 'lancache-manager'
@@ -477,369 +376,164 @@ scrape_configs:
     metrics_path: /metrics
 ```
 
-**With auth:**
-```yaml
-environment:
-  - Security__RequireAuthForMetrics=true
-```
+For authenticated metrics, set `Security__RequireAuthForMetrics=true` and add:
 
 ```yaml
-scrape_configs:
-  - job_name: 'lancache-manager'
-    static_configs:
-      - targets: ['lancache-manager:80']
-    scrape_interval: 30s
-    metrics_path: /metrics
     authorization:
       type: Bearer
       credentials: 'your-api-key-here'
 ```
 
-### Grafana Examples
+### Example Queries
 
 ```promql
-# Cache hit rate
+# Cache hit rate as percentage
 lancache_cache_hit_ratio * 100
 
-# Bandwidth saved today
+# Bandwidth saved in last 24 hours
 increase(lancache_cache_hit_bytes_total[24h])
 
-# Cache usage in GB
+# Cache size in GB
 lancache_cache_size_bytes / 1024 / 1024 / 1024
 ```
 
-<a id="api-examples"></a>
-## API Examples [⬆](#-table-of-contents)
-
-Stats endpoints are public. Management endpoints need your API key.
-
-```bash
-# Dashboard stats
-curl http://localhost:8080/api/stats/dashboard?period=24h
-
-# Top games
-curl http://localhost:8080/api/stats/top-games?limit=10
-
-# Client stats
-curl http://localhost:8080/api/stats/clients
-
-# Process logs (needs API key)
-curl -X POST -H "X-Api-Key: your-key" \
-  http://localhost:8080/api/management/process-all-logs
-
-# Clear service cache (needs API key)
-curl -X POST -H "X-Api-Key: your-key" \
-  http://localhost:8080/api/management/cache/clear/steam
-
-# Prometheus metrics
-curl http://localhost:8080/metrics
-```
+-----
 
 <a id="multiple-datasources"></a>
-## Multiple Datasources [⬆](#-table-of-contents)
+## Multiple Datasources
 
-If you run multiple LANCache instances with separate log and cache directories, you can configure them as datasources for unified management.
+Most users run a single LANCache instance and don't need this section. However, if you have outsourced specific services to separate cache directories or run multiple LANCache instances, you can configure multiple datasources to monitor them all from one dashboard.
 
-### Use Cases
+### When You Need This
 
-- **Dedicated game caches** - Separate cache for specific games (Riot, Blizzard, etc.)
-- **Multiple LANCache instances** - Different servers or storage locations
-- **Segmented storage** - Different drives or partitions for different content
+- **Outsourced services** - You've configured LANCache to store Steam on a separate drive from other services
+- **Multiple LANCache instances** - You run separate cache servers for different purposes
+- **Segmented storage** - Different services on different drives or partitions
 
 ### How It Works
 
-- **Aggregated views** - Dashboard and stats combine data from all datasources
-- **Per-datasource tracking** - Log processing position tracked separately for each datasource
-- **Unified database** - All downloads stored together with datasource tagging
-- **Backward compatible** - Single CachePath/LogPath config still works (creates "default" datasource)
+Each datasource represents a log/cache directory pair. The app processes logs and tracks cache usage separately for each, then combines the data in the dashboard and downloads views.
 
-### Management Features
-
-When multiple datasources are configured:
-- Datasource info displayed in Management tab
-- Cache operations work across all datasources
-- Log processing handles each datasource independently
-
----
+-----
 
 ### Auto-Discovery (Recommended)
 
-Automatically detect datasources by scanning your cache and logs directories. This is the simplest approach when your directory structure follows standard conventions.
-
-#### Basic Setup
+The simplest approach—let the app scan for matching subdirectories:
 
 ```yaml
-volumes:
-  - ./data:/data
-  - /mnt/lancache/logs:/logs:ro
-  - /mnt/lancache/cache:/cache:ro
-
 environment:
   - LanCache__LogPath=/logs
   - LanCache__CachePath=/cache
   - LanCache__AutoDiscoverDatasources=true
 ```
 
-#### What Auto-Discovery Detects
+**What it detects:**
 
-1. **Default datasource** - If there's an `access.log` at the root level AND cache content (LANCache hash directories) at the root
-2. **Subdirectory datasources** - Matching folders in both cache and logs (e.g., `steam/` in both → "Steam" datasource)
+1. **Root-level datasource** - If `/logs/access.log` exists and `/cache` contains LANCache hash directories (`00/`, `01/`, etc.), creates a "Default" datasource
+2. **Subdirectory datasources** - For each folder that exists in both `/cache` and `/logs`, creates a named datasource (e.g., `/cache/steam` + `/logs/steam` → "Steam")
 
-#### Example Directory Structures
+**Example directory structure:**
 
-**Single outsourced service:**
 ```
 /mnt/lancache/
-  ├── cache/
-  │   ├── 00/, 01/, a1/, ff/    # LANCache hash dirs (Default)
-  │   └── steam/                 # Outsourced Steam cache
-  │       └── 00/, 01/, ...
-  └── logs/
-      ├── access.log             # Main log (Default)
-      └── steam/                 # Outsourced Steam logs
-          └── access.log
-```
-Auto-discovery creates: **Default** + **Steam**
-
-**Multiple outsourced services:**
-```
-/mnt/lancache/
-  ├── cache/
-  │   ├── 00/, 01/, a1/, ff/    # Default cache (everything else)
-  │   ├── steam/
-  │   │   └── 00/, 01/, ...
-  │   ├── epic/
-  │   │   └── 00/, 01/, ...
-  │   └── blizzard/
-  │       └── 00/, 01/, ...
-  └── logs/
-      ├── access.log             # Default log
-      ├── steam/
-      │   └── access.log
-      ├── epic/
-      │   └── access.log
-      └── blizzard/
-          └── access.log
-```
-Auto-discovery creates: **Default** + **Steam** + **Epic** + **Blizzard**
-
-**No default (all outsourced):**
-```
-/mnt/lancache/
-  ├── cache/
-  │   ├── steam/
-  │   │   └── 00/, 01/, ...
-  │   ├── epic/
-  │   │   └── 00/, 01/, ...
-  │   ├── origin/
-  │   │   └── 00/, 01/, ...
-  │   └── uplay/
-  │       └── 00/, 01/, ...
-  └── logs/
-      ├── steam/
-      │   └── access.log
-      ├── epic/
-      │   └── access.log
-      ├── origin/
-      │   └── access.log
-      └── uplay/
-          └── access.log
-```
-Auto-discovery creates: **Steam** + **Epic** + **Origin** + **Uplay** (no Default - no root level content)
-
-#### Folder Name Matching
-
-Case-insensitive and flexible - folders named `Steam`, `steam`, `STEAM`, or `steam-cache` will match `steam-logs`.
-
-#### Full Docker Compose Example (Auto-Discovery)
-
-```yaml
-version: '3.8'
-
-services:
-  lancache-manager:
-    image: ghcr.io/regix1/lancache-manager:latest
-    container_name: lancache-manager
-    restart: unless-stopped
-    ports:
-      - "8080:80"
-    volumes:
-      - ./data:/data
-
-      # Main LANCache directory with default + multiple outsourced subdirectories
-      # /mnt/lancache/
-      #   ├── cache/
-      #   │   ├── 00/, 01/, a1/, ff/   # Default cache content
-      #   │   ├── steam/                # Outsourced Steam
-      #   │   │   └── 00/, 01/, ...
-      #   │   ├── epic/                 # Outsourced Epic Games
-      #   │   │   └── 00/, 01/, ...
-      #   │   └── blizzard/             # Outsourced Battle.net
-      #   │       └── 00/, 01/, ...
-      #   └── logs/
-      #       ├── access.log            # Default log
-      #       ├── steam/
-      #       │   └── access.log
-      #       ├── epic/
-      #       │   └── access.log
-      #       └── blizzard/
-      #           └── access.log
-      #
-      # Auto-discovers: Default + Steam + Epic + Blizzard
-      - /mnt/lancache/logs:/logs:ro
-      - /mnt/lancache/cache:/cache:ro
-
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    environment:
-      - PUID=33
-      - PGID=33
-      - TZ=America/Chicago
-      - ASPNETCORE_URLS=http://+:80
-
-      # Point to the mounted paths
-      - LanCache__LogPath=/logs
-      - LanCache__CachePath=/cache
-
-      # Auto-discover datasources
-      - LanCache__AutoDiscoverDatasources=true
-
-      - Security__EnableAuthentication=true
-      - NginxLogRotation__Enabled=true
+├── cache/
+│   ├── 00/, 01/, a1/, ff/    ← Default cache (hash dirs at root)
+│   ├── steam/
+│   │   └── 00/, 01/, ...     ← Outsourced Steam
+│   └── epic/
+│       └── 00/, 01/, ...     ← Outsourced Epic
+└── logs/
+    ├── access.log            ← Default log
+    ├── steam/
+    │   └── access.log        ← Steam log
+    └── epic/
+        └── access.log        ← Epic log
 ```
 
----
+This creates three datasources: **Default**, **Steam**, and **Epic**.
+
+> [!NOTE]
+> Folder matching is case-insensitive. `Steam`, `steam`, and `STEAM` all match.
+
+-----
 
 ### Manual Configuration
 
-Define each datasource explicitly with environment variables. Use this when you have datasources on separate drives or need precise control over naming and paths.
-
-> **Note:** Explicit DataSources config takes priority over auto-discovery.
-
-#### Basic Setup
+For precise control or when directories are on separate drives, define each datasource explicitly:
 
 ```yaml
 environment:
-  # First datasource
-  - LanCache__DataSources__0__Name=Steam
-  - LanCache__DataSources__0__CachePath=/mnt/cache/steam
-  - LanCache__DataSources__0__LogPath=/mnt/logs/steam
+  # Main LANCache
+  - LanCache__DataSources__0__Name=Default
+  - LanCache__DataSources__0__CachePath=/cache
+  - LanCache__DataSources__0__LogPath=/logs
   - LanCache__DataSources__0__Enabled=true
 
-  # Second datasource
-  - LanCache__DataSources__1__Name=Epic
-  - LanCache__DataSources__1__CachePath=/mnt/cache/epic
-  - LanCache__DataSources__1__LogPath=/mnt/logs/epic
+  # Steam on a separate drive
+  - LanCache__DataSources__1__Name=Steam
+  - LanCache__DataSources__1__CachePath=/steam-cache
+  - LanCache__DataSources__1__LogPath=/steam-logs
   - LanCache__DataSources__1__Enabled=true
 ```
 
-#### Full Docker Compose Example (Manual)
-
-Use manual configuration when you have a main LANCache plus outsourced services on separate drives:
+With corresponding volume mounts:
 
 ```yaml
-version: '3.8'
-
-services:
-  lancache-manager:
-    image: ghcr.io/regix1/lancache-manager:latest
-    container_name: lancache-manager
-    restart: unless-stopped
-    ports:
-      - "8080:80"
-    volumes:
-      - ./data:/data
-
-      # Main LANCache (all services except Steam)
-      # /mnt/lancache/
-      #   ├── cache/     (contains 00/, 01/, a1/, ff/, etc.)
-      #   └── logs/
-      #       └── access.log
-      - /mnt/lancache/logs:/logs:ro
-      - /mnt/lancache/cache:/cache:ro
-
-      # Outsourced Steam on separate drive
-      # /mnt/steam-drive/
-      #   ├── cache/     (contains 00/, 01/, a1/, ff/, etc.)
-      #   └── logs/
-      #       └── access.log
-      - /mnt/steam-drive/logs:/steam-logs:ro
-      - /mnt/steam-drive/cache:/steam-cache:ro
-
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    environment:
-      - PUID=33
-      - PGID=33
-      - TZ=America/Chicago
-      - ASPNETCORE_URLS=http://+:80
-
-      # Default datasource - main LANCache
-      - LanCache__DataSources__0__Name=Default
-      - LanCache__DataSources__0__CachePath=/cache
-      - LanCache__DataSources__0__LogPath=/logs
-      - LanCache__DataSources__0__Enabled=true
-
-      # Outsourced Steam datasource
-      - LanCache__DataSources__1__Name=Steam
-      - LanCache__DataSources__1__CachePath=/steam-cache
-      - LanCache__DataSources__1__LogPath=/steam-logs
-      - LanCache__DataSources__1__Enabled=true
-
-      - Security__EnableAuthentication=true
-      - NginxLogRotation__Enabled=true
+volumes:
+  - /mnt/lancache/cache:/cache:ro
+  - /mnt/lancache/logs:/logs:ro
+  - /mnt/steam-drive/cache:/steam-cache:ro
+  - /mnt/steam-drive/logs:/steam-logs:ro
 ```
 
+> [!NOTE]
+> Manual datasource configuration takes priority over auto-discovery.
+
+-----
+
 <a id="troubleshooting"></a>
-## Troubleshooting [⬆](#-table-of-contents)
+## Troubleshooting
 
-### Logs Not Processing?
+### Logs Not Processing
 
-1. Check log path in **Management > Settings**
-2. Verify volume mount matches:
-   ```yaml
-   volumes:
-     - /your/logs:/logs:ro  # Must match LanCache__LogPath
-   ```
+1. Verify the log path in **Management > Settings**
+2. Confirm your volume mount matches `LanCache__LogPath`
 3. Click **Process Logs** in Management
 4. Check container logs: `docker logs lancache-manager`
 
-### Games Not Identified?
+### Games Not Identified
 
-1. Download latest mappings from **Management > Depot Mappings > Download from GitHub**
-2. Add custom mappings for private depots
+1. Download latest mappings from **Management > Depot Mappings**
+2. Add custom mappings for private depots if needed
 3. Click **Reprocess All Logs** after adding mappings
 
-### Lost API Key?
+### Lost API Key
 
 ```bash
-# Option 1: Check the file
 cat ./data/api_key.txt
-
-# Option 2: Check logs
-docker logs lancache-manager | grep "API Key"
-
-# Option 3: Generate new one
-docker stop lancache-manager
-rm ./data/api_key.txt
-docker start lancache-manager
+# or
 docker logs lancache-manager | grep "API Key"
 ```
 
-### Permission Issues?
+To generate a new key, stop the container, delete `./data/api_key.txt`, and restart.
 
-1. Check volumes aren't read-only
-2. Verify PUID/PGID match file ownership:
-   ```bash
-   ls -n /path/to/cache
-   ```
-3. Update docker-compose:
-   ```yaml
-   environment:
-     - PUID=33
-     - PGID=33
-   ```
+### Permission Issues
+
+Verify PUID/PGID match your file ownership:
+```bash
+ls -n /path/to/cache
+```
+
+### Prefill Not Working
+
+1. Ensure Docker socket is mounted without `:ro`
+2. Confirm you're authenticated as admin
+3. Check container logs for errors
+
+-----
 
 <a id="building-from-source"></a>
-## Building from Source [⬆](#-table-of-contents)
+## Building from Source
 
 **Requirements:** .NET 8 SDK, Node.js 20+, Rust 1.75+
 
@@ -848,17 +542,13 @@ git clone https://github.com/regix1/lancache-manager.git
 cd lancache-manager
 
 # Rust processor
-cd rust-processor
-cargo build --release
+cd rust-processor && cargo build --release
 
 # Web interface
-cd ../Web
-npm install
-npm run dev  # http://localhost:3000
+cd ../Web && npm install && npm run dev  # http://localhost:3000
 
 # API
-cd ../Api/LancacheManager
-dotnet run  # http://localhost:5000
+cd ../Api/LancacheManager && dotnet run  # http://localhost:5000
 ```
 
 **Docker build:**
@@ -866,17 +556,21 @@ dotnet run  # http://localhost:5000
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
   -t ghcr.io/regix1/lancache-manager:latest \
-  --push \
-  .
+  --push .
 ```
 
-<a id="contributing"></a>
-## Contributing [⬆](#-table-of-contents)
+-----
 
-Found a bug or have a feature request? [Open an issue](https://github.com/regix1/lancache-manager/issues) on GitHub.
+<a id="need-help"></a>
+## Need Help?
 
-<a id="support"></a>
-## Support [⬆](#-table-of-contents)
+If you run into issues, feel free to [open an issue](https://github.com/regix1/lancache-manager/issues) on GitHub.
+
+You can also find the LANCache community at the [LanCache.NET Discord](https://discord.com/invite/BKnBS4u).
+
+-----
+
+## Support
 
 <div align="center">
 
@@ -898,7 +592,8 @@ If this project has been helpful, consider supporting development.
 
 </div>
 
-<a id="license"></a>
-## License [⬆](#-table-of-contents)
+-----
+
+## License
 
 [MIT License](https://github.com/regix1/lancache-manager/blob/main/LICENSE)
