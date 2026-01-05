@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import { HubConnection, HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
 import { Card, CardContent } from '../../ui/Card';
 import { Button } from '../../ui/Button';
+import { Modal } from '../../ui/Modal';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { usePrefillSteamAuth } from '@hooks/usePrefillSteamAuth';
 import { ActivityLog, type LogEntryType } from './ActivityLog';
@@ -1070,92 +1071,85 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       />
 
       {/* Large Prefill Confirmation Dialog */}
-      {pendingConfirmCommand && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center"
-          style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}
-        >
-          <div
-            className="w-full max-w-md mx-4 p-6 rounded-xl shadow-2xl"
-            style={{
-              backgroundColor: 'var(--theme-bg-primary)',
-              border: '1px solid var(--theme-border-primary)'
-            }}
-          >
-            <div className="flex items-start gap-4">
-              <div
-                className="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0"
-                style={{ backgroundColor: 'color-mix(in srgb, var(--theme-warning) 15%, transparent)' }}
-              >
-                <AlertCircle className="h-6 w-6" style={{ color: 'var(--theme-warning)' }} />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold text-themed-primary">
-                  {getConfirmationMessage(pendingConfirmCommand).title}
-                </h3>
-                <p className="mt-2 text-sm text-themed-muted">
-                  {getConfirmationMessage(pendingConfirmCommand).message}
-                </p>
-                {/* Estimated download size */}
-                {pendingConfirmCommand === 'prefill' && (
-                  <div className="mt-3 p-3 rounded-lg" style={{ backgroundColor: 'var(--theme-bg-secondary)' }}>
-                    {estimatedSize.loading ? (
-                      <div className="flex items-center gap-2">
-                        <Loader2 className="h-4 w-4 animate-spin" style={{ color: 'var(--theme-primary)' }} />
-                        <span className="text-sm text-themed-muted">Calculating download size...</span>
-                      </div>
-                    ) : estimatedSize.error ? (
-                      <span className="text-sm text-themed-muted">{estimatedSize.error}</span>
-                    ) : (
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-themed-muted">Total estimated download:</span>
-                          <span className="text-sm font-semibold" style={{ color: 'var(--theme-primary)' }}>
-                            {formatBytes(estimatedSize.bytes)}
-                          </span>
-                        </div>
-                        {estimatedSize.apps && estimatedSize.apps.length > 0 && (
-                          <div className="pt-2 border-t" style={{ borderColor: 'var(--theme-border-primary)' }}>
-                            <div className="text-xs text-themed-muted mb-1">Breakdown ({estimatedSize.apps.length} games):</div>
-                            <div className="space-y-1 max-h-32 overflow-y-auto">
-                              {estimatedSize.apps.map(app => (
-                                <div key={app.appId} className="flex items-center justify-between text-xs">
-                                  <span className="text-themed-secondary truncate mr-2" style={{ maxWidth: '200px' }}>
-                                    {app.name}
-                                  </span>
-                                  <span className="text-themed-muted whitespace-nowrap">
-                                    {formatBytes(app.downloadSize)}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
+      <Modal
+        opened={!!pendingConfirmCommand}
+        onClose={handleCancelConfirm}
+        title={
+          <div className="flex items-center gap-3">
+            <div
+              className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+              style={{ backgroundColor: 'color-mix(in srgb, var(--theme-warning) 15%, transparent)' }}
+            >
+              <AlertCircle className="h-5 w-5" style={{ color: 'var(--theme-warning)' }} />
+            </div>
+            <span>{pendingConfirmCommand ? getConfirmationMessage(pendingConfirmCommand).title : ''}</span>
+          </div>
+        }
+        size="md"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-themed-muted">
+            {pendingConfirmCommand ? getConfirmationMessage(pendingConfirmCommand).message : ''}
+          </p>
+
+          {/* Estimated download size */}
+          {pendingConfirmCommand === 'prefill' && (
+            <div className="p-3 rounded-lg" style={{ backgroundColor: 'var(--theme-bg-secondary)' }}>
+              {estimatedSize.loading ? (
+                <div className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" style={{ color: 'var(--theme-primary)' }} />
+                  <span className="text-sm text-themed-muted">Calculating download size...</span>
+                </div>
+              ) : estimatedSize.error ? (
+                <span className="text-sm text-themed-muted">{estimatedSize.error}</span>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-themed-muted">Total estimated download:</span>
+                    <span className="text-sm font-semibold" style={{ color: 'var(--theme-primary)' }}>
+                      {formatBytes(estimatedSize.bytes)}
+                    </span>
                   </div>
-                )}
-              </div>
+                  {estimatedSize.apps && estimatedSize.apps.length > 0 && (
+                    <div className="pt-2 border-t" style={{ borderColor: 'var(--theme-border-primary)' }}>
+                      <div className="text-xs text-themed-muted mb-1">Breakdown ({estimatedSize.apps.length} games):</div>
+                      <div className="space-y-1 max-h-32 overflow-y-auto">
+                        {estimatedSize.apps.map(app => (
+                          <div key={app.appId} className="flex items-center justify-between text-xs">
+                            <span className="text-themed-secondary truncate mr-2" style={{ maxWidth: '200px' }}>
+                              {app.name}
+                            </span>
+                            <span className="text-themed-muted whitespace-nowrap">
+                              {formatBytes(app.downloadSize)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-            <div className="mt-6 flex justify-end gap-3">
-              <Button
-                variant="outline"
-                onClick={handleCancelConfirm}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="filled"
-                color="blue"
-                onClick={handleConfirmCommand}
-                disabled={pendingConfirmCommand === 'prefill' && estimatedSize.loading}
-              >
-                {pendingConfirmCommand === 'prefill' ? 'Start Download' : 'Yes, Continue'}
-              </Button>
-            </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2">
+            <Button
+              variant="outline"
+              onClick={handleCancelConfirm}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="filled"
+              color="blue"
+              onClick={handleConfirmCommand}
+              disabled={pendingConfirmCommand === 'prefill' && estimatedSize.loading}
+            >
+              {pendingConfirmCommand === 'prefill' ? 'Start Download' : 'Yes, Continue'}
+            </Button>
           </div>
         </div>
-      )}
+      </Modal>
 
       {/* Header Bar */}
       <div
