@@ -17,6 +17,16 @@ import { Tooltip } from './Tooltip';
 
 export type IconColor = 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'purple' | 'cyan' | 'indigo';
 
+// Safelist for CSS purging - these classes are used dynamically via `icon-bg-${iconColor}`
+// prettier-ignore
+const _iconClassSafelist = [
+  'icon-bg-red', 'icon-bg-orange', 'icon-bg-yellow', 'icon-bg-green',
+  'icon-bg-blue', 'icon-bg-purple', 'icon-bg-cyan', 'icon-bg-indigo',
+  'icon-red', 'icon-orange', 'icon-yellow', 'icon-green',
+  'icon-blue', 'icon-purple', 'icon-cyan', 'icon-indigo',
+];
+void _iconClassSafelist;
+
 export interface PermissionStatus {
   logsReadOnly?: boolean;
   cacheReadOnly?: boolean;

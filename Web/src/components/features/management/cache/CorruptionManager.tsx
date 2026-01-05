@@ -369,7 +369,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
       <Card>
         <ManagerCardHeader
           icon={AlertTriangle}
-          iconColor="red"
+          iconColor="yellow"
           title="Corruption Detection"
           subtitle="Find and fix corrupted cache files"
           helpContent={helpContent}
