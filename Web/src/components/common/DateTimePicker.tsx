@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Calendar, ChevronDown, Clock } from 'lucide-react';
+import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { useTimezone } from '@contexts/TimezoneContext';
@@ -252,12 +253,13 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
       <div>
         {/* Month/Year Navigation */}
         <div className="mb-4 flex items-center justify-between">
-          <button
+          <Button
+            variant="subtle"
+            size="sm"
             onClick={() => changeMonth(-1)}
-            className="p-2 hover:bg-[var(--theme-bg-tertiary)] rounded-lg transition-colors"
           >
-            <ChevronLeft className="w-5 h-5 text-[var(--theme-text-primary)]" />
-          </button>
+            <ChevronLeft className="w-5 h-5" />
+          </Button>
 
           <div className="flex items-center gap-2">
             {/* Month Dropdown */}
@@ -347,12 +349,13 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
             </div>
           </div>
 
-          <button
+          <Button
+            variant="subtle"
+            size="sm"
             onClick={() => changeMonth(1)}
-            className="p-2 hover:bg-[var(--theme-bg-tertiary)] rounded-lg transition-colors"
           >
-            <ChevronRight className="w-5 h-5 text-[var(--theme-text-primary)]" />
-          </button>
+            <ChevronRight className="w-5 h-5" />
+          </Button>
         </div>
 
         {/* Week Days Header */}
@@ -560,7 +563,9 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
 
         {/* Action Buttons */}
         <div className="flex gap-2 mt-4">
-          <button
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => {
               const now = new Date();
               now.setSeconds(0, 0);
@@ -570,17 +575,20 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
               setAmPm(now.getHours() >= 12 ? 'PM' : 'AM');
               setCurrentMonth(new Date(now.getFullYear(), now.getMonth(), 1));
             }}
-            className="flex-1 px-3 py-2 text-sm bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg hover:bg-[var(--theme-bg-primary)] transition-colors border border-[var(--theme-border-primary)]"
+            fullWidth
           >
             Now
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="filled"
+            color="blue"
+            size="sm"
             onClick={handleApply}
             disabled={!selectedDate}
-            className="flex-1 px-3 py-2 text-sm bg-[var(--theme-primary)] text-[var(--theme-button-text)] rounded-lg hover:bg-[var(--theme-primary)]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            fullWidth
           >
             Apply
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>

@@ -2,9 +2,25 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Database, Loader2, CheckCircle, XCircle, FolderOpen, RefreshCw, Search } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
+import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import ApiService from '@services/api.service';
 import FileBrowser from '@components/features/management/file-browser/FileBrowser';
 import { storage } from '@utils/storage';
+
+type ImportType = 'develancache' | 'lancache-manager';
+
+const importTypeOptions: DropdownOption[] = [
+  {
+    value: 'develancache',
+    label: 'DeveLanCacheUI_Backend',
+    description: 'Import from DeveLanCacheUI_Backend SQLite database'
+  },
+  {
+    value: 'lancache-manager',
+    label: 'LancacheManager',
+    description: 'Import from LancacheManager database backup'
+  }
+];
 
 interface ImportHistoricalDataStepProps {
   onComplete: () => void;
@@ -41,6 +57,10 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
   onComplete,
   onSkip
 }) => {
+  const [importType, setImportType] = useState<ImportType>(() => {
+    const stored = storage.getItem('importType');
+    return (stored === 'lancache-manager' ? stored : 'develancache') as ImportType;
+  });
   const [connectionString, setConnectionString] = useState(() => {
     return storage.getItem('importConnectionString') || '';
   });
@@ -58,6 +78,10 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
   const [inputMode, setInputMode] = useState<InputMode>('auto');
   const [autoSearching, setAutoSearching] = useState(false);
   const [foundDatabases, setFoundDatabases] = useState<FileSystemItem[]>([]);
+
+  useEffect(() => {
+    storage.setItem('importType', importType);
+  }, [importType]);
 
   useEffect(() => {
     if (connectionString) {
@@ -111,7 +135,7 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
 
     try {
       const res = await fetch(
-        `/api/migration/validate-connection?connectionString=${encodeURIComponent(connectionString)}`,
+        `/api/migration/validate-connection?connectionString=${encodeURIComponent(connectionString)}&importType=${importType}`,
         ApiService.getFetchOptions({ method: 'GET' })
       );
       const result = await ApiService.handleResponse<ValidationResult>(res);
@@ -129,9 +153,13 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
     setImporting(true);
     setImportResult(null);
 
+    const endpoint = importType === 'lancache-manager'
+      ? '/api/migration/import-lancache-manager'
+      : '/api/migration/import-develancache';
+
     try {
       const res = await fetch(
-        '/api/migration/import-develancache',
+        endpoint,
         ApiService.getFetchOptions({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -172,13 +200,13 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
       <div className="flex flex-col items-center text-center">
         <div
           className="w-14 h-14 rounded-full flex items-center justify-center mb-3"
-          style={{ backgroundColor: 'var(--theme-info-bg)' }}
+          style={{ backgroundColor: importType === 'develancache' ? 'var(--theme-info-bg)' : 'var(--theme-primary-bg)' }}
         >
-          <Database className="w-7 h-7" style={{ color: 'var(--theme-info)' }} />
+          <Database className="w-7 h-7" style={{ color: importType === 'develancache' ? 'var(--theme-info)' : 'var(--theme-primary)' }} />
         </div>
         <h3 className="text-lg font-semibold text-themed-primary mb-1">Import Historical Data</h3>
         <p className="text-sm text-themed-secondary max-w-md">
-          Import download history from DeveLanCacheUI_Backend or compatible systems
+          Import download history from external database systems
         </p>
       </div>
 
@@ -200,6 +228,22 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
           </div>
         </div>
       )}
+
+      {/* Import Type Dropdown */}
+      <div>
+        <label className="block text-sm font-medium text-themed-secondary mb-1.5">
+          Database Type
+        </label>
+        <EnhancedDropdown
+          options={importTypeOptions}
+          value={importType}
+          onChange={(value) => {
+            setImportType(value as ImportType);
+            setValidationResult(null);
+          }}
+          disabled={importing || !!importResult}
+        />
+      </div>
 
       {/* Mode Toggle */}
       <div className="flex items-center justify-center gap-2">
@@ -399,7 +443,12 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
             </p>
             {!validationResult.valid && validationResult.message.includes('DownloadEvents') && (
               <p className="mt-1 text-xs opacity-80">
-                Make sure to select a database from DeveLanCacheUI_Backend.
+                Make sure to select a DeveLanCacheUI_Backend database for this import type.
+              </p>
+            )}
+            {!validationResult.valid && validationResult.message.includes('Downloads') && (
+              <p className="mt-1 text-xs opacity-80">
+                Make sure to select a LancacheManager database for this import type.
               </p>
             )}
           </div>

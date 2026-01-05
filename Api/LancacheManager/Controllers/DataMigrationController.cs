@@ -130,12 +130,230 @@ public class DataMigrationController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/migration/validate-connection - Test connection to DeveLanCacheUI database
-    /// Query params: connectionString (supports raw path or "Data Source=..." format)
+    /// POST /api/migration/import-lancache-manager - Import data from another LancacheManager database
+    /// Request body: { "connectionString": "Data Source=path/to/lancachemanager.db", "batchSize": 1000, "overwriteExisting": false }
+    /// </summary>
+    [HttpPost("import-lancache-manager")]
+    [RequireAuth]
+    public async Task<IActionResult> ImportFromLancacheManager([FromBody] ImportRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.ConnectionString))
+        {
+            return BadRequest(new ErrorResponse { Error = "Connection string is required" });
+        }
+
+        _logger.LogInformation("Starting import from LancacheManager database");
+
+        // Extract the database path
+        var sourceDatabasePath = ExtractDatabasePath(request.ConnectionString);
+        if (string.IsNullOrWhiteSpace(sourceDatabasePath) || !System.IO.File.Exists(sourceDatabasePath))
+        {
+            return BadRequest(new ErrorResponse { Error = "Source database file not found at specified path" });
+        }
+
+        // Get target database path
+        var targetDatabasePath = _pathResolver.GetDatabasePath();
+
+        // Ensure we're not importing from the same database
+        if (Path.GetFullPath(sourceDatabasePath).Equals(Path.GetFullPath(targetDatabasePath), StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest(new ErrorResponse { Error = "Cannot import from the same database that is currently in use" });
+        }
+
+        var batchSize = request.BatchSize ?? 1000;
+        var overwriteExisting = request.OverwriteExisting;
+
+        ulong totalRecords = 0;
+        ulong recordsImported = 0;
+        ulong recordsSkipped = 0;
+        ulong recordsErrors = 0;
+        string? backupPath = null;
+
+        try
+        {
+            // Create backup of target database
+            if (System.IO.File.Exists(targetDatabasePath))
+            {
+                var timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
+                backupPath = Path.Combine(
+                    Path.GetDirectoryName(targetDatabasePath) ?? ".",
+                    $"{Path.GetFileNameWithoutExtension(targetDatabasePath)}.backup.{timestamp}{Path.GetExtension(targetDatabasePath)}"
+                );
+                System.IO.File.Copy(targetDatabasePath, backupPath);
+                _logger.LogInformation("Created backup at {BackupPath}", backupPath);
+            }
+
+            // Open source database (read-only)
+            var sourceConnStr = $"Data Source={sourceDatabasePath};Mode=ReadOnly";
+            using var sourceConn = new SqliteConnection(sourceConnStr);
+            await sourceConn.OpenAsync();
+
+            // Open target database
+            var targetConnStr = $"Data Source={targetDatabasePath}";
+            using var targetConn = new SqliteConnection(targetConnStr);
+            await targetConn.OpenAsync();
+
+            // Get total count from source
+            using (var countCmd = sourceConn.CreateCommand())
+            {
+                countCmd.CommandText = "SELECT COUNT(*) FROM Downloads";
+                totalRecords = Convert.ToUInt64(await countCmd.ExecuteScalarAsync());
+            }
+
+            _logger.LogInformation("Found {TotalRecords} records in source LancacheManager database", totalRecords);
+
+            // Read and insert in batches
+            var offset = 0;
+            while (true)
+            {
+                // Read batch from source
+                using var readCmd = sourceConn.CreateCommand();
+                readCmd.CommandText = @"
+                    SELECT Service, ClientIp, StartTimeUtc, EndTimeUtc, StartTimeLocal, EndTimeLocal,
+                           CacheHitBytes, CacheMissBytes, IsActive, DepotId, GameAppId, Datasource
+                    FROM Downloads
+                    ORDER BY StartTimeUtc
+                    LIMIT @limit OFFSET @offset";
+                readCmd.Parameters.AddWithValue("@limit", batchSize);
+                readCmd.Parameters.AddWithValue("@offset", offset);
+
+                using var reader = await readCmd.ExecuteReaderAsync();
+                var hasRecords = false;
+
+                using var transaction = targetConn.BeginTransaction();
+
+                while (await reader.ReadAsync())
+                {
+                    hasRecords = true;
+
+                    var service = reader.GetString(0);
+                    var clientIp = reader.GetString(1);
+                    var startTimeUtc = reader.GetString(2);
+                    var endTimeUtc = reader.GetString(3);
+                    var startTimeLocal = reader.IsDBNull(4) ? startTimeUtc : reader.GetString(4);
+                    var endTimeLocal = reader.IsDBNull(5) ? endTimeUtc : reader.GetString(5);
+                    var cacheHitBytes = reader.GetInt64(6);
+                    var cacheMissBytes = reader.GetInt64(7);
+                    var isActive = reader.IsDBNull(8) ? 0 : reader.GetInt32(8);
+                    var depotId = reader.IsDBNull(9) ? (int?)null : reader.GetInt32(9);
+                    var gameAppId = reader.IsDBNull(10) ? (int?)null : reader.GetInt32(10);
+                    var datasource = reader.IsDBNull(11) ? "default" : reader.GetString(11);
+
+                    try
+                    {
+                        // Check if record exists
+                        using var checkCmd = targetConn.CreateCommand();
+                        checkCmd.Transaction = transaction;
+                        checkCmd.CommandText = "SELECT COUNT(*) FROM Downloads WHERE ClientIp = @clientIp AND StartTimeUtc = @startTimeUtc";
+                        checkCmd.Parameters.AddWithValue("@clientIp", clientIp);
+                        checkCmd.Parameters.AddWithValue("@startTimeUtc", startTimeUtc);
+                        var exists = Convert.ToInt32(await checkCmd.ExecuteScalarAsync()) > 0;
+
+                        if (exists)
+                        {
+                            if (overwriteExisting)
+                            {
+                                using var updateCmd = targetConn.CreateCommand();
+                                updateCmd.Transaction = transaction;
+                                updateCmd.CommandText = @"
+                                    UPDATE Downloads SET
+                                        Service = @service, EndTimeUtc = @endTimeUtc, EndTimeLocal = @endTimeLocal,
+                                        CacheHitBytes = @cacheHitBytes, CacheMissBytes = @cacheMissBytes,
+                                        IsActive = @isActive, DepotId = @depotId, GameAppId = @gameAppId, Datasource = @datasource
+                                    WHERE ClientIp = @clientIp AND StartTimeUtc = @startTimeUtc";
+                                updateCmd.Parameters.AddWithValue("@service", service);
+                                updateCmd.Parameters.AddWithValue("@endTimeUtc", endTimeUtc);
+                                updateCmd.Parameters.AddWithValue("@endTimeLocal", endTimeLocal);
+                                updateCmd.Parameters.AddWithValue("@cacheHitBytes", cacheHitBytes);
+                                updateCmd.Parameters.AddWithValue("@cacheMissBytes", cacheMissBytes);
+                                updateCmd.Parameters.AddWithValue("@isActive", isActive);
+                                updateCmd.Parameters.AddWithValue("@depotId", (object?)depotId ?? DBNull.Value);
+                                updateCmd.Parameters.AddWithValue("@gameAppId", (object?)gameAppId ?? DBNull.Value);
+                                updateCmd.Parameters.AddWithValue("@datasource", datasource);
+                                updateCmd.Parameters.AddWithValue("@clientIp", clientIp);
+                                updateCmd.Parameters.AddWithValue("@startTimeUtc", startTimeUtc);
+                                await updateCmd.ExecuteNonQueryAsync();
+                                recordsImported++;
+                            }
+                            else
+                            {
+                                recordsSkipped++;
+                            }
+                        }
+                        else
+                        {
+                            using var insertCmd = targetConn.CreateCommand();
+                            insertCmd.Transaction = transaction;
+                            insertCmd.CommandText = @"
+                                INSERT INTO Downloads (Service, ClientIp, StartTimeUtc, EndTimeUtc, StartTimeLocal, EndTimeLocal,
+                                    CacheHitBytes, CacheMissBytes, IsActive, DepotId, GameAppId, Datasource)
+                                VALUES (@service, @clientIp, @startTimeUtc, @endTimeUtc, @startTimeLocal, @endTimeLocal,
+                                    @cacheHitBytes, @cacheMissBytes, @isActive, @depotId, @gameAppId, @datasource)";
+                            insertCmd.Parameters.AddWithValue("@service", service);
+                            insertCmd.Parameters.AddWithValue("@clientIp", clientIp);
+                            insertCmd.Parameters.AddWithValue("@startTimeUtc", startTimeUtc);
+                            insertCmd.Parameters.AddWithValue("@endTimeUtc", endTimeUtc);
+                            insertCmd.Parameters.AddWithValue("@startTimeLocal", startTimeLocal);
+                            insertCmd.Parameters.AddWithValue("@endTimeLocal", endTimeLocal);
+                            insertCmd.Parameters.AddWithValue("@cacheHitBytes", cacheHitBytes);
+                            insertCmd.Parameters.AddWithValue("@cacheMissBytes", cacheMissBytes);
+                            insertCmd.Parameters.AddWithValue("@isActive", isActive);
+                            insertCmd.Parameters.AddWithValue("@depotId", (object?)depotId ?? DBNull.Value);
+                            insertCmd.Parameters.AddWithValue("@gameAppId", (object?)gameAppId ?? DBNull.Value);
+                            insertCmd.Parameters.AddWithValue("@datasource", datasource);
+                            await insertCmd.ExecuteNonQueryAsync();
+                            recordsImported++;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Error processing record");
+                        recordsErrors++;
+                    }
+                }
+
+                transaction.Commit();
+
+                if (!hasRecords)
+                    break;
+
+                offset += batchSize;
+
+                _logger.LogDebug("Processed {Offset} of {Total} records", offset, totalRecords);
+            }
+
+            _logger.LogInformation(
+                "Import completed: {Imported} imported, {Skipped} skipped, {Errors} errors. Backup: {BackupPath}",
+                recordsImported, recordsSkipped, recordsErrors, backupPath ?? "none");
+
+            return Ok(new MigrationImportResponse
+            {
+                Message = $"Import completed: {recordsImported} imported, {recordsSkipped} skipped, {recordsErrors} errors",
+                TotalRecords = totalRecords,
+                Imported = recordsImported,
+                Skipped = recordsSkipped,
+                Errors = recordsErrors,
+                BackupPath = backupPath
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to import from LancacheManager database");
+            return StatusCode(500, new ErrorResponse
+            {
+                Error = "Import failed",
+                Details = ex.Message
+            });
+        }
+    }
+
+    /// <summary>
+    /// GET /api/migration/validate-connection - Test connection to external database
+    /// Query params: connectionString (supports raw path or "Data Source=..." format), importType (develancache or lancache-manager)
     /// </summary>
     [HttpGet("validate-connection")]
     [RequireAuth]
-    public async Task<IActionResult> ValidateConnection([FromQuery] string connectionString)
+    public async Task<IActionResult> ValidateConnection([FromQuery] string connectionString, [FromQuery] string importType = "develancache")
     {
         if (string.IsNullOrWhiteSpace(connectionString))
         {
@@ -153,9 +371,12 @@ public class DataMigrationController : ControllerBase
             using var connection = new SqliteConnection(connStr);
             await connection.OpenAsync();
 
-            // Check for DownloadEvents table
+            // Determine which table to check based on import type
+            var tableName = importType == "lancache-manager" ? "Downloads" : "DownloadEvents";
+
+            // Check for the appropriate table
             var cmd = connection.CreateCommand();
-            cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='DownloadEvents'";
+            cmd.CommandText = $"SELECT name FROM sqlite_master WHERE type='table' AND name='{tableName}'";
             var tableExists = await cmd.ExecuteScalarAsync();
 
             if (tableExists == null)
@@ -163,13 +384,13 @@ public class DataMigrationController : ControllerBase
                 return Ok(new ConnectionValidationResponse
                 {
                     Valid = false,
-                    Message = "Connection successful, but DownloadEvents table not found"
+                    Message = $"Connection successful, but {tableName} table not found"
                 });
             }
 
             // Get record count
             var countCmd = connection.CreateCommand();
-            countCmd.CommandText = "SELECT COUNT(*) FROM DownloadEvents";
+            countCmd.CommandText = $"SELECT COUNT(*) FROM {tableName}";
             var recordCount = Convert.ToInt32(await countCmd.ExecuteScalarAsync());
 
             return Ok(new ConnectionValidationResponse

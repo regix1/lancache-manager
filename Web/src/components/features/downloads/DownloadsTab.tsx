@@ -19,11 +19,13 @@ import ApiService from '@services/api.service';
 import preferencesService from '@services/preferences.service';
 import { formatDateTime } from '@utils/formatters';
 import { Alert } from '@components/ui/Alert';
+import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Checkbox } from '@components/ui/Checkbox';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { ActionMenu, ActionMenuItem } from '@components/ui/ActionMenu';
 import { Pagination } from '@components/ui/Pagination';
+import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { Tooltip } from '@components/ui/Tooltip';
 
 // Import view components
@@ -1138,13 +1140,14 @@ const DownloadsTab: React.FC = () => {
           <div className="flex sm:hidden items-center justify-between">
             <span className="text-sm font-medium text-themed-primary">Downloads</span>
             <Tooltip content="Settings" position="bottom">
-              <button
+              <Button
+                variant="subtle"
+                size="sm"
                 onClick={() => setSettingsOpened(!settingsOpened)}
-                className="p-1.5 rounded hover:bg-themed-hover transition-colors"
                 data-settings-button="true"
               >
                 <Settings size={18} />
-              </button>
+              </Button>
             </Tooltip>
           </div>
 
@@ -1163,12 +1166,14 @@ const DownloadsTab: React.FC = () => {
               style={{ borderColor: 'var(--theme-border-primary)' }}
             />
             {settings.searchQuery && (
-              <button
+              <Button
+                variant="subtle"
+                size="xs"
                 onClick={() => setSettings({ ...settings, searchQuery: '' })}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-muted)] hover:text-[var(--theme-text-primary)] transition-colors"
+                className="absolute right-2 top-1/2 -translate-y-1/2 !p-1"
               >
                 <X size={14} />
-              </button>
+              </Button>
             )}
           </div>
 
@@ -1226,44 +1231,17 @@ const DownloadsTab: React.FC = () => {
                 className="flex-1 min-w-0"
               />
               {/* View mode toggle inline with dropdowns */}
-              <div className="flex rounded-lg bg-themed-tertiary p-0.5 flex-shrink-0">
-                <button
-                  onClick={() => setSettings({ ...settings, viewMode: 'compact' })}
-                  className={`px-2 py-1 rounded-md transition-colors ${
-                    settings.viewMode === 'compact' ? 'bg-primary' : 'text-themed-secondary'
-                  }`}
-                  style={{
-                    color: settings.viewMode === 'compact' ? 'var(--theme-button-text)' : undefined
-                  }}
-                  title="Compact"
-                >
-                  <List size={14} />
-                </button>
-                <button
-                  onClick={() => setSettings({ ...settings, viewMode: 'normal' })}
-                  className={`px-2 py-1 rounded-md transition-colors ${
-                    settings.viewMode === 'normal' ? 'bg-primary' : 'text-themed-secondary'
-                  }`}
-                  style={{
-                    color: settings.viewMode === 'normal' ? 'var(--theme-button-text)' : undefined
-                  }}
-                  title="Normal"
-                >
-                  <Grid3x3 size={14} />
-                </button>
-                <button
-                  onClick={() => setSettings({ ...settings, viewMode: 'retro' })}
-                  className={`px-2 py-1 rounded-md transition-colors ${
-                    settings.viewMode === 'retro' ? 'bg-primary' : 'text-themed-secondary'
-                  }`}
-                  style={{
-                    color: settings.viewMode === 'retro' ? 'var(--theme-button-text)' : undefined
-                  }}
-                  title="Retro"
-                >
-                  <Table size={14} />
-                </button>
-              </div>
+              <SegmentedControl
+                options={[
+                  { value: 'compact', icon: <List />, title: 'Compact' },
+                  { value: 'normal', icon: <Grid3x3 />, title: 'Normal' },
+                  { value: 'retro', icon: <Table />, title: 'Retro' }
+                ]}
+                value={settings.viewMode}
+                onChange={(value) => setSettings({ ...settings, viewMode: value as ViewMode })}
+                size="sm"
+                className="flex-shrink-0"
+              />
             </div>
 
             {/* Desktop: All controls in one row */}
@@ -1321,50 +1299,17 @@ const DownloadsTab: React.FC = () => {
             {/* Desktop view controls */}
             <div className="hidden sm:flex gap-2 justify-end w-auto flex-shrink-0">
               {/* View Mode Toggle */}
-              <div className="flex rounded-lg bg-themed-tertiary p-1">
-                <button
-                  onClick={() => setSettings({ ...settings, viewMode: 'compact' })}
-                  className={`px-2 lg:px-3 py-1.5 rounded-md transition-colors flex items-center gap-1 ${
-                    settings.viewMode === 'compact'
-                      ? 'bg-primary'
-                      : 'text-themed-secondary hover:text-themed-primary'
-                  }`}
-                  style={{
-                    color: settings.viewMode === 'compact' ? 'var(--theme-button-text)' : undefined
-                  }}
-                >
-                  <List size={16} />
-                  <span className="text-xs hidden lg:inline">Compact</span>
-                </button>
-                <button
-                  onClick={() => setSettings({ ...settings, viewMode: 'normal' })}
-                  className={`px-2 lg:px-3 py-1.5 rounded-md transition-colors flex items-center gap-1 ${
-                    settings.viewMode === 'normal'
-                      ? 'bg-primary'
-                      : 'text-themed-secondary hover:text-themed-primary'
-                  }`}
-                  style={{
-                    color: settings.viewMode === 'normal' ? 'var(--theme-button-text)' : undefined
-                  }}
-                >
-                  <Grid3x3 size={16} />
-                  <span className="text-xs hidden lg:inline">Normal</span>
-                </button>
-                <button
-                  onClick={() => setSettings({ ...settings, viewMode: 'retro' })}
-                  className={`px-2 lg:px-3 py-1.5 rounded-md transition-colors flex items-center gap-1 ${
-                    settings.viewMode === 'retro'
-                      ? 'bg-primary'
-                      : 'text-themed-secondary hover:text-themed-primary'
-                  }`}
-                  style={{
-                    color: settings.viewMode === 'retro' ? 'var(--theme-button-text)' : undefined
-                  }}
-                >
-                  <Table size={16} />
-                  <span className="text-xs hidden lg:inline">Retro</span>
-                </button>
-              </div>
+              <SegmentedControl
+                options={[
+                  { value: 'compact', label: 'Compact', icon: <List /> },
+                  { value: 'normal', label: 'Normal', icon: <Grid3x3 /> },
+                  { value: 'retro', label: 'Retro', icon: <Table /> }
+                ]}
+                value={settings.viewMode}
+                onChange={(value) => setSettings({ ...settings, viewMode: value as ViewMode })}
+                size="md"
+                showLabels="responsive"
+              />
 
               {/* Export Button */}
               <ActionMenu
@@ -1373,17 +1318,15 @@ const DownloadsTab: React.FC = () => {
                 width="w-48"
                 trigger={
                   <Tooltip content="Export Data" position="bottom">
-                    <button
+                    <Button
+                      variant="subtle"
+                      size="sm"
                       onClick={() => setShowExportOptions(!showExportOptions)}
-                      className="p-2 rounded hover:bg-themed-hover transition-colors"
                       disabled={exportLoading || itemsToDisplay.length === 0}
+                      loading={exportLoading}
                     >
-                      {exportLoading ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <DownloadIcon size={18} />
-                      )}
-                    </button>
+                      <DownloadIcon size={18} />
+                    </Button>
                   </Tooltip>
                 }
               >
@@ -1407,23 +1350,25 @@ const DownloadsTab: React.FC = () => {
 
               {settings.viewMode === 'retro' && (
                 <Tooltip content="Fit columns to page" position="bottom">
-                  <button
+                  <Button
+                    variant="subtle"
+                    size="sm"
                     onClick={() => retroViewRef.current?.resetWidths()}
-                    className="p-2 rounded hover:bg-themed-hover transition-colors"
                   >
                     <Maximize2 size={18} />
-                  </button>
+                  </Button>
                 </Tooltip>
               )}
 
               <Tooltip content="Settings" position="bottom">
-                <button
+                <Button
+                  variant="subtle"
+                  size="sm"
                   onClick={() => setSettingsOpened(!settingsOpened)}
-                  className="p-2 rounded hover:bg-themed-hover transition-colors"
                   data-settings-button="true"
                 >
                   <Settings size={18} />
-                </button>
+                </Button>
               </Tooltip>
             </div>
           </div>
@@ -1444,44 +1389,26 @@ const DownloadsTab: React.FC = () => {
                   </div>
                   {(() => {
                     const activePreset = detectActivePreset(settings);
-                    const presetButtons: { key: PresetType; label: string }[] = [
-                      { key: 'pretty', label: 'Pretty' },
-                      { key: 'minimal', label: 'Minimal' },
-                      { key: 'showAll', label: 'Show All' },
-                      { key: 'default', label: 'Default' },
-                      { key: 'custom', label: 'Custom' }
-                    ];
-
                     return (
-                      <div
-                        className="inline-flex rounded-lg p-1 w-full sm:w-auto overflow-x-auto"
-                        style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                      >
-                        {presetButtons.map(({ key, label }) => {
-                          const isActive = activePreset === key;
-                          return (
-                            <button
-                              key={key}
-                              onClick={() => {
-                                if (key !== 'custom') {
-                                  setSettings({ ...settings, ...PRESETS[key as keyof typeof PRESETS] });
-                                }
-                              }}
-                              disabled={key === 'custom'}
-                              className={`flex-1 sm:flex-none px-3 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap ${
-                                isActive ? 'shadow-sm' : key === 'custom' ? '' : 'hover:bg-[var(--theme-bg-secondary)]'
-                              } ${key === 'custom' && !isActive ? 'opacity-50' : ''}`}
-                              style={{
-                                backgroundColor: isActive ? 'var(--theme-primary)' : 'transparent',
-                                color: isActive ? 'var(--theme-button-text)' : 'var(--theme-text-primary)',
-                                cursor: key === 'custom' ? 'default' : 'pointer'
-                              }}
-                            >
-                              {label}
-                            </button>
-                          );
-                        })}
-                      </div>
+                      <SegmentedControl
+                        options={[
+                          { value: 'pretty', label: 'Pretty' },
+                          { value: 'minimal', label: 'Minimal' },
+                          { value: 'showAll', label: 'Show All' },
+                          { value: 'default', label: 'Default' },
+                          { value: 'custom', label: 'Custom', disabled: true }
+                        ]}
+                        value={activePreset}
+                        onChange={(value) => {
+                          if (value !== 'custom') {
+                            setSettings({ ...settings, ...PRESETS[value as keyof typeof PRESETS] });
+                          }
+                        }}
+                        size="sm"
+                        showLabels={true}
+                        fullWidth
+                        className="sm:w-auto"
+                      />
                     );
                   })()}
                 </div>
@@ -1605,14 +1532,16 @@ const DownloadsTab: React.FC = () => {
             )}
           </div>
           {(settings.selectedService !== 'all' || settings.selectedClient !== 'all' || settings.searchQuery) && (
-            <button
+            <Button
+              variant="filled"
+              size="xs"
               onClick={() =>
                 setSettings({ ...settings, selectedService: 'all', selectedClient: 'all', searchQuery: '' })
               }
-              className="text-xs px-3 py-1.5 rounded bg-themed-accent text-[var(--theme-button-text)] hover:opacity-80 transition-opacity whitespace-nowrap self-start sm:self-auto"
+              className="self-start sm:self-auto"
             >
               Clear Filters
-            </button>
+            </Button>
           )}
         </div>
       </Alert>

@@ -16,6 +16,7 @@ import { Alert } from '@components/ui/Alert';
 import { Checkbox } from '@components/ui/Checkbox';
 import { Modal } from '@components/ui/Modal';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
+import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import {
   ManagerCardHeader,
   LoadingState,
@@ -23,6 +24,21 @@ import {
 } from '@components/ui/ManagerCard';
 import ApiService from '@services/api.service';
 import FileBrowser from '../file-browser/FileBrowser';
+
+type ImportType = 'develancache' | 'lancache-manager';
+
+const importTypeOptions: DropdownOption[] = [
+  {
+    value: 'develancache',
+    label: 'DeveLanCacheUI_Backend',
+    description: 'Import from DeveLanCacheUI_Backend SQLite database'
+  },
+  {
+    value: 'lancache-manager',
+    label: 'LancacheManager',
+    description: 'Import from LancacheManager database backup'
+  }
+];
 
 interface DataImporterProps {
   isAuthenticated: boolean;
@@ -65,6 +81,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
   onSuccess,
   onDataRefresh
 }) => {
+  const [importType, setImportType] = useState<ImportType>('develancache');
   const [connectionString, setConnectionString] = useState('');
   const [batchSize, setBatchSize] = useState(1000);
   const [overwriteExisting, setOverwriteExisting] = useState(false);
@@ -133,7 +150,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
 
     try {
       const res = await fetch(
-        `/api/migration/validate-connection?connectionString=${encodeURIComponent(connectionString)}`,
+        `/api/migration/validate-connection?connectionString=${encodeURIComponent(connectionString)}&importType=${importType}`,
         ApiService.getFetchOptions({
           method: 'GET'
         })
@@ -172,8 +189,12 @@ const DataImporter: React.FC<DataImporterProps> = ({
     setImporting(true);
     setImportResult(null);
 
+    const endpoint = importType === 'lancache-manager'
+      ? '/api/migration/import-lancache-manager'
+      : '/api/migration/import-develancache';
+
     try {
-      const res = await fetch('/api/migration/import-develancache', ApiService.getFetchOptions({
+      const res = await fetch(endpoint, ApiService.getFetchOptions({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -223,6 +244,17 @@ const DataImporter: React.FC<DataImporterProps> = ({
   // Help content
   const helpContent = (
     <HelpPopover position="left" width={340}>
+      <HelpSection title="Import Types">
+        <div className="space-y-1.5">
+          <HelpDefinition term="DeveLanCacheUI_Backend" termColor="purple">
+            DeveLanCache monitoring system database
+          </HelpDefinition>
+          <HelpDefinition term="LancacheManager" termColor="blue">
+            LancacheManager database backup
+          </HelpDefinition>
+        </div>
+      </HelpSection>
+
       <HelpSection title="Input Methods">
         <div className="space-y-1.5">
           <HelpDefinition term="Browse" termColor="blue">
@@ -235,7 +267,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
       </HelpSection>
 
       <HelpSection title="Compatibility" variant="subtle">
-        Only compatible with DeveLanCacheUI_Backend SQLite databases.
+        Select the correct import type for your database.
         Mount external databases as Docker volumes.
       </HelpSection>
 
@@ -244,6 +276,9 @@ const DataImporter: React.FC<DataImporterProps> = ({
       </HelpNote>
     </HelpPopover>
   );
+
+  // Get the selected import type label for display
+  const selectedImportTypeLabel = importTypeOptions.find(o => o.value === importType)?.label || 'Unknown';
 
   // Header actions - compatibility badge
   const headerActions = (
@@ -254,8 +289,8 @@ const DataImporter: React.FC<DataImporterProps> = ({
         border: '1px solid var(--theme-border-secondary)'
       }}
     >
-      <Database className="w-4 h-4 icon-purple" />
-      <span className="text-themed-secondary font-medium">DeveLanCacheUI_Backend</span>
+      <Database className={`w-4 h-4 ${importType === 'develancache' ? 'icon-purple' : 'icon-blue'}`} />
+      <span className="text-themed-secondary font-medium">{selectedImportTypeLabel}</span>
     </div>
   );
 
@@ -263,9 +298,9 @@ const DataImporter: React.FC<DataImporterProps> = ({
     <Card>
       <ManagerCardHeader
         icon={Upload}
-        iconColor="purple"
+        iconColor={importType === 'develancache' ? 'purple' : 'blue'}
         title="Import Historical Data"
-        subtitle="Import from DeveLanCacheUI_Backend databases only"
+        subtitle="Import from external SQLite databases"
         helpContent={helpContent}
         actions={headerActions}
       />
@@ -277,6 +312,23 @@ const DataImporter: React.FC<DataImporterProps> = ({
       )}
 
       <div className="space-y-4">
+        {/* Import Type Dropdown */}
+        <div>
+          <label className="block text-sm font-medium text-themed-primary mb-2">
+            Database Type
+          </label>
+          <EnhancedDropdown
+            options={importTypeOptions}
+            value={importType}
+            onChange={(value) => {
+              setImportType(value as ImportType);
+              setValidationResult(null);
+              setImportResult(null);
+            }}
+            disabled={mockMode || !isAuthenticated || importing}
+          />
+        </div>
+
         {/* Mode Toggle */}
         <div className="flex items-center gap-4">
           <div
@@ -457,7 +509,12 @@ const DataImporter: React.FC<DataImporterProps> = ({
               <p className="text-sm mt-1">{validationResult.message}</p>
               {validationResult.message.includes('DownloadEvents') && (
                 <p className="text-xs mt-2 opacity-80">
-                  Make sure to select a database from DeveLanCacheUI_Backend.
+                  Make sure to select a DeveLanCacheUI_Backend database for this import type.
+                </p>
+              )}
+              {validationResult.message.includes('Downloads') && (
+                <p className="text-xs mt-2 opacity-80">
+                  Make sure to select a LancacheManager database for this import type.
                 </p>
               )}
             </div>

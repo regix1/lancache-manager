@@ -3,6 +3,7 @@ import { CalendarDays, Plus, List, LayoutGrid, Loader2, Sparkles } from 'lucide-
 import { useEvents } from '@contexts/EventContext';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
+import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { getEventColorStyles, getEventColorVar } from '@utils/eventColors';
 import EventCalendar from './EventCalendar';
 import EventModal from './EventModal';
@@ -65,37 +66,17 @@ const EventsTab: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* View Toggle - Styled Segmented Control */}
-          <div
-            className="flex rounded-lg p-0.5"
-            style={{
-              backgroundColor: 'var(--theme-bg-tertiary)',
-              border: '1px solid var(--theme-border-primary)'
-            }}
-          >
-            <button
-              onClick={() => setViewMode('calendar')}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200"
-              style={{
-                backgroundColor: viewMode === 'calendar' ? 'var(--theme-primary)' : 'transparent',
-                color: viewMode === 'calendar' ? 'var(--theme-button-text)' : 'var(--theme-text-secondary)'
-              }}
-            >
-              <LayoutGrid className="w-4 h-4" />
-              <span className="hidden sm:inline">Calendar</span>
-            </button>
-            <button
-              onClick={() => setViewMode('list')}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200"
-              style={{
-                backgroundColor: viewMode === 'list' ? 'var(--theme-primary)' : 'transparent',
-                color: viewMode === 'list' ? 'var(--theme-button-text)' : 'var(--theme-text-secondary)'
-              }}
-            >
-              <List className="w-4 h-4" />
-              <span className="hidden sm:inline">List</span>
-            </button>
-          </div>
+          {/* View Toggle */}
+          <SegmentedControl
+            options={[
+              { value: 'calendar', label: 'Calendar', icon: <LayoutGrid className="w-4 h-4" /> },
+              { value: 'list', label: 'List', icon: <List className="w-4 h-4" /> }
+            ]}
+            value={viewMode}
+            onChange={(value) => setViewMode(value as ViewMode)}
+            size="md"
+            showLabels="responsive"
+          />
 
           {/* Create Event Button */}
           <Button

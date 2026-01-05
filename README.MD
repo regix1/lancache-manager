@@ -379,6 +379,22 @@ environment:
 
 Downloads run in a separate container with real-time progress updates. When your guests arrive, the games are already cached and ready to serve at full speed.
 
+### Importing App IDs
+
+If you're migrating from [steam-lancache-prefill](https://github.com/tpill90/steam-lancache-prefill) or have a list of Steam App IDs you want to prefill, you can import them directly:
+
+1. Click **Select Apps** to open the game selection modal
+2. Click **Import App IDs** to expand the import section
+3. Paste your App IDs in any of these formats:
+   - Comma-separated: `730, 570, 440`
+   - JSON array: `[730, 570, 440]`
+   - One per line
+4. Click **Import**
+
+The import will show you how many games were added, how many were already selected, and how many IDs aren't in your Steam library (these will be skipped during prefill).
+
+**Migrating from steam-lancache-prefill:** Copy the contents of your `selectedAppsToPrefill.json` file and paste it directly into the import field.
+
 -----
 
 <a id="custom-themes"></a>

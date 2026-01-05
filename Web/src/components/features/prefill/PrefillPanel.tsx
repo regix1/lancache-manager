@@ -175,6 +175,7 @@ const THREAD_OPTIONS: DropdownOption[] = [
 export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const hubConnection = useRef<HubConnection | null>(null);
   const initializationAttempted = useRef(false);
+  const isCancelling = useRef(false);
 
   // Use context for log entries (persists across tab switches)
   const { logEntries, addLog, clearLogs } = usePrefillContext();
@@ -401,6 +402,21 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         bytesPerSecond: number;
         elapsedSeconds: number;
       }) => {
+        // Final states should reset the cancelling flag and clear progress
+        const isFinalState = progress.state === 'completed' || progress.state === 'failed' || 
+                            progress.state === 'cancelled' || progress.state === 'idle';
+        
+        if (isFinalState) {
+          isCancelling.current = false;
+          setPrefillProgress(null);
+          return;
+        }
+
+        // Ignore progress updates while cancellation is in progress
+        if (isCancelling.current) {
+          return;
+        }
+
         if (progress.state === 'downloading') {
           setPrefillProgress(progress);
         } else if (progress.state === 'loading-metadata' || progress.state === 'metadata-loaded' || progress.state === 'starting' || progress.state === 'preparing') {
@@ -416,7 +432,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           // Set a loading state so UI shows something is happening
           setPrefillProgress({ ...progress, percentComplete: 0, bytesDownloaded: 0, totalBytes: 0 });
         } else {
-          // Clear progress for any other state (completed, error, app_completed, idle, etc.)
+          // Clear progress for any other state (app_completed, etc.)
           setPrefillProgress(null);
         }
       });
@@ -434,9 +450,15 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           addLog('download', 'Prefill operation started');
         } else if (state === 'completed') {
           addLog('success', 'Prefill operation completed');
+          isCancelling.current = false;
           setPrefillProgress(null);
         } else if (state === 'failed') {
           addLog('error', 'Prefill operation failed');
+          isCancelling.current = false;
+          setPrefillProgress(null);
+        } else if (state === 'cancelled') {
+          addLog('info', 'Prefill operation cancelled');
+          isCancelling.current = false;
           setPrefillProgress(null);
         }
       });
@@ -583,6 +605,9 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       force?: boolean;
     } = {}
   ) => {
+    // Reset cancelling flag when starting a new prefill
+    isCancelling.current = false;
+
     // Build the full request with settings
     const requestBody: Record<string, unknown> = { ...options };
 
@@ -772,6 +797,9 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const handleCancelPrefill = useCallback(async () => {
     if (!session || !hubConnection.current) return;
 
+    // Set cancelling flag to prevent incoming progress events from re-setting state
+    isCancelling.current = true;
+
     try {
       await hubConnection.current.invoke('CancelPrefill', session.id);
       addLog('info', 'Prefill cancellation requested');
@@ -779,6 +807,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     } catch (err) {
       console.error('Failed to cancel prefill:', err);
       addLog('error', 'Failed to cancel prefill');
+      // Reset flag on error so user can try again
+      isCancelling.current = false;
     }
   }, [session, addLog]);
 

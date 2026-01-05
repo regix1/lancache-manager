@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect, ChangeEvent } from 'react';
 import { Modal } from '../../ui/Modal';
 import { Button } from '../../ui/Button';
 import { CustomScrollbar } from '../../ui/CustomScrollbar';
-import { Search, Check, Gamepad2, Loader2 } from 'lucide-react';
+import { Search, Check, Gamepad2, Loader2, Import, ChevronDown } from 'lucide-react';
 
 export interface OwnedGame {
   appId: number;
@@ -29,6 +29,15 @@ export function GameSelectionModal({
   const [search, setSearch] = useState('');
   const [localSelected, setLocalSelected] = useState<Set<number>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
+  
+  // Import state
+  const [showImport, setShowImport] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importResult, setImportResult] = useState<{
+    added: number;
+    alreadySelected: number;
+    notInLibrary: number[];
+  } | null>(null);
 
   // Reset local selection when modal opens - start fresh each time
   useEffect(() => {
@@ -36,8 +45,70 @@ export function GameSelectionModal({
       // Start with current selection from parent, not cached
       setLocalSelected(new Set(selectedAppIds));
       setSearch('');
+      setImportText('');
+      setImportResult(null);
     }
   }, [opened, selectedAppIds]);
+
+  // Parse import text - supports comma-separated, JSON array, or newline-separated
+  const parseImportText = useCallback((text: string): number[] => {
+    const trimmed = text.trim();
+    if (!trimmed) return [];
+    
+    // Try JSON array first
+    if (trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parsed
+            .map(id => typeof id === 'number' ? id : parseInt(String(id), 10))
+            .filter(id => !isNaN(id) && id > 0);
+        }
+      } catch {
+        // Fall through to other parsing methods
+      }
+    }
+    
+    // Split by comma, newline, or space
+    return trimmed
+      .split(/[,\n\s]+/)
+      .map(s => parseInt(s.trim(), 10))
+      .filter(id => !isNaN(id) && id > 0);
+  }, []);
+
+  // Handle import
+  const handleImport = useCallback(() => {
+    const appIds = parseImportText(importText);
+    if (appIds.length === 0) {
+      setImportResult({ added: 0, alreadySelected: 0, notInLibrary: [] });
+      return;
+    }
+
+    const ownedAppIds = new Set(games.map(g => g.appId));
+    let added = 0;
+    let alreadySelected = 0;
+    const notInLibrary: number[] = [];
+
+    setLocalSelected(prev => {
+      const next = new Set(prev);
+      for (const appId of appIds) {
+        if (!ownedAppIds.has(appId)) {
+          notInLibrary.push(appId);
+        } else if (next.has(appId)) {
+          alreadySelected++;
+        } else {
+          next.add(appId);
+          added++;
+        }
+      }
+      return next;
+    });
+
+    setImportResult({ added, alreadySelected, notInLibrary });
+    if (added > 0) {
+      setImportText('');
+    }
+  }, [importText, games, parseImportText]);
 
   // Filter games by search
   const filteredGames = useMemo(() => {
@@ -100,6 +171,92 @@ export function GameSelectionModal({
       size="lg"
     >
       <div className="flex flex-col" style={{ height: '60vh' }}>
+        {/* Import Section - Collapsible */}
+        <div className="mb-3">
+          <button
+            onClick={() => setShowImport(!showImport)}
+            className="flex items-center gap-2 text-sm font-medium smooth-transition"
+            style={{ color: 'var(--theme-primary)' }}
+          >
+            <Import className="h-4 w-4" />
+            Import App IDs
+            <ChevronDown 
+              className={`h-4 w-4 smooth-transition ${showImport ? 'rotate-180' : ''}`} 
+            />
+          </button>
+          
+          {showImport && (
+            <div
+              className="mt-2 p-3 rounded-lg"
+              style={{
+                backgroundColor: 'var(--theme-bg-tertiary)',
+                border: '1px solid var(--theme-border-secondary)'
+              }}
+            >
+              <p className="text-xs mb-2" style={{ color: 'var(--theme-text-muted)' }}>
+                Paste Steam App IDs (comma-separated, JSON array, or one per line)
+              </p>
+              <textarea
+                value={importText}
+                onChange={(e) => {
+                  setImportText(e.target.value);
+                  setImportResult(null);
+                }}
+                placeholder="730, 570, 440 or [730, 570, 440]"
+                className="w-full px-3 py-2 text-sm rounded-lg resize-none smooth-transition"
+                style={{
+                  backgroundColor: 'var(--theme-bg-secondary)',
+                  border: '1px solid var(--theme-border-secondary)',
+                  color: 'var(--theme-text-primary)',
+                  outline: 'none',
+                  minHeight: '60px'
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.borderColor = 'var(--theme-primary)';
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.borderColor = 'var(--theme-border-secondary)';
+                }}
+              />
+              <div className="flex items-center gap-2 mt-2">
+                <Button 
+                  variant="filled" 
+                  size="sm" 
+                  onClick={handleImport}
+                  disabled={!importText.trim()}
+                >
+                  <Import className="h-3.5 w-3.5" />
+                  Import
+                </Button>
+                {importResult && (
+                  <span className="text-xs" style={{ color: 'var(--theme-text-muted)' }}>
+                    {importResult.added > 0 && (
+                      <span style={{ color: 'var(--theme-success)' }}>
+                        +{importResult.added} added
+                      </span>
+                    )}
+                    {importResult.alreadySelected > 0 && (
+                      <span>
+                        {importResult.added > 0 ? ', ' : ''}
+                        {importResult.alreadySelected} already selected
+                      </span>
+                    )}
+                    {importResult.notInLibrary.length > 0 && (
+                      <span style={{ color: 'var(--theme-warning)' }}>
+                        {(importResult.added > 0 || importResult.alreadySelected > 0) ? ', ' : ''}
+                        {importResult.notInLibrary.length} not in library
+                      </span>
+                    )}
+                    {importResult.added === 0 && importResult.alreadySelected === 0 && importResult.notInLibrary.length === 0 && (
+                      <span style={{ color: 'var(--theme-error)' }}>No valid App IDs found</span>
+                    )}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Search and actions */}
         <div className="flex gap-2 mb-3">
           <div className="relative flex-1">

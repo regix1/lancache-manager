@@ -3,6 +3,7 @@ import { Activity, Clock, Loader2, HardDrive, TrendingUp, RefreshCw } from 'luci
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { useDownloads } from '@contexts/DownloadsContext';
 import { useDownloadAssociations } from '@contexts/DownloadAssociationsContext';
@@ -976,25 +977,20 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
             <h3>Downloads</h3>
           </div>
 
-          <div className="tab-toggle">
-            <button
-              className={`tab-btn ${viewMode === 'recent' ? 'active' : ''}`}
-              onClick={() => setViewMode('recent')}
-            >
-              <Clock size={14} />
-              Recent
-            </button>
-            <button
-              className={`tab-btn ${viewMode === 'active' ? 'active' : ''}`}
-              onClick={() => setViewMode('active')}
-            >
-              <Activity size={14} />
-              Active
-              {activeCount > 0 && (
-                <span className="tab-badge">{activeCount}</span>
-              )}
-            </button>
-          </div>
+          <SegmentedControl
+            options={[
+              { value: 'recent', label: 'Recent', icon: <Clock size={14} /> },
+              {
+                value: 'active',
+                label: activeCount > 0 ? `Active (${activeCount})` : 'Active',
+                icon: <Activity size={14} />
+              }
+            ]}
+            value={viewMode}
+            onChange={(value) => setViewMode(value as 'recent' | 'active')}
+            size="sm"
+            showLabels={true}
+          />
         </div>
 
         {/* Stats row */}
