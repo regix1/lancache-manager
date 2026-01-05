@@ -179,23 +179,61 @@ services:
     ports:
       - "8080:80"
     volumes:
+      # Required: Data directory for database, API key, themes, cached images
       - ./data:/data
-      - /mnt/logs:/logs:ro
-      - /mnt/cache:/cache:ro
+
+      # Required: LANCache log directory (add :ro for read-only)
+      - /mnt/lancache/logs:/logs:ro
+
+      # Required: LANCache cache directory
+      # Add :ro for monitoring-only, remove for cache clearing features
+      - /mnt/lancache/cache:/cache:ro
+
+      # Optional: Docker socket for nginx log rotation and Steam Prefill
       - /var/run/docker.sock:/var/run/docker.sock
+
     environment:
-      - PUID=33
-      - PGID=33
+      #=== User/Group Settings ===#
+      - PUID=1000
+      - PGID=1000
       - TZ=America/Chicago
       - ASPNETCORE_URLS=http://+:80
+
+      #=== Path Settings ===#
       - LanCache__LogPath=/logs/access.log
       - LanCache__CachePath=/cache
+      # - LanCache__AutoDiscoverDatasources=true
+
+      #=== Security Settings ===#
       - Security__EnableAuthentication=true
       - Security__MaxAdminDevices=3
       - Security__RequireAuthForMetrics=false
+      # - Security__GuestSessionDurationHours=6
+      # - Security__ProtectSwagger=true
+      # - Security__AllowedOrigins=
+
+      #=== Nginx Log Rotation ===#
       - NginxLogRotation__Enabled=true
       - NginxLogRotation__ContainerName=
+      # - NginxLogRotation__ScheduleHours=24
+
+      #=== Optimization ===#
       - Optimizations__EnableGarbageCollectionManagement=false
+
+      #=== Cache Clearing ===#
+      # - CacheClear__DeleteMode=preserve
+
+      #=== Steam Prefill ===#
+      # - Prefill__DockerImage=ghcr.io/regix1/steam-prefill-daemon:latest
+      # - Prefill__SessionTimeoutMinutes=120
+      # - Prefill__DaemonBasePath=/data/prefill-sessions
+      # - Prefill__HostDataPath=/srv/lancache/data
+
+      #=== Multiple Datasources ===#
+      # - LanCache__DataSources__0__Name=Default
+      # - LanCache__DataSources__0__CachePath=/cache
+      # - LanCache__DataSources__0__LogPath=/logs
+      # - LanCache__DataSources__0__Enabled=true
 ```
 
 > [!NOTE]
