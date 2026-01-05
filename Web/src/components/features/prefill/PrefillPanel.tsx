@@ -200,7 +200,13 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
   // Confirmation dialog state for large prefill operations
   const [pendingConfirmCommand, setPendingConfirmCommand] = useState<CommandType | null>(null);
-  const [estimatedSize, setEstimatedSize] = useState<{ bytes: number; loading: boolean; error?: string }>({
+  const [estimatedSize, setEstimatedSize] = useState<{
+    bytes: number;
+    loading: boolean;
+    error?: string;
+    apps?: Array<{ appId: number; name: string; downloadSize: number }>;
+    message?: string;
+  }>({
     bytes: 0,
     loading: false
   });
@@ -843,8 +849,14 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       const status = await hubConnection.current.invoke('GetSelectedAppsStatus', session.id) as {
         totalDownloadSize: number;
         message?: string;
+        apps?: Array<{ appId: number; name: string; downloadSize: number }>;
       };
-      setEstimatedSize({ bytes: status.totalDownloadSize, loading: false });
+      setEstimatedSize({
+        bytes: status.totalDownloadSize,
+        loading: false,
+        apps: status.apps,
+        message: status.message
+      });
     } catch (error) {
       console.error('Failed to fetch estimated size:', error);
       setEstimatedSize({ bytes: 0, loading: false, error: 'Could not estimate size' });
@@ -1087,18 +1099,40 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                 {/* Estimated download size */}
                 {pendingConfirmCommand === 'prefill' && (
                   <div className="mt-3 p-3 rounded-lg" style={{ backgroundColor: 'var(--theme-bg-secondary)' }}>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-themed-muted">Estimated download:</span>
-                      {estimatedSize.loading ? (
+                    {estimatedSize.loading ? (
+                      <div className="flex items-center gap-2">
                         <Loader2 className="h-4 w-4 animate-spin" style={{ color: 'var(--theme-primary)' }} />
-                      ) : estimatedSize.error ? (
-                        <span className="text-sm text-themed-muted">{estimatedSize.error}</span>
-                      ) : (
-                        <span className="text-sm font-semibold" style={{ color: 'var(--theme-primary)' }}>
-                          {formatBytes(estimatedSize.bytes)}
-                        </span>
-                      )}
-                    </div>
+                        <span className="text-sm text-themed-muted">Calculating download size...</span>
+                      </div>
+                    ) : estimatedSize.error ? (
+                      <span className="text-sm text-themed-muted">{estimatedSize.error}</span>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-themed-muted">Total estimated download:</span>
+                          <span className="text-sm font-semibold" style={{ color: 'var(--theme-primary)' }}>
+                            {formatBytes(estimatedSize.bytes)}
+                          </span>
+                        </div>
+                        {estimatedSize.apps && estimatedSize.apps.length > 0 && (
+                          <div className="pt-2 border-t" style={{ borderColor: 'var(--theme-border-primary)' }}>
+                            <div className="text-xs text-themed-muted mb-1">Breakdown ({estimatedSize.apps.length} games):</div>
+                            <div className="space-y-1 max-h-32 overflow-y-auto">
+                              {estimatedSize.apps.map(app => (
+                                <div key={app.appId} className="flex items-center justify-between text-xs">
+                                  <span className="text-themed-secondary truncate mr-2" style={{ maxWidth: '200px' }}>
+                                    {app.name}
+                                  </span>
+                                  <span className="text-themed-muted whitespace-nowrap">
+                                    {formatBytes(app.downloadSize)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
