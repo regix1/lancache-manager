@@ -194,8 +194,8 @@ services:
 
     environment:
       #=== User/Group Settings ===#
-      - PUID=1000
-      - PGID=1000
+      - PUID=33
+      - PGID=33
       - TZ=America/Chicago
       - ASPNETCORE_URLS=http://+:80
 

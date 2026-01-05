@@ -31,11 +31,11 @@ services:
       #=========================================================================
 
       # User ID the application runs as (match your filesystem permissions)
-      # Common values: 1000 (default user), 33 (www-data on Debian/Ubuntu)
-      - PUID=1000
+      # Common values: 33 (www-data on Debian/Ubuntu), 1000 (default user)
+      - PUID=33
 
       # Group ID the application runs as
-      - PGID=1000
+      - PGID=33
 
       # Timezone for log timestamps and display
       # See: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
