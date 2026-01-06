@@ -205,9 +205,9 @@ class ApiService {
       let url = `${API_BASE}/downloads/latest?count=${actualCount}`;
       if (startTime) url += `&startTime=${startTime}`;
       if (endTime) url += `&endTime=${endTime}`;
-      // Support multiple event IDs - pass as comma-separated list
+      // Pass event ID for filtering (backend expects single eventId parameter)
       if (eventIds && eventIds.length > 0) {
-        url += `&eventIds=${eventIds.join(',')}`;
+        url += `&eventId=${eventIds[0]}`;
       }
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<Download[]>(res);
@@ -232,7 +232,7 @@ class ApiService {
       const params = new URLSearchParams();
       if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
       if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
-      if (eventIds && eventIds.length > 0) params.append('eventIds', eventIds.join(','));
+      if (eventIds && eventIds.length > 0) params.append('eventId', eventIds[0].toString());
       if (params.toString()) url += `?${params}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<ClientStat[]>(res);
@@ -257,7 +257,7 @@ class ApiService {
       const params = new URLSearchParams();
       if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
       if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
-      if (eventIds && eventIds.length > 0) params.append('eventIds', eventIds.join(','));
+      if (eventIds && eventIds.length > 0) params.append('eventId', eventIds[0].toString());
       if (params.toString()) url += `?${params}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<ServiceStat[]>(res);
@@ -283,7 +283,7 @@ class ApiService {
       const params = new URLSearchParams();
       if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
       if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
-      if (eventIds && eventIds.length > 0) params.append('eventIds', eventIds.join(','));
+      if (eventIds && eventIds.length > 0) params.append('eventId', eventIds[0].toString());
       if (params.toString()) url += `?${params}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<DashboardStats>(res);
