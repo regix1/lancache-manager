@@ -1,4 +1,5 @@
-import { CheckCircle2, XCircle, AlertTriangle, Wifi, Globe, Server, Info } from 'lucide-react';
+import { useState } from 'react';
+import { CheckCircle2, XCircle, AlertTriangle, Wifi, Globe, Server, Info, ChevronDown } from 'lucide-react';
 import { Card } from '../../ui/Card';
 import type { NetworkDiagnostics } from '@services/api.service';
 
@@ -7,6 +8,8 @@ interface NetworkStatusSectionProps {
 }
 
 export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
   if (!diagnostics) {
     return null;
   }
@@ -23,33 +26,33 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
   // Show info state (not warning) when public DNS but host networking is in use
   const showInfoState = hasPublicDnsWithHostNetworking && !hasRealIssue;
 
+  const statusColor = hasRealIssue
+    ? 'var(--theme-warning)'
+    : showInfoState
+      ? 'var(--theme-info)'
+      : 'var(--theme-success)';
+
+  const statusBgColor = hasRealIssue
+    ? 'color-mix(in srgb, var(--theme-warning) 15%, transparent)'
+    : showInfoState
+      ? 'color-mix(in srgb, var(--theme-info) 15%, transparent)'
+      : 'color-mix(in srgb, var(--theme-success) 15%, transparent)';
+
   return (
     <Card padding="md">
       <div className="space-y-3">
-        {/* Header */}
-        <div className="flex items-center gap-3">
+        {/* Clickable Header */}
+        <button
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="flex items-center gap-3 w-full text-left hover:opacity-80 transition-opacity"
+        >
           <div
-            className="w-10 h-10 rounded-lg flex items-center justify-center"
-            style={{
-              backgroundColor: hasRealIssue
-                ? 'color-mix(in srgb, var(--theme-warning) 15%, transparent)'
-                : showInfoState
-                  ? 'color-mix(in srgb, var(--theme-info) 15%, transparent)'
-                  : 'color-mix(in srgb, var(--theme-success) 15%, transparent)'
-            }}
+            className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+            style={{ backgroundColor: statusBgColor }}
           >
-            <Wifi
-              className="h-5 w-5"
-              style={{
-                color: hasRealIssue
-                  ? 'var(--theme-warning)'
-                  : showInfoState
-                    ? 'var(--theme-info)'
-                    : 'var(--theme-success)'
-              }}
-            />
+            <Wifi className="h-5 w-5" style={{ color: statusColor }} />
           </div>
-          <div>
+          <div className="flex-1 min-w-0">
             <p className="font-medium text-themed-primary">Container Network Status</p>
             <p className="text-sm text-themed-muted">
               {hasRealIssue
@@ -59,10 +62,16 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
                   : 'All checks passed'}
             </p>
           </div>
-        </div>
+          <ChevronDown
+            className={`h-5 w-5 text-themed-muted transition-transform duration-200 flex-shrink-0 ${
+              isExpanded ? 'rotate-180' : ''
+            }`}
+          />
+        </button>
 
-        {/* Status Items */}
-        <div className="space-y-2 pl-1">
+        {/* Collapsible Status Items */}
+        {isExpanded && (
+          <div className="space-y-2 pl-1 pt-2 border-t border-themed-secondary">
           {/* Internet Connectivity */}
           <div className="flex items-center gap-2">
             {diagnostics.internetConnectivity ? (
@@ -178,7 +187,8 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
               )}
             </div>
           ))}
-        </div>
+          </div>
+        )}
       </div>
     </Card>
   );

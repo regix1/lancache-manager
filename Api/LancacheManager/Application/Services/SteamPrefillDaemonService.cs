@@ -1876,9 +1876,6 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                 else
                 {
                     _logger.LogInformation("  ⚠ DNS resolved to a public IP ({IpAddress})", resolvedIp);
-                    _logger.LogInformation("    Note: If using transparent proxy or router-level interception,");
-                    _logger.LogInformation("    lancache may still work correctly despite public DNS results.");
-                    _logger.LogInformation("    Verify by checking if cache size grows during downloads.");
                 }
             }
             else
