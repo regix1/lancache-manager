@@ -277,14 +277,22 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                 $"{hostCommandsDir}:/commands",
                 $"{hostResponsesDir}:/responses"
             },
-            AutoRemove = true,
-            // Disable IPv6 to ensure DNS queries go through IPv4 lancache-dns
-            // This prevents IPv6 DNS bypass which can cause prefill to miss the cache
-            Sysctls = new Dictionary<string, string>
+            AutoRemove = true
+        };
+
+        // Disable IPv6 to ensure DNS queries go through IPv4 lancache-dns
+        // This prevents IPv6 DNS bypass which can cause prefill to miss the cache
+        // Note: Sysctls are not allowed with host networking mode
+        var shouldDisableIpv6 = !useHostNetworking &&
+                                (string.IsNullOrEmpty(explicitNetworkMode) ||
+                                 !explicitNetworkMode.Equals("host", StringComparison.OrdinalIgnoreCase));
+        if (shouldDisableIpv6)
+        {
+            hostConfig.Sysctls = new Dictionary<string, string>
             {
                 ["net.ipv6.conf.all.disable_ipv6"] = "1"
-            }
-        };
+            };
+        }
 
         // Determine network configuration strategy:
         // 1. If explicitly configured with NetworkMode, use that
