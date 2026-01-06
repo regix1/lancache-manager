@@ -20,7 +20,7 @@ export const useStats = () => {
 };
 
 export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode = false }) => {
-  const { getTimeRangeParams, timeRange, customStartDate, customEndDate } = useTimeFilter();
+  const { getTimeRangeParams, timeRange, customStartDate, customEndDate, eventStartTime, eventEndTime } = useTimeFilter();
   const { getRefreshInterval } = useRefreshRate();
   const signalR = useSignalR();
 
@@ -286,6 +286,13 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       fetchStats({ showLoading: true, forceRefresh: true });
     }
   }, [timeRange, mockMode, fetchStats]);
+
+  // Event time range changes (when switching between events while in 'event' mode)
+  useEffect(() => {
+    if (!mockMode && !isInitialLoad.current && timeRange === 'event') {
+      fetchStats({ showLoading: true, forceRefresh: true });
+    }
+  }, [eventStartTime, eventEndTime, mockMode, fetchStats, timeRange]);
 
   // Debounced custom date changes
   useEffect(() => {

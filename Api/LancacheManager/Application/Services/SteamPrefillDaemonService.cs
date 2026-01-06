@@ -266,7 +266,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         // Get network configuration for prefill container
         // Auto-detect from lancache-dns container if not explicitly configured
         var useHostNetworking = await ShouldUseHostNetworkingAsync(cancellationToken);
-        var (lancacheDnsIp, lancacheDnsNetwork) = useHostNetworking ? (null, null) : await GetLancacheDnsNetworkInfoAsync(cancellationToken);
+        var lancacheDnsIp = useHostNetworking ? null : await GetLancacheDnsIpAsync(cancellationToken);
         var explicitNetworkMode = GetNetworkMode();
 
         // Build host config with proper network settings
@@ -283,7 +283,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         // Determine network configuration strategy:
         // 1. If explicitly configured with NetworkMode, use that
         // 2. If lancache-dns uses host networking, use host mode (auto-detected)
-        // 3. If we have a lancache-dns network, attach to that network with DNS config
+        // 3. If we have a lancache-dns IP, use bridge network with DNS pointing to it
         // 4. Fallback: warn user that prefill may not work
         if (!string.IsNullOrEmpty(explicitNetworkMode))
         {
@@ -295,17 +295,9 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             hostConfig.NetworkMode = "host";
             _logger.LogInformation("Configuring prefill container to use host networking (auto-detected from lancache-dns)");
         }
-        else if (!string.IsNullOrEmpty(lancacheDnsIp) && !string.IsNullOrEmpty(lancacheDnsNetwork))
-        {
-            // Attach to the same network as lancache-dns for inter-container connectivity
-            hostConfig.NetworkMode = lancacheDnsNetwork;
-            hostConfig.DNS = new List<string> { lancacheDnsIp };
-            _logger.LogInformation("Configuring prefill container to use network '{Network}' with DNS {DnsIp}", 
-                lancacheDnsNetwork, lancacheDnsIp);
-        }
         else if (!string.IsNullOrEmpty(lancacheDnsIp))
         {
-            // Have IP but no network name - use default bridge with DNS config
+            // Use bridge network with explicit DNS pointing to lancache-dns
             hostConfig.DNS = new List<string> { lancacheDnsIp };
             _logger.LogInformation("Configuring prefill container DNS to use lancache-dns: {DnsIp}", lancacheDnsIp);
         }
@@ -1568,14 +1560,13 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     /// Gets the lancache DNS IP for prefill containers.
     /// Auto-detects from lancache-dns container if not explicitly configured.
     /// </summary>
-    private async Task<(string? ip, string? networkName)> GetLancacheDnsNetworkInfoAsync(CancellationToken cancellationToken = default)
+    private async Task<string?> GetLancacheDnsIpAsync(CancellationToken cancellationToken = default)
     {
         // Check explicit configuration first
         var configuredIp = _configuration["Prefill:LancacheDnsIp"];
         if (!string.IsNullOrEmpty(configuredIp))
         {
-            // Explicit IP configured - use default network (user handles network config)
-            return (configuredIp, null);
+            return configuredIp;
         }
 
         // Try to auto-detect from lancache-dns container
@@ -1603,35 +1594,33 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                         // Container uses host networking - return null to indicate we should use host mode
                         _logger.LogInformation("Detected lancache-dns using host networking. " +
                             "Prefill containers will use host network mode for DNS resolution.");
-                        return (null, null);
+                        return null;
                     }
 
-                    // Get container IP and network name
+                    // Get container IP from any network
                     var networks = inspect.NetworkSettings?.Networks;
                     if (networks != null && networks.Count > 0)
                     {
-                        // Prefer non-default bridge networks (custom networks have better inter-container connectivity)
-                        var preferredNetwork = networks
+                        var networkWithIp = networks
                             .Where(n => !string.IsNullOrEmpty(n.Value.IPAddress))
-                            .OrderByDescending(n => n.Key != "bridge") // Custom networks first
                             .FirstOrDefault();
 
-                        if (preferredNetwork.Value != null && !string.IsNullOrEmpty(preferredNetwork.Value.IPAddress))
+                        if (networkWithIp.Value != null && !string.IsNullOrEmpty(networkWithIp.Value.IPAddress))
                         {
-                            _logger.LogInformation("Auto-detected lancache-dns IP: {DnsIp} on network '{NetworkName}' from container {ContainerName}",
-                                preferredNetwork.Value.IPAddress, preferredNetwork.Key, dnsContainer.Names.FirstOrDefault());
-                            return (preferredNetwork.Value.IPAddress, preferredNetwork.Key);
+                            _logger.LogInformation("Auto-detected lancache-dns IP: {DnsIp} from container {ContainerName}",
+                                networkWithIp.Value.IPAddress, dnsContainer.Names.FirstOrDefault());
+                            return networkWithIp.Value.IPAddress;
                         }
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "Failed to auto-detect lancache-dns network info");
+                _logger.LogDebug(ex, "Failed to auto-detect lancache-dns IP");
             }
         }
 
-        return (null, null);
+        return null;
     }
 
     /// <summary>

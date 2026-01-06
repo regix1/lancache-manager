@@ -41,7 +41,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   children,
   mockMode = false
 }) => {
-  const { getTimeRangeParams, timeRange, customStartDate, customEndDate } = useTimeFilter();
+  const { getTimeRangeParams, timeRange, customStartDate, customEndDate, eventStartTime, eventEndTime } = useTimeFilter();
   const { getRefreshInterval } = useRefreshRate();
   const signalR = useSignalR();
 
@@ -263,6 +263,13 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
       fetchDownloads({ showLoading: true });
     }
   }, [timeRange, mockMode, fetchDownloads]);
+
+  // Event time range changes (when switching between events while in 'event' mode)
+  useEffect(() => {
+    if (!mockMode && !isInitialLoad.current && timeRange === 'event') {
+      fetchDownloads({ showLoading: true });
+    }
+  }, [eventStartTime, eventEndTime, mockMode, fetchDownloads, timeRange]);
 
   // Custom date changes (debounced)
   useEffect(() => {
