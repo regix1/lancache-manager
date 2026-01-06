@@ -20,20 +20,17 @@ public class SteamAuthController : ControllerBase
     private readonly SteamAuthRepository _steamAuthStorage;
     private readonly StateRepository _stateService;
     private readonly ILogger<SteamAuthController> _logger;
-    private readonly NetworkConnectivityService _connectivityService;
 
     public SteamAuthController(
         SteamKit2Service steamKit2Service,
         SteamAuthRepository steamAuthStorage,
         StateRepository stateService,
-        ILogger<SteamAuthController> logger,
-        NetworkConnectivityService connectivityService)
+        ILogger<SteamAuthController> logger)
     {
         _steamKit2Service = steamKit2Service;
         _steamAuthStorage = steamAuthStorage;
         _stateService = stateService;
         _logger = logger;
-        _connectivityService = connectivityService;
     }
 
     /// <summary>
@@ -74,21 +71,6 @@ public class SteamAuthController : ControllerBase
         // If user provides credentials, they want to authenticate (regardless of current mode)
         if (request != null && !string.IsNullOrEmpty(request.Username) && !string.IsNullOrEmpty(request.Password))
         {
-            // Check for internet connectivity before attempting Steam login
-            if (!_connectivityService.HasInternetAccess)
-            {
-                // Re-check connectivity in case it was restored
-                var hasInternet = await _connectivityService.CheckConnectivityAsync(sendSignalREvent: false);
-                if (!hasInternet)
-                {
-                    _logger.LogWarning("Steam login blocked: No internet access detected");
-                    return BadRequest(new ErrorResponse
-                    {
-                        Error = "No internet access. The Docker container cannot connect to Steam servers. Please check your Docker network configuration (you may need to set 'network_mode: host' in your docker-compose.yml)."
-                    });
-                }
-            }
-
             // User wants to switch to authenticated mode
             var result = await _steamKit2Service.AuthenticateAsync(
                 request.Username,

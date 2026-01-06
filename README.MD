@@ -354,21 +354,42 @@ The Prefill tab lets you pre-download games to your cache before your LAN party 
 
 ### Network Configuration
 
-For prefill to work, the prefill container must resolve Steam CDN domains to your cache. The app **auto-detects** this in most cases:
+For prefill to work, the prefill container needs:
+1. **Internet access** - to authenticate with Steam and download game data
+2. **DNS resolution** - Steam CDN domains should resolve to your cache server
 
+The app **auto-detects** network settings in most cases:
 - If your lancache-dns uses `network_mode: host`, prefill containers will also use host networking
 - Otherwise, it uses the lancache-dns container's IP address for DNS resolution
+
+**Network Diagnostics:**
+When a prefill session starts, the app automatically tests the container's network configuration and logs the results. Check your container logs for output like:
+```
+═══════════════════════════════════════════════════════════════════════
+  PREFILL CONTAINER NETWORK DIAGNOSTICS - prefill-daemon-abc123
+═══════════════════════════════════════════════════════════════════════
+  ✓ Internet connectivity: OK (reached api.steampowered.com)
+  lancache.steamcontent.com resolved to 192.168.1.5
+  ✓ DNS looks correct (private IP - likely your lancache server)
+═══════════════════════════════════════════════════════════════════════
+```
 
 **Manual configuration** (if auto-detection fails):
 
 ```yaml
 environment:
-  # Option 1: Use host networking (simplest for host-networked lancache-dns)
+  # Option 1: Use bridge networking (recommended for most setups)
+  - Prefill__NetworkMode=bridge
+
+  # Option 2: Use host networking (for host-networked lancache-dns)
   - Prefill__NetworkMode=host
 
-  # Option 2: Explicit DNS IP (for bridge-networked lancache-dns)
+  # Option 3: Explicit DNS IP (when lancache-dns IP isn't auto-detected)
   - Prefill__LancacheDnsIp=192.168.1.10
 ```
+
+> [!TIP]
+> If prefill containers have no internet access, try setting `Prefill__NetworkMode=bridge`. This is a common fix when Docker's default network isolation prevents outbound connections.
 
 ### How It Works
 
@@ -606,21 +627,46 @@ ls -n /path/to/cache
 
 1. Ensure Docker socket is mounted without `:ro`
 2. Confirm you're authenticated as admin
-3. Check container logs for errors
-4. **HTTP 400 errors during download:** The prefill container can't resolve Steam CDN domains to your cache. Either:
+3. Check container logs for network diagnostics output (look for `═══ PREFILL CONTAINER NETWORK DIAGNOSTICS ═══`)
+4. **Container has no internet access:** The prefill container can't reach Steam. Common fixes:
+   - Set `Prefill__NetworkMode=bridge` in your docker-compose.yml (recommended for most setups)
+   - Ensure your Docker network has outbound internet access
+   - Check firewall rules for outbound connections
+5. **HTTP 400 errors during download:** The prefill container can't resolve Steam CDN domains to your cache. Either:
    - Set `Prefill__NetworkMode=host` if your lancache-dns uses host networking
    - Set `Prefill__LancacheDnsIp` to your lancache-dns IP address
    - The app auto-detects this if your lancache-dns container is running
+6. **DNS bypassing lancache via IPv6:** If your network uses IPv6, DNS queries might bypass lancache-dns. The app automatically disables IPv6 in prefill containers to prevent this.
+
+**Network Diagnostics:**
+When a prefill container starts, the app runs network diagnostics that appear in the logs:
+- Internet connectivity test (can reach api.steampowered.com)
+- DNS resolution for `lancache.steamcontent.com` and `steam.cache.lancache.net`
+- Warnings if DNS resolves to public IPs instead of your cache
 
 **Finding your lancache-dns IP:**
 ```bash
 docker inspect lancache-dns | grep IPAddress
 ```
 
-**Example for host networking setups:**
+**Example configurations:**
+
+Bridge mode (recommended for most Docker setups):
+```yaml
+environment:
+  - Prefill__NetworkMode=bridge
+```
+
+Host networking (when lancache-dns uses host mode):
 ```yaml
 environment:
   - Prefill__NetworkMode=host
+```
+
+Explicit DNS IP (when auto-detection fails):
+```yaml
+environment:
+  - Prefill__LancacheDnsIp=192.168.1.10
 ```
 
 -----

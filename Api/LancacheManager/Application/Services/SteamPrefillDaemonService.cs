@@ -397,6 +397,12 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             throw new InvalidOperationException($"Container crashed immediately. Ensure image '{imageName}' exists and is properly configured.");
         }
 
+        // Run container network diagnostics (internet connectivity and DNS resolution)
+        // This helps troubleshoot prefill issues - the container needs both:
+        // 1. Internet access to reach Steam
+        // 2. DNS resolving lancache domains to your cache server
+        await TestContainerConnectivityAsync(containerId, containerName, cancellationToken);
+
         // Parse user agent for OS and browser info
         var (os, browser) = UserAgentParser.Parse(userAgent);
 
@@ -1692,6 +1698,275 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     private string? GetNetworkMode()
     {
         return _configuration["Prefill:NetworkMode"];
+    }
+
+    /// <summary>
+    /// Tests container network connectivity and DNS resolution for lancache domains.
+    /// This runs diagnostic commands inside the prefill container to verify:
+    /// 1. Internet connectivity (can reach Steam API)
+    /// 2. DNS resolution for lancache domains (should point to your cache server)
+    /// Results are logged with clear separators for easy troubleshooting.
+    /// </summary>
+    private async Task TestContainerConnectivityAsync(string containerId, string containerName, CancellationToken cancellationToken = default)
+    {
+        if (_dockerClient == null) return;
+
+        _logger.LogInformation("═══════════════════════════════════════════════════════════════════════");
+        _logger.LogInformation("  PREFILL CONTAINER NETWORK DIAGNOSTICS - {ContainerName}", containerName);
+        _logger.LogInformation("═══════════════════════════════════════════════════════════════════════");
+
+        // Test 1: Internet connectivity (try to reach Steam API)
+        await TestInternetConnectivityInContainerAsync(containerId, cancellationToken);
+
+        // Test 2: DNS resolution for lancache domains
+        await TestDnsResolutionInContainerAsync(containerId, "lancache.steamcontent.com", cancellationToken);
+        await TestDnsResolutionInContainerAsync(containerId, "steam.cache.lancache.net", cancellationToken);
+
+        _logger.LogInformation("═══════════════════════════════════════════════════════════════════════");
+        _logger.LogInformation("  END NETWORK DIAGNOSTICS");
+        _logger.LogInformation("═══════════════════════════════════════════════════════════════════════");
+    }
+
+    /// <summary>
+    /// Tests internet connectivity from inside a container by attempting to reach Steam API.
+    /// </summary>
+    private async Task TestInternetConnectivityInContainerAsync(string containerId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            _logger.LogInformation("───────────────────────────────────────────────────────────────────────");
+            _logger.LogInformation("  Testing Internet Connectivity...");
+            _logger.LogInformation("───────────────────────────────────────────────────────────────────────");
+
+            // Use wget with timeout to test connectivity (most minimal images have wget or curl)
+            // Try wget first (Alpine-based images), then curl as fallback
+            var testCommands = new[]
+            {
+                new[] { "wget", "-q", "-O", "-", "--timeout=10", "https://api.steampowered.com/" },
+                new[] { "curl", "-s", "-m", "10", "https://api.steampowered.com/" }
+            };
+
+            var success = false;
+            string? lastError = null;
+
+            foreach (var cmd in testCommands)
+            {
+                try
+                {
+                    var (exitCode, output) = await ExecuteContainerCommandAsync(containerId, cmd, cancellationToken);
+                    if (exitCode == 0)
+                    {
+                        _logger.LogInformation("  ✓ Internet connectivity: OK (reached api.steampowered.com)");
+                        success = true;
+                        break;
+                    }
+                    lastError = $"Command {cmd[0]} failed with exit code {exitCode}";
+                }
+                catch (Exception ex)
+                {
+                    lastError = $"{cmd[0]}: {ex.Message}";
+                }
+            }
+
+            if (!success)
+            {
+                _logger.LogWarning("  ✗ Internet connectivity: FAILED");
+                _logger.LogWarning("    The prefill container cannot reach the internet.");
+                _logger.LogWarning("    Steam login and prefill will not work.");
+                _logger.LogWarning("    Error: {Error}", lastError);
+                _logger.LogWarning("    ");
+                _logger.LogWarning("    Possible fixes:");
+                _logger.LogWarning("    - Try setting Prefill__NetworkMode=bridge in your docker-compose.yml");
+                _logger.LogWarning("    - Ensure your Docker network has internet access");
+                _logger.LogWarning("    - Check firewall rules for outbound connections");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "  Could not test internet connectivity in container");
+        }
+    }
+
+    /// <summary>
+    /// Tests DNS resolution for a specific domain from inside a container.
+    /// For lancache domains, this should resolve to your cache server IP.
+    /// </summary>
+    private async Task TestDnsResolutionInContainerAsync(string containerId, string domain, CancellationToken cancellationToken)
+    {
+        try
+        {
+            _logger.LogInformation("───────────────────────────────────────────────────────────────────────");
+            _logger.LogInformation("  Testing DNS Resolution for {Domain}...", domain);
+            _logger.LogInformation("───────────────────────────────────────────────────────────────────────");
+
+            // Try multiple methods to resolve DNS (nslookup, getent, or ping)
+            var dnsCommands = new[]
+            {
+                new[] { "nslookup", domain },
+                new[] { "getent", "hosts", domain },
+                new[] { "ping", "-c", "1", "-W", "2", domain }
+            };
+
+            string? resolvedIp = null;
+            string? lastError = null;
+
+            foreach (var cmd in dnsCommands)
+            {
+                try
+                {
+                    var (exitCode, output) = await ExecuteContainerCommandAsync(containerId, cmd, cancellationToken);
+                    if (exitCode == 0 && !string.IsNullOrWhiteSpace(output))
+                    {
+                        // Extract IP from output
+                        resolvedIp = ExtractIpFromOutput(output, cmd[0]);
+                        if (!string.IsNullOrEmpty(resolvedIp))
+                        {
+                            break;
+                        }
+                    }
+                    lastError = $"Command {cmd[0]} returned no IP";
+                }
+                catch (Exception ex)
+                {
+                    lastError = $"{cmd[0]}: {ex.Message}";
+                }
+            }
+
+            if (!string.IsNullOrEmpty(resolvedIp))
+            {
+                _logger.LogInformation("  {Domain} resolved to {IpAddress}", domain, resolvedIp);
+                
+                // Check if it's a lancache IP (typically private IPs like 192.168.x.x, 10.x.x.x, etc.)
+                if (IsPrivateIp(resolvedIp))
+                {
+                    _logger.LogInformation("  ✓ DNS looks correct (private IP - likely your lancache server)");
+                }
+                else
+                {
+                    _logger.LogWarning("  ⚠ DNS resolved to a public IP ({IpAddress})", resolvedIp);
+                    _logger.LogWarning("    This may indicate lancache-dns is not being used.");
+                    _logger.LogWarning("    Prefill might download from internet instead of populating cache.");
+                }
+            }
+            else
+            {
+                _logger.LogWarning("  ✗ Could not resolve {Domain}", domain);
+                _logger.LogWarning("    Error: {Error}", lastError);
+                _logger.LogWarning("    ");
+                _logger.LogWarning("    If this is expected (no lancache-dns), you can ignore this warning.");
+                _logger.LogWarning("    Otherwise, check your DNS configuration.");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "  Could not test DNS resolution for {Domain}", domain);
+        }
+    }
+
+    /// <summary>
+    /// Executes a command inside a container and returns the exit code and output.
+    /// </summary>
+    private async Task<(long exitCode, string output)> ExecuteContainerCommandAsync(
+        string containerId, 
+        string[] command, 
+        CancellationToken cancellationToken)
+    {
+        if (_dockerClient == null)
+        {
+            throw new InvalidOperationException("Docker client not available");
+        }
+
+        // Create exec instance
+        var execCreateResponse = await _dockerClient.Exec.ExecCreateContainerAsync(
+            containerId,
+            new ContainerExecCreateParameters
+            {
+                Cmd = command,
+                AttachStdout = true,
+                AttachStderr = true
+            },
+            cancellationToken);
+
+        // Start exec and capture output
+        using var stream = await _dockerClient.Exec.StartAndAttachContainerExecAsync(
+            execCreateResponse.ID,
+            false,
+            cancellationToken);
+
+        // Read output (with timeout)
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(15));
+
+        using var memoryStream = new MemoryStream();
+        await stream.CopyOutputToAsync(null, memoryStream, null, cts.Token);
+        memoryStream.Position = 0;
+        using var reader = new StreamReader(memoryStream);
+        var output = await reader.ReadToEndAsync(cts.Token);
+
+        // Get exit code
+        var execInspect = await _dockerClient.Exec.InspectContainerExecAsync(execCreateResponse.ID, cancellationToken);
+        
+        return (execInspect.ExitCode, output);
+    }
+
+    /// <summary>
+    /// Extracts an IP address from command output based on the command type.
+    /// </summary>
+    private static string? ExtractIpFromOutput(string output, string command)
+    {
+        // Simple IP regex pattern
+        var ipPattern = @"\b(?:\d{1,3}\.){3}\d{1,3}\b";
+        var match = System.Text.RegularExpressions.Regex.Match(output, ipPattern);
+        
+        if (match.Success)
+        {
+            var ip = match.Value;
+            // Skip loopback addresses
+            if (!ip.StartsWith("127."))
+            {
+                return ip;
+            }
+            
+            // Look for another IP if first was loopback
+            var matches = System.Text.RegularExpressions.Regex.Matches(output, ipPattern);
+            foreach (System.Text.RegularExpressions.Match m in matches)
+            {
+                if (!m.Value.StartsWith("127."))
+                {
+                    return m.Value;
+                }
+            }
+        }
+        
+        return null;
+    }
+
+    /// <summary>
+    /// Checks if an IP address is in a private range (RFC 1918).
+    /// </summary>
+    private static bool IsPrivateIp(string ip)
+    {
+        if (string.IsNullOrEmpty(ip)) return false;
+        
+        var parts = ip.Split('.');
+        if (parts.Length != 4) return false;
+        
+        if (!int.TryParse(parts[0], out var first) || 
+            !int.TryParse(parts[1], out var second))
+        {
+            return false;
+        }
+        
+        // 10.0.0.0/8
+        if (first == 10) return true;
+        
+        // 172.16.0.0/12
+        if (first == 172 && second >= 16 && second <= 31) return true;
+        
+        // 192.168.0.0/16
+        if (first == 192 && second == 168) return true;
+        
+        return false;
     }
 
     public void Dispose()
