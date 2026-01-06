@@ -297,8 +297,8 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         // Determine network configuration strategy:
         // 1. If explicitly configured with NetworkMode, use that
         // 2. If lancache-dns uses host networking, use host mode (auto-detected)
-        // 3. If we have a lancache-dns IP, use bridge network with DNS pointing to it
-        // 4. Fallback: warn user that prefill may not work
+        // 3. Otherwise use default networking
+        // DNS is always configured when available (except for host mode which inherits host DNS)
         if (!string.IsNullOrEmpty(explicitNetworkMode))
         {
             hostConfig.NetworkMode = explicitNetworkMode;
@@ -309,13 +309,18 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             hostConfig.NetworkMode = "host";
             _logger.LogInformation("Configuring prefill container to use host networking (auto-detected from lancache-dns)");
         }
-        else if (!string.IsNullOrEmpty(lancacheDnsIp))
+
+        // Configure DNS for non-host network modes
+        var isHostMode = useHostNetworking || 
+                         (!string.IsNullOrEmpty(explicitNetworkMode) && 
+                          explicitNetworkMode.Equals("host", StringComparison.OrdinalIgnoreCase));
+        
+        if (!isHostMode && !string.IsNullOrEmpty(lancacheDnsIp))
         {
-            // Use bridge network with explicit DNS pointing to lancache-dns
             hostConfig.DNS = new List<string> { lancacheDnsIp };
             _logger.LogInformation("Configuring prefill container DNS to use lancache-dns: {DnsIp}", lancacheDnsIp);
         }
-        else
+        else if (!isHostMode && string.IsNullOrEmpty(lancacheDnsIp))
         {
             _logger.LogWarning("Could not auto-detect lancache-dns configuration. Prefill may fail if the host's DNS " +
                 "doesn't resolve Steam CDN to lancache. Set Prefill__LancacheDnsIp or Prefill__NetworkMode=host.");
@@ -1656,6 +1661,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         var networkMode = _configuration["Prefill:NetworkMode"];
         if (!string.IsNullOrEmpty(networkMode))
         {
+            _logger.LogInformation("Using explicit Prefill:NetworkMode configuration: {NetworkMode}", networkMode);
             return networkMode.Equals("host", StringComparison.OrdinalIgnoreCase);
         }
 
@@ -1668,6 +1674,8 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                     new ContainersListParameters { All = false },
                     cancellationToken);
 
+                _logger.LogDebug("Searching for lancache-dns container among {Count} running containers", containers.Count);
+
                 var dnsContainer = containers.FirstOrDefault(c =>
                     c.Names.Any(n =>
                         n.Contains("lancache-dns", StringComparison.OrdinalIgnoreCase) ||
@@ -1676,16 +1684,24 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
                 if (dnsContainer != null)
                 {
+                    _logger.LogInformation("Found lancache-dns container: {ContainerName}", dnsContainer.Names.FirstOrDefault());
                     var inspect = await _dockerClient.Containers.InspectContainerAsync(dnsContainer.ID, cancellationToken);
+                    _logger.LogInformation("lancache-dns network mode: {NetworkMode}", inspect.HostConfig.NetworkMode);
                     if (inspect.HostConfig.NetworkMode == "host")
                     {
+                        _logger.LogInformation("Detected lancache-dns using host networking. Prefill containers will use host network mode.");
                         return true;
                     }
+                }
+                else
+                {
+                    _logger.LogDebug("No lancache-dns container found. Container names searched: {Names}", 
+                        string.Join(", ", containers.SelectMany(c => c.Names)));
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "Failed to check lancache-dns network mode");
+                _logger.LogWarning(ex, "Failed to check lancache-dns network mode");
             }
         }
 
@@ -1934,27 +1950,49 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     /// </summary>
     private static string? ExtractIpFromOutput(string output, string command)
     {
-        // Simple IP regex pattern
         var ipPattern = @"\b(?:\d{1,3}\.){3}\d{1,3}\b";
-        var match = System.Text.RegularExpressions.Regex.Match(output, ipPattern);
         
-        if (match.Success)
+        if (command == "nslookup")
         {
-            var ip = match.Value;
-            // Skip loopback addresses
-            if (!ip.StartsWith("127."))
+            // nslookup output format:
+            // Server:  dns-server
+            // Address:  8.8.8.8       <-- DNS server, skip this
+            //
+            // Name:    domain.com
+            // Address: 172.16.2.98   <-- Resolved IP, we want this
+            //
+            // Look for IP after "Name:" line
+            var lines = output.Split('\n');
+            bool foundNameLine = false;
+            
+            foreach (var line in lines)
             {
-                return ip;
+                if (line.Contains("Name:"))
+                {
+                    foundNameLine = true;
+                    continue;
+                }
+                
+                if (foundNameLine && line.Contains("Address"))
+                {
+                    var match = System.Text.RegularExpressions.Regex.Match(line, ipPattern);
+                    if (match.Success && !match.Value.StartsWith("127."))
+                    {
+                        return match.Value;
+                    }
+                }
             }
             
-            // Look for another IP if first was loopback
-            var matches = System.Text.RegularExpressions.Regex.Matches(output, ipPattern);
-            foreach (System.Text.RegularExpressions.Match m in matches)
+            return null;
+        }
+        
+        // For getent and ping, just find the first non-loopback IP
+        var matches = System.Text.RegularExpressions.Regex.Matches(output, ipPattern);
+        foreach (System.Text.RegularExpressions.Match m in matches)
+        {
+            if (!m.Value.StartsWith("127."))
             {
-                if (!m.Value.StartsWith("127."))
-                {
-                    return m.Value;
-                }
+                return m.Value;
             }
         }
         
