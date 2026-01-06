@@ -77,7 +77,7 @@ const PRESETS = {
   pretty: {
     showZeroBytes: false,
     showSmallFiles: false,
-    hideLocalhost: true,
+    hideLocalhost: false,
     hideUnknownGames: true,
     groupUnknownGames: false,
     aestheticMode: false,
@@ -88,7 +88,7 @@ const PRESETS = {
   minimal: {
     showZeroBytes: false,
     showSmallFiles: false,
-    hideLocalhost: true,
+    hideLocalhost: false,
     hideUnknownGames: true,
     groupUnknownGames: false,
     aestheticMode: true,

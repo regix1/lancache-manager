@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useLayoutEffect, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Clock, Calendar, Radio, Info, ChevronDown, Check, X } from 'lucide-react';
 import { useTimeFilter, type TimeRange } from '@contexts/TimeFilterContext';
 import { useEvents } from '@contexts/EventContext';
@@ -27,9 +28,9 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
 
   const [isOpen, setIsOpen] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [dropdownStyle, setDropdownStyle] = useState<{ animation: string; transform?: string }>({ animation: '' });
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
+  const [dropdownStyle, setDropdownStyle] = useState<{ animation: string }>({ animation: '' });
   const [openUpward, setOpenUpward] = useState(false);
-  const [horizontalPosition, setHorizontalPosition] = useState<'left' | 'right'>('right');
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -91,36 +92,49 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
     { value: 'custom', label: 'Custom Range', shortLabel: 'Custom', description: 'Select a custom date range', icon: Calendar, rightLabel: '...' }
   ], []);
 
-  // Calculate position before paint
+  // Calculate position before paint - for portal rendering
   useLayoutEffect(() => {
     if (!isOpen || !buttonRef.current) return;
 
-    const rect = buttonRef.current.getBoundingClientRect();
-    const dropdownHeight = 240;
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const spaceAbove = rect.top;
-    const shouldOpenUpward = spaceBelow < dropdownHeight && spaceAbove > dropdownHeight;
-    setOpenUpward(shouldOpenUpward);
+    const calculatePosition = () => {
+      if (!buttonRef.current) return null;
 
-    const dropdownEl = dropdownRef.current;
-    const dropdownWidthPx = dropdownEl?.offsetWidth || 256;
-    const viewportWidth = window.innerWidth;
+      const rect = buttonRef.current.getBoundingClientRect();
+      const dropdownHeight = 400; // Approximate max height
+      const dropdownWidth = 256; // w-64 = 16rem = 256px
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      const shouldOpenUpward = spaceBelow < dropdownHeight && spaceAbove > dropdownHeight;
 
-    let transform = '';
-    const wouldOverflowLeft = rect.right - dropdownWidthPx < 0;
-    if (wouldOverflowLeft) {
-      setHorizontalPosition('left');
-      if (rect.left + dropdownWidthPx > viewportWidth) {
-        transform = `translateX(${viewportWidth - (rect.left + dropdownWidthPx) - 16}px)`;
+      // Calculate horizontal position - align right edge with button right edge
+      let left = rect.right - dropdownWidth;
+
+      // Ensure dropdown doesn't go off-screen left
+      if (left < 8) {
+        left = 8;
       }
-    } else {
-      setHorizontalPosition('right');
-    }
 
-    setDropdownStyle({
-      animation: `${shouldOpenUpward ? 'dropdownSlideUp' : 'dropdownSlideDown'} 0.15s cubic-bezier(0.16, 1, 0.3, 1)`,
-      transform: transform || undefined
-    });
+      // Ensure dropdown doesn't go off-screen right
+      if (left + dropdownWidth > window.innerWidth - 8) {
+        left = window.innerWidth - dropdownWidth - 8;
+      }
+
+      // Calculate vertical position
+      const top = shouldOpenUpward
+        ? rect.top - dropdownHeight - 8
+        : rect.bottom + 4;
+
+      return { top, left, shouldOpenUpward };
+    };
+
+    const pos = calculatePosition();
+    if (pos) {
+      setDropdownPosition({ top: pos.top, left: pos.left });
+      setOpenUpward(pos.shouldOpenUpward);
+      setDropdownStyle({
+        animation: `${pos.shouldOpenUpward ? 'dropdownSlideUp' : 'dropdownSlideDown'} 0.15s cubic-bezier(0.16, 1, 0.3, 1)`
+      });
+    }
   }, [isOpen]);
 
   // Event listeners
@@ -138,11 +152,18 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
       if (e.key === 'Escape') setIsOpen(false);
     };
 
+    // Close on scroll to prevent dropdown from being mispositioned
+    const handleScroll = () => {
+      setIsOpen(false);
+    };
+
     document.addEventListener('mousedown', handleClickOutside);
     document.addEventListener('keydown', handleEscape);
+    window.addEventListener('scroll', handleScroll, true);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleEscape);
+      window.removeEventListener('scroll', handleScroll, true);
     };
   }, [isOpen]);
 
@@ -211,18 +232,20 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
             />
           </button>
 
-          {/* Dropdown - matching EnhancedDropdown structure */}
-          {isOpen && (
+          {/* Dropdown - rendered via portal to escape stacking context */}
+          {isOpen && createPortal(
             <div
               ref={dropdownRef}
-              className={`ed-dropdown absolute w-64 ${horizontalPosition === 'right' ? 'right-0' : 'left-0'} rounded-lg border z-[9999] overflow-hidden ${openUpward ? 'bottom-full mb-2' : 'mt-2'}`}
+              className="ed-dropdown fixed w-64 rounded-lg border overflow-hidden"
               style={{
+                top: dropdownPosition.top,
+                left: dropdownPosition.left,
                 backgroundColor: 'var(--theme-bg-secondary)',
                 borderColor: 'var(--theme-border-primary)',
                 maxWidth: 'calc(100vw - 32px)',
-                transform: dropdownStyle.transform,
                 boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2)',
-                animation: dropdownStyle.animation
+                animation: dropdownStyle.animation,
+                zIndex: 9999
               }}
             >
               {/* Title */}
@@ -363,64 +386,11 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
                     : 'Historical data helps identify trends and patterns over time'}
                 </span>
               </div>
-            </div>
+            </div>,
+            document.body
           )}
         </div>
 
-        {/* Selected Event Chips - show outside dropdown when events are selected */}
-        {selectedEvents.length > 0 && selectedEvents.length <= 2 && (
-          <div className="hidden sm:flex items-center gap-1.5">
-            {selectedEvents.map(event => (
-              <button
-                key={event.id}
-                onClick={() => toggleEventId(event.id)}
-                disabled={disabled}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-medium transition-all hover:opacity-80"
-                style={{
-                  backgroundColor: event.colorIndex
-                    ? `color-mix(in srgb, ${getEventColorVar(event.colorIndex)} 20%, transparent)`
-                    : 'var(--theme-primary-muted)',
-                  color: event.colorIndex
-                    ? getEventColorVar(event.colorIndex)
-                    : 'var(--theme-primary)',
-                  border: `1px solid ${event.colorIndex
-                    ? `color-mix(in srgb, ${getEventColorVar(event.colorIndex)} 40%, transparent)`
-                    : 'var(--theme-primary-muted)'}`
-                }}
-                title="Click to remove event filter"
-              >
-                <div
-                  className="w-2 h-2 rounded-full"
-                  style={{
-                    backgroundColor: event.colorIndex
-                      ? getEventColorVar(event.colorIndex)
-                      : 'var(--theme-primary)'
-                  }}
-                />
-                <span className="max-w-[100px] truncate">{event.name}</span>
-                <X size={14} className="opacity-60" />
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Clear all events button when more than 2 */}
-        {selectedEvents.length > 2 && (
-          <button
-            onClick={() => clearEventFilter()}
-            disabled={disabled}
-            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-medium transition-all hover:opacity-80"
-            style={{
-              backgroundColor: 'var(--theme-primary-muted)',
-              color: 'var(--theme-primary)',
-              border: '1px solid var(--theme-primary-muted)'
-            }}
-            title="Clear all event filters"
-          >
-            <span>{selectedEvents.length} events</span>
-            <X size={14} className="opacity-60" />
-          </button>
-        )}
       </div>
 
       {showDatePicker && (

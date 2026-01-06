@@ -151,9 +151,9 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
   }, [isOpen, onClose]);
 
   return (
-    <div className="relative">
+    <div className="relative inline-flex">
       {/* Trigger button wrapper - adds data attribute */}
-      <div ref={triggerRef} data-action-menu-trigger="true">{trigger}</div>
+      <div ref={triggerRef} data-action-menu-trigger="true" className="inline-flex">{trigger}</div>
 
       {/* Dropdown Menu - rendered via portal to escape stacking context */}
       {isOpen && createPortal(
