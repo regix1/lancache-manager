@@ -1361,8 +1361,10 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             }
         }
 
-        // Track current app's bytes BEFORE updating app info (so we have final values for next transition)
-        if (!appInfoChanged && progress.CurrentAppId > 0)
+        // Track current app's bytes for the next transition
+        // Always update - when app changes, this sets the starting bytes for the new app
+        // When app is the same, this updates the running total for real-time display
+        if (progress.CurrentAppId > 0)
         {
             session.CurrentBytesDownloaded = progress.BytesDownloaded;
             session.CurrentTotalBytes = progress.TotalBytes;

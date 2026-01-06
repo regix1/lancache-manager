@@ -250,41 +250,47 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   /**
    * Handle auth state changes from backend SignalR events
    */
-  const handleAuthStateChanged = useCallback((newState: SteamAuthState) => {
-    switch (newState) {
-      case 'Authenticated':
-        setIsLoggedIn(true);
-        setShowAuthModal(false);
-        authActions.resetAuthForm();
-        addLog('success', 'Successfully logged in to Steam');
-        break;
-      case 'CredentialsRequired':
-        authActions.resetAuthForm();
-        setShowAuthModal(true);
-        addLog('auth', 'Steam credentials required');
-        break;
-      case 'TwoFactorRequired':
-        trigger2FAPrompt();
-        setShowAuthModal(true);
-        addLog('auth', 'Two-factor authentication required');
-        break;
-      case 'EmailCodeRequired':
-        triggerEmailPrompt();
-        setShowAuthModal(true);
-        addLog('auth', 'Email verification code required');
-        break;
-      case 'NotAuthenticated':
-        setIsLoggedIn(false);
-        break;
-    }
-  }, [authActions, trigger2FAPrompt, triggerEmailPrompt, addLog]);
+  const handleAuthStateChanged = useCallback(
+    (newState: SteamAuthState) => {
+      switch (newState) {
+        case 'Authenticated':
+          setIsLoggedIn(true);
+          setShowAuthModal(false);
+          authActions.resetAuthForm();
+          addLog('success', 'Successfully logged in to Steam');
+          break;
+        case 'CredentialsRequired':
+          authActions.resetAuthForm();
+          setShowAuthModal(true);
+          addLog('auth', 'Steam credentials required');
+          break;
+        case 'TwoFactorRequired':
+          trigger2FAPrompt();
+          setShowAuthModal(true);
+          addLog('auth', 'Two-factor authentication required');
+          break;
+        case 'EmailCodeRequired':
+          triggerEmailPrompt();
+          setShowAuthModal(true);
+          addLog('auth', 'Email verification code required');
+          break;
+        case 'NotAuthenticated':
+          setIsLoggedIn(false);
+          break;
+      }
+    },
+    [authActions, trigger2FAPrompt, triggerEmailPrompt, addLog]
+  );
 
   // Timer for session countdown
   useEffect(() => {
     if (!session || session.status !== 'Active') return;
 
     const interval = setInterval(() => {
-      const remaining = Math.max(0, Math.floor((new Date(session.expiresAt).getTime() - Date.now()) / 1000));
+      const remaining = Math.max(
+        0,
+        Math.floor((new Date(session.expiresAt).getTime() - Date.now()) / 1000)
+      );
       setTimeRemaining(remaining);
 
       if (remaining <= 0) {
@@ -356,11 +362,19 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         let type: LogEntryType = 'info';
         if (trimmed.includes('Error') || trimmed.includes('error') || trimmed.includes('failed')) {
           type = 'error';
-        } else if (trimmed.includes('Success') || trimmed.includes('Complete') || trimmed.includes('Done')) {
+        } else if (
+          trimmed.includes('Success') ||
+          trimmed.includes('Complete') ||
+          trimmed.includes('Done')
+        ) {
           type = 'success';
         } else if (trimmed.includes('Warning') || trimmed.includes('warn')) {
           type = 'warning';
-        } else if (trimmed.includes('Download') || trimmed.includes('Prefill') || trimmed.includes('%')) {
+        } else if (
+          trimmed.includes('Download') ||
+          trimmed.includes('Prefill') ||
+          trimmed.includes('%')
+        ) {
           type = 'download';
         }
 
@@ -391,58 +405,80 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       });
 
       // Handle prefill progress updates
-      connection.on('PrefillProgress', (_sessionId: string, progress: {
-        state: string;
-        message?: string;
-        currentAppId: number;
-        currentAppName?: string;
-        percentComplete: number;
-        bytesDownloaded: number;
-        totalBytes: number;
-        bytesPerSecond: number;
-        elapsedSeconds: number;
-      }) => {
-        // Final states should reset the cancelling flag and clear progress
-        const isFinalState = progress.state === 'completed' || progress.state === 'failed' || 
-                            progress.state === 'cancelled' || progress.state === 'idle';
-        
-        if (isFinalState) {
-          isCancelling.current = false;
-          setPrefillProgress(null);
-          return;
-        }
-
-        // Ignore progress updates while cancellation is in progress
-        if (isCancelling.current) {
-          return;
-        }
-
-        if (progress.state === 'downloading') {
-          setPrefillProgress(progress);
-        } else if (progress.state === 'loading-metadata' || progress.state === 'metadata-loaded' || progress.state === 'starting' || progress.state === 'preparing') {
-          // Log status message
-          if (progress.message) {
-            addLog('info', progress.message);
+      connection.on(
+        'PrefillProgress',
+        (
+          _sessionId: string,
+          progress: {
+            state: string;
+            message?: string;
+            currentAppId: number;
+            currentAppName?: string;
+            percentComplete: number;
+            bytesDownloaded: number;
+            totalBytes: number;
+            bytesPerSecond: number;
+            elapsedSeconds: number;
           }
-          // Don't show progress bar for "0 games" scenarios - nothing to download
-          if (progress.message?.includes('0 games')) {
+        ) => {
+          // Final states should reset the cancelling flag and clear progress
+          const isFinalState =
+            progress.state === 'completed' ||
+            progress.state === 'failed' ||
+            progress.state === 'cancelled' ||
+            progress.state === 'idle';
+
+          if (isFinalState) {
+            isCancelling.current = false;
             setPrefillProgress(null);
             return;
           }
-          // Set a loading state so UI shows something is happening
-          setPrefillProgress({ ...progress, percentComplete: 0, bytesDownloaded: 0, totalBytes: 0 });
-        } else {
-          // Clear progress for any other state (app_completed, etc.)
-          setPrefillProgress(null);
+
+          // Ignore progress updates while cancellation is in progress
+          if (isCancelling.current) {
+            return;
+          }
+
+          if (progress.state === 'downloading') {
+            setPrefillProgress(progress);
+          } else if (
+            progress.state === 'loading-metadata' ||
+            progress.state === 'metadata-loaded' ||
+            progress.state === 'starting' ||
+            progress.state === 'preparing'
+          ) {
+            // Log status message
+            if (progress.message) {
+              addLog('info', progress.message);
+            }
+            // Don't show progress bar for "0 games" scenarios - nothing to download
+            if (progress.message?.includes('0 games')) {
+              setPrefillProgress(null);
+              return;
+            }
+            // Set a loading state so UI shows something is happening
+            setPrefillProgress({
+              ...progress,
+              percentComplete: 0,
+              bytesDownloaded: 0,
+              totalBytes: 0
+            });
+          } else {
+            // Clear progress for any other state (app_completed, etc.)
+            setPrefillProgress(null);
+          }
         }
-      });
+      );
 
       // Handle status changes (daemon status updates)
-      connection.on('StatusChanged', (_sessionId: string, status: { status: string; message: string }) => {
-        if (status.message) {
-          addLog('info', `Status: ${status.message}`);
+      connection.on(
+        'StatusChanged',
+        (_sessionId: string, status: { status: string; message: string }) => {
+          if (status.message) {
+            addLog('info', `Status: ${status.message}`);
+          }
         }
-      });
+      );
 
       // Handle prefill state changes
       connection.on('PrefillStateChanged', (_sessionId: string, state: string) => {
@@ -462,6 +498,41 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           setPrefillProgress(null);
         }
       });
+
+      // Handle daemon session created (broadcast to all clients)
+      connection.on('DaemonSessionCreated', (sessionDto: PrefillSessionDto) => {
+        // Update session if it matches our current session
+        setSession((currentSession) => {
+          if (currentSession && sessionDto.id === currentSession.id) {
+            setTimeRemaining(sessionDto.timeRemainingSeconds);
+            return sessionDto;
+          }
+          return currentSession;
+        });
+      });
+
+      // Handle daemon session updated (broadcast to all clients)
+      connection.on('DaemonSessionUpdated', (sessionDto: PrefillSessionDto) => {
+        // Update session if it matches our current session
+        setSession((currentSession) => {
+          if (currentSession && sessionDto.id === currentSession.id) {
+            setTimeRemaining(sessionDto.timeRemainingSeconds);
+            setIsLoggedIn(sessionDto.authState === 'Authenticated');
+            return sessionDto;
+          }
+          return currentSession;
+        });
+      });
+
+      // Handle prefill history updated (broadcast to all clients)
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      connection.on(
+        'PrefillHistoryUpdated',
+        (_event: { sessionId: string; appId: number; status: string }) => {
+          // This event is primarily for admin pages to refresh history views
+          // PrefillPanel doesn't need to act on this directly
+        }
+      );
 
       connection.onclose((error) => {
         console.log('Hub connection closed:', error);
@@ -511,7 +582,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
       // Check for existing sessions
       const existingSessions = await connection.invoke<PrefillSessionDto[]>('GetMySessions');
-      const activeSession = existingSessions?.find(s => s.status === 'Active');
+      const activeSession = existingSessions?.find((s) => s.status === 'Active');
 
       if (activeSession) {
         addLog('info', 'Reconnecting to existing session...', `Session: ${activeSession.id}`);
@@ -523,8 +594,15 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         setTimeRemaining(activeSession.timeRemainingSeconds);
         setIsLoggedIn(activeSession.authState === 'Authenticated');
 
-        addLog('success', 'Reconnected to existing session', `Container: ${activeSession.containerName}`);
-        addLog('info', `Session expires in ${formatTimeRemaining(activeSession.timeRemainingSeconds)}`);
+        addLog(
+          'success',
+          'Reconnected to existing session',
+          `Container: ${activeSession.containerName}`
+        );
+        addLog(
+          'info',
+          `Session expires in ${formatTimeRemaining(activeSession.timeRemainingSeconds)}`
+        );
 
         if (activeSession.authState === 'Authenticated') {
           addLog('info', 'Already logged in to Steam');
@@ -573,7 +651,11 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       setIsLoggedIn(isExistingSession);
 
       if (isExistingSession) {
-        addLog('success', 'Connected to existing session', `Container: ${sessionDto.containerName}`);
+        addLog(
+          'success',
+          'Connected to existing session',
+          `Container: ${sessionDto.containerName}`
+        );
         addLog('info', 'Already logged in to Steam');
       } else {
         addLog('success', 'Session created successfully', `Container: ${sessionDto.containerName}`);
@@ -595,178 +677,190 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   }, [connectToHub, formatTimeRemaining, addLog, clearLogs]);
 
   // Helper to call prefill REST API (bypasses SignalR serialization issues)
-  const callPrefillApi = useCallback(async (
-    sessionId: string,
-    options: {
-      all?: boolean;
-      recent?: boolean;
-      recentlyPurchased?: boolean;
-      top?: number;
-      force?: boolean;
-    } = {}
-  ) => {
-    // Reset cancelling flag when starting a new prefill
-    isCancelling.current = false;
+  const callPrefillApi = useCallback(
+    async (
+      sessionId: string,
+      options: {
+        all?: boolean;
+        recent?: boolean;
+        recentlyPurchased?: boolean;
+        top?: number;
+        force?: boolean;
+      } = {}
+    ) => {
+      // Reset cancelling flag when starting a new prefill
+      isCancelling.current = false;
 
-    // Build the full request with settings
-    const requestBody: Record<string, unknown> = { ...options };
+      // Build the full request with settings
+      const requestBody: Record<string, unknown> = { ...options };
 
-    // Add OS selection (only if not all platforms selected)
-    if (selectedOS.length > 0 && selectedOS.length < 3) {
-      requestBody.operatingSystems = selectedOS;
-    }
+      // Add OS selection (only if not all platforms selected)
+      if (selectedOS.length > 0 && selectedOS.length < 3) {
+        requestBody.operatingSystems = selectedOS;
+      }
 
-    // Add max concurrency if not default
-    if (maxConcurrency !== 'default') {
-      requestBody.maxConcurrency = parseInt(maxConcurrency, 10);
-    }
+      // Add max concurrency if not default
+      if (maxConcurrency !== 'default') {
+        requestBody.maxConcurrency = parseInt(maxConcurrency, 10);
+      }
 
-    const response = await fetch(`${API_BASE}/prefill-daemon/sessions/${sessionId}/prefill`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...authService.getAuthHeaders()
-      },
-      body: JSON.stringify(requestBody)
-    });
+      const response = await fetch(`${API_BASE}/prefill-daemon/sessions/${sessionId}/prefill`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authService.getAuthHeaders()
+        },
+        body: JSON.stringify(requestBody)
+      });
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ message: 'Prefill request failed' }));
-      throw new Error(error.message || `HTTP ${response.status}`);
-    }
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ message: 'Prefill request failed' }));
+        throw new Error(error.message || `HTTP ${response.status}`);
+      }
 
-    return response.json();
-  }, [selectedOS, maxConcurrency]);
+      return response.json();
+    },
+    [selectedOS, maxConcurrency]
+  );
 
-  const executeCommand = useCallback(async (commandType: CommandType) => {
-    if (!session || !hubConnection.current) return;
+  const executeCommand = useCallback(
+    async (commandType: CommandType) => {
+      if (!session || !hubConnection.current) return;
 
-    setIsExecuting(true);
-    addLog('command', `Running: ${commandType}`);
+      setIsExecuting(true);
+      addLog('command', `Running: ${commandType}`);
 
-    try {
-      switch (commandType) {
-        case 'select-apps': {
-          // Get owned games list via REST API
-          setIsLoadingGames(true);
-          try {
-            const response = await fetch(`${API_BASE}/prefill-daemon/sessions/${session.id}/games`, {
-              headers: authService.getAuthHeaders()
-            });
-            if (!response.ok) {
-              throw new Error(`Failed to get games: HTTP ${response.status}`);
+      try {
+        switch (commandType) {
+          case 'select-apps': {
+            // Get owned games list via REST API
+            setIsLoadingGames(true);
+            try {
+              const response = await fetch(
+                `${API_BASE}/prefill-daemon/sessions/${session.id}/games`,
+                {
+                  headers: authService.getAuthHeaders()
+                }
+              );
+              if (!response.ok) {
+                throw new Error(`Failed to get games: HTTP ${response.status}`);
+              }
+              const games = await response.json();
+              setOwnedGames(games || []);
+              addLog('info', `Found ${games?.length || 0} owned games`);
+              setShowGameSelection(true);
+            } finally {
+              setIsLoadingGames(false);
             }
-            const games = await response.json();
-            setOwnedGames(games || []);
-            addLog('info', `Found ${games?.length || 0} owned games`);
-            setShowGameSelection(true);
-          } finally {
-            setIsLoadingGames(false);
-          }
-          break;
-        }
-        case 'prefill': {
-          // Check if any games are selected
-          if (selectedAppIds.length === 0) {
-            addLog('warning', 'No games selected. Use "Select Apps" to choose games for prefill first.');
             break;
           }
-          addLog('download', `Starting prefill of ${selectedAppIds.length} selected apps...`);
-          const result = await callPrefillApi(session.id, {});
-          setPrefillProgress(null); // Clear progress on completion
-          if (result?.success) {
-            const totalSeconds = result.totalSeconds || 0;
-            addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
-          } else {
-            addLog('error', result?.errorMessage || 'Prefill failed');
-          }
-          break;
-        }
-        case 'prefill-all': {
-          addLog('download', 'Starting prefill of all owned games...');
-          const result = await callPrefillApi(session.id, { all: true });
-          setPrefillProgress(null); // Clear progress on completion
-          if (result?.success) {
-            const totalSeconds = result.totalSeconds || 0;
-            addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
-          } else {
-            addLog('error', result?.errorMessage || 'Prefill failed');
-          }
-          break;
-        }
-        case 'prefill-recent': {
-          addLog('download', 'Starting prefill of recently played games...');
-          const result = await callPrefillApi(session.id, { recent: true });
-          setPrefillProgress(null); // Clear progress on completion
-          if (result?.success) {
-            const totalSeconds = result.totalSeconds || 0;
-            addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
-          } else {
-            addLog('error', result?.errorMessage || 'Prefill failed');
-          }
-          break;
-        }
-        case 'prefill-recent-purchased': {
-          addLog('download', 'Starting prefill of recently purchased games...');
-          const result = await callPrefillApi(session.id, { recentlyPurchased: true });
-          setPrefillProgress(null); // Clear progress on completion
-          if (result?.success) {
-            const totalSeconds = result.totalSeconds || 0;
-            addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
-          } else {
-            addLog('error', result?.errorMessage || 'Prefill failed');
-          }
-          break;
-        }
-        case 'prefill-top': {
-          addLog('download', 'Starting prefill of top 50 popular games...');
-          const result = await callPrefillApi(session.id, { top: 50 });
-          setPrefillProgress(null); // Clear progress on completion
-          if (result?.success) {
-            const totalSeconds = result.totalSeconds || 0;
-            addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
-          } else {
-            addLog('error', result?.errorMessage || 'Prefill failed');
-          }
-          break;
-        }
-        case 'prefill-force': {
-          addLog('download', 'Starting force prefill (re-downloading)...');
-          const result = await callPrefillApi(session.id, { force: true });
-          setPrefillProgress(null); // Clear progress on completion
-          if (result?.success) {
-            const totalSeconds = result.totalSeconds || 0;
-            addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
-          } else {
-            addLog('error', result?.errorMessage || 'Prefill failed');
-          }
-          break;
-        }
-        case 'clear-temp': {
-          addLog('info', 'Clearing temporary cache...');
-          try {
-            const clearResult = await hubConnection.current.invoke('ClearCache', session.id);
-            if (clearResult?.success) {
-              addLog('success', clearResult.message || 'Cache cleared successfully');
-            } else {
-              addLog('error', clearResult?.message || 'Failed to clear cache');
+          case 'prefill': {
+            // Check if any games are selected
+            if (selectedAppIds.length === 0) {
+              addLog(
+                'warning',
+                'No games selected. Use "Select Apps" to choose games for prefill first.'
+              );
+              break;
             }
-          } catch {
-            addLog('warning', 'Clear cache not supported by current daemon version');
+            addLog('download', `Starting prefill of ${selectedAppIds.length} selected apps...`);
+            const result = await callPrefillApi(session.id, {});
+            setPrefillProgress(null); // Clear progress on completion
+            if (result?.success) {
+              const totalSeconds = result.totalSeconds || 0;
+              addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
+            } else {
+              addLog('error', result?.errorMessage || 'Prefill failed');
+            }
+            break;
           }
-          break;
+          case 'prefill-all': {
+            addLog('download', 'Starting prefill of all owned games...');
+            const result = await callPrefillApi(session.id, { all: true });
+            setPrefillProgress(null); // Clear progress on completion
+            if (result?.success) {
+              const totalSeconds = result.totalSeconds || 0;
+              addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
+            } else {
+              addLog('error', result?.errorMessage || 'Prefill failed');
+            }
+            break;
+          }
+          case 'prefill-recent': {
+            addLog('download', 'Starting prefill of recently played games...');
+            const result = await callPrefillApi(session.id, { recent: true });
+            setPrefillProgress(null); // Clear progress on completion
+            if (result?.success) {
+              const totalSeconds = result.totalSeconds || 0;
+              addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
+            } else {
+              addLog('error', result?.errorMessage || 'Prefill failed');
+            }
+            break;
+          }
+          case 'prefill-recent-purchased': {
+            addLog('download', 'Starting prefill of recently purchased games...');
+            const result = await callPrefillApi(session.id, { recentlyPurchased: true });
+            setPrefillProgress(null); // Clear progress on completion
+            if (result?.success) {
+              const totalSeconds = result.totalSeconds || 0;
+              addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
+            } else {
+              addLog('error', result?.errorMessage || 'Prefill failed');
+            }
+            break;
+          }
+          case 'prefill-top': {
+            addLog('download', 'Starting prefill of top 50 popular games...');
+            const result = await callPrefillApi(session.id, { top: 50 });
+            setPrefillProgress(null); // Clear progress on completion
+            if (result?.success) {
+              const totalSeconds = result.totalSeconds || 0;
+              addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
+            } else {
+              addLog('error', result?.errorMessage || 'Prefill failed');
+            }
+            break;
+          }
+          case 'prefill-force': {
+            addLog('download', 'Starting force prefill (re-downloading)...');
+            const result = await callPrefillApi(session.id, { force: true });
+            setPrefillProgress(null); // Clear progress on completion
+            if (result?.success) {
+              const totalSeconds = result.totalSeconds || 0;
+              addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
+            } else {
+              addLog('error', result?.errorMessage || 'Prefill failed');
+            }
+            break;
+          }
+          case 'clear-temp': {
+            addLog('info', 'Clearing temporary cache...');
+            try {
+              const clearResult = await hubConnection.current.invoke('ClearCache', session.id);
+              if (clearResult?.success) {
+                addLog('success', clearResult.message || 'Cache cleared successfully');
+              } else {
+                addLog('error', clearResult?.message || 'Failed to clear cache');
+              }
+            } catch {
+              addLog('warning', 'Clear cache not supported by current daemon version');
+            }
+            break;
+          }
+          default:
+            addLog('warning', `Command '${commandType}' not yet implemented`);
         }
-        default:
-          addLog('warning', `Command '${commandType}' not yet implemented`);
+      } catch (err) {
+        console.error('Failed to execute command:', err);
+        const errorMessage = err instanceof Error ? err.message : 'Failed to execute command';
+        addLog('error', errorMessage);
+      } finally {
+        setTimeout(() => setIsExecuting(false), 1000);
       }
-    } catch (err) {
-      console.error('Failed to execute command:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Failed to execute command';
-      addLog('error', errorMessage);
-    } finally {
-      setTimeout(() => setIsExecuting(false), 1000);
-    }
-  }, [session, addLog, selectedAppIds, ownedGames, callPrefillApi]);
+    },
+    [session, addLog, selectedAppIds, ownedGames, callPrefillApi]
+  );
 
   const handleEndSession = useCallback(async () => {
     if (!session || !hubConnection.current) return;
@@ -818,25 +912,31 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   }, [authActions]);
 
   // Handle saving game selection via REST API
-  const handleSaveGameSelection = useCallback(async (selectedIds: number[]) => {
-    if (!session) return;
+  const handleSaveGameSelection = useCallback(
+    async (selectedIds: number[]) => {
+      if (!session) return;
 
-    const response = await fetch(`${API_BASE}/prefill-daemon/sessions/${session.id}/selected-apps`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...authService.getAuthHeaders()
-      },
-      body: JSON.stringify({ appIds: selectedIds })
-    });
+      const response = await fetch(
+        `${API_BASE}/prefill-daemon/sessions/${session.id}/selected-apps`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...authService.getAuthHeaders()
+          },
+          body: JSON.stringify({ appIds: selectedIds })
+        }
+      );
 
-    if (!response.ok) {
-      throw new Error(`Failed to set selected apps: HTTP ${response.status}`);
-    }
+      if (!response.ok) {
+        throw new Error(`Failed to set selected apps: HTTP ${response.status}`);
+      }
 
-    setSelectedAppIds(selectedIds);
-    addLog('success', `Selected ${selectedIds.length} games for prefill`);
-  }, [session, addLog]);
+      setSelectedAppIds(selectedIds);
+      addLog('success', `Selected ${selectedIds.length} games for prefill`);
+    },
+    [session, addLog]
+  );
 
   // Cleanup on unmount
   useEffect(() => {
@@ -858,12 +958,14 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       case 'prefill-all':
         return {
           title: 'Prefill All Games?',
-          message: 'This will download ALL games in your Steam library. Depending on your library size, this could be hundreds of gigabytes and take many hours. Are you sure you want to continue?'
+          message:
+            'This will download ALL games in your Steam library. Depending on your library size, this could be hundreds of gigabytes and take many hours. Are you sure you want to continue?'
         };
       case 'prefill-top':
         return {
           title: 'Prefill Top 50 Games?',
-          message: 'This will download the 50 most popular games. This could be several hundred gigabytes of data. Are you sure you want to continue?'
+          message:
+            'This will download the 50 most popular games. This could be several hundred gigabytes of data. Are you sure you want to continue?'
         };
       default:
         return { title: 'Confirm', message: 'Are you sure?' };
@@ -877,7 +979,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     setEstimatedSize({ bytes: 0, loading: true });
 
     try {
-      const status = await hubConnection.current.invoke('GetSelectedAppsStatus', session.id) as {
+      const status = (await hubConnection.current.invoke('GetSelectedAppsStatus', session.id)) as {
         totalDownloadSize: number;
         message?: string;
         apps?: Array<{ appId: number; name: string; downloadSize: number }>;
@@ -895,20 +997,23 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   }, [session?.id]);
 
   // Handle button click - show confirmation for large operations
-  const handleCommandClick = useCallback(async (commandType: CommandType) => {
-    if (COMMANDS_REQUIRING_CONFIRMATION.includes(commandType)) {
-      setPendingConfirmCommand(commandType);
-      // Fetch estimated size for prefill selected (apps are already set)
-      if (commandType === 'prefill' && selectedAppIds.length > 0) {
-        await fetchEstimatedSize();
+  const handleCommandClick = useCallback(
+    async (commandType: CommandType) => {
+      if (COMMANDS_REQUIRING_CONFIRMATION.includes(commandType)) {
+        setPendingConfirmCommand(commandType);
+        // Fetch estimated size for prefill selected (apps are already set)
+        if (commandType === 'prefill' && selectedAppIds.length > 0) {
+          await fetchEstimatedSize();
+        } else {
+          // For prefill-all and prefill-top, we can't easily estimate without selecting first
+          setEstimatedSize({ bytes: 0, loading: false });
+        }
       } else {
-        // For prefill-all and prefill-top, we can't easily estimate without selecting first
-        setEstimatedSize({ bytes: 0, loading: false });
+        executeCommand(commandType);
       }
-    } else {
-      executeCommand(commandType);
-    }
-  }, [executeCommand, selectedAppIds.length, fetchEstimatedSize]);
+    },
+    [executeCommand, selectedAppIds.length, fetchEstimatedSize]
+  );
 
   // Handle confirmation
   const handleConfirmCommand = useCallback(() => {
@@ -932,9 +1037,10 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     const isDisabled = isExecuting || !isLoggedIn || (isPrefillSelected && noGamesSelected);
 
     // Dynamic label for prefill selected
-    const label = isPrefillSelected && selectedAppIds.length > 0
-      ? `Prefill Selected (${selectedAppIds.length})`
-      : cmd.label;
+    const label =
+      isPrefillSelected && selectedAppIds.length > 0
+        ? `Prefill Selected (${selectedAppIds.length})`
+        : cmd.label;
 
     // Dynamic description for prefill selected
     const description = isPrefillSelected
@@ -957,9 +1063,10 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           <span
             className="p-1.5 rounded-md"
             style={{
-              backgroundColor: cmd.variant === 'filled'
-                ? 'rgba(255,255,255,0.15)'
-                : 'color-mix(in srgb, var(--theme-primary) 15%, transparent)'
+              backgroundColor:
+                cmd.variant === 'filled'
+                  ? 'rgba(255,255,255,0.15)'
+                  : 'color-mix(in srgb, var(--theme-primary) 15%, transparent)'
             }}
           >
             {cmd.icon}
@@ -999,8 +1106,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
               <div className="space-y-2">
                 <h2 className="text-2xl font-bold text-themed-primary">Steam Prefill</h2>
                 <p className="text-themed-muted max-w-md">
-                  Pre-download Steam games to your cache for faster LAN party downloads.
-                  Connect to your Steam library and prefill games before the event.
+                  Pre-download Steam games to your cache for faster LAN party downloads. Connect to
+                  your Steam library and prefill games before the event.
                 </p>
               </div>
 
@@ -1012,8 +1119,13 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                     border: '1px solid color-mix(in srgb, var(--theme-error) 30%, transparent)'
                   }}
                 >
-                  <AlertCircle className="h-5 w-5 flex-shrink-0" style={{ color: 'var(--theme-error)' }} />
-                  <span className="text-sm" style={{ color: 'var(--theme-error-text)' }}>{error}</span>
+                  <AlertCircle
+                    className="h-5 w-5 flex-shrink-0"
+                    style={{ color: 'var(--theme-error)' }}
+                  />
+                  <span className="text-sm" style={{ color: 'var(--theme-error-text)' }}>
+                    {error}
+                  </span>
                 </div>
               )}
 
@@ -1058,7 +1170,9 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             <div className="flex flex-col items-center justify-center gap-4">
               <div
                 className="w-16 h-16 rounded-xl flex items-center justify-center"
-                style={{ backgroundColor: 'color-mix(in srgb, var(--theme-steam) 15%, transparent)' }}
+                style={{
+                  backgroundColor: 'color-mix(in srgb, var(--theme-steam) 15%, transparent)'
+                }}
               >
                 <Loader2 className="h-8 w-8 animate-spin" style={{ color: 'var(--theme-steam)' }} />
               </div>
@@ -1066,9 +1180,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                 <p className="text-lg font-medium text-themed-primary">
                   {isInitializing ? 'Checking for existing session...' : 'Creating session...'}
                 </p>
-                <p className="text-sm text-themed-muted mt-1">
-                  This may take a moment
-                </p>
+                <p className="text-sm text-themed-muted mt-1">This may take a moment</p>
               </div>
             </div>
           </CardContent>
@@ -1108,11 +1220,15 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           <div className="flex items-center gap-3">
             <div
               className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
-              style={{ backgroundColor: 'color-mix(in srgb, var(--theme-warning) 15%, transparent)' }}
+              style={{
+                backgroundColor: 'color-mix(in srgb, var(--theme-warning) 15%, transparent)'
+              }}
             >
               <AlertCircle className="h-5 w-5" style={{ color: 'var(--theme-warning)' }} />
             </div>
-            <span>{pendingConfirmCommand ? getConfirmationMessage(pendingConfirmCommand).title : ''}</span>
+            <span>
+              {pendingConfirmCommand ? getConfirmationMessage(pendingConfirmCommand).title : ''}
+            </span>
           </div>
         }
         size="md"
@@ -1124,10 +1240,16 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
           {/* Estimated download size */}
           {pendingConfirmCommand === 'prefill' && (
-            <div className="p-3 rounded-lg" style={{ backgroundColor: 'var(--theme-bg-secondary)' }}>
+            <div
+              className="p-3 rounded-lg"
+              style={{ backgroundColor: 'var(--theme-bg-secondary)' }}
+            >
               {estimatedSize.loading ? (
                 <div className="flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin" style={{ color: 'var(--theme-primary)' }} />
+                  <Loader2
+                    className="h-4 w-4 animate-spin"
+                    style={{ color: 'var(--theme-primary)' }}
+                  />
                   <span className="text-sm text-themed-muted">Calculating download size...</span>
                 </div>
               ) : estimatedSize.error ? (
@@ -1136,17 +1258,31 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-themed-muted">Total estimated download:</span>
-                    <span className="text-sm font-semibold" style={{ color: 'var(--theme-primary)' }}>
+                    <span
+                      className="text-sm font-semibold"
+                      style={{ color: 'var(--theme-primary)' }}
+                    >
                       {formatBytes(estimatedSize.bytes)}
                     </span>
                   </div>
                   {estimatedSize.apps && estimatedSize.apps.length > 0 && (
-                    <div className="pt-2 border-t" style={{ borderColor: 'var(--theme-border-primary)' }}>
-                      <div className="text-xs text-themed-muted mb-1">Breakdown ({estimatedSize.apps.length} games):</div>
+                    <div
+                      className="pt-2 border-t"
+                      style={{ borderColor: 'var(--theme-border-primary)' }}
+                    >
+                      <div className="text-xs text-themed-muted mb-1">
+                        Breakdown ({estimatedSize.apps.length} games):
+                      </div>
                       <div className="space-y-1 max-h-32 overflow-y-auto">
-                        {estimatedSize.apps.map(app => (
-                          <div key={app.appId} className="flex items-center justify-between text-xs">
-                            <span className="text-themed-secondary truncate mr-2" style={{ maxWidth: '200px' }}>
+                        {estimatedSize.apps.map((app) => (
+                          <div
+                            key={app.appId}
+                            className="flex items-center justify-between text-xs"
+                          >
+                            <span
+                              className="text-themed-secondary truncate mr-2"
+                              style={{ maxWidth: '200px' }}
+                            >
                               {app.name}
                             </span>
                             <span className="text-themed-muted whitespace-nowrap">
@@ -1163,10 +1299,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           )}
 
           <div className="flex justify-end gap-3 pt-2">
-            <Button
-              variant="outline"
-              onClick={handleCancelConfirm}
-            >
+            <Button variant="outline" onClick={handleCancelConfirm}>
               Cancel
             </Button>
             <Button
@@ -1207,22 +1340,28 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           <div
             className="flex items-center gap-2 px-4 py-2 rounded-lg flex-1 sm:flex-initial justify-center"
             style={{
-              backgroundColor: timeRemaining < 600
-                ? 'color-mix(in srgb, var(--theme-warning) 15%, transparent)'
-                : 'var(--theme-bg-tertiary)',
+              backgroundColor:
+                timeRemaining < 600
+                  ? 'color-mix(in srgb, var(--theme-warning) 15%, transparent)'
+                  : 'var(--theme-bg-tertiary)',
               border: '1px solid',
-              borderColor: timeRemaining < 600
-                ? 'color-mix(in srgb, var(--theme-warning) 30%, transparent)'
-                : 'var(--theme-border-secondary)'
+              borderColor:
+                timeRemaining < 600
+                  ? 'color-mix(in srgb, var(--theme-warning) 30%, transparent)'
+                  : 'var(--theme-border-secondary)'
             }}
           >
-            <Timer className="h-4 w-4" style={{
-              color: timeRemaining < 600 ? 'var(--theme-warning)' : 'var(--theme-text-muted)'
-            }} />
+            <Timer
+              className="h-4 w-4"
+              style={{
+                color: timeRemaining < 600 ? 'var(--theme-warning)' : 'var(--theme-text-muted)'
+              }}
+            />
             <span
               className="font-mono font-semibold tabular-nums"
               style={{
-                color: timeRemaining < 600 ? 'var(--theme-warning-text)' : 'var(--theme-text-primary)'
+                color:
+                  timeRemaining < 600 ? 'var(--theme-warning-text)' : 'var(--theme-text-primary)'
               }}
             >
               {formatTimeRemaining(timeRemaining)}
@@ -1289,18 +1428,13 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                   <p className="text-sm text-themed-muted">
                     {isLoggedIn
                       ? 'You can now use prefill commands'
-                      : 'Authenticate to access your game library'
-                    }
+                      : 'Authenticate to access your game library'}
                   </p>
                 </div>
               </div>
 
               {!isLoggedIn && (
-                <Button
-                  variant="filled"
-                  onClick={handleOpenAuthModal}
-                  className="flex-shrink-0"
-                >
+                <Button variant="filled" onClick={handleOpenAuthModal} className="flex-shrink-0">
                   <SteamIcon size={18} />
                   Login to Steam
                 </Button>
@@ -1322,17 +1456,26 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                   <div className="flex items-center gap-3">
                     <div
                       className="w-10 h-10 rounded-lg flex items-center justify-center"
-                      style={{ backgroundColor: 'color-mix(in srgb, var(--theme-primary) 15%, transparent)' }}
+                      style={{
+                        backgroundColor: 'color-mix(in srgb, var(--theme-primary) 15%, transparent)'
+                      }}
                     >
-                      <Download className="h-5 w-5 animate-pulse" style={{ color: 'var(--theme-primary)' }} />
+                      <Download
+                        className="h-5 w-5 animate-pulse"
+                        style={{ color: 'var(--theme-primary)' }}
+                      />
                     </div>
                     <div>
                       <p className="font-medium text-themed-primary">
-                        {prefillProgress.state === 'loading-metadata' ? 'Loading Game Data' :
-                         prefillProgress.state === 'metadata-loaded' ? 'Preparing Download' :
-                         prefillProgress.state === 'starting' ? 'Starting' :
-                         prefillProgress.state === 'preparing' ? 'Preparing' :
-                         'Downloading'}
+                        {prefillProgress.state === 'loading-metadata'
+                          ? 'Loading Game Data'
+                          : prefillProgress.state === 'metadata-loaded'
+                            ? 'Preparing Download'
+                            : prefillProgress.state === 'starting'
+                              ? 'Starting'
+                              : prefillProgress.state === 'preparing'
+                                ? 'Preparing'
+                                : 'Downloading'}
                       </p>
                       {prefillProgress.state === 'downloading' && (
                         <p className="text-sm text-themed-muted truncate max-w-[300px]">
@@ -1353,11 +1496,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                         </p>
                       </div>
                     )}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleCancelPrefill}
-                    >
+                    <Button variant="outline" size="sm" onClick={handleCancelPrefill}>
                       <XCircle className="h-4 w-4" />
                       Cancel
                     </Button>
@@ -1375,7 +1514,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                         className="h-full rounded-full transition-all duration-300 ease-out"
                         style={{
                           width: `${Math.min(100, prefillProgress.percentComplete)}%`,
-                          background: 'linear-gradient(90deg, var(--theme-primary) 0%, var(--theme-accent) 100%)'
+                          background:
+                            'linear-gradient(90deg, var(--theme-primary) 0%, var(--theme-accent) 100%)'
                         }}
                       />
                     ) : (
@@ -1383,7 +1523,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                         className="h-full rounded-full animate-pulse"
                         style={{
                           width: '100%',
-                          background: 'linear-gradient(90deg, var(--theme-primary) 0%, var(--theme-accent) 100%)',
+                          background:
+                            'linear-gradient(90deg, var(--theme-primary) 0%, var(--theme-accent) 100%)',
                           opacity: 0.5
                         }}
                       />
@@ -1393,7 +1534,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                   {prefillProgress.state === 'downloading' ? (
                     <div className="flex items-center justify-between text-xs text-themed-muted">
                       <span>
-                        {formatBytes(prefillProgress.bytesDownloaded)} / {formatBytes(prefillProgress.totalBytes)}
+                        {formatBytes(prefillProgress.bytesDownloaded)} /{' '}
+                        {formatBytes(prefillProgress.totalBytes)}
                       </span>
                       <span className="font-medium" style={{ color: 'var(--theme-primary)' }}>
                         {prefillProgress.percentComplete.toFixed(1)}%
@@ -1492,14 +1634,21 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                     border: '1px solid color-mix(in srgb, var(--theme-warning) 25%, transparent)'
                   }}
                 >
-                  <Shield className="h-5 w-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-warning)' }} />
+                  <Shield
+                    className="h-5 w-5 flex-shrink-0 mt-0.5"
+                    style={{ color: 'var(--theme-warning)' }}
+                  />
                   <div>
-                    <p className="font-medium text-sm" style={{ color: 'var(--theme-warning-text)' }}>
+                    <p
+                      className="font-medium text-sm"
+                      style={{ color: 'var(--theme-warning-text)' }}
+                    >
                       Login Required to Use Commands
                     </p>
                     <p className="text-sm text-themed-muted mt-1">
-                      All prefill commands require Steam authentication. Click "Login to Steam" above to enable commands.
-                      Your credentials are sent directly to the container and never stored by this application.
+                      All prefill commands require Steam authentication. Click "Login to Steam"
+                      above to enable commands. Your credentials are sent directly to the container
+                      and never stored by this application.
                     </p>
                   </div>
                 </div>
@@ -1519,7 +1668,9 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             >
               <div
                 className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                style={{ backgroundColor: 'color-mix(in srgb, var(--theme-accent) 15%, transparent)' }}
+                style={{
+                  backgroundColor: 'color-mix(in srgb, var(--theme-accent) 15%, transparent)'
+                }}
               >
                 <ScrollText className="h-4 w-4" style={{ color: 'var(--theme-accent)' }} />
               </div>
@@ -1529,10 +1680,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
               </div>
             </div>
             <CardContent className="p-0">
-              <ActivityLog
-                entries={logEntries}
-                className="border-0 rounded-none"
-              />
+              <ActivityLog entries={logEntries} className="border-0 rounded-none" />
             </CardContent>
           </Card>
         </div>
