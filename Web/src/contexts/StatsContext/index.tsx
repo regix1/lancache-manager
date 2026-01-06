@@ -20,7 +20,7 @@ export const useStats = () => {
 };
 
 export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode = false }) => {
-  const { getTimeRangeParams, timeRange, customStartDate, customEndDate, selectedEventId } = useTimeFilter();
+  const { getTimeRangeParams, timeRange, customStartDate, customEndDate, selectedEventIds } = useTimeFilter();
   const { getRefreshInterval } = useRefreshRate();
   const signalR = useSignalR();
 
@@ -51,14 +51,14 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   const getTimeRangeParamsRef = useRef(getTimeRangeParams);
   const getRefreshIntervalRef = useRef(getRefreshInterval);
   const mockModeRef = useRef(mockMode);
-  const selectedEventIdRef = useRef<number | null>(selectedEventId);
+  const selectedEventIdsRef = useRef<number[]>(selectedEventIds);
 
   // Update refs synchronously on every render
   currentTimeRangeRef.current = timeRange;
   getTimeRangeParamsRef.current = getTimeRangeParams;
   getRefreshIntervalRef.current = getRefreshInterval;
   mockModeRef.current = mockMode;
-  selectedEventIdRef.current = selectedEventId;
+  selectedEventIdsRef.current = selectedEventIds;
 
   const getApiUrl = (): string => {
     if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
@@ -119,7 +119,8 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     // Read current values from refs - these are always up-to-date
     const currentTimeRange = currentTimeRangeRef.current;
     const { startTime, endTime } = getTimeRangeParamsRef.current();
-    const eventId = selectedEventIdRef.current ?? undefined;
+    // Support multiple event IDs - pass as array for API
+    const eventIds = selectedEventIdsRef.current.length > 0 ? selectedEventIdsRef.current : undefined;
 
     abortControllerRef.current = new AbortController();
 
@@ -139,12 +140,12 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       const timeout = 10000;
       const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), timeout);
 
-      // Pass eventId to filter to only tagged downloads when event is selected
+      // Pass eventIds to filter to only tagged downloads when events are selected
       const [cache, clients, services, dashboard] = await Promise.allSettled([
         ApiService.getCacheInfo(abortControllerRef.current.signal),
-        ApiService.getClientStats(abortControllerRef.current.signal, startTime, endTime, eventId),
-        ApiService.getServiceStats(abortControllerRef.current.signal, startTime, endTime, eventId),
-        ApiService.getDashboardStats(abortControllerRef.current.signal, startTime, endTime, eventId)
+        ApiService.getClientStats(abortControllerRef.current.signal, startTime, endTime, eventIds),
+        ApiService.getServiceStats(abortControllerRef.current.signal, startTime, endTime, eventIds),
+        ApiService.getDashboardStats(abortControllerRef.current.signal, startTime, endTime, eventIds)
       ]);
 
       clearTimeout(timeoutId);
@@ -292,11 +293,14 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   }, [timeRange, mockMode, fetchStats]);
 
   // Event filter changes - refetch when event filter is changed
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const eventIdsKey = JSON.stringify(selectedEventIds);
   useEffect(() => {
     if (!mockMode && !isInitialLoad.current) {
       fetchStats({ showLoading: true, forceRefresh: true });
     }
-  }, [selectedEventId, mockMode, fetchStats]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventIdsKey, mockMode, fetchStats]);
 
   // Debounced custom date changes
   useEffect(() => {

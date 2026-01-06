@@ -198,14 +198,17 @@ class ApiService {
     count: number | 'unlimited' = 'unlimited',
     startTime?: number,
     endTime?: number,
-    eventId?: number
+    eventIds?: number[]
   ): Promise<Download[]> {
     try {
       const actualCount = count === 'unlimited' ? 2147483647 : count;
       let url = `${API_BASE}/downloads/latest?count=${actualCount}`;
       if (startTime) url += `&startTime=${startTime}`;
       if (endTime) url += `&endTime=${endTime}`;
-      if (eventId) url += `&eventId=${eventId}`;
+      // Support multiple event IDs - pass as comma-separated list
+      if (eventIds && eventIds.length > 0) {
+        url += `&eventIds=${eventIds.join(',')}`;
+      }
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<Download[]>(res);
     } catch (error: unknown) {
@@ -222,14 +225,14 @@ class ApiService {
     signal?: AbortSignal,
     startTime?: number,
     endTime?: number,
-    eventId?: number
+    eventIds?: number[]
   ): Promise<ClientStat[]> {
     try {
       let url = `${API_BASE}/stats/clients`;
       const params = new URLSearchParams();
       if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
       if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
-      if (eventId) params.append('eventId', eventId.toString());
+      if (eventIds && eventIds.length > 0) params.append('eventIds', eventIds.join(','));
       if (params.toString()) url += `?${params}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<ClientStat[]>(res);
@@ -247,14 +250,14 @@ class ApiService {
     signal?: AbortSignal,
     startTime?: number,
     endTime?: number,
-    eventId?: number
+    eventIds?: number[]
   ): Promise<ServiceStat[]> {
     try {
       let url = `${API_BASE}/stats/services`;
       const params = new URLSearchParams();
       if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
       if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
-      if (eventId) params.append('eventId', eventId.toString());
+      if (eventIds && eventIds.length > 0) params.append('eventIds', eventIds.join(','));
       if (params.toString()) url += `?${params}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<ServiceStat[]>(res);
@@ -273,14 +276,14 @@ class ApiService {
     signal?: AbortSignal,
     startTime?: number,
     endTime?: number,
-    eventId?: number
+    eventIds?: number[]
   ): Promise<DashboardStats> {
     try {
       let url = `${API_BASE}/stats/dashboard`;
       const params = new URLSearchParams();
       if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
       if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
-      if (eventId) params.append('eventId', eventId.toString());
+      if (eventIds && eventIds.length > 0) params.append('eventIds', eventIds.join(','));
       if (params.toString()) url += `?${params}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<DashboardStats>(res);

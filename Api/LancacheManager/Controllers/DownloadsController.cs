@@ -34,9 +34,19 @@ public class DownloadsController : ControllerBase
 
     [HttpGet("latest")]
     [ResponseCache(Duration = 5)] // Cache for 5 seconds
-    public async Task<IActionResult> GetLatest([FromQuery] int count = int.MaxValue, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] int? eventId = null)
+    public async Task<IActionResult> GetLatest([FromQuery] int count = int.MaxValue, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] string? eventIds = null)
     {
         const int maxRetries = 3;
+
+        // Parse eventIds from comma-separated string
+        var eventIdList = string.IsNullOrWhiteSpace(eventIds)
+            ? new List<int>()
+            : eventIds.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(s => int.TryParse(s.Trim(), out var id) ? id : (int?)null)
+                .Where(id => id.HasValue)
+                .Select(id => id!.Value)
+                .ToList();
+
         for (int retry = 0; retry < maxRetries; retry++)
         {
             try
@@ -44,7 +54,7 @@ public class DownloadsController : ControllerBase
                 List<Download> downloads;
 
                 // If no time filtering and no event filter, use cached service method
-                if (!startTime.HasValue && !endTime.HasValue && !eventId.HasValue)
+                if (!startTime.HasValue && !endTime.HasValue && eventIdList.Count == 0)
                 {
                     downloads = await _statsService.GetLatestDownloadsAsync(count);
                 }
@@ -59,19 +69,34 @@ public class DownloadsController : ControllerBase
                         ? DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime
                         : DateTime.UtcNow;
 
-                    var query = _context.Downloads.AsNoTracking();
-
                     // Apply event filter if provided (filters to only tagged downloads)
-                    if (eventId.HasValue)
+                    if (eventIdList.Count > 0)
                     {
-                        query = query.Where(d => _context.EventDownloads.Any(ed => ed.EventId == eventId.Value && ed.DownloadId == d.Id));
-                    }
+                        // Use explicit join for event filtering - support multiple event IDs
+                        var taggedDownloadIds = await _context.EventDownloads
+                            .AsNoTracking()
+                            .Where(ed => eventIdList.Contains(ed.EventId))
+                            .Select(ed => ed.DownloadId)
+                            .Distinct()
+                            .ToListAsync();
 
-                    downloads = await query
-                        .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
-                        .OrderByDescending(d => d.StartTimeUtc)
-                        .Take(count)
-                        .ToListAsync();
+                        downloads = await _context.Downloads
+                            .AsNoTracking()
+                            .Where(d => taggedDownloadIds.Contains(d.Id))
+                            .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
+                            .OrderByDescending(d => d.StartTimeUtc)
+                            .Take(count)
+                            .ToListAsync();
+                    }
+                    else
+                    {
+                        downloads = await _context.Downloads
+                            .AsNoTracking()
+                            .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
+                            .OrderByDescending(d => d.StartTimeUtc)
+                            .Take(count)
+                            .ToListAsync();
+                    }
 
                     // Fix timezone: Ensure UTC DateTime values are marked as UTC for proper JSON serialization
                     foreach (var download in downloads)

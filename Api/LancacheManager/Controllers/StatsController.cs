@@ -41,30 +41,50 @@ public class StatsController : ControllerBase
     }
 
     /// <summary>
-    /// Gets download IDs tagged to a specific event.
-    /// Used to filter stats to only show downloads associated with an event.
+    /// Parses a comma-separated string of event IDs into a list.
     /// </summary>
-    private async Task<HashSet<int>> GetEventDownloadIdsAsync(int eventId)
+    private static List<int> ParseEventIds(string? eventIds)
     {
+        if (string.IsNullOrWhiteSpace(eventIds))
+            return new List<int>();
+
+        return eventIds.Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => int.TryParse(s.Trim(), out var id) ? id : (int?)null)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Gets download IDs tagged to specific events.
+    /// Used to filter stats to only show downloads associated with events.
+    /// </summary>
+    private async Task<HashSet<int>> GetEventDownloadIdsAsync(List<int> eventIds)
+    {
+        if (eventIds.Count == 0)
+            return new HashSet<int>();
+
         var downloadIds = await _context.EventDownloads
             .AsNoTracking()
-            .Where(ed => ed.EventId == eventId)
+            .Where(ed => eventIds.Contains(ed.EventId))
             .Select(ed => ed.DownloadId)
+            .Distinct()
             .ToListAsync();
         return downloadIds.ToHashSet();
     }
 
     /// <summary>
     /// Applies event filtering to a downloads query.
-    /// When eventId is provided, only returns downloads tagged to that event.
+    /// When eventIds are provided, only returns downloads tagged to those events.
+    /// Must be called with pre-fetched download IDs for reliable SQLite compatibility.
     /// </summary>
-    private IQueryable<Download> ApplyEventFilter(IQueryable<Download> query, int? eventId)
+    private IQueryable<Download> ApplyEventFilter(IQueryable<Download> query, List<int> eventIds, HashSet<int>? eventDownloadIds)
     {
-        if (!eventId.HasValue)
+        if (eventIds.Count == 0 || eventDownloadIds == null)
             return query;
 
-        // Join with EventDownloads to filter to only tagged downloads
-        return query.Where(d => _context.EventDownloads.Any(ed => ed.EventId == eventId.Value && ed.DownloadId == d.Id));
+        // Filter to only downloads that are tagged to the events
+        return query.Where(d => eventDownloadIds.Contains(d.Id));
     }
 
     [HttpGet("clients")]
@@ -73,7 +93,7 @@ public class StatsController : ControllerBase
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
         [FromQuery] int? limit = null,
-        [FromQuery] int? eventId = null)
+        [FromQuery] string? eventIds = null)
     {
         try
         {
@@ -82,11 +102,15 @@ public class StatsController : ControllerBase
             var defaultLimit = _apiOptions.Value.DefaultClientsLimit;
             var effectiveLimit = Math.Min(limit ?? defaultLimit, maxLimit);
 
+            // Parse event IDs
+            var eventIdList = ParseEventIds(eventIds);
+
             // Build base query with time filtering
             var query = _context.Downloads.AsNoTracking();
 
             // Apply event filter if provided (filters to only tagged downloads)
-            query = ApplyEventFilter(query, eventId);
+            HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
+            query = ApplyEventFilter(query, eventIdList, eventDownloadIds);
 
             if (startTime.HasValue)
             {
@@ -257,16 +281,20 @@ public class StatsController : ControllerBase
 
     [HttpGet("services")]
     [OutputCache(PolicyName = "stats-short")]
-    public async Task<IActionResult> GetServices([FromQuery] string? since = null, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] int? eventId = null)
+    public async Task<IActionResult> GetServices([FromQuery] string? since = null, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] string? eventIds = null)
     {
         try
         {
+            // Parse event IDs
+            var eventIdList = ParseEventIds(eventIds);
+
             // ALWAYS query Downloads table directly to ensure consistency with dashboard stats
             // Previously used cached ServiceStats table which caused fluctuating values
             var query = _context.Downloads.AsNoTracking();
 
             // Apply event filter if provided (filters to only tagged downloads)
-            query = ApplyEventFilter(query, eventId);
+            HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
+            query = ApplyEventFilter(query, eventIdList, eventDownloadIds);
 
             // Apply time filtering if provided
             if (startTime.HasValue)
@@ -325,8 +353,11 @@ public class StatsController : ControllerBase
     public async Task<IActionResult> GetDashboardStats(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
-        [FromQuery] int? eventId = null)
+        [FromQuery] string? eventIds = null)
     {
+        // Parse event IDs
+        var eventIdList = ParseEventIds(eventIds);
+
         // Use Unix timestamps if provided, otherwise return ALL data (no time filter)
         // This ensures consistency: frontend always provides timestamps for time-filtered queries
         DateTime? cutoffTime = null;
@@ -349,7 +380,8 @@ public class StatsController : ControllerBase
         var downloadsQuery = _context.Downloads.AsNoTracking();
 
         // Apply event filter if provided (filters to only tagged downloads)
-        downloadsQuery = ApplyEventFilter(downloadsQuery, eventId);
+        HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
+        downloadsQuery = ApplyEventFilter(downloadsQuery, eventIdList, eventDownloadIds);
 
         if (cutoffTime.HasValue)
         {
@@ -481,15 +513,19 @@ public class StatsController : ControllerBase
     public async Task<IActionResult> GetHourlyActivity(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
-        [FromQuery] int? eventId = null)
+        [FromQuery] string? eventIds = null)
     {
         try
         {
+            // Parse event IDs
+            var eventIdList = ParseEventIds(eventIds);
+
             // Build query with optional time filtering
             var query = _context.Downloads.AsNoTracking();
 
             // Apply event filter if provided (filters to only tagged downloads)
-            query = ApplyEventFilter(query, eventId);
+            HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
+            query = ApplyEventFilter(query, eventIdList, eventDownloadIds);
 
             DateTime? cutoffTime = null;
             DateTime? endDateTime = null;
@@ -598,10 +634,13 @@ public class StatsController : ControllerBase
         [FromQuery] long? endTime = null,
         [FromQuery] string interval = "daily",
         [FromQuery] long? actualCacheSize = null,
-        [FromQuery] int? eventId = null)
+        [FromQuery] string? eventIds = null)
     {
         try
         {
+            // Parse event IDs
+            var eventIdList = ParseEventIds(eventIds);
+
             DateTime? cutoffTime = startTime.HasValue
                 ? DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime
                 : (DateTime?)null;
@@ -626,7 +665,8 @@ public class StatsController : ControllerBase
             var baseQuery = _context.Downloads.AsNoTracking();
 
             // Apply event filter if provided (filters to only tagged downloads)
-            baseQuery = ApplyEventFilter(baseQuery, eventId);
+            HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
+            baseQuery = ApplyEventFilter(baseQuery, eventIdList, eventDownloadIds);
 
             if (cutoffTime.HasValue)
             {
@@ -823,15 +863,19 @@ public class StatsController : ControllerBase
     public async Task<IActionResult> GetSparklineData(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
-        [FromQuery] int? eventId = null)
+        [FromQuery] string? eventIds = null)
     {
         try
         {
+            // Parse event IDs
+            var eventIdList = ParseEventIds(eventIds);
+
             // Build query with optional time filtering
             var query = _context.Downloads.AsNoTracking();
 
             // Apply event filter if provided (filters to only tagged downloads)
-            query = ApplyEventFilter(query, eventId);
+            HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
+            query = ApplyEventFilter(query, eventIdList, eventDownloadIds);
 
             if (startTime.HasValue)
             {

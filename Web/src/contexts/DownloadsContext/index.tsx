@@ -41,7 +41,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   children,
   mockMode = false
 }) => {
-  const { getTimeRangeParams, timeRange, customStartDate, customEndDate, selectedEventId } = useTimeFilter();
+  const { getTimeRangeParams, timeRange, customStartDate, customEndDate, selectedEventIds } = useTimeFilter();
   const { getRefreshInterval } = useRefreshRate();
   const signalR = useSignalR();
 
@@ -75,13 +75,13 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   const getTimeRangeParamsRef = useRef(getTimeRangeParams);
   const getRefreshIntervalRef = useRef(getRefreshInterval);
   const mockModeRef = useRef(mockMode);
-  const selectedEventIdRef = useRef<number | null>(selectedEventId);
+  const selectedEventIdsRef = useRef<number[]>(selectedEventIds);
 
   currentTimeRangeRef.current = timeRange;
   getTimeRangeParamsRef.current = getTimeRangeParams;
   getRefreshIntervalRef.current = getRefreshInterval;
   mockModeRef.current = mockMode;
-  selectedEventIdRef.current = selectedEventId;
+  selectedEventIdsRef.current = selectedEventIds;
 
   // ============================================
   // CORE DATA FETCHING
@@ -113,7 +113,8 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
     // Read current values from refs - these are always up-to-date
     const currentTimeRange = currentTimeRangeRef.current;
     const { startTime, endTime } = getTimeRangeParamsRef.current();
-    const eventId = selectedEventIdRef.current ?? undefined;
+    // Support multiple event IDs - pass as array for API
+    const eventIds = selectedEventIdsRef.current.length > 0 ? selectedEventIdsRef.current : undefined;
 
     abortControllerRef.current = new AbortController();
 
@@ -130,7 +131,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
         'unlimited',
         startTime,
         endTime,
-        eventId
+        eventIds
       );
 
       clearTimeout(timeoutId);
@@ -269,11 +270,14 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   }, [timeRange, mockMode, fetchDownloads]);
 
   // Event filter changes - refetch when event filter is changed
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const eventIdsKey = JSON.stringify(selectedEventIds);
   useEffect(() => {
     if (!mockMode && !isInitialLoad.current) {
       fetchDownloads({ showLoading: true });
     }
-  }, [selectedEventId, mockMode, fetchDownloads]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventIdsKey, mockMode, fetchDownloads]);
 
   // Custom date changes (debounced)
   useEffect(() => {

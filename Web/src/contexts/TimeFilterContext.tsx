@@ -14,10 +14,12 @@ interface TimeFilterContextType {
   setCustomEndDate: (date: Date | null) => void;
   getTimeRangeInHours: () => number;
   getTimeRangeParams: () => { startTime?: number; endTime?: number };
-  // Event filter: optional filter to show only downloads tagged to a specific event
+  // Event filter: optional filter to show only downloads tagged to specific events
   // This is independent of time range - you can combine any time range with an event filter
-  selectedEventId: number | null;
-  setSelectedEventId: (id: number | null) => void;
+  selectedEventIds: number[];
+  setSelectedEventIds: (ids: number[]) => void;
+  toggleEventId: (id: number) => void;
+  clearEventFilter: () => void;
 }
 
 const TimeFilterContext = createContext<TimeFilterContextType | undefined>(undefined);
@@ -76,10 +78,32 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
     return null;
   });
 
-  // Selected event ID for filtering by tagged downloads (independent of time range)
-  const [selectedEventId, setSelectedEventIdState] = useState<number | null>(() => {
-    const saved = storage.getItem('lancache_selected_event_id');
-    return saved ? parseInt(saved, 10) : null;
+  // Selected event IDs for filtering by tagged downloads (independent of time range)
+  const [selectedEventIds, setSelectedEventIdsState] = useState<number[]>(() => {
+    const saved = storage.getItem('lancache_selected_event_ids');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        // Migrate from old single ID format
+        const oldSaved = storage.getItem('lancache_selected_event_id');
+        if (oldSaved) {
+          const id = parseInt(oldSaved, 10);
+          storage.removeItem('lancache_selected_event_id');
+          return isNaN(id) ? [] : [id];
+        }
+        return [];
+      }
+    }
+    // Migrate from old single ID format
+    const oldSaved = storage.getItem('lancache_selected_event_id');
+    if (oldSaved) {
+      const id = parseInt(oldSaved, 10);
+      storage.removeItem('lancache_selected_event_id');
+      return isNaN(id) ? [] : [id];
+    }
+    return [];
   });
 
   // Wrapper for setTimeRange that validates the value
@@ -109,18 +133,34 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
     }
   }, [customEndDate]);
 
-  // Persist selected event ID
+  // Persist selected event IDs
   useEffect(() => {
-    if (selectedEventId !== null) {
-      storage.setItem('lancache_selected_event_id', selectedEventId.toString());
+    if (selectedEventIds.length > 0) {
+      storage.setItem('lancache_selected_event_ids', JSON.stringify(selectedEventIds));
     } else {
-      storage.removeItem('lancache_selected_event_id');
+      storage.removeItem('lancache_selected_event_ids');
     }
-  }, [selectedEventId]);
+  }, [selectedEventIds]);
 
-  // Set selected event ID
-  const setSelectedEventId = (id: number | null) => {
-    setSelectedEventIdState(id);
+  // Set selected event IDs
+  const setSelectedEventIds = (ids: number[]) => {
+    setSelectedEventIdsState(ids);
+  };
+
+  // Toggle a single event ID
+  const toggleEventId = (id: number) => {
+    setSelectedEventIdsState(prev => {
+      if (prev.includes(id)) {
+        return prev.filter(eid => eid !== id);
+      } else {
+        return [...prev, id];
+      }
+    });
+  };
+
+  // Clear all event filters
+  const clearEventFilter = () => {
+    setSelectedEventIdsState([]);
   };
 
   const getTimeRangeInHours = (): number => {
@@ -196,8 +236,10 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
         setCustomEndDate: setCustomEndDateWithLogging,
         getTimeRangeInHours,
         getTimeRangeParams,
-        selectedEventId,
-        setSelectedEventId
+        selectedEventIds,
+        setSelectedEventIds,
+        toggleEventId,
+        clearEventFilter
       }}
     >
       {children}
