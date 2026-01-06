@@ -1,4 +1,4 @@
-import { CheckCircle2, XCircle, AlertTriangle, Wifi, Globe, Server } from 'lucide-react';
+import { CheckCircle2, XCircle, AlertTriangle, Wifi, Globe, Server, Info } from 'lucide-react';
 import { Card } from '../../ui/Card';
 import type { NetworkDiagnostics } from '@services/api.service';
 
@@ -11,8 +11,17 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
     return null;
   }
 
-  const hasAnyIssue = !diagnostics.internetConnectivity ||
-    diagnostics.dnsResults.some(r => !r.success || !r.isPrivateIp);
+  // With host networking, public DNS IPs are expected - steam-prefill detects lancache via localhost/gateway
+  const hasPublicDnsWithHostNetworking = diagnostics.useHostNetworking &&
+    diagnostics.dnsResults.some(r => r.success && !r.isPrivateIp);
+
+  // Only flag as issue if: no internet, DNS failed, or public IP without host networking
+  const hasRealIssue = !diagnostics.internetConnectivity ||
+    diagnostics.dnsResults.some(r => !r.success) ||
+    (!diagnostics.useHostNetworking && diagnostics.dnsResults.some(r => r.success && !r.isPrivateIp));
+
+  // Show info state (not warning) when public DNS but host networking is in use
+  const showInfoState = hasPublicDnsWithHostNetworking && !hasRealIssue;
 
   return (
     <Card padding="md">
@@ -22,20 +31,32 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
           <div
             className="w-10 h-10 rounded-lg flex items-center justify-center"
             style={{
-              backgroundColor: hasAnyIssue
+              backgroundColor: hasRealIssue
                 ? 'color-mix(in srgb, var(--theme-warning) 15%, transparent)'
-                : 'color-mix(in srgb, var(--theme-success) 15%, transparent)'
+                : showInfoState
+                  ? 'color-mix(in srgb, var(--theme-info) 15%, transparent)'
+                  : 'color-mix(in srgb, var(--theme-success) 15%, transparent)'
             }}
           >
             <Wifi
               className="h-5 w-5"
-              style={{ color: hasAnyIssue ? 'var(--theme-warning)' : 'var(--theme-success)' }}
+              style={{
+                color: hasRealIssue
+                  ? 'var(--theme-warning)'
+                  : showInfoState
+                    ? 'var(--theme-info)'
+                    : 'var(--theme-success)'
+              }}
             />
           </div>
           <div>
             <p className="font-medium text-themed-primary">Container Network Status</p>
             <p className="text-sm text-themed-muted">
-              {hasAnyIssue ? 'Some issues detected' : 'All checks passed'}
+              {hasRealIssue
+                ? 'Some issues detected'
+                : showInfoState
+                  ? 'Host networking mode'
+                  : 'All checks passed'}
             </p>
           </div>
         </div>
@@ -83,6 +104,8 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
                 {result.success ? (
                   result.isPrivateIp ? (
                     <CheckCircle2 className="h-4 w-4 flex-shrink-0" style={{ color: 'var(--theme-success)' }} />
+                  ) : diagnostics.useHostNetworking ? (
+                    <Info className="h-4 w-4 flex-shrink-0" style={{ color: 'var(--theme-info)' }} />
                   ) : (
                     <AlertTriangle className="h-4 w-4 flex-shrink-0" style={{ color: 'var(--theme-warning)' }} />
                   )
@@ -97,7 +120,11 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
                   <span
                     className="text-xs ml-auto font-mono"
                     style={{
-                      color: result.isPrivateIp ? 'var(--theme-success)' : 'var(--theme-warning)'
+                      color: result.isPrivateIp
+                        ? 'var(--theme-success)'
+                        : diagnostics.useHostNetworking
+                          ? 'var(--theme-info)'
+                          : 'var(--theme-warning)'
                     }}
                   >
                     {result.resolvedIp}
@@ -109,17 +136,31 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
                 )}
               </div>
 
-              {/* DNS Warning for public IP */}
+              {/* DNS Info/Warning for public IP - different message based on host networking */}
               {result.success && !result.isPrivateIp && (
                 <div
                   className="ml-6 text-xs p-2 rounded"
                   style={{
-                    backgroundColor: 'var(--theme-warning-bg)',
-                    color: 'var(--theme-warning-text)'
+                    backgroundColor: diagnostics.useHostNetworking
+                      ? 'var(--theme-info-bg)'
+                      : 'var(--theme-warning-bg)',
+                    color: diagnostics.useHostNetworking
+                      ? 'var(--theme-info-text)'
+                      : 'var(--theme-warning-text)'
                   }}
                 >
-                  Public IP detected - lancache-dns may not be configured.
-                  Prefill may download from internet instead of populating cache.
+                  {diagnostics.useHostNetworking ? (
+                    <>
+                      Public DNS is expected with host networking. Steam-prefill will detect
+                      lancache automatically via localhost. If your cache size grows during
+                      downloads, everything is working correctly.
+                    </>
+                  ) : (
+                    <>
+                      Public IP detected - lancache-dns may not be configured.
+                      Prefill may download from internet instead of populating cache.
+                    </>
+                  )}
                 </div>
               )}
 

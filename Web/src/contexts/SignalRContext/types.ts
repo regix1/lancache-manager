@@ -37,7 +37,6 @@ export const SIGNALR_EVENTS = [
   'DepotMappingComplete',
   'SteamSessionError',
   'SteamAutoLogout',
-  'NetworkConnectivityError',
   'DatabaseResetProgress',
   'LogRemovalProgress',
   'LogRemovalComplete',
@@ -342,14 +341,6 @@ export interface SteamAutoLogoutEvent {
   reason: string;
   replacementCount: number;
   timestamp: string;
-}
-
-export interface NetworkConnectivityErrorEvent {
-  hasInternetAccess: boolean;
-  message: string;
-  error?: string;
-  timestamp: string;
-  suggestion?: string;
 }
 
 export interface ShowToastEvent {

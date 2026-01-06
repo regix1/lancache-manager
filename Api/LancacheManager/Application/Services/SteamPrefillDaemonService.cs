@@ -406,7 +406,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         // This helps troubleshoot prefill issues - the container needs both:
         // 1. Internet access to reach Steam
         // 2. DNS resolving lancache domains to your cache server
-        var networkDiagnostics = await TestContainerConnectivityAsync(containerId, containerName, cancellationToken);
+        var networkDiagnostics = await TestContainerConnectivityAsync(containerId, containerName, isHostMode, cancellationToken);
 
         // Parse user agent for OS and browser info
         var (os, browser) = UserAgentParser.Parse(userAgent);
@@ -1724,10 +1724,13 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     /// 2. DNS resolution for lancache domains (should point to your cache server)
     /// Results are logged with clear separators for easy troubleshooting.
     /// </summary>
-    private async Task<NetworkDiagnostics> TestContainerConnectivityAsync(string containerId, string containerName, CancellationToken cancellationToken = default)
+    private async Task<NetworkDiagnostics> TestContainerConnectivityAsync(string containerId, string containerName, bool isHostMode, CancellationToken cancellationToken = default)
     {
-        var diagnostics = new NetworkDiagnostics();
-        
+        var diagnostics = new NetworkDiagnostics
+        {
+            UseHostNetworking = isHostMode
+        };
+
         if (_dockerClient == null) return diagnostics;
 
         _logger.LogInformation("═══════════════════════════════════════════════════════════════════════");
@@ -1872,9 +1875,10 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                 }
                 else
                 {
-                    _logger.LogWarning("  ⚠ DNS resolved to a public IP ({IpAddress})", resolvedIp);
-                    _logger.LogWarning("    This may indicate lancache-dns is not being used.");
-                    _logger.LogWarning("    Prefill might download from internet instead of populating cache.");
+                    _logger.LogInformation("  ⚠ DNS resolved to a public IP ({IpAddress})", resolvedIp);
+                    _logger.LogInformation("    Note: If using transparent proxy or router-level interception,");
+                    _logger.LogInformation("    lancache may still work correctly despite public DNS results.");
+                    _logger.LogInformation("    Verify by checking if cache size grows during downloads.");
                 }
             }
             else
@@ -2070,6 +2074,13 @@ public class NetworkDiagnostics
     public string? InternetConnectivityError { get; set; }
     public List<DnsTestResult> DnsResults { get; set; } = new();
     public DateTime TestedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// True if the container is using host networking mode.
+    /// When using host networking with transparent proxy setups, DNS may resolve to public IPs
+    /// but traffic still routes through lancache via router-level interception.
+    /// </summary>
+    public bool UseHostNetworking { get; set; }
 }
 
 public class DaemonSession

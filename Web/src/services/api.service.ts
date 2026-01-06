@@ -1579,6 +1579,8 @@ export interface NetworkDiagnostics {
   internetConnectivityError?: string;
   dnsResults: DnsTestResult[];
   testedAt: string;
+  /** True if container uses host networking - steam-prefill will detect lancache via localhost/gateway fallback */
+  useHostNetworking?: boolean;
 }
 
 export interface DaemonSessionDto {
