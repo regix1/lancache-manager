@@ -1,9 +1,10 @@
 import React, { useState, useCallback } from 'react';
-import { CalendarDays, Trash2, Calendar, Check } from 'lucide-react';
+import { CalendarDays, Trash2, Calendar, Check, BarChart3 } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { useEvents } from '@contexts/EventContext';
 import { useTimezone } from '@contexts/TimezoneContext';
+import { useTimeFilter } from '@contexts/TimeFilterContext';
 import { getEffectiveTimezone } from '@utils/timezone';
 import { getEventColorVar } from '@utils/eventColors';
 import DateTimePicker from '@components/common/DateTimePicker';
@@ -19,8 +20,9 @@ interface EventModalProps {
 const COLOR_INDEXES = [1, 2, 3, 4, 5, 6, 7, 8];
 
 const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
-  const { createEvent, updateEvent, deleteEvent } = useEvents();
+  const { createEvent, updateEvent, deleteEvent, setSelectedEventId } = useEvents();
   const { use24HourFormat, useLocalTimezone } = useTimezone();
+  const { setTimeRange, setEventTimeRange } = useTimeFilter();
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -131,6 +133,21 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
       setDeleting(false);
     }
   }, [event, deleteEvent, onSave]);
+
+  const handleViewOnDashboard = useCallback(() => {
+    if (!event) return;
+
+    // Set the time range to the event
+    const startTime = Math.floor(new Date(event.startTimeUtc).getTime() / 1000);
+    const endTime = Math.floor(new Date(event.endTimeUtc).getTime() / 1000);
+    setEventTimeRange(startTime, endTime);
+    setSelectedEventId(event.id);
+    setTimeRange('event');
+
+    // Close modal and navigate to dashboard via custom event
+    onClose();
+    window.dispatchEvent(new CustomEvent('navigate-to-tab', { detail: { tab: 'dashboard' } }));
+  }, [event, setEventTimeRange, setSelectedEventId, setTimeRange, onClose]);
 
   return (
     <>
@@ -250,17 +267,27 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
 
           {/* Actions */}
           <div className="flex justify-between pt-4 border-t border-[var(--theme-border-primary)]">
-            <div>
+            <div className="flex gap-2">
               {event && (
-                <Button
-                  type="button"
-                  color="red"
-                  variant="outline"
-                  onClick={handleDeleteClick}
-                  leftSection={<Trash2 className="w-4 h-4" />}
-                >
-                  Delete
-                </Button>
+                <>
+                  <Button
+                    type="button"
+                    color="red"
+                    variant="outline"
+                    onClick={handleDeleteClick}
+                    leftSection={<Trash2 className="w-4 h-4" />}
+                  >
+                    Delete
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleViewOnDashboard}
+                    leftSection={<BarChart3 className="w-4 h-4" />}
+                  >
+                    View Stats
+                  </Button>
+                </>
               )}
             </div>
             <div className="flex gap-2">

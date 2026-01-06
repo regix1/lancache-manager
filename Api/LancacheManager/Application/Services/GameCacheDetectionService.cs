@@ -695,6 +695,7 @@ public class GameCacheDetectionService
 
             int resolvedCount = 0;
             var newlyFailedDepots = new List<uint>();
+            var entriesToRemove = new List<CachedGameDetection>();
 
             foreach (var unknownGame in gamesToResolve)
             {
@@ -718,9 +719,44 @@ public class GameCacheDetectionService
                     _logger.LogInformation("[GameDetection] Resolved depot {DepotId} -> {AppId} ({Name})",
                         depotId, mapping.AppId, resolvedName);
 
-                    // Update the cached game with resolved info
-                    unknownGame.GameName = resolvedName;
-                    unknownGame.GameAppId = mapping.AppId; // Update to actual AppId
+                    // Check if a record with this AppId already exists (unique constraint protection)
+                    var existingGame = await dbContext.CachedGameDetections
+                        .FirstOrDefaultAsync(g => g.GameAppId == mapping.AppId);
+
+                    if (existingGame != null && existingGame.Id != unknownGame.Id)
+                    {
+                        // Merge data into existing record - this depot is another depot for the same game
+                        existingGame.CacheFilesFound += unknownGame.CacheFilesFound;
+                        existingGame.TotalSizeBytes += unknownGame.TotalSizeBytes;
+                        existingGame.LastDetectedUtc = existingGame.LastDetectedUtc > unknownGame.LastDetectedUtc
+                            ? existingGame.LastDetectedUtc : unknownGame.LastDetectedUtc;
+
+                        // Merge depot IDs
+                        var existingDepots = JsonSerializer.Deserialize<List<uint>>(existingGame.DepotIdsJson) ?? new List<uint>();
+                        var unknownDepots = JsonSerializer.Deserialize<List<uint>>(unknownGame.DepotIdsJson) ?? new List<uint>();
+                        existingDepots.AddRange(unknownDepots);
+                        existingDepots = existingDepots.Distinct().ToList();
+                        existingGame.DepotIdsJson = JsonSerializer.Serialize(existingDepots);
+
+                        // Merge cache file paths
+                        var existingPaths = JsonSerializer.Deserialize<List<string>>(existingGame.CacheFilePathsJson) ?? new List<string>();
+                        var unknownPaths = JsonSerializer.Deserialize<List<string>>(unknownGame.CacheFilePathsJson) ?? new List<string>();
+                        existingPaths.AddRange(unknownPaths);
+                        existingPaths = existingPaths.Distinct().ToList();
+                        existingGame.CacheFilePathsJson = JsonSerializer.Serialize(existingPaths);
+
+                        // Mark unknown game for removal
+                        entriesToRemove.Add(unknownGame);
+                        _logger.LogInformation("[GameDetection] Merged depot {DepotId} into existing game {AppId} ({Name})",
+                            depotId, mapping.AppId, resolvedName);
+                    }
+                    else
+                    {
+                        // No existing record, update the unknown game directly
+                        unknownGame.GameName = resolvedName;
+                        unknownGame.GameAppId = mapping.AppId;
+                    }
+
                     resolvedCount++;
 
                     // If this depot was previously in failed list, it's now resolved - remove it
@@ -731,6 +767,13 @@ public class GameCacheDetectionService
                     // Failed to resolve - track this depot so we don't spam logs
                     newlyFailedDepots.Add(depotId);
                 }
+            }
+
+            // Remove merged entries
+            if (entriesToRemove.Count > 0)
+            {
+                dbContext.CachedGameDetections.RemoveRange(entriesToRemove);
+                _logger.LogInformation("[GameDetection] Removed {Count} duplicate entries after merging", entriesToRemove.Count);
             }
 
             if (resolvedCount > 0)

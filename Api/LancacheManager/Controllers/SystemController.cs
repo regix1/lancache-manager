@@ -29,6 +29,7 @@ public class SystemController : ControllerBase
     private readonly DatasourceService _datasourceService;
     private readonly IHubContext<DownloadHub> _hubContext;
     private readonly NginxLogRotationHostedService _logRotationService;
+    private readonly NetworkConnectivityService _connectivityService;
 
     public SystemController(
         StateRepository stateService,
@@ -40,7 +41,8 @@ public class SystemController : ControllerBase
         SteamKit2Service steamKit2Service,
         DatasourceService datasourceService,
         IHubContext<DownloadHub> hubContext,
-        NginxLogRotationHostedService logRotationService)
+        NginxLogRotationHostedService logRotationService,
+        NetworkConnectivityService connectivityService)
     {
         _stateService = stateService;
         _configuration = configuration;
@@ -52,6 +54,7 @@ public class SystemController : ControllerBase
         _datasourceService = datasourceService;
         _hubContext = hubContext;
         _logRotationService = logRotationService;
+        _connectivityService = connectivityService;
     }
 
     /// <summary>
@@ -192,6 +195,26 @@ public class SystemController : ControllerBase
     {
         var isAvailable = _cacheClearingService.IsRsyncAvailable();
         return Ok(new RsyncAvailableResponse { Available = isAvailable });
+    }
+
+    /// <summary>
+    /// GET /api/system/connectivity - Get network connectivity status
+    /// </summary>
+    [HttpGet("connectivity")]
+    public IActionResult GetConnectivityStatus()
+    {
+        return Ok(_connectivityService.GetStatus());
+    }
+
+    /// <summary>
+    /// POST /api/system/connectivity/check - Re-check network connectivity
+    /// </summary>
+    [HttpPost("connectivity/check")]
+    [RequireAuth]
+    public async Task<IActionResult> CheckConnectivity()
+    {
+        var hasInternet = await _connectivityService.CheckConnectivityAsync(sendSignalREvent: true);
+        return Ok(_connectivityService.GetStatus());
     }
 
     /// <summary>

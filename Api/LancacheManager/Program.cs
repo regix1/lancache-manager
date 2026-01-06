@@ -306,6 +306,10 @@ builder.Services.AddSingleton<LancacheManager.Application.Services.SessionMigrat
 // Register SignalR connection tracking service for targeted messaging
 builder.Services.AddSingleton<LancacheManager.Application.Services.ConnectionTrackingService>();
 
+// Register Network Connectivity Service for startup internet check
+builder.Services.AddSingleton<LancacheManager.Application.Services.NetworkConnectivityService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<LancacheManager.Application.Services.NetworkConnectivityService>());
+
 // Register SteamKit2Service for real-time Steam depot mapping
 builder.Services.AddSingleton<SteamKit2Service>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<SteamKit2Service>());

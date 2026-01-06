@@ -118,6 +118,19 @@ const AppContent: React.FC = () => {
     }
   }, [authMode, activeTab]);
 
+  // Handle custom navigation events (used by components that can't access setActiveTab directly)
+  useEffect(() => {
+    const handleNavigateToTab = (event: Event) => {
+      const customEvent = event as CustomEvent<{ tab: string }>;
+      if (customEvent.detail?.tab) {
+        setActiveTab(customEvent.detail.tab);
+      }
+    };
+
+    window.addEventListener('navigate-to-tab', handleNavigateToTab);
+    return () => window.removeEventListener('navigate-to-tab', handleNavigateToTab);
+  }, []);
+
   // Redirect banned users away from prefill tab (but keep them there to see the error message)
   // The error message is shown in renderContent() when isBanned && activeTab === 'prefill'
 

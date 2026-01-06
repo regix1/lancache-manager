@@ -23,7 +23,8 @@ import type {
   DepotMappingProgressEvent,
   DepotMappingCompleteEvent,
   SteamSessionErrorEvent,
-  ShowToastEvent
+  ShowToastEvent,
+  NetworkConnectivityErrorEvent
 } from './SignalRContext/types';
 
 // Notification timing constants
@@ -1489,6 +1490,28 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       }, 100);
     };
 
+    // Network Connectivity Error - Docker container has no internet access
+    const handleNetworkConnectivityError = (event: NetworkConnectivityErrorEvent) => {
+      console.log('[NotificationsContext] NetworkConnectivityError received:', event);
+
+      // Include suggestion in the message if available
+      const fullMessage = event.suggestion 
+        ? `${event.message} ${event.suggestion}`
+        : event.message;
+
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: `No Internet Access: ${fullMessage}`,
+        details: {
+          notificationType: 'error'
+        }
+      });
+
+      // Don't auto-dismiss network errors - they're critical
+      // User needs to see this and fix their Docker configuration
+    };
+
     // Subscribe to events
     signalR.on('ProcessingProgress', handleProcessingProgress);
     signalR.on('FastProcessingComplete', handleFastProcessingComplete);
@@ -1511,6 +1534,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     signalR.on('DepotMappingProgress', handleDepotMappingProgress);
     signalR.on('DepotMappingComplete', handleDepotMappingComplete);
     signalR.on('SteamSessionError', handleSteamSessionError);
+    signalR.on('NetworkConnectivityError', handleNetworkConnectivityError);
 
     // Cleanup
     return () => {
@@ -1535,6 +1559,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       signalR.off('DepotMappingProgress', handleDepotMappingProgress);
       signalR.off('DepotMappingComplete', handleDepotMappingComplete);
       signalR.off('SteamSessionError', handleSteamSessionError);
+      signalR.off('NetworkConnectivityError', handleNetworkConnectivityError);
     };
   }, [
     signalR,

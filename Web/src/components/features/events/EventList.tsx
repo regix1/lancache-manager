@@ -1,6 +1,8 @@
 import React, { useMemo, useState, useCallback } from 'react';
-import { Calendar, Clock, ChevronRight, Zap, History, CalendarClock, Loader2, Pencil } from 'lucide-react';
+import { Calendar, Clock, ChevronRight, Zap, History, CalendarClock, Loader2, Pencil, BarChart3 } from 'lucide-react';
 import { useTimezone } from '@contexts/TimezoneContext';
+import { useTimeFilter } from '@contexts/TimeFilterContext';
+import { useEvents } from '@contexts/EventContext';
 import { formatBytes } from '@utils/formatters';
 import { getEventColorStyles, getEventColorVar } from '@utils/eventColors';
 import ApiService from '@services/api.service';
@@ -44,6 +46,7 @@ interface EventCardProps {
   cacheEntry: EventDownloadsCache[number] | undefined;
   onExpandClick: () => void;
   onEditClick: () => void;
+  onViewStatsClick: () => void;
   formatDateTime: (dateStr: string) => string;
   formatDuration: (startStr: string, endStr: string) => string;
 }
@@ -56,6 +59,7 @@ const EventCard: React.FC<EventCardProps> = ({
   cacheEntry,
   onExpandClick,
   onEditClick,
+  onViewStatsClick,
   formatDateTime,
   formatDuration
 }) => {
@@ -146,21 +150,37 @@ const EventCard: React.FC<EventCardProps> = ({
             </div>
           </div>
 
-          {/* Edit button */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onEditClick();
-            }}
-            className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200 hover:bg-[var(--theme-bg-hover)]"
-            style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-            title="Edit event"
-          >
-            <Pencil
-              className="w-4 h-4"
-              style={{ color: 'var(--theme-text-secondary)' }}
-            />
-          </button>
+          {/* Action buttons */}
+          <div className="flex gap-2 flex-shrink-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onViewStatsClick();
+              }}
+              className="w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200 hover:bg-[var(--theme-bg-hover)]"
+              style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+              title="View stats on dashboard"
+            >
+              <BarChart3
+                className="w-4 h-4"
+                style={{ color: 'var(--theme-text-secondary)' }}
+              />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onEditClick();
+              }}
+              className="w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200 hover:bg-[var(--theme-bg-hover)]"
+              style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+              title="Edit event"
+            >
+              <Pencil
+                className="w-4 h-4"
+                style={{ color: 'var(--theme-text-secondary)' }}
+              />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -244,6 +264,8 @@ interface EventListProps {
 
 const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
   const { use24HourFormat } = useTimezone();
+  const { setTimeRange, setEventTimeRange } = useTimeFilter();
+  const { setSelectedEventId } = useEvents();
   const [expandedEventId, setExpandedEventId] = useState<number | null>(null);
   const [downloadsCache, setDownloadsCache] = useState<EventDownloadsCache>({});
   const fetchingRef = React.useRef<Set<number>>(new Set());
@@ -346,6 +368,18 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
     }
   }, [expandedEventId, fetchEventDownloads]);
 
+  const handleViewStats = useCallback((event: Event) => {
+    // Set the time range to the event
+    const startTime = Math.floor(new Date(event.startTimeUtc).getTime() / 1000);
+    const endTime = Math.floor(new Date(event.endTimeUtc).getTime() / 1000);
+    setEventTimeRange(startTime, endTime);
+    setSelectedEventId(event.id);
+    setTimeRange('event');
+
+    // Navigate to dashboard via custom event
+    window.dispatchEvent(new CustomEvent('navigate-to-tab', { detail: { tab: 'dashboard' } }));
+  }, [setEventTimeRange, setSelectedEventId, setTimeRange]);
+
   // Section header component
   const SectionHeader: React.FC<{
     icon: React.ReactNode;
@@ -430,6 +464,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
                 cacheEntry={downloadsCache[event.id]}
                 onExpandClick={() => handleExpandClick(event.id)}
                 onEditClick={() => onEventClick(event)}
+                onViewStatsClick={() => handleViewStats(event)}
                 formatDateTime={formatDateTime}
                 formatDuration={formatDuration}
               />
@@ -458,6 +493,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
                 cacheEntry={downloadsCache[event.id]}
                 onExpandClick={() => handleExpandClick(event.id)}
                 onEditClick={() => onEventClick(event)}
+                onViewStatsClick={() => handleViewStats(event)}
                 formatDateTime={formatDateTime}
                 formatDuration={formatDuration}
               />
@@ -486,6 +522,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
                 cacheEntry={downloadsCache[event.id]}
                 onExpandClick={() => handleExpandClick(event.id)}
                 onEditClick={() => onEventClick(event)}
+                onViewStatsClick={() => handleViewStats(event)}
                 formatDateTime={formatDateTime}
                 formatDuration={formatDuration}
               />
