@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useLayoutEffect, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Clock, Calendar, Radio, Info, ChevronDown, Check, X } from 'lucide-react';
+import { Clock, Calendar, Radio, Info, ChevronDown, Check } from 'lucide-react';
 import { useTimeFilter, type TimeRange } from '@contexts/TimeFilterContext';
 import { useEvents } from '@contexts/EventContext';
 import DateRangePicker from './DateRangePicker';
@@ -30,7 +30,6 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
   const [dropdownStyle, setDropdownStyle] = useState<{ animation: string }>({ animation: '' });
-  const [openUpward, setOpenUpward] = useState(false);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -57,11 +56,6 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
       return aStart.getTime() - bStart.getTime();
     });
   }, [events]);
-
-  // Get selected events for display
-  const selectedEvents = useMemo(() => {
-    return events.filter(e => selectedEventIds.includes(e.id));
-  }, [events, selectedEventIds]);
 
   const getEventStatus = (startUtc: string, endUtc: string) => {
     const now = new Date();
@@ -130,7 +124,6 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
     const pos = calculatePosition();
     if (pos) {
       setDropdownPosition({ top: pos.top, left: pos.left });
-      setOpenUpward(pos.shouldOpenUpward);
       setDropdownStyle({
         animation: `${pos.shouldOpenUpward ? 'dropdownSlideUp' : 'dropdownSlideDown'} 0.15s cubic-bezier(0.16, 1, 0.3, 1)`
       });
