@@ -41,7 +41,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   children,
   mockMode = false
 }) => {
-  const { getTimeRangeParams, timeRange, customStartDate, customEndDate, eventStartTime, eventEndTime } = useTimeFilter();
+  const { getTimeRangeParams, timeRange, customStartDate, customEndDate, selectedEventId } = useTimeFilter();
   const { getRefreshInterval } = useRefreshRate();
   const signalR = useSignalR();
 
@@ -75,11 +75,13 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   const getTimeRangeParamsRef = useRef(getTimeRangeParams);
   const getRefreshIntervalRef = useRef(getRefreshInterval);
   const mockModeRef = useRef(mockMode);
+  const selectedEventIdRef = useRef<number | null>(selectedEventId);
 
   currentTimeRangeRef.current = timeRange;
   getTimeRangeParamsRef.current = getTimeRangeParams;
   getRefreshIntervalRef.current = getRefreshInterval;
   mockModeRef.current = mockMode;
+  selectedEventIdRef.current = selectedEventId;
 
   // ============================================
   // CORE DATA FETCHING
@@ -111,6 +113,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
     // Read current values from refs - these are always up-to-date
     const currentTimeRange = currentTimeRangeRef.current;
     const { startTime, endTime } = getTimeRangeParamsRef.current();
+    const eventId = selectedEventIdRef.current ?? undefined;
 
     abortControllerRef.current = new AbortController();
 
@@ -126,7 +129,8 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
         abortControllerRef.current.signal,
         'unlimited',
         startTime,
-        endTime
+        endTime,
+        eventId
       );
 
       clearTimeout(timeoutId);
@@ -264,12 +268,12 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
     }
   }, [timeRange, mockMode, fetchDownloads]);
 
-  // Event time range changes (when switching between events while in 'event' mode)
+  // Event filter changes - refetch when event filter is changed
   useEffect(() => {
-    if (!mockMode && !isInitialLoad.current && timeRange === 'event') {
+    if (!mockMode && !isInitialLoad.current) {
       fetchDownloads({ showLoading: true });
     }
-  }, [eventStartTime, eventEndTime, mockMode, fetchDownloads, timeRange]);
+  }, [selectedEventId, mockMode, fetchDownloads]);
 
   // Custom date changes (debounced)
   useEffect(() => {

@@ -20,9 +20,9 @@ interface EventModalProps {
 const COLOR_INDEXES = [1, 2, 3, 4, 5, 6, 7, 8];
 
 const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
-  const { createEvent, updateEvent, deleteEvent, setSelectedEventId } = useEvents();
+  const { createEvent, updateEvent, deleteEvent } = useEvents();
   const { use24HourFormat, useLocalTimezone } = useTimezone();
-  const { setTimeRange, setEventTimeRange } = useTimeFilter();
+  const { setTimeRange, setSelectedEventId: setFilterEventId } = useTimeFilter();
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -137,17 +137,15 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
   const handleViewOnDashboard = useCallback(() => {
     if (!event) return;
 
-    // Set the time range to the event
-    const startTime = Math.floor(new Date(event.startTimeUtc).getTime() / 1000);
-    const endTime = Math.floor(new Date(event.endTimeUtc).getTime() / 1000);
-    setEventTimeRange(startTime, endTime);
-    setSelectedEventId(event.id);
-    setTimeRange('event');
+    // Set the event filter to show only downloads tagged to this event
+    // Use 'live' time range to show all stats for the event
+    setFilterEventId(event.id);
+    setTimeRange('live');
 
     // Close modal and navigate to dashboard via custom event
     onClose();
     window.dispatchEvent(new CustomEvent('navigate-to-tab', { detail: { tab: 'dashboard' } }));
-  }, [event, setEventTimeRange, setSelectedEventId, setTimeRange, onClose]);
+  }, [event, setFilterEventId, setTimeRange, onClose]);
 
   return (
     <>

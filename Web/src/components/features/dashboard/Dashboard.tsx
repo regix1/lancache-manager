@@ -359,8 +359,6 @@ const Dashboard: React.FC = () => {
         return 'Live data';
       case 'custom':
         return 'Custom range';
-      case 'event':
-        return selectedEvent ? `Event: ${selectedEvent.name}` : 'Selected event';
       default:
         return 'Last 24 hours';
     }
@@ -416,13 +414,13 @@ const Dashboard: React.FC = () => {
     // Validate that the period data matches the current timeRange
     // This prevents showing stale data when switching time ranges
     // 'live' mode corresponds to 'all' duration, other modes match directly
-    // For 'custom' and 'event' modes, the backend returns dynamic durations like "12h" or "5d",
+    // For 'custom' mode, the backend returns dynamic durations like "12h" or "5d",
     // so we just check that we have period data (not 'all' which means no filter)
     let periodMatchesTimeRange = false;
     if (timeRange === 'live') {
       periodMatchesTimeRange = dashboardStats?.period?.duration === 'all';
-    } else if (timeRange === 'custom' || timeRange === 'event') {
-      // For custom ranges and events, accept any duration that's not 'all' (since they always have time bounds)
+    } else if (timeRange === 'custom') {
+      // For custom ranges, accept any duration that's not 'all' (since they always have time bounds)
       // The duration will be dynamically calculated like "12h" or "5d"
       periodMatchesTimeRange = !!dashboardStats?.period?.duration && dashboardStats.period.duration !== 'all';
     } else {

@@ -197,13 +197,15 @@ class ApiService {
     signal?: AbortSignal,
     count: number | 'unlimited' = 'unlimited',
     startTime?: number,
-    endTime?: number
+    endTime?: number,
+    eventId?: number
   ): Promise<Download[]> {
     try {
       const actualCount = count === 'unlimited' ? 2147483647 : count;
       let url = `${API_BASE}/downloads/latest?count=${actualCount}`;
       if (startTime) url += `&startTime=${startTime}`;
       if (endTime) url += `&endTime=${endTime}`;
+      if (eventId) url += `&eventId=${eventId}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<Download[]>(res);
     } catch (error: unknown) {
@@ -219,13 +221,15 @@ class ApiService {
   static async getClientStats(
     signal?: AbortSignal,
     startTime?: number,
-    endTime?: number
+    endTime?: number,
+    eventId?: number
   ): Promise<ClientStat[]> {
     try {
       let url = `${API_BASE}/stats/clients`;
       const params = new URLSearchParams();
       if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
       if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
+      if (eventId) params.append('eventId', eventId.toString());
       if (params.toString()) url += `?${params}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<ClientStat[]>(res);
@@ -242,13 +246,15 @@ class ApiService {
   static async getServiceStats(
     signal?: AbortSignal,
     startTime?: number,
-    endTime?: number
+    endTime?: number,
+    eventId?: number
   ): Promise<ServiceStat[]> {
     try {
       let url = `${API_BASE}/stats/services`;
       const params = new URLSearchParams();
       if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
       if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
+      if (eventId) params.append('eventId', eventId.toString());
       if (params.toString()) url += `?${params}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<ServiceStat[]>(res);
@@ -266,13 +272,15 @@ class ApiService {
   static async getDashboardStats(
     signal?: AbortSignal,
     startTime?: number,
-    endTime?: number
+    endTime?: number,
+    eventId?: number
   ): Promise<DashboardStats> {
     try {
       let url = `${API_BASE}/stats/dashboard`;
       const params = new URLSearchParams();
       if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
       if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
+      if (eventId) params.append('eventId', eventId.toString());
       if (params.toString()) url += `?${params}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<DashboardStats>(res);
@@ -290,13 +298,15 @@ class ApiService {
   static async getHourlyActivity(
     signal?: AbortSignal,
     startTime?: number,
-    endTime?: number
+    endTime?: number,
+    eventId?: number
   ): Promise<HourlyActivityResponse> {
     try {
       let url = `${API_BASE}/stats/hourly-activity`;
       const params = new URLSearchParams();
       if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
       if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
+      if (eventId) params.append('eventId', eventId.toString());
       if (params.toString()) url += `?${params}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<HourlyActivityResponse>(res);
@@ -316,7 +326,8 @@ class ApiService {
     startTime?: number,
     endTime?: number,
     interval = 'daily',
-    actualCacheSize?: number
+    actualCacheSize?: number,
+    eventId?: number
   ): Promise<CacheGrowthResponse> {
     try {
       let url = `${API_BASE}/stats/cache-growth`;
@@ -328,6 +339,7 @@ class ApiService {
       if (actualCacheSize && actualCacheSize > 0) {
         params.append('actualCacheSize', actualCacheSize.toString());
       }
+      if (eventId) params.append('eventId', eventId.toString());
       url += `?${params}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<CacheGrowthResponse>(res);
@@ -345,13 +357,15 @@ class ApiService {
   static async getSparklineData(
     signal?: AbortSignal,
     startTime?: number,
-    endTime?: number
+    endTime?: number,
+    eventId?: number
   ): Promise<SparklineDataResponse> {
     try {
       let url = `${API_BASE}/stats/sparklines`;
       const params = new URLSearchParams();
       if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
       if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
+      if (eventId) params.append('eventId', eventId.toString());
       if (params.toString()) url += `?${params}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<SparklineDataResponse>(res);

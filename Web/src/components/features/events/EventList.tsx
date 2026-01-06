@@ -1,8 +1,7 @@
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useRef } from 'react';
 import { Calendar, Clock, ChevronRight, Zap, History, CalendarClock, Loader2, Pencil, BarChart3 } from 'lucide-react';
 import { useTimezone } from '@contexts/TimezoneContext';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
-import { useEvents } from '@contexts/EventContext';
 import { formatBytes } from '@utils/formatters';
 import { getEventColorStyles, getEventColorVar } from '@utils/eventColors';
 import ApiService from '@services/api.service';
@@ -264,11 +263,10 @@ interface EventListProps {
 
 const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
   const { use24HourFormat } = useTimezone();
-  const { setTimeRange, setEventTimeRange } = useTimeFilter();
-  const { setSelectedEventId } = useEvents();
+  const { setTimeRange, setSelectedEventId } = useTimeFilter();
   const [expandedEventId, setExpandedEventId] = useState<number | null>(null);
   const [downloadsCache, setDownloadsCache] = useState<EventDownloadsCache>({});
-  const fetchingRef = React.useRef<Set<number>>(new Set());
+  const fetchingRef = useRef<Set<number>>(new Set());
 
   // Group events by status: active, upcoming, past
   const groupedEvents = useMemo(() => {
@@ -340,7 +338,8 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
     }));
 
     try {
-      const response = await fetch(`/api/events/${eventId}/downloads`, ApiService.getFetchOptions());
+      // Use taggedOnly=true to show only downloads explicitly tagged to this event
+      const response = await fetch(`/api/events/${eventId}/downloads?taggedOnly=true`, ApiService.getFetchOptions());
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
@@ -369,16 +368,14 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
   }, [expandedEventId, fetchEventDownloads]);
 
   const handleViewStats = useCallback((event: Event) => {
-    // Set the time range to the event
-    const startTime = Math.floor(new Date(event.startTimeUtc).getTime() / 1000);
-    const endTime = Math.floor(new Date(event.endTimeUtc).getTime() / 1000);
-    setEventTimeRange(startTime, endTime);
+    // Set the event filter to show only downloads tagged to this event
+    // Use 'live' time range to show all stats for the event
     setSelectedEventId(event.id);
-    setTimeRange('event');
+    setTimeRange('live');
 
     // Navigate to dashboard via custom event
     window.dispatchEvent(new CustomEvent('navigate-to-tab', { detail: { tab: 'dashboard' } }));
-  }, [setEventTimeRange, setSelectedEventId, setTimeRange]);
+  }, [setSelectedEventId, setTimeRange]);
 
   // Section header component
   const SectionHeader: React.FC<{

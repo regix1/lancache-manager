@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Clock, Calendar, Radio, Info, CalendarDays } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Clock, Calendar, Radio, Info, CalendarDays, X } from 'lucide-react';
 import { useTimeFilter, type TimeRange } from '@contexts/TimeFilterContext';
 import { useEvents } from '@contexts/EventContext';
 import DateRangePicker from './DateRangePicker';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
+import { getEventColorVar } from '@utils/eventColors';
 
 interface TimeFilterProps {
   disabled?: boolean;
@@ -17,15 +18,11 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
     customEndDate,
     setCustomStartDate,
     setCustomEndDate,
-    setEventTimeRange
+    selectedEventId,
+    setSelectedEventId
   } = useTimeFilter();
 
-  const {
-    events,
-    selectedEventId,
-    selectedEvent,
-    setSelectedEventId
-  } = useEvents();
+  const { events } = useEvents();
 
   const [showDatePicker, setShowDatePicker] = useState(false);
 
@@ -52,14 +49,11 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
     });
   }, [events]);
 
-  // Sync event time range when event is selected
-  useEffect(() => {
-    if (timeRange === 'event' && selectedEvent) {
-      const startTime = Math.floor(new Date(selectedEvent.startTimeUtc).getTime() / 1000);
-      const endTime = Math.floor(new Date(selectedEvent.endTimeUtc).getTime() / 1000);
-      setEventTimeRange(startTime, endTime);
-    }
-  }, [timeRange, selectedEvent, setEventTimeRange]);
+  // Get selected event object
+  const selectedEvent = useMemo(() => {
+    if (!selectedEventId) return null;
+    return events.find(e => e.id === selectedEventId) || null;
+  }, [selectedEventId, events]);
 
   const getEventStatus = (startUtc: string, endUtc: string) => {
     const now = new Date();
@@ -78,9 +72,9 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
     return startStr === endStr ? startStr : `${startStr} - ${endStr}`;
   };
 
-  // Build time options with events submenu
+  // Build time range options (without events - events are separate filter)
   const timeOptions: DropdownOption[] = useMemo(() => {
-    const options: DropdownOption[] = [
+    return [
       { value: 'live', label: 'Live', shortLabel: 'Live', description: 'Show real-time data updates', icon: Radio, rightLabel: 'Now' },
       { value: '1h', label: 'Last Hour', shortLabel: '1H', description: 'Show data from the last 1 hour', icon: Clock, rightLabel: '1h' },
       { value: '6h', label: 'Last 6 Hours', shortLabel: '6H', description: 'Show data from the last 6 hours', icon: Clock, rightLabel: '6h' },
@@ -90,62 +84,49 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
       { value: '30d', label: 'Last 30 Days', shortLabel: '30D', description: 'Show data from the last 30 days', icon: Calendar, rightLabel: '30d' },
       { value: 'custom', label: 'Custom Range', shortLabel: 'Custom', description: 'Select a custom date range', icon: Calendar, rightLabel: '...' }
     ];
+  }, []);
 
-    // Add events option with submenu if there are events
-    if (sortedEvents.length > 0) {
+  // Build event filter options
+  const eventOptions: DropdownOption[] = useMemo(() => {
+    const options: DropdownOption[] = [
+      { value: 'all', label: 'All Downloads', shortLabel: 'All', description: 'Show all downloads', icon: CalendarDays }
+    ];
+
+    sortedEvents.forEach(event => {
+      const status = getEventStatus(event.startTimeUtc, event.endTimeUtc);
       options.push({
-        value: 'event',
-        label: 'Events',
-        shortLabel: 'Event',
-        description: 'Filter by a scheduled event',
-        icon: CalendarDays,
-        rightLabel: String(sortedEvents.length),
-        submenuTitle: 'Select Event',
-        submenu: sortedEvents.map(event => {
-          const status = getEventStatus(event.startTimeUtc, event.endTimeUtc);
-          return {
-            value: String(event.id),
-            label: event.name,
-            description: formatEventDateRange(event.startTimeUtc, event.endTimeUtc),
-            colorIndex: event.colorIndex,
-            badge: status === 'active' ? 'Live' : status === 'past' ? 'Ended' : undefined,
-            badgeColor: status === 'active' ? 'var(--theme-status-success)' : 'var(--theme-text-muted)'
-          };
-        })
+        value: String(event.id),
+        label: event.name,
+        shortLabel: event.name.length > 12 ? event.name.slice(0, 12) + '...' : event.name,
+        description: formatEventDateRange(event.startTimeUtc, event.endTimeUtc),
+        rightLabel: status === 'active' ? 'Live' : status === 'past' ? 'Ended' : undefined
       });
-    }
+    });
 
     return options;
   }, [sortedEvents]);
 
-  // Get the current dropdown value
-  const getCurrentValue = () => {
-    if (timeRange === 'event' && selectedEventId) {
-      return `event:${selectedEventId}`;
-    }
-    return timeRange;
-  };
-
   const handleTimeRangeChange = (value: string) => {
-    // Check if it's an event selection (format: "event:123")
-    if (value.startsWith('event:')) {
-      const eventId = parseInt(value.split(':')[1], 10);
-      setTimeRange('event');
-      setSelectedEventId(eventId);
-      setShowDatePicker(false);
+    const timeValue = value as TimeRange;
+    setTimeRange(timeValue);
+    if (timeValue === 'custom') {
+      setShowDatePicker(true);
     } else {
-      const timeValue = value as TimeRange;
-      setTimeRange(timeValue);
-      if (timeValue === 'custom') {
-        setShowDatePicker(true);
-      } else {
-        setShowDatePicker(false);
-      }
+      setShowDatePicker(false);
     }
   };
 
-  // Generate custom label for date ranges or event
-  const getCustomTriggerLabel = () => {
+  const handleEventFilterChange = (value: string) => {
+    if (value === 'all') {
+      setSelectedEventId(null);
+    } else {
+      const eventId = parseInt(value, 10);
+      setSelectedEventId(eventId);
+    }
+  };
+
+  // Generate custom label for date ranges
+  const getTimeRangeTriggerLabel = () => {
     if (timeRange === 'custom' && customStartDate && customEndDate) {
       const start = customStartDate.toLocaleDateString('en-US', {
         month: 'short',
@@ -157,23 +138,21 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
       });
       return `${start} - ${end}`;
     }
-    if (timeRange === 'event' && selectedEvent) {
-      return selectedEvent.name;
-    }
     return undefined;
   };
 
   return (
     <>
       <div className="flex items-center gap-2">
+        {/* Time Range Dropdown */}
         <EnhancedDropdown
           options={timeOptions}
-          value={getCurrentValue()}
+          value={timeRange}
           onChange={handleTimeRangeChange}
           disabled={disabled}
           placeholder="Select time range"
           compactMode={true}
-          customTriggerLabel={getCustomTriggerLabel()}
+          customTriggerLabel={getTimeRangeTriggerLabel()}
           dropdownWidth="w-64"
           alignRight={true}
           dropdownTitle="Time Range"
@@ -181,6 +160,59 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
           footerIcon={Info}
           cleanStyle={true}
         />
+
+        {/* Event Filter - Only show if there are events */}
+        {sortedEvents.length > 0 && (
+          <>
+            {selectedEventId ? (
+              // Show event chip when filtered
+              <button
+                onClick={() => setSelectedEventId(null)}
+                disabled={disabled}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-medium transition-all hover:opacity-80"
+                style={{
+                  backgroundColor: selectedEvent?.colorIndex
+                    ? `color-mix(in srgb, ${getEventColorVar(selectedEvent.colorIndex)} 20%, transparent)`
+                    : 'var(--theme-primary-muted)',
+                  color: selectedEvent?.colorIndex
+                    ? getEventColorVar(selectedEvent.colorIndex)
+                    : 'var(--theme-primary)',
+                  border: `1px solid ${selectedEvent?.colorIndex
+                    ? `color-mix(in srgb, ${getEventColorVar(selectedEvent.colorIndex)} 40%, transparent)`
+                    : 'var(--theme-primary-muted)'}`
+                }}
+                title="Click to remove event filter"
+              >
+                <div
+                  className="w-2 h-2 rounded-full"
+                  style={{
+                    backgroundColor: selectedEvent?.colorIndex
+                      ? getEventColorVar(selectedEvent.colorIndex)
+                      : 'var(--theme-primary)'
+                  }}
+                />
+                <span className="max-w-[100px] truncate">{selectedEvent?.name || 'Event'}</span>
+                <X size={14} className="opacity-60" />
+              </button>
+            ) : (
+              // Show dropdown to select event filter
+              <EnhancedDropdown
+                options={eventOptions}
+                value="all"
+                onChange={handleEventFilterChange}
+                disabled={disabled}
+                placeholder="Filter by event"
+                compactMode={true}
+                dropdownWidth="w-64"
+                alignRight={true}
+                dropdownTitle="Event Filter"
+                footerNote="Filter to show only downloads tagged to a specific event"
+                footerIcon={CalendarDays}
+                cleanStyle={true}
+              />
+            )}
+          </>
+        )}
       </div>
 
       {showDatePicker && (

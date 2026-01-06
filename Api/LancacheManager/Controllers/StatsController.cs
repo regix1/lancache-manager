@@ -40,12 +40,40 @@ public class StatsController : ControllerBase
         _apiOptions = apiOptions;
     }
 
+    /// <summary>
+    /// Gets download IDs tagged to a specific event.
+    /// Used to filter stats to only show downloads associated with an event.
+    /// </summary>
+    private async Task<HashSet<int>> GetEventDownloadIdsAsync(int eventId)
+    {
+        var downloadIds = await _context.EventDownloads
+            .AsNoTracking()
+            .Where(ed => ed.EventId == eventId)
+            .Select(ed => ed.DownloadId)
+            .ToListAsync();
+        return downloadIds.ToHashSet();
+    }
+
+    /// <summary>
+    /// Applies event filtering to a downloads query.
+    /// When eventId is provided, only returns downloads tagged to that event.
+    /// </summary>
+    private IQueryable<Download> ApplyEventFilter(IQueryable<Download> query, int? eventId)
+    {
+        if (!eventId.HasValue)
+            return query;
+
+        // Join with EventDownloads to filter to only tagged downloads
+        return query.Where(d => _context.EventDownloads.Any(ed => ed.EventId == eventId.Value && ed.DownloadId == d.Id));
+    }
+
     [HttpGet("clients")]
     [OutputCache(PolicyName = "stats-short")]
     public async Task<IActionResult> GetClients(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
-        [FromQuery] int? limit = null)
+        [FromQuery] int? limit = null,
+        [FromQuery] int? eventId = null)
     {
         try
         {
@@ -56,6 +84,9 @@ public class StatsController : ControllerBase
 
             // Build base query with time filtering
             var query = _context.Downloads.AsNoTracking();
+
+            // Apply event filter if provided (filters to only tagged downloads)
+            query = ApplyEventFilter(query, eventId);
 
             if (startTime.HasValue)
             {
@@ -226,13 +257,16 @@ public class StatsController : ControllerBase
 
     [HttpGet("services")]
     [OutputCache(PolicyName = "stats-short")]
-    public async Task<IActionResult> GetServices([FromQuery] string? since = null, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null)
+    public async Task<IActionResult> GetServices([FromQuery] string? since = null, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] int? eventId = null)
     {
         try
         {
             // ALWAYS query Downloads table directly to ensure consistency with dashboard stats
             // Previously used cached ServiceStats table which caused fluctuating values
             var query = _context.Downloads.AsNoTracking();
+
+            // Apply event filter if provided (filters to only tagged downloads)
+            query = ApplyEventFilter(query, eventId);
 
             // Apply time filtering if provided
             if (startTime.HasValue)
@@ -290,7 +324,8 @@ public class StatsController : ControllerBase
     [OutputCache(PolicyName = "stats-short")]
     public async Task<IActionResult> GetDashboardStats(
         [FromQuery] long? startTime = null,
-        [FromQuery] long? endTime = null)
+        [FromQuery] long? endTime = null,
+        [FromQuery] int? eventId = null)
     {
         // Use Unix timestamps if provided, otherwise return ALL data (no time filter)
         // This ensures consistency: frontend always provides timestamps for time-filtered queries
@@ -312,6 +347,10 @@ public class StatsController : ControllerBase
 
         // Build the base query for period-specific metrics
         var downloadsQuery = _context.Downloads.AsNoTracking();
+
+        // Apply event filter if provided (filters to only tagged downloads)
+        downloadsQuery = ApplyEventFilter(downloadsQuery, eventId);
+
         if (cutoffTime.HasValue)
         {
             downloadsQuery = downloadsQuery.Where(d => d.StartTimeUtc >= cutoffTime.Value);
@@ -322,6 +361,7 @@ public class StatsController : ControllerBase
         }
 
         // Calculate ALL-TIME totals from Downloads table directly (no cache)
+        // Note: All-time totals should NOT be filtered by event - they represent overall system stats
         var allTimeQuery = _context.Downloads.AsNoTracking();
         var totalHitBytesTask = allTimeQuery.SumAsync(d => (long?)d.CacheHitBytes);
         var totalMissBytesTask = allTimeQuery.SumAsync(d => (long?)d.CacheMissBytes);
@@ -413,16 +453,15 @@ public class StatsController : ControllerBase
                 Downloads = periodDownloadCount
             },
 
-            // Service breakdown (query from Downloads table for consistency)
-            ServiceBreakdown = await _context.Downloads
-                .AsNoTracking()
+            // Service breakdown (uses period-filtered query for consistency, including event filter if provided)
+            ServiceBreakdown = await downloadsQuery
                 .GroupBy(d => d.Service)
                 .Select(g => new ServiceBreakdownItem
                 {
                     Service = g.Key,
                     Bytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
-                    Percentage = totalServed > 0
-                        ? (g.Sum(d => d.CacheHitBytes + d.CacheMissBytes) * 100.0) / totalServed
+                    Percentage = periodTotal > 0
+                        ? (g.Sum(d => d.CacheHitBytes + d.CacheMissBytes) * 100.0) / periodTotal
                         : 0
                 })
                 .OrderByDescending(s => s.Bytes)
@@ -441,12 +480,16 @@ public class StatsController : ControllerBase
     [OutputCache(PolicyName = "stats-long")]
     public async Task<IActionResult> GetHourlyActivity(
         [FromQuery] long? startTime = null,
-        [FromQuery] long? endTime = null)
+        [FromQuery] long? endTime = null,
+        [FromQuery] int? eventId = null)
     {
         try
         {
             // Build query with optional time filtering
             var query = _context.Downloads.AsNoTracking();
+
+            // Apply event filter if provided (filters to only tagged downloads)
+            query = ApplyEventFilter(query, eventId);
 
             DateTime? cutoffTime = null;
             DateTime? endDateTime = null;
@@ -554,7 +597,8 @@ public class StatsController : ControllerBase
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
         [FromQuery] string interval = "daily",
-        [FromQuery] long? actualCacheSize = null)
+        [FromQuery] long? actualCacheSize = null,
+        [FromQuery] int? eventId = null)
     {
         try
         {
@@ -580,6 +624,10 @@ public class StatsController : ControllerBase
 
             // Build base query with time filtering
             var baseQuery = _context.Downloads.AsNoTracking();
+
+            // Apply event filter if provided (filters to only tagged downloads)
+            baseQuery = ApplyEventFilter(baseQuery, eventId);
+
             if (cutoffTime.HasValue)
             {
                 baseQuery = baseQuery.Where(d => d.StartTimeUtc >= cutoffTime.Value);
@@ -774,12 +822,16 @@ public class StatsController : ControllerBase
     [OutputCache(PolicyName = "stats-long")]
     public async Task<IActionResult> GetSparklineData(
         [FromQuery] long? startTime = null,
-        [FromQuery] long? endTime = null)
+        [FromQuery] long? endTime = null,
+        [FromQuery] int? eventId = null)
     {
         try
         {
             // Build query with optional time filtering
             var query = _context.Downloads.AsNoTracking();
+
+            // Apply event filter if provided (filters to only tagged downloads)
+            query = ApplyEventFilter(query, eventId);
 
             if (startTime.HasValue)
             {

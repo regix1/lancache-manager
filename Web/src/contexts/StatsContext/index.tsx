@@ -20,7 +20,7 @@ export const useStats = () => {
 };
 
 export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode = false }) => {
-  const { getTimeRangeParams, timeRange, customStartDate, customEndDate, eventStartTime, eventEndTime } = useTimeFilter();
+  const { getTimeRangeParams, timeRange, customStartDate, customEndDate, selectedEventId } = useTimeFilter();
   const { getRefreshInterval } = useRefreshRate();
   const signalR = useSignalR();
 
@@ -51,12 +51,14 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   const getTimeRangeParamsRef = useRef(getTimeRangeParams);
   const getRefreshIntervalRef = useRef(getRefreshInterval);
   const mockModeRef = useRef(mockMode);
+  const selectedEventIdRef = useRef<number | null>(selectedEventId);
 
   // Update refs synchronously on every render
   currentTimeRangeRef.current = timeRange;
   getTimeRangeParamsRef.current = getTimeRangeParams;
   getRefreshIntervalRef.current = getRefreshInterval;
   mockModeRef.current = mockMode;
+  selectedEventIdRef.current = selectedEventId;
 
   const getApiUrl = (): string => {
     if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
@@ -117,6 +119,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     // Read current values from refs - these are always up-to-date
     const currentTimeRange = currentTimeRangeRef.current;
     const { startTime, endTime } = getTimeRangeParamsRef.current();
+    const eventId = selectedEventIdRef.current ?? undefined;
 
     abortControllerRef.current = new AbortController();
 
@@ -136,11 +139,12 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       const timeout = 10000;
       const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), timeout);
 
+      // Pass eventId to filter to only tagged downloads when event is selected
       const [cache, clients, services, dashboard] = await Promise.allSettled([
         ApiService.getCacheInfo(abortControllerRef.current.signal),
-        ApiService.getClientStats(abortControllerRef.current.signal, startTime, endTime),
-        ApiService.getServiceStats(abortControllerRef.current.signal, startTime, endTime),
-        ApiService.getDashboardStats(abortControllerRef.current.signal, startTime, endTime)
+        ApiService.getClientStats(abortControllerRef.current.signal, startTime, endTime, eventId),
+        ApiService.getServiceStats(abortControllerRef.current.signal, startTime, endTime, eventId),
+        ApiService.getDashboardStats(abortControllerRef.current.signal, startTime, endTime, eventId)
       ]);
 
       clearTimeout(timeoutId);
@@ -287,12 +291,12 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     }
   }, [timeRange, mockMode, fetchStats]);
 
-  // Event time range changes (when switching between events while in 'event' mode)
+  // Event filter changes - refetch when event filter is changed
   useEffect(() => {
-    if (!mockMode && !isInitialLoad.current && timeRange === 'event') {
+    if (!mockMode && !isInitialLoad.current) {
       fetchStats({ showLoading: true, forceRefresh: true });
     }
-  }, [eventStartTime, eventEndTime, mockMode, fetchStats, timeRange]);
+  }, [selectedEventId, mockMode, fetchStats]);
 
   // Debounced custom date changes
   useEffect(() => {

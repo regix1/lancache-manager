@@ -34,7 +34,7 @@ public class DownloadsController : ControllerBase
 
     [HttpGet("latest")]
     [ResponseCache(Duration = 5)] // Cache for 5 seconds
-    public async Task<IActionResult> GetLatest([FromQuery] int count = int.MaxValue, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null)
+    public async Task<IActionResult> GetLatest([FromQuery] int count = int.MaxValue, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] int? eventId = null)
     {
         const int maxRetries = 3;
         for (int retry = 0; retry < maxRetries; retry++)
@@ -43,8 +43,8 @@ public class DownloadsController : ControllerBase
             {
                 List<Download> downloads;
 
-                // If no time filtering, use cached service method
-                if (!startTime.HasValue && !endTime.HasValue)
+                // If no time filtering and no event filter, use cached service method
+                if (!startTime.HasValue && !endTime.HasValue && !eventId.HasValue)
                 {
                     downloads = await _statsService.GetLatestDownloadsAsync(count);
                 }
@@ -59,8 +59,15 @@ public class DownloadsController : ControllerBase
                         ? DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime
                         : DateTime.UtcNow;
 
-                    downloads = await _context.Downloads
-                        .AsNoTracking()
+                    var query = _context.Downloads.AsNoTracking();
+
+                    // Apply event filter if provided (filters to only tagged downloads)
+                    if (eventId.HasValue)
+                    {
+                        query = query.Where(d => _context.EventDownloads.Any(ed => ed.EventId == eventId.Value && ed.DownloadId == d.Id));
+                    }
+
+                    downloads = await query
                         .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
                         .OrderByDescending(d => d.StartTimeUtc)
                         .Take(count)

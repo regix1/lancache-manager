@@ -1,7 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { storage } from '@utils/storage';
 
-export type TimeRange = '1h' | '6h' | '12h' | '24h' | '7d' | '30d' | 'live' | 'custom' | 'event';
+// Time range controls WHEN to look at data
+// Event filter (selectedEventId) controls WHAT data to show (all or only tagged to event)
+export type TimeRange = '1h' | '6h' | '12h' | '24h' | '7d' | '30d' | 'live' | 'custom';
 
 interface TimeFilterContextType {
   timeRange: TimeRange;
@@ -10,12 +12,12 @@ interface TimeFilterContextType {
   customEndDate: Date | null;
   setCustomStartDate: (date: Date | null) => void;
   setCustomEndDate: (date: Date | null) => void;
-  // Event time range (set by TimeFilter when event is selected)
-  eventStartTime: number | null;
-  eventEndTime: number | null;
-  setEventTimeRange: (startTime: number | null, endTime: number | null) => void;
   getTimeRangeInHours: () => number;
   getTimeRangeParams: () => { startTime?: number; endTime?: number };
+  // Event filter: optional filter to show only downloads tagged to a specific event
+  // This is independent of time range - you can combine any time range with an event filter
+  selectedEventId: number | null;
+  setSelectedEventId: (id: number | null) => void;
 }
 
 const TimeFilterContext = createContext<TimeFilterContextType | undefined>(undefined);
@@ -34,13 +36,18 @@ interface TimeFilterProviderProps {
 
 export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children }) => {
   // Restore time range from localStorage on initial load
-  const [timeRange, setTimeRange] = useState<TimeRange>(() => {
+  const [timeRange, setTimeRangeState] = useState<TimeRange>(() => {
     const saved = storage.getItem('lancache_time_range');
     const savedStartDate = storage.getItem('lancache_custom_start_date');
     const savedEndDate = storage.getItem('lancache_custom_end_date');
 
     // If saved timeRange is 'custom' but dates are missing, fall back to 'live'
     if (saved === 'custom' && (!savedStartDate || !savedEndDate)) {
+      return 'live';
+    }
+
+    // Handle legacy 'event' time range - convert to 'live'
+    if (saved === 'event') {
       return 'live';
     }
 
@@ -69,16 +76,16 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
     return null;
   });
 
-  // Event time range (Unix timestamps)
-  const [eventStartTime, setEventStartTime] = useState<number | null>(() => {
-    const saved = storage.getItem('lancache_event_start_time');
+  // Selected event ID for filtering by tagged downloads (independent of time range)
+  const [selectedEventId, setSelectedEventIdState] = useState<number | null>(() => {
+    const saved = storage.getItem('lancache_selected_event_id');
     return saved ? parseInt(saved, 10) : null;
   });
 
-  const [eventEndTime, setEventEndTime] = useState<number | null>(() => {
-    const saved = storage.getItem('lancache_event_end_time');
-    return saved ? parseInt(saved, 10) : null;
-  });
+  // Wrapper for setTimeRange that validates the value
+  const setTimeRange = (range: TimeRange) => {
+    setTimeRangeState(range);
+  };
 
   // Persist timeRange to localStorage
   useEffect(() => {
@@ -102,27 +109,18 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
     }
   }, [customEndDate]);
 
-  // Persist event time range
+  // Persist selected event ID
   useEffect(() => {
-    if (eventStartTime !== null) {
-      storage.setItem('lancache_event_start_time', eventStartTime.toString());
+    if (selectedEventId !== null) {
+      storage.setItem('lancache_selected_event_id', selectedEventId.toString());
     } else {
-      storage.removeItem('lancache_event_start_time');
+      storage.removeItem('lancache_selected_event_id');
     }
-  }, [eventStartTime]);
+  }, [selectedEventId]);
 
-  useEffect(() => {
-    if (eventEndTime !== null) {
-      storage.setItem('lancache_event_end_time', eventEndTime.toString());
-    } else {
-      storage.removeItem('lancache_event_end_time');
-    }
-  }, [eventEndTime]);
-
-  // Set event time range (called by TimeFilter when selecting an event)
-  const setEventTimeRange = (startTime: number | null, endTime: number | null) => {
-    setEventStartTime(startTime);
-    setEventEndTime(endTime);
+  // Set selected event ID
+  const setSelectedEventId = (id: number | null) => {
+    setSelectedEventIdState(id);
   };
 
   const getTimeRangeInHours = (): number => {
@@ -147,12 +145,6 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
           return Math.ceil(diffMs / (1000 * 60 * 60));
         }
         return 24;
-      case 'event':
-        if (eventStartTime !== null && eventEndTime !== null) {
-          const diffSeconds = eventEndTime - eventStartTime;
-          return Math.ceil(diffSeconds / 3600);
-        }
-        return 24;
       default:
         return 24;
     }
@@ -167,11 +159,6 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
       const endTime = Math.floor(endDate.getTime() / 1000);
 
       return { startTime, endTime };
-    }
-
-    // Return event time range when event is selected
-    if (timeRange === 'event' && eventStartTime !== null && eventEndTime !== null) {
-      return { startTime: eventStartTime, endTime: eventEndTime };
     }
 
     // Return empty params for 'live' time to fetch everything
@@ -207,11 +194,10 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
         customEndDate,
         setCustomStartDate: setCustomStartDateWithLogging,
         setCustomEndDate: setCustomEndDateWithLogging,
-        eventStartTime,
-        eventEndTime,
-        setEventTimeRange,
         getTimeRangeInHours,
-        getTimeRangeParams
+        getTimeRangeParams,
+        selectedEventId,
+        setSelectedEventId
       }}
     >
       {children}
