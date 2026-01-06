@@ -401,7 +401,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         // This helps troubleshoot prefill issues - the container needs both:
         // 1. Internet access to reach Steam
         // 2. DNS resolving lancache domains to your cache server
-        await TestContainerConnectivityAsync(containerId, containerName, cancellationToken);
+        var networkDiagnostics = await TestContainerConnectivityAsync(containerId, containerName, cancellationToken);
 
         // Parse user agent for OS and browser info
         var (os, browser) = UserAgentParser.Parse(userAgent);
@@ -419,7 +419,8 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             UserAgent = userAgent,
             OperatingSystem = os,
             Browser = browser,
-            LastSeenAt = DateTime.UtcNow
+            LastSeenAt = DateTime.UtcNow,
+            NetworkDiagnostics = networkDiagnostics
         };
 
         // Create daemon client
@@ -1707,30 +1708,38 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     /// 2. DNS resolution for lancache domains (should point to your cache server)
     /// Results are logged with clear separators for easy troubleshooting.
     /// </summary>
-    private async Task TestContainerConnectivityAsync(string containerId, string containerName, CancellationToken cancellationToken = default)
+    private async Task<NetworkDiagnostics> TestContainerConnectivityAsync(string containerId, string containerName, CancellationToken cancellationToken = default)
     {
-        if (_dockerClient == null) return;
+        var diagnostics = new NetworkDiagnostics();
+        
+        if (_dockerClient == null) return diagnostics;
 
         _logger.LogInformation("═══════════════════════════════════════════════════════════════════════");
         _logger.LogInformation("  PREFILL CONTAINER NETWORK DIAGNOSTICS - {ContainerName}", containerName);
         _logger.LogInformation("═══════════════════════════════════════════════════════════════════════");
 
         // Test 1: Internet connectivity (try to reach Steam API)
-        await TestInternetConnectivityInContainerAsync(containerId, cancellationToken);
+        var (internetSuccess, internetError) = await TestInternetConnectivityInContainerAsync(containerId, cancellationToken);
+        diagnostics.InternetConnectivity = internetSuccess;
+        diagnostics.InternetConnectivityError = internetError;
 
         // Test 2: DNS resolution for lancache domains
-        await TestDnsResolutionInContainerAsync(containerId, "lancache.steamcontent.com", cancellationToken);
-        await TestDnsResolutionInContainerAsync(containerId, "steam.cache.lancache.net", cancellationToken);
+        var dnsResult1 = await TestDnsResolutionInContainerAsync(containerId, "lancache.steamcontent.com", cancellationToken);
+        var dnsResult2 = await TestDnsResolutionInContainerAsync(containerId, "steam.cache.lancache.net", cancellationToken);
+        diagnostics.DnsResults.Add(dnsResult1);
+        diagnostics.DnsResults.Add(dnsResult2);
 
         _logger.LogInformation("═══════════════════════════════════════════════════════════════════════");
         _logger.LogInformation("  END NETWORK DIAGNOSTICS");
         _logger.LogInformation("═══════════════════════════════════════════════════════════════════════");
+
+        return diagnostics;
     }
 
     /// <summary>
     /// Tests internet connectivity from inside a container by attempting to reach Steam API.
     /// </summary>
-    private async Task TestInternetConnectivityInContainerAsync(string containerId, CancellationToken cancellationToken)
+    private async Task<(bool Success, string? Error)> TestInternetConnectivityInContainerAsync(string containerId, CancellationToken cancellationToken)
     {
         try
         {
@@ -1746,19 +1755,17 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                 new[] { "curl", "-s", "-m", "10", "https://api.steampowered.com/" }
             };
 
-            var success = false;
             string? lastError = null;
 
             foreach (var cmd in testCommands)
             {
                 try
                 {
-                    var (exitCode, output) = await ExecuteContainerCommandAsync(containerId, cmd, cancellationToken);
+                    var (exitCode, _) = await ExecuteContainerCommandAsync(containerId, cmd, cancellationToken);
                     if (exitCode == 0)
                     {
                         _logger.LogInformation("  ✓ Internet connectivity: OK (reached api.steampowered.com)");
-                        success = true;
-                        break;
+                        return (true, null);
                     }
                     lastError = $"Command {cmd[0]} failed with exit code {exitCode}";
                 }
@@ -1768,22 +1775,22 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                 }
             }
 
-            if (!success)
-            {
-                _logger.LogWarning("  ✗ Internet connectivity: FAILED");
-                _logger.LogWarning("    The prefill container cannot reach the internet.");
-                _logger.LogWarning("    Steam login and prefill will not work.");
-                _logger.LogWarning("    Error: {Error}", lastError);
-                _logger.LogWarning("    ");
-                _logger.LogWarning("    Possible fixes:");
-                _logger.LogWarning("    - Try setting Prefill__NetworkMode=bridge in your docker-compose.yml");
-                _logger.LogWarning("    - Ensure your Docker network has internet access");
-                _logger.LogWarning("    - Check firewall rules for outbound connections");
-            }
+            _logger.LogWarning("  ✗ Internet connectivity: FAILED");
+            _logger.LogWarning("    The prefill container cannot reach the internet.");
+            _logger.LogWarning("    Steam login and prefill will not work.");
+            _logger.LogWarning("    Error: {Error}", lastError);
+            _logger.LogWarning("    ");
+            _logger.LogWarning("    Possible fixes:");
+            _logger.LogWarning("    - Try setting Prefill__NetworkMode=bridge in your docker-compose.yml");
+            _logger.LogWarning("    - Ensure your Docker network has internet access");
+            _logger.LogWarning("    - Check firewall rules for outbound connections");
+
+            return (false, lastError ?? "No connectivity tool available");
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "  Could not test internet connectivity in container");
+            return (false, ex.Message);
         }
     }
 
@@ -1791,8 +1798,10 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     /// Tests DNS resolution for a specific domain from inside a container.
     /// For lancache domains, this should resolve to your cache server IP.
     /// </summary>
-    private async Task TestDnsResolutionInContainerAsync(string containerId, string domain, CancellationToken cancellationToken)
+    private async Task<DnsTestResult> TestDnsResolutionInContainerAsync(string containerId, string domain, CancellationToken cancellationToken)
     {
+        var result = new DnsTestResult { Domain = domain };
+        
         try
         {
             _logger.LogInformation("───────────────────────────────────────────────────────────────────────");
@@ -1834,10 +1843,14 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
             if (!string.IsNullOrEmpty(resolvedIp))
             {
+                result.Success = true;
+                result.ResolvedIp = resolvedIp;
+                result.IsPrivateIp = IsPrivateIp(resolvedIp);
+                
                 _logger.LogInformation("  {Domain} resolved to {IpAddress}", domain, resolvedIp);
                 
                 // Check if it's a lancache IP (typically private IPs like 192.168.x.x, 10.x.x.x, etc.)
-                if (IsPrivateIp(resolvedIp))
+                if (result.IsPrivateIp)
                 {
                     _logger.LogInformation("  ✓ DNS looks correct (private IP - likely your lancache server)");
                 }
@@ -1850,6 +1863,9 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             }
             else
             {
+                result.Success = false;
+                result.Error = lastError ?? "Could not resolve domain";
+                
                 _logger.LogWarning("  ✗ Could not resolve {Domain}", domain);
                 _logger.LogWarning("    Error: {Error}", lastError);
                 _logger.LogWarning("    ");
@@ -1859,8 +1875,12 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         }
         catch (Exception ex)
         {
+            result.Success = false;
+            result.Error = ex.Message;
             _logger.LogWarning(ex, "  Could not test DNS resolution for {Domain}", domain);
         }
+
+        return result;
     }
 
     /// <summary>
@@ -1990,6 +2010,30 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 /// <summary>
 /// Represents a Steam Prefill daemon session
 /// </summary>
+
+/// <summary>
+/// Result of a DNS resolution test for a single domain
+/// </summary>
+public class DnsTestResult
+{
+    public string Domain { get; set; } = string.Empty;
+    public string? ResolvedIp { get; set; }
+    public bool IsPrivateIp { get; set; }
+    public bool Success { get; set; }
+    public string? Error { get; set; }
+}
+
+/// <summary>
+/// Network diagnostics results for a prefill container
+/// </summary>
+public class NetworkDiagnostics
+{
+    public bool InternetConnectivity { get; set; }
+    public string? InternetConnectivityError { get; set; }
+    public List<DnsTestResult> DnsResults { get; set; } = new();
+    public DateTime TestedAt { get; set; } = DateTime.UtcNow;
+}
+
 public class DaemonSession
 {
     public string Id { get; init; } = string.Empty;
@@ -2049,6 +2093,11 @@ public class DaemonSession
     public string? Browser { get; init; }
     public DateTime LastSeenAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>
+    /// Network diagnostics results (internet connectivity and DNS resolution tests)
+    /// </summary>
+    public NetworkDiagnostics? NetworkDiagnostics { get; set; }
+
     public DaemonClient Client { get; set; } = null!;
     public FileSystemWatcher? StatusWatcher { get; set; }
     public HashSet<string> SubscribedConnections { get; } = new();
@@ -2105,6 +2154,11 @@ public class DaemonSessionDto
     /// </summary>
     public long TotalBytesTransferred { get; set; }
 
+    /// <summary>
+    /// Network diagnostics results (internet connectivity and DNS resolution tests)
+    /// </summary>
+    public NetworkDiagnostics? NetworkDiagnostics { get; set; }
+
     public static DaemonSessionDto FromSession(DaemonSession session)
     {
         return new DaemonSessionDto
@@ -2126,7 +2180,8 @@ public class DaemonSessionDto
             SteamUsername = session.SteamUsername,
             CurrentAppId = session.CurrentAppId,
             CurrentAppName = session.CurrentAppName,
-            TotalBytesTransferred = session.TotalBytesTransferred
+            TotalBytesTransferred = session.TotalBytesTransferred,
+            NetworkDiagnostics = session.NetworkDiagnostics
         };
     }
 }

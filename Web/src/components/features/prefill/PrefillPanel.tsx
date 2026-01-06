@@ -7,6 +7,8 @@ import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { usePrefillSteamAuth } from '@hooks/usePrefillSteamAuth';
 import { ActivityLog, type LogEntryType } from './ActivityLog';
 import { GameSelectionModal, type OwnedGame } from './GameSelectionModal';
+import { NetworkStatusSection } from './NetworkStatusSection';
+import type { NetworkDiagnostics } from '@services/api.service';
 import { usePrefillContext } from '@contexts/PrefillContext';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import authService from '@services/auth.service';
@@ -58,6 +60,7 @@ interface PrefillSessionDto {
   endedAt: string | null;
   timeRemainingSeconds: number;
   authState: SteamAuthState;
+  networkDiagnostics?: NetworkDiagnostics;
 }
 
 interface PrefillPanelProps {
@@ -1441,6 +1444,9 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
               )}
             </div>
           </Card>
+
+          {/* Network Status Card */}
+          <NetworkStatusSection diagnostics={session?.networkDiagnostics} />
 
           {/* Download Progress Card */}
           {prefillProgress && (

@@ -1566,6 +1566,21 @@ export interface PrefillSessionDto {
   isLive: boolean;
 }
 
+export interface DnsTestResult {
+  domain: string;
+  resolvedIp?: string;
+  isPrivateIp: boolean;
+  success: boolean;
+  error?: string;
+}
+
+export interface NetworkDiagnostics {
+  internetConnectivity: boolean;
+  internetConnectivityError?: string;
+  dnsResults: DnsTestResult[];
+  testedAt: string;
+}
+
 export interface DaemonSessionDto {
   id: string;
   userId: string;
@@ -1588,6 +1603,8 @@ export interface DaemonSessionDto {
   currentAppName?: string;
   // Total bytes transferred during this session
   totalBytesTransferred?: number;
+  // Network diagnostics results
+  networkDiagnostics?: NetworkDiagnostics;
 }
 
 export interface PrefillSessionsResponse {
