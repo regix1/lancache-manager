@@ -277,7 +277,13 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                 $"{hostCommandsDir}:/commands",
                 $"{hostResponsesDir}:/responses"
             },
-            AutoRemove = true
+            AutoRemove = true,
+            // Disable IPv6 to ensure DNS queries go through IPv4 lancache-dns
+            // This prevents IPv6 DNS bypass which can cause prefill to miss the cache
+            Sysctls = new Dictionary<string, string>
+            {
+                ["net.ipv6.conf.all.disable_ipv6"] = "1"
+            }
         };
 
         // Determine network configuration strategy:
