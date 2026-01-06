@@ -34,18 +34,14 @@ public class DownloadsController : ControllerBase
 
     [HttpGet("latest")]
     [ResponseCache(Duration = 5)] // Cache for 5 seconds
-    public async Task<IActionResult> GetLatest([FromQuery] int count = int.MaxValue, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] string? eventIds = null)
+    public async Task<IActionResult> GetLatest([FromQuery] int count = int.MaxValue, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] int? eventId = null)
     {
         const int maxRetries = 3;
 
-        // Parse eventIds from comma-separated string
-        var eventIdList = string.IsNullOrWhiteSpace(eventIds)
-            ? new List<int>()
-            : eventIds.Split(',', StringSplitOptions.RemoveEmptyEntries)
-                .Select(s => int.TryParse(s.Trim(), out var id) ? id : (int?)null)
-                .Where(id => id.HasValue)
-                .Select(id => id!.Value)
-                .ToList();
+        // Convert single eventId to list for filtering
+        var eventIdList = eventId.HasValue
+            ? new List<int> { eventId.Value }
+            : new List<int>();
 
         for (int retry = 0; retry < maxRetries; retry++)
         {

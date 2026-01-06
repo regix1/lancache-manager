@@ -41,18 +41,14 @@ public class StatsController : ControllerBase
     }
 
     /// <summary>
-    /// Parses a comma-separated string of event IDs into a list.
+    /// Converts a single event ID into a list for filtering.
     /// </summary>
-    private static List<int> ParseEventIds(string? eventIds)
+    private static List<int> ParseEventId(int? eventId)
     {
-        if (string.IsNullOrWhiteSpace(eventIds))
+        if (!eventId.HasValue)
             return new List<int>();
 
-        return eventIds.Split(',', StringSplitOptions.RemoveEmptyEntries)
-            .Select(s => int.TryParse(s.Trim(), out var id) ? id : (int?)null)
-            .Where(id => id.HasValue)
-            .Select(id => id!.Value)
-            .ToList();
+        return new List<int> { eventId.Value };
     }
 
     /// <summary>
@@ -93,7 +89,7 @@ public class StatsController : ControllerBase
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
         [FromQuery] int? limit = null,
-        [FromQuery] string? eventIds = null)
+        [FromQuery] int? eventId = null)
     {
         try
         {
@@ -103,7 +99,7 @@ public class StatsController : ControllerBase
             var effectiveLimit = Math.Min(limit ?? defaultLimit, maxLimit);
 
             // Parse event IDs
-            var eventIdList = ParseEventIds(eventIds);
+            var eventIdList = ParseEventId(eventId);
 
             // Build base query with time filtering
             var query = _context.Downloads.AsNoTracking();
@@ -281,12 +277,12 @@ public class StatsController : ControllerBase
 
     [HttpGet("services")]
     [OutputCache(PolicyName = "stats-short")]
-    public async Task<IActionResult> GetServices([FromQuery] string? since = null, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] string? eventIds = null)
+    public async Task<IActionResult> GetServices([FromQuery] string? since = null, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] int? eventId = null)
     {
         try
         {
             // Parse event IDs
-            var eventIdList = ParseEventIds(eventIds);
+            var eventIdList = ParseEventId(eventId);
 
             // ALWAYS query Downloads table directly to ensure consistency with dashboard stats
             // Previously used cached ServiceStats table which caused fluctuating values
@@ -353,10 +349,10 @@ public class StatsController : ControllerBase
     public async Task<IActionResult> GetDashboardStats(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
-        [FromQuery] string? eventIds = null)
+        [FromQuery] int? eventId = null)
     {
         // Parse event IDs
-        var eventIdList = ParseEventIds(eventIds);
+        var eventIdList = ParseEventId(eventId);
 
         // Use Unix timestamps if provided, otherwise return ALL data (no time filter)
         // This ensures consistency: frontend always provides timestamps for time-filtered queries
@@ -513,12 +509,12 @@ public class StatsController : ControllerBase
     public async Task<IActionResult> GetHourlyActivity(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
-        [FromQuery] string? eventIds = null)
+        [FromQuery] int? eventId = null)
     {
         try
         {
             // Parse event IDs
-            var eventIdList = ParseEventIds(eventIds);
+            var eventIdList = ParseEventId(eventId);
 
             // Build query with optional time filtering
             var query = _context.Downloads.AsNoTracking();
@@ -634,12 +630,12 @@ public class StatsController : ControllerBase
         [FromQuery] long? endTime = null,
         [FromQuery] string interval = "daily",
         [FromQuery] long? actualCacheSize = null,
-        [FromQuery] string? eventIds = null)
+        [FromQuery] int? eventId = null)
     {
         try
         {
             // Parse event IDs
-            var eventIdList = ParseEventIds(eventIds);
+            var eventIdList = ParseEventId(eventId);
 
             DateTime? cutoffTime = startTime.HasValue
                 ? DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime
@@ -863,12 +859,12 @@ public class StatsController : ControllerBase
     public async Task<IActionResult> GetSparklineData(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
-        [FromQuery] string? eventIds = null)
+        [FromQuery] int? eventId = null)
     {
         try
         {
             // Parse event IDs
-            var eventIdList = ParseEventIds(eventIds);
+            var eventIdList = ParseEventId(eventId);
 
             // Build query with optional time filtering
             var query = _context.Downloads.AsNoTracking();

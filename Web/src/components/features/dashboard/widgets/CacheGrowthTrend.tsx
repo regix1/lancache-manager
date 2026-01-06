@@ -30,7 +30,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
   glassmorphism = true,
   staggerIndex,
 }) => {
-  const { timeRange, getTimeRangeParams } = useTimeFilter();
+  const { timeRange, getTimeRangeParams, selectedEventIds } = useTimeFilter();
   const { mockMode } = useMockMode();
   const [data, setData] = useState<CacheGrowthResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -56,13 +56,15 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
         setLoading(true);
         setError(null);
         const { startTime, endTime } = getTimeRangeParams();
+        const eventId = selectedEventIds.length > 0 ? selectedEventIds[0] : undefined;
         // Pass actual cache size to detect deletions and calculate net growth
         const response = await ApiService.getCacheGrowth(
           controller.signal,
           startTime,
           endTime,
           'daily',
-          usedCacheSize > 0 ? usedCacheSize : undefined
+          usedCacheSize > 0 ? usedCacheSize : undefined,
+          eventId
         );
         setData(response);
       } catch (err) {
@@ -80,7 +82,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
     fetchData();
 
     return () => controller.abort();
-  }, [timeRange, getTimeRangeParams, usedCacheSize, totalCacheSize, mockMode]);
+  }, [timeRange, getTimeRangeParams, usedCacheSize, totalCacheSize, mockMode, selectedEventIds]);
 
   // Extract sparkline data from API response
   const sparklineData = useMemo(() => {

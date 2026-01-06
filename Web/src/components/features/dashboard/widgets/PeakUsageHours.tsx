@@ -28,7 +28,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
   glassmorphism = true,
   staggerIndex,
 }) => {
-  const { timeRange, getTimeRangeParams } = useTimeFilter();
+  const { timeRange, getTimeRangeParams, selectedEventIds } = useTimeFilter();
   const { mockMode } = useMockMode();
   const [data, setData] = useState<HourlyActivityResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -82,7 +82,8 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
         setLoading(true);
         setError(null);
         const { startTime, endTime } = getTimeRangeParams();
-        const response = await ApiService.getHourlyActivity(controller.signal, startTime, endTime);
+        const eventId = selectedEventIds.length > 0 ? selectedEventIds[0] : undefined;
+        const response = await ApiService.getHourlyActivity(controller.signal, startTime, endTime, eventId);
         setData(response);
       } catch (err) {
         if (!controller.signal.aborted) {
@@ -99,7 +100,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
     fetchData();
 
     return () => controller.abort();
-  }, [timeRange, getTimeRangeParams, mockMode]);
+  }, [timeRange, getTimeRangeParams, mockMode, selectedEventIds]);
 
   // Extract hourly data from API response (already includes all 24 hours)
   const hourlyData = useMemo((): HourlyActivityItem[] => {

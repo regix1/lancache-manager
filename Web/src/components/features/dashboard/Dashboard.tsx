@@ -119,7 +119,7 @@ const TrendHelpContent: Record<string, React.ReactNode> = {
 const Dashboard: React.FC = () => {
   const { cacheInfo, clientStats, serviceStats, dashboardStats, loading } = useStats();
   const { latestDownloads } = useDownloads();
-  const { timeRange, getTimeRangeParams, customStartDate, customEndDate } = useTimeFilter();
+  const { timeRange, getTimeRangeParams, customStartDate, customEndDate, selectedEventIds } = useTimeFilter();
   const { selectedEvent } = useEvents();
   const signalR = useSignalR();
   const { getRefreshInterval } = useRefreshRate();
@@ -145,14 +145,15 @@ const Dashboard: React.FC = () => {
   // Sparkline data from API
   const [sparklineData, setSparklineData] = useState<SparklineDataResponse | null>(null);
 
-  // Fetch sparkline data when time range changes
+  // Fetch sparkline data when time range or event filter changes
   useEffect(() => {
     const controller = new AbortController();
 
     const fetchSparklines = async () => {
       try {
         const { startTime, endTime } = getTimeRangeParams();
-        const data = await ApiService.getSparklineData(controller.signal, startTime, endTime);
+        const eventId = selectedEventIds.length > 0 ? selectedEventIds[0] : undefined;
+        const data = await ApiService.getSparklineData(controller.signal, startTime, endTime, eventId);
         setSparklineData(data);
       } catch (err) {
         // Ignore abort errors
@@ -165,7 +166,7 @@ const Dashboard: React.FC = () => {
     fetchSparklines();
 
     return () => controller.abort();
-  }, [timeRange, getTimeRangeParams]);
+  }, [timeRange, getTimeRangeParams, selectedEventIds]);
 
   // Fetch real-time speeds - uses SignalR with user-controlled throttling
   const lastSpeedUpdateRef = useRef<number>(0);
