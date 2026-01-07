@@ -44,6 +44,8 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   const lastFetchTime = useRef<number>(0);
   const lastSignalRRefresh = useRef<number>(0);
   const pendingRefreshRef = useRef<NodeJS.Timeout | null>(null);
+  // Track previous event IDs - initialize with current value to prevent double-fetch on mount
+  const prevEventIdsRef = useRef<string>(JSON.stringify(selectedEventIds));
 
   // IMPORTANT: These refs are updated on every render BEFORE effects run
   // This ensures that any function reading from these refs gets the current value
@@ -293,14 +295,14 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   }, [timeRange, mockMode, fetchStats]);
 
   // Event filter changes - refetch when event filter is changed
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const eventIdsKey = JSON.stringify(selectedEventIds);
+  // Uses prevEventIdsRef (initialized above) to detect actual changes
   useEffect(() => {
-    if (!mockMode && !isInitialLoad.current) {
+    const currentEventIdsKey = JSON.stringify(selectedEventIds);
+    if (!mockMode && !isInitialLoad.current && prevEventIdsRef.current !== currentEventIdsKey) {
+      prevEventIdsRef.current = currentEventIdsKey;
       fetchStats({ showLoading: true, forceRefresh: true });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventIdsKey, mockMode, fetchStats]);
+  }, [selectedEventIds, mockMode, fetchStats]);
 
   // Debounced custom date changes
   useEffect(() => {

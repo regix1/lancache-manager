@@ -271,15 +271,16 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   }, [timeRange, mockMode, fetchDownloads]);
 
   // Event filter changes - refetch when event filter is changed
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const eventIdsKey = JSON.stringify(selectedEventIds);
+  // Track previous event IDs - initialize with current value to prevent double-fetch on mount
+  const prevEventIdsRef = useRef<string>(JSON.stringify(selectedEventIds));
   useEffect(() => {
-    if (!mockMode && !isInitialLoad.current) {
+    const currentEventIdsKey = JSON.stringify(selectedEventIds);
+    if (!mockMode && !isInitialLoad.current && prevEventIdsRef.current !== currentEventIdsKey) {
+      prevEventIdsRef.current = currentEventIdsKey;
       // Use forceRefresh to bypass debounce - event filter changes should always trigger immediate fetch
       fetchDownloads({ showLoading: true, forceRefresh: true });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventIdsKey, mockMode, fetchDownloads]);
+  }, [selectedEventIds, mockMode, fetchDownloads]);
 
   // Custom date changes (debounced)
   useEffect(() => {
