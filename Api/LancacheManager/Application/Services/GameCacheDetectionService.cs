@@ -696,6 +696,10 @@ public class GameCacheDetectionService
             int resolvedCount = 0;
             var newlyFailedDepots = new List<uint>();
             var entriesToRemove = new List<CachedGameDetection>();
+            
+            // Track AppIds we've already resolved to in this batch to prevent UNIQUE constraint violations
+            // Key: AppId, Value: the CachedGameDetection entity that will have this AppId after save
+            var pendingAppIdAssignments = new Dictionary<uint, CachedGameDetection>();
 
             foreach (var unknownGame in gamesToResolve)
             {
@@ -719,7 +723,40 @@ public class GameCacheDetectionService
                     _logger.LogInformation("[GameDetection] Resolved depot {DepotId} -> {AppId} ({Name})",
                         depotId, mapping.AppId, resolvedName);
 
-                    // Check if a record with this AppId already exists (unique constraint protection)
+                    // Check if we've already assigned this AppId in this batch
+                    if (pendingAppIdAssignments.TryGetValue(mapping.AppId, out var pendingGame))
+                    {
+                        // Another unknown game in this batch already resolved to this AppId - merge into it
+                        pendingGame.CacheFilesFound += unknownGame.CacheFilesFound;
+                        pendingGame.TotalSizeBytes += unknownGame.TotalSizeBytes;
+                        pendingGame.LastDetectedUtc = pendingGame.LastDetectedUtc > unknownGame.LastDetectedUtc
+                            ? pendingGame.LastDetectedUtc : unknownGame.LastDetectedUtc;
+
+                        // Merge depot IDs
+                        var pendingDepots = JsonSerializer.Deserialize<List<uint>>(pendingGame.DepotIdsJson) ?? new List<uint>();
+                        var unknownDepots = JsonSerializer.Deserialize<List<uint>>(unknownGame.DepotIdsJson) ?? new List<uint>();
+                        pendingDepots.AddRange(unknownDepots);
+                        pendingDepots = pendingDepots.Distinct().ToList();
+                        pendingGame.DepotIdsJson = JsonSerializer.Serialize(pendingDepots);
+
+                        // Merge cache file paths
+                        var pendingPaths = JsonSerializer.Deserialize<List<string>>(pendingGame.CacheFilePathsJson) ?? new List<string>();
+                        var unknownPaths = JsonSerializer.Deserialize<List<string>>(unknownGame.CacheFilePathsJson) ?? new List<string>();
+                        pendingPaths.AddRange(unknownPaths);
+                        pendingPaths = pendingPaths.Distinct().ToList();
+                        pendingGame.CacheFilePathsJson = JsonSerializer.Serialize(pendingPaths);
+
+                        // Mark unknown game for removal
+                        entriesToRemove.Add(unknownGame);
+                        _logger.LogInformation("[GameDetection] Merged depot {DepotId} into pending game {AppId} ({Name})",
+                            depotId, mapping.AppId, resolvedName);
+                        
+                        resolvedCount++;
+                        previouslyFailedDepots.Remove(depotId);
+                        continue;
+                    }
+
+                    // Check if a record with this AppId already exists in database (unique constraint protection)
                     var existingGame = await dbContext.CachedGameDetections
                         .FirstOrDefaultAsync(g => g.GameAppId == mapping.AppId);
 
@@ -747,6 +784,10 @@ public class GameCacheDetectionService
 
                         // Mark unknown game for removal
                         entriesToRemove.Add(unknownGame);
+                        
+                        // Track this existing game so future unknowns in this batch merge into it
+                        pendingAppIdAssignments[mapping.AppId] = existingGame;
+                        
                         _logger.LogInformation("[GameDetection] Merged depot {DepotId} into existing game {AppId} ({Name})",
                             depotId, mapping.AppId, resolvedName);
                     }
@@ -755,6 +796,9 @@ public class GameCacheDetectionService
                         // No existing record, update the unknown game directly
                         unknownGame.GameName = resolvedName;
                         unknownGame.GameAppId = mapping.AppId;
+                        
+                        // Track this assignment so other unknowns in this batch can merge
+                        pendingAppIdAssignments[mapping.AppId] = unknownGame;
                     }
 
                     resolvedCount++;

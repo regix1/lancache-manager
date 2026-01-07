@@ -1,7 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Calendar, ChevronDown } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
+import { useEvents } from '@contexts/EventContext';
+import { getEventColorVar } from '@utils/eventColors';
 
 interface DateRangePickerProps {
   startDate: Date | null;
@@ -18,9 +20,62 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   onEndDateChange,
   onClose
 }) => {
+  const { events } = useEvents();
+
   const [currentMonth, setCurrentMonth] = useState(() => {
     return startDate ? new Date(startDate.getFullYear(), startDate.getMonth(), 1) : new Date();
   });
+
+  // Sort events: active first, then upcoming, then past
+  const sortedEvents = useMemo(() => {
+    const now = new Date();
+    return [...events].sort((a, b) => {
+      const aStart = new Date(a.startTimeUtc);
+      const aEnd = new Date(a.endTimeUtc);
+      const bStart = new Date(b.startTimeUtc);
+      const bEnd = new Date(b.endTimeUtc);
+
+      const aIsActive = now >= aStart && now <= aEnd;
+      const bIsActive = now >= bStart && now <= bEnd;
+      const aIsUpcoming = now < aStart;
+      const bIsUpcoming = now < bStart;
+
+      if (aIsActive && !bIsActive) return -1;
+      if (!aIsActive && bIsActive) return 1;
+      if (aIsUpcoming && !bIsUpcoming) return -1;
+      if (!aIsUpcoming && bIsUpcoming) return 1;
+
+      return aStart.getTime() - bStart.getTime();
+    });
+  }, [events]);
+
+  const getEventStatus = (startUtc: string, endUtc: string) => {
+    const now = new Date();
+    const start = new Date(startUtc);
+    const end = new Date(endUtc);
+    if (now >= start && now <= end) return 'active';
+    if (now < start) return 'upcoming';
+    return 'past';
+  };
+
+  const formatEventDateRange = (startUtc: string, endUtc: string) => {
+    const start = new Date(startUtc);
+    const end = new Date(endUtc);
+    const startStr = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const endStr = end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return startStr === endStr ? startStr : `${startStr} - ${endStr}`;
+  };
+
+  const handleEventPresetClick = (startUtc: string, endUtc: string) => {
+    const start = new Date(startUtc);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(endUtc);
+    end.setHours(23, 59, 59, 999);
+    onStartDateChange(start);
+    onEndDateChange(end);
+    // Navigate calendar to show the event's start month
+    setCurrentMonth(new Date(start.getFullYear(), start.getMonth(), 1));
+  };
   const [showYearDropdown, setShowYearDropdown] = useState(false);
   const [showMonthDropdown, setShowMonthDropdown] = useState(false);
   const [hoveredDate, setHoveredDate] = useState<Date | null>(null);
@@ -511,6 +566,48 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Event Presets - Only show if there are events */}
+        {sortedEvents.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-[var(--theme-border-primary)]">
+            <div className="text-xs text-[var(--theme-text-secondary)] mb-2">Event Date Ranges:</div>
+            <div className="flex flex-wrap gap-2">
+              {sortedEvents.slice(0, 6).map((event) => {
+                const status = getEventStatus(event.startTimeUtc, event.endTimeUtc);
+                const colorVar = event.colorIndex ? getEventColorVar(event.colorIndex) : 'var(--theme-primary)';
+
+                return (
+                  <button
+                    key={event.id}
+                    onClick={() => handleEventPresetClick(event.startTimeUtc, event.endTimeUtc)}
+                    className="flex items-center gap-2 px-3 py-1.5 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg hover:bg-[var(--theme-bg-primary)] transition-colors border border-[var(--theme-border-primary)]"
+                    title={`${event.name}: ${formatEventDateRange(event.startTimeUtc, event.endTimeUtc)}`}
+                  >
+                    <div
+                      className="w-2 h-2 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: colorVar }}
+                    />
+                    <span className="truncate max-w-[100px]">{event.name}</span>
+                    {status === 'active' && (
+                      <span
+                        className="px-1 py-0.5 text-[9px] rounded font-medium"
+                        style={{
+                          backgroundColor: 'color-mix(in srgb, var(--theme-success) 20%, transparent)',
+                          color: 'var(--theme-success)'
+                        }}
+                      >
+                        Live
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-1 text-[10px] text-[var(--theme-text-muted)]">
+              Click an event to use its date range
+            </div>
+          </div>
+        )}
 
         {/* Action Buttons */}
         <div className="flex gap-2 mt-4">

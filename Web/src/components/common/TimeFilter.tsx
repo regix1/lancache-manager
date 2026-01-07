@@ -238,7 +238,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
                 maxWidth: 'calc(100vw - 32px)',
                 boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2)',
                 animation: dropdownStyle.animation,
-                zIndex: 9999
+                zIndex: 50000
               }}
             >
               {/* Title */}
