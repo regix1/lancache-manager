@@ -406,6 +406,18 @@ const Dashboard: React.FC = () => {
     }));
   }, []);
 
+  // Track event filter changes to clear stale data immediately
+  // This ref is updated SYNCHRONOUSLY during render, before useMemo runs
+  const prevEventIdsRef = useRef<string>(JSON.stringify(selectedEventIds));
+  const currentEventIdsKey = JSON.stringify(selectedEventIds);
+  const eventFilterJustChanged = prevEventIdsRef.current !== currentEventIdsKey;
+
+  // Update the ref AFTER we've computed the comparison (for next render)
+  // This is safe because refs don't cause re-renders
+  if (eventFilterJustChanged) {
+    prevEventIdsRef.current = currentEventIdsKey;
+  }
+
   const stats = useMemo(() => {
     // Use speed snapshot for real-time accurate active data (from Rust speed tracker)
     const activeClients = speedSnapshot?.clientSpeeds?.length ?? 0;
@@ -414,6 +426,21 @@ const Dashboard: React.FC = () => {
       (sum, service) => sum + (service.totalDownloads || 0),
       0
     );
+
+    // If event filter just changed, don't show any old data - show 0s until new data arrives
+    // This prevents stale data from a different event filter being displayed
+    if (eventFilterJustChanged) {
+      return {
+        activeClients,
+        totalActiveDownloads,
+        totalDownloads,
+        bandwidthSaved: 0,
+        addedToCache: 0,
+        totalServed: 0,
+        cacheHitRatio: 0,
+        uniqueClients: 0
+      };
+    }
 
     // Validate that the period data matches the current timeRange
     // This prevents showing stale data when switching time ranges
@@ -447,7 +474,7 @@ const Dashboard: React.FC = () => {
       cacheHitRatio: shouldShowValues ? (dashboardStats?.period?.hitRatio || 0) : 0,
       uniqueClients: shouldShowValues ? (dashboardStats?.uniqueClients || filteredClientStats.length) : 0
     };
-  }, [filteredServiceStats, dashboardStats, filteredClientStats, timeRange, loading, speedSnapshot]);
+  }, [filteredServiceStats, dashboardStats, filteredClientStats, timeRange, loading, speedSnapshot, selectedEventIds]);
 
   const allStatCards = useMemo<AllStatCards>(
     () => ({
