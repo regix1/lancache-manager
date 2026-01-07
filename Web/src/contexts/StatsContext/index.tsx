@@ -101,9 +101,12 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
 
     const { showLoading = false, isInitial = false, forceRefresh = false } = options;
 
+    console.log('[StatsContext] fetchStats called:', { showLoading, isInitial, forceRefresh });
+
     // Debounce rapid calls (min 250ms between fetches) - skip for initial load or force refresh
     const now = Date.now();
     if (!isInitial && !forceRefresh && now - lastFetchTime.current < 250) {
+      console.log('[StatsContext] fetchStats DEBOUNCED');
       return;
     }
     lastFetchTime.current = now;
@@ -111,11 +114,13 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     // Abort any in-flight request BEFORE checking concurrent flag
     // This ensures time range changes always trigger new fetches
     if (abortControllerRef.current) {
+      console.log('[StatsContext] Aborting previous request');
       abortControllerRef.current.abort();
     }
 
     // Prevent concurrent fetches (except for initial load or force refresh which should always proceed)
     if (fetchInProgress.current && !isInitial && !forceRefresh) {
+      console.log('[StatsContext] fetchStats BLOCKED - concurrent fetch in progress');
       return;
     }
     fetchInProgress.current = true;
@@ -123,6 +128,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     // Generate unique request ID - only this request can modify state
     // This prevents race conditions when rapid filter changes cause overlapping requests
     const thisRequestId = ++currentRequestIdRef.current;
+    console.log('[StatsContext] Starting fetch with requestId:', thisRequestId);
 
     // Read current values from refs - these are always up-to-date
     // IMPORTANT: Capture these at fetch start to detect stale data when fetch completes
@@ -160,10 +166,13 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
 
       clearTimeout(timeoutId);
 
+      console.log('[StatsContext] Fetch completed for requestId:', thisRequestId, 'current:', currentRequestIdRef.current);
+
       // CRITICAL: Check if we're still the current request before modifying ANY state
       // This prevents race conditions where an old (aborted) request sets loading=false
       // while a new request is still in progress
       if (currentRequestIdRef.current !== thisRequestId) {
+        console.log('[StatsContext] STALE REQUEST - ignoring results for requestId:', thisRequestId);
         return; // A newer request has started, don't touch state
       }
 
@@ -172,12 +181,22 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       const eventIdsStillValid = JSON.stringify(selectedEventIdsRef.current) === JSON.stringify(currentEventIds);
       const filtersStillValid = timeRangeStillValid && eventIdsStillValid;
 
+      console.log('[StatsContext] Filter validation:', {
+        timeRangeStillValid,
+        eventIdsStillValid,
+        filtersStillValid,
+        currentEventIds,
+        refEventIds: selectedEventIdsRef.current,
+        dashboardStatus: dashboard.status
+      });
+
       // Cache info is not time-range dependent, always apply
       if (cache.status === 'fulfilled' && cache.value !== undefined) {
         setCacheInfo(cache.value);
       }
       // Client/service/dashboard stats depend on time range AND event filter
       if (filtersStillValid) {
+        console.log('[StatsContext] Applying data - filters valid');
         if (clients.status === 'fulfilled' && clients.value !== undefined) {
           setClientStats(clients.value);
         }
@@ -185,9 +204,12 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
           setServiceStats(services.value);
         }
         if (dashboard.status === 'fulfilled' && dashboard.value !== undefined) {
+          console.log('[StatsContext] Setting dashboardStats:', dashboard.value?.period?.duration);
           setDashboardStats(dashboard.value);
           hasData.current = true;
         }
+      } else {
+        console.log('[StatsContext] NOT applying data - filters changed during fetch');
       }
       setError(null);
       if (showLoading) {
@@ -228,6 +250,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     // Debounced handler that respects user's refresh rate setting
     // This replaces polling - SignalR events are the only source of updates
     const handleRefreshEvent = () => {
+      console.log('[StatsContext] SignalR refresh event received');
       // Clear any pending refresh to debounce rapid events
       if (pendingRefreshRef.current) {
         clearTimeout(pendingRefreshRef.current);
@@ -244,8 +267,11 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
         const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
 
         if (timeSinceLastRefresh >= minInterval) {
+          console.log('[StatsContext] SignalR triggering fetch');
           lastSignalRRefresh.current = now;
           fetchStats();
+        } else {
+          console.log('[StatsContext] SignalR fetch throttled');
         }
         pendingRefreshRef.current = null;
       }, 100);
@@ -321,7 +347,15 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   // 2. If user changes filter during initial load, we want to abort and fetch with new filter
   useEffect(() => {
     const currentEventIdsKey = JSON.stringify(selectedEventIds);
+    console.log('[StatsContext] Event filter effect:', {
+      currentEventIdsKey,
+      prevEventIdsRef: prevEventIdsRef.current,
+      willFetch: prevEventIdsRef.current !== currentEventIdsKey,
+      mockMode,
+      isInitialLoad: isInitialLoad.current
+    });
     if (!mockMode && prevEventIdsRef.current !== currentEventIdsKey) {
+      console.log('[StatsContext] Event filter changed! Clearing data and fetching...');
       prevEventIdsRef.current = currentEventIdsKey;
       // Clear stats immediately to prevent showing stale data from different event filter
       setClientStats([]);
