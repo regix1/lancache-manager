@@ -87,14 +87,14 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   // CORE DATA FETCHING
   // ============================================
 
-  const fetchDownloads = useCallback(async (options: { showLoading?: boolean; isInitial?: boolean } = {}) => {
+  const fetchDownloads = useCallback(async (options: { showLoading?: boolean; isInitial?: boolean; forceRefresh?: boolean } = {}) => {
     if (mockModeRef.current) return;
 
-    const { showLoading = false, isInitial = false } = options;
+    const { showLoading = false, isInitial = false, forceRefresh = false } = options;
 
-    // Debounce rapid calls (min 250ms between fetches) - skip for initial load
+    // Debounce rapid calls (min 250ms between fetches) - skip for initial load or force refresh
     const now = Date.now();
-    if (!isInitial && now - lastFetchTime.current < 250) {
+    if (!isInitial && !forceRefresh && now - lastFetchTime.current < 250) {
       return;
     }
     lastFetchTime.current = now;
@@ -104,8 +104,8 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
       abortControllerRef.current.abort();
     }
 
-    // Prevent concurrent fetches (except for initial load which should always proceed)
-    if (fetchInProgress.current && !isInitial) {
+    // Prevent concurrent fetches (except for initial load or force refresh which should always proceed)
+    if (fetchInProgress.current && !isInitial && !forceRefresh) {
       return;
     }
     fetchInProgress.current = true;
@@ -265,7 +265,8 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   // Time range changes
   useEffect(() => {
     if (!mockMode && !isInitialLoad.current) {
-      fetchDownloads({ showLoading: true });
+      // Use forceRefresh to bypass debounce - time range changes should always trigger immediate fetch
+      fetchDownloads({ showLoading: true, forceRefresh: true });
     }
   }, [timeRange, mockMode, fetchDownloads]);
 
@@ -274,7 +275,8 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   const eventIdsKey = JSON.stringify(selectedEventIds);
   useEffect(() => {
     if (!mockMode && !isInitialLoad.current) {
-      fetchDownloads({ showLoading: true });
+      // Use forceRefresh to bypass debounce - event filter changes should always trigger immediate fetch
+      fetchDownloads({ showLoading: true, forceRefresh: true });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventIdsKey, mockMode, fetchDownloads]);

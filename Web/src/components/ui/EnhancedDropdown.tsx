@@ -5,6 +5,12 @@ import { CustomScrollbar } from './CustomScrollbar';
 import { Tooltip } from './Tooltip';
 import { getEventColorVar } from '@utils/eventColors';
 
+interface DropdownPosition {
+  top: number;
+  left: number;
+  width: number;
+}
+
 interface IconComponentProps {
   size?: number;
   className?: string;
@@ -70,9 +76,8 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
   cleanStyle = false
 }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [dropdownStyle, setDropdownStyle] = useState<{ animation: string; transform?: string }>({ animation: '' });
-  const [openUpward, setOpenUpward] = useState(false);
-  const [horizontalPosition, setHorizontalPosition] = useState<'left' | 'right'>('left');
+  const [dropdownStyle, setDropdownStyle] = useState<{ animation: string }>({ animation: '' });
+  const [dropdownPosition, setDropdownPosition] = useState<DropdownPosition | null>(null);
   const [expandedSubmenu, setExpandedSubmenu] = useState<string | null>(null);
   const [submenuPosition, setSubmenuPosition] = useState<{ top: number; left: number; openLeft: boolean } | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -86,51 +91,54 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
     if (!isOpen) setExpandedSubmenu(null);
   }, [isOpen]);
 
-  // Calculate position before paint
+  // Calculate position before paint - for portal rendering
   useLayoutEffect(() => {
     if (!isOpen || !buttonRef.current) return;
 
-    const rect = buttonRef.current.getBoundingClientRect();
-    const dropdownHeight = 240;
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const spaceAbove = rect.top;
-    const shouldOpenUpward = spaceBelow < dropdownHeight && spaceAbove > dropdownHeight;
-    setOpenUpward(shouldOpenUpward);
+    const calculatePosition = () => {
+      if (!buttonRef.current) return null;
 
-    const dropdownEl = dropdownRef.current;
-    const dropdownWidthPx = dropdownEl?.offsetWidth || 200;
-    const viewportWidth = window.innerWidth;
+      const rect = buttonRef.current.getBoundingClientRect();
+      const dropdownHeight = 300; // Approximate max height
+      const dropdownWidthPx = dropdownWidth ? parseInt(dropdownWidth) || rect.width : rect.width;
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      const shouldOpenUpward = spaceBelow < dropdownHeight && spaceAbove > dropdownHeight;
 
-    let transform = '';
-    if (alignRight) {
-      const wouldOverflowLeft = rect.right - dropdownWidthPx < 0;
-      if (wouldOverflowLeft) {
-        setHorizontalPosition('left');
-        if (rect.left + dropdownWidthPx > viewportWidth) {
-          transform = `translateX(${viewportWidth - (rect.left + dropdownWidthPx) - 16}px)`;
+      // Calculate horizontal position
+      let left: number;
+      if (alignRight) {
+        // Align right edge of dropdown with right edge of button
+        left = rect.right - dropdownWidthPx;
+        // Ensure doesn't go off left side
+        if (left < 8) {
+          left = 8;
         }
       } else {
-        setHorizontalPosition('right');
-      }
-    } else {
-      const wouldOverflowRight = rect.left + dropdownWidthPx > viewportWidth;
-      if (wouldOverflowRight) {
-        if (rect.right >= dropdownWidthPx) {
-          setHorizontalPosition('right');
-        } else {
-          setHorizontalPosition('left');
-          transform = `translateX(${viewportWidth - (rect.left + dropdownWidthPx) - 16}px)`;
+        // Align left edge of dropdown with left edge of button
+        left = rect.left;
+        // Ensure doesn't go off right side
+        if (left + dropdownWidthPx > window.innerWidth - 8) {
+          left = window.innerWidth - dropdownWidthPx - 8;
         }
-      } else {
-        setHorizontalPosition('left');
       }
+
+      // Calculate vertical position
+      const top = shouldOpenUpward
+        ? rect.top - dropdownHeight - 8
+        : rect.bottom + 4;
+
+      return { top, left, width: rect.width, shouldOpenUpward };
+    };
+
+    const pos = calculatePosition();
+    if (pos) {
+      setDropdownPosition({ top: pos.top, left: pos.left, width: pos.width });
+      setDropdownStyle({
+        animation: `${pos.shouldOpenUpward ? 'dropdownSlideUp' : 'dropdownSlideDown'} 0.15s cubic-bezier(0.16, 1, 0.3, 1)`
+      });
     }
-
-    setDropdownStyle({
-      animation: `${shouldOpenUpward ? 'dropdownSlideUp' : 'dropdownSlideDown'} 0.15s cubic-bezier(0.16, 1, 0.3, 1)`,
-      transform: transform || undefined
-    });
-  }, [isOpen, alignRight]);
+  }, [isOpen, alignRight, dropdownWidth]);
 
   // Event listeners
   useEffect(() => {
@@ -147,11 +155,18 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       if (e.key === 'Escape') setIsOpen(false);
     };
 
+    // Close on scroll to prevent dropdown from being mispositioned
+    const handleScroll = () => {
+      setIsOpen(false);
+    };
+
     document.addEventListener('mousedown', handleClickOutside);
     document.addEventListener('keydown', handleEscape);
+    window.addEventListener('scroll', handleScroll, true);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleEscape);
+      window.removeEventListener('scroll', handleScroll, true);
     };
   }, [isOpen]);
 
@@ -213,17 +228,22 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         />
       </button>
 
-      {isOpen && (
+      {/* Dropdown - rendered via portal to escape stacking context */}
+      {isOpen && dropdownPosition && createPortal(
         <div
           ref={dropdownRef}
-          className={`ed-dropdown absolute ${dropdownWidth || 'w-full'} ${horizontalPosition === 'right' ? 'right-0' : 'left-0'} rounded-lg border z-[9999] overflow-hidden ${openUpward ? 'bottom-full mb-2' : 'mt-2'}`}
+          className="ed-dropdown fixed rounded-lg border overflow-hidden"
           style={{
+            top: dropdownPosition.top,
+            left: dropdownPosition.left,
+            width: dropdownWidth || dropdownPosition.width,
+            minWidth: dropdownPosition.width,
             backgroundColor: 'var(--theme-bg-secondary)',
             borderColor: 'var(--theme-border-primary)',
             maxWidth: 'calc(100vw - 32px)',
-            transform: dropdownStyle.transform,
             boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2)',
-            animation: dropdownStyle.animation
+            animation: dropdownStyle.animation,
+            zIndex: 50000
           }}
         >
           {dropdownTitle && (
@@ -415,7 +435,8 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
               <span className="leading-relaxed">{footerNote}</span>
             </div>
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
