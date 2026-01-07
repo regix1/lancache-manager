@@ -149,6 +149,9 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     const controller = new AbortController();
 
+    // Clear old sparkline data immediately to prevent stale data display
+    setSparklineData(null);
+
     const fetchSparklines = async () => {
       try {
         const { startTime, endTime } = getTimeRangeParams();

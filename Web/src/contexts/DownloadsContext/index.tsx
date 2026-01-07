@@ -286,6 +286,8 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
     const currentEventIdsKey = JSON.stringify(selectedEventIds);
     if (!mockMode && prevEventIdsRef.current !== currentEventIdsKey) {
       prevEventIdsRef.current = currentEventIdsKey;
+      // Clear downloads immediately to prevent showing stale data from different event filter
+      setLatestDownloads([]);
       fetchDownloads({ showLoading: true, forceRefresh: true });
     }
   }, [selectedEventIds, mockMode, fetchDownloads]);

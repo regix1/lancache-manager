@@ -77,6 +77,9 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
 
     const controller = new AbortController();
 
+    // Clear old data immediately to prevent stale display during filter changes
+    setData(null);
+
     const fetchData = async () => {
       try {
         setLoading(true);

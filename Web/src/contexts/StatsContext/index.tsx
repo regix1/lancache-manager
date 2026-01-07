@@ -307,6 +307,10 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     const currentEventIdsKey = JSON.stringify(selectedEventIds);
     if (!mockMode && prevEventIdsRef.current !== currentEventIdsKey) {
       prevEventIdsRef.current = currentEventIdsKey;
+      // Clear stats immediately to prevent showing stale data from different event filter
+      setClientStats([]);
+      setServiceStats([]);
+      setDashboardStats(null);
       fetchStats({ showLoading: true, forceRefresh: true });
     }
   }, [selectedEventIds, mockMode, fetchStats]);
