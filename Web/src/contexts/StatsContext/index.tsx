@@ -119,10 +119,12 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     fetchInProgress.current = true;
 
     // Read current values from refs - these are always up-to-date
+    // IMPORTANT: Capture these at fetch start to detect stale data when fetch completes
     const currentTimeRange = currentTimeRangeRef.current;
+    const currentEventIds = [...selectedEventIdsRef.current]; // Copy to detect changes
     const { startTime, endTime } = getTimeRangeParamsRef.current();
     // Support multiple event IDs - pass as array for API
-    const eventIds = selectedEventIdsRef.current.length > 0 ? selectedEventIdsRef.current : undefined;
+    const eventIds = currentEventIds.length > 0 ? currentEventIds : undefined;
 
     abortControllerRef.current = new AbortController();
 
@@ -152,15 +154,17 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
 
       clearTimeout(timeoutId);
 
-      // Only apply time-range-dependent results if timeRange hasn't changed during fetch
+      // Only apply results if filters haven't changed during fetch (prevents stale data)
       const timeRangeStillValid = currentTimeRangeRef.current === currentTimeRange;
+      const eventIdsStillValid = JSON.stringify(selectedEventIdsRef.current) === JSON.stringify(currentEventIds);
+      const filtersStillValid = timeRangeStillValid && eventIdsStillValid;
 
       // Cache info is not time-range dependent, always apply
       if (cache.status === 'fulfilled' && cache.value !== undefined) {
         setCacheInfo(cache.value);
       }
-      // Client/service/dashboard stats are time-range dependent
-      if (timeRangeStillValid) {
+      // Client/service/dashboard stats depend on time range AND event filter
+      if (filtersStillValid) {
         if (clients.status === 'fulfilled' && clients.value !== undefined) {
           setClientStats(clients.value);
         }
@@ -295,10 +299,13 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   }, [timeRange, mockMode, fetchStats]);
 
   // Event filter changes - refetch when event filter is changed
-  // Uses prevEventIdsRef (initialized above) to detect actual changes
+  // Uses prevEventIdsRef (initialized with current value) to prevent double-fetch on mount
+  // NOTE: We intentionally DON'T check isInitialLoad.current here because:
+  // 1. prevEventIdsRef prevents double-fetch on mount (initialized with current value)
+  // 2. If user changes filter during initial load, we want to abort and fetch with new filter
   useEffect(() => {
     const currentEventIdsKey = JSON.stringify(selectedEventIds);
-    if (!mockMode && !isInitialLoad.current && prevEventIdsRef.current !== currentEventIdsKey) {
+    if (!mockMode && prevEventIdsRef.current !== currentEventIdsKey) {
       prevEventIdsRef.current = currentEventIdsKey;
       fetchStats({ showLoading: true, forceRefresh: true });
     }

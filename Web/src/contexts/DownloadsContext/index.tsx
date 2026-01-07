@@ -111,10 +111,12 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
     fetchInProgress.current = true;
 
     // Read current values from refs - these are always up-to-date
+    // IMPORTANT: Capture these at fetch start to detect stale data when fetch completes
     const currentTimeRange = currentTimeRangeRef.current;
+    const currentEventIds = [...selectedEventIdsRef.current]; // Copy to detect changes
     const { startTime, endTime } = getTimeRangeParamsRef.current();
     // Support multiple event IDs - pass as array for API
-    const eventIds = selectedEventIdsRef.current.length > 0 ? selectedEventIdsRef.current : undefined;
+    const eventIds = currentEventIds.length > 0 ? currentEventIds : undefined;
 
     abortControllerRef.current = new AbortController();
 
@@ -136,8 +138,12 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
 
       clearTimeout(timeoutId);
 
-      // Only apply results if timeRange hasn't changed during fetch (stale data protection)
-      if (latest !== undefined && currentTimeRangeRef.current === currentTimeRange) {
+      // Only apply results if filters haven't changed during fetch (stale data protection)
+      const timeRangeStillValid = currentTimeRangeRef.current === currentTimeRange;
+      const eventIdsStillValid = JSON.stringify(selectedEventIdsRef.current) === JSON.stringify(currentEventIds);
+      const filtersStillValid = timeRangeStillValid && eventIdsStillValid;
+
+      if (latest !== undefined && filtersStillValid) {
         setLatestDownloads(latest);
         setError(null);
         if (showLoading) {
@@ -272,12 +278,14 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
 
   // Event filter changes - refetch when event filter is changed
   // Track previous event IDs - initialize with current value to prevent double-fetch on mount
+  // NOTE: We intentionally DON'T check isInitialLoad.current here because:
+  // 1. prevEventIdsRef prevents double-fetch on mount (initialized with current value)
+  // 2. If user changes filter during initial load, we want to abort and fetch with new filter
   const prevEventIdsRef = useRef<string>(JSON.stringify(selectedEventIds));
   useEffect(() => {
     const currentEventIdsKey = JSON.stringify(selectedEventIds);
-    if (!mockMode && !isInitialLoad.current && prevEventIdsRef.current !== currentEventIdsKey) {
+    if (!mockMode && prevEventIdsRef.current !== currentEventIdsKey) {
       prevEventIdsRef.current = currentEventIdsKey;
-      // Use forceRefresh to bypass debounce - event filter changes should always trigger immediate fetch
       fetchDownloads({ showLoading: true, forceRefresh: true });
     }
   }, [selectedEventIds, mockMode, fetchDownloads]);
