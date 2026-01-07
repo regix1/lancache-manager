@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -6,7 +6,7 @@ import { Modal } from '@components/ui/Modal';
 import { Alert } from '@components/ui/Alert';
 import { Pagination } from '@components/ui/Pagination';
 import { useClientGroups } from '@contexts/ClientGroupContext';
-import { useStats } from '@contexts/StatsContext';
+import ApiService from '@services/api.service';
 import { Plus, Users, Trash2, Edit2, X, Loader2, User, AlertTriangle } from 'lucide-react';
 import ClientGroupModal from '@components/modals/ClientGroupModal';
 import type { ClientGroup } from '../../../../types';
@@ -33,7 +33,31 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
     removeMember
   } = useClientGroups();
 
-  const { clientStats } = useStats();
+  // Fetch ALL client IPs without time filtering - management sections should not be affected by time filters
+  const [allClientIps, setAllClientIps] = useState<string[]>([]);
+  const [loadingClients, setLoadingClients] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchAllClients = async () => {
+      try {
+        // Call getClientStats without time params to get all clients ever seen
+        const stats = await ApiService.getClientStats();
+        if (!cancelled) {
+          const ips = stats.map(stat => stat.clientIp);
+          setAllClientIps(ips);
+        }
+      } catch (err) {
+        console.error('Failed to fetch all client IPs:', err);
+      } finally {
+        if (!cancelled) {
+          setLoadingClients(false);
+        }
+      }
+    };
+    fetchAllClients();
+    return () => { cancelled = true; };
+  }, []);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<ClientGroup | null>(null);
@@ -49,12 +73,10 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
     return ips;
   }, [clientGroups]);
 
-  // Get ungrouped clients (IPs from stats that aren't in any group)
+  // Get ungrouped clients (IPs that aren't in any group)
   const ungroupedClients = useMemo(() => {
-    return clientStats
-      .filter(stat => !stat.isGrouped && !groupedIps.has(stat.clientIp))
-      .map(stat => stat.clientIp);
-  }, [clientStats, groupedIps]);
+    return allClientIps.filter(ip => !groupedIps.has(ip));
+  }, [allClientIps, groupedIps]);
 
   // Pagination for ungrouped clients
   const totalUngroupedPages = Math.ceil(ungroupedClients.length / UNGROUPED_IPS_PER_PAGE);
@@ -280,7 +302,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
       </div>
 
       {/* Clients Without Nicknames */}
-      {ungroupedClients.length > 0 && (
+      {(loadingClients || ungroupedClients.length > 0) && (
         <div>
           <div className="flex items-center gap-2 mb-4">
             <div
@@ -288,31 +310,40 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
               style={{ backgroundColor: 'var(--theme-icon-orange)' }}
             />
             <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-              Without Nicknames ({ungroupedClients.length})
+              Without Nicknames {!loadingClients && `(${ungroupedClients.length})`}
             </h3>
           </div>
 
           <Card>
             <CardContent className="py-4">
-              <p className="text-sm text-themed-muted mb-3">
-                These client IPs don't have nicknames assigned. Click "Add Nickname" above to give them friendly names.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {paginatedUngroupedClients.map(ip => (
-                  <Tooltip key={ip} content={`Click "Add Nickname" to name this IP`}>
-                    <div
-                      className="px-2 py-1 rounded text-sm font-mono cursor-help"
-                      style={{
-                        backgroundColor: 'var(--theme-bg-tertiary)',
-                        color: 'var(--theme-text-muted)'
-                      }}
-                    >
-                      {ip}
-                    </div>
-                  </Tooltip>
-                ))}
-              </div>
-              {totalUngroupedPages > 1 && (
+              {loadingClients ? (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="w-5 h-5 animate-spin text-themed-muted" />
+                  <span className="ml-2 text-themed-muted">Loading clients...</span>
+                </div>
+              ) : (
+                <>
+                  <p className="text-sm text-themed-muted mb-3">
+                    These client IPs don't have nicknames assigned. Click "Add Nickname" above to give them friendly names.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {paginatedUngroupedClients.map(ip => (
+                      <Tooltip key={ip} content={`Click "Add Nickname" to name this IP`}>
+                        <div
+                          className="px-2 py-1 rounded text-sm font-mono cursor-help"
+                          style={{
+                            backgroundColor: 'var(--theme-bg-tertiary)',
+                            color: 'var(--theme-text-muted)'
+                          }}
+                        >
+                          {ip}
+                        </div>
+                      </Tooltip>
+                    ))}
+                  </div>
+                </>
+              )}
+              {!loadingClients && totalUngroupedPages > 1 && (
                 <Pagination
                   currentPage={ungroupedPage}
                   totalPages={totalUngroupedPages}
