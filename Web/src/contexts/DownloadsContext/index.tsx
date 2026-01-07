@@ -68,6 +68,8 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   const lastFetchTime = useRef<number>(0);
   const lastSignalRRefresh = useRef<number>(0);
   const pendingRefreshRef = useRef<NodeJS.Timeout | null>(null);
+  // Request ID to prevent race conditions - only the most recent request can set state
+  const currentRequestIdRef = useRef(0);
 
   // Sync refs - updated on every render BEFORE effects run
   // This ensures functions reading from these refs get current values
@@ -110,6 +112,10 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
     }
     fetchInProgress.current = true;
 
+    // Generate unique request ID - only this request can modify state
+    // This prevents race conditions when rapid filter changes cause overlapping requests
+    const thisRequestId = ++currentRequestIdRef.current;
+
     // Read current values from refs - these are always up-to-date
     // IMPORTANT: Capture these at fetch start to detect stale data when fetch completes
     const currentTimeRange = currentTimeRangeRef.current;
@@ -138,6 +144,13 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
 
       clearTimeout(timeoutId);
 
+      // CRITICAL: Check if we're still the current request before modifying ANY state
+      // This prevents race conditions where an old (aborted) request sets loading=false
+      // while a new request is still in progress
+      if (currentRequestIdRef.current !== thisRequestId) {
+        return; // A newer request has started, don't touch state
+      }
+
       // Only apply results if filters haven't changed during fetch (stale data protection)
       const timeRangeStillValid = currentTimeRangeRef.current === currentTimeRange;
       const eventIdsStillValid = JSON.stringify(selectedEventIdsRef.current) === JSON.stringify(currentEventIds);
@@ -150,14 +163,19 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
           setLoading(false);
         }
         hasData.current = true;
-      } else {
+      } else if (filtersStillValid) {
+        // Only clear error/loading if we're the current valid request
         setError(null);
         if (showLoading) {
           setLoading(false);
         }
       }
+      // If filters are invalid, don't touch state - let the correct request handle it
     } catch (err: unknown) {
-      // Fixed: Proper error handling without dead code
+      // Check if we're still the current request before setting error state
+      if (currentRequestIdRef.current !== thisRequestId) {
+        return; // A newer request has started, don't touch state
+      }
       if (isAbortError(err)) {
         if (!hasData.current) {
           setError('Request timeout - the server may be busy');
@@ -169,10 +187,13 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
         setLoading(false);
       }
     } finally {
-      if (isInitial) {
-        isInitialLoad.current = false;
+      // Only update fetchInProgress if we're still the current request
+      if (currentRequestIdRef.current === thisRequestId) {
+        if (isInitial) {
+          isInitialLoad.current = false;
+        }
+        fetchInProgress.current = false;
       }
-      fetchInProgress.current = false;
     }
   }, []);
 

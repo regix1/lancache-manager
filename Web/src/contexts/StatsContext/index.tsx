@@ -46,6 +46,8 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   const pendingRefreshRef = useRef<NodeJS.Timeout | null>(null);
   // Track previous event IDs - initialize with current value to prevent double-fetch on mount
   const prevEventIdsRef = useRef<string>(JSON.stringify(selectedEventIds));
+  // Request ID to prevent race conditions - only the most recent request can set state
+  const currentRequestIdRef = useRef(0);
 
   // IMPORTANT: These refs are updated on every render BEFORE effects run
   // This ensures that any function reading from these refs gets the current value
@@ -118,6 +120,10 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     }
     fetchInProgress.current = true;
 
+    // Generate unique request ID - only this request can modify state
+    // This prevents race conditions when rapid filter changes cause overlapping requests
+    const thisRequestId = ++currentRequestIdRef.current;
+
     // Read current values from refs - these are always up-to-date
     // IMPORTANT: Capture these at fetch start to detect stale data when fetch completes
     const currentTimeRange = currentTimeRangeRef.current;
@@ -154,6 +160,13 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
 
       clearTimeout(timeoutId);
 
+      // CRITICAL: Check if we're still the current request before modifying ANY state
+      // This prevents race conditions where an old (aborted) request sets loading=false
+      // while a new request is still in progress
+      if (currentRequestIdRef.current !== thisRequestId) {
+        return; // A newer request has started, don't touch state
+      }
+
       // Only apply results if filters haven't changed during fetch (prevents stale data)
       const timeRangeStillValid = currentTimeRangeRef.current === currentTimeRange;
       const eventIdsStillValid = JSON.stringify(selectedEventIdsRef.current) === JSON.stringify(currentEventIds);
@@ -181,21 +194,24 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
         setLoading(false);
       }
     } catch (err: unknown) {
+      // Check if we're still the current request before setting error state
+      if (currentRequestIdRef.current !== thisRequestId) {
+        return; // A newer request has started, don't touch state
+      }
       if (!hasData.current && !isAbortError(err)) {
-        if (isAbortError(err)) {
-          setError('Request timeout - the server may be busy');
-        } else {
-          setError('Failed to fetch stats from API');
-        }
+        setError('Failed to fetch stats from API');
       }
       if (showLoading) {
         setLoading(false);
       }
     } finally {
-      if (isInitial) {
-        isInitialLoad.current = false;
+      // Only update fetchInProgress if we're still the current request
+      if (currentRequestIdRef.current === thisRequestId) {
+        if (isInitial) {
+          isInitialLoad.current = false;
+        }
+        fetchInProgress.current = false;
       }
-      fetchInProgress.current = false;
     }
   }, []);
 
