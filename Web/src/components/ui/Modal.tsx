@@ -100,14 +100,10 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
     >
       <div className="min-h-full flex items-center justify-center">
         <div
-          className={`themed-card rounded-lg ${sizes[size]} w-full mx-4 transform transition-all duration-250 ease-out ${
+          className={`themed-card border rounded-lg ${sizes[size]} w-full mx-4 transform transition-all duration-250 ease-out ${
             isAnimating ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-90 translate-y-8'
           }`}
-          style={{
-            transitionDelay: isAnimating ? '0.05s' : '0s',
-            backgroundColor: 'var(--theme-card-bg)',
-            borderColor: 'var(--theme-card-border)'
-          }}
+          style={{ transitionDelay: isAnimating ? '0.05s' : '0s' }}
         >
           {title && (
             <div className="flex items-center justify-between p-6 border-b border-themed-secondary">

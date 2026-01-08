@@ -32,7 +32,7 @@ const PopoverContent: React.FC<{
 }> = ({ sections, children }) => {
   if (children) {
     return (
-      <div className="space-y-3 text-xs leading-relaxed" style={{ color: 'var(--theme-text-secondary)' }}>
+      <div className="space-y-3 text-xs leading-relaxed text-themed-secondary">
         {children}
       </div>
     );
@@ -44,13 +44,9 @@ const PopoverContent: React.FC<{
         {sections.map((section, sectionIndex) => (
           <div
             key={section.title}
-            className={sectionIndex > 0 ? 'border-t pt-4' : ''}
-            style={sectionIndex > 0 ? { borderColor: 'var(--theme-border)' } : undefined}
+            className={sectionIndex > 0 ? 'border-t border-[var(--theme-border)] pt-4' : ''}
           >
-            <div
-              className="text-xs font-semibold mb-2"
-              style={{ color: 'var(--theme-text-primary)' }}
-            >
+            <div className="text-xs font-semibold mb-2 text-themed-primary">
               {section.title}
             </div>
             <div className="space-y-1.5">
@@ -62,7 +58,7 @@ const PopoverContent: React.FC<{
                   >
                     {item.label}
                   </span>
-                  <span style={{ color: 'var(--theme-text-secondary)' }}>
+                  <span className="text-themed-secondary">
                     {item.description}
                   </span>
                 </div>
@@ -196,21 +192,11 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
       <button
         ref={triggerRef}
         onClick={() => setIsOpen(!isOpen)}
-        className="p-1 rounded-md transition-colors"
-        style={{
-          color: isOpen ? 'var(--theme-primary)' : 'var(--theme-text-secondary)',
-          backgroundColor: isOpen ? 'var(--theme-primary-subtle)' : 'transparent'
-        }}
-        onMouseEnter={(e) => {
-          if (!isOpen) {
-            e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
-          }
-        }}
-        onMouseLeave={(e) => {
-          if (!isOpen) {
-            e.currentTarget.style.backgroundColor = 'transparent';
-          }
-        }}
+        className={`p-1 rounded-md transition-colors ${
+          isOpen
+            ? 'text-[var(--theme-primary)] bg-[var(--theme-primary-subtle)]'
+            : 'text-themed-secondary bg-transparent hover:bg-themed-hover'
+        }`}
       >
         <HelpCircle className="w-4 h-4" />
       </button>
@@ -218,16 +204,15 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
       {isOpen && createPortal(
         <div
           ref={popoverRef}
-          className="fixed rounded-lg border shadow-2xl"
+          className={`fixed rounded-lg border shadow-2xl themed-card ${
+            popoverPos ? 'visible' : 'invisible'
+          }`}
           style={{
             left: popoverPos?.x ?? -9999,
             top: popoverPos?.y ?? -9999,
             width: effectiveWidth,
             maxWidth: `calc(100vw - 24px)`,
             maxHeight: maxHeight || `calc(100vh - 100px)`,
-            visibility: popoverPos ? 'visible' : 'hidden',
-            backgroundColor: 'var(--theme-card-bg)',
-            borderColor: 'var(--theme-card-border)',
             boxShadow: '0 10px 40px rgba(0, 0, 0, 0.4)'
           }}
         >
@@ -256,26 +241,13 @@ export const HelpCode: React.FC<{ children: React.ReactNode; block?: boolean }> 
 }) => {
   if (block) {
     return (
-      <div
-        className="p-2.5 rounded font-mono text-[10px] leading-relaxed"
-        style={{
-          backgroundColor: 'var(--theme-bg-tertiary)',
-          color: 'var(--theme-text-secondary)',
-          border: '1px solid var(--theme-border-secondary)'
-        }}
-      >
+      <div className="p-2.5 rounded font-mono text-[10px] leading-relaxed bg-themed-tertiary text-themed-secondary border border-themed-secondary">
         {children}
       </div>
     );
   }
   return (
-    <code
-      className="px-1.5 py-0.5 rounded font-mono text-[10px]"
-      style={{
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-primary)'
-      }}
-    >
+    <code className="px-1.5 py-0.5 rounded font-mono text-[10px] bg-themed-tertiary text-[var(--theme-primary)]">
       {children}
     </code>
   );
@@ -292,21 +264,14 @@ export const HelpSection: React.FC<{
   variant = 'default'
 }) => (
   <div
-    className="rounded-md"
-    style={variant === 'subtle' ? {
-      backgroundColor: 'var(--theme-bg-secondary)',
-      padding: '0.625rem',
-      marginLeft: '-0.25rem',
-      marginRight: '-0.25rem'
-    } : undefined}
+    className={`rounded-md ${
+      variant === 'subtle' ? 'bg-themed-secondary p-2.5 -mx-1' : ''
+    }`}
   >
-    <div
-      className="text-[11px] font-semibold mb-1.5 uppercase tracking-wide"
-      style={{ color: 'var(--theme-text-muted)' }}
-    >
+    <div className="text-[11px] font-semibold mb-1.5 uppercase tracking-wide text-themed-muted">
       {title}
     </div>
-    <div className="text-xs leading-relaxed" style={{ color: 'var(--theme-text-secondary)' }}>
+    <div className="text-xs leading-relaxed text-themed-secondary">
       {children}
     </div>
   </div>
@@ -381,17 +346,17 @@ export const HelpNote: React.FC<{
 
   return (
     <div
-      className="flex gap-2 p-2 rounded-r text-[11px] leading-relaxed"
+      className="flex gap-2 p-2 rounded-r text-[11px] leading-relaxed border-l-[3px]"
       style={{
         backgroundColor: config[type].bg,
-        borderLeft: `3px solid ${config[type].border}`
+        borderLeftColor: config[type].border
       }}
     >
       <Icon
         className="w-3.5 h-3.5 flex-shrink-0 mt-0.5"
         style={{ color: config[type].iconColor }}
       />
-      <div style={{ color: 'var(--theme-text-primary)' }}>
+      <div className="text-themed-primary">
         {children}
       </div>
     </div>
@@ -419,7 +384,7 @@ export const HelpListItem: React.FC<{
         className="flex-shrink-0 mt-1.5 w-1 h-1 rounded-full"
         style={{ backgroundColor: bulletColors[color] }}
       />
-      <span style={{ color: 'var(--theme-text-secondary)' }}>
+      <span className="text-themed-secondary">
         {children}
       </span>
     </div>
@@ -452,8 +417,8 @@ export const HelpDefinition: React.FC<{
       >
         {term}
       </span>
-      <span style={{ color: 'var(--theme-text-muted)' }}> — </span>
-      <span style={{ color: 'var(--theme-text-secondary)' }}>
+      <span className="text-themed-muted"> — </span>
+      <span className="text-themed-secondary">
         {children}
       </span>
     </div>
@@ -469,16 +434,10 @@ export const HelpStep: React.FC<{
   children
 }) => (
   <div className="flex gap-2 text-xs leading-relaxed">
-    <span
-      className="flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold"
-      style={{
-        backgroundColor: 'var(--theme-primary)',
-        color: 'var(--theme-button-text)'
-      }}
-    >
+    <span className="flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold bg-[var(--theme-primary)] text-themed-button">
       {number}
     </span>
-    <span style={{ color: 'var(--theme-text-secondary)' }}>
+    <span className="text-themed-secondary">
       {children}
     </span>
   </div>

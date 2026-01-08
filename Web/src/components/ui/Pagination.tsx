@@ -52,7 +52,7 @@ export const Pagination: React.FC<PaginationProps> = ({
     const compactContent = (
       <div className={`flex items-center justify-between gap-2 ${!showCard ? className : ''}`}>
         {/* Page info */}
-        <span className="text-xs" style={{ color: 'var(--theme-text-muted)' }}>
+        <span className="text-xs text-themed-muted">
           {startItem}-{endItem} of {totalItems}
         </span>
 
@@ -72,10 +72,7 @@ export const Pagination: React.FC<PaginationProps> = ({
             <ChevronLeft size={14} />
           </button>
 
-          <span
-            className="text-xs font-medium px-2 tabular-nums"
-            style={{ color: 'var(--theme-text-primary)' }}
-          >
+          <span className="text-xs font-medium px-2 tabular-nums text-themed-primary">
             {currentPage}/{totalPages}
           </span>
 
@@ -126,13 +123,10 @@ export const Pagination: React.FC<PaginationProps> = ({
     <div className={`flex flex-col sm:flex-row items-center justify-between gap-3 ${!showCard ? className : ''}`}>
       {/* Page Info */}
       <div className="flex items-center gap-4">
-        <span
-          className="text-sm font-medium"
-          style={{ color: 'var(--theme-text-primary)' }}
-        >
+        <span className="text-sm font-medium text-themed-primary">
           Page {currentPage} of {totalPages}
         </span>
-        <span className="text-sm" style={{ color: 'var(--theme-text-secondary)' }}>
+        <span className="text-sm text-themed-secondary">
           {startItem} - {endItem} of {totalItems} {itemLabel}
         </span>
       </div>
@@ -229,9 +223,7 @@ export const Pagination: React.FC<PaginationProps> = ({
               </button>
 
               {currentPage > 3 && (
-                <span className="px-2" style={{ color: 'var(--theme-text-muted)' }}>
-                  •••
-                </span>
+                <span className="px-2 text-themed-muted">•••</span>
               )}
 
               {Array.from({ length: 5 }, (_, i) => {
@@ -267,9 +259,7 @@ export const Pagination: React.FC<PaginationProps> = ({
               }).filter(Boolean)}
 
               {currentPage < totalPages - 2 && (
-                <span className="px-2" style={{ color: 'var(--theme-text-muted)' }}>
-                  •••
-                </span>
+                <span className="px-2 text-themed-muted">•••</span>
               )}
 
               <button
@@ -335,10 +325,7 @@ export const Pagination: React.FC<PaginationProps> = ({
         {/* Quick Page Jump (for many pages) */}
         {totalPages > 10 && (
           <>
-            <div
-              className="border-l mx-2 h-6"
-              style={{ borderColor: 'var(--theme-border-secondary)' }}
-            />
+            <div className="border-l mx-2 h-6 border-themed-secondary" />
             <EnhancedDropdown
               options={Array.from({ length: totalPages }, (_, i) => ({
                 value: (i + 1).toString(),

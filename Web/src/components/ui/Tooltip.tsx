@@ -185,21 +185,8 @@ export const Tooltip: React.FC<TooltipProps> = ({
         strategy === 'overlay' &&
         createPortal(
           <div
-            style={{
-              position: 'fixed',
-              zIndex: 99999,
-              left: x + 10,
-              top: y + 10,
-              maxWidth: '320px',
-              padding: '6px 10px',
-              fontSize: '12px',
-              borderRadius: '6px',
-              pointerEvents: 'none',
-              backgroundColor: 'var(--theme-bg-tertiary)',
-              color: 'var(--theme-text-primary)',
-              border: '1px solid var(--theme-card-border)',
-              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.5)'
-            }}
+            className="tooltip-overlay"
+            style={{ left: x + 10, top: y + 10 }}
           >
             {content}
           </div>,
@@ -298,15 +285,12 @@ const EdgeTooltip: React.FC<{
   return (
     <div
       ref={ref}
-      className={`fixed z-[9999] max-w-md px-2.5 py-1.5 text-xs themed-card text-themed-secondary rounded-md shadow-2xl pointer-events-none ${contentClassName}`}
+      className={`fixed z-[9999] max-w-md px-2.5 py-1.5 text-xs themed-card text-themed-secondary rounded-md tooltip-edge ${contentClassName}`}
       style={{
         left: pos?.x ?? -9999,
         top: pos?.y ?? -9999,
         visibility: pos ? 'visible' : 'hidden',
-        transition: 'none',
-        backdropFilter: 'blur(8px)',
-        border: '1px solid var(--theme-card-border)',
-        boxShadow: '0 10px 40px rgba(0, 0, 0, 0.4)'
+        transition: 'none'
       }}
     >
       {content}

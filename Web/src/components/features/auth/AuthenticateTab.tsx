@@ -55,20 +55,14 @@ const AuthenticateTab: React.FC = () => {
     <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <div
-          className="p-2 rounded-lg flex-shrink-0"
-          style={{ backgroundColor: 'var(--theme-primary-subtle)' }}
-        >
-          <Key className="w-6 h-6" style={{ color: 'var(--theme-primary)' }} />
+        <div className="p-2 rounded-lg flex-shrink-0 bg-themed-accent-subtle">
+          <Key className="w-6 h-6 text-themed-accent" />
         </div>
         <div className="min-w-0">
-          <h1
-            className="text-xl sm:text-2xl font-bold"
-            style={{ color: 'var(--theme-text-primary)' }}
-          >
+          <h1 className="text-xl sm:text-2xl font-bold text-themed-primary">
             Upgrade to Full Access
           </h1>
-          <p className="text-xs sm:text-sm" style={{ color: 'var(--theme-text-secondary)' }}>
+          <p className="text-xs sm:text-sm text-themed-secondary">
             Enter your API key to unlock management features
           </p>
         </div>
@@ -78,23 +72,17 @@ const AuthenticateTab: React.FC = () => {
       <Card>
         <div className="p-6 space-y-6">
           <div>
-            <h2
-              className="text-lg font-semibold mb-4"
-              style={{ color: 'var(--theme-text-primary)' }}
-            >
+            <h2 className="text-lg font-semibold mb-4 text-themed-primary">
               Enter API Key
             </h2>
-            <p className="text-sm mb-4" style={{ color: 'var(--theme-text-secondary)' }}>
+            <p className="text-sm mb-4 text-themed-secondary">
               You are currently in <strong>Guest Mode</strong> with view-only access. Enter your
               API key to gain full management capabilities.
             </p>
 
             <div className="space-y-4">
               <div>
-                <label
-                  className="block text-sm font-medium mb-2"
-                  style={{ color: 'var(--theme-text-secondary)' }}
-                >
+                <label className="block text-sm font-medium mb-2 text-themed-secondary">
                   API Key
                 </label>
                 <input
@@ -103,13 +91,8 @@ const AuthenticateTab: React.FC = () => {
                   onChange={(e) => setApiKey(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && handleAuthenticate()}
                   placeholder="lm_xxxxxxxxxxxxxxxxxxxxx"
-                  className="w-full px-3 py-2 themed-input text-themed-primary placeholder-themed-muted focus:outline-none"
+                  className="w-full px-3 py-2 themed-input text-themed-primary placeholder-themed-muted focus:outline-none bg-themed-secondary border border-themed rounded-lg"
                   disabled={loading}
-                  style={{
-                    backgroundColor: 'var(--theme-bg-secondary)',
-                    border: '1px solid var(--theme-border)',
-                    borderRadius: '0.5rem'
-                  }}
                 />
               </div>
 
@@ -151,88 +134,61 @@ const AuthenticateTab: React.FC = () => {
       {/* Features Card */}
       <Card>
         <div className="p-6">
-          <h2
-            className="text-lg font-semibold mb-4"
-            style={{ color: 'var(--theme-text-primary)' }}
-          >
+          <h2 className="text-lg font-semibold mb-4 text-themed-primary">
             What You'll Get with Full Access
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="flex items-start gap-3">
-              <div
-                className="p-2 rounded-lg flex-shrink-0"
-                style={{ backgroundColor: 'var(--theme-success-bg)' }}
-              >
-                <AlertCircle className="w-5 h-5" style={{ color: 'var(--theme-success)' }} />
+              <div className="p-2 rounded-lg flex-shrink-0 bg-themed-success">
+                <AlertCircle className="w-5 h-5 text-themed-success" />
               </div>
               <div>
-                <h3
-                  className="font-semibold mb-1"
-                  style={{ color: 'var(--theme-text-primary)' }}
-                >
+                <h3 className="font-semibold mb-1 text-themed-primary">
                   User Management
                 </h3>
-                <p className="text-sm" style={{ color: 'var(--theme-text-secondary)' }}>
+                <p className="text-sm text-themed-secondary">
                   View and manage all authenticated users and guest sessions
                 </p>
               </div>
             </div>
 
             <div className="flex items-start gap-3">
-              <div
-                className="p-2 rounded-lg flex-shrink-0"
-                style={{ backgroundColor: 'var(--theme-success-bg)' }}
-              >
-                <AlertCircle className="w-5 h-5" style={{ color: 'var(--theme-success)' }} />
+              <div className="p-2 rounded-lg flex-shrink-0 bg-themed-success">
+                <AlertCircle className="w-5 h-5 text-themed-success" />
               </div>
               <div>
-                <h3
-                  className="font-semibold mb-1"
-                  style={{ color: 'var(--theme-text-primary)' }}
-                >
+                <h3 className="font-semibold mb-1 text-themed-primary">
                   Cache Management
                 </h3>
-                <p className="text-sm" style={{ color: 'var(--theme-text-secondary)' }}>
+                <p className="text-sm text-themed-secondary">
                   Clear cache, remove games, and manage cache operations
                 </p>
               </div>
             </div>
 
             <div className="flex items-start gap-3">
-              <div
-                className="p-2 rounded-lg flex-shrink-0"
-                style={{ backgroundColor: 'var(--theme-success-bg)' }}
-              >
-                <AlertCircle className="w-5 h-5" style={{ color: 'var(--theme-success)' }} />
+              <div className="p-2 rounded-lg flex-shrink-0 bg-themed-success">
+                <AlertCircle className="w-5 h-5 text-themed-success" />
               </div>
               <div>
-                <h3
-                  className="font-semibold mb-1"
-                  style={{ color: 'var(--theme-text-primary)' }}
-                >
+                <h3 className="font-semibold mb-1 text-themed-primary">
                   Database Operations
                 </h3>
-                <p className="text-sm" style={{ color: 'var(--theme-text-secondary)' }}>
+                <p className="text-sm text-themed-secondary">
                   Reset database, process logs, and manage data
                 </p>
               </div>
             </div>
 
             <div className="flex items-start gap-3">
-              <div
-                className="p-2 rounded-lg flex-shrink-0"
-                style={{ backgroundColor: 'var(--theme-success-bg)' }}
-              >
-                <AlertCircle className="w-5 h-5" style={{ color: 'var(--theme-success)' }} />
+              <div className="p-2 rounded-lg flex-shrink-0 bg-themed-success">
+                <AlertCircle className="w-5 h-5 text-themed-success" />
               </div>
               <div>
-                <h3
-                  className="font-semibold mb-1"
-                  style={{ color: 'var(--theme-text-primary)' }}
-                >
+                <h3 className="font-semibold mb-1 text-themed-primary">
                   Theme Customization
                 </h3>
-                <p className="text-sm" style={{ color: 'var(--theme-text-secondary)' }}>
+                <p className="text-sm text-themed-secondary">
                   Create and apply custom themes to personalize your experience
                 </p>
               </div>

@@ -112,7 +112,7 @@ const EventsTab: React.FC = () => {
               className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
               style={{ backgroundColor: 'color-mix(in srgb, var(--theme-status-success) 15%, transparent)' }}
             >
-              <Sparkles className="w-4 h-4" style={{ color: 'var(--theme-status-success)' }} />
+              <Sparkles className="w-4 h-4 text-[var(--theme-status-success)]" />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-2">

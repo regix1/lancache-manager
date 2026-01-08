@@ -199,21 +199,20 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
         {/* Header */}
         <div className="flex flex-col items-center text-center">
           <div
-            className="w-16 h-16 rounded-full flex items-center justify-center mb-4"
-            style={{
-              backgroundColor: progress === 100
-                ? 'var(--theme-success-bg)'
+            className={`w-16 h-16 rounded-full flex items-center justify-center mb-4 ${
+              progress === 100
+                ? 'bg-themed-success'
                 : initializing
-                  ? 'var(--theme-primary-bg, var(--theme-info-bg))'
-                  : 'var(--theme-info-bg)'
-            }}
+                  ? 'bg-themed-primary-subtle'
+                  : 'bg-themed-info'
+            }`}
           >
             {progress === 100 ? (
-              <CheckCircle className="w-8 h-8" style={{ color: 'var(--theme-success)' }} />
+              <CheckCircle className="w-8 h-8 icon-success" />
             ) : initializing ? (
-              <Loader2 className="w-8 h-8 animate-spin" style={{ color: 'var(--theme-primary)' }} />
+              <Loader2 className="w-8 h-8 animate-spin icon-primary" />
             ) : (
-              <Cloud className="w-8 h-8" style={{ color: 'var(--theme-info)' }} />
+              <Cloud className="w-8 h-8 icon-info" />
             )}
           </div>
           <h3 className="text-xl font-semibold text-themed-primary mb-1">
@@ -229,21 +228,15 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
         {/* Progress */}
         {initializing && progress < 100 && (
           <div className="space-y-3">
-            <div
-              className="p-3 rounded-lg text-center"
-              style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-            >
+            <div className="p-3 rounded-lg text-center bg-themed-tertiary">
               <p className="text-sm font-medium text-themed-primary">{downloadStatus || 'Downloading...'}</p>
             </div>
             {progress > 0 && (
               <div>
-                <div
-                  className="w-full rounded-full h-2.5 overflow-hidden"
-                  style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                >
+                <div className="w-full rounded-full h-2.5 overflow-hidden bg-themed-tertiary">
                   <div
-                    className="h-full transition-all duration-500 ease-out rounded-full"
-                    style={{ width: `${progress}%`, backgroundColor: 'var(--theme-primary)' }}
+                    className="h-full transition-all duration-500 ease-out rounded-full bg-primary"
+                    style={{ width: `${progress}%` }}
                   />
                 </div>
                 <p className="text-sm text-themed-secondary text-center mt-2">{progress.toFixed(1)}%</p>
@@ -254,11 +247,8 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
 
         {/* Success */}
         {progress === 100 && (
-          <div
-            className="p-4 rounded-lg text-center"
-            style={{ backgroundColor: 'var(--theme-success-bg)' }}
-          >
-            <p className="text-sm" style={{ color: 'var(--theme-success-text)' }}>
+          <div className="p-4 rounded-lg text-center bg-themed-success">
+            <p className="text-sm text-themed-success">
               {downloadStatus || 'Depot mappings imported successfully!'}
             </p>
           </div>
@@ -266,11 +256,8 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
 
         {/* Error */}
         {error && (
-          <div
-            className="p-3 rounded-lg"
-            style={{ backgroundColor: 'var(--theme-error-bg)' }}
-          >
-            <p className="text-sm" style={{ color: 'var(--theme-error-text)' }}>{error}</p>
+          <div className="p-3 rounded-lg bg-themed-error">
+            <p className="text-sm text-themed-error">{error}</p>
           </div>
         )}
       </div>
@@ -282,11 +269,8 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
     <div className="space-y-5">
       {/* Header */}
       <div className="flex flex-col items-center text-center">
-        <div
-          className="w-14 h-14 rounded-full flex items-center justify-center mb-3"
-          style={{ backgroundColor: 'var(--theme-info-bg)' }}
-        >
-          <Database className="w-7 h-7" style={{ color: 'var(--theme-info)' }} />
+        <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-info">
+          <Database className="w-7 h-7 icon-info" />
         </div>
         <h3 className="text-lg font-semibold text-themed-primary mb-1">Initialize Depot Data</h3>
         <p className="text-sm text-themed-secondary max-w-md">
@@ -296,13 +280,10 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
 
       {/* Steam Auth Warning */}
       {usingSteamAuth && (
-        <div
-          className="p-3 rounded-lg flex items-start gap-3"
-          style={{ backgroundColor: 'var(--theme-warning-bg)' }}
-        >
-          <AlertTriangle className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--theme-warning)' }} />
+        <div className="p-3 rounded-lg flex items-start gap-3 bg-themed-warning">
+          <AlertTriangle className="w-5 h-5 flex-shrink-0 icon-warning" />
           <div className="flex-1">
-            <p className="text-sm" style={{ color: 'var(--theme-warning-text)' }}>
+            <p className="text-sm text-themed-warning">
               GitHub download unavailable with Steam login. Your personalized depot data will be generated from Steam.
             </p>
             {onBackToSteamAuth && (
@@ -322,33 +303,22 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
 
       {/* Status Display */}
       {downloadStatus && (
-        <div
-          className="p-3 rounded-lg"
-          style={{
-            backgroundColor: progress === 100 ? 'var(--theme-success-bg)' : 'var(--theme-info-bg)'
-          }}
-        >
+        <div className={`p-3 rounded-lg ${progress === 100 ? 'bg-themed-success' : 'bg-themed-info'}`}>
           <div className="flex items-center gap-2 mb-2">
             {progress === 100 ? (
-              <CheckCircle className="w-4 h-4" style={{ color: 'var(--theme-success)' }} />
+              <CheckCircle className="w-4 h-4 icon-success" />
             ) : (
-              <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'var(--theme-info)' }} />
+              <Loader2 className="w-4 h-4 animate-spin icon-info" />
             )}
-            <p
-              className="text-sm font-medium"
-              style={{ color: progress === 100 ? 'var(--theme-success-text)' : 'var(--theme-info-text)' }}
-            >
+            <p className={`text-sm font-medium ${progress === 100 ? 'text-themed-success' : 'text-themed-info'}`}>
               {downloadStatus}
             </p>
           </div>
           {progress > 0 && progress < 100 && (
-            <div
-              className="w-full rounded-full h-1.5 overflow-hidden"
-              style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-            >
+            <div className="w-full rounded-full h-1.5 overflow-hidden bg-themed-tertiary">
               <div
-                className="h-full transition-all duration-300"
-                style={{ width: `${progress}%`, backgroundColor: 'var(--theme-primary)' }}
+                className="h-full transition-all duration-300 bg-primary"
+                style={{ width: `${progress}%` }}
               />
             </div>
           )}
@@ -357,20 +327,14 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
 
       {/* Error */}
       {error && (
-        <div
-          className="p-3 rounded-lg"
-          style={{ backgroundColor: 'var(--theme-error-bg)' }}
-        >
-          <p className="text-sm" style={{ color: 'var(--theme-error-text)' }}>{error}</p>
+        <div className="p-3 rounded-lg bg-themed-error">
+          <p className="text-sm text-themed-error">{error}</p>
         </div>
       )}
 
       {/* PICS Status */}
       {picsData && (
-        <div
-          className="p-3 rounded-lg text-sm"
-          style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-        >
+        <div className="p-3 rounded-lg text-sm bg-themed-tertiary">
           <p className="text-themed-secondary">
             <strong className="text-themed-primary">Current Status:</strong>{' '}
             {picsData.jsonFile?.exists && `JSON: ${picsData.jsonFile?.totalMappings?.toLocaleString() ?? 0} mappings. `}
@@ -384,14 +348,14 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
       <div className={`grid grid-cols-1 gap-3 ${shouldShowContinueOption() ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
         {/* Cloud Download */}
         <div
-          className="p-4 rounded-lg border-2 flex flex-col"
-          style={{
-            backgroundColor: selectedMethod === 'cloud' ? 'var(--theme-primary-bg, rgba(var(--theme-primary-rgb), 0.1))' : 'var(--theme-bg-tertiary)',
-            borderColor: selectedMethod === 'cloud' ? 'var(--theme-primary)' : 'var(--theme-border-primary)'
-          }}
+          className={`p-4 rounded-lg border-2 flex flex-col ${
+            selectedMethod === 'cloud'
+              ? 'bg-themed-primary-subtle border-[var(--theme-primary)]'
+              : 'bg-themed-tertiary border-themed-primary'
+          }`}
         >
           <div className="flex items-center gap-2 mb-2">
-            <Cloud className="w-5 h-5" style={{ color: 'var(--theme-info)' }} />
+            <Cloud className="w-5 h-5 icon-info" />
             <h4 className="font-semibold text-themed-primary">Pre-created</h4>
           </div>
           <p className="text-xs text-themed-secondary mb-3 flex-grow">
@@ -412,14 +376,14 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
 
         {/* Generate Fresh */}
         <div
-          className="p-4 rounded-lg border-2 flex flex-col"
-          style={{
-            backgroundColor: selectedMethod === 'generate' ? 'var(--theme-primary-bg, rgba(var(--theme-primary-rgb), 0.1))' : 'var(--theme-bg-tertiary)',
-            borderColor: selectedMethod === 'generate' ? 'var(--theme-primary)' : 'var(--theme-border-primary)'
-          }}
+          className={`p-4 rounded-lg border-2 flex flex-col ${
+            selectedMethod === 'generate'
+              ? 'bg-themed-primary-subtle border-[var(--theme-primary)]'
+              : 'bg-themed-tertiary border-themed-primary'
+          }`}
         >
           <div className="flex items-center gap-2 mb-2">
-            <Database className="w-5 h-5" style={{ color: 'var(--theme-success)' }} />
+            <Database className="w-5 h-5 icon-success" />
             <h4 className="font-semibold text-themed-primary">Generate Fresh</h4>
           </div>
           <p className="text-xs text-themed-secondary mb-3 flex-grow">
@@ -441,14 +405,14 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
         {/* Continue Update */}
         {shouldShowContinueOption() && (
           <div
-            className="p-4 rounded-lg border-2 flex flex-col"
-            style={{
-              backgroundColor: selectedMethod === 'continue' ? 'var(--theme-primary-bg, rgba(var(--theme-primary-rgb), 0.1))' : 'var(--theme-bg-tertiary)',
-              borderColor: selectedMethod === 'continue' ? 'var(--theme-primary)' : 'var(--theme-border-primary)'
-            }}
+            className={`p-4 rounded-lg border-2 flex flex-col ${
+              selectedMethod === 'continue'
+                ? 'bg-themed-primary-subtle border-[var(--theme-primary)]'
+                : 'bg-themed-tertiary border-themed-primary'
+            }`}
           >
             <div className="flex items-center gap-2 mb-2">
-              <Database className="w-5 h-5" style={{ color: 'var(--theme-warning)' }} />
+              <Database className="w-5 h-5 icon-warning" />
               <h4 className="font-semibold text-themed-primary">Continue</h4>
             </div>
             <p className="text-xs text-themed-secondary mb-3 flex-grow">

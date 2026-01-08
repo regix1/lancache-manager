@@ -208,23 +208,19 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         type="button"
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
-        className={`ed-trigger w-full px-3 py-2 rounded-lg border text-left flex items-center justify-between text-sm ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-        style={{
-          backgroundColor: 'var(--theme-card-bg)',
-          borderColor: isOpen ? 'var(--theme-border-focus)' : 'var(--theme-border-primary)',
-          color: 'var(--theme-text-primary)'
-        }}
+        className={`ed-trigger w-full px-3 py-2 rounded-lg border text-left flex items-center justify-between text-sm themed-card text-themed-primary ${
+          isOpen ? 'border-themed-focus' : 'border-themed-primary'
+        } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
       >
         <div className="flex items-center gap-1.5 flex-1 truncate">
           {selectedOption?.icon && (
-            <selectedOption.icon className="flex-shrink-0" size={16} style={{ color: 'var(--theme-primary)' }} />
+            <selectedOption.icon className="flex-shrink-0 text-[var(--theme-primary)]" size={16} />
           )}
           <span className={compactMode ? 'font-medium' : 'truncate'}>{displayLabel}</span>
         </div>
         <ChevronDown
           size={16}
-          className={`flex-shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
-          style={{ color: 'var(--theme-text-primary)' }}
+          className={`flex-shrink-0 transition-transform duration-200 text-themed-primary ${isOpen ? 'rotate-180' : ''}`}
         />
       </button>
 
@@ -232,25 +228,17 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       {isOpen && dropdownPosition && createPortal(
         <div
           ref={dropdownRef}
-          className="ed-dropdown fixed rounded-lg border overflow-hidden"
+          className="ed-dropdown fixed rounded-lg border border-themed-primary overflow-hidden bg-themed-secondary max-w-[calc(100vw-32px)] shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3),0_8px_10px_-6px_rgba(0,0,0,0.2)] z-[50000]"
           style={{
             top: dropdownPosition.top,
             left: dropdownPosition.left,
             width: dropdownWidth || dropdownPosition.width,
             minWidth: dropdownPosition.width,
-            backgroundColor: 'var(--theme-bg-secondary)',
-            borderColor: 'var(--theme-border-primary)',
-            maxWidth: 'calc(100vw - 32px)',
-            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2)',
-            animation: dropdownStyle.animation,
-            zIndex: 50000
+            animation: dropdownStyle.animation
           }}
         >
           {dropdownTitle && (
-            <div
-              className="px-3 py-2 text-sm font-medium border-b"
-              style={{ color: 'var(--theme-text-secondary)', borderColor: 'var(--theme-border-primary)', backgroundColor: 'var(--theme-bg-secondary)' }}
-            >
+            <div className="px-3 py-2 text-sm font-medium border-b border-themed-primary bg-themed-secondary text-themed-secondary">
               {dropdownTitle}
             </div>
           )}
@@ -261,8 +249,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                 option.value === 'divider' ? (
                   <div
                     key={option.value}
-                    className="px-3 py-2 text-xs font-medium border-t mt-1 mb-1 truncate"
-                    style={{ color: 'var(--theme-text-muted)', borderColor: 'var(--theme-border-primary)', backgroundColor: 'var(--theme-bg-tertiary)' }}
+                    className="px-3 py-2 text-xs font-medium border-t border-themed-primary mt-1 mb-1 truncate text-themed-muted bg-themed-tertiary"
                   >
                     {option.label}
                   </div>
@@ -277,30 +264,32 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                       <div className="flex items-start gap-3">
                         {!cleanStyle && option.icon && (
                           <option.icon
-                            className="flex-shrink-0 mt-0.5"
+                            className={`flex-shrink-0 mt-0.5 ${
+                              value.startsWith(option.value + ':') ? 'text-[var(--theme-primary)]' : 'text-themed-secondary'
+                            }`}
                             size={16}
-                            style={{ color: value.startsWith(option.value + ':') ? 'var(--theme-primary)' : 'var(--theme-text-secondary)' }}
                           />
                         )}
                         <div className="flex flex-col flex-1 min-w-0">
-                          <span className={`font-medium truncate ${value.startsWith(option.value + ':') ? 'text-[var(--theme-primary)]' : 'text-[var(--theme-text-primary)]'}`}>
+                          <span className={`font-medium truncate ${value.startsWith(option.value + ':') ? 'text-[var(--theme-primary)]' : 'text-themed-primary'}`}>
                             {option.label}
                           </span>
                           {option.description && (
-                            <span className="text-xs mt-0.5 leading-relaxed" style={{ color: 'var(--theme-text-secondary)' }}>
+                            <span className="text-xs mt-0.5 leading-relaxed text-themed-secondary">
                               {option.description}
                             </span>
                           )}
                         </div>
                         {option.rightLabel && (
-                          <span className="flex-shrink-0 text-xs font-medium mr-1" style={{ color: value.startsWith(option.value + ':') ? 'var(--theme-primary)' : 'var(--theme-text-secondary)' }}>
+                          <span className={`flex-shrink-0 text-xs font-medium mr-1 ${
+                            value.startsWith(option.value + ':') ? 'text-[var(--theme-primary)]' : 'text-themed-secondary'
+                          }`}>
                             {option.rightLabel}
                           </span>
                         )}
                         <ChevronRight
                           size={16}
-                          className={`flex-shrink-0 mt-0.5 transition-transform duration-200 ${expandedSubmenu === option.value ? (submenuPosition?.openLeft ? '-rotate-90' : 'rotate-90') : ''}`}
-                          style={{ color: 'var(--theme-text-muted)' }}
+                          className={`flex-shrink-0 mt-0.5 transition-transform duration-200 text-themed-muted ${expandedSubmenu === option.value ? (submenuPosition?.openLeft ? '-rotate-90' : 'rotate-90') : ''}`}
                         />
                       </div>
                     </button>
@@ -308,21 +297,14 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                     {expandedSubmenu === option.value && submenuPosition && createPortal(
                       <div
                         ref={submenuRef}
-                        className="ed-dropdown fixed w-64 rounded-lg border overflow-hidden z-[10001]"
+                        className="ed-dropdown fixed w-64 rounded-lg border border-themed-primary overflow-hidden z-[10001] bg-themed-secondary shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3),0_8px_10px_-6px_rgba(0,0,0,0.2)] animate-[dropdownSlideDown_0.15s_cubic-bezier(0.16,1,0.3,1)]"
                         style={{
                           top: submenuPosition.top,
-                          left: submenuPosition.left,
-                          backgroundColor: 'var(--theme-bg-secondary)',
-                          borderColor: 'var(--theme-border-primary)',
-                          boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2)',
-                          animation: 'dropdownSlideDown 0.15s cubic-bezier(0.16, 1, 0.3, 1)'
+                          left: submenuPosition.left
                         }}
                       >
                         {option.submenuTitle && (
-                          <div
-                            className="px-3 py-2 text-xs font-semibold border-b"
-                            style={{ color: 'var(--theme-text-secondary)', borderColor: 'var(--theme-border-primary)', backgroundColor: 'var(--theme-bg-tertiary)' }}
-                          >
+                          <div className="px-3 py-2 text-xs font-semibold border-b border-themed-primary text-themed-secondary bg-themed-tertiary">
                             {option.submenuTitle}
                           </div>
                         )}
@@ -335,11 +317,11 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                                   key={subItem.value}
                                   type="button"
                                   onClick={() => handleSelect(`${option.value}:${subItem.value}`)}
-                                  className={`ed-submenu-option w-full flex items-center gap-2.5 px-3 py-2.5 text-sm ${isSubSelected ? 'ed-submenu-selected' : ''}`}
-                                  style={{
-                                    backgroundColor: isSubSelected ? 'var(--theme-primary)' : 'transparent',
-                                    color: isSubSelected ? 'var(--theme-button-text)' : 'var(--theme-text-primary)'
-                                  }}
+                                  className={`ed-submenu-option w-full flex items-center gap-2.5 px-3 py-2.5 text-sm ${
+                                    isSubSelected
+                                      ? 'ed-submenu-selected bg-[var(--theme-primary)] text-themed-button'
+                                      : 'bg-transparent text-themed-primary'
+                                  }`}
                                 >
                                   {(subItem.colorIndex || subItem.color) && (
                                     <div
@@ -363,12 +345,12 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                                       )}
                                     </div>
                                     {subItem.description && (
-                                      <div className="text-xs truncate" style={{ color: isSubSelected ? 'rgba(255,255,255,0.7)' : 'var(--theme-text-muted)' }}>
+                                      <div className={`text-xs truncate ${isSubSelected ? 'text-white/70' : 'text-themed-muted'}`}>
                                         {subItem.description}
                                       </div>
                                     )}
                                   </div>
-                                  {isSubSelected && <Check size={14} className="flex-shrink-0" style={{ color: 'var(--theme-button-text)' }} />}
+                                  {isSubSelected && <Check size={14} className="flex-shrink-0 text-themed-button" />}
                                 </button>
                               );
                             })}
@@ -392,28 +374,27 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                           <div className="flex items-start gap-3">
                             {!cleanStyle && option.icon && (
                               <option.icon
-                                className="flex-shrink-0 mt-0.5"
+                                className={`flex-shrink-0 mt-0.5 ${isSelected ? 'text-[var(--theme-primary)]' : 'text-themed-secondary'}`}
                                 size={16}
-                                style={{ color: isSelected ? 'var(--theme-primary)' : 'var(--theme-text-secondary)' }}
                               />
                             )}
                             <div className="flex flex-col flex-1 min-w-0">
-                              <span className={`font-medium truncate ${isSelected ? 'text-[var(--theme-primary)]' : 'text-[var(--theme-text-primary)]'}`}>
+                              <span className={`font-medium truncate ${isSelected ? 'text-[var(--theme-primary)]' : 'text-themed-primary'}`}>
                                 {option.label}
                               </span>
                               {option.description && (
-                                <span className="text-xs mt-0.5 leading-relaxed" style={{ color: 'var(--theme-text-secondary)' }}>
+                                <span className="text-xs mt-0.5 leading-relaxed text-themed-secondary">
                                   {option.description}
                                 </span>
                               )}
                             </div>
                             {option.rightLabel && (
-                              <span className="flex-shrink-0 text-xs font-medium" style={{ color: isSelected ? 'var(--theme-primary)' : 'var(--theme-text-secondary)' }}>
+                              <span className={`flex-shrink-0 text-xs font-medium ${isSelected ? 'text-[var(--theme-primary)]' : 'text-themed-secondary'}`}>
                                 {option.rightLabel}
                               </span>
                             )}
                             {!cleanStyle && isSelected && (
-                              <Check size={16} className="flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-primary)' }} />
+                              <Check size={16} className="flex-shrink-0 mt-0.5 text-[var(--theme-primary)]" />
                             )}
                           </div>
                         </button>
@@ -427,11 +408,8 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
           </CustomScrollbar>
 
           {footerNote && (
-            <div
-              className="px-3 py-2.5 text-xs border-t flex items-start gap-2"
-              style={{ color: 'var(--theme-text-secondary)', borderColor: 'var(--theme-border-primary)', backgroundColor: 'var(--theme-bg-tertiary)' }}
-            >
-              {FooterIcon && <FooterIcon className="flex-shrink-0 mt-0.5" size={14} style={{ color: 'var(--theme-warning)' }} />}
+            <div className="px-3 py-2.5 text-xs border-t border-themed-primary flex items-start gap-2 text-themed-secondary bg-themed-tertiary">
+              {FooterIcon && <FooterIcon className="flex-shrink-0 mt-0.5 text-themed-warning" size={14} />}
               <span className="leading-relaxed">{footerNote}</span>
             </div>
           )}

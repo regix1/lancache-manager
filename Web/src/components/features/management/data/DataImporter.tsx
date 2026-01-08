@@ -341,10 +341,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
               background: 'repeating-linear-gradient(90deg, var(--theme-border-secondary) 0px, var(--theme-border-secondary) 4px, transparent 4px, transparent 8px)'
             }}
           />
-          <div
-            className="inline-flex items-center gap-1 p-1 rounded-lg"
-            style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-          >
+          <div className="inline-flex items-center gap-1 p-1 rounded-lg bg-themed-tertiary">
             <button
               onClick={() => setInputMode('auto')}
               disabled={mockMode || !isAuthenticated}
@@ -590,10 +587,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
               <span className="text-themed-secondary">Importing...</span>
               <span className="text-themed-muted">{Math.round(importProgress)}%</span>
             </div>
-            <div
-              className="h-2 rounded-full overflow-hidden"
-              style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-            >
+            <div className="h-2 rounded-full overflow-hidden bg-themed-tertiary">
               <div
                 className="h-full rounded-full transition-all duration-300"
                 style={{

@@ -48,48 +48,38 @@ const OptionItem = memo<OptionItemProps>(({ option, isSelected, isDisabled, isLa
       onClick={() => !isDisabled && onToggle(option.value)}
       disabled={isDisabled}
       className={`
-        msd-option w-full text-left flex items-start gap-3
+        msd-option w-full text-left flex items-start gap-3 px-4 py-3.5 bg-themed-secondary
         ${isSelected ? 'msd-option-selected' : ''}
         ${isDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}
-        ${!isLast ? 'border-b' : ''}
+        ${!isLast ? 'border-b border-themed-secondary' : ''}
       `}
-      style={{
-        padding: '14px 16px',
-        borderColor: 'var(--theme-border-secondary)',
-        backgroundColor: 'var(--theme-bg-secondary)'
-      }}
     >
-      <div
-        className="msd-accent absolute left-0 top-0 bottom-0 w-0.5"
-        style={{ backgroundColor: 'var(--theme-primary)' }}
-      />
+      <div className="msd-accent absolute left-0 top-0 bottom-0 w-0.5 bg-[var(--theme-primary)]" />
 
       <div
-        className={`msd-checkbox flex-shrink-0 w-5 h-5 rounded-md flex items-center justify-center mt-0.5 ${isSelected ? 'msd-checkbox-selected' : ''}`}
-        style={{
-          backgroundColor: isSelected ? 'var(--theme-primary)' : 'transparent',
-          border: isSelected ? 'none' : '2px solid var(--theme-border-primary)',
-          boxShadow: isSelected ? '0 2px 4px color-mix(in srgb, var(--theme-primary) 30%, transparent)' : 'none'
-        }}
+        className={`msd-checkbox flex-shrink-0 w-5 h-5 rounded-md flex items-center justify-center mt-0.5 ${
+          isSelected
+            ? 'msd-checkbox-selected bg-[var(--theme-primary)] border-none shadow-[0_2px_4px_color-mix(in_srgb,var(--theme-primary)_30%,transparent)]'
+            : 'bg-transparent border-2 border-themed-primary shadow-none'
+        }`}
       >
-        <Check className="msd-checkbox-inner w-3.5 h-3.5" style={{ color: 'white' }} strokeWidth={3} />
+        <Check className="msd-checkbox-inner w-3.5 h-3.5 text-white" strokeWidth={3} />
       </div>
 
       {Icon && (
         <div
-          className="flex-shrink-0 mt-0.5"
-          style={{ color: isSelected ? 'var(--theme-primary)' : 'var(--theme-text-muted)' }}
+          className={`flex-shrink-0 mt-0.5 ${isSelected ? 'text-[var(--theme-primary)]' : 'text-themed-muted'}`}
         >
           <Icon size={18} />
         </div>
       )}
 
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium leading-tight" style={{ color: 'var(--theme-text-primary)' }}>
+        <div className="text-sm font-medium leading-tight text-themed-primary">
           {option.label}
         </div>
         {option.description && (
-          <div className="text-xs leading-relaxed mt-1" style={{ color: 'var(--theme-text-muted)', lineHeight: '1.4' }}>
+          <div className="text-xs leading-relaxed mt-1 text-themed-muted" style={{ lineHeight: '1.4' }}>
             {option.description}
           </div>
         )}
@@ -199,17 +189,14 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
         type="button"
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
-        className={`msd-trigger w-full px-3 py-2.5 rounded-lg border text-left flex items-center justify-between gap-2 text-sm font-medium ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${isOpen ? 'msd-trigger-open' : ''}`}
-        style={{
-          backgroundColor: 'var(--theme-card-bg)',
-          borderColor: isOpen ? 'var(--theme-border-focus)' : 'var(--theme-border-primary)',
-          color: 'var(--theme-text-primary)'
-        }}
+        className={`msd-trigger w-full px-3 py-2.5 rounded-lg border text-left flex items-center justify-between gap-2 text-sm font-medium themed-card text-themed-primary ${
+          isOpen ? 'msd-trigger-open border-themed-focus' : 'border-themed-primary'
+        } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
       >
         <span className="truncate flex-1">{displayLabel}</span>
-        <div className="flex items-center gap-1.5" style={{ color: 'var(--theme-text-muted)' }}>
+        <div className="flex items-center gap-1.5 text-themed-muted">
           {selectedCount > 0 && (
-            <span className="text-xs px-1.5 py-0.5 rounded-full font-semibold" style={{ backgroundColor: 'var(--theme-primary)', color: 'white' }}>
+            <span className="text-xs px-1.5 py-0.5 rounded-full font-semibold bg-[var(--theme-primary)] text-white">
               {selectedCount}
             </span>
           )}
@@ -220,27 +207,21 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
       {isOpen && createPortal(
         <div
           ref={dropdownRef}
-          className={`msd-dropdown fixed z-[200000] ${dropdownWidth || 'w-72'} rounded-xl overflow-hidden`}
+          className={`msd-dropdown fixed z-[200000] ${dropdownWidth || 'w-72'} rounded-xl overflow-hidden bg-themed-secondary border border-themed-primary shadow-[0_4px_6px_-1px_rgba(0,0,0,0.1),0_10px_20px_-5px_rgba(0,0,0,0.2),0_20px_40px_-10px_rgba(0,0,0,0.15),inset_0_1px_0_0_color-mix(in_srgb,white_5%,transparent)]`}
           style={{
             top: dropdownStyle.top,
             bottom: dropdownStyle.bottom,
             left: dropdownStyle.left,
-            backgroundColor: 'var(--theme-bg-secondary)',
-            border: '1px solid var(--theme-border-primary)',
-            boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1), 0 10px 20px -5px rgba(0,0,0,0.2), 0 20px 40px -10px rgba(0,0,0,0.15), inset 0 1px 0 0 color-mix(in srgb, white 5%, transparent)',
             animation: dropdownStyle.animation
           }}
         >
           {title && (
-            <div
-              className="px-4 py-3 text-xs font-semibold uppercase tracking-wider border-b"
-              style={{ color: 'var(--theme-text-muted)', borderColor: 'var(--theme-border-secondary)', backgroundColor: 'var(--theme-bg-tertiary)' }}
-            >
+            <div className="px-4 py-3 text-xs font-semibold uppercase tracking-wider border-b border-themed-secondary text-themed-muted bg-themed-tertiary">
               {title}
             </div>
           )}
 
-          <div className="overflow-y-auto" style={{ maxHeight: '280px', backgroundColor: 'var(--theme-bg-secondary)' }}>
+          <div className="overflow-y-auto max-h-[280px] bg-themed-secondary">
             {options.map((option, i) => (
               <OptionItem
                 key={option.value}
@@ -254,11 +235,8 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
           </div>
 
           {minSelections > 0 && (
-            <div
-              className="px-4 py-3 text-xs border-t flex items-center gap-2"
-              style={{ color: 'var(--theme-text-muted)', borderColor: 'var(--theme-border-secondary)', backgroundColor: 'var(--theme-bg-tertiary)' }}
-            >
-              <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: 'var(--theme-warning)' }} />
+            <div className="px-4 py-3 text-xs border-t border-themed-secondary flex items-center gap-2 text-themed-muted bg-themed-tertiary">
+              <div className="w-1.5 h-1.5 rounded-full bg-[var(--theme-warning)]" />
               <span>Minimum {minSelections} selection{minSelections > 1 ? 's' : ''} required</span>
             </div>
           )}

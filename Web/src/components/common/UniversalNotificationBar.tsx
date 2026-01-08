@@ -110,11 +110,9 @@ const UnifiedNotificationItem = ({
 
   return (
     <div
-      className="flex items-center gap-3 p-2 rounded-lg"
+      className="flex items-center gap-3 p-2 rounded-lg bg-[var(--theme-bg-secondary)] transition-opacity duration-300 ease-out"
       style={{
-        backgroundColor: 'var(--theme-bg-secondary)',
         borderLeft: `3px solid ${getStatusColor()}`,
-        transition: 'opacity 0.3s ease-out',
         opacity: isAnimatingOut ? 0 : 1
       }}
     >
@@ -136,11 +134,7 @@ const UnifiedNotificationItem = ({
             {notification.details?.isLoggedOn !== undefined && (
               <div className="flex items-center gap-2">
                 <span
-                  className="flex items-center gap-1 text-xs px-2 py-0.5 rounded flex-shrink-0"
-                  style={{
-                    backgroundColor: 'var(--theme-bg-tertiary)',
-                    color: 'var(--theme-text-muted)'
-                  }}
+                  className="flex items-center gap-1 text-xs px-2 py-0.5 rounded flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-muted)]"
                 >
                   {notification.details.isLoggedOn ? (
                     <>
@@ -157,11 +151,7 @@ const UnifiedNotificationItem = ({
                 {/* Show Web API Key pill when API key is configured */}
                 {webApiStatus?.hasApiKey && (
                   <span
-                    className="flex items-center gap-1 text-xs px-2 py-0.5 rounded flex-shrink-0"
-                    style={{
-                      backgroundColor: 'var(--theme-info-bg)',
-                      color: 'var(--theme-info-text)'
-                    }}
+                    className="flex items-center gap-1 text-xs px-2 py-0.5 rounded flex-shrink-0 bg-[var(--theme-info-bg)] text-[var(--theme-info-text)]"
                   >
                     <Key className="w-3 h-3" />
                     <span>Web API Key</span>
@@ -225,8 +215,7 @@ const UnifiedNotificationItem = ({
           notification.type !== 'game_detection' && (
             <div className="mt-2">
               <div
-                className="w-full rounded-full h-2"
-                style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+                className="w-full rounded-full h-2 bg-[var(--theme-bg-tertiary)]"
               >
                 <div
                   className="h-2 rounded-full progress-bar-animate"
@@ -265,7 +254,7 @@ const UnifiedNotificationItem = ({
           notification.status === 'running' &&
           onCancel && (
             notification.details?.cancelling ? (
-              <div className="flex items-center gap-1.5 px-2 py-1 rounded text-xs" style={{ backgroundColor: 'var(--theme-error-bg)', color: 'var(--theme-error)' }}>
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded text-xs bg-[var(--theme-error-bg)] text-[var(--theme-error)]">
                 <Loader2 className="w-3 h-3 animate-spin" />
                 <span>Cancelling...</span>
               </div>
@@ -496,11 +485,8 @@ const UniversalNotificationBar: React.FC = () => {
 
   return (
     <div
-      className="w-full border-b shadow-sm"
+      className="w-full border-b shadow-sm bg-[var(--theme-nav-bg)] border-[var(--theme-nav-border)] transition-all duration-300 ease-out"
       style={{
-        backgroundColor: 'var(--theme-nav-bg)',
-        borderColor: 'var(--theme-nav-border)',
-        transition: 'transform 0.3s ease-out, opacity 0.3s ease-out',
         transform: isAnimatingOut ? 'translateY(-100%)' : 'translateY(0)',
         opacity: isAnimatingOut ? 0 : 1,
         ...(stickyDisabled

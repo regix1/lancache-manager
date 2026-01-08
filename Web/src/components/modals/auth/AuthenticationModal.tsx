@@ -207,10 +207,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
-      style={{ backgroundColor: 'var(--theme-bg-primary)' }}
-    >
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-themed-primary">
       {/* Stripe background pattern */}
       <div
         className="absolute inset-0 opacity-5"
@@ -220,20 +217,11 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
       />
 
       {/* Main Card */}
-      <div
-        className="relative z-10 w-full max-w-xl rounded-xl border overflow-hidden"
-        style={{
-          backgroundColor: 'var(--theme-bg-secondary)',
-          borderColor: 'var(--theme-border-primary)'
-        }}
-      >
+      <div className="relative z-10 w-full max-w-xl rounded-xl border overflow-hidden bg-themed-secondary border-themed-primary">
         {/* Header */}
-        <div
-          className="px-8 py-5 border-b flex items-center justify-between"
-          style={{ borderColor: 'var(--theme-border-secondary)' }}
-        >
+        <div className="px-8 py-5 border-b flex items-center justify-between border-themed-secondary">
           <div className="flex items-center gap-2">
-            <Shield className="w-5 h-5" style={{ color: 'var(--theme-primary)' }} />
+            <Shield className="w-5 h-5 text-primary" />
             <span className="font-semibold text-themed-primary">{title}</span>
           </div>
         </div>
@@ -377,15 +365,9 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
               {allowGuestMode && (
                 <>
                   <div className="flex items-center gap-4">
-                    <div
-                      className="flex-1 h-px"
-                      style={{ backgroundColor: 'var(--theme-border-secondary)' }}
-                    />
+                    <div className="flex-1 h-px bg-themed-border-secondary" />
                     <span className="text-xs text-themed-muted">OR</span>
-                    <div
-                      className="flex-1 h-px"
-                      style={{ backgroundColor: 'var(--theme-border-secondary)' }}
-                    />
+                    <div className="flex-1 h-px bg-themed-border-secondary" />
                   </div>
 
                   <Button
@@ -414,14 +396,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
           </div>
 
           {/* API Key Help */}
-          <div
-            className="mt-6 p-4 rounded-lg border"
-            style={{
-              backgroundColor: 'var(--theme-info-bg)',
-              borderColor: 'var(--theme-info)',
-              color: 'var(--theme-info-text)'
-            }}
-          >
+          <div className="mt-6 p-4 rounded-lg border bg-info border-info text-info-text">
             <p className="text-sm">
               <strong>Where to find your API key:</strong>
               <br />
@@ -431,14 +406,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
           </div>
 
           {authError && (
-            <div
-              className="mt-4 p-4 rounded-lg border"
-              style={{
-                backgroundColor: 'var(--theme-error-bg)',
-                borderColor: 'var(--theme-error)',
-                color: 'var(--theme-error-text)'
-              }}
-            >
+            <div className="mt-4 p-4 rounded-lg border bg-error border-error text-error-text">
               <p className="text-sm">{authError}</p>
             </div>
           )}

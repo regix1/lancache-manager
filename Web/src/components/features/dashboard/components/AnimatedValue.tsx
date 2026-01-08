@@ -53,28 +53,15 @@ const AnimatedValue: React.FC<AnimatedValueProps> = ({
   // If animation is disabled, just show the raw value
   if (!animate) {
     return (
-      <span
-        className={className}
-        style={{
-          fontVariantNumeric: 'tabular-nums',
-          color: 'var(--theme-text-primary)'
-        }}
-      >
+      <span className={`${className} tabular-nums text-themed-primary`}>
         {typeof value === 'string' ? value : value.toLocaleString()}
       </span>
     );
   }
 
   return (
-    <span
-      className={className}
-      style={{
-        fontVariantNumeric: 'tabular-nums',
-        color: 'var(--theme-text-primary)',
-        display: 'inline-flex',
-        alignItems: 'baseline'
-      }}
-    >
+    <span className={`${className} tabular-nums text-themed-primary inline-flex items-baseline`}>
+
       <NumberFlow
         value={parsed.number}
         format={{

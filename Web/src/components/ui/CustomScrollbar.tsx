@@ -164,26 +164,21 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
 
   return (
     <div
-      className={`relative ${className}`}
-      style={{
-        borderRadius: 'var(--theme-border-radius-lg, 0.75rem)',
-        maxHeight,
-        isolation: 'isolate',
-      }}
+      className={`relative isolate rounded-xl ${className}`}
+      style={{ maxHeight }}
     >
       {/* Content area */}
       <div
         ref={contentRef}
         onScroll={handleScroll}
-        className="overflow-y-auto overflow-x-hidden"
+        className="overflow-y-auto overflow-x-hidden rounded-[inherit]"
         style={{
           maxHeight,
           paddingRight,
-          scrollbarWidth: 'none', // Firefox
-          msOverflowStyle: 'none', // IE/Edge
-          WebkitOverflowScrolling: 'touch', // Smooth scrolling on iOS
+          scrollbarWidth: 'none',
+          msOverflowStyle: 'none',
+          WebkitOverflowScrolling: 'touch',
           willChange: 'scroll-position',
-          borderRadius: 'inherit',
         }}
       >
         <style>{`
@@ -198,16 +193,11 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
       <div
         ref={scrollTrackRef}
         onClick={handleTrackClick}
-        className="absolute"
+        className={`absolute right-0 top-0.5 bottom-0.5 w-2 rounded-xl transition-opacity ${
+          showScrollbar ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
         style={{
-          right: '0px',
-          top: '2px',
-          bottom: '2px',
-          width: '8px',
           background: showScrollbar ? 'var(--theme-scrollbar-track)' : 'transparent',
-          borderRadius: 'var(--theme-border-radius-lg, 0.75rem)',
-          opacity: showScrollbar ? 1 : 0,
-          pointerEvents: showScrollbar ? 'auto' : 'none',
         }}
       >
         {/* Scrollbar thumb */}
@@ -215,14 +205,10 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
           <div
             ref={scrollThumbRef}
             onMouseDown={handleMouseDown}
-            className="absolute transition-colors cursor-pointer"
+            className="absolute left-0.5 w-1 min-h-[30px] rounded-lg transition-colors cursor-pointer"
             style={{
-              left: '2px',
-              width: '4px',
               height: `${thumbHeight}px`,
               top: `${thumbTop}px`,
-              borderRadius: 'var(--theme-border-radius, 0.5rem)',
-              minHeight: '30px',
               backgroundColor: isDragging
                 ? 'var(--theme-scrollbar-hover)'
                 : 'var(--theme-scrollbar-thumb)',

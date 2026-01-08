@@ -194,23 +194,14 @@ const UserTab: React.FC = () => {
       {/* Header with integrated stats */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div
-            className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{
-              backgroundColor: 'var(--theme-primary-subtle)',
-              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)'
-            }}
-          >
-            <Users className="w-6 h-6" style={{ color: 'var(--theme-primary)' }} />
+          <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 bg-themed-accent-subtle shadow-md">
+            <Users className="w-6 h-6 text-themed-accent" />
           </div>
           <div>
-            <h1
-              className="text-xl sm:text-2xl font-bold tracking-tight"
-              style={{ color: 'var(--theme-text-primary)' }}
-            >
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-themed-primary">
               User Management
             </h1>
-            <p className="text-sm" style={{ color: 'var(--theme-text-muted)' }}>
+            <p className="text-sm text-themed-muted">
               Sessions & guest controls
             </p>
           </div>
@@ -219,27 +210,24 @@ const UserTab: React.FC = () => {
         {/* Stats pills + refresh */}
         <div className="flex items-center gap-2 flex-wrap">
           <div className="stat-pill">
-            <Users className="w-4 h-4" style={{ color: 'var(--theme-primary)' }} />
-            <span className="stat-value" style={{ color: 'var(--theme-text-primary)' }}>
-              {sessions.length}
-            </span>
-            <span style={{ color: 'var(--theme-text-muted)' }}>total</span>
+            <Users className="w-4 h-4 text-themed-accent" />
+            <span className="stat-value text-themed-primary">{sessions.length}</span>
+            <span className="text-themed-muted">total</span>
           </div>
           <div className="stat-pill">
-            <User className="w-4 h-4" style={{ color: 'var(--theme-user-session)' }} />
-            <span className="stat-value" style={{ color: 'var(--theme-text-primary)' }}>
+            <User className="w-4 h-4 user-session-icon" />
+            <span className="stat-value text-themed-primary">
               {sessions.filter((s) => s.type === 'authenticated').length}
             </span>
-            <span style={{ color: 'var(--theme-text-muted)' }}>users</span>
+            <span className="text-themed-muted">users</span>
           </div>
           <div className="stat-pill">
-            <User className="w-4 h-4" style={{ color: 'var(--theme-guest-session)' }} />
-            <span className="stat-value" style={{ color: 'var(--theme-text-primary)' }}>
+            <User className="w-4 h-4 guest-session-icon" />
+            <span className="stat-value text-themed-primary">
               {sessions.filter((s) => s.type === 'guest').length}
             </span>
-            <span style={{ color: 'var(--theme-text-muted)' }}>guests</span>
+            <span className="text-themed-muted">guests</span>
           </div>
-
         </div>
       </div>
 

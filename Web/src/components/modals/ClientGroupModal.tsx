@@ -170,28 +170,14 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
       <form onSubmit={handleSubmit}>
         {/* Error Alert */}
         {error && (
-          <div
-            className="mb-4 p-3 rounded-lg text-sm"
-            style={{
-              backgroundColor: 'var(--theme-error-bg)',
-              color: 'var(--theme-error-text)',
-              border: '1px solid var(--theme-error)'
-            }}
-          >
+          <div className="mb-4 p-3 rounded-lg text-sm bg-error text-error-text border border-error">
             {error}
           </div>
         )}
 
         {/* Multi-IP Warning */}
         {!isEditing && selectedIps.length > 1 && (
-          <div
-            className="mb-4 p-3 rounded-lg text-sm flex items-start gap-2"
-            style={{
-              backgroundColor: 'var(--theme-warning-bg)',
-              color: 'var(--theme-warning-text)',
-              border: '1px solid var(--theme-warning)'
-            }}
-          >
+          <div className="mb-4 p-3 rounded-lg text-sm flex items-start gap-2 bg-warning text-warning-text border border-warning">
             <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
             <div>
               <strong>Multiple IPs selected</strong>
@@ -204,14 +190,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
 
         {/* Multi-IP Warning for editing */}
         {isEditing && group && group.memberIps.length > 1 && (
-          <div
-            className="mb-4 p-3 rounded-lg text-sm flex items-start gap-2"
-            style={{
-              backgroundColor: 'var(--theme-warning-bg)',
-              color: 'var(--theme-warning-text)',
-              border: '1px solid var(--theme-warning)'
-            }}
-          >
+          <div className="mb-4 p-3 rounded-lg text-sm flex items-start gap-2 bg-warning text-warning-text border border-warning">
             <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
             <div>
               <strong>Shared nickname</strong>
@@ -235,11 +214,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
             type="text"
             value={nickname}
             onChange={(e) => setNickname(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border text-themed-primary"
-            style={{
-              backgroundColor: 'var(--theme-bg-secondary)',
-              borderColor: 'var(--theme-border-primary)'
-            }}
+            className="w-full px-3 py-2 rounded-lg border text-themed-primary themed-input"
             placeholder="e.g., Gaming PC, Living Room, Server"
             required
             autoFocus
@@ -258,11 +233,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
             id="description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border text-themed-primary resize-none"
-            style={{
-              backgroundColor: 'var(--theme-bg-secondary)',
-              borderColor: 'var(--theme-border-primary)'
-            }}
+            className="w-full px-3 py-2 rounded-lg border text-themed-primary resize-none themed-input"
             placeholder="Optional description for this group"
             rows={2}
           />
@@ -279,11 +250,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
               {group.memberIps.map(ip => (
                 <div
                   key={ip}
-                  className="px-2 py-1 rounded text-sm font-mono"
-                  style={{
-                    backgroundColor: 'var(--theme-bg-tertiary)',
-                    color: 'var(--theme-text-secondary)'
-                  }}
+                  className="px-2 py-1 rounded text-sm font-mono bg-themed-tertiary text-themed-secondary"
                 >
                   {ip}
                 </div>
@@ -300,11 +267,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
                   {pendingIps.map(ip => (
                     <div
                       key={ip}
-                      className="flex items-center gap-1 px-2 py-1 rounded text-sm font-mono"
-                      style={{
-                        backgroundColor: 'var(--theme-primary)',
-                        color: 'var(--theme-button-text)'
-                      }}
+                      className="flex items-center gap-1 px-2 py-1 rounded text-sm font-mono bg-primary text-themed-button"
                     >
                       {ip}
                       <button
@@ -330,21 +293,11 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
                     type="text"
                     value={ipSearchQuery}
                     onChange={(e) => setIpSearchQuery(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border text-themed-primary text-sm"
-                    style={{
-                      backgroundColor: 'var(--theme-bg-secondary)',
-                      borderColor: 'var(--theme-border-primary)'
-                    }}
+                    className="w-full px-3 py-2 rounded-lg border text-themed-primary text-sm themed-input"
                     placeholder="Search ungrouped IPs..."
                   />
                 </div>
-                <div
-                  className="max-h-32 overflow-y-auto rounded-lg border p-2"
-                  style={{
-                    backgroundColor: 'var(--theme-bg-tertiary)',
-                    borderColor: 'var(--theme-border-primary)'
-                  }}
-                >
+                <div className="max-h-32 overflow-y-auto rounded-lg border p-2 bg-themed-tertiary border-themed-primary">
                   {availableIpsForEdit.length === 0 ? (
                     <p className="text-sm text-themed-muted text-center py-2">
                       {ipSearchQuery ? 'No matching IPs' : 'No ungrouped IPs available'}
@@ -357,11 +310,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
                             key={ip}
                             type="button"
                             onClick={() => handleAddPendingIp(ip)}
-                            className="flex items-center gap-1 px-2 py-1 rounded text-sm font-mono transition-colors hover:bg-opacity-80"
-                            style={{
-                              backgroundColor: 'var(--theme-bg-secondary)',
-                              color: 'var(--theme-text-secondary)'
-                            }}
+                            className="flex items-center gap-1 px-2 py-1 rounded text-sm font-mono transition-colors hover:bg-opacity-80 bg-themed-secondary text-themed-secondary"
                           >
                             <Plus className="w-3 h-3" />
                             {ip}
@@ -399,11 +348,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
                 {selectedIps.map(ip => (
                   <div
                     key={ip}
-                    className="flex items-center gap-1 px-2 py-1 rounded text-sm font-mono"
-                    style={{
-                      backgroundColor: 'var(--theme-primary)',
-                      color: 'var(--theme-button-text)'
-                    }}
+                    className="flex items-center gap-1 px-2 py-1 rounded text-sm font-mono bg-primary text-themed-button"
                   >
                     {ip}
                     <button
@@ -425,21 +370,11 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
                     type="text"
                     value={ipSearchQuery}
                     onChange={(e) => setIpSearchQuery(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border text-themed-primary text-sm"
-                    style={{
-                      backgroundColor: 'var(--theme-bg-secondary)',
-                      borderColor: 'var(--theme-border-primary)'
-                    }}
+                    className="w-full px-3 py-2 rounded-lg border text-themed-primary text-sm themed-input"
                     placeholder="Search ungrouped IPs to add..."
                   />
                 </div>
-                <div
-                  className="max-h-32 overflow-y-auto rounded-lg border p-2"
-                  style={{
-                    backgroundColor: 'var(--theme-bg-tertiary)',
-                    borderColor: 'var(--theme-border-primary)'
-                  }}
-                >
+                <div className="max-h-32 overflow-y-auto rounded-lg border p-2 bg-themed-tertiary border-themed-primary">
                   {availableIpsForCreate.length === 0 ? (
                     <p className="text-sm text-themed-muted text-center py-2">
                       {ipSearchQuery ? 'No matching IPs' : 'All available IPs selected'}
@@ -452,11 +387,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
                             key={ip}
                             type="button"
                             onClick={() => handleAddIp(ip)}
-                            className="flex items-center gap-1 px-2 py-1 rounded text-sm font-mono transition-colors hover:bg-opacity-80"
-                            style={{
-                              backgroundColor: 'var(--theme-bg-secondary)',
-                              color: 'var(--theme-text-secondary)'
-                            }}
+                            className="flex items-center gap-1 px-2 py-1 rounded text-sm font-mono transition-colors hover:bg-opacity-80 bg-themed-secondary text-themed-secondary"
                           >
                             <Plus className="w-3 h-3" />
                             {ip}
@@ -490,7 +421,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
         )}
 
         {/* Actions */}
-        <div className="flex justify-end gap-3 pt-4 border-t" style={{ borderColor: 'var(--theme-border-primary)' }}>
+        <div className="flex justify-end gap-3 pt-4 border-t border-themed-primary">
           <Button
             type="button"
             variant="subtle"

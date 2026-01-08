@@ -488,10 +488,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                 <CardContent className="py-4">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex items-start gap-4 flex-1 min-w-0">
-                      <div
-                        className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
-                        style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                      >
+                      <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-themed-tertiary">
                         <Container className="w-5 h-5 text-themed-muted" />
                       </div>
                       <div className="flex-1 min-w-0">
@@ -624,8 +621,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                   {/* Expandable prefill history */}
                   {expandedHistory.has(session.id) && (
                     <div
-                      className="mt-4 pt-4"
-                      style={{ borderTop: '1px solid var(--theme-border-primary)' }}
+                      className="mt-4 pt-4 border-t border-themed-primary"
                     >
                       <div className="flex items-center gap-2 mb-3">
                         <Gamepad2 className="w-4 h-4 text-themed-muted" />
@@ -663,8 +659,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                               {paginatedEntries.map(entry => (
                                 <div
                                   key={entry.id}
-                                  className="flex items-center justify-between gap-3 p-2 rounded"
-                                  style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+                                  className="flex items-center justify-between gap-3 p-2 rounded bg-themed-tertiary"
                                 >
                                   <div className="flex items-center gap-2 min-w-0 flex-1">
                                     <Gamepad2 className="w-4 h-4 text-themed-muted flex-shrink-0" />
@@ -782,10 +777,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                     <CardContent className="py-3">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-4">
-                          <div
-                            className="w-8 h-8 rounded flex items-center justify-center"
-                            style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                          >
+                          <div className="w-8 h-8 rounded flex items-center justify-center bg-themed-tertiary">
                             <Container className="w-4 h-4 text-themed-muted" />
                           </div>
                           <div>
@@ -901,8 +893,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                       {/* Expandable prefill history for session history */}
                       {expandedHistory.has(session.sessionId) && (
                         <div
-                          className="mt-4 pt-4"
-                          style={{ borderTop: '1px solid var(--theme-border-primary)' }}
+                          className="mt-4 pt-4 border-t border-themed-primary"
                         >
                           <div className="flex items-center gap-2 mb-3">
                             <Gamepad2 className="w-4 h-4 text-themed-muted" />
@@ -938,8 +929,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                                   {paginatedEntries.map(entry => (
                                     <div
                                       key={entry.id}
-                                      className="flex items-center justify-between gap-3 p-2 rounded"
-                                      style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+                                      className="flex items-center justify-between gap-3 p-2 rounded bg-themed-tertiary"
                                     >
                                       <div className="flex items-center gap-2 min-w-0 flex-1">
                                         <Gamepad2 className="w-4 h-4 text-themed-muted flex-shrink-0" />
@@ -1212,12 +1202,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               value={banConfirm?.reason || ''}
               onChange={(e) => banConfirm && setBanConfirm({ ...banConfirm, reason: e.target.value })}
               placeholder="Enter ban reason..."
-              className="w-full px-3 py-2 rounded text-sm"
-              style={{
-                backgroundColor: 'var(--theme-bg-tertiary)',
-                color: 'var(--theme-text-primary)',
-                border: '1px solid var(--theme-border-primary)'
-              }}
+              className="w-full px-3 py-2 rounded text-sm bg-themed-tertiary text-themed-primary border border-themed-primary"
             />
           </div>
 
@@ -1264,10 +1249,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
           </p>
 
           {liftBanConfirm && (
-            <div
-              className="p-3 rounded"
-              style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-            >
+            <div className="p-3 rounded bg-themed-tertiary">
               <div className="text-sm">
                 <span className="font-mono text-themed-primary">
                   {liftBanConfirm.username || 'Unknown'}

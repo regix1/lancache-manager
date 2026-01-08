@@ -342,8 +342,7 @@ const CombinedProgressBar: React.FC<{
     <div className="flex flex-col gap-1.5 min-w-0 w-full max-w-full overflow-hidden">
       {/* Combined bar */}
       <div
-        className="h-2 rounded-full overflow-hidden flex w-full"
-        style={{ backgroundColor: 'var(--theme-progress-bg)' }}
+        className="h-2 rounded-full overflow-hidden flex w-full bg-[var(--theme-progress-bg)]"
       >
         {/* Cache Hit portion */}
         <div
@@ -369,10 +368,10 @@ const CombinedProgressBar: React.FC<{
       {/* Labels - with truncation support for mobile */}
       {showLabels && (
         <div className="flex justify-between text-[10px] min-w-0 gap-2">
-          <span className="truncate" style={{ color: 'var(--theme-chart-cache-hit)' }}>
+          <span className="truncate text-[var(--theme-chart-cache-hit)]">
             {formatBytes(hitBytes)} ({formatPercent(hitPercent)})
           </span>
-          <span className="truncate text-right" style={{ color: 'var(--theme-error)' }}>
+          <span className="truncate text-right text-[var(--theme-error)]">
             {formatBytes(missBytes)} ({formatPercent(missPercent)})
           </span>
         </div>
@@ -400,29 +399,23 @@ const EmptyState: React.FC = () => (
       >
         <HardDrive
           size={36}
-          style={{ color: 'var(--theme-text-muted)', opacity: 0.6 }}
+          className="text-[var(--theme-text-muted)] opacity-60"
         />
       </div>
       {/* Decorative elements */}
       <div
-        className="absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center"
-        style={{
-          background: 'var(--theme-bg-tertiary)',
-          border: '2px solid var(--theme-border-secondary)',
-        }}
+        className="absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center bg-[var(--theme-bg-tertiary)] border-2 border-[var(--theme-border-secondary)]"
       >
-        <Download size={12} style={{ color: 'var(--theme-text-muted)' }} />
+        <Download size={12} className="text-[var(--theme-text-muted)]" />
       </div>
     </div>
     <h3
-      className="text-lg font-semibold mb-2"
-      style={{ color: 'var(--theme-text-primary)' }}
+      className="text-lg font-semibold mb-2 text-[var(--theme-text-primary)]"
     >
       No Downloads Yet
     </h3>
     <p
-      className="text-sm text-center max-w-xs"
-      style={{ color: 'var(--theme-text-muted)' }}
+      className="text-sm text-center max-w-xs text-[var(--theme-text-muted)]"
     >
       Download activity will appear here once your Lancache starts serving content.
     </p>
@@ -455,16 +448,11 @@ const ResizeHandle: React.FC<{
   >
     {/* Subtle divider - always visible */}
     <div
-      className="h-4 w-px rounded transition-all duration-150 group-hover:h-full group-hover:w-0.5"
-      style={{
-        backgroundColor: 'var(--theme-primary)',
-        opacity: 0.3
-      }}
+      className="h-4 w-px rounded transition-all duration-150 group-hover:h-full group-hover:w-0.5 bg-[var(--theme-primary)] opacity-30"
     />
     {/* Brighter line on hover */}
     <div
-      className="absolute h-full w-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-      style={{ backgroundColor: 'var(--theme-primary)' }}
+      className="absolute h-full w-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity bg-[var(--theme-primary)]"
     />
   </div>
 );
@@ -954,7 +942,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
   };
 
   return (
-      <div ref={containerRef} className="rounded-lg border overflow-hidden retro-table-container" style={{ borderColor: 'var(--theme-border-primary)', backgroundColor: 'var(--theme-card-bg)' }}>
+      <div ref={containerRef} className="rounded-lg border border-[var(--theme-border-primary)] overflow-hidden retro-table-container bg-[var(--theme-card-bg)]">
       {/* Keyframe styles for animations */}
       <style>{`
         @keyframes float {
@@ -1139,12 +1127,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                   {showDatasourceColumn && (
                     <div className="px-2 overflow-hidden text-center" data-cell>
                       <span
-                        className="px-1.5 py-0.5 text-xs font-medium rounded inline-block truncate max-w-full"
-                        style={{
-                          backgroundColor: 'var(--theme-bg-tertiary)',
-                          color: 'var(--theme-text-secondary)',
-                          border: '1px solid var(--theme-border-secondary)'
-                        }}
+                        className="px-1.5 py-0.5 text-xs font-medium rounded inline-block truncate max-w-full bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]"
                         title={data.datasource}
                       >
                         {data.datasource || 'N/A'}
@@ -1193,7 +1176,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
 
                   {/* Avg Speed */}
                   <div className="px-2 text-sm text-[var(--theme-text-primary)] overflow-hidden flex items-center justify-center gap-1" data-cell>
-                    <Zap size={12} style={{ color: 'var(--theme-warning)', opacity: 0.7 }} />
+                    <Zap size={12} className="text-[var(--theme-warning)] opacity-70" />
                     <span className="truncate">{formatSpeed(data.averageBytesPerSecond)}</span>
                   </div>
 
@@ -1226,8 +1209,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                       />
                     ) : (
                       <div
-                        className="w-[100px] h-[40px] sm:w-[130px] sm:h-[50px] rounded flex items-center justify-center flex-shrink-0"
-                        style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+                        className="w-[100px] h-[40px] sm:w-[130px] sm:h-[50px] rounded flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]"
                       >
                         {getServiceIcon(data.service, 24)}
                       </div>
@@ -1261,12 +1243,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                         {hasMultipleDatasources && showDatasourceLabels && data.datasource && (
                           <Tooltip content={`Datasource: ${data.datasource}`}>
                             <span
-                              className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0"
-                              style={{
-                                backgroundColor: 'var(--theme-bg-tertiary)',
-                                color: 'var(--theme-text-secondary)',
-                                border: '1px solid var(--theme-border-secondary)'
-                              }}
+                              className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]"
                             >
                               {data.datasource}
                             </span>
@@ -1280,7 +1257,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                   <div className="flex items-center justify-between text-xs text-[var(--theme-text-secondary)] min-w-0">
                     <span className="truncate mr-2">{timeRange}</span>
                     <span className="flex items-center gap-1 text-[var(--theme-text-primary)] flex-shrink-0">
-                      <Zap size={12} style={{ color: 'var(--theme-warning)' }} />
+                      <Zap size={12} className="text-[var(--theme-warning)]" />
                       {formatSpeed(data.averageBytesPerSecond)}
                     </span>
                   </div>

@@ -589,10 +589,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         </div>
 
         {/* Tab Navigation */}
-        <div
-          className="flex gap-1 mb-6 p-1 rounded-lg"
-          style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-        >
+        <div className="flex gap-1 mb-6 p-1 rounded-lg bg-themed-tertiary">
           <button
             onClick={() => setActiveTab('themes')}
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
@@ -638,13 +635,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
             )}
 
             {/* Current Theme Section */}
-            <div
-              className="p-4 rounded-lg border"
-              style={{
-                backgroundColor: 'var(--theme-bg-tertiary)',
-                borderColor: 'var(--theme-border-secondary)'
-              }}
-            >
+            <div className="p-4 rounded-lg border bg-themed-tertiary border-themed-secondary">
               <div className="flex items-center gap-2 mb-4">
                 <Settings2 className="w-4 h-4 text-themed-accent" />
                 <span className="text-sm font-medium text-themed-primary">Active Theme</span>
@@ -759,10 +750,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                   onDragOver={handleDrag}
                   onDrop={handleDrop}
                 >
-                  <div
-                    className="w-12 h-12 rounded-lg mx-auto mb-3 flex items-center justify-center"
-                    style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                  >
+                  <div className="w-12 h-12 rounded-lg mx-auto mb-3 flex items-center justify-center bg-themed-tertiary">
                     <FileText className="w-6 h-6 text-themed-muted" />
                   </div>
                   <p className="text-sm text-themed-secondary mb-1">
@@ -804,13 +792,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
             </Alert>
 
             {/* Quick Actions */}
-            <div
-              className="p-4 rounded-lg border"
-              style={{
-                backgroundColor: 'var(--theme-bg-tertiary)',
-                borderColor: 'var(--theme-border-secondary)'
-              }}
-            >
+            <div className="p-4 rounded-lg border bg-themed-tertiary border-themed-secondary">
               <h4 className="text-sm font-semibold text-themed-primary mb-3">Quick Actions</h4>
               <div className="flex flex-col sm:flex-row gap-2 sm:flex-wrap">
                 <Button
@@ -848,13 +830,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
             </div>
 
             {/* Color Groups Overview */}
-            <div
-              className="p-4 rounded-lg border"
-              style={{
-                backgroundColor: 'var(--theme-bg-tertiary)',
-                borderColor: 'var(--theme-border-secondary)'
-              }}
-            >
+            <div className="p-4 rounded-lg border bg-themed-tertiary border-themed-secondary">
               <h4 className="text-sm font-semibold text-themed-primary mb-2">Color Groups</h4>
               <p className="text-xs text-themed-muted mb-4">
                 Themes contain {colorGroups.reduce((acc, g) => acc + g.colors.length, 0)} customizable
@@ -868,10 +844,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                       key={group.name}
                       className="flex items-start gap-3 p-3 rounded-lg transition-colors hover:bg-themed-hover"
                     >
-                      <div
-                        className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                        style={{ backgroundColor: 'var(--theme-bg-secondary)' }}
-                      >
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-themed-secondary">
                         <Icon className="w-4 h-4 text-themed-accent" />
                       </div>
                       <div className="min-w-0">

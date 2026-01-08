@@ -38,11 +38,8 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
       <div className="space-y-5">
         {/* Header */}
         <div className="flex flex-col items-center text-center">
-          <div
-            className="w-14 h-14 rounded-full flex items-center justify-center mb-3"
-            style={{ backgroundColor: 'var(--theme-info-bg)' }}
-          >
-            <Shield className="w-7 h-7" style={{ color: 'var(--theme-info)' }} />
+          <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-info">
+            <Shield className="w-7 h-7 icon-info" />
           </div>
           <h3 className="text-lg font-semibold text-themed-primary mb-1">Choose Access Mode</h3>
           <p className="text-sm text-themed-secondary max-w-md">
@@ -81,10 +78,7 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
         </div>
 
         {/* Info */}
-        <div
-          className="p-3 rounded-lg text-sm"
-          style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-        >
+        <div className="p-3 rounded-lg text-sm bg-themed-tertiary">
           <p className="text-themed-secondary">
             <strong className="text-themed-primary">Admin:</strong> Full management access.{' '}
             <strong className="text-themed-primary">Guest:</strong> Read-only for {guestDurationHours}h.
@@ -93,11 +87,8 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
 
         {/* Error */}
         {authError && (
-          <div
-            className="p-3 rounded-lg"
-            style={{ backgroundColor: 'var(--theme-error-bg)' }}
-          >
-            <p className="text-sm" style={{ color: 'var(--theme-error-text)' }}>{authError}</p>
+          <div className="p-3 rounded-lg bg-themed-error">
+            <p className="text-sm text-themed-error">{authError}</p>
           </div>
         )}
       </div>
@@ -109,11 +100,8 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
     <div className="space-y-5">
       {/* Header */}
       <div className="flex flex-col items-center text-center">
-        <div
-          className="w-14 h-14 rounded-full flex items-center justify-center mb-3"
-          style={{ backgroundColor: 'var(--theme-warning-bg)' }}
-        >
-          <Key className="w-7 h-7" style={{ color: 'var(--theme-warning)' }} />
+        <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-warning">
+          <Key className="w-7 h-7 icon-warning" />
         </div>
         <h3 className="text-lg font-semibold text-themed-primary mb-1">Authentication Required</h3>
         <p className="text-sm text-themed-secondary max-w-md">
@@ -176,10 +164,7 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
       </div>
 
       {/* Help Info */}
-      <div
-        className="p-3 rounded-lg text-sm"
-        style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-      >
+      <div className="p-3 rounded-lg text-sm bg-themed-tertiary">
         <p className="text-themed-secondary">
           <strong className="text-themed-primary">Where to find your API key:</strong>{' '}
           Check your server logs for "API Key:" or look in <code className="text-themed-accent">data/api_key.txt</code>
@@ -188,11 +173,8 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
 
       {/* Error */}
       {authError && (
-        <div
-          className="p-3 rounded-lg"
-          style={{ backgroundColor: 'var(--theme-error-bg)' }}
-        >
-          <p className="text-sm" style={{ color: 'var(--theme-error-text)' }}>{authError}</p>
+        <div className="p-3 rounded-lg bg-themed-error">
+          <p className="text-sm text-themed-error">{authError}</p>
         </div>
       )}
     </div>

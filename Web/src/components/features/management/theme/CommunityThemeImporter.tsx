@@ -374,18 +374,9 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
   const allImported = communityThemes.length > 0 && visibleThemesCount === 0 && !showImported;
 
   return (
-    <div
-      className="rounded-lg border"
-      style={{
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        borderColor: 'var(--theme-border-secondary)'
-      }}
-    >
+    <div className="rounded-lg border bg-themed-tertiary border-themed-secondary">
       {/* Header */}
-      <div
-        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border-b"
-        style={{ borderColor: 'var(--theme-border-secondary)' }}
-      >
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border-b border-themed-secondary">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center icon-bg-purple flex-shrink-0">
             <Globe className="w-4 h-4 icon-purple" />
@@ -520,10 +511,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
                       <div className="flex items-center gap-2 text-xs text-themed-muted">
                         {theme.meta?.author && <span>by {theme.meta.author}</span>}
                         {theme.meta?.version && (
-                          <span
-                            className="px-1.5 py-0.5 rounded text-xs"
-                            style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                          >
+                          <span className="px-1.5 py-0.5 rounded text-xs bg-themed-tertiary">
                             v{theme.meta.version}
                           </span>
                         )}

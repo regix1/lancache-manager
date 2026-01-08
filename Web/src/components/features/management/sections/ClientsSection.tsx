@@ -201,10 +201,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                 <Card key={group.id}>
                   <CardHeader className="flex flex-row items-center justify-between py-3">
                     <div className="flex items-center gap-3">
-                      <div
-                        className="w-10 h-10 rounded-lg flex items-center justify-center"
-                        style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                      >
+                      <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-themed-tertiary">
                         {isMultiIp ? (
                           <Users className="w-5 h-5 text-themed-muted" />
                         ) : (
@@ -266,11 +263,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                       {group.memberIps.map(ip => (
                         <div
                           key={ip}
-                          className="flex items-center gap-1 px-2 py-1 rounded text-sm font-mono"
-                          style={{
-                            backgroundColor: 'var(--theme-bg-tertiary)',
-                            color: 'var(--theme-text-secondary)'
-                          }}
+                          className="flex items-center gap-1 px-2 py-1 rounded text-sm font-mono bg-themed-tertiary text-themed-secondary"
                         >
                           <span>{ip}</span>
                           {isAuthenticated && (
@@ -329,13 +322,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                   <div className="flex flex-wrap gap-2">
                     {paginatedUngroupedClients.map(ip => (
                       <Tooltip key={ip} content={`Click "Add Nickname" to name this IP`}>
-                        <div
-                          className="px-2 py-1 rounded text-sm font-mono cursor-help"
-                          style={{
-                            backgroundColor: 'var(--theme-bg-tertiary)',
-                            color: 'var(--theme-text-muted)'
-                          }}
-                        >
+                        <div className="px-2 py-1 rounded text-sm font-mono cursor-help bg-themed-tertiary text-themed-muted">
                           {ip}
                         </div>
                       </Tooltip>

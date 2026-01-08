@@ -309,18 +309,12 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
 
   return (
     <Card padding="none">
-      <div
-        className="p-4 sm:p-5 border-b"
-        style={{ borderColor: 'var(--theme-border-secondary)' }}
-      >
-        <h3
-          className="text-lg font-semibold flex items-center gap-2"
-          style={{ color: 'var(--theme-text-primary)' }}
-        >
-          <Settings2 className="w-5 h-5" style={{ color: 'var(--theme-primary)' }} />
+      <div className="p-4 sm:p-5 border-b border-themed-secondary">
+        <h3 className="text-lg font-semibold flex items-center gap-2 text-themed-primary">
+          <Settings2 className="w-5 h-5 text-themed-accent" />
           Guest Configuration
         </h3>
-        <p className="text-sm mt-1" style={{ color: 'var(--theme-text-muted)' }}>
+        <p className="text-sm mt-1 text-themed-muted">
           Configure default settings for guest sessions
         </p>
       </div>
@@ -338,10 +332,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
               className="w-full"
             />
             {updatingDuration && (
-              <Loader2
-                className="w-4 h-4 animate-spin mt-2"
-                style={{ color: 'var(--theme-primary)' }}
-              />
+              <Loader2 className="w-4 h-4 animate-spin mt-2 text-themed-accent" />
             )}
           </div>
 
@@ -358,10 +349,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
               className="w-full"
             />
             {updatingGuestTheme && (
-              <Loader2
-                className="w-4 h-4 animate-spin mt-2"
-                style={{ color: 'var(--theme-primary)' }}
-              />
+              <Loader2 className="w-4 h-4 animate-spin mt-2 text-themed-accent" />
             )}
           </div>
 
@@ -375,10 +363,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
               className="w-full"
             />
             {updatingGuestRefreshRate && (
-              <Loader2
-                className="w-4 h-4 animate-spin mt-2"
-                style={{ color: 'var(--theme-primary)' }}
-              />
+              <Loader2 className="w-4 h-4 animate-spin mt-2 text-themed-accent" />
             )}
           </div>
         </div>
@@ -386,10 +371,10 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         {/* Prefill Permissions */}
         <div className="config-section">
           <div className="config-section-title flex items-center gap-2">
-            <Download className="w-4 h-4" style={{ color: 'var(--theme-primary)' }} />
+            <Download className="w-4 h-4 text-themed-accent" />
             Prefill Permissions
           </div>
-          <p className="text-sm mb-3" style={{ color: 'var(--theme-text-muted)' }}>
+          <p className="text-sm mb-3 text-themed-muted">
             Control guest access to the Prefill tab. Permissions are time-limited and can be granted per-session.
           </p>
           <div className="space-y-3">
@@ -410,10 +395,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
               </div>
               <div className="flex items-center gap-2">
                 {updatingPrefillConfig && (
-                  <Loader2
-                    className="w-4 h-4 animate-spin"
-                    style={{ color: 'var(--theme-primary)' }}
-                  />
+                  <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
                 )}
                 <div
                   className={`modern-toggle ${prefillConfig.enabledByDefault ? 'checked' : ''}`}
@@ -425,14 +407,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
 
             {/* Warning for enabled by default */}
             {prefillConfig.enabledByDefault && (
-              <div
-                className="flex items-start gap-2 p-3 rounded-md text-sm"
-                style={{
-                  backgroundColor: 'var(--theme-warning-bg, rgba(234, 179, 8, 0.1))',
-                  border: '1px solid var(--theme-warning, #eab308)',
-                  color: 'var(--theme-warning, #eab308)'
-                }}
-              >
+              <div className="flex items-start gap-2 p-3 rounded-md text-sm bg-themed-warning border border-themed-warning text-themed-warning">
                 <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
                 <span>
                   Security risk: All new guests will be able to trigger prefills. Consider keeping
@@ -485,10 +460,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
                     dropdownWidth="w-80"
                   />
                   {updatingAllowedFormats && (
-                    <Loader2
-                      className="w-4 h-4 animate-spin absolute right-10 top-1/2 -translate-y-1/2"
-                      style={{ color: 'var(--theme-primary)' }}
-                    />
+                    <Loader2 className="w-4 h-4 animate-spin absolute right-10 top-1/2 -translate-y-1/2 text-themed-accent" />
                   )}
                 </div>
                 <div className="toggle-row-description mt-1">
@@ -513,10 +485,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
                 </div>
                 <div className="flex items-center gap-2">
                   {updatingDefaultPref === 'showYearInDates' && (
-                    <Loader2
-                      className="w-4 h-4 animate-spin"
-                      style={{ color: 'var(--theme-primary)' }}
-                    />
+                    <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
                   )}
                   <div
                     className={`modern-toggle ${defaultGuestPreferences.showYearInDates ? 'checked' : ''}`}
@@ -548,10 +517,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
                 </div>
                 <div className="flex items-center gap-2">
                   {updatingDefaultPref === 'sharpCorners' && (
-                    <Loader2
-                      className="w-4 h-4 animate-spin"
-                      style={{ color: 'var(--theme-primary)' }}
-                    />
+                    <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
                   )}
                   <div
                     className={`modern-toggle ${defaultGuestPreferences.sharpCorners ? 'checked' : ''}`}
@@ -576,10 +542,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
                 </div>
                 <div className="flex items-center gap-2">
                   {updatingDefaultPref === 'disableTooltips' && (
-                    <Loader2
-                      className="w-4 h-4 animate-spin"
-                      style={{ color: 'var(--theme-primary)' }}
-                    />
+                    <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
                   )}
                   <div
                     className={`modern-toggle ${defaultGuestPreferences.disableTooltips ? 'checked' : ''}`}
@@ -604,10 +567,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
                 </div>
                 <div className="flex items-center gap-2">
                   {updatingDefaultPref === 'showDatasourceLabels' && (
-                    <Loader2
-                      className="w-4 h-4 animate-spin"
-                      style={{ color: 'var(--theme-primary)' }}
-                    />
+                    <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
                   )}
                   <div
                     className={`modern-toggle ${defaultGuestPreferences.showDatasourceLabels ? 'checked' : ''}`}

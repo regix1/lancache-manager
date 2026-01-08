@@ -199,10 +199,11 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
       {/* Header */}
       <div className="flex flex-col items-center text-center">
         <div
-          className="w-14 h-14 rounded-full flex items-center justify-center mb-3"
-          style={{ backgroundColor: importType === 'develancache' ? 'var(--theme-info-bg)' : 'var(--theme-primary-bg)' }}
+          className={`w-14 h-14 rounded-full flex items-center justify-center mb-3 ${
+            importType === 'develancache' ? 'bg-themed-info' : 'bg-themed-primary-subtle'
+          }`}
         >
-          <Database className="w-7 h-7" style={{ color: importType === 'develancache' ? 'var(--theme-info)' : 'var(--theme-primary)' }} />
+          <Database className={`w-7 h-7 ${importType === 'develancache' ? 'icon-info' : 'icon-primary'}`} />
         </div>
         <h3 className="text-lg font-semibold text-themed-primary mb-1">Import Historical Data</h3>
         <p className="text-sm text-themed-secondary max-w-md">
@@ -211,24 +212,18 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
       </div>
 
       {/* Skip Notice */}
-      <div
-        className="p-3 rounded-lg text-center text-sm"
-        style={{ backgroundColor: 'var(--theme-info-bg)', color: 'var(--theme-info-text)' }}
-      >
+      <div className="p-3 rounded-lg text-center text-sm bg-themed-info text-themed-info">
         Most users can skip this step. Only use if you have an existing database from a previous installation.
       </div>
 
       {/* Success Message */}
       {importResult && (
-        <div
-          className="p-4 rounded-lg"
-          style={{ backgroundColor: 'var(--theme-success-bg)' }}
-        >
-          <p className="font-medium mb-2 flex items-center gap-2" style={{ color: 'var(--theme-success-text)' }}>
+        <div className="p-4 rounded-lg bg-themed-success">
+          <p className="font-medium mb-2 flex items-center gap-2 text-themed-success">
             <CheckCircle className="w-4 h-4" />
             {importResult.message}
           </p>
-          <div className="grid grid-cols-2 gap-2 text-sm" style={{ color: 'var(--theme-success-text)' }}>
+          <div className="grid grid-cols-2 gap-2 text-sm text-themed-success">
             <div>Total: <strong>{importResult.totalRecords.toLocaleString()}</strong></div>
             <div>Imported: <strong>{importResult.imported.toLocaleString()}</strong></div>
             <div>Skipped: <strong>{importResult.skipped.toLocaleString()}</strong></div>
@@ -308,18 +303,12 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
           </div>
 
           {autoSearching ? (
-            <div
-              className="flex items-center justify-center py-8 rounded-lg"
-              style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-            >
+            <div className="flex items-center justify-center py-8 rounded-lg bg-themed-tertiary">
               <Loader2 className="w-5 h-5 animate-spin text-themed-secondary mr-2" />
               <span className="text-sm text-themed-secondary">Searching for databases...</span>
             </div>
           ) : foundDatabases.length > 0 ? (
-            <div
-              className="rounded-lg border overflow-hidden"
-              style={{ borderColor: 'var(--theme-border-secondary)' }}
-            >
+            <div className="rounded-lg border overflow-hidden border-themed-secondary">
               <div className="max-h-[180px] overflow-y-auto custom-scrollbar">
                 {foundDatabases.map((item, index) => (
                   <button
@@ -327,10 +316,9 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
                     onClick={() => handleAutoSelect(item)}
                     disabled={importing || !!importResult}
                     className={`w-full px-3 py-2.5 flex items-center gap-3 transition-all text-left border-b last:border-b-0
-                      hover:bg-themed-hover cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed
+                      hover:bg-themed-hover cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed border-themed-secondary
                       ${connectionString === item.path ? 'bg-themed-accent-subtle ring-1 ring-inset ring-themed-accent' : ''}
                     `}
-                    style={{ borderColor: 'var(--theme-border-secondary)' }}
                   >
                     <div className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center icon-bg-green">
                       <Database className="w-4 h-4 icon-green" />
@@ -347,10 +335,7 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
               </div>
             </div>
           ) : (
-            <div
-              className="flex flex-col items-center justify-center py-6 rounded-lg"
-              style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-            >
+            <div className="flex flex-col items-center justify-center py-6 rounded-lg bg-themed-tertiary">
               <Search className="w-8 h-8 text-themed-muted mb-2" />
               <p className="text-sm text-themed-secondary font-medium">No database files found</p>
               <p className="text-xs text-themed-muted mt-1">Try using Browse or Manual mode</p>
@@ -386,10 +371,7 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
 
       {/* Selected Database Display (for auto mode) */}
       {inputMode === 'auto' && connectionString && (
-        <div
-          className="p-3 rounded-lg flex items-center gap-2"
-          style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-        >
+        <div className="p-3 rounded-lg flex items-center gap-2 bg-themed-tertiary">
           <Database className="w-4 h-4 text-themed-secondary" />
           <span className="text-sm text-themed-primary font-medium truncate flex-1">
             {connectionString}
@@ -398,10 +380,7 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
       )}
 
       {/* Advanced Options */}
-      <div
-        className="p-4 rounded-lg space-y-3"
-        style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-      >
+      <div className="p-4 rounded-lg space-y-3 bg-themed-tertiary">
         <div>
           <label className="block text-sm font-medium text-themed-secondary mb-1.5">Batch Size</label>
           <input
@@ -431,20 +410,16 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
       {/* Validation Result */}
       {validationResult && (
         <div
-          className="p-3 rounded-lg flex items-start gap-3"
-          style={{
-            backgroundColor: validationResult.valid ? 'var(--theme-success-bg)' : 'var(--theme-error-bg)'
-          }}
+          className={`p-3 rounded-lg flex items-start gap-3 ${
+            validationResult.valid ? 'bg-themed-success' : 'bg-themed-error'
+          }`}
         >
           {validationResult.valid ? (
-            <CheckCircle className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--theme-success)' }} />
+            <CheckCircle className="w-5 h-5 flex-shrink-0 icon-success" />
           ) : (
-            <XCircle className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--theme-error)' }} />
+            <XCircle className="w-5 h-5 flex-shrink-0 icon-error" />
           )}
-          <div
-            className="text-sm"
-            style={{ color: validationResult.valid ? 'var(--theme-success-text)' : 'var(--theme-error-text)' }}
-          >
+          <div className={`text-sm ${validationResult.valid ? 'text-themed-success' : 'text-themed-error'}`}>
             <p>
               {validationResult.message}
               {validationResult.recordCount != null && ` Found ${validationResult.recordCount.toLocaleString()} records.`}

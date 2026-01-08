@@ -1112,10 +1112,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           <CardContent className="py-12">
             <div className="flex flex-col items-center text-center space-y-6">
               {/* Steam Icon */}
-              <div
-                className="w-20 h-20 rounded-2xl flex items-center justify-center"
-                style={{ backgroundColor: 'var(--theme-steam)' }}
-              >
+              <div className="w-20 h-20 rounded-2xl flex items-center justify-center bg-[var(--theme-steam)]">
                 <SteamIcon size={40} className="text-white" />
               </div>
 
@@ -1129,17 +1126,11 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
               {error && (
                 <div
-                  className="w-full max-w-md p-4 rounded-lg flex items-center gap-3"
-                  style={{
-                    backgroundColor: 'var(--theme-error-bg)',
-                    border: '1px solid color-mix(in srgb, var(--theme-error) 30%, transparent)'
-                  }}
+                  className="w-full max-w-md p-4 rounded-lg flex items-center gap-3 bg-[var(--theme-error-bg)]"
+                  style={{ border: '1px solid color-mix(in srgb, var(--theme-error) 30%, transparent)' }}
                 >
-                  <AlertCircle
-                    className="h-5 w-5 flex-shrink-0"
-                    style={{ color: 'var(--theme-error)' }}
-                  />
-                  <span className="text-sm" style={{ color: 'var(--theme-error-text)' }}>
+                  <AlertCircle className="h-5 w-5 flex-shrink-0 text-[var(--theme-error)]" />
+                  <span className="text-sm text-[var(--theme-error-text)]">
                     {error}
                   </span>
                 </div>
@@ -1190,7 +1181,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                   backgroundColor: 'color-mix(in srgb, var(--theme-steam) 15%, transparent)'
                 }}
               >
-                <Loader2 className="h-8 w-8 animate-spin" style={{ color: 'var(--theme-steam)' }} />
+                <Loader2 className="h-8 w-8 animate-spin text-[var(--theme-steam)]" />
               </div>
               <div className="text-center">
                 <p className="text-lg font-medium text-themed-primary">
@@ -1240,7 +1231,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                 backgroundColor: 'color-mix(in srgb, var(--theme-warning) 15%, transparent)'
               }}
             >
-              <AlertCircle className="h-5 w-5" style={{ color: 'var(--theme-warning)' }} />
+              <AlertCircle className="h-5 w-5 text-[var(--theme-warning)]" />
             </div>
             <span>
               {pendingConfirmCommand ? getConfirmationMessage(pendingConfirmCommand).title : ''}
@@ -1256,16 +1247,10 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
           {/* Estimated download size */}
           {pendingConfirmCommand === 'prefill' && (
-            <div
-              className="p-3 rounded-lg"
-              style={{ backgroundColor: 'var(--theme-bg-secondary)' }}
-            >
+            <div className="p-3 rounded-lg bg-[var(--theme-bg-secondary)]">
               {estimatedSize.loading ? (
                 <div className="flex items-center gap-2">
-                  <Loader2
-                    className="h-4 w-4 animate-spin"
-                    style={{ color: 'var(--theme-primary)' }}
-                  />
+                  <Loader2 className="h-4 w-4 animate-spin text-[var(--theme-primary)]" />
                   <span className="text-sm text-themed-muted">Calculating download size...</span>
                 </div>
               ) : estimatedSize.error ? (
@@ -1274,18 +1259,12 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-themed-muted">Total estimated download:</span>
-                    <span
-                      className="text-sm font-semibold"
-                      style={{ color: 'var(--theme-primary)' }}
-                    >
+                    <span className="text-sm font-semibold text-[var(--theme-primary)]">
                       {formatBytes(estimatedSize.bytes)}
                     </span>
                   </div>
                   {estimatedSize.apps && estimatedSize.apps.length > 0 && (
-                    <div
-                      className="pt-2 border-t"
-                      style={{ borderColor: 'var(--theme-border-primary)' }}
-                    >
+                    <div className="pt-2 border-t border-[var(--theme-border-primary)]">
                       <div className="text-xs text-themed-muted mb-1">
                         Breakdown ({estimatedSize.apps.length} games):
                       </div>
@@ -1345,18 +1324,9 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       </Modal>
 
       {/* Header Bar */}
-      <div
-        className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-lg"
-        style={{
-          backgroundColor: 'var(--theme-bg-secondary)',
-          border: '1px solid var(--theme-border-primary)'
-        }}
-      >
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-lg bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)]">
         <div className="flex items-center gap-4">
-          <div
-            className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{ backgroundColor: 'var(--theme-steam)' }}
-          >
+          <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 bg-[var(--theme-steam)]">
             <SteamIcon size={24} className="text-white" />
           </div>
           <div>
@@ -1418,14 +1388,11 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       {/* Error Banner */}
       {error && (
         <div
-          className="p-4 rounded-lg flex items-center gap-3"
-          style={{
-            backgroundColor: 'var(--theme-error-bg)',
-            border: '1px solid color-mix(in srgb, var(--theme-error) 30%, transparent)'
-          }}
+          className="p-4 rounded-lg flex items-center gap-3 bg-[var(--theme-error-bg)]"
+          style={{ border: '1px solid color-mix(in srgb, var(--theme-error) 30%, transparent)' }}
         >
-          <AlertCircle className="h-5 w-5 flex-shrink-0" style={{ color: 'var(--theme-error)' }} />
-          <span style={{ color: 'var(--theme-error-text)' }}>{error}</span>
+          <AlertCircle className="h-5 w-5 flex-shrink-0 text-[var(--theme-error)]" />
+          <span className="text-[var(--theme-error-text)]">{error}</span>
         </div>
       )}
 
@@ -1538,10 +1505,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
                 {/* Progress Bar */}
                 <div className="space-y-2">
-                  <div
-                    className="h-3 rounded-full overflow-hidden"
-                    style={{ backgroundColor: 'var(--theme-progress-bg)' }}
-                  >
+                  <div className="h-3 rounded-full overflow-hidden bg-[var(--theme-progress-bg)]">
                     {prefillProgress.state === 'downloading' ? (
                       <div
                         className="h-full rounded-full transition-all duration-300 ease-out"
@@ -1570,7 +1534,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                         {formatBytes(prefillProgress.bytesDownloaded)} /{' '}
                         {formatBytes(prefillProgress.totalBytes)}
                       </span>
-                      <span className="font-medium" style={{ color: 'var(--theme-primary)' }}>
+                      <span className="font-medium text-[var(--theme-primary)]">
                         {prefillProgress.percentComplete.toFixed(1)}%
                       </span>
                     </div>
@@ -1693,19 +1657,12 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         {/* Right Column - Activity Log */}
         <div className="xl:col-span-1">
           <Card padding="none" className="overflow-hidden">
-            <div
-              className="px-4 pt-4 pb-3 flex items-center gap-3"
-              style={{
-                borderBottom: '1px solid var(--theme-border-primary)'
-              }}
-            >
+            <div className="px-4 pt-4 pb-3 flex items-center gap-3 border-b border-[var(--theme-border-primary)]">
               <div
                 className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                style={{
-                  backgroundColor: 'color-mix(in srgb, var(--theme-accent) 15%, transparent)'
-                }}
+                style={{ backgroundColor: 'color-mix(in srgb, var(--theme-accent) 15%, transparent)' }}
               >
-                <ScrollText className="h-4 w-4" style={{ color: 'var(--theme-accent)' }} />
+                <ScrollText className="h-4 w-4 text-[var(--theme-accent)]" />
               </div>
               <div>
                 <h3 className="text-base font-semibold text-themed-primary">Activity Log</h3>

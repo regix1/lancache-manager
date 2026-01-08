@@ -499,8 +499,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
             return (
               <div
                 key={group.name}
-                className="themed-card rounded-lg overflow-hidden"
-                style={{ border: '1px solid var(--theme-border)' }}
+                className="themed-card rounded-lg overflow-hidden border border-themed"
               >
                 <button
                   onClick={() => toggleGroup(group.name)}
@@ -528,14 +527,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
                 </button>
 
                 {isExpanded && (
-                  <div
-                    className="p-4 space-y-4 animate-expandDown rounded-b-lg"
-                    style={{
-                      backgroundColor: 'var(--theme-card-bg)',
-                      borderTop: '1px solid var(--theme-border)',
-                      animation: 'expandDown 0.3s ease-out'
-                    }}
-                  >
+                  <div className="p-4 space-y-4 animate-expandDown rounded-b-lg bg-themed-card border-t border-themed">
                     {group.colors.map((color) => (
                       <ImprovedColorPicker
                         key={color.key}
@@ -576,10 +568,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
         </div>
 
         {/* Actions */}
-        <div
-          className="flex justify-end space-x-3 pt-4 border-t"
-          style={{ borderColor: 'var(--theme-border-primary)' }}
-        >
+        <div className="flex justify-end space-x-3 pt-4 border-t border-themed-primary">
           <Button variant="default" onClick={handleClose}>
             Cancel
           </Button>

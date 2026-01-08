@@ -234,9 +234,9 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
       <div className="space-y-6">
         {/* Community Theme Notice */}
         {editingTheme?.meta.isCommunityTheme && (
-          <div className="p-4 rounded-lg border" style={{ backgroundColor: 'var(--theme-info-bg)', borderColor: 'var(--theme-info)' }}>
+          <div className="p-4 rounded-lg border bg-info border-info">
             <div className="flex items-start gap-3">
-              <Info className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-info)' }} />
+              <Info className="w-5 h-5 flex-shrink-0 mt-0.5 text-info" />
               <div className="flex-1">
                 <p className="text-sm font-medium text-themed-primary mb-1">
                   Editing Community Theme
@@ -393,8 +393,7 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
             return (
               <div
                 key={group.name}
-                className="themed-card rounded-lg overflow-hidden"
-                style={{ border: '1px solid var(--theme-border)' }}
+                className="themed-card rounded-lg overflow-hidden border border-themed"
               >
                 <button
                   onClick={() => toggleGroup(group.name)}
@@ -422,14 +421,7 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
                 </button>
 
                 {isExpanded && (
-                  <div
-                    className="p-4 space-y-4 animate-expandDown rounded-b-lg"
-                    style={{
-                      backgroundColor: 'var(--theme-card-bg)',
-                      borderTop: '1px solid var(--theme-border)',
-                      animation: 'expandDown 0.3s ease-out'
-                    }}
-                  >
+                  <div className="p-4 space-y-4 animate-expandDown rounded-b-lg bg-themed-card border-t border-themed">
                     {group.colors.map((color) => (
                       <ImprovedColorPicker
                         key={color.key}
@@ -470,10 +462,7 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
         </div>
 
         {/* Actions */}
-        <div
-          className="flex justify-end space-x-3 pt-4 border-t"
-          style={{ borderColor: 'var(--theme-border-primary)' }}
-        >
+        <div className="flex justify-end space-x-3 pt-4 border-t border-themed-primary">
           <Button variant="default" onClick={handleClose}>
             Cancel
           </Button>

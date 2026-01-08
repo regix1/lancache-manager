@@ -13,10 +13,7 @@ const ToggleButton: React.FC<{
   value: string;
   onChange: (value: string) => void;
 }> = ({ options, value, onChange }) => (
-  <div
-    className="flex rounded-md p-0.5"
-    style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-  >
+  <div className="flex rounded-md p-0.5 bg-[var(--theme-bg-tertiary)]">
     {options.map(option => {
       const isActive = value === option.value;
       return (
@@ -196,11 +193,8 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
             }}
           >
             <div className="flex items-center gap-2">
-              <Settings className="w-4 h-4" style={{ color: 'var(--theme-primary)' }} />
-              <span
-                className="text-sm font-semibold"
-                style={{ color: 'var(--theme-text-primary)' }}
-              >
+              <Settings className="w-4 h-4 text-[var(--theme-primary)]" />
+              <span className="text-sm font-semibold text-[var(--theme-text-primary)]">
                 Calendar Settings
               </span>
             </div>
@@ -211,8 +205,7 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
                 e.stopPropagation();
                 resetSettings();
               }}
-              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium cursor-pointer hover:bg-[var(--theme-bg-hover)] hover:text-[var(--theme-text-primary)]"
-              style={{ color: 'var(--theme-text-muted)' }}
+              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium cursor-pointer hover:bg-[var(--theme-bg-hover)] hover:text-[var(--theme-text-primary)] text-[var(--theme-text-muted)]"
               title="Reset to defaults"
             >
               <RotateCcw className="w-3 h-3" />
@@ -225,17 +218,14 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
             {/* Event Opacity */}
             <div className="flex items-start justify-between gap-3 py-2.5">
               <div className="flex items-start gap-2.5 min-w-0">
-                <div
-                  className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0"
-                  style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                >
-                  <Layers className="w-4 h-4" style={{ color: 'var(--theme-icon-purple)' }} />
+                <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
+                  <Layers className="w-4 h-4 text-[var(--theme-icon-purple)]" />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-sm font-medium" style={{ color: 'var(--theme-text-primary)' }}>
+                  <div className="text-sm font-medium text-[var(--theme-text-primary)]">
                     Event Style
                   </div>
-                  <div className="text-xs mt-0.5" style={{ color: 'var(--theme-text-muted)' }}>
+                  <div className="text-xs mt-0.5 text-[var(--theme-text-muted)]">
                     How events appear on the calendar
                   </div>
                 </div>
@@ -252,22 +242,19 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
               </div>
             </div>
 
-            <div style={{ borderTop: '1px solid var(--theme-border-secondary)', margin: '4px 0' }} />
+            <div className="border-t border-[var(--theme-border-secondary)] my-1" />
 
             {/* Event Layout */}
             <div className="flex items-start justify-between gap-3 py-2.5">
               <div className="flex items-start gap-2.5 min-w-0">
-                <div
-                  className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0"
-                  style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                >
-                  <LayoutGrid className="w-4 h-4" style={{ color: 'var(--theme-icon-blue)' }} />
+                <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
+                  <LayoutGrid className="w-4 h-4 text-[var(--theme-icon-blue)]" />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-sm font-medium" style={{ color: 'var(--theme-text-primary)' }}>
+                  <div className="text-sm font-medium text-[var(--theme-text-primary)]">
                     Event Layout
                   </div>
-                  <div className="text-xs mt-0.5" style={{ color: 'var(--theme-text-muted)' }}>
+                  <div className="text-xs mt-0.5 text-[var(--theme-text-muted)]">
                     Spanning bars or per-day
                   </div>
                 </div>
@@ -284,19 +271,16 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
               </div>
             </div>
 
-            <div style={{ borderTop: '1px solid var(--theme-border-secondary)', margin: '4px 0' }} />
+            <div className="border-t border-[var(--theme-border-secondary)] my-1" />
 
             {/* Week Start Day */}
             <div className="flex items-start justify-between gap-3 py-2.5">
               <div className="flex items-start gap-2.5 min-w-0">
-                <div
-                  className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0"
-                  style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                >
-                  <Calendar className="w-4 h-4" style={{ color: 'var(--theme-icon-cyan)' }} />
+                <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
+                  <Calendar className="w-4 h-4 text-[var(--theme-icon-cyan)]" />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-sm font-medium" style={{ color: 'var(--theme-text-primary)' }}>
+                  <div className="text-sm font-medium text-[var(--theme-text-primary)]">
                     Week Starts On
                   </div>
                 </div>
@@ -313,22 +297,19 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
               </div>
             </div>
 
-            <div style={{ borderTop: '1px solid var(--theme-border-secondary)', margin: '4px 0' }} />
+            <div className="border-t border-[var(--theme-border-secondary)] my-1" />
 
             {/* Show Week Numbers */}
             <div className="flex items-start justify-between gap-3 py-2.5">
               <div className="flex items-start gap-2.5 min-w-0">
-                <div
-                  className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0"
-                  style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                >
-                  <Hash className="w-4 h-4" style={{ color: 'var(--theme-icon-orange)' }} />
+                <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
+                  <Hash className="w-4 h-4 text-[var(--theme-icon-orange)]" />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-sm font-medium" style={{ color: 'var(--theme-text-primary)' }}>
+                  <div className="text-sm font-medium text-[var(--theme-text-primary)]">
                     Show Week Numbers
                   </div>
-                  <div className="text-xs mt-0.5" style={{ color: 'var(--theme-text-muted)' }}>
+                  <div className="text-xs mt-0.5 text-[var(--theme-text-muted)]">
                     Display week numbers on the left
                   </div>
                 </div>
@@ -341,22 +322,19 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
               </div>
             </div>
 
-            <div style={{ borderTop: '1px solid var(--theme-border-secondary)', margin: '4px 0' }} />
+            <div className="border-t border-[var(--theme-border-secondary)] my-1" />
 
             {/* Show Adjacent Months */}
             <div className="flex items-start justify-between gap-3 py-2.5">
               <div className="flex items-start gap-2.5 min-w-0">
-                <div
-                  className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0"
-                  style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                >
-                  <CalendarRange className="w-4 h-4" style={{ color: 'var(--theme-icon-purple)' }} />
+                <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
+                  <CalendarRange className="w-4 h-4 text-[var(--theme-icon-purple)]" />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-sm font-medium" style={{ color: 'var(--theme-text-primary)' }}>
+                  <div className="text-sm font-medium text-[var(--theme-text-primary)]">
                     Adjacent Months
                   </div>
-                  <div className="text-xs mt-0.5" style={{ color: 'var(--theme-text-muted)' }}>
+                  <div className="text-xs mt-0.5 text-[var(--theme-text-muted)]">
                     Show days from prev/next months
                   </div>
                 </div>
@@ -369,22 +347,19 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
               </div>
             </div>
 
-            <div style={{ borderTop: '1px solid var(--theme-border-secondary)', margin: '4px 0' }} />
+            <div className="border-t border-[var(--theme-border-secondary)] my-1" />
 
             {/* Hide Ended Events */}
             <div className="flex items-start justify-between gap-3 py-2.5">
               <div className="flex items-start gap-2.5 min-w-0">
-                <div
-                  className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0"
-                  style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                >
-                  <EyeOff className="w-4 h-4" style={{ color: 'var(--theme-icon-red)' }} />
+                <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
+                  <EyeOff className="w-4 h-4 text-[var(--theme-icon-red)]" />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-sm font-medium" style={{ color: 'var(--theme-text-primary)' }}>
+                  <div className="text-sm font-medium text-[var(--theme-text-primary)]">
                     Hide Ended Events
                   </div>
-                  <div className="text-xs mt-0.5" style={{ color: 'var(--theme-text-muted)' }}>
+                  <div className="text-xs mt-0.5 text-[var(--theme-text-muted)]">
                     Don't show events that have ended
                   </div>
                 </div>
@@ -397,22 +372,19 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
               </div>
             </div>
 
-            <div style={{ borderTop: '1px solid var(--theme-border-secondary)', margin: '4px 0' }} />
+            <div className="border-t border-[var(--theme-border-secondary)] my-1" />
 
             {/* Compact Mode */}
             <div className="flex items-start justify-between gap-3 py-2.5">
               <div className="flex items-start gap-2.5 min-w-0">
-                <div
-                  className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0"
-                  style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                >
-                  <Eye className="w-4 h-4" style={{ color: 'var(--theme-icon-green)' }} />
+                <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
+                  <Eye className="w-4 h-4 text-[var(--theme-icon-green)]" />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-sm font-medium" style={{ color: 'var(--theme-text-primary)' }}>
+                  <div className="text-sm font-medium text-[var(--theme-text-primary)]">
                     Compact View
                   </div>
-                  <div className="text-xs mt-0.5" style={{ color: 'var(--theme-text-muted)' }}>
+                  <div className="text-xs mt-0.5 text-[var(--theme-text-muted)]">
                     Use smaller day cells
                   </div>
                 </div>
@@ -427,14 +399,7 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
           </div>
 
           {/* Footer hint */}
-          <div
-            className="px-4 py-2.5 text-[11px]"
-            style={{
-              backgroundColor: 'var(--theme-bg-secondary)',
-              color: 'var(--theme-text-muted)',
-              borderTop: '1px solid var(--theme-border-secondary)'
-            }}
-          >
+          <div className="px-4 py-2.5 text-[11px] bg-[var(--theme-bg-secondary)] text-[var(--theme-text-muted)] border-t border-[var(--theme-border-secondary)]">
             Settings are saved automatically
           </div>
         </div>,

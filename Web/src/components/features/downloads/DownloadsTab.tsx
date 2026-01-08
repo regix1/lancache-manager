@@ -1172,8 +1172,7 @@ const DownloadsTab: React.FC = () => {
               value={settings.searchQuery}
               onChange={(e) => setSettings({ ...settings, searchQuery: e.target.value })}
               placeholder="Search games, clients, depots..."
-              className="w-full pl-9 pr-8 py-2 text-sm rounded-lg border bg-[var(--theme-bg-primary)] text-[var(--theme-text-primary)] placeholder:text-[var(--theme-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--theme-primary)]/50 focus:border-[var(--theme-primary)] transition-all"
-              style={{ borderColor: 'var(--theme-border-primary)' }}
+              className="w-full pl-9 pr-8 py-2 text-sm rounded-lg border border-[var(--theme-border-primary)] bg-[var(--theme-bg-primary)] text-[var(--theme-text-primary)] placeholder:text-[var(--theme-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--theme-primary)]/50 focus:border-[var(--theme-primary)] transition-all"
             />
             {settings.searchQuery && (
               <Button
@@ -1388,13 +1387,12 @@ const DownloadsTab: React.FC = () => {
           {settingsOpened && (
             <>
               <div
-                className="border-t my-3 animate-fade-in"
-                style={{ borderColor: 'var(--theme-border-secondary)' }}
+                className="border-t border-[var(--theme-border-secondary)] my-3 animate-fade-in"
               />
               <div className="space-y-4 animate-slide-in-top">
                 {/* Quick Presets - Mobile-friendly segmented control */}
                 <div>
-                  <div className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--theme-text-muted)' }}>
+                  <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
                     Quick Presets
                   </div>
                   {(() => {
@@ -1427,7 +1425,7 @@ const DownloadsTab: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-x-6 sm:gap-y-1">
                   {/* Filters Column */}
                   <div className="space-y-1">
-                    <div className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--theme-text-muted)' }}>
+                    <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
                       Filters
                     </div>
                     <Checkbox
@@ -1454,7 +1452,7 @@ const DownloadsTab: React.FC = () => {
 
                   {/* Display Column */}
                   <div className="space-y-1">
-                    <div className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--theme-text-muted)' }}>
+                    <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
                       Display
                     </div>
                     <Checkbox
@@ -1471,7 +1469,7 @@ const DownloadsTab: React.FC = () => {
 
                   {/* Behavior Column */}
                   <div className="space-y-1">
-                    <div className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--theme-text-muted)' }}>
+                    <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
                       Behavior
                     </div>
                     <Checkbox
@@ -1576,11 +1574,7 @@ const DownloadsTab: React.FC = () => {
         {filterLoading && (
           <div className="absolute inset-0 bg-[var(--theme-bg-primary)]/60 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg transition-opacity duration-300">
             <div
-              className="flex flex-col items-center gap-3 px-6 py-4 rounded-lg bg-[var(--theme-bg-secondary)] border shadow-xl"
-              style={{
-                borderColor: 'var(--theme-border-primary)',
-                animation: 'slideUp 0.3s ease-out'
-              }}
+              className="flex flex-col items-center gap-3 px-6 py-4 rounded-lg bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)] shadow-xl animate-[slideUp_0.3s_ease-out]"
             >
               <Loader2 className="w-6 h-6 animate-spin text-[var(--theme-primary)]" />
               <span className="text-sm font-medium text-[var(--theme-text-primary)]">

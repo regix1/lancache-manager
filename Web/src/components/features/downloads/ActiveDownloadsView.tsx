@@ -106,7 +106,7 @@ const ActiveDownloadsView: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-8 h-8 animate-spin" style={{ color: 'var(--theme-text-muted)' }} />
+        <Loader2 className="w-8 h-8 animate-spin text-[var(--theme-text-muted)]" />
       </div>
     );
   }
@@ -171,7 +171,7 @@ const ActiveDownloadsView: React.FC = () => {
         <div className="empty-icon-container">
           <div className="empty-icon-ring" />
           <div className="empty-icon">
-            <Activity size={32} style={{ color: 'var(--theme-text-muted)' }} />
+            <Activity size={32} className="text-[var(--theme-text-muted)]" />
           </div>
         </div>
         <div className="empty-title">No Active Downloads</div>

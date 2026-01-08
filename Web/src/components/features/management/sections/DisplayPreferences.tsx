@@ -29,8 +29,8 @@ const PreferenceRow: React.FC<PreferenceRowProps> = ({
       />
     </div>
     <div className="flex-1 min-w-0">
-      <p className="text-sm font-medium" style={{ color: 'var(--theme-text-primary)' }}>{label}</p>
-      <p className="text-xs mt-0.5" style={{ color: 'var(--theme-text-muted)' }}>{description}</p>
+      <p className="text-sm font-medium text-themed-primary">{label}</p>
+      <p className="text-xs mt-0.5 text-themed-muted">{description}</p>
     </div>
   </div>
 );
@@ -50,18 +50,15 @@ const PreferenceSection: React.FC<PreferenceSectionProps> = ({
   iconColorVar,
   children
 }) => (
-  <div
-    className="p-4 rounded-lg"
-    style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-  >
-    <div className="flex items-center gap-2 mb-3 pb-2 border-b" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+  <div className="p-4 rounded-lg bg-themed-tertiary">
+    <div className="flex items-center gap-2 mb-3 pb-2 border-b border-themed-secondary">
       <div
         className="w-6 h-6 rounded flex items-center justify-center"
         style={{ backgroundColor: `color-mix(in srgb, var(${iconBgVar}) 15%, transparent)` }}
       >
         <Icon className="w-3.5 h-3.5" style={{ color: `var(${iconColorVar})` }} />
       </div>
-      <h4 className="text-sm font-semibold" style={{ color: 'var(--theme-text-secondary)' }}>{title}</h4>
+      <h4 className="text-sm font-semibold text-themed-secondary">{title}</h4>
     </div>
     <div className="space-y-1">{children}</div>
   </div>
@@ -174,10 +171,10 @@ const DisplayPreferences: React.FC = () => {
   if (isLoading) {
     return (
       <div className="animate-pulse grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="h-32 rounded-lg" style={{ backgroundColor: 'var(--theme-bg-tertiary)' }} />
-        <div className="h-32 rounded-lg" style={{ backgroundColor: 'var(--theme-bg-tertiary)' }} />
-        <div className="h-24 rounded-lg" style={{ backgroundColor: 'var(--theme-bg-tertiary)' }} />
-        <div className="h-24 rounded-lg" style={{ backgroundColor: 'var(--theme-bg-tertiary)' }} />
+        <div className="h-32 rounded-lg bg-themed-tertiary" />
+        <div className="h-32 rounded-lg bg-themed-tertiary" />
+        <div className="h-24 rounded-lg bg-themed-tertiary" />
+        <div className="h-24 rounded-lg bg-themed-tertiary" />
       </div>
     );
   }

@@ -68,14 +68,11 @@ const BulkActions: React.FC<BulkActionsProps> = ({ onSessionsChange }) => {
       <div className="bulk-action-card">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h3
-              className="text-base font-semibold flex items-center gap-2"
-              style={{ color: 'var(--theme-text-primary)' }}
-            >
-              <AlertTriangle className="w-4 h-4" style={{ color: 'var(--theme-warning)' }} />
+            <h3 className="text-base font-semibold flex items-center gap-2 text-themed-primary">
+              <AlertTriangle className="w-4 h-4 text-themed-warning" />
               Bulk Actions
             </h3>
-            <p className="text-sm mt-1" style={{ color: 'var(--theme-text-muted)' }}>
+            <p className="text-sm mt-1 text-themed-muted">
               Apply actions to all guest sessions at once
             </p>
           </div>

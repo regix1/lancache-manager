@@ -166,12 +166,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     {shouldShowDatasource && (
                       <Tooltip content={`Datasource: ${primaryDatasource}`}>
                         <span
-                          className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0"
-                          style={{
-                            backgroundColor: 'var(--theme-bg-tertiary)',
-                            color: 'var(--theme-text-secondary)',
-                            border: '1px solid var(--theme-border-secondary)'
-                          }}
+                          className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]"
                         >
                           {primaryDatasource}
                         </span>
@@ -187,7 +182,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                         {formatPercent(hitPercent)}
                       </span>
                     ) : (
-                      <span className="font-medium font-mono" style={{ color: 'var(--theme-error-text)' }}>
+                      <span className="font-medium font-mono text-[var(--theme-error-text)]">
                         0%
                       </span>
                     )}
@@ -218,12 +213,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                   {shouldShowDatasource && (
                     <Tooltip content={`Datasource: ${primaryDatasource}`}>
                       <span
-                        className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0"
-                        style={{
-                          backgroundColor: 'var(--theme-bg-tertiary)',
-                          color: 'var(--theme-text-secondary)',
-                          border: '1px solid var(--theme-border-secondary)'
-                        }}
+                        className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]"
                       >
                         {primaryDatasource}
                       </span>
@@ -243,8 +233,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     </span>
                   ) : (
                     <span
-                      className="font-medium text-xs font-mono text-right min-w-[45px]"
-                      style={{ color: 'var(--theme-error-text)' }}
+                      className="font-medium text-xs font-mono text-right min-w-[45px] text-[var(--theme-error-text)]"
                     >
                       0%
                     </span>
@@ -268,13 +257,9 @@ const GroupRow: React.FC<GroupRowProps> = ({
               <div className="flex-shrink-0">
                 {aestheticMode || imageErrors.has(String(primaryDownload.gameAppId)) ? (
                   <div
-                    className="w-full sm:w-[120px] h-[60px] sm:h-[56px] rounded border flex items-center justify-center"
-                    style={{
-                      backgroundColor: 'var(--theme-bg-tertiary)',
-                      borderColor: 'var(--theme-border-primary)'
-                    }}
+                    className="w-full sm:w-[120px] h-[60px] sm:h-[56px] rounded border flex items-center justify-center bg-[var(--theme-bg-tertiary)] border-[var(--theme-border-primary)]"
                   >
-                    <SteamIcon size={28} style={{ color: 'var(--theme-steam)', opacity: 0.6 }} />
+                    <SteamIcon size={28} className="text-[var(--theme-steam)] opacity-60" />
                   </div>
                 ) : (
                   <img
@@ -418,7 +403,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     </div>
 
                     {/* Sessions table */}
-                    <div className="rounded border overflow-hidden" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+                    <div className="rounded border border-[var(--theme-border-secondary)] overflow-hidden">
                       {paginatedDownloads.map((download, idx) => {
                         const totalBytes = download.totalBytes || 0;
                         const cachePercent =
@@ -448,7 +433,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                                       {formatPercent(cachePercent)}
                                     </span>
                                   ) : (
-                                    <span className="font-medium font-mono" style={{ color: 'var(--theme-error-text)' }}>
+                                    <span className="font-medium font-mono text-[var(--theme-error-text)]">
                                       0%
                                     </span>
                                   )}
@@ -496,8 +481,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                                   </span>
                                 ) : (
                                   <span
-                                    className="font-medium font-mono text-right min-w-[40px]"
-                                    style={{ color: 'var(--theme-error-text)' }}
+                                    className="font-medium font-mono text-right min-w-[40px] text-[var(--theme-error-text)]"
                                   >
                                     0%
                                   </span>

@@ -76,15 +76,14 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
       {/* Header */}
       <div className="flex flex-col items-center text-center">
         <div
-          className="w-16 h-16 rounded-full flex items-center justify-center mb-4"
-          style={{
-            backgroundColor: isComplete ? 'var(--theme-success-bg)' : 'var(--theme-primary-bg, var(--theme-info-bg))'
-          }}
+          className={`w-16 h-16 rounded-full flex items-center justify-center mb-4 ${
+            isComplete ? 'bg-themed-success' : 'bg-themed-primary-subtle'
+          }`}
         >
           {isComplete ? (
-            <CheckCircle className="w-8 h-8" style={{ color: 'var(--theme-success)' }} />
+            <CheckCircle className="w-8 h-8 icon-success" />
           ) : (
-            <Database className="w-8 h-8 animate-pulse" style={{ color: 'var(--theme-primary)' }} />
+            <Database className="w-8 h-8 animate-pulse icon-primary" />
           )}
         </div>
         <h3 className="text-xl font-semibold text-themed-primary mb-1">
@@ -99,11 +98,8 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
 
       {/* Progress Section */}
       {isComplete ? (
-        <div
-          className="p-4 rounded-lg text-center"
-          style={{ backgroundColor: 'var(--theme-success-bg)' }}
-        >
-          <p className="text-sm font-medium" style={{ color: 'var(--theme-success-text)' }}>
+        <div className="p-4 rounded-lg text-center bg-themed-success">
+          <p className="text-sm font-medium text-themed-success">
             {progress?.depotMappingsFound
               ? `${progress.depotMappingsFound.toLocaleString()} depot mappings ready`
               : 'Depot mappings are ready'}
@@ -112,10 +108,7 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
       ) : (
         <div className="space-y-4">
           {/* Status */}
-          <div
-            className="p-4 rounded-lg text-center"
-            style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-          >
+          <div className="p-4 rounded-lg text-center bg-themed-tertiary">
             <p className="text-base font-medium text-themed-primary mb-1">
               {getStatusMessage()}
             </p>
@@ -133,16 +126,10 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
 
           {/* Progress Bar */}
           <div>
-            <div
-              className="w-full rounded-full h-2.5 overflow-hidden"
-              style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-            >
+            <div className="w-full rounded-full h-2.5 overflow-hidden bg-themed-tertiary">
               <div
-                className="h-full transition-all duration-300 ease-out rounded-full"
-                style={{
-                  width: `${progressPercent}%`,
-                  backgroundColor: 'var(--theme-primary)'
-                }}
+                className="h-full transition-all duration-300 ease-out rounded-full bg-primary"
+                style={{ width: `${progressPercent}%` }}
               />
             </div>
             <p className="text-sm text-themed-secondary text-center mt-2">

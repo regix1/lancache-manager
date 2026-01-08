@@ -24,73 +24,51 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
 }) => {
   return (
     <div
-      className="group rounded-lg overflow-hidden transition-all duration-300"
-      style={{
-        backgroundColor: isExpanded
-          ? 'var(--theme-bg-secondary)'
-          : 'color-mix(in srgb, var(--theme-bg-secondary) 60%, transparent)',
-        border: '1px solid',
-        borderColor: isExpanded
-          ? enabled
-            ? 'var(--theme-border-primary)'
-            : 'var(--theme-border-secondary)'
-          : 'var(--theme-border-secondary)',
-        opacity: enabled ? 1 : 0.65,
-        boxShadow: isExpanded
-          ? '0 4px 16px rgba(0, 0, 0, 0.25), 0 1px 4px rgba(0, 0, 0, 0.15)'
-          : '0 1px 3px rgba(0, 0, 0, 0.12)'
-      }}
+      className={`group rounded-lg overflow-hidden transition-all duration-300 border ${
+        isExpanded
+          ? `bg-themed-secondary ${enabled ? 'border-themed-primary' : 'border-themed-secondary'} shadow-[0_4px_16px_rgba(0,0,0,0.25),0_1px_4px_rgba(0,0,0,0.15)]`
+          : 'bg-[color-mix(in_srgb,var(--theme-bg-secondary)_60%,transparent)] border-themed-secondary shadow-[0_1px_3px_rgba(0,0,0,0.12)]'
+      } ${enabled ? 'opacity-100' : 'opacity-65'}`}
     >
       {/* Header - clickable to expand */}
       <button
-        className="w-full p-3 text-left cursor-pointer transition-all duration-200"
+        className={`w-full p-3 text-left cursor-pointer transition-all duration-200 ${
+          isExpanded
+            ? 'bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-accent)_6%,transparent)_0%,transparent_100%)]'
+            : 'bg-transparent'
+        }`}
         onClick={onToggle}
-        style={{
-          background: isExpanded
-            ? 'linear-gradient(135deg, color-mix(in srgb, var(--theme-accent) 6%, transparent) 0%, transparent 100%)'
-            : 'transparent'
-        }}
       >
         {/* Top Row: Name, Status Badge, Chevron */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             {/* Folder Icon */}
             <div
-              className="w-7 h-7 rounded-md flex items-center justify-center transition-all duration-300"
-              style={{
-                backgroundColor: isExpanded
-                  ? 'color-mix(in srgb, var(--theme-icon-blue) 15%, transparent)'
-                  : 'var(--theme-bg-tertiary)',
-                transform: isExpanded ? 'scale(1.05)' : 'scale(1)'
-              }}
+              className={`w-7 h-7 rounded-md flex items-center justify-center transition-all duration-300 ${
+                isExpanded
+                  ? 'bg-[color-mix(in_srgb,var(--theme-icon-blue)_15%,transparent)] scale-105'
+                  : 'bg-themed-tertiary scale-100'
+              }`}
             >
               <FolderOpen
-                className="w-3.5 h-3.5 transition-colors duration-300"
-                style={{
-                  color: isExpanded ? 'var(--theme-icon-blue)' : 'var(--theme-text-muted)'
-                }}
+                className={`w-3.5 h-3.5 transition-colors duration-300 ${
+                  isExpanded ? 'icon-blue' : 'text-themed-muted'
+                }`}
               />
             </div>
 
             {/* Name */}
             <span
-              className="font-semibold transition-colors duration-200"
-              style={{
-                color: isExpanded ? 'var(--theme-text-primary)' : 'var(--theme-text-secondary)'
-              }}
+              className={`font-semibold transition-colors duration-200 ${
+                isExpanded ? 'text-themed-primary' : 'text-themed-secondary'
+              }`}
             >
               {name}
             </span>
 
             {/* Disabled Badge */}
             {!enabled && (
-              <span
-                className="px-2 py-0.5 text-xs rounded font-medium"
-                style={{
-                  backgroundColor: 'var(--theme-bg-tertiary)',
-                  color: 'var(--theme-text-muted)'
-                }}
-              >
+              <span className="px-2 py-0.5 text-xs rounded font-medium bg-themed-tertiary text-themed-muted">
                 Disabled
               </span>
             )}
@@ -100,13 +78,11 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
             {/* Status Badge */}
             {statusBadge && (
               <span
-                className="text-xs hidden sm:inline px-2.5 py-1 rounded-full transition-all duration-300 tabular-nums"
-                style={{
-                  backgroundColor: isExpanded
-                    ? 'color-mix(in srgb, var(--theme-accent) 12%, transparent)'
-                    : 'var(--theme-bg-tertiary)',
-                  color: isExpanded ? 'var(--theme-accent)' : 'var(--theme-text-muted)'
-                }}
+                className={`text-xs hidden sm:inline px-2.5 py-1 rounded-full transition-all duration-300 tabular-nums ${
+                  isExpanded
+                    ? 'bg-[color-mix(in_srgb,var(--theme-accent)_12%,transparent)] text-themed-accent'
+                    : 'bg-themed-tertiary text-themed-muted'
+                }`}
               >
                 {statusBadge}
               </span>
@@ -116,19 +92,16 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
 
             {/* Chevron with rotation animation */}
             <div
-              className="flex items-center justify-center w-7 h-7 rounded-md transition-all duration-300"
-              style={{
-                backgroundColor: isExpanded
-                  ? 'color-mix(in srgb, var(--theme-accent) 10%, transparent)'
-                  : 'transparent'
-              }}
+              className={`flex items-center justify-center w-7 h-7 rounded-md transition-all duration-300 ${
+                isExpanded
+                  ? 'bg-[color-mix(in_srgb,var(--theme-accent)_10%,transparent)]'
+                  : 'bg-transparent'
+              }`}
             >
               <ChevronDown
-                className="w-4 h-4 transition-all duration-300 ease-out"
-                style={{
-                  color: isExpanded ? 'var(--theme-accent)' : 'var(--theme-text-muted)',
-                  transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'
-                }}
+                className={`w-4 h-4 transition-all duration-300 ease-out ${
+                  isExpanded ? 'rotate-180 text-themed-accent' : 'rotate-0 text-themed-muted'
+                }`}
               />
             </div>
           </div>
@@ -136,21 +109,16 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
 
         {/* Path display */}
         <div
-          className="flex items-center gap-2 mt-2 transition-all duration-300"
-          style={{
-            opacity: isExpanded ? 1 : 0.7,
-            transform: isExpanded ? 'translateX(0)' : 'translateX(0)'
-          }}
+          className={`flex items-center gap-2 mt-2 transition-all duration-300 ${
+            isExpanded ? 'opacity-100' : 'opacity-70'
+          }`}
         >
           <code
-            className="text-xs px-2 py-1 rounded truncate transition-all duration-300"
-            style={{
-              backgroundColor: isExpanded
-                ? 'color-mix(in srgb, var(--theme-bg-tertiary) 80%, transparent)'
-                : 'var(--theme-bg-tertiary)',
-              color: isExpanded ? 'var(--theme-text-secondary)' : 'var(--theme-text-muted)',
-              maxWidth: '100%'
-            }}
+            className={`text-xs px-2 py-1 rounded truncate transition-all duration-300 max-w-full ${
+              isExpanded
+                ? 'bg-[color-mix(in_srgb,var(--theme-bg-tertiary)_80%,transparent)] text-themed-secondary'
+                : 'bg-themed-tertiary text-themed-muted'
+            }`}
           >
             {path}
           </code>
@@ -160,19 +128,14 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
       {/* Expanded content with smooth animation */}
       {children && (
         <div
-          className="overflow-hidden transition-all duration-300 ease-out"
-          style={{
-            maxHeight: isExpanded ? '2000px' : '0',
-            opacity: isExpanded ? 1 : 0,
-            transform: isExpanded ? 'translateY(0)' : 'translateY(-8px)'
-          }}
+          className={`overflow-hidden transition-all duration-300 ease-out ${
+            isExpanded
+              ? 'max-h-[2000px] opacity-100 translate-y-0'
+              : 'max-h-0 opacity-0 -translate-y-2'
+          }`}
         >
           <div
-            className="px-3 pb-3"
-            style={{
-              borderTop: '1px solid var(--theme-border-secondary)',
-              background: 'linear-gradient(180deg, color-mix(in srgb, var(--theme-bg-tertiary) 25%, transparent) 0%, transparent 100%)'
-            }}
+            className="px-3 pb-3 border-t border-themed-secondary bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-bg-tertiary)_25%,transparent)_0%,transparent_100%)]"
           >
             {children}
           </div>

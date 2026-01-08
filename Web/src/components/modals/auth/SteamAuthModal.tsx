@@ -127,7 +127,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
       onClose={handleCloseModal}
       title={
         <div className="flex items-center gap-3">
-          <Key className="w-5 h-5" style={{ color: 'var(--theme-steam)' }} />
+          <Key className="w-5 h-5 text-steam" />
           <span>Steam Account Login</span>
         </div>
       }
@@ -147,11 +147,8 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
           {waitingForMobileConfirmation && (
             <div className="space-y-4">
               <div className="flex flex-col items-center text-center py-6">
-                <div
-                  className="w-16 h-16 rounded-full flex items-center justify-center mb-4"
-                  style={{ backgroundColor: 'var(--theme-info-bg)' }}
-                >
-                  <Smartphone className="w-8 h-8" style={{ color: 'var(--theme-info)' }} />
+                <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4 bg-info">
+                  <Smartphone className="w-8 h-8 text-info" />
                 </div>
                 <h3 className="text-lg font-semibold text-themed-primary mb-2">
                   Waiting for Confirmation
@@ -225,11 +222,8 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
               </div>
 
               {/* Security Info */}
-              <div
-                className="flex items-start gap-3 p-3 rounded-lg mt-4"
-                style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-              >
-                <Shield className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--theme-success)' }} />
+              <div className="flex items-start gap-3 p-3 rounded-lg mt-4 bg-themed-tertiary">
+                <Shield className="w-4 h-4 mt-0.5 flex-shrink-0 text-success" />
                 <p className="text-xs text-themed-muted leading-relaxed">
                   Your password is used once for authentication and never stored.
                   Only secure refresh tokens are saved locally.
@@ -242,11 +236,8 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
           {needsEmailCode && (
             <div className="space-y-4">
               <div className="flex flex-col items-center text-center py-4">
-                <div
-                  className="w-14 h-14 rounded-full flex items-center justify-center mb-3"
-                  style={{ backgroundColor: 'var(--theme-info-bg)' }}
-                >
-                  <Mail className="w-7 h-7" style={{ color: 'var(--theme-info)' }} />
+                <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-info">
+                  <Mail className="w-7 h-7 text-info" />
                 </div>
                 <h3 className="text-base font-semibold text-themed-primary mb-1">
                   Email Verification
@@ -276,11 +267,8 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
           {needsTwoFactor && (
             <div className="space-y-4">
               <div className="flex flex-col items-center text-center py-4">
-                <div
-                  className="w-14 h-14 rounded-full flex items-center justify-center mb-3"
-                  style={{ backgroundColor: 'var(--theme-warning-bg)' }}
-                >
-                  <Lock className="w-7 h-7" style={{ color: 'var(--theme-warning)' }} />
+                <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-warning">
+                  <Lock className="w-7 h-7 text-warning" />
                 </div>
                 <h3 className="text-base font-semibold text-themed-primary mb-1">
                   Two-Factor Authentication

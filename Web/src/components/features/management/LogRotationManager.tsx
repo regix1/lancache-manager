@@ -141,10 +141,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
           <p className="text-sm mt-1 mb-2">
             Add the following environment variable to your docker-compose.yml:
           </p>
-          <pre
-            className="px-3 py-2 rounded text-xs overflow-x-auto break-all whitespace-pre-wrap"
-            style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-          >
+          <pre className="px-3 py-2 rounded text-xs overflow-x-auto break-all whitespace-pre-wrap bg-themed-tertiary">
             - NginxLogRotation__Enabled=true
           </pre>
         </div>
@@ -155,7 +152,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
   return (
     <div className="space-y-4">
       {/* Schedule Selection */}
-      <div className="p-4 rounded-lg" style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}>
+      <div className="p-4 rounded-lg bg-themed-tertiary">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <p className="text-sm font-medium text-themed-primary">Rotation Schedule</p>
@@ -186,7 +183,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
       {/* Status Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Last Rotation */}
-        <div className="p-4 rounded-lg" style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}>
+        <div className="p-4 rounded-lg bg-themed-tertiary">
           <div className="flex items-center gap-2 mb-2">
             {status.lastRotationSuccess ? (
               <CheckCircle2 className="w-4 h-4" style={{ color: 'var(--theme-success)' }} />
@@ -214,7 +211,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
         </div>
 
         {/* Next Rotation */}
-        <div className="p-4 rounded-lg" style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}>
+        <div className="p-4 rounded-lg bg-themed-tertiary">
           <div className="flex items-center gap-2 mb-2">
             <Clock className="w-4 h-4 text-themed-muted" />
             <span className="text-sm font-medium text-themed-primary">Next Rotation</span>

@@ -92,11 +92,8 @@ const SettingSection: React.FC<SettingSectionProps> = ({
   iconColorVar,
   children
 }) => (
-  <div
-    className="p-4 rounded-lg"
-    style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-  >
-    <div className="flex items-center gap-2 mb-3 pb-2 border-b" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+  <div className="p-4 rounded-lg bg-themed-tertiary">
+    <div className="flex items-center gap-2 mb-3 pb-2 border-b border-themed-secondary">
       <div
         className="w-6 h-6 rounded flex items-center justify-center"
         style={{ backgroundColor: `color-mix(in srgb, var(${iconColorVar}) 15%, transparent)` }}
@@ -118,9 +115,9 @@ interface SettingRowProps {
 const SettingRow: React.FC<SettingRowProps> = ({ label, description, children }) => (
   <div className="space-y-2">
     <div>
-      <p className="text-sm font-medium" style={{ color: 'var(--theme-text-primary)' }}>{label}</p>
+      <p className="text-sm font-medium text-themed-primary">{label}</p>
       {description && (
-        <p className="text-xs mt-0.5" style={{ color: 'var(--theme-text-muted)' }}>{description}</p>
+        <p className="text-xs mt-0.5 text-themed-muted">{description}</p>
       )}
     </div>
     {children}
@@ -272,11 +269,8 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
       </div>
 
       {/* Actions */}
-      <div
-        className="p-4 rounded-lg"
-        style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-      >
-        <div className="flex items-center gap-2 mb-3 pb-2 border-b" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+      <div className="p-4 rounded-lg bg-themed-tertiary">
+        <div className="flex items-center gap-2 mb-3 pb-2 border-b border-themed-secondary">
           <div
             className="w-6 h-6 rounded flex items-center justify-center"
             style={{ backgroundColor: `color-mix(in srgb, var(--theme-icon-orange) 15%, transparent)` }}
@@ -309,7 +303,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
             {triggering ? 'Running...' : 'Run GC Now'}
           </Button>
         </div>
-        <p className="text-xs mt-3" style={{ color: 'var(--theme-text-muted)' }}>
+        <p className="text-xs mt-3 text-themed-muted">
           Changes take effect immediately — no restart required.
         </p>
       </div>

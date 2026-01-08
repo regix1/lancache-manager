@@ -46,11 +46,7 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
 
   return (
     <div
-      className={`inline-flex rounded-[10px] ${sizes.container} ${fullWidth ? 'w-full' : ''} ${className}`}
-      style={{
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        border: '1px solid var(--theme-border-secondary)'
-      }}
+      className={`inline-flex rounded-[10px] ${sizes.container} ${fullWidth ? 'w-full' : ''} ${className} bg-themed-tertiary border border-themed-secondary`}
     >
       {options.map((option) => {
         const isActive = value === option.value;
@@ -61,18 +57,15 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
             key={option.value}
             onClick={() => !isDisabled && onChange(option.value)}
             disabled={isDisabled}
-            className={`${sizes.button} transition-all flex items-center justify-center gap-[0.4rem] font-semibold whitespace-nowrap ${
+            className={`${sizes.button} transition-all flex items-center justify-center gap-[0.4rem] font-semibold whitespace-nowrap text-xs ${
               fullWidth ? 'flex-1' : ''
             } ${
               isDisabled && !isActive ? 'opacity-50 cursor-default' : ''
-            }`}
-            style={{
-              backgroundColor: isActive ? 'var(--theme-primary)' : 'transparent',
-              color: isActive ? 'var(--theme-button-text)' : 'var(--theme-text-muted)',
-              cursor: isDisabled ? 'default' : 'pointer',
-              boxShadow: isActive ? '0 2px 4px color-mix(in srgb, var(--theme-primary) 25%, transparent)' : 'none',
-              fontSize: '0.75rem'
-            }}
+            } ${
+              isActive
+                ? 'bg-[var(--theme-primary)] text-themed-button shadow-[0_2px_4px_color-mix(in_srgb,var(--theme-primary)_25%,transparent)]'
+                : 'bg-transparent text-themed-muted'
+            } ${isDisabled ? 'cursor-default' : 'cursor-pointer'}`}
             title={option.title || option.label}
           >
             {option.icon && React.isValidElement(option.icon)

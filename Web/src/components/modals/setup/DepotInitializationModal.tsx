@@ -459,10 +459,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   const stepInfo = STEP_INFO[currentStep];
 
   return (
-    <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
-      style={{ backgroundColor: 'var(--theme-bg-primary)' }}
-    >
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-themed-primary">
       {/* Stripe background pattern */}
       <div
         className="absolute inset-0 opacity-5"
@@ -473,62 +470,41 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
 
       {/* Main Card */}
       <div
-        className="relative z-10 w-full max-w-4xl rounded-xl border overflow-hidden flex flex-col"
-        style={{
-          backgroundColor: 'var(--theme-bg-secondary)',
-          borderColor: 'var(--theme-border-primary)',
-          maxHeight: 'min(calc(100vh - 2rem), 800px)'
-        }}
+        className="relative z-10 w-full max-w-4xl rounded-xl border overflow-hidden flex flex-col bg-themed-secondary border-themed-primary"
+        style={{ maxHeight: 'min(calc(100vh - 2rem), 800px)' }}
       >
         {/* Header */}
-        <div
-          className="px-8 py-5 border-b flex items-center justify-between"
-          style={{ borderColor: 'var(--theme-border-secondary)' }}
-        >
+        <div className="px-8 py-5 border-b flex items-center justify-between border-themed-secondary">
           <div className="flex items-center gap-3">
             {currentStep !== 'api-key' && (
               <button
                 onClick={backButtonDisabled ? undefined : handleGoBack}
                 disabled={backButtonDisabled}
-                className="p-1.5 rounded-lg transition-colors"
-                style={{
-                  backgroundColor: 'transparent',
-                  color: backButtonDisabled ? 'var(--theme-text-muted)' : 'var(--theme-text-secondary)',
-                  cursor: backButtonDisabled ? 'not-allowed' : 'pointer',
-                  opacity: backButtonDisabled ? 0.5 : 1
-                }}
+                className={`p-1.5 rounded-lg transition-colors bg-transparent ${
+                  backButtonDisabled
+                    ? 'text-themed-muted cursor-not-allowed opacity-50'
+                    : 'text-themed-secondary cursor-pointer'
+                }`}
                 title={backButtonDisabled ? 'Cannot go back during operation' : 'Go back'}
               >
                 <ArrowLeft className="w-5 h-5" />
               </button>
             )}
             <div className="flex items-center gap-2">
-              <Rocket className="w-5 h-5" style={{ color: 'var(--theme-primary)' }} />
+              <Rocket className="w-5 h-5 text-primary" />
               <span className="font-semibold text-themed-primary">Setup Wizard</span>
             </div>
           </div>
-          <div
-            className="text-xs font-medium px-2.5 py-1 rounded-full"
-            style={{
-              backgroundColor: 'var(--theme-bg-tertiary)',
-              color: 'var(--theme-text-secondary)'
-            }}
-          >
+          <div className="text-xs font-medium px-2.5 py-1 rounded-full bg-themed-tertiary text-themed-secondary">
             {stepInfo.number} / {stepInfo.total}
           </div>
         </div>
 
         {/* Progress Bar */}
-        <div
-          className="h-1"
-          style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-        >
+        <div className="h-1 bg-themed-tertiary">
           <div
-            className="h-full transition-all duration-300 ease-out"
-            style={{
-              width: `${(stepInfo.number / stepInfo.total) * 100}%`,
-              backgroundColor: 'var(--theme-primary)'
-            }}
+            className="h-full transition-all duration-300 ease-out bg-primary"
+            style={{ width: `${(stepInfo.number / stepInfo.total) * 100}%` }}
           />
         </div>
 

@@ -113,21 +113,14 @@ const StatCard: React.FC<StatCardProps> = ({
 
   const cardContent = (
     <div
-      className={cardClasses}
-      style={{
-        backgroundColor: glassmorphism ? undefined : 'var(--theme-card-bg)',
-        borderColor: glassmorphism ? undefined : 'var(--theme-card-border)'
-      }}
+      className={`${cardClasses} ${!glassmorphism ? 'bg-[var(--theme-card-bg)] border-[var(--theme-card-border)]' : ''}`}
       data-stat-card={title.toLowerCase().replace(/\s+/g, '')}
     >
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1">
             <p
-              className="text-sm font-medium inline-block transition-colors"
-              style={{
-                color: 'var(--theme-text-muted)'
-              }}
+              className="text-sm font-medium inline-block transition-colors text-[var(--theme-text-muted)]"
             >
               {title}
             </p>
@@ -144,8 +137,7 @@ const StatCard: React.FC<StatCardProps> = ({
               />
             ) : (
               <p
-                className="text-2xl font-bold transition-all duration-300"
-                style={{ color: 'var(--theme-text-primary)' }}
+                className="text-2xl font-bold transition-all duration-300 text-[var(--theme-text-primary)]"
               >
                 {value}
               </p>
@@ -161,7 +153,7 @@ const StatCard: React.FC<StatCardProps> = ({
           </div>
 
           {subtitle && (
-            <p className="text-xs mt-1" style={{ color: 'var(--theme-text-secondary)' }}>
+            <p className="text-xs mt-1 text-[var(--theme-text-secondary)]">
               {subtitle}
             </p>
           )}
@@ -172,7 +164,7 @@ const StatCard: React.FC<StatCardProps> = ({
             backgroundColor: getIconBackground(color)
           }}
         >
-          <Icon className="w-6 h-6" style={{ color: 'var(--theme-button-text)' }} />
+          <Icon className="w-6 h-6 text-[var(--theme-button-text)]" />
         </div>
       </div>
 
@@ -189,7 +181,7 @@ const StatCard: React.FC<StatCardProps> = ({
           />
         ) : (
           /* Empty spacer to maintain consistent card height when no sparkline */
-          <div className="sparkline-placeholder" style={{ height: '32px', marginTop: '8px' }} />
+          <div className="sparkline-placeholder h-8 mt-2" />
         )}
       </div>
     </div>

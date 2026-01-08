@@ -99,10 +99,7 @@ const LogEntryRow = memo(({ entry, isLast }: { entry: LogEntry; isLast: boolean 
       }}
     >
       {/* Timestamp - hidden on mobile, shown on sm+ */}
-      <span
-        className="hidden sm:block text-[11px] font-mono flex-shrink-0 tabular-nums pt-1.5 opacity-50 group-hover:opacity-80 transition-opacity"
-        style={{ color: 'var(--theme-text-muted)', letterSpacing: '0.02em' }}
-      >
+      <span className="hidden sm:block text-[11px] font-mono flex-shrink-0 tabular-nums pt-1.5 opacity-50 group-hover:opacity-80 transition-opacity text-[var(--theme-text-muted)] tracking-[0.02em]">
         {formatTime(entry.timestamp)}
       </span>
 
@@ -117,20 +114,11 @@ const LogEntryRow = memo(({ entry, isLast }: { entry: LogEntry; isLast: boolean 
 
       {/* Message content */}
       <div className="flex-1 min-w-0 pt-0.5">
-        <p
-          className="text-xs sm:text-[13px] leading-snug"
-          style={{
-            color: 'var(--theme-text-primary)',
-            wordBreak: 'break-word'
-          }}
-        >
+        <p className="text-xs sm:text-[13px] leading-snug text-[var(--theme-text-primary)] break-words">
           {entry.message}
         </p>
         {entry.details && (
-          <p
-            className="text-[11px] sm:text-xs mt-0.5 opacity-60"
-            style={{ color: 'var(--theme-text-muted)' }}
-          >
+          <p className="text-[11px] sm:text-xs mt-0.5 opacity-60 text-[var(--theme-text-muted)]">
             {entry.details}
           </p>
         )}
@@ -183,27 +171,13 @@ export function ActivityLog({ entries, className = '' }: ActivityLogProps) {
       {entries.length === 0 ? (
         /* Empty State */
         <div className="flex flex-col items-center justify-center py-12 px-6">
-          <div
-            className="relative w-14 h-14 rounded-xl flex items-center justify-center mb-3"
-            style={{
-              backgroundColor: 'var(--theme-bg-secondary)',
-            }}
-          >
-            <Activity
-              className="h-6 w-6"
-              style={{ color: 'var(--theme-text-muted)', opacity: 0.4 }}
-            />
+          <div className="relative w-14 h-14 rounded-xl flex items-center justify-center mb-3 bg-[var(--theme-bg-secondary)]">
+            <Activity className="h-6 w-6 text-[var(--theme-text-muted)] opacity-40" />
           </div>
-          <p
-            className="text-sm font-medium mb-0.5"
-            style={{ color: 'var(--theme-text-primary)' }}
-          >
+          <p className="text-sm font-medium mb-0.5 text-[var(--theme-text-primary)]">
             Waiting for activity
           </p>
-          <p
-            className="text-xs text-center max-w-[180px]"
-            style={{ color: 'var(--theme-text-muted)', opacity: 0.6 }}
-          >
+          <p className="text-xs text-center max-w-[180px] text-[var(--theme-text-muted)] opacity-60">
             Commands and status updates will appear here
           </p>
         </div>
@@ -234,10 +208,7 @@ export function ActivityLog({ entries, className = '' }: ActivityLogProps) {
               }}
             >
               {/* Entry count - hidden on very small screens */}
-              <span
-                className="hidden xs:block text-[10px] sm:text-[11px] tabular-nums"
-                style={{ color: 'var(--theme-text-muted)' }}
-              >
+              <span className="hidden xs:block text-[10px] sm:text-[11px] tabular-nums text-[var(--theme-text-muted)]">
                 {startItem}–{endItem} of {entries.length}
               </span>
 
@@ -268,10 +239,7 @@ export function ActivityLog({ entries, className = '' }: ActivityLogProps) {
                 </button>
 
                 {/* Page indicator */}
-                <span
-                  className="text-[11px] font-medium tabular-nums px-1.5 min-w-[48px] text-center"
-                  style={{ color: 'var(--theme-text-primary)' }}
-                >
+                <span className="text-[11px] font-medium tabular-nums px-1.5 min-w-[48px] text-center text-[var(--theme-text-primary)]">
                   {currentPage} / {totalPages}
                 </span>
 

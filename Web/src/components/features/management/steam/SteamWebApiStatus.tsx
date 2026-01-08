@@ -210,10 +210,7 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
         </div>
 
         {/* Status Overview */}
-        <div
-          className="p-4 rounded-lg mb-4"
-          style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-        >
+        <div className="p-4 rounded-lg mb-4 bg-themed-tertiary">
           {/* Status message - full width */}
           <div className="flex items-start gap-2.5 mb-3">
             <div className="mt-0.5 flex-shrink-0">{getStatusIcon()}</div>

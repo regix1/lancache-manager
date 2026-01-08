@@ -205,23 +205,17 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
             type="button"
             onClick={() => !disabled && setIsOpen(!isOpen)}
             disabled={disabled}
-            className={`ed-trigger w-full px-3 py-2 rounded-lg border text-left flex items-center justify-between text-sm ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-            style={{
-              backgroundColor: 'var(--theme-card-bg)',
-              borderColor: isOpen ? 'var(--theme-border-focus)' : 'var(--theme-border-primary)',
-              color: 'var(--theme-text-primary)'
-            }}
+            className={`ed-trigger w-full px-3 py-2 rounded-lg border text-left flex items-center justify-between text-sm bg-[var(--theme-card-bg)] text-[var(--theme-text-primary)] ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${isOpen ? 'border-[var(--theme-border-focus)]' : 'border-[var(--theme-border-primary)]'}`}
           >
             <div className="flex items-center gap-1.5 flex-1 truncate">
               {selectedTimeOption?.icon && (
-                <selectedTimeOption.icon className="flex-shrink-0" size={16} style={{ color: 'var(--theme-primary)' }} />
+                <selectedTimeOption.icon className="flex-shrink-0 text-[var(--theme-primary)]" size={16} />
               )}
               <span className="font-medium">{getTimeRangeTriggerLabel()}</span>
             </div>
             <ChevronDown
               size={16}
-              className={`flex-shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
-              style={{ color: 'var(--theme-text-primary)' }}
+              className={`flex-shrink-0 transition-transform duration-200 text-[var(--theme-text-primary)] ${isOpen ? 'rotate-180' : ''}`}
             />
           </button>
 
@@ -229,22 +223,16 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
           {isOpen && createPortal(
             <div
               ref={dropdownRef}
-              className="ed-dropdown fixed w-64 rounded-lg border overflow-hidden"
+              className="ed-dropdown fixed w-64 rounded-lg border overflow-hidden bg-[var(--theme-bg-secondary)] border-[var(--theme-border-primary)] max-w-[calc(100vw-32px)] shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3),0_8px_10px_-6px_rgba(0,0,0,0.2)] z-[50000]"
               style={{
                 top: dropdownPosition.top,
                 left: dropdownPosition.left,
-                backgroundColor: 'var(--theme-bg-secondary)',
-                borderColor: 'var(--theme-border-primary)',
-                maxWidth: 'calc(100vw - 32px)',
-                boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2)',
-                animation: dropdownStyle.animation,
-                zIndex: 50000
+                animation: dropdownStyle.animation
               }}
             >
               {/* Title */}
               <div
-                className="px-3 py-2 text-sm font-medium border-b"
-                style={{ color: 'var(--theme-text-secondary)', borderColor: 'var(--theme-border-primary)', backgroundColor: 'var(--theme-bg-secondary)' }}
+                className="px-3 py-2 text-sm font-medium border-b text-[var(--theme-text-secondary)] border-[var(--theme-border-primary)] bg-[var(--theme-bg-secondary)]"
               >
                 Time Range
               </div>
@@ -268,13 +256,13 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
                               {option.label}
                             </span>
                             {option.description && (
-                              <span className="text-xs mt-0.5 leading-relaxed" style={{ color: 'var(--theme-text-secondary)' }}>
+                              <span className="text-xs mt-0.5 leading-relaxed text-[var(--theme-text-secondary)]">
                                 {option.description}
                               </span>
                             )}
                           </div>
                           {option.rightLabel && (
-                            <span className="flex-shrink-0 text-xs font-medium" style={{ color: isSelected ? 'var(--theme-primary)' : 'var(--theme-text-secondary)' }}>
+                            <span className={`flex-shrink-0 text-xs font-medium ${isSelected ? 'text-[var(--theme-primary)]' : 'text-[var(--theme-text-secondary)]'}`}>
                               {option.rightLabel}
                             </span>
                           )}
@@ -288,8 +276,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
                 {sortedEvents.length > 0 && (
                   <>
                     <div
-                      className="px-3 py-2 text-xs font-medium border-t mt-1 mb-1 flex items-center justify-between"
-                      style={{ color: 'var(--theme-text-muted)', borderColor: 'var(--theme-border-primary)', backgroundColor: 'var(--theme-bg-tertiary)' }}
+                      className="px-3 py-2 text-xs font-medium border-t mt-1 mb-1 flex items-center justify-between text-[var(--theme-text-muted)] border-[var(--theme-border-primary)] bg-[var(--theme-bg-tertiary)]"
                     >
                       <span>Filter by Events</span>
                       {selectedEventIds.length > 0 && (
@@ -298,8 +285,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
                             e.stopPropagation();
                             clearEventFilter();
                           }}
-                          className="text-xs px-1.5 py-0.5 rounded hover:opacity-80 transition-opacity"
-                          style={{ color: 'var(--theme-primary)', backgroundColor: 'var(--theme-primary-muted)' }}
+                          className="text-xs px-1.5 py-0.5 rounded hover:opacity-80 transition-opacity text-[var(--theme-primary)] bg-[var(--theme-primary-muted)]"
                         >
                           Clear
                         </button>
@@ -354,7 +340,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
                                     </span>
                                   )}
                                 </div>
-                                <span className="text-xs mt-0.5" style={{ color: 'var(--theme-text-secondary)' }}>
+                                <span className="text-xs mt-0.5 text-[var(--theme-text-secondary)]">
                                   {formatEventDateRange(event.startTimeUtc, event.endTimeUtc)}
                                 </span>
                               </div>
@@ -369,10 +355,9 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
 
               {/* Footer Note */}
               <div
-                className="px-3 py-2.5 text-xs border-t flex items-start gap-2"
-                style={{ color: 'var(--theme-text-secondary)', borderColor: 'var(--theme-border-primary)', backgroundColor: 'var(--theme-bg-tertiary)' }}
+                className="px-3 py-2.5 text-xs border-t flex items-start gap-2 text-[var(--theme-text-secondary)] border-[var(--theme-border-primary)] bg-[var(--theme-bg-tertiary)]"
               >
-                <Info className="flex-shrink-0 mt-0.5" size={14} style={{ color: 'var(--theme-warning)' }} />
+                <Info className="flex-shrink-0 mt-0.5 text-[var(--theme-warning)]" size={14} />
                 <span className="leading-relaxed">
                   {sortedEvents.length > 0
                     ? 'Time range and event filters can be combined'

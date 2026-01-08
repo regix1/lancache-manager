@@ -82,7 +82,7 @@ const TrendHelpContent: Record<string, React.ReactNode> = {
     <div className="space-y-1.5">
       <HelpDefinition term="↑ Up" termColor="green">More bandwidth saved recently</HelpDefinition>
       <HelpDefinition term="↓ Down" termColor="orange">Less bandwidth saved recently</HelpDefinition>
-      <div className="text-[10px] mt-2 pt-2 border-t" style={{ borderColor: 'var(--theme-border)', color: 'var(--theme-text-muted)' }}>
+      <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
         Compares recent activity to earlier in the selected time period
       </div>
     </div>
@@ -91,7 +91,7 @@ const TrendHelpContent: Record<string, React.ReactNode> = {
     <div className="space-y-1.5">
       <HelpDefinition term="↑ Up" termColor="green">More new content being cached</HelpDefinition>
       <HelpDefinition term="↓ Down" termColor="orange">Less new content being cached</HelpDefinition>
-      <div className="text-[10px] mt-2 pt-2 border-t" style={{ borderColor: 'var(--theme-border)', color: 'var(--theme-text-muted)' }}>
+      <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
         Compares recent activity to earlier in the selected time period
       </div>
     </div>
@@ -100,7 +100,7 @@ const TrendHelpContent: Record<string, React.ReactNode> = {
     <div className="space-y-1.5">
       <HelpDefinition term="↑ Up" termColor="green">More data served recently</HelpDefinition>
       <HelpDefinition term="↓ Down" termColor="orange">Less data served recently</HelpDefinition>
-      <div className="text-[10px] mt-2 pt-2 border-t" style={{ borderColor: 'var(--theme-border)', color: 'var(--theme-text-muted)' }}>
+      <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
         Compares recent activity to earlier in the selected time period
       </div>
     </div>
@@ -109,7 +109,7 @@ const TrendHelpContent: Record<string, React.ReactNode> = {
     <div className="space-y-1.5">
       <HelpDefinition term="↑ Up" termColor="green">Hit ratio improving</HelpDefinition>
       <HelpDefinition term="↓ Down" termColor="orange">Hit ratio declining</HelpDefinition>
-      <div className="text-[10px] mt-2 pt-2 border-t" style={{ borderColor: 'var(--theme-border)', color: 'var(--theme-text-muted)' }}>
+      <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
         Shows change in percentage points (not percent change)
       </div>
     </div>
@@ -608,12 +608,7 @@ const Dashboard: React.FC = () => {
               <Tooltip content="Rearrange cards" strategy="overlay">
                 <button
                   onClick={toggleEditMode}
-                  className="edit-mode-toggle flex items-center gap-2 px-3 py-2 text-sm rounded-lg border"
-                  style={{
-                    color: 'var(--theme-text-secondary)',
-                    backgroundColor: 'var(--theme-bg-secondary)',
-                    borderColor: 'var(--theme-border-primary)'
-                  }}
+                  className="edit-mode-toggle flex items-center gap-2 px-3 py-2 text-sm rounded-lg border text-themed-secondary bg-themed-secondary border-themed-primary"
                 >
                   <Move className="w-4 h-4" />
                   <span>Edit</span>
@@ -628,12 +623,7 @@ const Dashboard: React.FC = () => {
               <Tooltip content={`${hiddenCardsCount} hidden card${hiddenCardsCount !== 1 ? 's' : ''} - click to restore`} strategy="overlay">
                 <button
                   onClick={() => setDropdownOpen(!dropdownOpen)}
-                  className="hover-btn-trigger flex items-center gap-2 px-3 py-2 text-sm rounded-lg border"
-                  style={{
-                    color: 'var(--theme-text-secondary)',
-                    backgroundColor: 'var(--theme-bg-secondary)',
-                    borderColor: 'var(--theme-border-primary)'
-                  }}
+                  className="hover-btn-trigger flex items-center gap-2 px-3 py-2 text-sm rounded-lg border text-themed-secondary bg-themed-secondary border-themed-primary"
                 >
                   <EyeOff className="w-4 h-4" />
                   <span className="hidden sm:inline">{hiddenCardsCount} Hidden</span>
@@ -647,15 +637,11 @@ const Dashboard: React.FC = () => {
               {/* Hidden Cards Dropdown */}
               {dropdownOpen && (
                 <div
-                  className="absolute right-0 mt-2 w-72 sm:w-80 rounded-lg border shadow-xl z-50"
-                  style={{
-                    backgroundColor: 'var(--theme-card-bg)',
-                    borderColor: 'var(--theme-card-border)'
-                  }}
+                  className="absolute right-0 mt-2 w-72 sm:w-80 rounded-lg border shadow-xl z-50 themed-card border-themed-primary"
                 >
                   {/* Search - only show if more than 3 hidden cards */}
                   {hiddenCardsCount > 3 && (
-                    <div className="p-3 border-b" style={{ borderColor: 'var(--theme-border-primary)' }}>
+                    <div className="p-3 border-b border-themed-primary">
                       <div className="relative">
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-themed-muted" />
                         <input
@@ -663,12 +649,7 @@ const Dashboard: React.FC = () => {
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
                           placeholder="Search hidden cards..."
-                          className="w-full pl-10 pr-3 py-2 rounded-lg text-sm"
-                          style={{
-                            backgroundColor: 'var(--theme-bg-tertiary)',
-                            color: 'var(--theme-text-primary)',
-                            border: '1px solid var(--theme-border-primary)'
-                          }}
+                          className="w-full pl-10 pr-3 py-2 rounded-lg text-sm bg-themed-tertiary text-themed-primary border border-themed-primary"
                           autoFocus
                         />
                       </div>
@@ -676,15 +657,14 @@ const Dashboard: React.FC = () => {
                   )}
 
                   {/* Show All Button */}
-                  <div className="p-2 border-b" style={{ borderColor: 'var(--theme-border-primary)' }}>
+                  <div className="p-2 border-b border-themed-primary">
                     <button
                       onClick={() => {
                         setCardVisibility(DEFAULT_CARD_VISIBILITY);
                         setDropdownOpen(false);
                         setSearchQuery('');
                       }}
-                      className="hover-btn w-full px-3 py-2 text-sm rounded-lg text-left flex items-center gap-2"
-                      style={{ color: 'var(--theme-primary)' }}
+                      className="hover-btn w-full px-3 py-2 text-sm rounded-lg text-left flex items-center gap-2 text-themed-accent"
                     >
                       <Eye className="w-4 h-4" />
                       Show all cards
@@ -738,20 +718,7 @@ const Dashboard: React.FC = () => {
           <Tooltip content="Reset card layout to default order" strategy="overlay">
             <button
               onClick={resetCardOrder}
-              className="flex items-center gap-2 px-3 py-2 text-sm transition-colors rounded-lg border"
-              style={{
-                color: 'var(--theme-text-secondary)',
-                backgroundColor: 'var(--theme-bg-secondary)',
-                borderColor: 'var(--theme-border-primary)'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
-                e.currentTarget.style.color = 'var(--theme-text-primary)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)';
-                e.currentTarget.style.color = 'var(--theme-text-secondary)';
-              }}
+              className="hover-btn-trigger flex items-center gap-2 px-3 py-2 text-sm transition-colors rounded-lg border text-themed-secondary bg-themed-secondary border-themed-primary hover:bg-themed-hover hover:text-themed-primary"
             >
               <LayoutGrid className="w-4 h-4" />
               <span className="hidden sm:inline">Reset Layout</span>
@@ -799,8 +766,7 @@ const Dashboard: React.FC = () => {
             </div>
             <button
               onClick={hideDragHint}
-              className="ml-2 p-1 rounded hover:bg-themed-hover transition-colors flex-shrink-0"
-              style={{ color: 'var(--theme-text-muted)' }}
+              className="ml-2 p-1 rounded hover:bg-themed-hover transition-colors flex-shrink-0 text-themed-muted"
               title="Hide this hint"
             >
               <X className="w-4 h-4" />
@@ -878,16 +844,7 @@ const Dashboard: React.FC = () => {
                   className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-all hidden md:block z-[5]"
                 >
                   <div
-                    className="p-1 rounded"
-                    style={{
-                      cursor: 'grab'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = 'transparent';
-                    }}
+                    className="p-1 rounded cursor-grab hover:bg-themed-hover"
                   >
                     <GripVertical className="w-4 h-4 text-themed-muted" />
                   </div>
@@ -971,16 +928,7 @@ const Dashboard: React.FC = () => {
               >
                 <button
                   onClick={() => toggleCardVisibility(card.key)}
-                  className="p-1.5 rounded-lg transition-colors"
-                  style={{
-                    backgroundColor: 'transparent'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = 'transparent';
-                  }}
+                  className="p-1.5 rounded-lg transition-colors hover:bg-themed-hover"
                 >
                   <EyeOff className="w-3.5 h-3.5 text-themed-muted" />
                 </button>

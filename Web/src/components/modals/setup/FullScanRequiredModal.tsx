@@ -36,8 +36,8 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
       onClose={onCancel}
       title={
         <div className="flex items-center gap-3">
-          <div className="p-2 rounded-lg" style={{ backgroundColor: 'var(--theme-error-bg)' }}>
-            <AlertTriangle className="w-6 h-6" style={{ color: 'var(--theme-error)' }} />
+          <div className="p-2 rounded-lg bg-error">
+            <AlertTriangle className="w-6 h-6 text-error" />
           </div>
           <span>{title}</span>
         </div>
@@ -45,21 +45,15 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
       size="lg"
     >
       <div className="space-y-4">
-        <div
-          className="rounded-lg p-4 border"
-          style={{
-            backgroundColor: 'var(--theme-error-bg)',
-            borderColor: 'var(--theme-error)'
-          }}
-        >
-          <p className="font-medium mb-2" style={{ color: 'var(--theme-error-text)' }}>
+        <div className="rounded-lg p-4 border bg-error border-error">
+          <p className="font-medium mb-2 text-error-text">
             {subtitle || defaultSubtitle}
           </p>
           <div className="space-y-1 text-sm text-themed-secondary">
             {changeGap && (
               <p>
                 • Change gap:{' '}
-                <span className="font-mono" style={{ color: 'var(--theme-error-text)' }}>
+                <span className="font-mono text-error-text">
                   {changeGap.toLocaleString()}
                 </span>{' '}
                 updates behind
@@ -70,7 +64,7 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
               {estimatedApps ? (
                 <>
                   Estimated apps to scan:{' '}
-                  <span className="font-mono" style={{ color: 'var(--theme-error-text)' }}>
+                  <span className="font-mono text-error-text">
                     ~{estimatedApps.toLocaleString()}
                   </span>{' '}
                   apps
@@ -78,7 +72,7 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
               ) : (
                 <>
                   Will need to scan{' '}
-                  <span className="font-bold" style={{ color: 'var(--theme-error-text)' }}>
+                  <span className="font-bold text-error-text">
                     ALL
                   </span>{' '}
                   Steam apps (currently 300,000+)
@@ -87,7 +81,7 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
             </p>
             <p>
               • Steam's PICS API{' '}
-              <span className="font-bold" style={{ color: 'var(--theme-error-text)' }}>
+              <span className="font-bold text-error-text">
                 cannot process
               </span>{' '}
               incremental updates with this large gap
@@ -103,14 +97,8 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
           </p>
 
           {showDownloadOption && (
-            <div
-              className="rounded-lg p-4 border"
-              style={{
-                backgroundColor: 'var(--theme-info-bg)',
-                borderColor: 'var(--theme-info)'
-              }}
-            >
-              <p className="font-medium mb-2" style={{ color: 'var(--theme-info-text)' }}>
+            <div className="rounded-lg p-4 border bg-info border-info">
+              <p className="font-medium mb-2 text-info-text">
                 Solution: Download from GitHub
               </p>
               <ul className="space-y-1 text-sm text-themed-secondary">

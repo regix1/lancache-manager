@@ -126,13 +126,13 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
     return (
       <div className={`widget-card ${glassmorphism ? 'glass' : ''} ${animationClasses}`}>
         <div className="flex items-center gap-2 mb-3">
-          <TrendingUp className="w-5 h-5" style={{ color: 'var(--theme-text-muted)' }} />
-          <h3 className="text-sm font-semibold" style={{ color: 'var(--theme-text-primary)' }}>
+          <TrendingUp className="w-5 h-5 text-themed-muted" />
+          <h3 className="text-sm font-semibold text-themed-primary">
             Cache Growth
           </h3>
         </div>
         <div className="flex items-center justify-center h-24">
-          <Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--theme-primary)' }} />
+          <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
         </div>
       </div>
     );
@@ -143,12 +143,12 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
     return (
       <div className={`widget-card ${glassmorphism ? 'glass' : ''} ${animationClasses}`}>
         <div className="flex items-center gap-2 mb-3">
-          <TrendingUp className="w-5 h-5" style={{ color: 'var(--theme-text-muted)' }} />
-          <h3 className="text-sm font-semibold" style={{ color: 'var(--theme-text-primary)' }}>
+          <TrendingUp className="w-5 h-5 text-themed-muted" />
+          <h3 className="text-sm font-semibold text-themed-primary">
             Cache Growth
           </h3>
         </div>
-        <p className="text-sm" style={{ color: 'var(--theme-text-muted)' }}>
+        <p className="text-sm text-themed-muted">
           {error}
         </p>
       </div>
@@ -162,8 +162,8 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <TrendingUp className="w-5 h-5" style={{ color: 'var(--theme-primary)' }} />
-          <h3 className="text-sm font-semibold" style={{ color: 'var(--theme-text-primary)' }}>
+          <TrendingUp className="w-5 h-5 text-themed-accent" />
+          <h3 className="text-sm font-semibold text-themed-primary">
             Cache Growth
           </h3>
           <HelpPopover width={260}>
@@ -175,7 +175,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
                   Accounts for cache that was cleared/deleted
                 </HelpDefinition>
               )}
-              <div className="text-[10px] mt-2 pt-2 border-t" style={{ borderColor: 'var(--theme-border)', color: 'var(--theme-text-muted)' }}>
+              <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
                 {hasDataDeletion
                   ? 'Cache was cleared - growth rate adjusted for deletions'
                   : 'Compares recent daily growth to earlier in the period'}
@@ -198,14 +198,11 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
 
       {/* Current usage */}
       <div className="flex items-baseline gap-2 mb-2">
-        <span
-          className="text-xl font-bold"
-          style={{ color: 'var(--theme-text-primary)' }}
-        >
+        <span className="text-xl font-bold text-themed-primary">
           {formatBytes(usedCacheSize)}
         </span>
         {totalCacheSize > 0 && (
-          <span className="text-sm" style={{ color: 'var(--theme-text-muted)' }}>
+          <span className="text-sm text-themed-muted">
             / {formatBytes(totalCacheSize)}
           </span>
         )}
@@ -241,10 +238,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
             ariaLabel={`Cache growth trend over ${timeRange}`}
           />
           {hasDataDeletion && (
-            <div
-              className="text-[10px] text-center mt-1"
-              style={{ color: 'var(--theme-text-muted)' }}
-            >
+            <div className="text-[10px] text-center mt-1 text-themed-muted">
               {cacheWasCleared
                 ? 'Cache cleared • Showing new downloads'
                 : 'Some cache data was deleted'}
@@ -256,18 +250,17 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
       {/* Growth stats */}
       <div className="grid grid-cols-2 gap-4 text-xs">
         <div>
-          <div style={{ color: 'var(--theme-text-muted)' }}>
+          <div className="text-themed-muted">
             {cacheWasCleared ? 'Download Rate' : hasDataDeletion ? 'Net Growth' : 'Growth Rate'}
           </div>
           <div
-            className="font-medium"
-            style={{
-              color: growthRatePerDay < 0
-                ? 'var(--theme-info)'
+            className={`font-medium ${
+              growthRatePerDay < 0
+                ? 'text-themed-info'
                 : growthRatePerDay > 0
-                  ? 'var(--theme-text-primary)'
-                  : 'var(--theme-text-muted)'
-            }}
+                  ? 'text-themed-primary'
+                  : 'text-themed-muted'
+            }`}
           >
             {growthRatePerDay > 0
               ? `+${formatBytes(growthRatePerDay)}/day`
@@ -277,10 +270,10 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
           </div>
         </div>
         <div>
-          <div style={{ color: 'var(--theme-text-muted)' }}>
+          <div className="text-themed-muted">
             {daysUntilFull !== null && daysUntilFull > 0 ? 'Est. Full' : 'Status'}
           </div>
-          <div className="font-medium" style={{ color: 'var(--theme-text-primary)' }}>
+          <div className="font-medium text-themed-primary">
             {daysUntilFull !== null && daysUntilFull > 0
               ? `~${daysUntilFull} days`
               : daysUntilFull === 0

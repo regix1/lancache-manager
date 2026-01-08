@@ -75,10 +75,9 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
         onChange(options[nextIndex].value);
       }}
       disabled={disabled || loading}
-      className={`flex items-center rounded-full font-medium transition-all ${
+      className={`flex items-center rounded-full font-medium transition-all bg-themed-secondary ${
         disabled || loading ? 'opacity-60 cursor-wait' : 'cursor-pointer'
       }`}
-      style={{ backgroundColor: 'var(--theme-bg-secondary)' }}
     >
       {options.map((option) => {
         const isActive = value === option.value;

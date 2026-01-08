@@ -178,10 +178,7 @@ const GrafanaEndpoints: React.FC = () => {
           : 'These endpoints are publicly accessible. Use them directly in Grafana or Prometheus.'}
       </p>
 
-      <div
-        className="p-4 rounded-lg"
-        style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-      >
+      <div className="p-4 rounded-lg bg-themed-tertiary">
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-medium text-themed-primary">Prometheus Metrics</span>
           <Button
@@ -215,7 +212,7 @@ const GrafanaEndpoints: React.FC = () => {
       </div>
 
       {/* Data Refresh Rate - Controls how often the app updates metrics */}
-      <div className="mt-4 p-3 rounded-lg border" style={{ backgroundColor: 'var(--theme-bg-tertiary)', borderColor: 'var(--theme-border-secondary)' }}>
+      <div className="mt-4 p-3 rounded-lg border bg-themed-tertiary border-themed-secondary">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <RefreshCw className="w-4 h-4 text-themed-muted" />
@@ -241,7 +238,7 @@ const GrafanaEndpoints: React.FC = () => {
       </div>
 
       {/* Prometheus Configuration - shows config based on current auth state */}
-      <div className="mt-4 p-3 rounded-lg border" style={{ backgroundColor: 'var(--theme-bg-tertiary)', borderColor: 'var(--theme-border-secondary)' }}>
+      <div className="mt-4 p-3 rounded-lg border bg-themed-tertiary border-themed-secondary">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Clock className="w-4 h-4 text-themed-muted" />
@@ -308,7 +305,7 @@ const GrafanaEndpoints: React.FC = () => {
       </div>
 
       {/* Grafana Query Examples */}
-      <div className="mt-4 p-3 rounded-lg border" style={{ backgroundColor: 'var(--theme-bg-tertiary)', borderColor: 'var(--theme-border-secondary)' }}>
+      <div className="mt-4 p-3 rounded-lg border bg-themed-tertiary border-themed-secondary">
         <p className="text-sm font-medium text-themed-primary mb-2">Grafana Query Examples</p>
         <div className="space-y-2">
           <div className="bg-themed-secondary p-2 rounded">

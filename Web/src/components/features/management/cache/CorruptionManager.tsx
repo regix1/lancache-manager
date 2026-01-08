@@ -465,11 +465,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
                 {corruptionList.map(([service, count]) => (
                   <div
                     key={`corruption-${service}`}
-                    className="rounded-lg border"
-                    style={{
-                      backgroundColor: 'var(--theme-bg-tertiary)',
-                      borderColor: 'var(--theme-border-secondary)'
-                    }}
+                    className="rounded-lg border bg-themed-tertiary border-themed-secondary"
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 p-3">
                       <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -527,10 +523,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
 
                     {/* Expandable Details Section */}
                     {expandedCorruptionService === service && (
-                      <div
-                        className="border-t px-3 py-3"
-                        style={{ borderColor: 'var(--theme-border-secondary)' }}
-                      >
+                      <div className="border-t px-3 py-3 border-themed-secondary">
                         {loadingDetails === service ? (
                           <div className="flex items-center justify-center py-4 gap-2">
                             <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />

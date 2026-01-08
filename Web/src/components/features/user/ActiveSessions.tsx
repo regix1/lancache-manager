@@ -640,83 +640,48 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             <div className="flex items-start gap-3">
               <div className="relative">
                 <div
-                  className="session-avatar"
-                  style={{
-                    backgroundColor: session.type === 'authenticated'
-                      ? 'var(--theme-user-session-bg)'
-                      : 'var(--theme-guest-session-bg)'
-                  }}
+                  className={`session-avatar ${
+                    session.type === 'authenticated' ? 'session-badge-user' : 'session-badge-guest'
+                  }`}
                 >
                   <User
-                    className="w-5 h-5"
-                    style={{
-                      color: session.type === 'authenticated'
-                        ? 'var(--theme-user-session)'
-                        : 'var(--theme-guest-session)'
-                    }}
+                    className={`w-5 h-5 ${
+                      session.type === 'authenticated' ? 'user-session-icon' : 'guest-session-icon'
+                    }`}
                   />
                 </div>
                 {(isActive || isAway) && <div className={`status-dot ${isActive ? 'active' : 'away'} absolute -bottom-0.5 -right-0.5`} />}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <h3
-                    className="font-semibold truncate text-sm"
-                    style={{ color: 'var(--theme-text-primary)' }}
-                  >
+                  <h3 className="font-semibold truncate text-sm text-themed-primary">
                     {session.deviceName || 'Unknown Device'}
                   </h3>
                   <span
-                    className="px-1.5 py-0.5 text-[10px] rounded-full font-medium flex-shrink-0"
-                    style={{
-                      backgroundColor:
-                        session.type === 'authenticated'
-                          ? 'var(--theme-user-session-bg)'
-                          : 'var(--theme-guest-session-bg)',
-                      color:
-                        session.type === 'authenticated'
-                          ? 'var(--theme-user-session)'
-                          : 'var(--theme-guest-session)'
-                    }}
+                    className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium flex-shrink-0 ${
+                      session.type === 'authenticated' ? 'session-badge-user' : 'session-badge-guest'
+                    }`}
                   >
                     {session.type === 'authenticated' ? 'USER' : 'GUEST'}
                   </span>
                 </div>
-                <p className="text-xs truncate" style={{ color: 'var(--theme-text-muted)' }}>
+                <p className="text-xs truncate text-themed-muted">
                   {[session.browser, session.operatingSystem].filter(Boolean).join(' · ') ||
                     'Unknown device'}
                 </p>
                 <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                   {session.type === 'guest' && !session.isRevoked && !session.isExpired && (
-                    <span
-                      className="px-1.5 py-0.5 text-[10px] rounded font-medium"
-                      style={{
-                        backgroundColor: 'var(--theme-warning-bg)',
-                        color: 'var(--theme-warning-text)'
-                      }}
-                    >
+                    <span className="px-1.5 py-0.5 text-[10px] rounded font-medium status-badge-warning">
                       {formatTimeRemaining(session.expiresAt)}
                     </span>
                   )}
                   {session.isRevoked && (
-                    <span
-                      className="px-1.5 py-0.5 text-[10px] rounded font-medium"
-                      style={{
-                        backgroundColor: 'var(--theme-error-bg)',
-                        color: 'var(--theme-error-text)'
-                      }}
-                    >
+                    <span className="px-1.5 py-0.5 text-[10px] rounded font-medium status-badge-error">
                       Revoked
                     </span>
                   )}
                   {session.isExpired && !session.isRevoked && (
-                    <span
-                      className="px-1.5 py-0.5 text-[10px] rounded font-medium"
-                      style={{
-                        backgroundColor: 'var(--theme-warning-bg)',
-                        color: 'var(--theme-warning-text)'
-                      }}
-                    >
+                    <span className="px-1.5 py-0.5 text-[10px] rounded font-medium status-badge-warning">
                       Expired
                     </span>
                   )}
@@ -729,8 +694,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 </div>
               </div>
               <ChevronDown
-                className={`w-5 h-5 flex-shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
-                style={{ color: 'var(--theme-text-muted)' }}
+                className={`w-5 h-5 flex-shrink-0 transition-transform duration-200 text-themed-muted ${isExpanded ? 'rotate-180' : ''}`}
               />
             </div>
           </div>
@@ -741,20 +705,14 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               <div className="flex items-start gap-3 flex-1 min-w-0">
                 <div className="relative">
                   <div
-                    className="session-avatar"
-                    style={{
-                      backgroundColor: session.type === 'authenticated'
-                        ? 'var(--theme-user-session-bg)'
-                        : 'var(--theme-guest-session-bg)'
-                    }}
+                    className={`session-avatar ${
+                      session.type === 'authenticated' ? 'session-badge-user' : 'session-badge-guest'
+                    }`}
                   >
                     <User
-                      className="w-5 h-5"
-                      style={{
-                        color: session.type === 'authenticated'
-                          ? 'var(--theme-user-session)'
-                          : 'var(--theme-guest-session)'
-                      }}
+                      className={`w-5 h-5 ${
+                        session.type === 'authenticated' ? 'user-session-icon' : 'guest-session-icon'
+                      }`}
                     />
                   </div>
                   {(isActive || isAway) && (
@@ -763,57 +721,28 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap mb-2">
-                    <h3
-                      className="font-semibold truncate"
-                      style={{ color: 'var(--theme-text-primary)' }}
-                    >
+                    <h3 className="font-semibold truncate text-themed-primary">
                       {session.deviceName || 'Unknown Device'}
                     </h3>
                     <span
-                      className="px-2 py-0.5 text-xs rounded-full font-medium"
-                      style={{
-                        backgroundColor:
-                          session.type === 'authenticated'
-                            ? 'var(--theme-user-session-bg)'
-                            : 'var(--theme-guest-session-bg)',
-                        color:
-                          session.type === 'authenticated'
-                            ? 'var(--theme-user-session)'
-                            : 'var(--theme-guest-session)'
-                      }}
+                      className={`px-2 py-0.5 text-xs rounded-full font-medium ${
+                        session.type === 'authenticated' ? 'session-badge-user' : 'session-badge-guest'
+                      }`}
                     >
                       {session.type === 'authenticated' ? 'USER' : 'GUEST'}
                     </span>
                     {session.type === 'guest' && !session.isRevoked && !session.isExpired && (
-                      <span
-                        className="px-2 py-0.5 text-xs rounded-full font-medium"
-                        style={{
-                          backgroundColor: 'var(--theme-warning-bg)',
-                          color: 'var(--theme-warning-text)'
-                        }}
-                      >
+                      <span className="px-2 py-0.5 text-xs rounded-full font-medium status-badge-warning">
                         {formatTimeRemaining(session.expiresAt)}
                       </span>
                     )}
                     {session.isRevoked && (
-                      <span
-                        className="px-2 py-0.5 text-xs rounded-full font-medium"
-                        style={{
-                          backgroundColor: 'var(--theme-error-bg)',
-                          color: 'var(--theme-error-text)'
-                        }}
-                      >
+                      <span className="px-2 py-0.5 text-xs rounded-full font-medium status-badge-error">
                         Revoked
                       </span>
                     )}
                     {session.isExpired && !session.isRevoked && (
-                      <span
-                        className="px-2 py-0.5 text-xs rounded-full font-medium"
-                        style={{
-                          backgroundColor: 'var(--theme-warning-bg)',
-                          color: 'var(--theme-warning-text)'
-                        }}
-                      >
+                      <span className="px-2 py-0.5 text-xs rounded-full font-medium status-badge-warning">
                         Expired
                       </span>
                     )}
@@ -827,10 +756,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
                   <div className="grid grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2 text-sm">
                     {session.ipAddress && (
-                      <div
-                        className="flex items-center gap-2"
-                        style={{ color: 'var(--theme-text-secondary)' }}
-                      >
+                      <div className="flex items-center gap-2 text-themed-secondary">
                         <Network className="w-4 h-4 flex-shrink-0" />
                         <ClientIpDisplay
                           clientIp={cleanIpAddress(session.ipAddress)}
@@ -839,37 +765,25 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                       </div>
                     )}
                     {session.operatingSystem && (
-                      <div
-                        className="flex items-center gap-2"
-                        style={{ color: 'var(--theme-text-secondary)' }}
-                      >
+                      <div className="flex items-center gap-2 text-themed-secondary">
                         <Monitor className="w-4 h-4 flex-shrink-0" />
                         <span className="truncate">{session.operatingSystem}</span>
                       </div>
                     )}
                     {session.browser && (
-                      <div
-                        className="flex items-center gap-2"
-                        style={{ color: 'var(--theme-text-secondary)' }}
-                      >
+                      <div className="flex items-center gap-2 text-themed-secondary">
                         <Globe className="w-4 h-4 flex-shrink-0" />
                         <span className="truncate">{session.browser}</span>
                       </div>
                     )}
-                    <div
-                      className="flex items-center gap-2"
-                      style={{ color: 'var(--theme-text-secondary)' }}
-                    >
+                    <div className="flex items-center gap-2 text-themed-secondary">
                       <Clock className="w-4 h-4 flex-shrink-0" />
                       <span className="truncate">
                         Created: <FormattedTimestamp timestamp={session.createdAt} />
                       </span>
                     </div>
                     {session.lastSeenAt && (
-                      <div
-                        className="flex items-center gap-2"
-                        style={{ color: 'var(--theme-text-secondary)' }}
-                      >
+                      <div className="flex items-center gap-2 text-themed-secondary">
                         <Clock className="w-4 h-4 flex-shrink-0" />
                         <span className="truncate">
                           Last seen: <FormattedTimestamp timestamp={session.lastSeenAt} />
@@ -877,10 +791,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                       </div>
                     )}
                     {session.revokedAt && session.type === 'guest' && (
-                      <div
-                        className="flex items-center gap-2"
-                        style={{ color: 'var(--theme-error-text)' }}
-                      >
+                      <div className="flex items-center gap-2 text-themed-error">
                         <Clock className="w-4 h-4 flex-shrink-0" />
                         <span className="truncate">
                           Revoked: <FormattedTimestamp timestamp={session.revokedAt} />
@@ -888,10 +799,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                       </div>
                     )}
                     {session.revokedBy && session.type === 'guest' && (
-                      <div
-                        className="flex items-center gap-2"
-                        style={{ color: 'var(--theme-text-secondary)' }}
-                      >
+                      <div className="flex items-center gap-2 text-themed-secondary">
                         <User className="w-4 h-4 flex-shrink-0" />
                         <span className="truncate">
                           Revoked by:{' '}
@@ -901,13 +809,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     )}
                   </div>
 
-                  <div
-                    className="text-xs font-mono truncate mt-2 pt-2 border-t"
-                    style={{
-                      color: 'var(--theme-text-muted)',
-                      borderColor: 'var(--theme-border-secondary)'
-                    }}
-                  >
+                  <div className="text-xs font-mono truncate mt-2 pt-2 border-t text-themed-muted border-themed-secondary">
                     Device ID: {session.deviceId || session.id}
                   </div>
                 </div>
@@ -963,141 +865,89 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           className={`sm:hidden overflow-hidden transition-all duration-200 ${isExpanded ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}
         >
           <div
-            className="px-3 pb-3 space-y-3"
-            style={{
-              borderTop: '1px solid var(--theme-border-secondary)',
-              opacity: isDimmed ? 0.6 : 1
-            }}
+            className={`px-3 pb-3 space-y-3 border-t border-themed-secondary ${isDimmed ? 'opacity-60' : ''}`}
           >
             <div className="space-y-2.5 pt-3">
               {session.ipAddress && (
                 <div>
-                  <div
-                    className="flex items-center gap-1.5 text-[10px] mb-0.5"
-                    style={{ color: 'var(--theme-text-muted)' }}
-                  >
+                  <div className="flex items-center gap-1.5 text-[10px] mb-0.5 text-themed-muted">
                     <Network className="w-3 h-3" />
                     <span>IP Address</span>
                   </div>
-                  <div
-                    className="text-sm font-medium pl-[18px]"
-                    style={{ color: 'var(--theme-text-primary)' }}
-                  >
+                  <div className="text-sm font-medium pl-[18px] text-themed-primary">
                     <ClientIpDisplay clientIp={cleanIpAddress(session.ipAddress)} />
                   </div>
                 </div>
               )}
               {session.operatingSystem && (
                 <div>
-                  <div
-                    className="flex items-center gap-1.5 text-[10px] mb-0.5"
-                    style={{ color: 'var(--theme-text-muted)' }}
-                  >
+                  <div className="flex items-center gap-1.5 text-[10px] mb-0.5 text-themed-muted">
                     <Monitor className="w-3 h-3" />
                     <span>Operating System</span>
                   </div>
-                  <div
-                    className="text-sm font-medium pl-[18px]"
-                    style={{ color: 'var(--theme-text-primary)' }}
-                  >
+                  <div className="text-sm font-medium pl-[18px] text-themed-primary">
                     {session.operatingSystem}
                   </div>
                 </div>
               )}
               {session.browser && (
                 <div>
-                  <div
-                    className="flex items-center gap-1.5 text-[10px] mb-0.5"
-                    style={{ color: 'var(--theme-text-muted)' }}
-                  >
+                  <div className="flex items-center gap-1.5 text-[10px] mb-0.5 text-themed-muted">
                     <Globe className="w-3 h-3" />
                     <span>Browser</span>
                   </div>
-                  <div
-                    className="text-sm font-medium pl-[18px]"
-                    style={{ color: 'var(--theme-text-primary)' }}
-                  >
+                  <div className="text-sm font-medium pl-[18px] text-themed-primary">
                     {session.browser}
                   </div>
                 </div>
               )}
               <div>
-                <div
-                  className="flex items-center gap-1.5 text-[10px] mb-0.5"
-                  style={{ color: 'var(--theme-text-muted)' }}
-                >
+                <div className="flex items-center gap-1.5 text-[10px] mb-0.5 text-themed-muted">
                   <Clock className="w-3 h-3" />
                   <span>Created</span>
                 </div>
-                <div
-                  className="text-sm font-medium pl-[18px]"
-                  style={{ color: 'var(--theme-text-primary)' }}
-                >
+                <div className="text-sm font-medium pl-[18px] text-themed-primary">
                   <FormattedTimestamp timestamp={session.createdAt} />
                 </div>
               </div>
               {session.lastSeenAt && (
                 <div>
-                  <div
-                    className="flex items-center gap-1.5 text-[10px] mb-0.5"
-                    style={{ color: 'var(--theme-text-muted)' }}
-                  >
+                  <div className="flex items-center gap-1.5 text-[10px] mb-0.5 text-themed-muted">
                     <Clock className="w-3 h-3" />
                     <span>Last Seen</span>
                   </div>
-                  <div
-                    className="text-sm font-medium pl-[18px]"
-                    style={{ color: 'var(--theme-text-primary)' }}
-                  >
+                  <div className="text-sm font-medium pl-[18px] text-themed-primary">
                     <FormattedTimestamp timestamp={session.lastSeenAt} />
                   </div>
                 </div>
               )}
               {session.revokedAt && session.type === 'guest' && (
                 <div>
-                  <div
-                    className="flex items-center gap-1.5 text-[10px] mb-0.5"
-                    style={{ color: 'var(--theme-error-text)' }}
-                  >
+                  <div className="flex items-center gap-1.5 text-[10px] mb-0.5 text-themed-error">
                     <Clock className="w-3 h-3" />
                     <span>Revoked</span>
                   </div>
-                  <div
-                    className="text-sm font-medium pl-[18px]"
-                    style={{ color: 'var(--theme-error-text)' }}
-                  >
+                  <div className="text-sm font-medium pl-[18px] text-themed-error">
                     <FormattedTimestamp timestamp={session.revokedAt} />
                   </div>
                 </div>
               )}
               {session.revokedBy && session.type === 'guest' && (
                 <div>
-                  <div
-                    className="flex items-center gap-1.5 text-[10px] mb-0.5"
-                    style={{ color: 'var(--theme-text-muted)' }}
-                  >
+                  <div className="flex items-center gap-1.5 text-[10px] mb-0.5 text-themed-muted">
                     <User className="w-3 h-3" />
                     <span>Revoked By</span>
                   </div>
-                  <div
-                    className="text-sm font-medium pl-[18px]"
-                    style={{ color: 'var(--theme-text-primary)' }}
-                  >
+                  <div className="text-sm font-medium pl-[18px] text-themed-primary">
                     <ClientIpDisplay clientIp={cleanIpAddress(session.revokedBy)} />
                   </div>
                 </div>
               )}
               <div>
-                <div
-                  className="flex items-center gap-1.5 text-[10px] mb-0.5"
-                  style={{ color: 'var(--theme-text-muted)' }}
-                >
+                <div className="flex items-center gap-1.5 text-[10px] mb-0.5 text-themed-muted">
                   <span>Device ID</span>
                 </div>
-                <div
-                  className="text-xs font-mono break-all"
-                  style={{ color: 'var(--theme-text-secondary)' }}
-                >
+                <div className="text-xs font-mono break-all text-themed-secondary">
                   {session.deviceId || session.id}
                 </div>
               </div>
@@ -1157,13 +1007,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   return (
     <>
       <Card padding="none">
-        <div
-          className="p-4 sm:p-5 border-b"
-          style={{ borderColor: 'var(--theme-border-secondary)' }}
-        >
+        <div className="p-4 sm:p-5 border-b border-themed-secondary">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <h2 className="text-lg font-semibold" style={{ color: 'var(--theme-text-primary)' }}>
+              <h2 className="text-lg font-semibold text-themed-primary">
                 Active Sessions
               </h2>
               <HelpPopover
@@ -1223,11 +1070,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         <div className="p-4 sm:p-5">
           {loading && (
             <div className="text-center py-12">
-              <Loader2
-                className="w-8 h-8 animate-spin mx-auto"
-                style={{ color: 'var(--theme-primary)' }}
-              />
-              <p className="text-sm mt-3" style={{ color: 'var(--theme-text-muted)' }}>
+              <Loader2 className="w-8 h-8 animate-spin mx-auto text-themed-accent" />
+              <p className="text-sm mt-3 text-themed-muted">
                 Loading sessions...
               </p>
             </div>
@@ -1235,16 +1079,13 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
           {!loading && sessions.length === 0 && (
             <div className="text-center py-12">
-              <div
-                className="w-16 h-16 mx-auto mb-4 rounded-xl flex items-center justify-center"
-                style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-              >
-                <Users className="w-8 h-8" style={{ color: 'var(--theme-text-muted)' }} />
+              <div className="w-16 h-16 mx-auto mb-4 rounded-xl flex items-center justify-center bg-themed-tertiary">
+                <Users className="w-8 h-8 text-themed-muted" />
               </div>
-              <p className="font-medium" style={{ color: 'var(--theme-text-secondary)' }}>
+              <p className="font-medium text-themed-secondary">
                 No active sessions
               </p>
-              <p className="text-sm mt-1" style={{ color: 'var(--theme-text-muted)' }}>
+              <p className="text-sm mt-1 text-themed-muted">
                 Sessions will appear here when users connect
               </p>
             </div>
@@ -1257,10 +1098,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
         {/* Pagination */}
         {!loading && totalPages > 1 && (
-          <div
-            className="px-4 sm:px-5 py-3 border-t"
-            style={{ borderColor: 'var(--theme-border-secondary)' }}
-          >
+          <div className="px-4 sm:px-5 py-3 border-t border-themed-secondary">
             <Pagination
               currentPage={currentPage}
               totalPages={totalPages}
@@ -1441,11 +1279,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
           {loadingPreferences && (
             <div className="text-center py-8">
-              <Loader2
-                className="w-8 h-8 animate-spin mx-auto"
-                style={{ color: 'var(--theme-text-muted)' }}
-              />
-              <p className="text-sm mt-2" style={{ color: 'var(--theme-text-secondary)' }}>
+              <Loader2 className="w-8 h-8 animate-spin mx-auto text-themed-muted" />
+              <p className="text-sm mt-2 text-themed-secondary">
                 Loading preferences...
               </p>
             </div>
@@ -1468,28 +1303,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                           selectedTheme: null
                         })
                       }
-                      className="text-xs px-2 py-0.5 rounded transition-colors"
-                      style={{
-                        color: 'var(--theme-primary)',
-                        backgroundColor: 'var(--theme-bg-tertiary)'
-                      }}
-                      onMouseEnter={(e) =>
-                        (e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)')
-                      }
-                      onMouseLeave={(e) =>
-                        (e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)')
-                      }
+                      className="text-xs px-2 py-0.5 rounded transition-colors text-themed-accent bg-themed-tertiary hover:bg-themed-secondary"
                     >
                       Use Default
                     </button>
                   ) : (
-                    <span
-                      className="text-xs px-2 py-0.5 rounded"
-                      style={{
-                        color: 'var(--theme-text-muted)',
-                        backgroundColor: 'var(--theme-bg-tertiary)'
-                      }}
-                    >
+                    <span className="text-xs px-2 py-0.5 rounded text-themed-muted bg-themed-tertiary">
                       Using Default
                     </span>
                   )}
@@ -1531,28 +1350,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                             refreshRate: null
                           })
                         }
-                        className="text-xs px-2 py-0.5 rounded transition-colors"
-                        style={{
-                          color: 'var(--theme-primary)',
-                          backgroundColor: 'var(--theme-bg-tertiary)'
-                        }}
-                        onMouseEnter={(e) =>
-                          (e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)')
-                        }
-                        onMouseLeave={(e) =>
-                          (e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)')
-                        }
+                        className="text-xs px-2 py-0.5 rounded transition-colors text-themed-accent bg-themed-tertiary hover:bg-themed-secondary"
                       >
                         Use Default
                       </button>
                     ) : (
-                      <span
-                        className="text-xs px-2 py-0.5 rounded"
-                        style={{
-                          color: 'var(--theme-text-muted)',
-                          backgroundColor: 'var(--theme-bg-tertiary)'
-                        }}
-                      >
+                      <span className="text-xs px-2 py-0.5 rounded text-themed-muted bg-themed-tertiary">
                         Using Default
                       </span>
                     )}
@@ -1578,15 +1381,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
               {/* Prefill Access (Guest Users Only) */}
               {editingSession && editingSession.type === 'guest' && !editingSession.isRevoked && !editingSession.isExpired && (
-                <div
-                  className="p-4 rounded-lg"
-                  style={{
-                    backgroundColor: 'var(--theme-bg-tertiary)',
-                    border: '1px solid var(--theme-border-secondary)'
-                  }}
-                >
+                <div className="p-4 rounded-lg bg-themed-tertiary border border-themed-secondary">
                   <div className="flex items-center gap-2 mb-3">
-                    <Download className="w-4 h-4" style={{ color: 'var(--theme-primary)' }} />
+                    <Download className="w-4 h-4 text-themed-accent" />
                     <h4 className="text-sm font-medium text-themed-primary">Prefill Access</h4>
                   </div>
                   <p className="text-xs text-themed-muted mb-3">
@@ -1596,13 +1393,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     <div>
                       {editingSession.prefillEnabled && !editingSession.isPrefillExpired ? (
                         <div className="flex items-center gap-2">
-                          <span
-                            className="px-2 py-1 text-xs rounded-full font-medium"
-                            style={{
-                              backgroundColor: 'var(--theme-success-bg)',
-                              color: 'var(--theme-success-text)'
-                            }}
-                          >
+                          <span className="px-2 py-1 text-xs rounded-full font-medium status-badge-success">
                             Enabled
                           </span>
                           {editingSession.prefillExpiresAt && (
@@ -1612,23 +1403,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                           )}
                         </div>
                       ) : editingSession.isPrefillExpired ? (
-                        <span
-                          className="px-2 py-1 text-xs rounded-full font-medium"
-                          style={{
-                            backgroundColor: 'var(--theme-warning-bg)',
-                            color: 'var(--theme-warning-text)'
-                          }}
-                        >
+                        <span className="px-2 py-1 text-xs rounded-full font-medium status-badge-warning">
                           Expired
                         </span>
                       ) : (
-                        <span
-                          className="px-2 py-1 text-xs rounded-full font-medium"
-                          style={{
-                            backgroundColor: 'var(--theme-bg-secondary)',
-                            color: 'var(--theme-text-muted)'
-                          }}
-                        >
+                        <span className="px-2 py-1 text-xs rounded-full font-medium bg-themed-secondary text-themed-muted">
                           Disabled
                         </span>
                       )}
@@ -1663,8 +1442,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                         sharpCorners: e.target.checked
                       })
                     }
-                    className="w-4 h-4 rounded"
-                    style={{ accentColor: 'var(--theme-primary)' }}
+                    className="w-4 h-4 rounded accent-themed"
                   />
                   <span className="text-sm text-themed-secondary">Sharp Corners</span>
                 </label>
@@ -1679,8 +1457,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                         disableTooltips: !e.target.checked
                       })
                     }
-                    className="w-4 h-4 rounded"
-                    style={{ accentColor: 'var(--theme-primary)' }}
+                    className="w-4 h-4 rounded accent-themed"
                   />
                   <span className="text-sm text-themed-secondary">Tooltips</span>
                 </label>
@@ -1697,8 +1474,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                             disableStickyNotifications: !e.target.checked
                           })
                         }
-                        className="w-4 h-4 rounded"
-                        style={{ accentColor: 'var(--theme-primary)' }}
+                        className="w-4 h-4 rounded accent-themed"
                       />
                       <div className="flex flex-col">
                         <span className="text-sm text-themed-secondary">Sticky Notifications</span>
@@ -1718,8 +1494,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                             picsAlwaysVisible: e.target.checked
                           })
                         }
-                        className="w-4 h-4 rounded"
-                        style={{ accentColor: 'var(--theme-primary)' }}
+                        className="w-4 h-4 rounded accent-themed"
                       />
                       <div className="flex flex-col">
                         <span className="text-sm text-themed-secondary">Static Notifications</span>
@@ -1741,8 +1516,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                         showDatasourceLabels: e.target.checked
                       })
                     }
-                    className="w-4 h-4 rounded"
-                    style={{ accentColor: 'var(--theme-primary)' }}
+                    className="w-4 h-4 rounded accent-themed"
                   />
                   <div className="flex flex-col">
                     <span className="text-sm text-themed-secondary">Datasource Labels</span>
@@ -1772,28 +1546,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                             allowedTimeFormats: undefined
                           })
                         }
-                        className="text-xs px-2 py-0.5 rounded transition-colors"
-                        style={{
-                          color: 'var(--theme-primary)',
-                          backgroundColor: 'var(--theme-bg-tertiary)'
-                        }}
-                        onMouseEnter={(e) =>
-                          (e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)')
-                        }
-                        onMouseLeave={(e) =>
-                          (e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)')
-                        }
+                        className="text-xs px-2 py-0.5 rounded transition-colors text-themed-accent bg-themed-tertiary hover:bg-themed-secondary"
                       >
                         Use Default
                       </button>
                     ) : (
-                      <span
-                        className="text-xs px-2 py-0.5 rounded"
-                        style={{
-                          color: 'var(--theme-text-muted)',
-                          backgroundColor: 'var(--theme-bg-tertiary)'
-                        }}
-                      >
+                      <span className="text-xs px-2 py-0.5 rounded text-themed-muted bg-themed-tertiary">
                         Using Default
                       </span>
                     )}
@@ -1843,8 +1601,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                         showYearInDates: e.target.checked
                       })
                     }
-                    className="w-4 h-4 rounded"
-                    style={{ accentColor: 'var(--theme-primary)' }}
+                    className="w-4 h-4 rounded accent-themed"
                   />
                   <div className="flex flex-col">
                     <span className="text-sm text-themed-secondary">Always Show Year</span>
@@ -1858,8 +1615,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           )}
 
           <div
-            className="flex justify-end space-x-3 pt-4 border-t"
-            style={{ borderColor: 'var(--theme-border-secondary)' }}
+            className="flex justify-end space-x-3 pt-4 border-t border-themed-secondary"
           >
             <Button
               variant="default"

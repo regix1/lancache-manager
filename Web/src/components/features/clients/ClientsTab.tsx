@@ -102,13 +102,7 @@ const ClientCard: React.FC<ClientRowProps> = ({ client }) => {
     : undefined;
 
   return (
-    <div
-      className="p-4 rounded-lg border"
-      style={{
-        backgroundColor: 'var(--theme-bg-secondary)',
-        borderColor: 'var(--theme-border-primary)'
-      }}
-    >
+    <div className="p-4 rounded-lg border bg-themed-secondary border-themed-primary">
       {/* Header: IP/Name and Hit Rate */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
@@ -164,7 +158,7 @@ const ClientCard: React.FC<ClientRowProps> = ({ client }) => {
       </div>
 
       {/* Footer: Last Activity */}
-      <div className="mt-3 pt-2 border-t" style={{ borderColor: 'var(--theme-border-primary)' }}>
+      <div className="mt-3 pt-2 border-t border-themed-primary">
         <span className="text-themed-muted text-xs">Last Activity: {formattedLastActivity}</span>
       </div>
     </div>

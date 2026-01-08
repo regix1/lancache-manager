@@ -108,11 +108,8 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
     <div className="space-y-5">
       {/* Header */}
       <div className="flex flex-col items-center text-center">
-        <div
-          className="w-14 h-14 rounded-full flex items-center justify-center mb-3"
-          style={{ backgroundColor: 'var(--theme-steam-bg, var(--theme-primary)/10)' }}
-        >
-          <Key className="w-7 h-7" style={{ color: 'var(--theme-steam, var(--theme-primary))' }} />
+        <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-primary-subtle">
+          <Key className="w-7 h-7 icon-primary" />
         </div>
         <h3 className="text-lg font-semibold text-themed-primary mb-1">Steam Web API Key</h3>
         <p className="text-sm text-themed-secondary max-w-md">
@@ -121,10 +118,7 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
       </div>
 
       {/* Instructions */}
-      <div
-        className="p-4 rounded-lg"
-        style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-      >
+      <div className="p-4 rounded-lg bg-themed-tertiary">
         <p className="text-sm font-medium text-themed-primary mb-2">How to get your API key:</p>
         <ol className="text-sm text-themed-secondary space-y-1.5 list-decimal list-inside">
           <li>
@@ -166,20 +160,16 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
       {/* Test Result */}
       {testResult && (
         <div
-          className="p-3 rounded-lg flex items-start gap-3"
-          style={{
-            backgroundColor: testResult.valid ? 'var(--theme-success-bg)' : 'var(--theme-error-bg)'
-          }}
+          className={`p-3 rounded-lg flex items-start gap-3 ${
+            testResult.valid ? 'bg-themed-success' : 'bg-themed-error'
+          }`}
         >
           {testResult.valid ? (
-            <CheckCircle className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--theme-success)' }} />
+            <CheckCircle className="w-5 h-5 flex-shrink-0 icon-success" />
           ) : (
-            <XCircle className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--theme-error)' }} />
+            <XCircle className="w-5 h-5 flex-shrink-0 icon-error" />
           )}
-          <p
-            className="text-sm"
-            style={{ color: testResult.valid ? 'var(--theme-success-text)' : 'var(--theme-error-text)' }}
-          >
+          <p className={`text-sm ${testResult.valid ? 'text-themed-success' : 'text-themed-error'}`}>
             {testResult.message}
           </p>
         </div>
@@ -187,7 +177,7 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
 
       {/* Security Note */}
       <div className="flex items-start gap-2 text-xs text-themed-muted">
-        <Shield className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-success)' }} />
+        <Shield className="w-4 h-4 flex-shrink-0 mt-0.5 icon-success" />
         <p>Your API key is encrypted and stored securely using Microsoft Data Protection API.</p>
       </div>
 

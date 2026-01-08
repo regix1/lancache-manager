@@ -75,16 +75,16 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
           {/* Internet Connectivity */}
           <div className="flex items-center gap-2">
             {diagnostics.internetConnectivity ? (
-              <CheckCircle2 className="h-4 w-4 flex-shrink-0" style={{ color: 'var(--theme-success)' }} />
+              <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[var(--theme-success)]" />
             ) : (
-              <XCircle className="h-4 w-4 flex-shrink-0" style={{ color: 'var(--theme-error)' }} />
+              <XCircle className="h-4 w-4 flex-shrink-0 text-[var(--theme-error)]" />
             )}
             <Globe className="h-4 w-4 text-themed-muted flex-shrink-0" />
             <span className="text-sm text-themed-primary">Internet connectivity</span>
             {diagnostics.internetConnectivity ? (
               <span className="text-xs text-themed-muted ml-auto">OK</span>
             ) : (
-              <span className="text-xs ml-auto" style={{ color: 'var(--theme-error)' }}>
+              <span className="text-xs ml-auto text-[var(--theme-error)]">
                 Failed
               </span>
             )}
@@ -92,13 +92,7 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
 
           {/* Internet Error Details */}
           {!diagnostics.internetConnectivity && diagnostics.internetConnectivityError && (
-            <div
-              className="ml-6 text-xs p-2 rounded"
-              style={{
-                backgroundColor: 'var(--theme-error-bg)',
-                color: 'var(--theme-error-text)'
-              }}
-            >
+            <div className="ml-6 text-xs p-2 rounded bg-[var(--theme-error-bg)] text-[var(--theme-error-text)]">
               {diagnostics.internetConnectivityError}
               <div className="mt-1 text-themed-muted">
                 Try setting <code className="px-1 py-0.5 rounded bg-themed-tertiary">Prefill__NetworkMode=bridge</code> in your docker-compose.yml
@@ -112,14 +106,14 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
               <div className="flex items-center gap-2">
                 {result.success ? (
                   result.isPrivateIp ? (
-                    <CheckCircle2 className="h-4 w-4 flex-shrink-0" style={{ color: 'var(--theme-success)' }} />
+                    <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[var(--theme-success)]" />
                   ) : diagnostics.useHostNetworking ? (
-                    <Info className="h-4 w-4 flex-shrink-0" style={{ color: 'var(--theme-info)' }} />
+                    <Info className="h-4 w-4 flex-shrink-0 text-[var(--theme-info)]" />
                   ) : (
-                    <AlertTriangle className="h-4 w-4 flex-shrink-0" style={{ color: 'var(--theme-warning)' }} />
+                    <AlertTriangle className="h-4 w-4 flex-shrink-0 text-[var(--theme-warning)]" />
                   )
                 ) : (
-                  <XCircle className="h-4 w-4 flex-shrink-0" style={{ color: 'var(--theme-error)' }} />
+                  <XCircle className="h-4 w-4 flex-shrink-0 text-[var(--theme-error)]" />
                 )}
                 <Server className="h-4 w-4 text-themed-muted flex-shrink-0" />
                 <span className="text-sm text-themed-primary truncate" title={result.domain}>
@@ -139,7 +133,7 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
                     {result.resolvedIp}
                   </span>
                 ) : (
-                  <span className="text-xs ml-auto" style={{ color: 'var(--theme-error)' }}>
+                  <span className="text-xs ml-auto text-[var(--theme-error)]">
                     Not resolved
                   </span>
                 )}
@@ -175,13 +169,7 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
 
               {/* DNS Error Details */}
               {!result.success && result.error && (
-                <div
-                  className="ml-6 text-xs p-2 rounded"
-                  style={{
-                    backgroundColor: 'var(--theme-error-bg)',
-                    color: 'var(--theme-error-text)'
-                  }}
-                >
+                <div className="ml-6 text-xs p-2 rounded bg-[var(--theme-error-bg)] text-[var(--theme-error-text)]">
                   {result.error}
                 </div>
               )}

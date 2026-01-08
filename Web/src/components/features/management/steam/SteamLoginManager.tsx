@@ -206,10 +206,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
         )}
 
         {/* Main auth mode selector */}
-        <div
-          className={`p-4 rounded-lg mb-4 ${steamAuthDisabled ? 'opacity-50' : ''}`}
-          style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-        >
+        <div className={`p-4 rounded-lg mb-4 bg-themed-tertiary ${steamAuthDisabled ? 'opacity-50' : ''}`}>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex-1 min-w-0">
               <p className="text-themed-primary text-sm font-medium mb-1">
@@ -250,10 +247,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
         </div>
 
         {/* Configuration section */}
-        <div
-          className={`p-4 rounded-lg ${steamAuthDisabled ? 'opacity-50' : ''}`}
-          style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-        >
+        <div className={`p-4 rounded-lg bg-themed-tertiary ${steamAuthDisabled ? 'opacity-50' : ''}`}>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="flex-1 min-w-0">
               <p className="text-themed-primary font-medium text-sm mb-1">
@@ -265,10 +259,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                   : 'Manually trigger depot mapping rebuild after login'}
               </p>
             </div>
-            <div
-              className="inline-flex rounded-lg p-0.5"
-              style={{ backgroundColor: 'var(--theme-bg-secondary)' }}
-            >
+            <div className="inline-flex rounded-lg p-0.5 bg-themed-secondary">
               <button
                 onClick={() => handleAutoStartPicsChange(true)}
                 disabled={loading || mockMode || steamAuthDisabled}

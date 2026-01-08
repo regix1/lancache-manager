@@ -227,21 +227,20 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       {/* Header */}
       <div className="flex flex-col items-center text-center">
         <div
-          className="w-16 h-16 rounded-full flex items-center justify-center mb-4"
-          style={{
-            backgroundColor: complete
-              ? 'var(--theme-success-bg)'
+          className={`w-16 h-16 rounded-full flex items-center justify-center mb-4 ${
+            complete
+              ? 'bg-themed-success'
               : processing
-                ? 'var(--theme-primary-bg, var(--theme-info-bg))'
-                : 'var(--theme-info-bg)'
-          }}
+                ? 'bg-themed-primary-subtle'
+                : 'bg-themed-info'
+          }`}
         >
           {complete ? (
-            <CheckCircle className="w-8 h-8" style={{ color: 'var(--theme-success)' }} />
+            <CheckCircle className="w-8 h-8 icon-success" />
           ) : processing ? (
-            <Loader2 className="w-8 h-8 animate-spin" style={{ color: 'var(--theme-primary)' }} />
+            <Loader2 className="w-8 h-8 animate-spin icon-primary" />
           ) : (
-            <FileText className="w-8 h-8" style={{ color: 'var(--theme-info)' }} />
+            <FileText className="w-8 h-8 icon-info" />
           )}
         </div>
         <h3 className="text-xl font-semibold text-themed-primary mb-1">
@@ -260,16 +259,10 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       {processing && progress && !complete && (
         <div className="space-y-4">
           <div>
-            <div
-              className="w-full rounded-full h-2.5 overflow-hidden"
-              style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-            >
+            <div className="w-full rounded-full h-2.5 overflow-hidden bg-themed-tertiary">
               <div
-                className="h-full transition-all duration-500 ease-out rounded-full"
-                style={{
-                  width: `${progressPercent}%`,
-                  backgroundColor: 'var(--theme-primary)'
-                }}
+                className="h-full transition-all duration-500 ease-out rounded-full bg-primary"
+                style={{ width: `${progressPercent}%` }}
               />
             </div>
             <p className="text-sm text-themed-secondary text-center mt-2">
@@ -277,10 +270,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
             </p>
           </div>
 
-          <div
-            className="grid grid-cols-2 gap-3 p-4 rounded-lg"
-            style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-          >
+          <div className="grid grid-cols-2 gap-3 p-4 rounded-lg bg-themed-tertiary">
             <div>
               <p className="text-xs text-themed-muted">Status</p>
               <p className="text-sm font-medium text-themed-primary">{progress.status || 'Processing...'}</p>
@@ -313,10 +303,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       {!processing && !complete && (
         <>
           {/* Info text */}
-          <div
-            className="p-4 rounded-lg"
-            style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-          >
+          <div className="p-4 rounded-lg bg-themed-tertiary">
             <p className="text-sm text-themed-secondary mb-2">
               Processing imports all log entries from the beginning to identify downloads and games.
               This can take several minutes depending on log size.
@@ -347,12 +334,11 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
               return (
                 <div
                   key={ds.name}
-                  className="rounded-lg border"
-                  style={{
-                    backgroundColor: 'var(--theme-bg-secondary)',
-                    borderColor: ds.enabled ? 'var(--theme-border-primary)' : 'var(--theme-border-secondary)',
-                    opacity: ds.enabled ? 1 : 0.6
-                  }}
+                  className={`rounded-lg border ${
+                    ds.enabled
+                      ? 'bg-themed-secondary border-themed-primary'
+                      : 'bg-themed-secondary border-themed-secondary opacity-60'
+                  }`}
                 >
                   {/* Header - clickable to expand */}
                   <div
@@ -363,13 +349,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
                       <div className="flex items-center gap-2">
                         <span className="font-semibold text-themed-primary">{ds.name}</span>
                         {!ds.enabled && (
-                          <span
-                            className="px-2 py-0.5 text-xs rounded font-medium"
-                            style={{
-                              backgroundColor: 'var(--theme-bg-tertiary)',
-                              color: 'var(--theme-text-muted)'
-                            }}
-                          >
+                          <span className="px-2 py-0.5 text-xs rounded font-medium bg-themed-tertiary text-themed-muted">
                             Disabled
                           </span>
                         )}
@@ -379,18 +359,18 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
                           <Tooltip content={ds.cacheWritable ? 'Cache is writable' : 'Cache is read-only'} position="top">
                             <span className="flex items-center gap-1 text-xs">
                               {ds.cacheWritable ? (
-                                <CheckCircle className="w-3.5 h-3.5" style={{ color: 'var(--theme-success-text)' }} />
+                                <CheckCircle className="w-3.5 h-3.5 text-themed-success" />
                               ) : (
-                                <XCircle className="w-3.5 h-3.5" style={{ color: 'var(--theme-warning)' }} />
+                                <XCircle className="w-3.5 h-3.5 icon-warning" />
                               )}
                             </span>
                           </Tooltip>
                           <Tooltip content={ds.logsWritable ? 'Logs are writable' : 'Logs are read-only'} position="top">
                             <span className="flex items-center gap-1 text-xs">
                               {ds.logsWritable ? (
-                                <CheckCircle className="w-3.5 h-3.5" style={{ color: 'var(--theme-success-text)' }} />
+                                <CheckCircle className="w-3.5 h-3.5 text-themed-success" />
                               ) : (
-                                <XCircle className="w-3.5 h-3.5" style={{ color: 'var(--theme-warning)' }} />
+                                <XCircle className="w-3.5 h-3.5 icon-warning" />
                               )}
                             </span>
                           </Tooltip>
@@ -406,7 +386,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
 
                   {/* Expanded details */}
                   {isExpanded && (
-                    <div className="px-3 pb-3 border-t" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+                    <div className="px-3 pb-3 border-t border-themed-secondary">
                       <div className="py-2 space-y-1">
                         <div className="flex items-center gap-2 text-xs">
                           <FolderOpen className="w-3.5 h-3.5 text-themed-muted flex-shrink-0" />
@@ -453,11 +433,8 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
 
       {/* Success */}
       {complete && (
-        <div
-          className="p-4 rounded-lg text-center"
-          style={{ backgroundColor: 'var(--theme-success-bg)' }}
-        >
-          <p className="text-sm" style={{ color: 'var(--theme-success-text)' }}>
+        <div className="p-4 rounded-lg text-center bg-themed-success">
+          <p className="text-sm text-themed-success">
             Log processing complete! Click Continue to proceed.
           </p>
         </div>
@@ -465,11 +442,8 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
 
       {/* Error */}
       {error && (
-        <div
-          className="p-3 rounded-lg"
-          style={{ backgroundColor: 'var(--theme-error-bg)' }}
-        >
-          <p className="text-sm" style={{ color: 'var(--theme-error-text)' }}>{error}</p>
+        <div className="p-3 rounded-lg bg-themed-error">
+          <p className="text-sm text-themed-error">{error}</p>
         </div>
       )}
 

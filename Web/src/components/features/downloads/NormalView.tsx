@@ -209,7 +209,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
               style={{ color: placeholderIconColor, opacity: 0.75 }}
             />
           ) : isEpic ? (
-            <EpicIcon size={placeholderIconSize} style={{ opacity: 0.75 }} />
+            <EpicIcon size={placeholderIconSize} className="opacity-75" />
           ) : isEA ? (
             <EAIcon
               size={placeholderIconSize}
@@ -281,12 +281,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
               {hasMultipleDatasources && showDatasourceLabels && group.downloads[0]?.datasource && (
                 <Tooltip content={`Datasource: ${group.downloads[0].datasource}`}>
                   <span
-                    className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2 sm:px-2.5 py-0.5 sm:py-1 text-xs'} font-medium rounded-md flex-shrink-0`}
-                    style={{
-                      backgroundColor: 'var(--theme-bg-tertiary)',
-                      color: 'var(--theme-text-secondary)',
-                      border: '1px solid var(--theme-border-secondary)'
-                    }}
+                    className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2 sm:px-2.5 py-0.5 sm:py-1 text-xs'} font-medium rounded-md flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]`}
                   >
                     {group.downloads[0].datasource}
                   </span>
@@ -427,11 +422,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                   href={storeLink}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 text-sm px-4 py-2 rounded-lg font-semibold transition-all duration-200 shadow-sm hover:shadow-md"
-                  style={{
-                    backgroundColor: 'var(--theme-primary)',
-                    color: 'var(--theme-button-text)'
-                  }}
+                  className="inline-flex items-center gap-2 text-sm px-4 py-2 rounded-lg font-semibold transition-all duration-200 shadow-sm hover:shadow-md bg-[var(--theme-primary)] text-[var(--theme-button-text)]"
                   title="View in Steam Store"
                 >
                   <ExternalLink size={18} />
@@ -442,8 +433,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
 
             {/* Summary Stats Banner */}
             <div
-              className="rounded-xl border p-3 sm:p-4 bg-[var(--theme-bg-tertiary)]/50"
-              style={{ borderColor: 'var(--theme-border-secondary)' }}
+              className="rounded-xl border border-[var(--theme-border-secondary)] p-3 sm:p-4 bg-[var(--theme-bg-tertiary)]/50"
             >
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
                 <div className="text-center">
@@ -477,12 +467,10 @@ const GroupCard: React.FC<GroupCardProps> = ({
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
               {/* Cache Performance Card */}
               <div
-                className="rounded-xl border p-4 sm:p-5 bg-[var(--theme-bg-secondary)]"
-                style={{ borderColor: 'var(--theme-border-primary)' }}
+                className="rounded-xl border border-[var(--theme-border-primary)] p-4 sm:p-5 bg-[var(--theme-bg-secondary)]"
               >
                 <h4
-                  className="text-base font-bold text-[var(--theme-text-primary)] mb-4 pb-2 border-b"
-                  style={{ borderColor: 'var(--theme-border-secondary)' }}
+                  className="text-base font-bold text-[var(--theme-text-primary)] mb-4 pb-2 border-b border-[var(--theme-border-secondary)]"
                 >
                   Cache Performance
                 </h4>
@@ -500,8 +488,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                     </span>
                   </div>
                   <div
-                    className="flex justify-between items-center pt-2 border-t"
-                    style={{ borderColor: 'var(--theme-border-secondary)' }}
+                    className="flex justify-between items-center pt-2 border-t border-[var(--theme-border-secondary)]"
                   >
                     <span className="text-sm text-themed-muted font-medium">Efficiency Rate</span>
                     <span className="text-base font-bold cache-hit">
@@ -513,12 +500,10 @@ const GroupCard: React.FC<GroupCardProps> = ({
 
               {/* Activity Card */}
               <div
-                className="rounded-xl border p-4 sm:p-5 bg-[var(--theme-bg-secondary)]"
-                style={{ borderColor: 'var(--theme-border-primary)' }}
+                className="rounded-xl border border-[var(--theme-border-primary)] p-4 sm:p-5 bg-[var(--theme-bg-secondary)]"
               >
                 <h4
-                  className="text-base font-bold text-[var(--theme-text-primary)] mb-4 pb-2 border-b"
-                  style={{ borderColor: 'var(--theme-border-secondary)' }}
+                  className="text-base font-bold text-[var(--theme-text-primary)] mb-4 pb-2 border-b border-[var(--theme-border-secondary)]"
                 >
                   Activity Timeline
                 </h4>
@@ -542,8 +527,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                     </span>
                   </div>
                   <div
-                    className="flex justify-between items-center pt-2 border-t"
-                    style={{ borderColor: 'var(--theme-border-secondary)' }}
+                    className="flex justify-between items-center pt-2 border-t border-[var(--theme-border-secondary)]"
                   >
                     <span className="text-sm text-themed-muted font-medium">Last Activity</span>
                     <span className="text-sm font-bold text-[var(--theme-text-primary)]">
@@ -611,7 +595,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                       </span>
                     </div>
                     {/* Group sessions by client IP - with min height to prevent layout shift */}
-                    <div style={{ minHeight: '600px' }}>
+                    <div className="min-h-[600px]">
                       {Object.entries(
                         paginatedDownloads.reduce(
                           (acc, d) => {
@@ -670,8 +654,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                               return (
                                 <div
                                   key={download.id}
-                                  className="rounded-lg border p-4 hover:bg-[var(--theme-bg-tertiary)]/30 transition-all duration-200 ml-4"
-                                  style={{ borderColor: 'var(--theme-border-secondary)' }}
+                                  className="rounded-lg border border-[var(--theme-border-secondary)] p-4 hover:bg-[var(--theme-bg-tertiary)]/30 transition-all duration-200 ml-4"
                                 >
                                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-center">
                                     {/* Time Info */}
@@ -756,8 +739,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                     {/* Pagination Controls */}
                     {totalPages > 1 && (
                       <div
-                        className="flex items-center justify-center gap-2 pt-3 border-t"
-                        style={{ borderColor: 'var(--theme-border-secondary)' }}
+                        className="flex items-center justify-center gap-2 pt-3 border-t border-[var(--theme-border-secondary)]"
                       >
                         <Tooltip content="Previous page (hold to skip multiple)">
                           <button
@@ -767,19 +749,14 @@ const GroupCard: React.FC<GroupCardProps> = ({
                             onPointerCancel={handlePointerHoldEnd}
                             onLostPointerCapture={stopHoldTimer}
                             disabled={currentPage === 1}
-                            className="p-1.5 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--theme-bg-tertiary)]/80"
-                            style={{
-                              backgroundColor: 'var(--theme-bg-tertiary)',
-                              color: 'var(--theme-text-primary)'
-                            }}
+                            className="p-1.5 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--theme-bg-tertiary)]/80 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)]"
                           >
                             <ChevronLeft size={14} />
                           </button>
                         </Tooltip>
 
                         <span
-                          className="text-xs text-[var(--theme-text-secondary)] font-medium font-mono px-2"
-                          style={{ minWidth: '50px', textAlign: 'center' }}
+                          className="text-xs text-[var(--theme-text-secondary)] font-medium font-mono px-2 min-w-[50px] text-center"
                         >
                           {currentPage} / {totalPages}
                         </span>
@@ -792,11 +769,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                             onPointerCancel={handlePointerHoldEnd}
                             onLostPointerCapture={stopHoldTimer}
                             disabled={currentPage === totalPages}
-                            className="p-1.5 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--theme-bg-tertiary)]/80"
-                            style={{
-                              backgroundColor: 'var(--theme-bg-tertiary)',
-                              color: 'var(--theme-text-primary)'
-                            }}
+                            className="p-1.5 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--theme-bg-tertiary)]/80 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)]"
                           >
                             <ChevronRight size={14} />
                           </button>
@@ -898,8 +871,7 @@ const NormalView: React.FC<NormalViewProps> = ({
               header = (
                 <div className="mb-4 mt-6 first:mt-0">
                   <h2
-                    className="text-lg font-bold text-themed-primary border-b pb-2"
-                    style={{ borderColor: 'var(--theme-border-secondary)' }}
+                    className="text-lg font-bold text-themed-primary border-b border-[var(--theme-border-secondary)] pb-2"
                   >
                     {labels.multipleDownloads}
                   </h2>
@@ -913,8 +885,7 @@ const NormalView: React.FC<NormalViewProps> = ({
               header = (
                 <div className="mb-4 mt-6 first:mt-0">
                   <h2
-                    className="text-lg font-bold text-themed-primary border-b pb-2"
-                    style={{ borderColor: 'var(--theme-border-secondary)' }}
+                    className="text-lg font-bold text-themed-primary border-b border-[var(--theme-border-secondary)] pb-2"
                   >
                     {labels.singleDownloads}
                   </h2>
@@ -929,8 +900,7 @@ const NormalView: React.FC<NormalViewProps> = ({
             header = (
               <div className="mb-4 mt-6 first:mt-0">
                 <h2
-                  className="text-lg font-bold text-themed-primary border-b pb-2"
-                  style={{ borderColor: 'var(--theme-border-secondary)' }}
+                  className="text-lg font-bold text-themed-primary border-b border-[var(--theme-border-secondary)] pb-2"
                 >
                   {labels.individual}
                 </h2>

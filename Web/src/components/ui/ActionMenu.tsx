@@ -159,13 +159,10 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
       {isOpen && createPortal(
         <div
           ref={dropdownRef}
-          className={`fixed ${width} bg-themed-secondary rounded-lg shadow-xl overflow-hidden`}
+          className={`fixed ${width} bg-themed-secondary rounded-lg shadow-xl overflow-hidden border border-themed-primary z-[9999] animate-[dropdownSlide_0.15s_ease-out]`}
           style={{
             top: position.top,
             left: position.left,
-            border: '1px solid var(--theme-border-primary)',
-            animation: 'dropdownSlide 0.15s ease-out',
-            zIndex: 9999
           }}
         >
           {children}
@@ -195,7 +192,7 @@ export const ActionMenuItem: React.FC<ActionMenuItemProps> = ({
 };
 
 export const ActionMenuDivider: React.FC = () => {
-  return <div className="border-t my-1" style={{ borderColor: 'var(--theme-border-primary)' }} />;
+  return <div className="border-t border-themed-primary my-1" />;
 };
 
 export const ActionMenuDangerItem: React.FC<ActionMenuDangerItemProps> = ({
@@ -206,17 +203,7 @@ export const ActionMenuDangerItem: React.FC<ActionMenuDangerItemProps> = ({
   return (
     <button
       onClick={onClick}
-      className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-all duration-150"
-      style={{
-        color: 'var(--theme-error-text)',
-        backgroundColor: 'transparent'
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.backgroundColor = 'var(--theme-error-bg)';
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.backgroundColor = 'transparent';
-      }}
+      className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-all duration-150 text-themed-error bg-transparent hover:bg-[var(--theme-error-bg)]"
     >
       {icon}
       {children}

@@ -30,14 +30,7 @@ const Footer: React.FC = () => {
   const version = use(getVersionPromise());
 
   return (
-    <footer
-      className="py-4 text-center text-sm border-t"
-      style={{
-        backgroundColor: 'var(--theme-nav-bg)',
-        borderColor: 'var(--theme-nav-border)',
-        color: 'var(--theme-text-secondary)'
-      }}
-    >
+    <footer className="py-4 text-center text-sm border-t bg-themed-nav border-themed-nav text-themed-secondary">
       <div className="container mx-auto px-4">
         <p>LANCache Manager v{version}</p>
       </div>

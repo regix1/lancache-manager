@@ -142,10 +142,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
           <div className="flex items-center gap-2 text-xs text-themed-muted">
             {theme.meta.author && <span>by {theme.meta.author}</span>}
             {theme.meta.version && (
-              <span
-                className="px-1.5 py-0.5 rounded"
-                style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-              >
+              <span className="px-1.5 py-0.5 rounded bg-themed-tertiary">
                 v{theme.meta.version}
               </span>
             )}

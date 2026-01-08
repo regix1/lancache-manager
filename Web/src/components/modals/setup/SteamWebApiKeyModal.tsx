@@ -113,11 +113,8 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
       onClose={handleClose}
       title={
         <div className="flex items-center gap-3">
-          <div
-            className="p-2 rounded-lg"
-            style={{ backgroundColor: 'var(--theme-info-bg)' }}
-          >
-            <Key className="w-6 h-6" style={{ color: 'var(--theme-info)' }} />
+          <div className="p-2 rounded-lg bg-info">
+            <Key className="w-6 h-6 text-info" />
           </div>
           <span>Configure Steam Web API Key</span>
         </div>
@@ -126,20 +123,14 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
     >
       <div className="space-y-4">
         {/* Info Section */}
-        <div
-          className="rounded-lg p-4 border"
-          style={{
-            backgroundColor: 'var(--theme-info-bg)',
-            borderColor: 'var(--theme-info)'
-          }}
-        >
+        <div className="rounded-lg p-4 border bg-info border-info">
           <p className="text-sm text-themed-secondary mb-3">
             The Steam Web API V1 requires an API key for access. This is only needed if V2 becomes
             unavailable.
           </p>
 
           <div className="space-y-2 text-sm text-themed-secondary">
-            <p className="font-medium" style={{ color: 'var(--theme-info-text)' }}>
+            <p className="font-medium text-info-text">
               Steps to get your API key:
             </p>
             <ol className="list-decimal list-inside space-y-1 ml-2">
@@ -149,8 +140,7 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
                   href="https://steamcommunity.com/dev/apikey"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 font-medium hover:underline"
-                  style={{ color: 'var(--theme-info-text)' }}
+                  className="inline-flex items-center gap-1 font-medium hover:underline text-info-text"
                 >
                   steamcommunity.com/dev/apikey
                   <ExternalLink className="w-3 h-3" />
@@ -183,13 +173,7 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
               setTestResult(null); // Clear test result when typing
             }}
             placeholder="Enter your Steam Web API key..."
-            className="w-full px-4 py-2 rounded-lg border bg-themed-primary text-themed-primary"
-            style={{
-              borderColor: 'var(--theme-input-border)',
-              outline: 'none'
-            }}
-            onFocus={(e) => (e.target.style.borderColor = 'var(--theme-input-focus)')}
-            onBlur={(e) => (e.target.style.borderColor = 'var(--theme-input-border)')}
+            className="w-full px-4 py-2 rounded-lg themed-input"
           />
         </div>
 

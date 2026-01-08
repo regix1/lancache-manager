@@ -206,10 +206,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
   return (
     <div className="space-y-3">
       {/* Navigation Bar */}
-      <div
-        className="flex items-center gap-2 p-2 rounded-lg"
-        style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-      >
+      <div className="flex items-center gap-2 p-2 rounded-lg bg-themed-tertiary">
         <Button
           onClick={handleGoHome}
           size="xs"
@@ -273,10 +270,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
 
       {/* Items List */}
       {!loading && displayItems.length > 0 && (
-        <div
-          className="rounded-lg border overflow-hidden"
-          style={{ borderColor: 'var(--theme-border-secondary)' }}
-        >
+        <div className="rounded-lg border overflow-hidden border-themed-secondary">
           <CustomScrollbar maxHeight="280px">
             <div className="p-1.5 space-y-0.5">
               {displayItems.map((item, index) => (
@@ -295,10 +289,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
 
       {/* Empty State */}
       {!loading && displayItems.length === 0 && !error && currentPath && (
-        <div
-          className="text-center py-10 rounded-lg"
-          style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-        >
+        <div className="text-center py-10 rounded-lg bg-themed-tertiary">
           <Folder className="w-10 h-10 mx-auto mb-2 text-themed-muted opacity-50" />
           <p className="text-sm text-themed-muted">No directories or .db files found</p>
         </div>

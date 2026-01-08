@@ -172,11 +172,7 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
             {affects.map((item, idx) => (
               <span
                 key={idx}
-                className="text-xs px-1.5 py-0.5 rounded"
-                style={{
-                  backgroundColor: 'var(--theme-bg-hover)',
-                  color: 'var(--theme-text-secondary)'
-                }}
+                className="text-xs px-1.5 py-0.5 rounded bg-themed-hover text-themed-secondary"
               >
                 {item}
               </span>

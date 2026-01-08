@@ -97,8 +97,7 @@ const EventCard: React.FC<EventCardProps> = ({
             <div className="flex items-center gap-2.5 mb-2">
               {/* Expand arrow */}
               <ChevronRight
-                className={`w-4 h-4 flex-shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
-                style={{ color: 'var(--theme-text-secondary)' }}
+                className={`w-4 h-4 flex-shrink-0 transition-transform duration-200 text-[var(--theme-text-secondary)] ${isExpanded ? 'rotate-90' : ''}`}
               />
 
               {/* Event color badge - pill style */}
@@ -112,37 +111,25 @@ const EventCard: React.FC<EventCardProps> = ({
                 {status === 'active' ? 'Live' : status === 'upcoming' ? 'Upcoming' : 'Ended'}
               </span>
 
-              <h3
-                className="font-semibold truncate"
-                style={{ color: 'var(--theme-text-primary)' }}
-              >
+              <h3 className="font-semibold truncate text-[var(--theme-text-primary)]">
                 {event.name}
               </h3>
             </div>
 
             {/* Description */}
             {event.description && (
-              <p
-                className="text-sm mb-3 line-clamp-2 ml-6"
-                style={{ color: 'var(--theme-text-secondary)' }}
-              >
+              <p className="text-sm mb-3 line-clamp-2 ml-6 text-[var(--theme-text-secondary)]">
                 {event.description}
               </p>
             )}
 
             {/* Meta info row */}
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 ml-6">
-              <div
-                className="flex items-center gap-1.5 text-xs"
-                style={{ color: 'var(--theme-text-muted)' }}
-              >
+              <div className="flex items-center gap-1.5 text-xs text-[var(--theme-text-muted)]">
                 <Calendar className="w-3.5 h-3.5" />
                 <span>{formatDateTime(event.startTimeUtc)}</span>
               </div>
-              <div
-                className="flex items-center gap-1.5 text-xs"
-                style={{ color: 'var(--theme-text-muted)' }}
-              >
+              <div className="flex items-center gap-1.5 text-xs text-[var(--theme-text-muted)]">
                 <Clock className="w-3.5 h-3.5" />
                 <span>{formatDuration(event.startTimeUtc, event.endTimeUtc)}</span>
               </div>
@@ -156,28 +143,20 @@ const EventCard: React.FC<EventCardProps> = ({
                 e.stopPropagation();
                 onViewStatsClick();
               }}
-              className="w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200 hover:bg-[var(--theme-bg-hover)]"
-              style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+              className="w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200 hover:bg-[var(--theme-bg-hover)] bg-[var(--theme-bg-tertiary)]"
               title="View stats on dashboard"
             >
-              <BarChart3
-                className="w-4 h-4"
-                style={{ color: 'var(--theme-text-secondary)' }}
-              />
+              <BarChart3 className="w-4 h-4 text-[var(--theme-text-secondary)]" />
             </button>
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 onEditClick();
               }}
-              className="w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200 hover:bg-[var(--theme-bg-hover)]"
-              style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+              className="w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200 hover:bg-[var(--theme-bg-hover)] bg-[var(--theme-bg-tertiary)]"
               title="Edit event"
             >
-              <Pencil
-                className="w-4 h-4"
-                style={{ color: 'var(--theme-text-secondary)' }}
-              />
+              <Pencil className="w-4 h-4 text-[var(--theme-text-secondary)]" />
             </button>
           </div>
         </div>
@@ -185,66 +164,53 @@ const EventCard: React.FC<EventCardProps> = ({
 
       {/* Expanded downloads section */}
       {isExpanded && (
-        <div
-          className="border-t px-4 py-3"
-          style={{
-            borderColor: 'var(--theme-border-secondary)',
-            backgroundColor: 'var(--theme-bg-tertiary)'
-          }}
-        >
+        <div className="border-t border-[var(--theme-border-secondary)] px-4 py-3 bg-[var(--theme-bg-tertiary)]">
           {isLoading ? (
             <div className="flex items-center justify-center py-4 gap-2">
-              <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'var(--theme-primary)' }} />
-              <span className="text-sm" style={{ color: 'var(--theme-text-secondary)' }}>
+              <Loader2 className="w-4 h-4 animate-spin text-[var(--theme-primary)]" />
+              <span className="text-sm text-[var(--theme-text-secondary)]">
                 Loading downloads...
               </span>
             </div>
           ) : groupedDownloads.length === 0 ? (
-            <p className="text-sm text-center py-4" style={{ color: 'var(--theme-text-muted)' }}>
+            <p className="text-sm text-center py-4 text-[var(--theme-text-muted)]">
               No downloads recorded during this event
             </p>
           ) : (
             <div className="space-y-2">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-medium" style={{ color: 'var(--theme-text-secondary)' }}>
+                <span className="text-xs font-medium text-[var(--theme-text-secondary)]">
                   Games downloaded during event
                 </span>
-                <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--theme-bg-secondary)', color: 'var(--theme-text-muted)' }}>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--theme-bg-secondary)] text-[var(--theme-text-muted)]">
                   {groupedDownloads.length} game{groupedDownloads.length !== 1 ? 's' : ''}
                 </span>
               </div>
               {groupedDownloads.slice(0, 10).map((game, idx) => (
                 <div
                   key={idx}
-                  className="flex items-center justify-between py-2 px-3 rounded-lg"
-                  style={{ backgroundColor: 'var(--theme-bg-secondary)' }}
+                  className="flex items-center justify-between py-2 px-3 rounded-lg bg-[var(--theme-bg-secondary)]"
                 >
                   <div className="flex items-center gap-2 min-w-0">
-                    <span
-                      className="px-1.5 py-0.5 text-[10px] font-bold rounded"
-                      style={{
-                        backgroundColor: 'var(--theme-bg-tertiary)',
-                        color: 'var(--theme-text-secondary)'
-                      }}
-                    >
+                    <span className="px-1.5 py-0.5 text-[10px] font-bold rounded bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)]">
                       {game.service.toUpperCase()}
                     </span>
-                    <span className="text-sm font-medium truncate" style={{ color: 'var(--theme-text-primary)' }}>
+                    <span className="text-sm font-medium truncate text-[var(--theme-text-primary)]">
                       {game.name}
                     </span>
                   </div>
                   <div className="flex items-center gap-3 flex-shrink-0">
-                    <span className="text-xs" style={{ color: 'var(--theme-text-muted)' }}>
+                    <span className="text-xs text-[var(--theme-text-muted)]">
                       {game.count}x
                     </span>
-                    <span className="text-sm font-semibold" style={{ color: 'var(--theme-text-primary)' }}>
+                    <span className="text-sm font-semibold text-[var(--theme-text-primary)]">
                       {formatBytes(game.totalBytes)}
                     </span>
                   </div>
                 </div>
               ))}
               {groupedDownloads.length > 10 && (
-                <p className="text-xs text-center pt-2" style={{ color: 'var(--theme-text-muted)' }}>
+                <p className="text-xs text-center pt-2 text-[var(--theme-text-muted)]">
                   +{groupedDownloads.length - 10} more games
                 </p>
               )}

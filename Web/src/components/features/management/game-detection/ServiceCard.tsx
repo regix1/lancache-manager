@@ -37,13 +37,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
   const [showAllUrls, setShowAllUrls] = useState(false);
 
   return (
-    <div
-      className="rounded-lg border"
-      style={{
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        borderColor: 'var(--theme-border-secondary)'
-      }}
-    >
+    <div className="rounded-lg border bg-themed-tertiary border-themed-secondary">
       <div className="flex items-center gap-2 p-3">
         <Button
           onClick={() => onToggleDetails(service.service_name)}
@@ -121,10 +115,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
 
       {/* Loading State for Expansion */}
       {isExpanding && (
-        <div
-          className="border-t px-3 py-4 flex items-center justify-center"
-          style={{ borderColor: 'var(--theme-border-secondary)' }}
-        >
+        <div className="border-t px-3 py-4 flex items-center justify-center border-themed-secondary">
           <div className="flex items-center gap-2 text-themed-muted">
             <Loader2 className="w-4 h-4 animate-spin" />
             <span className="text-sm">Loading details...</span>
@@ -134,10 +125,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
 
       {/* Expandable Details Section */}
       {isExpanded && !isExpanding && (
-        <div
-          className="border-t px-3 py-3 space-y-3"
-          style={{ borderColor: 'var(--theme-border-secondary)' }}
-        >
+        <div className="border-t px-3 py-3 space-y-3 border-themed-secondary">
           {/* Sample URLs */}
           {service.sample_urls.length > 0 && (
             <div>

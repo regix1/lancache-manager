@@ -58,24 +58,12 @@ const Header: React.FC<HeaderProps> = ({
           }
         }
       `}</style>
-      <header
-        className="border-b"
-        style={{
-          backgroundColor: 'var(--theme-nav-bg)',
-          borderColor: 'var(--theme-nav-border)'
-        }}
-      >
+      <header className="border-b bg-themed-nav border-themed-nav">
         <div className="container mx-auto px-4">
           {/* Desktop: Single row layout */}
           <div className="hidden md:flex items-center justify-between h-16 min-w-0">
             <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-1">
-              <div
-                className="p-1.5 sm:p-2 rounded-lg flex-shrink-0"
-                style={{
-                  backgroundColor: 'var(--theme-bg-tertiary)',
-                  position: 'relative'
-                }}
-              >
+              <div className="p-1.5 sm:p-2 rounded-lg flex-shrink-0 bg-themed-tertiary relative">
                 <div
                   style={{
                     position: 'relative',
@@ -121,37 +109,22 @@ const Header: React.FC<HeaderProps> = ({
                   {connectionStatus === 'connected' && (
                     <Tooltip content="API Status: Connected - All backend services are responding normally">
                       <div className="flex items-center">
-                        <div
-                          className="w-2 h-2 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: 'var(--theme-success)' }}
-                        ></div>
+                        <div className="w-2 h-2 rounded-full flex-shrink-0 bg-[var(--theme-success)]"></div>
                       </div>
                     </Tooltip>
                   )}
                   {connectionStatus === 'disconnected' && (
                     <Tooltip content="API Status: Disconnected - Unable to connect to backend services">
-                      <div
-                        className="flex items-center gap-1"
-                        style={{ color: 'var(--theme-error-text)' }}
-                      >
-                        <div
-                          className="w-2 h-2 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: 'var(--theme-error)' }}
-                        ></div>
+                      <div className="flex items-center gap-1 text-themed-error">
+                        <div className="w-2 h-2 rounded-full flex-shrink-0 bg-[var(--theme-error)]"></div>
                         <span className="text-xs">Disconnected</span>
                       </div>
                     </Tooltip>
                   )}
                   {connectionStatus === 'reconnecting' && (
                     <Tooltip content="API Status: Reconnecting - Attempting to restore connection to backend services">
-                      <div
-                        className="flex items-center gap-1"
-                        style={{ color: 'var(--theme-warning-text)' }}
-                      >
-                        <div
-                          className="w-2 h-2 rounded-full animate-pulse flex-shrink-0"
-                          style={{ backgroundColor: 'var(--theme-warning)' }}
-                        ></div>
+                      <div className="flex items-center gap-1 text-themed-warning">
+                        <div className="w-2 h-2 rounded-full animate-pulse flex-shrink-0 bg-[var(--theme-warning)]"></div>
                         <span className="text-xs">Reconnecting</span>
                       </div>
                     </Tooltip>
@@ -202,10 +175,7 @@ const Header: React.FC<HeaderProps> = ({
             <div className="flex items-center justify-between gap-2">
               {/* Left: Icon with status indicator */}
               <div style={{ position: 'relative' }} className="flex-shrink-0">
-                <div
-                  className="p-1.5 rounded-lg flex items-center justify-center"
-                  style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                >
+                <div className="p-1.5 rounded-lg flex items-center justify-center bg-themed-tertiary">
                   <div
                     style={{
                       position: 'relative',

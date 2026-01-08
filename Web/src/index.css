@@ -1065,6 +1065,39 @@
     color: var(--theme-info-text);
   }
 
+  .user-session-icon {
+    color: var(--theme-user-session);
+  }
+
+  .guest-session-icon {
+    color: var(--theme-guest-session);
+  }
+
+  .session-badge-user {
+    background-color: var(--theme-user-session-bg);
+    color: var(--theme-user-session);
+  }
+
+  .session-badge-guest {
+    background-color: var(--theme-guest-session-bg);
+    color: var(--theme-guest-session);
+  }
+
+  .status-badge-warning {
+    background-color: var(--theme-warning-bg);
+    color: var(--theme-warning-text);
+  }
+
+  .status-badge-error {
+    background-color: var(--theme-error-bg);
+    color: var(--theme-error-text);
+  }
+
+  .status-badge-success {
+    background-color: var(--theme-success-bg);
+    color: var(--theme-success-text);
+  }
+
   .bg-themed-primary {
     background-color: var(--theme-bg-primary);
   }
@@ -1085,8 +1118,74 @@
     background-color: var(--theme-bg-hover);
   }
 
+  .bg-themed-nav {
+    background-color: var(--theme-nav-bg);
+  }
+
+  .border-themed-nav {
+    border-color: var(--theme-nav-border);
+  }
+
+  .bg-themed-nav-mobile {
+    background-color: var(--theme-nav-mobile-menu-bg);
+  }
+
   .bg-themed-accent-subtle {
     background-color: color-mix(in srgb, var(--theme-accent) 15%, transparent);
+  }
+
+  /* Semantic state backgrounds */
+  .bg-themed-info {
+    background-color: var(--theme-info-bg);
+  }
+
+  .bg-themed-success {
+    background-color: var(--theme-success-bg);
+  }
+
+  .bg-themed-warning {
+    background-color: var(--theme-warning-bg);
+  }
+
+  .bg-themed-error {
+    background-color: var(--theme-error-bg);
+  }
+
+  .border-themed-warning {
+    border-color: var(--theme-warning);
+  }
+
+  .border-themed-secondary {
+    border-color: var(--theme-border-secondary);
+  }
+
+  .bg-themed-primary-subtle {
+    background-color: var(--theme-primary-bg, color-mix(in srgb, var(--theme-primary) 15%, transparent));
+  }
+
+  /* Semantic icon colors (for direct icon use, not text content) */
+  .icon-info {
+    color: var(--theme-info);
+  }
+
+  .icon-success {
+    color: var(--theme-success);
+  }
+
+  .icon-warning {
+    color: var(--theme-warning);
+  }
+
+  .icon-error {
+    color: var(--theme-error);
+  }
+
+  .icon-primary {
+    color: var(--theme-primary);
+  }
+
+  .icon-muted {
+    color: var(--theme-muted);
   }
 
   .border-themed-primary {
@@ -1099,6 +1198,100 @@
 
   .border-themed-focus {
     border-color: var(--theme-border-focus);
+  }
+
+  /* Shorthand semantic background classes */
+  .bg-info {
+    background-color: var(--theme-info-bg);
+  }
+
+  .bg-error {
+    background-color: var(--theme-error-bg);
+  }
+
+  .bg-warning {
+    background-color: var(--theme-warning-bg);
+  }
+
+  .bg-success {
+    background-color: var(--theme-success-bg);
+  }
+
+  .bg-primary {
+    background-color: var(--theme-primary);
+  }
+
+  .bg-themed-card {
+    background-color: var(--theme-card-bg);
+  }
+
+  /* Shorthand semantic border classes */
+  .border-info {
+    border-color: var(--theme-info);
+  }
+
+  .border-error {
+    border-color: var(--theme-error);
+  }
+
+  .border-warning {
+    border-color: var(--theme-warning);
+  }
+
+  .border-success {
+    border-color: var(--theme-success);
+  }
+
+  .border-themed {
+    border-color: var(--theme-border);
+  }
+
+  /* Shorthand semantic icon/text colors */
+  .text-info {
+    color: var(--theme-info);
+  }
+
+  .text-error {
+    color: var(--theme-error);
+  }
+
+  .text-warning {
+    color: var(--theme-warning);
+  }
+
+  .text-success {
+    color: var(--theme-success);
+  }
+
+  .text-primary {
+    color: var(--theme-primary);
+  }
+
+  .text-steam {
+    color: var(--theme-steam);
+  }
+
+  /* Semantic text content colors (for readable text in alert boxes) */
+  .text-info-text {
+    color: var(--theme-info-text);
+  }
+
+  .text-error-text {
+    color: var(--theme-error-text);
+  }
+
+  .text-warning-text {
+    color: var(--theme-warning-text);
+  }
+
+  /* Background for themed dividers */
+  .bg-themed-border-secondary {
+    background-color: var(--theme-border-secondary);
+  }
+
+  /* Themed checkbox/radio accent color */
+  .accent-themed {
+    accent-color: var(--theme-primary);
   }
 
   /* Badge Base Class */
@@ -2439,4 +2632,22 @@ input[type='number']::-webkit-outer-spin-button {
   @apply my-4;
   height: 1px;
   background: linear-gradient(to right, transparent, var(--theme-border-secondary), transparent);
+}
+
+/* Tooltip styles */
+.tooltip-overlay {
+  @apply fixed max-w-xs px-2.5 py-1.5 text-xs rounded-md pointer-events-none;
+  z-index: 99999;
+  background-color: var(--theme-bg-tertiary);
+  color: var(--theme-text-primary);
+  border: 1px solid var(--theme-card-border);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+.tooltip-edge {
+  @apply pointer-events-none;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--theme-card-border);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
 }

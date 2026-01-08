@@ -170,7 +170,7 @@ export function GameSelectionModal({
       title="Select Games to Prefill"
       size="lg"
     >
-      <div className="flex flex-col" style={{ height: '60vh' }}>
+      <div className="flex flex-col h-[60vh]">
         {/* Search and actions */}
         <div className="flex gap-2 mb-3">
           <Button 
@@ -182,30 +182,13 @@ export function GameSelectionModal({
             Import App IDs
           </Button>
           <div className="relative flex-1">
-            <Search
-              className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4"
-              style={{ color: 'var(--theme-text-muted)' }}
-            />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--theme-text-muted)]" />
             <input
               type="text"
               placeholder="Search games..."
               value={search}
               onChange={(e: ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-sm rounded-lg smooth-transition"
-              style={{
-                backgroundColor: 'var(--theme-bg-tertiary)',
-                border: '1px solid var(--theme-border-secondary)',
-                color: 'var(--theme-text-primary)',
-                outline: 'none'
-              }}
-              onFocus={(e) => {
-                e.currentTarget.style.borderColor = 'var(--theme-primary)';
-                e.currentTarget.style.boxShadow = '0 0 0 2px color-mix(in srgb, var(--theme-primary) 20%, transparent)';
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.borderColor = 'var(--theme-border-secondary)';
-                e.currentTarget.style.boxShadow = 'none';
-              }}
+              className="w-full pl-9 pr-3 py-2 text-sm rounded-lg smooth-transition bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-primary)] outline-none focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-primary)]/20"
             />
           </div>
           <Button variant="outline" size="sm" onClick={selectAll}>
@@ -218,15 +201,8 @@ export function GameSelectionModal({
 
         {/* Import Section - Expandable */}
         {showImport && (
-          <div
-            className="mb-3 p-3 rounded-lg"
-            style={{
-              backgroundColor: 'var(--theme-bg-tertiary)',
-              border: '1px solid var(--theme-primary)',
-              borderStyle: 'dashed'
-            }}
-          >
-            <p className="text-xs mb-2" style={{ color: 'var(--theme-text-muted)' }}>
+          <div className="mb-3 p-3 rounded-lg bg-[var(--theme-bg-tertiary)] border border-dashed border-[var(--theme-primary)]">
+            <p className="text-xs mb-2 text-[var(--theme-text-muted)]">
               Paste Steam App IDs from SteamPrefill or any comma-separated list
             </p>
             <textarea
@@ -236,20 +212,7 @@ export function GameSelectionModal({
                 setImportResult(null);
               }}
               placeholder="730, 570, 440 or [730, 570, 440] or paste selectedAppsToPrefill.json contents"
-              className="w-full px-3 py-2 text-sm rounded-lg resize-none smooth-transition"
-              style={{
-                backgroundColor: 'var(--theme-bg-secondary)',
-                border: '1px solid var(--theme-border-secondary)',
-                color: 'var(--theme-text-primary)',
-                outline: 'none',
-                minHeight: '70px'
-              }}
-              onFocus={(e) => {
-                e.currentTarget.style.borderColor = 'var(--theme-primary)';
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.borderColor = 'var(--theme-border-secondary)';
-              }}
+              className="w-full px-3 py-2 text-sm rounded-lg resize-none smooth-transition bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-primary)] outline-none min-h-[70px] focus:border-[var(--theme-primary)]"
             />
             <div className="flex items-center gap-2 mt-2">
               <Button 
@@ -273,9 +236,9 @@ export function GameSelectionModal({
                 Cancel
               </Button>
               {importResult && (
-                <span className="text-xs ml-auto" style={{ color: 'var(--theme-text-muted)' }}>
+                <span className="text-xs ml-auto text-[var(--theme-text-muted)]">
                   {importResult.added > 0 && (
-                    <span style={{ color: 'var(--theme-success)' }}>
+                    <span className="text-[var(--theme-success)]">
                       +{importResult.added} added
                     </span>
                   )}
@@ -286,13 +249,13 @@ export function GameSelectionModal({
                     </span>
                   )}
                   {importResult.notInLibrary.length > 0 && (
-                    <span style={{ color: 'var(--theme-warning)' }}>
+                    <span className="text-[var(--theme-warning)]">
                       {(importResult.added > 0 || importResult.alreadySelected > 0) ? ', ' : ''}
                       {importResult.notInLibrary.length} not in library
                     </span>
                   )}
                   {importResult.added === 0 && importResult.alreadySelected === 0 && importResult.notInLibrary.length === 0 && (
-                    <span style={{ color: 'var(--theme-error)' }}>No valid App IDs found</span>
+                    <span className="text-[var(--theme-error)]">No valid App IDs found</span>
                   )}
                 </span>
               )}
@@ -301,37 +264,25 @@ export function GameSelectionModal({
         )}
 
         {/* Selection count */}
-        <div className="text-sm mb-2" style={{ color: 'var(--theme-text-muted)' }}>
-          <span style={{ color: 'var(--theme-primary)', fontWeight: 600 }}>{localSelected.size}</span>
+        <div className="text-sm mb-2 text-[var(--theme-text-muted)]">
+          <span className="text-[var(--theme-primary)] font-semibold">{localSelected.size}</span>
           {' '}of {games.length} games selected
           {search && (
-            <span style={{ color: 'var(--theme-text-muted)' }}>
+            <span className="text-[var(--theme-text-muted)]">
               {' '}(showing {filteredGames.length} matching "{search}")
             </span>
           )}
         </div>
 
         {/* Game list */}
-        <div
-          className="flex-1 relative rounded-lg overflow-hidden min-h-0"
-          style={{
-            backgroundColor: 'var(--theme-bg-tertiary)',
-            border: '1px solid var(--theme-border-secondary)'
-          }}
-        >
+        <div className="flex-1 relative rounded-lg overflow-hidden min-h-0 bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)]">
           {isLoading ? (
             <div className="flex items-center justify-center h-full">
-              <Loader2 className="h-8 w-8 animate-spin" style={{ color: 'var(--theme-primary)' }} />
+              <Loader2 className="h-8 w-8 animate-spin text-[var(--theme-primary)]" />
             </div>
           ) : sortedGames.length === 0 ? (
-            <div
-              className="flex flex-col items-center justify-center h-full"
-              style={{ color: 'var(--theme-text-muted)' }}
-            >
-              <div
-                className="w-16 h-16 rounded-xl flex items-center justify-center mb-3"
-                style={{ backgroundColor: 'var(--theme-bg-secondary)' }}
-              >
+            <div className="flex flex-col items-center justify-center h-full text-[var(--theme-text-muted)]">
+              <div className="w-16 h-16 rounded-xl flex items-center justify-center mb-3 bg-[var(--theme-bg-secondary)]">
                 <Gamepad2 className="h-8 w-8 opacity-50" />
               </div>
               <p className="font-medium">No games found</p>
@@ -379,20 +330,14 @@ export function GameSelectionModal({
                             e.currentTarget.style.backgroundColor = 'color-mix(in srgb, var(--theme-primary) 10%, transparent)';
                           }}
                         >
-                          <div
-                            className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center"
-                            style={{
-                              backgroundColor: 'var(--theme-primary)',
-                              border: '2px solid var(--theme-primary)'
-                            }}
-                          >
-                            <Check className="h-3 w-3" style={{ color: 'white' }} />
+                          <div className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center bg-[var(--theme-primary)] border-2 border-[var(--theme-primary)]">
+                            <Check className="h-3 w-3 text-white" />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="truncate font-medium" style={{ color: 'var(--theme-text-primary)' }}>
+                            <div className="truncate font-medium text-[var(--theme-text-primary)]">
                               {game.name}
                             </div>
-                            <div className="text-xs" style={{ color: 'var(--theme-text-muted)' }}>
+                            <div className="text-xs text-[var(--theme-text-muted)]">
                               App ID: {game.appId}
                             </div>
                           </div>
@@ -406,14 +351,7 @@ export function GameSelectionModal({
               {/* Available games section */}
               {sortedGames.some(g => !localSelected.has(g.appId)) && (
                 <div className="flex-1 min-h-0 flex flex-col">
-                  <div
-                    className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0"
-                    style={{
-                      backgroundColor: 'var(--theme-bg-tertiary)',
-                      color: 'var(--theme-text-muted)',
-                      borderBottom: '1px solid var(--theme-border-secondary)'
-                    }}
-                  >
+                  <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-muted)] border-b border-[var(--theme-border-secondary)]">
                     Available Games ({sortedGames.filter(g => !localSelected.has(g.appId)).length})
                   </div>
                   <CustomScrollbar maxHeight="100%" className="flex-1 min-h-0" paddingMode="compact">
@@ -434,18 +372,12 @@ export function GameSelectionModal({
                             e.currentTarget.style.backgroundColor = 'transparent';
                           }}
                         >
-                          <div
-                            className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center"
-                            style={{
-                              backgroundColor: 'transparent',
-                              border: '2px solid var(--theme-border-primary)'
-                            }}
-                          />
+                          <div className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center bg-transparent border-2 border-[var(--theme-border-primary)]" />
                           <div className="flex-1 min-w-0">
-                            <div className="truncate font-medium" style={{ color: 'var(--theme-text-primary)' }}>
+                            <div className="truncate font-medium text-[var(--theme-text-primary)]">
                               {game.name}
                             </div>
-                            <div className="text-xs" style={{ color: 'var(--theme-text-muted)' }}>
+                            <div className="text-xs text-[var(--theme-text-muted)]">
                               App ID: {game.appId}
                             </div>
                           </div>
@@ -460,10 +392,7 @@ export function GameSelectionModal({
         </div>
 
         {/* Actions */}
-        <div
-          className="flex justify-end gap-2 mt-4 pt-4"
-          style={{ borderTop: '1px solid var(--theme-border-secondary)' }}
-        >
+        <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-[var(--theme-border-secondary)]">
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>

@@ -314,7 +314,7 @@ const DataSection: React.FC<DataSectionProps> = ({
           </p>
 
           {/* Select All / Deselect All */}
-          <div className="mb-4 pb-4 border-b" style={{ borderColor: 'var(--theme-border-primary)' }}>
+          <div className="mb-4 pb-4 border-b border-themed-primary">
             <Checkbox
               checked={selectedTables.length === tables.length}
               onChange={handleSelectAll}
@@ -355,10 +355,7 @@ const DataSection: React.FC<DataSectionProps> = ({
           </div>
 
           {/* Action Button */}
-          <div
-            className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-4 border-t"
-            style={{ borderColor: 'var(--theme-border-primary)' }}
-          >
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-4 border-t border-themed-primary">
             <div className="text-sm text-themed-secondary">
               {selectedTables.length > 0
                 ? `${selectedTables.length} table(s) selected`
@@ -406,8 +403,7 @@ const DataSection: React.FC<DataSectionProps> = ({
             {getSelectedTableInfo().map((table) => (
               <div
                 key={table.name}
-                className="p-3 rounded-lg"
-                style={{ backgroundColor: 'var(--theme-bg-secondary)' }}
+                className="p-3 rounded-lg bg-themed-secondary"
               >
                 <div className="font-medium text-themed-primary">{table.label}</div>
                 <div className="text-sm text-themed-secondary mt-1">{table.description}</div>

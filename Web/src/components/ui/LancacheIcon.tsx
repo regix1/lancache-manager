@@ -9,12 +9,12 @@ interface LancacheIconProps {
 const LancacheIcon: React.FC<LancacheIconProps> = ({ className = '', size = 24, style = {} }) => {
   return (
     <svg
-      className={className}
+      className={`block ${className}`}
       width={size}
       height={size}
       viewBox="0 0 48 48"
       xmlns="http://www.w3.org/2000/svg"
-      style={{ display: 'block', ...style }}
+      style={style}
     >
       {/* Main controller body */}
       <path

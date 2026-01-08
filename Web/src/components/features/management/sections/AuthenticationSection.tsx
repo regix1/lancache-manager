@@ -68,10 +68,7 @@ const AuthenticationSection: React.FC<AuthenticationSectionProps> = ({
               <p className="text-xs text-themed-muted">Test the interface with simulated data</p>
             </div>
           </div>
-          <div
-            className="p-4 rounded-lg"
-            style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-          >
+          <div className="p-4 rounded-lg bg-themed-tertiary">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex-1">
                 <p className="text-themed-primary text-sm font-medium">Mock Data</p>

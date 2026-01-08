@@ -107,13 +107,7 @@ const Navigation: React.FC<NavigationProps> = React.memo(
     );
 
     return (
-      <nav
-        className="border-b sticky top-0 z-50 md:relative"
-        style={{
-          backgroundColor: 'var(--theme-nav-bg)',
-          borderColor: 'var(--theme-nav-border)'
-        }}
-      >
+      <nav className="border-b sticky top-0 z-50 md:relative bg-themed-nav border-themed-nav">
         <div className="container mx-auto px-4">
           {/* Desktop Navigation */}
           <div className="hidden md:flex space-x-1 h-12 items-center">
@@ -170,11 +164,7 @@ const Navigation: React.FC<NavigationProps> = React.memo(
             >
               <div
                 ref={menuContentRef}
-                className="border-t py-2 space-y-1"
-                style={{
-                  backgroundColor: 'var(--theme-nav-mobile-menu-bg)',
-                  borderColor: 'var(--theme-nav-border)'
-                }}
+                className="border-t py-2 space-y-1 bg-themed-nav-mobile border-themed-nav"
               >
                 {tabs.map((tab, index) => (
                   <div

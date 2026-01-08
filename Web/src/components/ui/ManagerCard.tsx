@@ -113,9 +113,9 @@ export const PermissionIndicators: React.FC<PermissionIndicatorsProps> = ({
           <span className="flex items-center gap-0.5">
             <ScrollText className="w-3.5 h-3.5 text-themed-muted" />
             {logsReadOnly ? (
-              <XCircle className="w-4 h-4" style={{ color: 'var(--theme-warning)' }} />
+              <XCircle className="w-4 h-4 text-themed-warning" />
             ) : (
-              <CheckCircle className="w-4 h-4" style={{ color: 'var(--theme-success-text)' }} />
+              <CheckCircle className="w-4 h-4 text-themed-success" />
             )}
           </span>
         </Tooltip>
@@ -128,9 +128,9 @@ export const PermissionIndicators: React.FC<PermissionIndicatorsProps> = ({
           <span className="flex items-center gap-0.5">
             <HardDrive className="w-3.5 h-3.5 text-themed-muted" />
             {cacheReadOnly ? (
-              <XCircle className="w-4 h-4" style={{ color: 'var(--theme-warning)' }} />
+              <XCircle className="w-4 h-4 text-themed-warning" />
             ) : (
-              <CheckCircle className="w-4 h-4" style={{ color: 'var(--theme-success-text)' }} />
+              <CheckCircle className="w-4 h-4 text-themed-success" />
             )}
           </span>
         </Tooltip>
@@ -250,14 +250,7 @@ export const ReadOnlyBadge: React.FC<ReadOnlyBadgeProps> = ({
 }) => {
   return (
     <div className="flex items-center justify-center py-4">
-      <span
-        className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 border"
-        style={{
-          backgroundColor: 'var(--theme-warning-bg)',
-          color: 'var(--theme-warning)',
-          borderColor: 'var(--theme-warning)'
-        }}
-      >
+      <span className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 border bg-[var(--theme-warning-bg)] text-[var(--theme-warning)] border-[var(--theme-warning)]">
         <Lock className="w-3 h-3" />
         {message}
       </span>
@@ -278,15 +271,9 @@ interface ScanningStateProps {
  */
 export const ScanningState: React.FC<ScanningStateProps> = ({ message }) => {
   return (
-    <div
-      className="flex items-center gap-2 p-3 rounded-lg mb-4"
-      style={{
-        backgroundColor: 'var(--theme-info-bg)',
-        border: '1px solid var(--theme-info)'
-      }}
-    >
-      <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'var(--theme-info)' }} />
-      <span className="text-sm" style={{ color: 'var(--theme-info-text)' }}>
+    <div className="flex items-center gap-2 p-3 rounded-lg mb-4 bg-[var(--theme-info-bg)] border border-[var(--theme-info)]">
+      <Loader2 className="w-4 h-4 animate-spin text-themed-info" />
+      <span className="text-sm text-themed-info">
         {message}
       </span>
     </div>

@@ -381,14 +381,10 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
       </div>
 
       {/* Week Days Header */}
-      <div
-        className={`grid gap-1 mb-2 rounded-lg p-2 ${settings.showWeekNumbers ? 'grid-cols-8' : 'grid-cols-7'}`}
-        style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-      >
+      <div className={`grid gap-1 mb-2 rounded-lg p-2 bg-[var(--theme-bg-tertiary)] ${settings.showWeekNumbers ? 'grid-cols-8' : 'grid-cols-7'}`}>
         {settings.showWeekNumbers && (
           <div
-            className="text-center text-xs font-semibold py-2"
-            style={{ color: 'var(--theme-text-muted)' }}
+            className="text-center text-xs font-semibold py-2 text-[var(--theme-text-muted)]"
             title="Week number"
           >
             Wk
@@ -397,8 +393,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
         {weekDays.map((day) => (
           <div
             key={day}
-            className="text-center text-xs font-semibold py-2"
-            style={{ color: 'var(--theme-text-secondary)' }}
+            className="text-center text-xs font-semibold py-2 text-[var(--theme-text-secondary)]"
           >
             {day}
           </div>
@@ -890,35 +885,20 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
       {/* Empty month message */}
       {!hasEventsThisMonth && (
         <div
-          className="mt-6 py-6 text-center rounded-lg"
-          style={{
-            backgroundColor: 'color-mix(in srgb, var(--theme-bg-tertiary) 50%, transparent)',
-            border: '1px dashed var(--theme-border-secondary)'
-          }}
+          className="mt-6 py-6 text-center rounded-lg border border-dashed border-[var(--theme-border-secondary)]"
+          style={{ backgroundColor: 'color-mix(in srgb, var(--theme-bg-tertiary) 50%, transparent)' }}
         >
-          <p
-            className="text-sm font-medium mb-1"
-            style={{ color: 'var(--theme-text-secondary)' }}
-          >
+          <p className="text-sm font-medium mb-1 text-[var(--theme-text-secondary)]">
             No events in {monthNames[currentMonth.getMonth()]}
           </p>
-          <p
-            className="text-xs"
-            style={{ color: 'var(--theme-text-muted)' }}
-          >
+          <p className="text-xs text-[var(--theme-text-muted)]">
             Click on any day to create an event
           </p>
         </div>
       )}
 
       {/* Legend/Help */}
-      <div
-        className="mt-4 pt-4 flex items-center justify-between text-xs"
-        style={{
-          borderTop: '1px solid var(--theme-border-secondary)',
-          color: 'var(--theme-text-muted)'
-        }}
-      >
+      <div className="mt-4 pt-4 flex items-center justify-between text-xs border-t border-[var(--theme-border-secondary)] text-[var(--theme-text-muted)]">
         <span>Click on a day to create an event</span>
         <span>Click on an event to edit</span>
       </div>

@@ -554,33 +554,19 @@ const AppContent: React.FC = () => {
       <>
         {activeTab === 'prefill' && isBanned ? (
           <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6">
-            <div 
-              className="rounded-xl p-6 text-center"
-              style={{ 
-                backgroundColor: 'var(--theme-error-subtle)',
-                border: '1px solid var(--theme-error)'
-              }}
-            >
+            <div className="rounded-xl p-6 text-center bg-themed-error border border-[var(--theme-error)]">
               <div className="flex flex-col items-center gap-4">
-                <div 
-                  className="w-16 h-16 rounded-full flex items-center justify-center"
-                  style={{ backgroundColor: 'var(--theme-error)' }}
-                >
+                <div className="w-16 h-16 rounded-full flex items-center justify-center bg-[var(--theme-error)]">
                   <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
                   </svg>
                 </div>
                 <div>
-                  <h2 
-                    className="text-xl font-bold mb-2"
-                    style={{ color: 'var(--theme-error)' }}
-                  >
-                    Access Denied
-                  </h2>
-                  <p style={{ color: 'var(--theme-text-secondary)' }}>
+                  <h2 className="text-xl font-bold mb-2 icon-error">Access Denied</h2>
+                  <p className="text-themed-secondary">
                     Your account has been banned from using the Prefill feature.
                   </p>
-                  <p className="text-sm mt-2" style={{ color: 'var(--theme-text-muted)' }}>
+                  <p className="text-sm mt-2 text-themed-muted">
                     Please contact an administrator if you believe this is a mistake.
                   </p>
                 </div>
@@ -735,14 +721,7 @@ const AppContent: React.FC = () => {
         />
       )}
 
-      <div
-        className="flex flex-col"
-        style={{
-          minHeight: '100vh',
-          backgroundColor: 'var(--theme-bg-primary)',
-          color: 'var(--theme-text-primary)'
-        }}
-      >
+      <div className="flex flex-col min-h-screen bg-themed-primary text-themed-primary">
         <Header
           connectionStatus={connectionStatus as 'connected' | 'disconnected' | 'reconnecting'}
         />

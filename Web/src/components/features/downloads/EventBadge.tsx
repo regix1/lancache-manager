@@ -19,12 +19,7 @@ const EventBadge: React.FC<EventBadgeProps> = ({
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-md font-medium transition-all flex-shrink-0 ${sizeClasses} ${onClick ? 'cursor-pointer hover:opacity-80' : ''}`}
-      style={{
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        color: 'var(--theme-text-secondary)',
-        border: '1px solid var(--theme-border-secondary)'
-      }}
+      className={`inline-flex items-center gap-1.5 rounded-md font-medium transition-all flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)] ${sizeClasses} ${onClick ? 'cursor-pointer hover:opacity-80' : ''}`}
       onClick={onClick}
       title={event.name}
     >

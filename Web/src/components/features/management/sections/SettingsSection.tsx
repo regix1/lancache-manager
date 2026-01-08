@@ -96,7 +96,7 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
               <p className="text-xs text-themed-muted">Test the interface with simulated data</p>
             </div>
           </div>
-          <div className="p-4 rounded-lg" style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}>
+          <div className="p-4 rounded-lg bg-themed-tertiary">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex-1">
                 <p className="text-themed-primary text-sm font-medium">Mock Data</p>
@@ -172,10 +172,7 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
                 <p className="text-sm mt-1 mb-2">
                   Add the following environment variable to your docker-compose.yml:
                 </p>
-                <pre
-                  className="px-3 py-2 rounded text-xs overflow-x-auto break-all whitespace-pre-wrap"
-                  style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                >
+                <pre className="px-3 py-2 rounded text-xs overflow-x-auto break-all whitespace-pre-wrap bg-themed-tertiary">
                   - NginxLogRotation__Enabled=true
                 </pre>
               </div>
@@ -215,10 +212,7 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
                 <p className="text-sm mt-1 mb-2">
                   Add the following environment variable to your docker-compose.yml:
                 </p>
-                <pre
-                  className="px-3 py-2 rounded text-xs overflow-x-auto break-all whitespace-pre-wrap"
-                  style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                >
+                <pre className="px-3 py-2 rounded text-xs overflow-x-auto break-all whitespace-pre-wrap bg-themed-tertiary">
                   - Optimizations__EnableGarbageCollectionManagement=true
                 </pre>
               </div>

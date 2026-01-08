@@ -198,13 +198,13 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
     return (
       <div className={`widget-card ${glassmorphism ? 'glass' : ''} ${animationClasses}`}>
         <div className="flex items-center gap-2 mb-3">
-          <Clock className="w-5 h-5" style={{ color: 'var(--theme-text-muted)' }} />
-          <h3 className="text-sm font-semibold" style={{ color: 'var(--theme-text-primary)' }}>
+          <Clock className="w-5 h-5 text-themed-muted" />
+          <h3 className="text-sm font-semibold text-themed-primary">
             Peak Usage Hours
           </h3>
         </div>
         <div className="flex items-center justify-center h-32">
-          <Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--theme-primary)' }} />
+          <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
         </div>
       </div>
     );
@@ -215,12 +215,12 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
     return (
       <div className={`widget-card ${glassmorphism ? 'glass' : ''} ${animationClasses}`}>
         <div className="flex items-center gap-2 mb-3">
-          <Clock className="w-5 h-5" style={{ color: 'var(--theme-text-muted)' }} />
-          <h3 className="text-sm font-semibold" style={{ color: 'var(--theme-text-primary)' }}>
+          <Clock className="w-5 h-5 text-themed-muted" />
+          <h3 className="text-sm font-semibold text-themed-primary">
             Peak Usage Hours
           </h3>
         </div>
-        <p className="text-sm" style={{ color: 'var(--theme-text-muted)' }}>
+        <p className="text-sm text-themed-muted">
           {error || 'No download data available yet'}
         </p>
       </div>
@@ -236,13 +236,13 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
       {/* Header */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <Clock className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--theme-primary)' }} />
-          <h3 className="text-sm font-semibold" style={{ color: 'var(--theme-text-primary)' }}>
+          <Clock className="w-5 h-5 flex-shrink-0 text-themed-accent" />
+          <h3 className="text-sm font-semibold text-themed-primary">
             Peak Usage Hours
           </h3>
           <HelpPopover width={320}>
             <div className="space-y-2">
-              <div className="text-[11px] pb-2 border-b" style={{ borderColor: 'var(--theme-border)', color: 'var(--theme-text-secondary)' }}>
+              <div className="text-[11px] pb-2 border-b border-themed-primary text-themed-secondary">
                 This widget analyzes your download history to show <strong>when downloads typically occur</strong> throughout the day.
               </div>
               <HelpDefinition term="Data Period">
@@ -262,44 +262,43 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
                     : 'Activity during the current hour.'}
                 </HelpDefinition>
               )}
-              <div className="text-[10px] mt-2 pt-2 border-t" style={{ borderColor: 'var(--theme-border)', color: 'var(--theme-text-muted)' }}>
+              <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
                 <strong>Heatmap:</strong> Each block represents an hour (12AM-11PM). Brighter colors indicate more typical activity during that hour.
               </div>
             </div>
           </HelpPopover>
         </div>
-        <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--theme-text-muted)' }}>
+        <div className="flex items-center gap-2 text-xs text-themed-muted">
           <span className="hidden sm:inline">Most active:</span>
-          <span className="font-medium" style={{ color: 'var(--theme-warning)' }}>{peakTimeOfDay}</span>
+          <span className="font-medium text-themed-warning">{peakTimeOfDay}</span>
         </div>
       </div>
 
       {/* Period Totals - Aggregate stats for entire time range */}
       <div
-        className="flex flex-col sm:flex-row sm:items-center sm:justify-between px-3 py-2 mb-3 rounded-lg text-xs gap-1 sm:gap-0"
-        style={{ backgroundColor: 'var(--theme-bg-secondary)' }}
+        className="flex flex-col sm:flex-row sm:items-center sm:justify-between px-3 py-2 mb-3 rounded-lg text-xs gap-1 sm:gap-0 bg-themed-secondary"
       >
         <div className="flex items-center gap-2">
           {isMultiDayPeriod && (
-            <Calendar className="w-3.5 h-3.5 hidden sm:block" style={{ color: 'var(--theme-text-muted)' }} />
+            <Calendar className="w-3.5 h-3.5 hidden sm:block text-themed-muted" />
           )}
-          <span style={{ color: 'var(--theme-text-muted)' }}>
+          <span className="text-themed-muted">
             {isMultiDayPeriod ? `${daysInPeriod} days` : 'Selected Period'}
           </span>
-          <span className="sm:hidden" style={{ color: 'var(--theme-text-secondary)' }}>•</span>
-          <span className="sm:hidden" style={{ color: 'var(--theme-text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
+          <span className="sm:hidden text-themed-secondary">•</span>
+          <span className="sm:hidden text-themed-secondary tabular-nums">
             {totalDownloads.toLocaleString()} downloads
           </span>
-          <span className="sm:hidden" style={{ color: 'var(--theme-text-secondary)' }}>•</span>
-          <span className="sm:hidden" style={{ color: 'var(--theme-text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
+          <span className="sm:hidden text-themed-secondary">•</span>
+          <span className="sm:hidden text-themed-secondary tabular-nums">
             {formatBytes(totalBytesServed)}
           </span>
         </div>
         <div className="hidden sm:flex items-center gap-4">
-          <span style={{ color: 'var(--theme-text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
+          <span className="text-themed-secondary tabular-nums">
             {totalDownloads.toLocaleString()} total downloads
           </span>
-          <span style={{ color: 'var(--theme-text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
+          <span className="text-themed-secondary tabular-nums">
             {formatBytes(totalBytesServed)} total
           </span>
         </div>
@@ -318,30 +317,30 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
         >
           <div className="flex items-center justify-between mb-1">
             <div className="flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-warning)' }} />
-              <span className="text-xs font-medium" style={{ color: 'var(--theme-warning)' }}>
+              <TrendingUp className="w-4 h-4 flex-shrink-0 text-themed-warning" />
+              <span className="text-xs font-medium text-themed-warning">
                 Busiest Hour
               </span>
             </div>
             {isMultiDayPeriod && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded" style={{
-                backgroundColor: 'color-mix(in srgb, var(--theme-warning) 15%, transparent)',
-                color: 'var(--theme-warning)'
-              }}>
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded text-themed-warning"
+                style={{ backgroundColor: 'color-mix(in srgb, var(--theme-warning) 15%, transparent)' }}
+              >
                 daily avg
               </span>
             )}
           </div>
           <div className="flex items-baseline gap-3">
-            <div className="text-lg font-bold leading-tight" style={{ color: 'var(--theme-text-primary)', fontVariantNumeric: 'tabular-nums' }}>
+            <div className="text-lg font-bold leading-tight text-themed-primary tabular-nums">
               {formatHour(peakHour)}
             </div>
-            <div className="text-[11px] leading-tight" style={{ color: 'var(--theme-text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+            <div className="text-[11px] leading-tight text-themed-muted tabular-nums">
               {isMultiDayPeriod
                 ? `${(peakHourData?.avgDownloads ?? 0).toFixed(1)}/day`
                 : `${(peakHourData?.downloads ?? 0).toLocaleString()} downloads`}
             </div>
-            <div className="text-[11px] leading-tight" style={{ color: 'var(--theme-text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+            <div className="text-[11px] leading-tight text-themed-muted tabular-nums">
               {isMultiDayPeriod
                 ? `${formatBytes(peakHourData?.avgBytesServed ?? 0)}/day`
                 : formatBytes(peakHourData?.bytesServed ?? 0)}
@@ -361,41 +360,41 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
           >
             <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-2">
-                <Zap className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-primary)' }} />
-                <span className="text-xs font-medium" style={{ color: 'var(--theme-primary)' }}>
+                <Zap className="w-4 h-4 flex-shrink-0 text-themed-accent" />
+                <span className="text-xs font-medium text-themed-accent">
                   {currentHour === peakHour ? 'Now (Peak Hour)' : `Typical for ${formatHour(currentHour, true)}`}
                 </span>
               </div>
               {/* Show % of peak for context - only when not the peak hour */}
               {currentHour !== peakHour && peakHourData && (isMultiDayPeriod ? peakHourData.avgDownloads : peakHourData.downloads) > 0 && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded" style={{
-                  backgroundColor: 'color-mix(in srgb, var(--theme-primary) 15%, transparent)',
-                  color: 'var(--theme-primary)'
-                }}>
+                <span
+                  className="text-[10px] px-1.5 py-0.5 rounded text-themed-accent"
+                  style={{ backgroundColor: 'color-mix(in srgb, var(--theme-primary) 15%, transparent)' }}
+                >
                   {isMultiDayPeriod
                     ? `${Math.round(((currentHourData?.avgDownloads ?? 0) / peakHourData.avgDownloads) * 100)}% of peak`
                     : `${Math.round(((currentHourData?.downloads ?? 0) / peakHourData.downloads) * 100)}% of peak`}
                 </span>
               )}
               {isMultiDayPeriod && currentHour === peakHour && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded" style={{
-                  backgroundColor: 'color-mix(in srgb, var(--theme-primary) 15%, transparent)',
-                  color: 'var(--theme-primary)'
-                }}>
+                <span
+                  className="text-[10px] px-1.5 py-0.5 rounded text-themed-accent"
+                  style={{ backgroundColor: 'color-mix(in srgb, var(--theme-primary) 15%, transparent)' }}
+                >
                   daily avg
                 </span>
               )}
             </div>
             <div className="flex items-baseline gap-3">
-              <div className="text-lg font-bold leading-tight" style={{ color: 'var(--theme-text-primary)', fontVariantNumeric: 'tabular-nums' }}>
+              <div className="text-lg font-bold leading-tight text-themed-primary tabular-nums">
                 {formatHour(currentHour)}
               </div>
-              <div className="text-[11px] leading-tight" style={{ color: 'var(--theme-text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+              <div className="text-[11px] leading-tight text-themed-muted tabular-nums">
                 {isMultiDayPeriod
                   ? `${(currentHourData?.avgDownloads ?? 0).toFixed(1)}/day`
                   : `${(currentHourData?.downloads ?? 0).toLocaleString()} downloads`}
               </div>
-              <div className="text-[11px] leading-tight" style={{ color: 'var(--theme-text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+              <div className="text-[11px] leading-tight text-themed-muted tabular-nums">
                 {isMultiDayPeriod
                   ? `${formatBytes(currentHourData?.avgBytesServed ?? 0)}/day`
                   : formatBytes(currentHourData?.bytesServed ?? 0)}
@@ -417,25 +416,25 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
                 key={hourData.hour}
                 content={
                   <div className="text-xs space-y-1">
-                    <div className="font-semibold" style={{ color: 'var(--theme-text-primary)' }}>{formatHour(hourData.hour)}</div>
+                    <div className="font-semibold text-themed-primary">{formatHour(hourData.hour)}</div>
                     {isMultiDayPeriod ? (
                       <>
-                        <div style={{ color: 'var(--theme-text-secondary)' }}>
+                        <div className="text-themed-secondary">
                           {hourData.avgDownloads.toLocaleString()} avg downloads/day
                         </div>
-                        <div style={{ color: 'var(--theme-text-secondary)' }}>
+                        <div className="text-themed-secondary">
                           {formatBytes(hourData.avgBytesServed)} avg served/day
                         </div>
-                        <div className="pt-1 border-t" style={{ borderColor: 'var(--theme-border)', color: 'var(--theme-text-muted)' }}>
+                        <div className="pt-1 border-t border-themed-primary text-themed-muted">
                           Total: {hourData.downloads.toLocaleString()} downloads
                         </div>
                       </>
                     ) : (
                       <>
-                        <div style={{ color: 'var(--theme-text-secondary)' }}>{hourData.downloads.toLocaleString()} downloads</div>
-                        <div style={{ color: 'var(--theme-text-secondary)' }}>{formatBytes(hourData.bytesServed)} served</div>
+                        <div className="text-themed-secondary">{hourData.downloads.toLocaleString()} downloads</div>
+                        <div className="text-themed-secondary">{formatBytes(hourData.bytesServed)} served</div>
                         {hourData.cacheHitBytes > 0 && (
-                          <div style={{ color: 'var(--theme-success-text)' }}>
+                          <div className="text-themed-success">
                             {formatBytes(hourData.cacheHitBytes)} from cache
                           </div>
                         )}
@@ -462,7 +461,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
         </div>
 
         {/* Hour labels - show key hours */}
-        <div className="flex justify-between mt-2 text-[10px]" style={{ color: 'var(--theme-text-muted)' }}>
+        <div className="flex justify-between mt-2 text-[10px] text-themed-muted">
           <span>{formatHour(0, true)}</span>
           <span>{formatHour(6, true)}</span>
           <span>{formatHour(12, true)}</span>
@@ -472,8 +471,8 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
       </div>
 
       {/* Legend */}
-      <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: 'var(--theme-border-primary)' }}>
-        <div className="flex items-center gap-4 text-xs" style={{ color: 'var(--theme-text-muted)' }}>
+      <div className="flex items-center justify-between pt-3 border-t border-themed-primary">
+        <div className="flex items-center gap-4 text-xs text-themed-muted">
           {isTodayInRange && (
             <div className="flex items-center gap-1.5">
               <div
@@ -499,10 +498,10 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
         </div>
 
         {/* Intensity scale */}
-        <div className="flex items-center gap-1 text-xs" style={{ color: 'var(--theme-text-muted)' }}>
+        <div className="flex items-center gap-1 text-xs text-themed-muted">
           <span>Less</span>
           <div className="flex gap-0.5">
-            <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: 'var(--theme-bg-tertiary)' }} />
+            <div className="w-2.5 h-2.5 rounded-sm bg-themed-tertiary" />
             <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: 'color-mix(in srgb, var(--theme-chart-1) 30%, var(--theme-bg-tertiary))' }} />
             <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: 'color-mix(in srgb, var(--theme-chart-1) 50%, var(--theme-bg-tertiary))' }} />
             <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: 'color-mix(in srgb, var(--theme-chart-1) 75%, var(--theme-bg-tertiary))' }} />
