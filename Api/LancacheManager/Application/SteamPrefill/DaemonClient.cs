@@ -395,9 +395,15 @@ public sealed class DaemonClient : IDisposable
     /// <summary>
     /// Get selected apps status with download sizes
     /// </summary>
-    public async Task<SelectedAppsStatus> GetSelectedAppsStatusAsync(CancellationToken cancellationToken = default)
+    public async Task<SelectedAppsStatus> GetSelectedAppsStatusAsync(List<string>? operatingSystems = null, CancellationToken cancellationToken = default)
     {
-        var response = await SendCommandAsync("get-selected-apps-status",
+        var parameters = new Dictionary<string, string>();
+        // Default to all OS platforms if not specified
+        parameters["os"] = operatingSystems != null && operatingSystems.Count > 0
+            ? string.Join(",", operatingSystems)
+            : "windows,linux,macos";
+
+        var response = await SendCommandAsync("get-selected-apps-status", parameters,
             timeout: TimeSpan.FromMinutes(5),
             cancellationToken: cancellationToken);
 
@@ -590,6 +596,12 @@ public class AppStatus
 
     [JsonPropertyName("isUpToDate")]
     public bool IsUpToDate { get; set; }
+
+    [JsonPropertyName("isUnsupportedOs")]
+    public bool IsUnsupportedOs { get; set; }
+
+    [JsonPropertyName("unavailableReason")]
+    public string? UnavailableReason { get; set; }
 }
 
 public class SelectedAppsStatus

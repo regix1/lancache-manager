@@ -783,14 +783,14 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     /// <summary>
     /// Gets selected apps status with download sizes
     /// </summary>
-    public async Task<SelectedAppsStatus> GetSelectedAppsStatusAsync(string sessionId, CancellationToken cancellationToken = default)
+    public async Task<SelectedAppsStatus> GetSelectedAppsStatusAsync(string sessionId, List<string>? operatingSystems = null, CancellationToken cancellationToken = default)
     {
         if (!_sessions.TryGetValue(sessionId, out var session))
         {
             throw new KeyNotFoundException($"Session not found: {sessionId}");
         }
 
-        return await session.Client.GetSelectedAppsStatusAsync(cancellationToken);
+        return await session.Client.GetSelectedAppsStatusAsync(operatingSystems, cancellationToken);
     }
 
     /// <summary>

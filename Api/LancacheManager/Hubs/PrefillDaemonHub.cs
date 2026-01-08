@@ -303,13 +303,14 @@ public class PrefillDaemonHub : Hub
     /// <summary>
     /// Gets selected apps status with download sizes
     /// </summary>
-    public async Task<SelectedAppsStatus> GetSelectedAppsStatus(string sessionId)
+    public async Task<SelectedAppsStatus> GetSelectedAppsStatus(string sessionId, List<string>? operatingSystems = null)
     {
         ValidateSessionAccess(sessionId, out var session);
 
-        _logger.LogInformation("Getting selected apps status for session {SessionId}", sessionId);
+        _logger.LogInformation("Getting selected apps status for session {SessionId} with OS: {OperatingSystems}",
+            sessionId, operatingSystems != null ? string.Join(",", operatingSystems) : "all");
 
-        return await _daemonService.GetSelectedAppsStatusAsync(sessionId);
+        return await _daemonService.GetSelectedAppsStatusAsync(sessionId, operatingSystems);
     }
 
     /// <summary>

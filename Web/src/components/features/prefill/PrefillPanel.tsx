@@ -209,7 +209,13 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     bytes: number;
     loading: boolean;
     error?: string;
-    apps?: Array<{ appId: number; name: string; downloadSize: number }>;
+    apps?: Array<{
+      appId: number;
+      name: string;
+      downloadSize: number;
+      isUnsupportedOs?: boolean;
+      unavailableReason?: string;
+    }>;
     message?: string;
   }>({
     bytes: 0,
@@ -982,10 +988,17 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     setEstimatedSize({ bytes: 0, loading: true });
 
     try {
-      const status = (await hubConnection.current.invoke('GetSelectedAppsStatus', session.id)) as {
+      // Pass selected operating systems to get accurate size calculations
+      const status = (await hubConnection.current.invoke('GetSelectedAppsStatus', session.id, selectedOS)) as {
         totalDownloadSize: number;
         message?: string;
-        apps?: Array<{ appId: number; name: string; downloadSize: number }>;
+        apps?: Array<{
+          appId: number;
+          name: string;
+          downloadSize: number;
+          isUnsupportedOs?: boolean;
+          unavailableReason?: string;
+        }>;
       };
       setEstimatedSize({
         bytes: status.totalDownloadSize,
@@ -997,7 +1010,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       console.error('Failed to fetch estimated size:', error);
       setEstimatedSize({ bytes: 0, loading: false, error: 'Could not estimate size' });
     }
-  }, [session?.id]);
+  }, [session?.id, selectedOS]);
 
   // Handle button click - show confirmation for large operations
   const handleCommandClick = useCallback(
@@ -1280,16 +1293,30 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                         {estimatedSize.apps.map((app) => (
                           <div
                             key={app.appId}
-                            className="flex items-center justify-between text-xs"
+                            className={`flex items-center justify-between text-xs ${
+                              app.isUnsupportedOs ? 'opacity-50' : ''
+                            }`}
                           >
                             <span
-                              className="text-themed-secondary truncate mr-2"
+                              className={`truncate mr-2 ${
+                                app.isUnsupportedOs
+                                  ? 'text-themed-muted line-through'
+                                  : 'text-themed-secondary'
+                              }`}
                               style={{ maxWidth: '200px' }}
+                              title={app.unavailableReason || app.name}
                             >
                               {app.name}
                             </span>
-                            <span className="text-themed-muted whitespace-nowrap">
-                              {formatBytes(app.downloadSize)}
+                            <span
+                              className={`whitespace-nowrap ${
+                                app.isUnsupportedOs ? 'text-amber-500' : 'text-themed-muted'
+                              }`}
+                              title={app.unavailableReason}
+                            >
+                              {app.isUnsupportedOs
+                                ? app.unavailableReason || 'Unsupported OS'
+                                : formatBytes(app.downloadSize)}
                             </span>
                           </div>
                         ))}
