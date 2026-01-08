@@ -131,6 +131,9 @@ const Dashboard: React.FC = () => {
   // Real-time speed snapshot for accurate active downloads count
   const [speedSnapshot, setSpeedSnapshot] = useState<DownloadSpeedSnapshot | null>(null);
 
+  // Determine if we're viewing historical data (not live)
+  const isHistoricalView = timeRange === 'custom' || selectedEventIds.length > 0;
+
   // Mark initial animation as complete after entrance animations finish
   useEffect(() => {
     if (!initialAnimationCompleteRef.current) {
@@ -505,7 +508,9 @@ const Dashboard: React.FC = () => {
         key: 'activeDownloads',
         title: 'Active Downloads',
         value: stats.totalActiveDownloads,
-        subtitle: `${dashboardStats?.period?.downloads || filteredLatestDownloads.length} in period`,
+        subtitle: isHistoricalView
+          ? '(Live) real-time data'
+          : `${dashboardStats?.period?.downloads || filteredLatestDownloads.length} in period`,
         icon: Download,
         color: 'orange' as const,
         visible: cardVisibility.activeDownloads,
@@ -515,7 +520,9 @@ const Dashboard: React.FC = () => {
         key: 'activeClients',
         title: 'Active Clients',
         value: stats.activeClients,
-        subtitle: `${stats.uniqueClients} unique in period`,
+        subtitle: isHistoricalView
+          ? '(Live) real-time data'
+          : `${stats.uniqueClients} unique in period`,
         icon: Users,
         color: 'yellow' as const,
         visible: cardVisibility.activeClients,
@@ -539,7 +546,8 @@ const Dashboard: React.FC = () => {
       timeRange,
       getTimeRangeLabel,
       dashboardStats,
-      filteredLatestDownloads
+      filteredLatestDownloads,
+      isHistoricalView
     ]
   );
 
@@ -836,7 +844,12 @@ const Dashboard: React.FC = () => {
           className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeIn isolate transition-opacity duration-300"
           style={{ opacity: loading ? 0.7 : 1 }}
         >
-          {visibleCards.map((card: StatCardData, visualIndex: number) => (
+          {visibleCards.map((card: StatCardData, visualIndex: number) => {
+            // Check if this is an "active" card that should be disabled in historical view
+            const isActiveCard = card.key === 'activeDownloads' || card.key === 'activeClients';
+            const isCardDisabled = isActiveCard && isHistoricalView;
+
+            return (
             <div
               key={card.key}
               data-card-key={card.key}
@@ -846,16 +859,16 @@ const Dashboard: React.FC = () => {
               style={{
                 boxShadow: dragOverCard === card.key ? `0 0 0 2px var(--theme-primary)` : 'none',
                 cursor: isEditMode ? 'pointer' : (draggedCard === card.key ? 'grabbing' : 'default'),
-                opacity: isDragMode && draggedCard === card.key ? 0.9 : 1
+                opacity: isCardDisabled ? 0.5 : (isDragMode && draggedCard === card.key ? 0.9 : 1)
               }}
-              draggable={!isDragMode && !isEditMode}
-              onDragStart={(e) => dragHandlers.onDragStart(e, card.key)}
+              draggable={!isDragMode && !isEditMode && !isCardDisabled}
+              onDragStart={(e) => !isCardDisabled && dragHandlers.onDragStart(e, card.key)}
               onDragEnd={dragHandlers.onDragEnd}
               onDragOver={dragHandlers.onDragOver}
               onDragEnter={(e) => dragHandlers.onDragEnter(e, card.key)}
               onDragLeave={dragHandlers.onDragLeave}
               onDrop={(e) => dragHandlers.onDrop(e, card.key)}
-              onClick={() => dragHandlers.onCardTap(card.key)}
+              onClick={() => !isCardDisabled && dragHandlers.onCardTap(card.key)}
             >
               {/* Desktop drag handle - smaller, hover-triggered */}
               {
@@ -972,8 +985,19 @@ const Dashboard: React.FC = () => {
                   <EyeOff className="w-3.5 h-3.5 text-themed-muted" />
                 </button>
               </Tooltip>
+
+              {/* Disabled overlay with tooltip for active cards in historical view */}
+              {isCardDisabled && (
+                <Tooltip content="Live data only - switch to Live mode to see real-time stats" strategy="overlay">
+                  <div
+                    className="absolute inset-0 z-10 cursor-not-allowed rounded-lg"
+                    style={{ background: 'transparent' }}
+                  />
+                </Tooltip>
+              )}
             </div>
-          ))}
+          );
+          })}
         </div>
       )}
 

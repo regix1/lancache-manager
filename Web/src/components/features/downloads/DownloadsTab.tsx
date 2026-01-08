@@ -212,11 +212,21 @@ const convertDownloadsToCSV = (downloads: Download[]): string => {
 // Main Downloads Tab Component
 const DownloadsTab: React.FC = () => {
   const { latestDownloads = [], loading } = useDownloads();
-  const { timeRange } = useTimeFilter();
+  const { timeRange, selectedEventIds } = useTimeFilter();
   const { getGroupForIp } = useClientGroups();
 
   // Active/Recent tab state
   const [activeTab, setActiveTab] = useState<'active' | 'recent'>('recent');
+
+  // Determine if we're viewing historical data (not live)
+  const isHistoricalView = timeRange === 'custom' || selectedEventIds.length > 0;
+
+  // Auto-switch to Recent tab when user switches to historical view while on Active tab
+  useEffect(() => {
+    if (isHistoricalView && activeTab === 'active') {
+      setActiveTab('recent');
+    }
+  }, [isHistoricalView, activeTab]);
 
   // Datasource display state
   const [config, setConfig] = useState<Config | null>(null);

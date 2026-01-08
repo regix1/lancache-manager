@@ -3,6 +3,8 @@ import { Zap, Clock, HardDrive, Users, TrendingUp } from 'lucide-react';
 import { useDownloads } from '@contexts/DownloadsContext';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useRefreshRate } from '@contexts/RefreshRateContext';
+import { useTimeFilter } from '@contexts/TimeFilterContext';
+import { Tooltip } from '@components/ui/Tooltip';
 import ApiService from '@services/api.service';
 import type { DownloadSpeedSnapshot, SpeedHistorySnapshot } from '../../../types';
 
@@ -34,6 +36,10 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
   const { latestDownloads } = useDownloads();
   const signalR = useSignalR();
   const { getRefreshInterval } = useRefreshRate();
+  const { timeRange, selectedEventIds } = useTimeFilter();
+
+  // Determine if we're viewing historical data (not live)
+  const isHistoricalView = timeRange === 'custom' || selectedEventIds.length > 0;
 
   const [speedSnapshot, setSpeedSnapshot] = useState<DownloadSpeedSnapshot | null>(null);
   const [historySnapshot, setHistorySnapshot] = useState<SpeedHistorySnapshot | null>(null);
@@ -335,6 +341,16 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
           box-shadow: 0 2px 8px color-mix(in srgb, var(--theme-primary) 30%, transparent);
         }
 
+        .tab-button.disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .tab-button.disabled:hover {
+          color: var(--theme-text-muted);
+          background: transparent;
+        }
+
         .tab-button svg {
           width: 14px;
           height: 14px;
@@ -457,16 +473,31 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
         {/* Right: Tabs & Today Stat */}
         <div className="right-section">
           <div className="tab-container">
-            <button
-              className={`tab-button ${activeTab === 'active' ? 'active' : ''}`}
-              onClick={() => onTabChange('active')}
-            >
-              <Zap />
-              Active
-              <span className={`tab-badge ${activeGamesCount > 0 && activeTab !== 'active' ? 'has-active' : ''}`}>
-                {activeGamesCount}
-              </span>
-            </button>
+            {isHistoricalView ? (
+              <Tooltip content="Active downloads only available in Live mode">
+                <button
+                  className={`tab-button disabled`}
+                  onClick={(e) => e.preventDefault()}
+                >
+                  <Zap />
+                  Active
+                  <span className="tab-badge">
+                    {activeGamesCount}
+                  </span>
+                </button>
+              </Tooltip>
+            ) : (
+              <button
+                className={`tab-button ${activeTab === 'active' ? 'active' : ''}`}
+                onClick={() => onTabChange('active')}
+              >
+                <Zap />
+                Active
+                <span className={`tab-badge ${activeGamesCount > 0 && activeTab !== 'active' ? 'has-active' : ''}`}>
+                  {activeGamesCount}
+                </span>
+              </button>
+            )}
             <button
               className={`tab-button ${activeTab === 'recent' ? 'active' : ''}`}
               onClick={() => onTabChange('recent')}
