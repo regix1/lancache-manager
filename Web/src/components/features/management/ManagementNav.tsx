@@ -157,7 +157,7 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
 
                   {/* Active indicator bar */}
                   {isActive && (
-                    <div className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-themed-nav-tab-active-border" />
+                    <div className="nav-indicator absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-themed-nav-tab-active-border" />
                   )}
                 </button>
               );

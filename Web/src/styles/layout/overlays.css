@@ -12,12 +12,12 @@
   /* Fix ALL absolute positioned overlays */
   .absolute.z-20,
   .absolute.z-10,
-  .absolute[class*='top-']:not(.input-icon),
-  .absolute[class*='right-']:not(.input-icon),
-  .absolute[class*='left-']:not(.input-icon),
-  .absolute[class*='bottom-']:not(.input-icon),
+  .absolute[class*='top-']:not(.input-icon):not(.nav-indicator),
+  .absolute[class*='right-']:not(.input-icon):not(.nav-indicator),
+  .absolute[class*='left-']:not(.input-icon):not(.nav-indicator),
+  .absolute[class*='bottom-']:not(.input-icon):not(.nav-indicator),
   .custom-dropdown .absolute,
-  .relative > .absolute:not(.input-icon) {
+  .relative > .absolute:not(.input-icon):not(.nav-indicator) {
     position: absolute !important;
     z-index: 99999 !important;
   }
