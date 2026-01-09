@@ -602,33 +602,36 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           try {
             await connection.invoke('SubscribeToSession', session.id);
 
-            // Check if prefill was in progress before disconnect
-            const prefillInProgress = sessionStorage.getItem('prefill_in_progress');
-            if (prefillInProgress) {
-              const { startedAt } = JSON.parse(prefillInProgress);
-              const startTime = new Date(startedAt).getTime();
-              const elapsed = Math.round((Date.now() - startTime) / 1000);
+            // Check if prefill completed while we were disconnected
+            // Query the server for the last prefill result
+            try {
+              const lastResult = await connection.invoke('GetLastPrefillResult', session.id) as {
+                status: string;
+                completedAt: string;
+                durationSeconds: number;
+              } | null;
 
-              // Give a moment for PrefillStateChanged events to arrive
-              setTimeout(() => {
-                // If flag is still set after events had time to clear it,
-                // and no active download, the prefill likely completed while disconnected
-                const stillInProgress = sessionStorage.getItem('prefill_in_progress');
-                const hasBackgroundCompletion = sessionStorage.getItem('prefill_background_completion');
-                // Don't show if actively receiving progress (prefill still running)
-                if (stillInProgress && !hasBackgroundCompletion && !isReceivingProgressRef.current) {
-                  // Clear the tracking flag
-                  sessionStorage.removeItem('prefill_in_progress');
-                  // Show background completion notification
+              if (lastResult && lastResult.status === 'completed') {
+                const completedTime = new Date(lastResult.completedAt).getTime();
+                const now = Date.now();
+                // If completed in last 5 minutes and we don't have a background notification yet
+                // and we're not actively receiving progress updates
+                if (now - completedTime < 5 * 60 * 1000 && !backgroundCompletion && !isReceivingProgressRef.current) {
                   setBackgroundCompletion({
-                    completedAt: new Date().toISOString(),
-                    message: `Prefill completed (${elapsed}s while disconnected)`,
-                    duration: elapsed
+                    completedAt: lastResult.completedAt,
+                    message: `Prefill completed in ${lastResult.durationSeconds}s`,
+                    duration: lastResult.durationSeconds
                   });
-                  addLog('success', `Prefill completed while disconnected (${elapsed}s)`);
+                  addLog('success', `Prefill completed while disconnected (${lastResult.durationSeconds}s)`);
                 }
-              }, 1500);
+              }
+            } catch (err) {
+              console.debug('Failed to check last prefill result:', err);
+              // Non-critical - don't fail reconnection
             }
+
+            // Clear any stale tracking flags
+            try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
           } catch (err) {
             console.error('Failed to resubscribe:', err);
           }
@@ -1034,39 +1037,37 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       isPageHiddenRef.current = document.hidden;
 
       // When page becomes visible, check if prefill completed while away
-      if (wasHidden && !document.hidden) {
+      if (wasHidden && !document.hidden && session && hubConnection.current?.state === 'Connected') {
+        // Query the server for the last prefill result
+        // This reliably detects completion even if WebSocket was disconnected
         try {
-          const prefillInProgress = sessionStorage.getItem('prefill_in_progress');
-          if (prefillInProgress && !backgroundCompletion) {
-            const { startedAt } = JSON.parse(prefillInProgress);
-            const startTime = new Date(startedAt).getTime();
-            const elapsed = Math.round((Date.now() - startTime) / 1000);
+          const lastResult = await hubConnection.current.invoke('GetLastPrefillResult', session.id) as {
+            status: string;
+            completedAt: string;
+            durationSeconds: number;
+          } | null;
 
-            // If prefill was in progress but we no longer have progress state,
-            // it likely completed while we were away (connection was lost)
-            // Wait a short moment for reconnection to establish state
-            setTimeout(() => {
-              // Re-check: if the prefill_in_progress flag is still set after reconnection
-              // had time to clear it via PrefillStateChanged event, assume it completed
-              const stillInProgress = sessionStorage.getItem('prefill_in_progress');
-              const hasBackgroundCompletion = sessionStorage.getItem('prefill_background_completion');
-              // Don't show if actively receiving progress (prefill still running)
-              if (stillInProgress && !hasBackgroundCompletion && !isReceivingProgressRef.current) {
-                // Clear the tracking flag
-                sessionStorage.removeItem('prefill_in_progress');
-                // Show background completion notification
-                setBackgroundCompletion({
-                  completedAt: new Date().toISOString(),
-                  message: `Prefill completed (${elapsed}s while in background)`,
-                  duration: elapsed
-                });
-                addLog('success', `Prefill completed while in background (${elapsed}s)`);
-              }
-            }, 2000); // Wait for reconnection to update state
+          if (lastResult && lastResult.status === 'completed') {
+            const completedTime = new Date(lastResult.completedAt).getTime();
+            const now = Date.now();
+            // If completed in last 5 minutes and we don't have a background notification yet
+            // and we're not actively receiving progress updates
+            if (now - completedTime < 5 * 60 * 1000 && !backgroundCompletion && !isReceivingProgressRef.current) {
+              setBackgroundCompletion({
+                completedAt: lastResult.completedAt,
+                message: `Prefill completed in ${lastResult.durationSeconds}s`,
+                duration: lastResult.durationSeconds
+              });
+              addLog('success', `Prefill completed while in background (${lastResult.durationSeconds}s)`);
+            }
           }
-        } catch {
-          // Ignore errors
+        } catch (err) {
+          console.debug('Failed to check last prefill result on visibility change:', err);
+          // Non-critical - don't show error to user
         }
+
+        // Clear any stale tracking flags
+        try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
       }
     };
 
@@ -1074,7 +1075,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [backgroundCompletion, prefillProgress, setBackgroundCompletion, addLog]);
+  }, [session, backgroundCompletion, setBackgroundCompletion, addLog]);
 
   // Auto-dismiss background completion notification after 10 seconds
   useEffect(() => {

@@ -1271,12 +1271,40 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
     private async Task NotifyPrefillStateChangeAsync(DaemonSession session, string state)
     {
+        int? durationSeconds = null;
+
+        // For completion states, calculate duration and store the result for background detection
+        if (state == "completed" || state == "failed" || state == "cancelled")
+        {
+            if (session.PrefillStartedAt.HasValue)
+            {
+                durationSeconds = (int)(DateTime.UtcNow - session.PrefillStartedAt.Value).TotalSeconds;
+            }
+
+            // Store the last prefill result for clients that were disconnected during prefill
+            session.LastPrefillCompletedAt = DateTime.UtcNow;
+            session.LastPrefillDurationSeconds = durationSeconds;
+            session.LastPrefillStatus = state;
+
+            _logger.LogInformation("Prefill {State} for session {SessionId}, duration: {Duration}s",
+                state, session.Id, durationSeconds ?? 0);
+        }
+        else if (state == "started")
+        {
+            // Track when prefill started for duration calculation
+            session.PrefillStartedAt = DateTime.UtcNow;
+            // Clear any previous completion info
+            session.LastPrefillCompletedAt = null;
+            session.LastPrefillDurationSeconds = null;
+            session.LastPrefillStatus = null;
+        }
+
         foreach (var connectionId in session.SubscribedConnections.ToList())
         {
             try
             {
                 await _hubContext.Clients.Client(connectionId)
-                    .SendAsync("PrefillStateChanged", session.Id, state);
+                    .SendAsync("PrefillStateChanged", session.Id, state, durationSeconds);
             }
             catch (Exception ex)
             {
@@ -2091,6 +2119,7 @@ public class DaemonSession
     public DaemonSessionStatus Status { get; set; } = DaemonSessionStatus.Active;
     public DaemonAuthState AuthState { get; set; } = DaemonAuthState.NotAuthenticated;
     public bool IsPrefilling { get; set; }
+    public DateTime? PrefillStartedAt { get; set; }
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public DateTime? EndedAt { get; set; }
     public DateTime ExpiresAt { get; init; }
@@ -2144,6 +2173,14 @@ public class DaemonSession
     /// </summary>
     public NetworkDiagnostics? NetworkDiagnostics { get; set; }
 
+    /// <summary>
+    /// Last prefill completion result - used for background completion detection
+    /// when client was disconnected during prefill
+    /// </summary>
+    public DateTime? LastPrefillCompletedAt { get; set; }
+    public int? LastPrefillDurationSeconds { get; set; }
+    public string? LastPrefillStatus { get; set; }
+
     public DaemonClient Client { get; set; } = null!;
     public FileSystemWatcher? StatusWatcher { get; set; }
     public HashSet<string> SubscribedConnections { get; } = new();
@@ -2194,7 +2231,7 @@ public class DaemonSessionDto
     // Current prefill progress info for admin visibility
     public uint CurrentAppId { get; set; }
     public string? CurrentAppName { get; set; }
-    
+
     /// <summary>
     /// Total bytes transferred during this session (cumulative across all games)
     /// </summary>
@@ -2204,6 +2241,13 @@ public class DaemonSessionDto
     /// Network diagnostics results (internet connectivity and DNS resolution tests)
     /// </summary>
     public NetworkDiagnostics? NetworkDiagnostics { get; set; }
+
+    /// <summary>
+    /// Last prefill completion result - for background completion detection
+    /// </summary>
+    public DateTime? LastPrefillCompletedAt { get; set; }
+    public int? LastPrefillDurationSeconds { get; set; }
+    public string? LastPrefillStatus { get; set; }
 
     public static DaemonSessionDto FromSession(DaemonSession session)
     {
@@ -2227,9 +2271,22 @@ public class DaemonSessionDto
             CurrentAppId = session.CurrentAppId,
             CurrentAppName = session.CurrentAppName,
             TotalBytesTransferred = session.TotalBytesTransferred,
-            NetworkDiagnostics = session.NetworkDiagnostics
+            NetworkDiagnostics = session.NetworkDiagnostics,
+            LastPrefillCompletedAt = session.LastPrefillCompletedAt,
+            LastPrefillDurationSeconds = session.LastPrefillDurationSeconds,
+            LastPrefillStatus = session.LastPrefillStatus
         };
     }
+}
+
+/// <summary>
+/// DTO for last prefill result - used for background completion detection
+/// </summary>
+public class LastPrefillResultDto
+{
+    public string Status { get; set; } = string.Empty;
+    public DateTime CompletedAt { get; set; }
+    public int DurationSeconds { get; set; }
 }
 
 /// <summary>

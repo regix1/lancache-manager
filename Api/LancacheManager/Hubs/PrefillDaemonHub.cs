@@ -335,6 +335,27 @@ public class PrefillDaemonHub : Hub
     }
 
     /// <summary>
+    /// Gets the last prefill result for a session.
+    /// Used by clients to check if prefill completed while they were disconnected.
+    /// </summary>
+    public LastPrefillResultDto? GetLastPrefillResult(string sessionId)
+    {
+        ValidateSessionAccess(sessionId, out var session);
+
+        if (!session.LastPrefillCompletedAt.HasValue)
+        {
+            return null;
+        }
+
+        return new LastPrefillResultDto
+        {
+            Status = session.LastPrefillStatus ?? "unknown",
+            CompletedAt = session.LastPrefillCompletedAt.Value,
+            DurationSeconds = session.LastPrefillDurationSeconds ?? 0
+        };
+    }
+
+    /// <summary>
     /// Gets all sessions for the current user
     /// </summary>
     public IEnumerable<DaemonSessionDto> GetMySessions()

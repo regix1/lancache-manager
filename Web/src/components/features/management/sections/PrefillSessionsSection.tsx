@@ -61,10 +61,25 @@ const formatBytes = (bytes: number): string => {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 };
 
-// Prefill history status badge
-const HistoryStatusBadge: React.FC<{ status: string }> = ({ status }) => {
+// Prefill history status badge - derives effective status from status + completedAtUtc
+const HistoryStatusBadge: React.FC<{ status: string; completedAtUtc?: string }> = ({ status, completedAtUtc }) => {
+  // Derive the effective status: if completedAtUtc is set but status is still InProgress,
+  // the download actually completed (race condition with status update)
+  const getEffectiveStatus = () => {
+    const normalizedStatus = status.toLowerCase();
+    
+    // If completedAtUtc is set but status is still InProgress, treat as Completed
+    if (completedAtUtc && normalizedStatus === 'inprogress') {
+      return 'completed';
+    }
+    
+    return normalizedStatus;
+  };
+
+  const effectiveStatus = getEffectiveStatus();
+
   const getStatusStyle = () => {
-    switch (status.toLowerCase()) {
+    switch (effectiveStatus) {
       case 'completed':
         return { bg: 'var(--theme-icon-green)', text: '#fff' };
       case 'inprogress':
@@ -80,14 +95,25 @@ const HistoryStatusBadge: React.FC<{ status: string }> = ({ status }) => {
   };
 
   const colors = getStatusStyle();
-  const displayStatus = status === 'InProgress' ? 'In Progress' : status;
+  
+  // Display capitalized version
+  const getDisplayStatus = () => {
+    switch (effectiveStatus) {
+      case 'completed': return 'Completed';
+      case 'inprogress': return 'In Progress';
+      case 'failed': return 'Failed';
+      case 'error': return 'Error';
+      case 'cancelled': return 'Cancelled';
+      default: return status;
+    }
+  };
 
   return (
     <span
       className="px-1.5 py-0.5 rounded text-[10px] font-medium"
       style={{ backgroundColor: colors.bg, color: colors.text }}
     >
-      {displayStatus}
+      {getDisplayStatus()}
     </span>
   );
 };
@@ -304,10 +330,9 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     };
 
     const handlePrefillHistoryUpdated = (event: PrefillHistoryUpdatedEvent) => {
-      // Reload history for this session if it's currently expanded
-      if (expandedHistory.has(event.sessionId)) {
-        loadHistory(event.sessionId);
-      }
+      // Reload history for this session - both for expanded views and summary badges
+      // Since history is pre-loaded for summary badges, we should update it on any history change
+      loadHistory(event.sessionId);
     };
 
     on('DaemonSessionCreated', handleSessionCreated);
@@ -498,7 +523,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             {activeSessions.map(session => {
               const sessionHistory = historyData[session.id];
               const totalBytesFromHistory = sessionHistory
-                ? sessionHistory.reduce((sum, e) => sum + e.bytesDownloaded, 0)
+                ? sessionHistory.reduce((sum, e) => sum + Math.max(e.bytesDownloaded, e.totalBytes || 0), 0)
                 : 0;
               const gamesCount = sessionHistory?.length || 0;
 
@@ -533,9 +558,11 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                               {session.steamUsername}
                             </span>
                           ) : (
-                            <span className="font-mono text-sm text-themed-secondary">
-                              {session.containerName.slice(0, 20)}...
-                            </span>
+                            <Tooltip content={session.containerName}>
+                              <span className="font-mono text-sm text-themed-secondary">
+                                {session.containerName}
+                              </span>
+                            </Tooltip>
                           )}
                           <StatusBadge status={session.status} isLive />
                         </div>
@@ -554,14 +581,14 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                           </div>
                         )}
 
-                        {/* Secondary: Container name (truncated) */}
+                        {/* Secondary: Container name */}
                         <div className="flex items-center gap-1.5 mt-1.5 text-xs text-themed-muted">
                           <Container className="w-3 h-3 flex-shrink-0" />
-                          <span className="font-mono truncate" title={session.containerName}>
-                            {session.containerName.length > 24
-                              ? session.containerName.slice(0, 24) + '...'
-                              : session.containerName}
-                          </span>
+                          <Tooltip content={session.containerName}>
+                            <span className="font-mono truncate max-w-[200px]">
+                              {session.containerName}
+                            </span>
+                          </Tooltip>
                         </div>
 
                         {/* Compact info row */}
@@ -687,7 +714,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                         const totalPages = Math.ceil(allEntries.length / historyPageSize);
                         const startIdx = (currentPage - 1) * historyPageSize;
                         const paginatedEntries = allEntries.slice(startIdx, startIdx + historyPageSize);
-                        const totalBytes = allEntries.reduce((sum, e) => sum + e.bytesDownloaded, 0);
+                        const totalBytes = allEntries.reduce((sum, e) => sum + Math.max(e.bytesDownloaded, e.totalBytes || 0), 0);
 
                         return (
                           <>
@@ -712,15 +739,19 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                                         <span className="text-sm font-medium text-themed-primary truncate">
                                           {entry.appName || `App ${entry.appId}`}
                                         </span>
-                                        <HistoryStatusBadge status={entry.status} />
+                                        <HistoryStatusBadge status={entry.status} completedAtUtc={entry.completedAtUtc} />
                                       </div>
                                       <div className="flex items-center gap-3 text-[10px] text-themed-muted mt-0.5">
                                         <span>Started: <FormattedTimestamp timestamp={entry.startedAtUtc} /></span>
                                         {entry.completedAtUtc && (
                                           <span>Completed: <FormattedTimestamp timestamp={entry.completedAtUtc} /></span>
                                         )}
-                                        {entry.bytesDownloaded > 0 && (
-                                          <span>{formatBytes(entry.bytesDownloaded)}</span>
+                                        {(entry.bytesDownloaded > 0 || entry.totalBytes > 0) && (
+                                          <span>
+                                            {entry.totalBytes > 0 && entry.bytesDownloaded !== entry.totalBytes
+                                              ? `${formatBytes(entry.bytesDownloaded)} / ${formatBytes(entry.totalBytes)}`
+                                              : formatBytes(entry.bytesDownloaded || entry.totalBytes)}
+                                          </span>
                                         )}
                                       </div>
                                       {entry.errorMessage && (
@@ -810,7 +841,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               {sessions.map(session => {
                 const sessionHistory = historyData[session.sessionId];
                 const totalBytesFromHistory = sessionHistory
-                  ? sessionHistory.reduce((sum, e) => sum + e.bytesDownloaded, 0)
+                  ? sessionHistory.reduce((sum, e) => sum + Math.max(e.bytesDownloaded, e.totalBytes || 0), 0)
                   : 0;
                 const gamesCount = sessionHistory?.length || 0;
 
@@ -861,15 +892,15 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                               )}
                             </div>
 
-                            {/* Secondary: Container name (truncated) */}
+                            {/* Secondary: Container name */}
                             {session.containerName && (
                               <div className="flex items-center gap-1.5 mt-1 text-xs text-themed-muted">
                                 <Container className="w-3 h-3 flex-shrink-0" />
-                                <span className="font-mono truncate" title={session.containerName}>
-                                  {session.containerName.length > 24
-                                    ? session.containerName.slice(0, 24) + '...'
-                                    : session.containerName}
-                                </span>
+                                <Tooltip content={session.containerName}>
+                                  <span className="font-mono truncate max-w-[200px]">
+                                    {session.containerName}
+                                  </span>
+                                </Tooltip>
                               </div>
                             )}
 
@@ -1010,15 +1041,19 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                                             <span className="text-sm font-medium text-themed-primary truncate">
                                               {entry.appName || `App ${entry.appId}`}
                                             </span>
-                                            <HistoryStatusBadge status={entry.status} />
+                                            <HistoryStatusBadge status={entry.status} completedAtUtc={entry.completedAtUtc} />
                                           </div>
                                           <div className="flex items-center gap-3 text-[10px] text-themed-muted mt-0.5">
                                             <span>Started: <FormattedTimestamp timestamp={entry.startedAtUtc} /></span>
                                             {entry.completedAtUtc && (
                                               <span>Completed: <FormattedTimestamp timestamp={entry.completedAtUtc} /></span>
                                             )}
-                                            {entry.bytesDownloaded > 0 && (
-                                              <span>{formatBytes(entry.bytesDownloaded)}</span>
+                                            {(entry.bytesDownloaded > 0 || entry.totalBytes > 0) && (
+                                              <span>
+                                                {entry.totalBytes > 0 && entry.bytesDownloaded !== entry.totalBytes
+                                                  ? `${formatBytes(entry.bytesDownloaded)} / ${formatBytes(entry.totalBytes)}`
+                                                  : formatBytes(entry.bytesDownloaded || entry.totalBytes)}
+                                              </span>
                                             )}
                                           </div>
                                           {entry.errorMessage && (
