@@ -181,7 +181,11 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const isCancelling = useRef(false);
 
   // Use context for log entries (persists across tab switches)
-  const { logEntries, addLog, clearLogs } = usePrefillContext();
+  const { logEntries, addLog, clearLogs, backgroundCompletion, setBackgroundCompletion, clearBackgroundCompletion } = usePrefillContext();
+
+  // Track page visibility for background completion detection
+  const isPageHiddenRef = useRef(document.hidden);
+  const prefillDurationRef = useRef<number>(0);
 
   const [session, setSession] = useState<PrefillSessionDto | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -450,6 +454,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
           if (progress.state === 'downloading') {
             setPrefillProgress(progress);
+            // Track elapsed time for background completion message
+            prefillDurationRef.current = progress.elapsedSeconds;
           } else if (
             progress.state === 'loading-metadata' ||
             progress.state === 'metadata-loaded' ||
@@ -490,13 +496,26 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       );
 
       // Handle prefill state changes
-      connection.on('PrefillStateChanged', (_sessionId: string, state: string) => {
+      connection.on('PrefillStateChanged', (_sessionId: string, state: string, durationSeconds?: number) => {
         if (state === 'started') {
           addLog('download', 'Prefill operation started');
+          prefillDurationRef.current = 0;
+          // Clear any previous background completion notification
+          clearBackgroundCompletion();
         } else if (state === 'completed') {
-          addLog('success', 'Prefill operation completed');
+          const duration = durationSeconds || prefillDurationRef.current;
+          addLog('success', `Prefill completed in ${Math.round(duration)}s`);
           isCancelling.current = false;
           setPrefillProgress(null);
+
+          // If page was hidden, store background completion for notification
+          if (isPageHiddenRef.current) {
+            setBackgroundCompletion({
+              completedAt: new Date().toISOString(),
+              message: `Prefill completed in ${Math.round(duration)}s`,
+              duration: duration
+            });
+          }
         } else if (state === 'failed') {
           addLog('error', 'Prefill operation failed');
           isCancelling.current = false;
@@ -573,7 +592,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       setIsConnecting(false);
       return null;
     }
-  }, [session, onSessionEnd, handleAuthStateChanged, addLog]);
+  }, [session, onSessionEnd, handleAuthStateChanged, addLog, setBackgroundCompletion, clearBackgroundCompletion]);
 
   // Check for existing sessions and reconnect if found
   const initializeSession = useCallback(async () => {
@@ -953,6 +972,28 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       hubConnection.current?.stop();
     };
   }, []);
+
+  // Track page visibility for background completion detection
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      isPageHiddenRef.current = document.hidden;
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
+  // Auto-dismiss background completion notification after 10 seconds
+  useEffect(() => {
+    if (backgroundCompletion) {
+      const timer = setTimeout(() => {
+        clearBackgroundCompletion();
+      }, 10000);
+      return () => clearTimeout(timer);
+    }
+  }, [backgroundCompletion, clearBackgroundCompletion]);
 
   // Commands that need confirmation before execution
   const COMMANDS_REQUIRING_CONFIRMATION: CommandType[] = ['prefill', 'prefill-all', 'prefill-top'];
@@ -1417,6 +1458,37 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
           {/* Network Status Card */}
           <NetworkStatusSection diagnostics={session?.networkDiagnostics} />
+
+          {/* Background Completion Notification Banner */}
+          {backgroundCompletion && !prefillProgress && (
+            <Card
+              padding="md"
+              className="overflow-hidden border-[color-mix(in_srgb,var(--theme-success)_50%,transparent)] animate-fade-in"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[color-mix(in_srgb,var(--theme-success)_15%,transparent)]">
+                    <CheckCircle2 className="h-5 w-5 text-[var(--theme-success)]" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-themed-primary">Download Completed</p>
+                    <p className="text-sm text-themed-muted">
+                      {backgroundCompletion.message}
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={clearBackgroundCompletion}
+                  className="flex-shrink-0"
+                >
+                  <X className="h-4 w-4" />
+                  Dismiss
+                </Button>
+              </div>
+            </Card>
+          )}
 
           {/* Download Progress Card */}
           {prefillProgress && (

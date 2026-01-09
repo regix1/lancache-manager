@@ -3,7 +3,14 @@ import type { LogEntry, LogEntryType } from '@components/features/prefill/Activi
 import { createLogEntry } from '@components/features/prefill/ActivityLog';
 
 const STORAGE_KEY = 'prefill_activity_log';
+const BACKGROUND_COMPLETION_KEY = 'prefill_background_completion';
 const MAX_LOG_ENTRIES = 500; // Limit stored entries to prevent storage bloat
+
+export interface BackgroundCompletion {
+  completedAt: string;
+  message: string;
+  duration?: number; // Duration in seconds if available
+}
 
 interface PrefillContextType {
   logEntries: LogEntry[];
@@ -12,6 +19,10 @@ interface PrefillContextType {
   // Session state that persists across tab switches
   sessionId: string | null;
   setSessionId: (id: string | null) => void;
+  // Background completion notification
+  backgroundCompletion: BackgroundCompletion | null;
+  setBackgroundCompletion: (completion: BackgroundCompletion | null) => void;
+  clearBackgroundCompletion: () => void;
 }
 
 const PrefillContext = createContext<PrefillContextType | undefined>(undefined);
@@ -57,6 +68,19 @@ const saveLogsToStorage = (entries: LogEntry[]) => {
   }
 };
 
+// Helper to restore background completion from sessionStorage
+const restoreBackgroundCompletion = (): BackgroundCompletion | null => {
+  try {
+    const saved = sessionStorage.getItem(BACKGROUND_COMPLETION_KEY);
+    if (saved) {
+      return JSON.parse(saved);
+    }
+  } catch (error) {
+    console.error('[PrefillContext] Failed to restore background completion:', error);
+  }
+  return null;
+};
+
 export const PrefillProvider: React.FC<PrefillProviderProps> = ({ children }) => {
   const [logEntries, setLogEntries] = useState<LogEntry[]>(() => restoreLogsFromStorage());
   const [sessionId, setSessionIdState] = useState<string | null>(() => {
@@ -66,6 +90,9 @@ export const PrefillProvider: React.FC<PrefillProviderProps> = ({ children }) =>
       return null;
     }
   });
+  const [backgroundCompletion, setBackgroundCompletionState] = useState<BackgroundCompletion | null>(
+    () => restoreBackgroundCompletion()
+  );
 
   // Use ref to track if we need to persist (prevents excessive writes)
   const pendingSaveRef = useRef<NodeJS.Timeout | null>(null);
@@ -111,12 +138,37 @@ export const PrefillProvider: React.FC<PrefillProviderProps> = ({ children }) =>
     }
   }, []);
 
+  const setBackgroundCompletion = useCallback((completion: BackgroundCompletion | null) => {
+    setBackgroundCompletionState(completion);
+    try {
+      if (completion) {
+        sessionStorage.setItem(BACKGROUND_COMPLETION_KEY, JSON.stringify(completion));
+      } else {
+        sessionStorage.removeItem(BACKGROUND_COMPLETION_KEY);
+      }
+    } catch {
+      // Ignore errors
+    }
+  }, []);
+
+  const clearBackgroundCompletion = useCallback(() => {
+    setBackgroundCompletionState(null);
+    try {
+      sessionStorage.removeItem(BACKGROUND_COMPLETION_KEY);
+    } catch {
+      // Ignore errors
+    }
+  }, []);
+
   const value = {
     logEntries,
     addLog,
     clearLogs,
     sessionId,
-    setSessionId
+    setSessionId,
+    backgroundCompletion,
+    setBackgroundCompletion,
+    clearBackgroundCompletion
   };
 
   return <PrefillContext.Provider value={value}>{children}</PrefillContext.Provider>;

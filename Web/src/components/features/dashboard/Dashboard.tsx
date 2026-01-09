@@ -812,8 +812,8 @@ const Dashboard: React.FC = () => {
                 cursor: isEditMode ? 'pointer' : (draggedCard === card.key ? 'grabbing' : 'default'),
                 opacity: isCardDisabled ? 0.5 : (isDragMode && draggedCard === card.key ? 0.9 : 1)
               }}
-              draggable={!isDragMode && !isEditMode && !isCardDisabled}
-              onDragStart={(e) => !isCardDisabled && dragHandlers.onDragStart(e, card.key)}
+              draggable={!isDragMode && !isEditMode}
+              onDragStart={(e) => dragHandlers.onDragStart(e, card.key)}
               onDragEnd={dragHandlers.onDragEnd}
               onDragOver={dragHandlers.onDragOver}
               onDragEnter={(e) => dragHandlers.onDragEnter(e, card.key)}

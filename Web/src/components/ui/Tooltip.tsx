@@ -221,6 +221,7 @@ const EdgeTooltip: React.FC<{
 }> = ({ trigger, content, position, offset, contentClassName }) => {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const [isReady, setIsReady] = useState(false);
 
   // Use useLayoutEffect to calculate position before browser paint
   useLayoutEffect(() => {
@@ -278,17 +279,24 @@ const EdgeTooltip: React.FC<{
       Math.min(y, window.innerHeight - tooltipRect.height - viewportPadding)
     );
 
-    // Only update state if position actually changed to prevent infinite loops
-    setPos(prev => (prev?.x === x && prev?.y === y) ? prev : { x, y });
+    // Update position and mark as ready - this happens synchronously before paint
+    setPos({ x, y });
+    setIsReady(true);
   }, [trigger, position, offset]);
 
   return (
     <div
       ref={ref}
-      className={`fixed z-[9999] max-w-md px-2.5 py-1.5 text-xs themed-card text-themed-secondary rounded-md tooltip-edge transition-none ${pos ? 'visible' : 'invisible'} ${contentClassName}`}
+      className={`fixed z-[9999] max-w-md px-2.5 py-1.5 text-xs themed-card text-themed-secondary rounded-md tooltip-edge ${contentClassName}`}
       style={{
-        left: pos?.x ?? -9999,
-        top: pos?.y ?? -9999
+        left: pos?.x ?? 0,
+        top: pos?.y ?? 0,
+        // Use opacity for instant appear/disappear without animation
+        opacity: isReady ? 1 : 0,
+        // Ensure no transitions that could cause flying effect
+        transition: 'none',
+        // Prevent interaction during measurement
+        pointerEvents: isReady ? 'auto' : 'none'
       }}
     >
       {content}

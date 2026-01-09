@@ -448,10 +448,8 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
             {isHistoricalView ? (
               <>
                 <span className="speed-label">Historical View</span>
-                <div className="speed-value">
-                  <span className="speed-number">Viewing past data</span>
-                </div>
                 <div className="stats-row">
+                  <span className="stat-chip">Viewing past data</span>
                   <span className="stat-chip">Live stats unavailable</span>
                 </div>
               </>
@@ -530,7 +528,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
             <HardDrive />
             <span className="today-label">Today:</span>
             <span className="today-value">{formatBytes(todayTotal)}</span>
-            {isActive && <div className="active-dot" />}
+            {isActive && !isHistoricalView && <div className="active-dot" />}
           </div>
         </div>
       </div>
