@@ -174,6 +174,9 @@ export const Tooltip: React.FC<TooltipProps> = ({
               }
             }
             setShow(!show);
+          } else {
+            // On desktop, hide tooltip on click (user is taking action)
+            setShow(false);
           }
         }}
       >

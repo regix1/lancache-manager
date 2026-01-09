@@ -611,21 +611,19 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
 
                       {/* Action buttons */}
                       <div className="flex items-center gap-1">
-                        <Tooltip content={expandedHistory.has(session.id) ? "Hide history" : "View prefill history"}>
-                          <Button
-                            variant="subtle"
-                            size="sm"
-                            onClick={() => toggleHistory(session.id)}
-                          >
-                            {loadingHistory.has(session.id) ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : expandedHistory.has(session.id) ? (
-                              <ChevronUp className="w-4 h-4" />
-                            ) : (
-                              <ChevronDown className="w-4 h-4" />
-                            )}
-                          </Button>
-                        </Tooltip>
+                        <Button
+                          variant="subtle"
+                          size="sm"
+                          onClick={() => toggleHistory(session.id)}
+                        >
+                          {loadingHistory.has(session.id) ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : expandedHistory.has(session.id) ? (
+                            <ChevronUp className="w-4 h-4" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4" />
+                          )}
+                        </Button>
                         {isAuthenticated && (
                           <>
                             <Tooltip content="Ban this Steam user">
@@ -852,7 +850,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                                 </span>
                               ) : (
                                 <span className="font-mono text-sm text-themed-secondary">
-                                  {session.sessionId.slice(0, 12)}...
+                                  {session.sessionId}
                                 </span>
                               )}
                               <StatusBadge status={session.status} isLive={session.isLive} />
@@ -915,21 +913,19 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
 
                           {/* Action buttons */}
                           <div className="flex items-center gap-1">
-                            <Tooltip content={expandedHistory.has(session.sessionId) ? "Hide history" : "View prefill history"}>
-                              <Button
-                                variant="subtle"
-                                size="sm"
-                                onClick={() => toggleHistory(session.sessionId)}
-                              >
-                                {loadingHistory.has(session.sessionId) ? (
-                                  <Loader2 className="w-4 h-4 animate-spin" />
-                                ) : expandedHistory.has(session.sessionId) ? (
-                                  <ChevronUp className="w-4 h-4" />
-                                ) : (
-                                  <ChevronDown className="w-4 h-4" />
-                                )}
-                              </Button>
-                            </Tooltip>
+                            <Button
+                              variant="subtle"
+                              size="sm"
+                              onClick={() => toggleHistory(session.sessionId)}
+                            >
+                              {loadingHistory.has(session.sessionId) ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : expandedHistory.has(session.sessionId) ? (
+                                <ChevronUp className="w-4 h-4" />
+                              ) : (
+                                <ChevronDown className="w-4 h-4" />
+                              )}
+                            </Button>
 
                             {isAuthenticated && session.isLive && (
                               <>
