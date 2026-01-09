@@ -186,6 +186,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   // Track page visibility for background completion detection
   const isPageHiddenRef = useRef(document.hidden);
   const prefillDurationRef = useRef<number>(0);
+  const isReceivingProgressRef = useRef(false); // Track if actively receiving progress updates
 
   const [session, setSession] = useState<PrefillSessionDto | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -443,6 +444,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
           if (isFinalState) {
             isCancelling.current = false;
+            isReceivingProgressRef.current = false;
             setPrefillProgress(null);
             return;
           }
@@ -451,6 +453,9 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           if (isCancelling.current) {
             return;
           }
+
+          // Mark that we're actively receiving progress
+          isReceivingProgressRef.current = true;
 
           if (progress.state === 'downloading') {
             setPrefillProgress(progress);
@@ -500,13 +505,24 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         if (state === 'started') {
           addLog('download', 'Prefill operation started');
           prefillDurationRef.current = 0;
+          isReceivingProgressRef.current = true;
           // Clear any previous background completion notification
           clearBackgroundCompletion();
+          // Track prefill in progress for background detection
+          try {
+            sessionStorage.setItem('prefill_in_progress', JSON.stringify({
+              startedAt: new Date().toISOString(),
+              sessionId: _sessionId
+            }));
+          } catch { /* ignore */ }
         } else if (state === 'completed') {
           const duration = durationSeconds || prefillDurationRef.current;
           addLog('success', `Prefill completed in ${Math.round(duration)}s`);
           isCancelling.current = false;
+          isReceivingProgressRef.current = false;
           setPrefillProgress(null);
+          // Clear prefill in progress tracking
+          try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
 
           // If page was hidden, store background completion for notification
           if (isPageHiddenRef.current) {
@@ -519,11 +535,17 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         } else if (state === 'failed') {
           addLog('error', 'Prefill operation failed');
           isCancelling.current = false;
+          isReceivingProgressRef.current = false;
           setPrefillProgress(null);
+          // Clear prefill in progress tracking
+          try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
         } else if (state === 'cancelled') {
           addLog('info', 'Prefill operation cancelled');
           isCancelling.current = false;
+          isReceivingProgressRef.current = false;
           setPrefillProgress(null);
+          // Clear prefill in progress tracking
+          try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
         }
       });
 
@@ -572,12 +594,44 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         addLog('warning', 'Connection lost, reconnecting...');
       });
 
-      connection.onreconnected((connectionId) => {
+      connection.onreconnected(async (connectionId) => {
         console.log('Hub reconnected:', connectionId);
         addLog('success', 'Reconnected to server');
         // Re-subscribe to session if we have one
         if (session) {
-          connection.invoke('SubscribeToSession', session.id).catch(console.error);
+          try {
+            await connection.invoke('SubscribeToSession', session.id);
+
+            // Check if prefill was in progress before disconnect
+            const prefillInProgress = sessionStorage.getItem('prefill_in_progress');
+            if (prefillInProgress) {
+              const { startedAt } = JSON.parse(prefillInProgress);
+              const startTime = new Date(startedAt).getTime();
+              const elapsed = Math.round((Date.now() - startTime) / 1000);
+
+              // Give a moment for PrefillStateChanged events to arrive
+              setTimeout(() => {
+                // If flag is still set after events had time to clear it,
+                // and no active download, the prefill likely completed while disconnected
+                const stillInProgress = sessionStorage.getItem('prefill_in_progress');
+                const hasBackgroundCompletion = sessionStorage.getItem('prefill_background_completion');
+                // Don't show if actively receiving progress (prefill still running)
+                if (stillInProgress && !hasBackgroundCompletion && !isReceivingProgressRef.current) {
+                  // Clear the tracking flag
+                  sessionStorage.removeItem('prefill_in_progress');
+                  // Show background completion notification
+                  setBackgroundCompletion({
+                    completedAt: new Date().toISOString(),
+                    message: `Prefill completed (${elapsed}s while disconnected)`,
+                    duration: elapsed
+                  });
+                  addLog('success', `Prefill completed while disconnected (${elapsed}s)`);
+                }
+              }, 1500);
+            }
+          } catch (err) {
+            console.error('Failed to resubscribe:', err);
+          }
         }
       });
 
@@ -975,15 +1029,52 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
   // Track page visibility for background completion detection
   useEffect(() => {
-    const handleVisibilityChange = () => {
+    const handleVisibilityChange = async () => {
+      const wasHidden = isPageHiddenRef.current;
       isPageHiddenRef.current = document.hidden;
+
+      // When page becomes visible, check if prefill completed while away
+      if (wasHidden && !document.hidden) {
+        try {
+          const prefillInProgress = sessionStorage.getItem('prefill_in_progress');
+          if (prefillInProgress && !backgroundCompletion) {
+            const { startedAt } = JSON.parse(prefillInProgress);
+            const startTime = new Date(startedAt).getTime();
+            const elapsed = Math.round((Date.now() - startTime) / 1000);
+
+            // If prefill was in progress but we no longer have progress state,
+            // it likely completed while we were away (connection was lost)
+            // Wait a short moment for reconnection to establish state
+            setTimeout(() => {
+              // Re-check: if the prefill_in_progress flag is still set after reconnection
+              // had time to clear it via PrefillStateChanged event, assume it completed
+              const stillInProgress = sessionStorage.getItem('prefill_in_progress');
+              const hasBackgroundCompletion = sessionStorage.getItem('prefill_background_completion');
+              // Don't show if actively receiving progress (prefill still running)
+              if (stillInProgress && !hasBackgroundCompletion && !isReceivingProgressRef.current) {
+                // Clear the tracking flag
+                sessionStorage.removeItem('prefill_in_progress');
+                // Show background completion notification
+                setBackgroundCompletion({
+                  completedAt: new Date().toISOString(),
+                  message: `Prefill completed (${elapsed}s while in background)`,
+                  duration: elapsed
+                });
+                addLog('success', `Prefill completed while in background (${elapsed}s)`);
+              }
+            }, 2000); // Wait for reconnection to update state
+          }
+        } catch {
+          // Ignore errors
+        }
+      }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, []);
+  }, [backgroundCompletion, prefillProgress, setBackgroundCompletion, addLog]);
 
   // Auto-dismiss background completion notification after 10 seconds
   useEffect(() => {
