@@ -593,13 +593,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           <button
             onClick={() => setActiveTab('themes')}
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
-              activeTab === 'themes' ? 'text-themed-primary shadow-sm' : 'text-themed-muted hover:text-themed-secondary'
+              activeTab === 'themes' ? 'text-themed-primary shadow-sm tab-active' : 'text-themed-muted hover:text-themed-secondary tab-inactive'
             }`}
-            style={
-              activeTab === 'themes'
-                ? { backgroundColor: 'var(--theme-bg-secondary)' }
-                : { backgroundColor: 'transparent' }
-            }
           >
             <Layers className="w-4 h-4" />
             Themes
@@ -607,13 +602,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           <button
             onClick={() => setActiveTab('customize')}
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
-              activeTab === 'customize' ? 'text-themed-primary shadow-sm' : 'text-themed-muted hover:text-themed-secondary'
+              activeTab === 'customize' ? 'text-themed-primary shadow-sm tab-active' : 'text-themed-muted hover:text-themed-secondary tab-inactive'
             }`}
-            style={
-              activeTab === 'customize'
-                ? { backgroundColor: 'var(--theme-bg-secondary)' }
-                : { backgroundColor: 'transparent' }
-            }
           >
             <Brush className="w-4 h-4" />
             Customize

@@ -231,49 +231,32 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
           {/* Database Reset Status Banner */}
           {(resetStatus.isResetting || resetJustCompleted) && (
             <div
-              className="mb-6 p-4 rounded-lg border"
-              style={{
-                backgroundColor: resetJustCompleted
-                  ? 'var(--theme-success-bg)'
-                  : 'var(--theme-warning-bg)',
-                borderColor: resetJustCompleted
-                  ? 'var(--theme-success)'
-                  : 'var(--theme-warning)'
-              }}
+              className={`mb-6 p-4 rounded-lg border ${
+                resetJustCompleted
+                  ? 'bg-success border-success'
+                  : 'bg-warning border-warning'
+              }`}
             >
               <div className="flex items-center gap-3">
                 {resetJustCompleted ? (
-                  <CheckCircle
-                    className="w-5 h-5 flex-shrink-0"
-                    style={{ color: 'var(--theme-success)' }}
-                  />
+                  <CheckCircle className="w-5 h-5 flex-shrink-0 text-success" />
                 ) : (
-                  <Database
-                    className="w-5 h-5 flex-shrink-0 animate-pulse"
-                    style={{ color: 'var(--theme-warning)' }}
-                  />
+                  <Database className="w-5 h-5 flex-shrink-0 animate-pulse text-warning" />
                 )}
                 <div className="flex-1 min-w-0">
                   <p
-                    className="font-medium text-sm"
-                    style={{
-                      color: resetJustCompleted
-                        ? 'var(--theme-success-text)'
-                        : 'var(--theme-warning-text)'
-                    }}
+                    className={`font-medium text-sm ${
+                      resetJustCompleted ? 'text-success-text' : 'text-warning-text'
+                    }`}
                   >
                     {resetJustCompleted
                       ? 'Database Reset Complete'
                       : 'Database Reset In Progress'}
                   </p>
                   <p
-                    className="text-xs mt-1"
-                    style={{
-                      color: resetJustCompleted
-                        ? 'var(--theme-success-text)'
-                        : 'var(--theme-warning-text)',
-                      opacity: 0.9
-                    }}
+                    className={`text-xs mt-1 opacity-90 ${
+                      resetJustCompleted ? 'text-success-text' : 'text-warning-text'
+                    }`}
                   >
                     {resetJustCompleted
                       ? 'You can now log in.'
@@ -281,22 +264,13 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
                   </p>
                   {resetStatus.isResetting && resetStatus.percentComplete > 0 && (
                     <div className="mt-2">
-                      <div
-                        className="h-1.5 rounded-full overflow-hidden"
-                        style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                      >
+                      <div className="h-1.5 rounded-full overflow-hidden bg-themed-tertiary">
                         <div
-                          className="h-full rounded-full transition-all duration-300"
-                          style={{
-                            width: `${resetStatus.percentComplete}%`,
-                            backgroundColor: 'var(--theme-warning)'
-                          }}
+                          className="h-full rounded-full transition-all duration-300 bg-warning"
+                          style={{ width: `${resetStatus.percentComplete}%` }}
                         />
                       </div>
-                      <p
-                        className="text-xs mt-1 text-right"
-                        style={{ color: 'var(--theme-warning-text)', opacity: 0.8 }}
-                      >
+                      <p className="text-xs mt-1 text-right text-warning-text opacity-80">
                         {resetStatus.percentComplete.toFixed(1)}%
                       </p>
                     </div>
@@ -312,8 +286,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
               <>
                 <br />
                 <span
-                  className="text-sm"
-                  style={{ color: guestModeLocked ? 'var(--theme-error)' : 'var(--theme-text-muted)' }}
+                  className={`text-sm ${guestModeLocked ? 'text-error' : 'text-themed-muted'}`}
                 >
                   {guestModeLocked
                     ? 'Guest mode is currently disabled by the administrator.'

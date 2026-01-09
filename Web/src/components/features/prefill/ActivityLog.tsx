@@ -55,12 +55,8 @@ const LogIcon = memo(({ type }: { type: LogEntryType }) => {
 
   return (
     <div
-      className="flex items-center justify-center rounded-md flex-shrink-0"
-      style={{
-        width: '26px',
-        height: '26px',
-        backgroundColor: style.bgColor,
-      }}
+      className="flex items-center justify-center rounded-md flex-shrink-0 w-[26px] h-[26px]"
+      style={{ backgroundColor: style.bgColor }}
     >
       <Icon
         className={`h-3.5 w-3.5 ${isSpinning ? 'animate-spin' : ''}`}
@@ -86,17 +82,9 @@ const LogEntryRow = memo(({ entry, isLast }: { entry: LogEntry; isLast: boolean 
 
   return (
     <div
-      className="group flex items-start gap-2 sm:gap-3 px-2 sm:px-3 py-2 sm:py-2.5 transition-colors duration-100"
-      style={{
-        borderBottom: isLast ? 'none' : '1px solid var(--theme-border-secondary)',
-        backgroundColor: 'transparent',
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.backgroundColor = 'transparent';
-      }}
+      className={`group flex items-start gap-2 sm:gap-3 px-2 sm:px-3 py-2 sm:py-2.5 transition-colors duration-100 hover:bg-[var(--theme-bg-hover)] ${
+        isLast ? '' : 'border-b border-[var(--theme-border-secondary)]'
+      }`}
     >
       {/* Timestamp - hidden on mobile, shown on sm+ */}
       <span className="hidden sm:block text-[11px] font-mono flex-shrink-0 tabular-nums pt-1.5 opacity-50 group-hover:opacity-80 transition-opacity text-[var(--theme-text-muted)] tracking-[0.02em]">
@@ -105,8 +93,8 @@ const LogEntryRow = memo(({ entry, isLast }: { entry: LogEntry; isLast: boolean 
 
       {/* Color indicator line */}
       <div
-        className="w-0.5 self-stretch rounded-full flex-shrink-0 opacity-60"
-        style={{ backgroundColor: style.color, minHeight: '20px' }}
+        className="w-0.5 self-stretch rounded-full flex-shrink-0 opacity-60 min-h-[20px]"
+        style={{ backgroundColor: style.color }}
       />
 
       {/* Icon */}
@@ -160,13 +148,7 @@ export function ActivityLog({ entries, className = '' }: ActivityLogProps) {
 
   return (
     <div
-      className={`${className}`}
-      style={{
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        borderRadius: 'var(--theme-border-radius-lg, 0.75rem)',
-        border: '1px solid var(--theme-border-secondary)',
-        overflow: 'hidden',
-      }}
+      className={`${className} bg-[var(--theme-bg-tertiary)] rounded-xl border border-[var(--theme-border-secondary)] overflow-hidden`}
     >
       {entries.length === 0 ? (
         /* Empty State */
@@ -197,15 +179,7 @@ export function ActivityLog({ entries, className = '' }: ActivityLogProps) {
           {/* Pagination Footer */}
           {totalPages > 1 && (
             <div
-              className="flex items-center justify-between px-2 sm:px-3"
-              style={{
-                height: '48px',
-                minHeight: '48px',
-                borderTop: '1px solid var(--theme-border-secondary)',
-                backgroundColor: 'var(--theme-bg-secondary)',
-                borderBottomLeftRadius: 'var(--theme-border-radius-lg, 0.75rem)',
-                borderBottomRightRadius: 'var(--theme-border-radius-lg, 0.75rem)',
-              }}
+              className="flex items-center justify-between px-2 sm:px-3 h-12 min-h-[48px] border-t border-[var(--theme-border-secondary)] bg-[var(--theme-bg-secondary)] rounded-b-xl"
             >
               {/* Entry count - hidden on very small screens */}
               <span className="hidden xs:block text-[10px] sm:text-[11px] tabular-nums text-[var(--theme-text-muted)]">
@@ -217,22 +191,7 @@ export function ActivityLog({ entries, className = '' }: ActivityLogProps) {
                 <button
                   onClick={() => handlePageChange(currentPage - 1)}
                   disabled={currentPage === 1}
-                  className="flex items-center justify-center w-8 h-8 sm:w-7 sm:h-7 rounded-md transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                  style={{
-                    backgroundColor: 'var(--theme-bg-tertiary)',
-                    border: '1px solid var(--theme-border-secondary)',
-                    color: 'var(--theme-text-primary)',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!e.currentTarget.disabled) {
-                      e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
-                      e.currentTarget.style.borderColor = 'var(--theme-border-primary)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)';
-                    e.currentTarget.style.borderColor = 'var(--theme-border-secondary)';
-                  }}
+                  className="flex items-center justify-center w-8 h-8 sm:w-7 sm:h-7 rounded-md transition-all disabled:opacity-30 disabled:cursor-not-allowed bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-hover)] hover:border-[var(--theme-border-primary)]"
                   aria-label="Previous page"
                 >
                   <ChevronLeft size={14} />
@@ -246,22 +205,7 @@ export function ActivityLog({ entries, className = '' }: ActivityLogProps) {
                 <button
                   onClick={() => handlePageChange(currentPage + 1)}
                   disabled={currentPage === totalPages}
-                  className="flex items-center justify-center w-8 h-8 sm:w-7 sm:h-7 rounded-md transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                  style={{
-                    backgroundColor: 'var(--theme-bg-tertiary)',
-                    border: '1px solid var(--theme-border-secondary)',
-                    color: 'var(--theme-text-primary)',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!e.currentTarget.disabled) {
-                      e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
-                      e.currentTarget.style.borderColor = 'var(--theme-border-primary)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)';
-                    e.currentTarget.style.borderColor = 'var(--theme-border-secondary)';
-                  }}
+                  className="flex items-center justify-center w-8 h-8 sm:w-7 sm:h-7 rounded-md transition-all disabled:opacity-30 disabled:cursor-not-allowed bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-hover)] hover:border-[var(--theme-border-primary)]"
                   aria-label="Next page"
                 >
                   <ChevronRight size={14} />

@@ -1,0 +1,127 @@
+/* ==============================================
+ * USER - Session cards, Status dots, Config sections
+ * ============================================== */
+
+/* ===== USER MANAGEMENT REFINED STYLES ===== */
+
+/* Stat pill - compact inline stat display */
+.stat-pill {
+  @apply inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium;
+  background: var(--theme-bg-secondary);
+  border: 1px solid var(--theme-border-secondary);
+  transition: all 0.2s ease;
+}
+
+.stat-pill:hover {
+  background: var(--theme-bg-tertiary);
+  border-color: var(--theme-border);
+}
+
+.stat-pill .stat-value {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Session avatar */
+.session-avatar {
+  @apply w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0;
+  transition: transform 0.2s ease;
+}
+
+.session-card:hover .session-avatar {
+  transform: scale(1.05);
+}
+
+/* Status dot with pulse animation */
+.status-dot {
+  @apply w-2 h-2 rounded-full;
+  box-shadow: 0 0 0 2px var(--theme-bg-secondary);
+}
+
+.status-dot.active {
+  background: var(--theme-success);
+  animation: pulse-dot 2s infinite;
+}
+
+.status-dot.away {
+  background: var(--theme-warning);
+  animation: pulse-dot-away 3s infinite;
+}
+
+.status-dot.inactive {
+  background: var(--theme-text-muted);
+}
+
+@keyframes pulse-dot {
+  0%, 100% { box-shadow: 0 0 0 2px var(--theme-bg-secondary), 0 0 0 4px color-mix(in srgb, var(--theme-success) 30%, transparent); }
+  50% { box-shadow: 0 0 0 2px var(--theme-bg-secondary), 0 0 0 6px color-mix(in srgb, var(--theme-success) 10%, transparent); }
+}
+
+@keyframes pulse-dot-away {
+  0%, 100% { box-shadow: 0 0 0 2px var(--theme-bg-secondary), 0 0 0 4px color-mix(in srgb, var(--theme-warning) 30%, transparent); }
+  50% { box-shadow: 0 0 0 2px var(--theme-bg-secondary), 0 0 0 6px color-mix(in srgb, var(--theme-warning) 10%, transparent); }
+}
+
+/* Config section */
+.config-section {
+  @apply rounded-lg p-4;
+  background: var(--theme-bg-tertiary);
+  border: 1px solid var(--theme-border-secondary);
+}
+
+.config-section-title {
+  @apply text-xs font-semibold uppercase tracking-wider mb-3;
+  color: var(--theme-text-muted);
+  letter-spacing: 0.05em;
+}
+
+/* Toggle row */
+.toggle-row {
+  @apply flex items-center justify-between py-2.5 px-3 -mx-3 rounded-lg;
+  transition: background 0.15s ease;
+}
+
+.toggle-row:hover {
+  background: var(--theme-bg-hover);
+}
+
+.toggle-row-label {
+  @apply text-sm font-medium;
+  color: var(--theme-text-primary);
+}
+
+.toggle-row-description {
+  @apply text-xs mt-0.5;
+  color: var(--theme-text-muted);
+}
+
+/* Preference badge */
+.pref-badge {
+  @apply inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium;
+  background: var(--theme-bg-tertiary);
+  color: var(--theme-text-muted);
+  border: 1px solid var(--theme-border-secondary);
+}
+
+/* Section divider */
+.section-divider {
+  @apply my-4;
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--theme-border-secondary), transparent);
+}
+
+/* Tooltip styles */
+.tooltip-overlay {
+  @apply fixed max-w-xs px-2.5 py-1.5 text-xs rounded-md pointer-events-none;
+  z-index: 99999;
+  background-color: var(--theme-bg-tertiary);
+  color: var(--theme-text-primary);
+}
+
+.tooltip-edge {
+  @apply pointer-events-none;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--theme-card-border);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+}

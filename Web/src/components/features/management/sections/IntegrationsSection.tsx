@@ -42,10 +42,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
         {/* Steam Integration Column */}
         <div className="space-y-4">
           <div className="flex items-center gap-2 mb-2">
-            <div
-              className="w-1 h-5 rounded-full"
-              style={{ backgroundColor: 'var(--theme-steam)' }}
-            />
+            <div className="w-1 h-5 rounded-full bg-[var(--theme-steam)]" />
             <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
               Steam Integration
             </h3>
@@ -64,10 +61,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
         {/* Monitoring & Metrics Column */}
         <div className="space-y-4">
           <div className="flex items-center gap-2 mb-2">
-            <div
-              className="w-1 h-5 rounded-full"
-              style={{ backgroundColor: 'var(--theme-primary)' }}
-            />
+            <div className="w-1 h-5 rounded-full bg-[var(--theme-primary)]" />
             <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
               Monitoring & Metrics
             </h3>

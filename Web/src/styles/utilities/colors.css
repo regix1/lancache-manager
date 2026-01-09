@@ -1,0 +1,416 @@
+@layer components {
+  /* ==============================================
+   * COLORS - Progress bars, Service colors, Icon colors, Text/BG utilities
+   * ============================================== */
+
+  /* Progress Bars */
+  .progress-bar-high {
+    background-color: var(--theme-chart-cache-hit);
+  }
+
+  .progress-bar-medium {
+    background-color: var(--theme-primary);
+  }
+
+  .progress-bar-low {
+    background-color: var(--theme-action-reset-bg);
+  }
+
+  .progress-bar-critical {
+    background-color: var(--theme-error);
+  }
+
+  .progress-bar-info {
+    background-color: var(--theme-info);
+  }
+
+  .progress-bar-warning {
+    background-color: var(--theme-warning);
+  }
+
+  .progress-track {
+    background-color: var(--theme-progress-bg);
+  }
+
+  /* Themed progress bar */
+  .progress-bar-green {
+    background-color: var(--theme-icon-green);
+  }
+
+  /* Service Colors */
+  .service-steam {
+    color: var(--theme-steam);
+  }
+
+  .service-epic {
+    color: var(--theme-epic);
+  }
+
+  .service-origin {
+    color: var(--theme-origin);
+  }
+
+  .service-blizzard {
+    color: var(--theme-blizzard);
+  }
+
+  .service-wsus {
+    color: var(--theme-wsus);
+  }
+
+  .service-riot {
+    color: var(--theme-riot);
+  }
+
+  .service-xbox {
+    color: var(--theme-xbox);
+  }
+
+  /* Icon Colors - for component icons */
+  .icon-blue {
+    color: var(--theme-icon-blue);
+  }
+
+  .icon-green {
+    color: var(--theme-icon-green);
+  }
+
+  .icon-emerald {
+    color: var(--theme-icon-emerald);
+  }
+
+  .icon-purple {
+    color: var(--theme-icon-purple);
+  }
+
+  .icon-indigo {
+    color: var(--theme-icon-indigo);
+  }
+
+  .icon-orange {
+    color: var(--theme-icon-orange);
+  }
+
+  .icon-yellow {
+    color: var(--theme-icon-yellow);
+  }
+
+  .icon-cyan {
+    color: var(--theme-icon-cyan);
+  }
+
+  .icon-red {
+    color: var(--theme-icon-red);
+  }
+
+  .icon-gray {
+    color: var(--theme-icon-gray, var(--theme-text-muted));
+  }
+
+  /* Icon Background Colors - for icon containers (using color-mix for theme support) */
+  .icon-bg-blue {
+    background-color: color-mix(in srgb, var(--theme-icon-blue) 15%, transparent);
+  }
+
+  .icon-bg-green {
+    background-color: color-mix(in srgb, var(--theme-icon-green) 15%, transparent);
+  }
+
+  .icon-bg-emerald {
+    background-color: color-mix(in srgb, var(--theme-icon-emerald) 15%, transparent);
+  }
+
+  .icon-bg-purple {
+    background-color: color-mix(in srgb, var(--theme-icon-purple) 15%, transparent);
+  }
+
+  .icon-bg-indigo {
+    background-color: color-mix(in srgb, var(--theme-icon-indigo) 15%, transparent);
+  }
+
+  .icon-bg-orange {
+    background-color: color-mix(in srgb, var(--theme-icon-orange) 15%, transparent);
+  }
+
+  .icon-bg-yellow {
+    background-color: color-mix(in srgb, var(--theme-icon-yellow) 15%, transparent);
+  }
+
+  .icon-bg-cyan {
+    background-color: color-mix(in srgb, var(--theme-icon-cyan) 15%, transparent);
+  }
+
+  .icon-bg-red {
+    background-color: color-mix(in srgb, var(--theme-icon-red) 15%, transparent);
+  }
+
+  .icon-bg-gray {
+    background-color: color-mix(in srgb, var(--theme-icon-gray, var(--theme-text-muted)) 15%, transparent);
+  }
+
+  /* Text Utility Classes */
+  .text-themed-primary {
+    color: var(--theme-text-primary);
+  }
+
+  .text-themed-secondary {
+    color: var(--theme-text-secondary);
+  }
+
+  .text-themed-muted {
+    color: var(--theme-text-muted);
+  }
+
+  .text-themed-accent {
+    color: var(--theme-accent);
+  }
+
+  .text-themed-button {
+    color: var(--theme-button-text);
+  }
+
+  .text-themed-error {
+    color: var(--theme-error-text);
+  }
+
+  .text-themed-success {
+    color: var(--theme-success-text);
+  }
+
+  .text-themed-warning {
+    color: var(--theme-warning-text);
+  }
+
+  .text-themed-info {
+    color: var(--theme-info-text);
+  }
+
+  .user-session-icon {
+    color: var(--theme-user-session);
+  }
+
+  .guest-session-icon {
+    color: var(--theme-guest-session);
+  }
+
+  /* Background Utility Classes */
+  .bg-themed-primary {
+    background-color: var(--theme-bg-primary);
+  }
+
+  .bg-primary {
+    background-color: var(--theme-primary);
+  }
+
+  .bg-themed-secondary {
+    background-color: var(--theme-bg-secondary);
+  }
+
+  .bg-themed-tertiary {
+    background-color: var(--theme-bg-tertiary);
+  }
+
+  .bg-themed-elevated {
+    background-color: var(--theme-bg-elevated);
+  }
+
+  .bg-themed-hover {
+    background-color: var(--theme-bg-hover);
+  }
+
+  .bg-themed-nav {
+    background-color: var(--theme-nav-bg);
+  }
+
+  .bg-themed-nav-mobile {
+    background-color: var(--theme-nav-mobile-menu-bg);
+  }
+
+  .bg-themed-nav-tab-active-border {
+    background-color: var(--theme-nav-tab-active-border);
+  }
+
+  .bg-themed-accent-subtle {
+    background-color: color-mix(in srgb, var(--theme-accent) 15%, transparent);
+  }
+
+  .bg-themed-primary-subtle {
+    background-color: var(--theme-primary-bg, color-mix(in srgb, var(--theme-primary) 15%, transparent));
+  }
+
+  /* Semantic state backgrounds */
+  .bg-themed-info {
+    background-color: var(--theme-info-bg);
+  }
+
+  .bg-themed-success {
+    background-color: var(--theme-success-bg);
+  }
+
+  .bg-themed-warning {
+    background-color: var(--theme-warning-bg);
+  }
+
+  .bg-themed-error {
+    background-color: var(--theme-error-bg);
+  }
+
+  /* Shorthand semantic background classes */
+  .bg-info {
+    background-color: var(--theme-info-bg);
+  }
+
+  .bg-error {
+    background-color: var(--theme-error-bg);
+  }
+
+  .bg-warning {
+    background-color: var(--theme-warning-bg);
+  }
+
+  .bg-success {
+    background-color: var(--theme-success-bg);
+  }
+
+  /* Background for themed dividers */
+  .bg-themed-border-secondary {
+    background-color: var(--theme-border-secondary);
+  }
+
+  /* Border Utility Classes */
+  .border-themed-nav {
+    border-color: var(--theme-nav-border);
+  }
+
+  .border-themed-warning {
+    border-color: var(--theme-warning);
+  }
+
+  .border-themed-success {
+    border-color: var(--theme-success);
+  }
+
+  .border-themed-info {
+    border-color: var(--theme-info);
+  }
+
+  .border-themed-error {
+    border-color: var(--theme-error);
+  }
+
+  .border-themed-secondary {
+    border-color: var(--theme-border-secondary);
+  }
+
+  .border-themed-primary {
+    border-color: var(--theme-border-primary);
+  }
+
+  .border-themed-focus {
+    border-color: var(--theme-border-focus);
+  }
+
+  /* Shorthand semantic border classes */
+  .border-info {
+    border-color: var(--theme-info);
+  }
+
+  .border-error {
+    border-color: var(--theme-error);
+  }
+
+  .border-warning {
+    border-color: var(--theme-warning);
+  }
+
+  .border-success {
+    border-color: var(--theme-success);
+  }
+
+  .border-themed {
+    border-color: var(--theme-border);
+  }
+
+  /* Text navigation */
+  .text-themed-nav-tab-active {
+    color: var(--theme-nav-tab-active);
+  }
+
+  /* Ring color utilities */
+  .ring-themed-accent {
+    --tw-ring-color: var(--theme-accent);
+  }
+
+  /* Semantic icon colors (for direct icon use, not text content) */
+  .icon-info {
+    color: var(--theme-info);
+  }
+
+  .icon-success {
+    color: var(--theme-success);
+  }
+
+  .icon-warning {
+    color: var(--theme-warning);
+  }
+
+  .icon-error {
+    color: var(--theme-error);
+  }
+
+  .icon-primary {
+    color: var(--theme-primary);
+  }
+
+  .icon-muted {
+    color: var(--theme-muted);
+  }
+
+  /* Shorthand semantic icon/text colors */
+  .text-info {
+    color: var(--theme-info);
+  }
+
+  .text-error {
+    color: var(--theme-error);
+  }
+
+  .text-warning {
+    color: var(--theme-warning);
+  }
+
+  .text-success {
+    color: var(--theme-success);
+  }
+
+  .text-primary {
+    color: var(--theme-primary);
+  }
+
+  .text-steam {
+    color: var(--theme-steam);
+  }
+
+  /* Semantic text content colors (for readable text in alert boxes) */
+  .text-info-text {
+    color: var(--theme-info-text);
+  }
+
+  .text-error-text {
+    color: var(--theme-error-text);
+  }
+
+  .text-warning-text {
+    color: var(--theme-warning-text);
+  }
+
+  /* Dashed divider line */
+  .divider-dashed {
+    background: repeating-linear-gradient(90deg, var(--theme-border-secondary) 0px, var(--theme-border-secondary) 4px, transparent 4px, transparent 8px);
+  }
+
+  /* Hide about/info sections when setting is enabled */
+  [data-hide-about-sections='true'] .about-section {
+    display: none !important;
+  }
+}

@@ -55,32 +55,31 @@ const STORAGE_KEY = 'retro-view-column-widths';
 
 const getServiceIcon = (service: string, size: number = 24) => {
   const serviceLower = service.toLowerCase();
-  const style = { opacity: 0.8 };
 
   switch (serviceLower) {
     case 'steam':
-      return <SteamIcon size={size} style={{ ...style, color: 'var(--theme-steam)' }} />;
+      return <SteamIcon size={size} className="opacity-80 text-[var(--theme-steam)]" />;
     case 'wsus':
     case 'windows':
-      return <WsusIcon size={size} style={{ ...style, color: 'var(--theme-wsus)' }} />;
+      return <WsusIcon size={size} className="opacity-80 text-[var(--theme-wsus)]" />;
     case 'riot':
     case 'riotgames':
-      return <RiotIcon size={size} style={{ ...style, color: 'var(--theme-riot)' }} />;
+      return <RiotIcon size={size} className="opacity-80 text-[var(--theme-riot)]" />;
     case 'epic':
     case 'epicgames':
-      return <EpicIcon size={size} style={style} />;
+      return <EpicIcon size={size} className="opacity-80" />;
     case 'origin':
     case 'ea':
-      return <EAIcon size={size} style={{ ...style, color: 'var(--theme-origin)' }} />;
+      return <EAIcon size={size} className="opacity-80 text-[var(--theme-origin)]" />;
     case 'blizzard':
     case 'battle.net':
     case 'battlenet':
-      return <BlizzardIcon size={size} style={{ ...style, color: 'var(--theme-blizzard)' }} />;
+      return <BlizzardIcon size={size} className="opacity-80 text-[var(--theme-blizzard)]" />;
     case 'xbox':
     case 'xboxlive':
-      return <XboxIcon size={size} style={{ ...style, color: 'var(--theme-xbox)' }} />;
+      return <XboxIcon size={size} className="opacity-80 text-[var(--theme-xbox)]" />;
     default:
-      return <UnknownServiceIcon size={size} style={{ ...style, color: 'var(--theme-text-secondary)' }} />;
+      return <UnknownServiceIcon size={size} className="opacity-80 text-[var(--theme-text-secondary)]" />;
   }
 };
 
@@ -383,40 +382,23 @@ const CombinedProgressBar: React.FC<{
 // Empty State Component
 const EmptyState: React.FC = () => (
   <div className="flex flex-col items-center justify-center py-16 px-4">
-    <div
-      className="relative mb-6"
-      style={{
-        animation: 'float 3s ease-in-out infinite',
-      }}
-    >
+    <div className="relative mb-6 animate-[float_3s_ease-in-out_infinite]">
       {/* Animated icon container */}
-      <div
-        className="w-20 h-20 rounded-2xl flex items-center justify-center"
-        style={{
-          background: 'linear-gradient(135deg, var(--theme-bg-tertiary), var(--theme-bg-secondary))',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
-        }}
-      >
+      <div className="w-20 h-20 rounded-2xl flex items-center justify-center bg-gradient-to-br from-[var(--theme-bg-tertiary)] to-[var(--theme-bg-secondary)] shadow-[0_8px_32px_rgba(0,0,0,0.2)]">
         <HardDrive
           size={36}
           className="text-[var(--theme-text-muted)] opacity-60"
         />
       </div>
       {/* Decorative elements */}
-      <div
-        className="absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center bg-[var(--theme-bg-tertiary)] border-2 border-[var(--theme-border-secondary)]"
-      >
+      <div className="absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center bg-[var(--theme-bg-tertiary)] border-2 border-[var(--theme-border-secondary)]">
         <Download size={12} className="text-[var(--theme-text-muted)]" />
       </div>
     </div>
-    <h3
-      className="text-lg font-semibold mb-2 text-[var(--theme-text-primary)]"
-    >
+    <h3 className="text-lg font-semibold mb-2 text-[var(--theme-text-primary)]">
       No Downloads Yet
     </h3>
-    <p
-      className="text-sm text-center max-w-xs text-[var(--theme-text-muted)]"
-    >
+    <p className="text-sm text-center max-w-xs text-[var(--theme-text-muted)]">
       Download activity will appear here once your Lancache starts serving content.
     </p>
     {/* Decorative dots */}
@@ -424,10 +406,8 @@ const EmptyState: React.FC = () => (
       {[0, 1, 2].map((i) => (
         <div
           key={i}
-          className="w-1.5 h-1.5 rounded-full"
+          className="w-1.5 h-1.5 rounded-full bg-[var(--theme-text-muted)] opacity-30"
           style={{
-            backgroundColor: 'var(--theme-text-muted)',
-            opacity: 0.3,
             animation: `pulse 1.5s ease-in-out ${i * 0.2}s infinite`,
           }}
         />
@@ -968,14 +948,8 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
       {/* Desktop Table Header - only rendered on desktop via JS conditional */}
       {isDesktop && (
         <div
-          className="grid pl-4 pr-4 py-3 text-xs font-semibold uppercase tracking-wide border-b select-none sticky top-0 z-20"
-          style={{
-            gridTemplateColumns: gridTemplate,
-            backgroundColor: 'var(--theme-bg-tertiary)',
-            borderColor: 'var(--theme-border-secondary)',
-            color: 'var(--theme-text-secondary)',
-            minWidth: 'fit-content',
-          }}
+          className="grid pl-4 pr-4 py-3 text-xs font-semibold uppercase tracking-wide border-b select-none sticky top-0 z-20 bg-[var(--theme-bg-tertiary)] border-[var(--theme-border-secondary)] text-[var(--theme-text-secondary)] min-w-fit"
+          style={{ gridTemplateColumns: gridTemplate }}
         >
           <div className="relative px-2" data-header>
             Timestamp
@@ -1067,19 +1041,13 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
           return (
             <div
               key={data.id}
-              className="row-animate transition-all duration-200 hover:bg-[var(--theme-bg-tertiary)]/50 group relative"
-              style={{
-                borderBottom: '1px solid var(--theme-border-secondary)',
-                animationDelay: `${index * 30}ms`,
-              }}
+              className="row-animate transition-all duration-200 hover:bg-[var(--theme-bg-tertiary)]/50 group relative border-b border-[var(--theme-border-secondary)]"
+              style={{ animationDelay: `${index * 30}ms` }}
             >
               {/* Left accent border based on efficiency */}
               <div
-                className="absolute left-0 top-0 bottom-0 w-1 transition-all duration-200 group-hover:w-1.5"
-                style={{
-                  backgroundColor: accentColor,
-                  opacity: 0.7,
-                }}
+                className="absolute left-0 top-0 bottom-0 w-1 transition-all duration-200 group-hover:w-1.5 opacity-70"
+                style={{ backgroundColor: accentColor }}
               />
 
               {/* Conditional Layout - Mobile or Desktop based on JS breakpoint detection */}

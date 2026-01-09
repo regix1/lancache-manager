@@ -1,0 +1,164 @@
+@layer components {
+  /* ==============================================
+   * BADGES - Hit Rate, Status, Cache, Download, Alert
+   * ============================================== */
+
+  /* Hit Rate Badges */
+  .hit-rate-high {
+    background-color: var(--theme-hit-rate-high-bg);
+    color: var(--theme-hit-rate-high-text);
+  }
+
+  .hit-rate-medium {
+    background-color: var(--theme-hit-rate-medium-bg);
+    color: var(--theme-hit-rate-medium-text);
+  }
+
+  .hit-rate-low {
+    background-color: var(--theme-hit-rate-low-bg);
+    color: var(--theme-hit-rate-low-text);
+  }
+
+  .hit-rate-warning {
+    background-color: var(--theme-hit-rate-warning-bg);
+    color: var(--theme-hit-rate-warning-text);
+  }
+
+  /* Status Indicators */
+  .status-active {
+    background-color: var(--theme-success-bg);
+    color: var(--theme-success-text);
+    border-color: var(--theme-success);
+  }
+
+  .status-completed {
+    background-color: var(--theme-bg-hover);
+    color: var(--theme-text-muted);
+    border-color: var(--theme-border-secondary);
+  }
+
+  .status-error {
+    background-color: var(--theme-error-bg);
+    color: var(--theme-error-text);
+    border-color: var(--theme-error);
+  }
+
+  /* Cache Performance Indicators */
+  .cache-hit {
+    color: var(--theme-success-text);
+  }
+
+  .cache-miss {
+    color: var(--theme-warning-text);
+  }
+
+  /* Download Type Indicators */
+  .download-game {
+    background-color: var(--theme-success-bg);
+    color: var(--theme-success-text);
+    border-color: var(--theme-success);
+  }
+
+  .download-metadata {
+    background-color: var(--theme-bg-hover);
+    color: var(--theme-text-muted);
+    border-color: var(--theme-border-secondary);
+  }
+
+  .download-content {
+    background-color: var(--theme-info-bg);
+    color: var(--theme-info-text);
+    border-color: var(--theme-info);
+  }
+
+  /* Alert Variants */
+  .alert-success {
+    background-color: var(--theme-success-bg);
+    border-color: var(--theme-success);
+    color: var(--theme-success-text);
+  }
+
+  .alert-warning {
+    background-color: var(--theme-warning-bg);
+    border-color: var(--theme-warning);
+    color: var(--theme-warning-text);
+  }
+
+  .alert-error {
+    background-color: var(--theme-error-bg);
+    border-color: var(--theme-error);
+    color: var(--theme-error-text);
+  }
+
+  .alert-info {
+    background-color: var(--theme-info-bg);
+    border-color: var(--theme-info);
+    color: var(--theme-info-text);
+  }
+
+  /* Badge Base Class */
+  .themed-badge {
+    @apply text-xs px-2 py-1 rounded font-medium;
+  }
+
+  /* Responsive Hit Rate Badge Helper */
+  .hit-rate-badge {
+    @apply themed-badge;
+  }
+
+  .hit-rate-badge.high {
+    @apply hit-rate-high;
+  }
+
+  .hit-rate-badge.medium {
+    @apply hit-rate-medium;
+  }
+
+  .hit-rate-badge.low {
+    @apply hit-rate-low;
+  }
+
+  .hit-rate-badge.warning {
+    @apply hit-rate-warning;
+  }
+
+  /* Access Indicator Classes */
+  .access-indicator-public {
+    background-color: var(--theme-public-access-bg);
+    color: var(--theme-public-access-text);
+    border-color: var(--theme-public-access-border);
+  }
+
+  .access-indicator-secured {
+    background-color: var(--theme-secured-access-bg);
+    color: var(--theme-secured-access-text);
+    border-color: var(--theme-secured-access-border);
+  }
+
+  /* Session badges */
+  .session-badge-user {
+    background-color: var(--theme-user-session-bg);
+    color: var(--theme-user-session);
+  }
+
+  .session-badge-guest {
+    background-color: var(--theme-guest-session-bg);
+    color: var(--theme-guest-session);
+  }
+
+  /* Status badges */
+  .status-badge-warning {
+    background-color: var(--theme-warning-bg);
+    color: var(--theme-warning-text);
+  }
+
+  .status-badge-error {
+    background-color: var(--theme-error-bg);
+    color: var(--theme-error-text);
+  }
+
+  .status-badge-success {
+    background-color: var(--theme-success-bg);
+    color: var(--theme-success-text);
+  }
+}

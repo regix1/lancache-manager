@@ -1,0 +1,229 @@
+@layer components {
+  /* ==============================================
+   * RESPONSIVE - Portrait mode, Aspect ratios, Reduced motion, Border radius
+   * ============================================== */
+
+  /* ===== BORDER RADIUS OVERRIDES - Theme Aware ===== */
+  /* Override common Tailwind rounded classes with theme variables */
+  .rounded,
+  .rounded-md {
+    border-radius: var(--theme-border-radius, 0.5rem) !important;
+  }
+
+  .rounded-lg {
+    border-radius: var(--theme-border-radius-lg, 0.75rem) !important;
+  }
+
+  .rounded-xl {
+    border-radius: var(--theme-border-radius-xl, 1rem) !important;
+  }
+
+  .rounded-2xl {
+    border-radius: var(--theme-border-radius-xl, 1rem) !important;
+  }
+
+  .rounded-3xl {
+    border-radius: var(--theme-border-radius-xl, 1rem) !important;
+  }
+
+  .rounded-sm {
+    border-radius: var(--theme-border-radius, 0.5rem) !important;
+  }
+
+  /* Corner-specific overrides */
+  .rounded-t,
+  .rounded-t-md {
+    border-top-left-radius: var(--theme-border-radius, 0.5rem) !important;
+    border-top-right-radius: var(--theme-border-radius, 0.5rem) !important;
+  }
+
+  .rounded-t-lg {
+    border-top-left-radius: var(--theme-border-radius-lg, 0.75rem) !important;
+    border-top-right-radius: var(--theme-border-radius-lg, 0.75rem) !important;
+  }
+
+  .rounded-t-xl {
+    border-top-left-radius: var(--theme-border-radius-xl, 1rem) !important;
+    border-top-right-radius: var(--theme-border-radius-xl, 1rem) !important;
+  }
+
+  .rounded-b,
+  .rounded-b-md {
+    border-bottom-left-radius: var(--theme-border-radius, 0.5rem) !important;
+    border-bottom-right-radius: var(--theme-border-radius, 0.5rem) !important;
+  }
+
+  .rounded-b-lg {
+    border-bottom-left-radius: var(--theme-border-radius-lg, 0.75rem) !important;
+    border-bottom-right-radius: var(--theme-border-radius-lg, 0.75rem) !important;
+  }
+
+  .rounded-b-xl {
+    border-bottom-left-radius: var(--theme-border-radius-xl, 1rem) !important;
+    border-bottom-right-radius: var(--theme-border-radius-xl, 1rem) !important;
+  }
+
+  .rounded-l,
+  .rounded-l-md {
+    border-top-left-radius: var(--theme-border-radius, 0.5rem) !important;
+    border-bottom-left-radius: var(--theme-border-radius, 0.5rem) !important;
+  }
+
+  .rounded-l-lg {
+    border-top-left-radius: var(--theme-border-radius-lg, 0.75rem) !important;
+    border-bottom-left-radius: var(--theme-border-radius-lg, 0.75rem) !important;
+  }
+
+  .rounded-l-xl {
+    border-top-left-radius: var(--theme-border-radius-xl, 1rem) !important;
+    border-bottom-left-radius: var(--theme-border-radius-xl, 1rem) !important;
+  }
+
+  .rounded-r,
+  .rounded-r-md {
+    border-top-right-radius: var(--theme-border-radius, 0.5rem) !important;
+    border-bottom-right-radius: var(--theme-border-radius, 0.5rem) !important;
+  }
+
+  .rounded-r-lg {
+    border-top-right-radius: var(--theme-border-radius-lg, 0.75rem) !important;
+    border-bottom-right-radius: var(--theme-border-radius-lg, 0.75rem) !important;
+  }
+
+  .rounded-r-xl {
+    border-top-right-radius: var(--theme-border-radius-xl, 1rem) !important;
+    border-bottom-right-radius: var(--theme-border-radius-xl, 1rem) !important;
+  }
+
+  /* Line clamp utility */
+  .line-clamp-1 {
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+
+/* ==============================================
+   PORTRAIT / TALL SCREEN OPTIMIZATIONS
+   Optimizes layout for vertical monitors and portrait displays
+   ============================================== */
+
+/* Portrait orientation - expand container width */
+@media (orientation: portrait) {
+  .container {
+    max-width: 100% !important;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+}
+
+/* Tall screens (height > width) - regardless of orientation API support */
+@media (min-height: 800px) and (max-width: 1200px) {
+  .container {
+    max-width: 100% !important;
+  }
+}
+
+/* Very tall/narrow screens (typical vertical monitor) */
+@media (min-aspect-ratio: 1/2) and (max-aspect-ratio: 4/5) {
+  .container {
+    max-width: 100% !important;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+}
+
+/*
+ * RetroView Responsive Layout Fix
+ *
+ * PROBLEM: RetroView has a desktop layout with fixed pixel grid widths (e.g.,
+ * `gridTemplate = ${columnWidths.timestamp}px ${columnWidths.app + 40}px...`).
+ * These fixed widths caused "layout bleed" on mobile - the desktop layout's
+ * min-width: 1200px was forcing horizontal overflow even when the desktop
+ * content was removed from the DOM via JS conditional rendering.
+ *
+ * SOLUTION: Use JS-based conditional rendering (useIsDesktop hook at 1024px)
+ * to completely remove desktop layout from DOM on mobile, combined with CSS
+ * that aligns with the same breakpoint.
+ *
+ * IMPORTANT: The CSS media query breakpoint (1024px) MUST match the JS
+ * breakpoint in useMediaQuery.ts to prevent misalignment.
+ */
+
+/* Mobile (< 1024px): Force content to fit within viewport, prevent horizontal scroll */
+.retro-table-container {
+  overflow-x: hidden;
+}
+
+/* Desktop only (>= 1024px, matches useIsDesktop() JS breakpoint) */
+@media (min-width: 1024px) {
+  .retro-table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* On narrow desktop screens (1024px-1400px), ensure table has minimum width for proper columns */
+  .retro-table-container table,
+  .retro-table-container > div {
+    min-width: 1200px;
+  }
+
+  /* Show horizontal scroll indicator on desktop */
+  .retro-table-container {
+    position: relative;
+  }
+
+  .retro-table-container::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 20px;
+    background: linear-gradient(to right, transparent, var(--theme-bg-secondary));
+    pointer-events: none;
+    opacity: 0.8;
+  }
+}
+
+/* When scrolled, hide the scroll indicator */
+.retro-table-container:not([data-scroll-start="true"])::after {
+  opacity: 0;
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .animate-card-entrance,
+  .animate-sparkline,
+  .animate-count {
+    animation: none;
+    opacity: 1;
+    transform: none;
+    clip-path: none;
+  }
+
+  .glass-card,
+  .glass-card:hover,
+  .hour-bar,
+  .widget-progress-fill {
+    transition: none;
+  }
+
+  /* Disable edit mode animations for reduced motion */
+  .edit-mode-active .edit-mode-card,
+  .edit-mode-card.card-selected {
+    animation: none;
+  }
+
+  .edit-mode-card.card-selected {
+    box-shadow: 0 0 0 3px var(--theme-primary);
+  }
+}

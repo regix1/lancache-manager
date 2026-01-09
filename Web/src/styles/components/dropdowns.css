@@ -1,0 +1,126 @@
+@layer components {
+  /* ==============================================
+   * DROPDOWNS - EnhancedDropdown, MultiSelectDropdown
+   * ============================================== */
+
+  /* Dropdown shared animations */
+  @keyframes dropdownSlideDown {
+    from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  @keyframes dropdownSlideUp {
+    from { opacity: 0; transform: translateY(8px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  /* EnhancedDropdown */
+  .ed-trigger {
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .ed-trigger:not(:disabled):hover {
+    background-color: var(--theme-bg-hover) !important;
+  }
+
+  .ed-trigger:focus {
+    border-color: var(--theme-border-focus) !important;
+  }
+
+  .ed-dropdown {
+    contain: layout style;
+  }
+
+  .ed-option {
+    transition: background-color 0.15s ease;
+  }
+
+  .ed-option:not(:disabled):hover {
+    background-color: var(--theme-bg-hover) !important;
+  }
+
+  .ed-option-selected {
+    background-color: var(--theme-bg-tertiary) !important;
+  }
+
+  .ed-submenu-option {
+    transition: background-color 0.15s ease;
+  }
+
+  .ed-submenu-option:not(.ed-submenu-selected):hover {
+    background-color: var(--theme-bg-hover) !important;
+  }
+
+  /* MultiSelectDropdown */
+  .msd-trigger {
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .msd-trigger:not(:disabled):hover {
+    background-color: var(--theme-bg-hover) !important;
+  }
+
+  .msd-trigger-open {
+    background-color: var(--theme-bg-hover) !important;
+  }
+
+  .msd-dropdown {
+    contain: layout style;
+  }
+
+  .msd-option {
+    transition: background-color 0.15s ease;
+    position: relative;
+    contain: layout style;
+  }
+
+  .msd-option:active:not(:disabled) {
+    transform: scale(0.995);
+  }
+
+  .msd-option:not(:disabled):hover {
+    background-color: var(--theme-bg-tertiary) !important;
+  }
+
+  .msd-option-selected {
+    background-color: color-mix(in srgb, var(--theme-primary) 8%, var(--theme-bg-secondary)) !important;
+  }
+
+  .msd-option-selected:not(:disabled):hover {
+    background-color: color-mix(in srgb, var(--theme-primary) 12%, var(--theme-bg-secondary)) !important;
+  }
+
+  .msd-checkbox {
+    transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .msd-checkbox-inner {
+    opacity: 0;
+    transform: scale(0.5);
+    transition: opacity 0.15s ease, transform 0.15s ease;
+  }
+
+  .msd-checkbox-selected .msd-checkbox-inner {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  .msd-accent {
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+
+  .msd-option-selected .msd-accent {
+    opacity: 1;
+  }
+
+  @keyframes msdFadeInDown {
+    from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  @keyframes msdFadeInUp {
+    from { opacity: 0; transform: translateY(6px) scale(0.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+}

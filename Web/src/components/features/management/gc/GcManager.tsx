@@ -100,7 +100,7 @@ const SettingSection: React.FC<SettingSectionProps> = ({
       >
         <Icon className="w-3.5 h-3.5" style={{ color: `var(${iconColorVar})` }} />
       </div>
-      <h4 className="text-sm font-semibold" style={{ color: 'var(--theme-text-secondary)' }}>{title}</h4>
+      <h4 className="text-sm font-semibold text-themed-secondary">{title}</h4>
     </div>
     <div className="space-y-3">{children}</div>
   </div>
@@ -209,10 +209,10 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
           <div className="text-sm">
             <p className="font-medium">{triggerResult.message}</p>
             {!triggerResult.skipped && triggerResult.beforeMB !== undefined && (
-              <div className="mt-1 flex gap-4 text-xs" style={{ color: 'var(--theme-text-muted)' }}>
+              <div className="mt-1 flex gap-4 text-xs text-themed-muted">
                 <span>Before: {triggerResult.beforeMB} MB</span>
                 <span>After: {triggerResult.afterMB} MB</span>
-                <span className="font-medium" style={{ color: 'var(--theme-text-primary)' }}>
+                <span className="font-medium text-themed-primary">
                   Freed: {triggerResult.freedMB} MB
                 </span>
               </div>
@@ -271,13 +271,10 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
       {/* Actions */}
       <div className="p-4 rounded-lg bg-themed-tertiary">
         <div className="flex items-center gap-2 mb-3 pb-2 border-b border-themed-secondary">
-          <div
-            className="w-6 h-6 rounded flex items-center justify-center"
-            style={{ backgroundColor: `color-mix(in srgb, var(--theme-icon-orange) 15%, transparent)` }}
-          >
-            <Cpu className="w-3.5 h-3.5" style={{ color: 'var(--theme-icon-orange)' }} />
+          <div className="w-6 h-6 rounded flex items-center justify-center icon-bg-orange">
+            <Cpu className="w-3.5 h-3.5 icon-orange" />
           </div>
-          <h4 className="text-sm font-semibold" style={{ color: 'var(--theme-text-secondary)' }}>Actions</h4>
+          <h4 className="text-sm font-semibold text-themed-secondary">Actions</h4>
         </div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           <Button

@@ -64,26 +64,20 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
 
   return (
     <div
-      className="rounded-lg p-4 transition-all hover:shadow-md themed-card relative group isolate"
-      style={{
-        backgroundColor: 'var(--theme-bg-secondary)',
-        border: `1px solid ${
-          isActive
-            ? 'var(--theme-primary)'
-            : isPreviewing
-              ? 'var(--theme-warning)'
-              : 'var(--theme-border-secondary)'
-        }`
-      }}
+      className={`rounded-lg p-4 transition-all hover:shadow-md themed-card relative group isolate bg-themed-secondary border ${
+        isActive
+          ? 'border-primary'
+          : isPreviewing
+            ? 'border-warning'
+            : 'border-themed-secondary'
+      }`}
     >
       {/* Status Badge - Top Right */}
       {(isActive || isPreviewing) && (
         <div
-          className="absolute -top-2 -right-2 px-2 py-0.5 text-xs font-medium rounded-full"
-          style={{
-            backgroundColor: isActive ? 'var(--theme-primary)' : 'var(--theme-warning)',
-            color: 'white'
-          }}
+          className={`absolute -top-2 -right-2 px-2 py-0.5 text-xs font-medium rounded-full text-white ${
+            isActive ? 'bg-primary' : 'bg-warning'
+          }`}
         >
           {isActive ? 'Active' : 'Preview'}
         </div>
@@ -109,25 +103,13 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
           {/* Badges Row */}
           <div className="flex flex-wrap gap-1 mb-2">
             {theme.meta.isCommunityTheme && (
-              <span
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs rounded"
-                style={{
-                  backgroundColor: 'var(--theme-info-bg)',
-                  color: 'var(--theme-info)'
-                }}
-              >
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs rounded bg-themed-info text-info">
                 <Globe className="w-2.5 h-2.5" />
                 Community
               </span>
             )}
             {theme.meta.basedOn && (
-              <span
-                className="px-1.5 py-0.5 text-xs rounded"
-                style={{
-                  backgroundColor: 'var(--theme-accent)',
-                  color: 'white'
-                }}
-              >
+              <span className="px-1.5 py-0.5 text-xs rounded bg-themed-accent-subtle text-themed-accent">
                 Custom
               </span>
             )}
@@ -156,8 +138,9 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
           trigger={
             <button
               onClick={() => onMenuToggle(themeActionMenu === currentMenuId ? null : currentMenuId)}
-              className="p-1.5 rounded-lg hover:bg-themed-hover transition-colors opacity-0 group-hover:opacity-100"
-              style={{ backgroundColor: isMenuOpen ? 'var(--theme-bg-hover)' : 'transparent' }}
+              className={`p-1.5 rounded-lg hover:bg-themed-hover transition-colors opacity-0 group-hover:opacity-100 ${
+                isMenuOpen ? 'bg-themed-hover' : 'bg-transparent'
+              }`}
             >
               <MoreVertical className="w-4 h-4 text-themed-muted" />
             </button>

@@ -313,7 +313,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
                                   border: isSelected ? 'none' : '2px solid var(--theme-border-primary)'
                                 }}
                               >
-                                {isSelected && <Check size={12} style={{ color: 'white' }} strokeWidth={3} />}
+                                {isSelected && <Check size={12} className="text-white" strokeWidth={3} />}
                               </div>
 
                               {/* Color dot */}

@@ -232,10 +232,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
 
         {/* Breadcrumb Path */}
         <div className="flex-1 min-w-0">
-          <div
-            className="text-xs font-mono px-2 py-1 rounded truncate"
-            style={{ backgroundColor: 'var(--theme-bg-secondary)', color: 'var(--theme-text-secondary)' }}
-          >
+          <div className="text-xs font-mono px-2 py-1 rounded truncate bg-themed-secondary text-themed-secondary">
             {currentPath || '/'}
           </div>
         </div>
@@ -297,19 +294,10 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
 
       {/* Selected File Display */}
       {selectedFile && (
-        <div
-          className="p-3 rounded-lg border"
-          style={{
-            backgroundColor: 'var(--theme-success-bg)',
-            borderColor: 'var(--theme-success)'
-          }}
-        >
+        <div className="p-3 rounded-lg border bg-themed-success border-themed-success">
           <div className="flex items-center gap-3">
-            <div
-              className="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center"
-              style={{ backgroundColor: 'var(--theme-success)', opacity: 0.15 }}
-            >
-              <Database className="w-5 h-5" style={{ color: 'var(--theme-success)' }} />
+            <div className="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center bg-themed-success/15">
+              <Database className="w-5 h-5 icon-success" />
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs text-themed-muted mb-0.5">Selected database</p>

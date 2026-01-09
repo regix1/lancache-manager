@@ -453,12 +453,9 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
                   onClick={() => setSelectedPage(page.name)}
                   className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2 ${
                     selectedPage === page.name
-                      ? 'bg-primary'
+                      ? 'bg-primary text-themed-button'
                       : 'bg-themed-tertiary text-themed-secondary hover:bg-themed-hover'
                   }`}
-                  style={{
-                    color: selectedPage === page.name ? 'var(--theme-button-text)' : undefined
-                  }}
                   title={page.description}
                 >
                   <Icon className="w-4 h-4" />
@@ -504,11 +501,8 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
                 <button
                   onClick={() => toggleGroup(group.name)}
                   className={`w-full px-4 py-3 flex items-center justify-between hover:bg-opacity-50 transition-all duration-200 ${
-                    isExpanded ? 'rounded-t-lg' : 'rounded-lg'
+                    isExpanded ? 'rounded-t-lg bg-themed-tertiary' : 'rounded-lg bg-transparent'
                   }`}
-                  style={{
-                    backgroundColor: isExpanded ? 'var(--theme-bg-tertiary)' : 'transparent'
-                  }}
                 >
                   <div className="flex items-center gap-3">
                     <Icon className="w-4 h-4 text-themed-accent" />

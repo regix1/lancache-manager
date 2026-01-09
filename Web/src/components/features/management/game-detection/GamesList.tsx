@@ -96,12 +96,7 @@ const GamesList: React.FC<GamesListProps> = ({
             placeholder="Search by game name or AppID..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 rounded-lg border text-sm"
-            style={{
-              backgroundColor: 'var(--theme-bg-secondary)',
-              borderColor: 'var(--theme-border-secondary)',
-              color: 'var(--theme-text-primary)'
-            }}
+            className="w-full pl-10 pr-4 py-2 rounded-lg border text-sm bg-themed-secondary border-themed-secondary text-themed-primary"
           />
           {searchQuery && (
             <button

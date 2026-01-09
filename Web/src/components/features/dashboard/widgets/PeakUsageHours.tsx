@@ -308,11 +308,9 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
       <div className={`grid grid-cols-1 ${isTodayInRange ? 'sm:grid-cols-2' : ''} gap-3 mb-4`}>
         {/* Peak Hour */}
         <div
-          className="p-3 flex flex-col justify-between"
+          className="p-3 flex flex-col justify-between min-h-[72px] rounded-xl"
           style={{
-            backgroundColor: 'color-mix(in srgb, var(--theme-warning) 10%, transparent)',
-            minHeight: '72px',
-            borderRadius: 'var(--theme-border-radius-lg, 0.75rem)'
+            backgroundColor: 'color-mix(in srgb, var(--theme-warning) 10%, transparent)'
           }}
         >
           <div className="flex items-center justify-between mb-1">
@@ -351,11 +349,9 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
         {/* Current Hour - Hidden on mobile, only show on sm+ if today is in range */}
         {isTodayInRange && (
           <div
-            className="hidden sm:flex p-3 flex-col justify-between"
+            className="hidden sm:flex p-3 flex-col justify-between min-h-[72px] rounded-xl"
             style={{
-              backgroundColor: 'color-mix(in srgb, var(--theme-primary) 10%, transparent)',
-              minHeight: '72px',
-              borderRadius: 'var(--theme-border-radius-lg, 0.75rem)'
+              backgroundColor: 'color-mix(in srgb, var(--theme-primary) 10%, transparent)'
             }}
           >
             <div className="flex items-center justify-between mb-1">

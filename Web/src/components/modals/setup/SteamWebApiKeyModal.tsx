@@ -189,31 +189,22 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
         {/* Test Result */}
         {testResult && (
           <div
-            className="rounded-lg p-3 border flex items-start gap-3"
-            style={{
-              backgroundColor: testResult.valid
-                ? 'var(--theme-success-bg)'
-                : 'var(--theme-error-bg)',
-              borderColor: testResult.valid ? 'var(--theme-success)' : 'var(--theme-error)'
-            }}
+            className={`rounded-lg p-3 border flex items-start gap-3 ${
+              testResult.valid
+                ? 'bg-success border-success'
+                : 'bg-error border-error'
+            }`}
           >
             {testResult.valid ? (
-              <CheckCircle
-                className="w-5 h-5 flex-shrink-0 mt-0.5"
-                style={{ color: 'var(--theme-success)' }}
-              />
+              <CheckCircle className="w-5 h-5 flex-shrink-0 mt-0.5 text-success" />
             ) : (
-              <XCircle
-                className="w-5 h-5 flex-shrink-0 mt-0.5"
-                style={{ color: 'var(--theme-error)' }}
-              />
+              <XCircle className="w-5 h-5 flex-shrink-0 mt-0.5 text-error" />
             )}
             <div className="flex-1">
               <p
-                className="text-sm font-medium"
-                style={{
-                  color: testResult.valid ? 'var(--theme-success-text)' : 'var(--theme-error-text)'
-                }}
+                className={`text-sm font-medium ${
+                  testResult.valid ? 'text-success-text' : 'text-error-text'
+                }`}
               >
                 {testResult.message}
               </p>

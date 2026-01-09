@@ -226,10 +226,7 @@ const DataSection: React.FC<DataSectionProps> = ({
       {/* Subsection: Depot Mapping */}
       <div className="mb-8">
         <div className="flex items-center gap-2 mb-4">
-          <div
-            className="w-1 h-5 rounded-full"
-            style={{ backgroundColor: 'var(--theme-steam)' }}
-          />
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-steam)]" />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
             Depot Mapping
           </h3>
@@ -251,10 +248,7 @@ const DataSection: React.FC<DataSectionProps> = ({
       {/* Subsection: Data Import */}
       <div className="mb-8">
         <div className="flex items-center gap-2 mb-4">
-          <div
-            className="w-1 h-5 rounded-full"
-            style={{ backgroundColor: 'var(--theme-icon-green)' }}
-          />
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-green)]" />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
             Data Import
           </h3>
@@ -272,10 +266,7 @@ const DataSection: React.FC<DataSectionProps> = ({
       {/* Subsection: Database Management */}
       <div>
         <div className="flex items-center gap-2 mb-4">
-          <div
-            className="w-1 h-5 rounded-full"
-            style={{ backgroundColor: 'var(--theme-icon-cyan)' }}
-          />
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-cyan)]" />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
             Database Management
           </h3>
@@ -330,9 +321,8 @@ const DataSection: React.FC<DataSectionProps> = ({
             {tables.map((table) => (
               <label
                 key={table.name}
-                className="p-3 rounded-lg cursor-pointer flex items-start gap-3 transition-all duration-150"
+                className="p-3 rounded-lg cursor-pointer flex items-start gap-3 transition-all duration-150 bg-themed-secondary"
                 style={{
-                  backgroundColor: 'var(--theme-bg-secondary)',
                   border: `1px solid ${selectedTables.includes(table.name) ? 'var(--theme-primary)' : 'var(--theme-border-primary)'}`
                 }}
               >

@@ -64,39 +64,18 @@ const Header: React.FC<HeaderProps> = ({
           <div className="hidden md:flex items-center justify-between h-16 min-w-0">
             <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-1">
               <div className="p-1.5 sm:p-2 rounded-lg flex-shrink-0 bg-themed-tertiary relative">
-                <div
-                  style={{
-                    position: 'relative',
-                    width: '36px',
-                    height: '36px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
-                >
+                <div className="relative w-9 h-9 flex items-center justify-center">
                   <LancacheIcon
-                    className="flex-shrink-0"
+                    className="flex-shrink-0 relative z-[1]"
                     size={36}
-                    style={{
-                      animation: 'float-bounce 2.5s ease-in-out infinite',
-                      position: 'relative',
-                      zIndex: 1
-                    }}
+                    style={{ animation: 'float-bounce 2.5s ease-in-out infinite' }}
                   />
                   {/* Static shadow below the floating icon */}
                   <div
+                    className="absolute bottom-0 left-1 w-7 h-1.5 rounded-full pointer-events-none z-0"
                     style={{
-                      position: 'absolute',
-                      bottom: '0px',
-                      left: '4px',
-                      width: '28px',
-                      height: '6px',
-                      background:
-                        'radial-gradient(ellipse at center, color-mix(in srgb, var(--theme-text-primary) 60%, transparent) 0%, color-mix(in srgb, var(--theme-text-primary) 30%, transparent) 40%, transparent 70%)',
-                      borderRadius: '50%',
-                      animation: 'shadow-pulse 2.5s ease-in-out infinite',
-                      pointerEvents: 'none',
-                      zIndex: 0
+                      background: 'radial-gradient(ellipse at center, color-mix(in srgb, var(--theme-text-primary) 60%, transparent) 0%, color-mix(in srgb, var(--theme-text-primary) 30%, transparent) 40%, transparent 70%)',
+                      animation: 'shadow-pulse 2.5s ease-in-out infinite'
                     }}
                   />
                 </div>
@@ -148,11 +127,8 @@ const Header: React.FC<HeaderProps> = ({
                       <span className="whitespace-nowrap">{isRevoked ? 'Revoked' : 'Guest Mode'}</span>
                       {!isRevoked && (
                         <>
-                          <span className="hidden sm:inline" style={{ opacity: 0.5, fontSize: '0.9em' }}>•</span>
-                          <span
-                            className="truncate max-w-[180px] sm:max-w-none"
-                            style={{ fontFamily: 'monospace', fontSize: '0.8em', opacity: 0.85 }}
-                          >
+                          <span className="hidden sm:inline opacity-50 text-[0.9em]">•</span>
+                          <span className="truncate max-w-[180px] sm:max-w-none font-mono text-[0.8em] opacity-85">
                             {deviceId}
                           </span>
                         </>
@@ -174,63 +150,32 @@ const Header: React.FC<HeaderProps> = ({
           <div className="md:hidden py-2">
             <div className="flex items-center justify-between gap-2">
               {/* Left: Icon with status indicator */}
-              <div style={{ position: 'relative' }} className="flex-shrink-0">
+              <div className="relative flex-shrink-0">
                 <div className="p-1.5 rounded-lg flex items-center justify-center bg-themed-tertiary">
-                  <div
-                    style={{
-                      position: 'relative',
-                      width: '36px',
-                      height: '36px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center'
-                    }}
-                  >
+                  <div className="relative w-9 h-9 flex items-center justify-center">
                     <LancacheIcon
-                      className="flex-shrink-0"
+                      className="flex-shrink-0 relative z-[1]"
                       size={36}
-                      style={{
-                        animation: 'float-bounce 2.5s ease-in-out infinite',
-                        position: 'relative',
-                        zIndex: 1
-                      }}
+                      style={{ animation: 'float-bounce 2.5s ease-in-out infinite' }}
                     />
                     <div
+                      className="absolute bottom-0 left-1 w-7 h-1.5 rounded-full pointer-events-none z-0"
                       style={{
-                        position: 'absolute',
-                        bottom: '0px',
-                        left: '4px',
-                        width: '28px',
-                        height: '6px',
-                        background:
-                          'radial-gradient(ellipse at center, color-mix(in srgb, var(--theme-text-primary) 60%, transparent) 0%, color-mix(in srgb, var(--theme-text-primary) 30%, transparent) 40%, transparent 70%)',
-                        borderRadius: '50%',
-                        animation: 'shadow-pulse 2.5s ease-in-out infinite',
-                        pointerEvents: 'none',
-                        zIndex: 0
+                        background: 'radial-gradient(ellipse at center, color-mix(in srgb, var(--theme-text-primary) 60%, transparent) 0%, color-mix(in srgb, var(--theme-text-primary) 30%, transparent) 40%, transparent 70%)',
+                        animation: 'shadow-pulse 2.5s ease-in-out infinite'
                       }}
                     />
                   </div>
                 </div>
                 {/* Status indicator */}
                 <div
+                  className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[var(--theme-nav-bg)] z-10 ${connectionStatus === 'reconnecting' ? 'animate-pulse' : ''}`}
                   style={{
-                    position: 'absolute',
-                    bottom: '-2px',
-                    right: '-2px',
-                    width: '10px',
-                    height: '10px',
-                    borderRadius: '50%',
                     backgroundColor: connectionStatus === 'connected'
                       ? 'var(--theme-success)'
                       : connectionStatus === 'disconnected'
                       ? 'var(--theme-error)'
-                      : 'var(--theme-warning)',
-                    border: '2px solid var(--theme-nav-bg)',
-                    zIndex: 10,
-                    ...(connectionStatus === 'reconnecting' && {
-                      animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
-                    })
+                      : 'var(--theme-warning)'
                   }}
                 />
               </div>
@@ -261,10 +206,8 @@ const Header: React.FC<HeaderProps> = ({
                   <span className="whitespace-nowrap">{isRevoked ? 'Revoked' : 'Guest'}</span>
                   {!isRevoked && (
                     <>
-                      <span style={{ opacity: 0.5 }}>•</span>
-                      <span
-                        style={{ fontFamily: 'monospace', fontSize: '0.75em', opacity: 0.85 }}
-                      >
+                      <span className="opacity-50">•</span>
+                      <span className="font-mono text-[0.75em] opacity-85">
                         {deviceId}
                       </span>
                     </>

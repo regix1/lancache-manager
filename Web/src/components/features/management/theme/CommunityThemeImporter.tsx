@@ -433,9 +433,9 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       <div className="p-4">
         {/* Auto-Update Progress */}
         {updatingThemes.size > 0 && (
-          <div className="flex items-center gap-2 mb-4 p-3 rounded-lg" style={{ backgroundColor: 'var(--theme-info-bg)' }}>
-            <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'var(--theme-info)' }} />
-            <span className="text-sm" style={{ color: 'var(--theme-info-text)' }}>
+          <div className="flex items-center gap-2 mb-4 p-3 rounded-lg bg-themed-info">
+            <Loader2 className="w-4 h-4 animate-spin icon-info" />
+            <span className="text-sm text-themed-info">
               Auto-updating {updatingThemes.size} theme{updatingThemes.size !== 1 ? 's' : ''}...
             </span>
           </div>
@@ -482,13 +482,9 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
               return (
                 <div
                   key={theme.fileName}
-                  className="rounded-lg border p-3 transition-all hover:border-themed-primary"
-                  style={{
-                    backgroundColor: 'var(--theme-bg-secondary)',
-                    borderColor: isInstalled || isImported
-                      ? 'var(--theme-success)'
-                      : 'var(--theme-border-secondary)'
-                  }}
+                  className={`rounded-lg border p-3 transition-all hover:border-themed-primary bg-themed-secondary ${
+                    isInstalled || isImported ? 'border-success' : 'border-themed-secondary'
+                  }`}
                 >
                   {/* Theme Header */}
                   <div className="flex items-start justify-between mb-2">
@@ -518,19 +514,13 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
                       </div>
                     </div>
                     {(isImported || isInstalled) && !isUpdating && (
-                      <div
-                        className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center"
-                        style={{ backgroundColor: 'var(--theme-success-bg)' }}
-                      >
-                        <Check className="w-3 h-3" style={{ color: 'var(--theme-success)' }} />
+                      <div className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center bg-themed-success">
+                        <Check className="w-3 h-3 icon-success" />
                       </div>
                     )}
                     {isUpdating && (
-                      <div
-                        className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center"
-                        style={{ backgroundColor: 'var(--theme-info-bg)' }}
-                      >
-                        <Loader2 className="w-3 h-3 animate-spin" style={{ color: 'var(--theme-info)' }} />
+                      <div className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center bg-themed-info">
+                        <Loader2 className="w-3 h-3 animate-spin icon-info" />
                       </div>
                     )}
                   </div>

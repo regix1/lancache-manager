@@ -98,13 +98,7 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
         role="tablist"
         aria-label="Management sections"
       >
-        <div
-          className="rounded-lg border"
-          style={{
-            backgroundColor: 'var(--theme-bg-secondary)',
-            borderColor: 'var(--theme-border-primary)'
-          }}
-        >
+        <div className="rounded-lg border bg-themed-secondary border-themed-primary">
           <div className="flex">
             {tabs.map((tab, index) => {
               const isActive = activeSection === tab.id;
@@ -163,10 +157,7 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
 
                   {/* Active indicator bar */}
                   {isActive && (
-                    <div
-                      className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full"
-                      style={{ backgroundColor: 'var(--theme-nav-tab-active-border)' }}
-                    />
+                    <div className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-themed-nav-tab-active-border" />
                   )}
                 </button>
               );
@@ -182,33 +173,18 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
         aria-label="Management sections"
       >
         {/* Active section header */}
-        <div
-          className="flex items-center gap-3 px-4 py-3 rounded-t-lg border border-b-0"
-          style={{
-            backgroundColor: 'var(--theme-bg-secondary)',
-            borderColor: 'var(--theme-border-primary)'
-          }}
-        >
+        <div className="flex items-center gap-3 px-4 py-3 rounded-t-lg border border-b-0 bg-themed-secondary border-themed-primary">
           {(() => {
             const activeTab = tabs.find(t => t.id === activeSection);
             const Icon = activeTab?.icon || Settings;
             return (
               <>
-                <Icon
-                  className="w-5 h-5"
-                  style={{ color: 'var(--theme-nav-tab-active)' }}
-                />
+                <Icon className="w-5 h-5 text-themed-nav-tab-active" />
                 <div className="flex-1">
-                  <div
-                    className="font-semibold"
-                    style={{ color: 'var(--theme-text-primary)' }}
-                  >
+                  <div className="font-semibold text-themed-primary">
                     {activeTab?.label}
                   </div>
-                  <div
-                    className="text-xs"
-                    style={{ color: 'var(--theme-text-muted)' }}
-                  >
+                  <div className="text-xs text-themed-muted">
                     {activeTab?.description}
                   </div>
                 </div>
@@ -218,13 +194,7 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
         </div>
 
         {/* Tab buttons row */}
-        <div
-          className="flex overflow-x-auto gap-0.5 p-1 rounded-b-lg border border-t-0 custom-scrollbar"
-          style={{
-            backgroundColor: 'var(--theme-bg-tertiary)',
-            borderColor: 'var(--theme-border-primary)'
-          }}
-        >
+        <div className="flex overflow-x-auto gap-0.5 p-1 rounded-b-lg border border-t-0 custom-scrollbar bg-themed-tertiary border-themed-primary">
           {tabs.map((tab) => {
             const isActive = activeSection === tab.id;
             const isDisabled = tab.id !== 'settings' && !isAuthenticated;

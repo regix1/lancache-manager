@@ -1126,8 +1126,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
               {error && (
                 <div
-                  className="w-full max-w-md p-4 rounded-lg flex items-center gap-3 bg-[var(--theme-error-bg)]"
-                  style={{ border: '1px solid color-mix(in srgb, var(--theme-error) 30%, transparent)' }}
+                  className="w-full max-w-md p-4 rounded-lg flex items-center gap-3 bg-[var(--theme-error-bg)] border border-[color-mix(in_srgb,var(--theme-error)_30%,transparent)]"
                 >
                   <AlertCircle className="h-5 w-5 flex-shrink-0 text-[var(--theme-error)]" />
                   <span className="text-sm text-[var(--theme-error-text)]">
@@ -1176,10 +1175,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           <CardContent className="py-12">
             <div className="flex flex-col items-center justify-center gap-4">
               <div
-                className="w-16 h-16 rounded-xl flex items-center justify-center"
-                style={{
-                  backgroundColor: 'color-mix(in srgb, var(--theme-steam) 15%, transparent)'
-                }}
+                className="w-16 h-16 rounded-xl flex items-center justify-center bg-[color-mix(in_srgb,var(--theme-steam)_15%,transparent)]"
               >
                 <Loader2 className="h-8 w-8 animate-spin text-[var(--theme-steam)]" />
               </div>
@@ -1226,10 +1222,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         title={
           <div className="flex items-center gap-3">
             <div
-              className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
-              style={{
-                backgroundColor: 'color-mix(in srgb, var(--theme-warning) 15%, transparent)'
-              }}
+              className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-[color-mix(in_srgb,var(--theme-warning)_15%,transparent)]"
             >
               <AlertCircle className="h-5 w-5 text-[var(--theme-warning)]" />
             </div>
@@ -1277,12 +1270,11 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                             }`}
                           >
                             <span
-                              className={`truncate mr-2 ${
+                              className={`truncate mr-2 max-w-[200px] ${
                                 app.isUnsupportedOs
                                   ? 'text-themed-muted line-through'
                                   : 'text-themed-secondary'
                               }`}
-                              style={{ maxWidth: '200px' }}
                               title={app.unavailableReason || app.name}
                             >
                               {app.name}
@@ -1338,31 +1330,21 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         <div className="flex items-center gap-3 w-full sm:w-auto">
           {/* Session Timer */}
           <div
-            className="flex items-center gap-2 px-4 py-2 rounded-lg flex-1 sm:flex-initial justify-center"
-            style={{
-              backgroundColor:
-                timeRemaining < 600
-                  ? 'color-mix(in srgb, var(--theme-warning) 15%, transparent)'
-                  : 'var(--theme-bg-tertiary)',
-              border: '1px solid',
-              borderColor:
-                timeRemaining < 600
-                  ? 'color-mix(in srgb, var(--theme-warning) 30%, transparent)'
-                  : 'var(--theme-border-secondary)'
-            }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg flex-1 sm:flex-initial justify-center border ${
+              timeRemaining < 600
+                ? 'bg-[color-mix(in_srgb,var(--theme-warning)_15%,transparent)] border-[color-mix(in_srgb,var(--theme-warning)_30%,transparent)]'
+                : 'bg-[var(--theme-bg-tertiary)] border-[var(--theme-border-secondary)]'
+            }`}
           >
             <Timer
-              className="h-4 w-4"
-              style={{
-                color: timeRemaining < 600 ? 'var(--theme-warning)' : 'var(--theme-text-muted)'
-              }}
+              className={`h-4 w-4 ${
+                timeRemaining < 600 ? 'text-[var(--theme-warning)]' : 'text-[var(--theme-text-muted)]'
+              }`}
             />
             <span
-              className="font-mono font-semibold tabular-nums"
-              style={{
-                color:
-                  timeRemaining < 600 ? 'var(--theme-warning-text)' : 'var(--theme-text-primary)'
-              }}
+              className={`font-mono font-semibold tabular-nums ${
+                timeRemaining < 600 ? 'text-[var(--theme-warning-text)]' : 'text-[var(--theme-text-primary)]'
+              }`}
             >
               {formatTimeRemaining(timeRemaining)}
             </span>
@@ -1373,11 +1355,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             variant="outline"
             size="sm"
             onClick={handleEndSession}
-            className="flex-shrink-0"
-            style={{
-              borderColor: 'color-mix(in srgb, var(--theme-error) 40%, transparent)',
-              color: 'var(--theme-error)'
-            }}
+            className="flex-shrink-0 border-[color-mix(in_srgb,var(--theme-error)_40%,transparent)] text-[var(--theme-error)]"
           >
             <X className="h-4 w-4" />
             <span className="hidden sm:inline">End Session</span>
@@ -1388,8 +1366,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       {/* Error Banner */}
       {error && (
         <div
-          className="p-4 rounded-lg flex items-center gap-3 bg-[var(--theme-error-bg)]"
-          style={{ border: '1px solid color-mix(in srgb, var(--theme-error) 30%, transparent)' }}
+          className="p-4 rounded-lg flex items-center gap-3 bg-[var(--theme-error-bg)] border border-[color-mix(in_srgb,var(--theme-error)_30%,transparent)]"
         >
           <AlertCircle className="h-5 w-5 flex-shrink-0 text-[var(--theme-error)]" />
           <span className="text-[var(--theme-error-text)]">{error}</span>
@@ -1405,17 +1382,16 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div
-                  className="w-10 h-10 rounded-lg flex items-center justify-center"
-                  style={{
-                    backgroundColor: isLoggedIn
-                      ? 'color-mix(in srgb, var(--theme-success) 15%, transparent)'
-                      : 'color-mix(in srgb, var(--theme-warning) 15%, transparent)'
-                  }}
+                  className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                    isLoggedIn
+                      ? 'bg-[color-mix(in_srgb,var(--theme-success)_15%,transparent)]'
+                      : 'bg-[color-mix(in_srgb,var(--theme-warning)_15%,transparent)]'
+                  }`}
                 >
                   {isLoggedIn ? (
-                    <CheckCircle2 className="h-5 w-5" style={{ color: 'var(--theme-success)' }} />
+                    <CheckCircle2 className="h-5 w-5 text-[var(--theme-success)]" />
                   ) : (
-                    <LogIn className="h-5 w-5" style={{ color: 'var(--theme-warning)' }} />
+                    <LogIn className="h-5 w-5 text-[var(--theme-warning)]" />
                   )}
                 </div>
                 <div>
@@ -1446,23 +1422,16 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           {prefillProgress && (
             <Card
               padding="md"
-              className="overflow-hidden"
-              style={{
-                borderColor: 'color-mix(in srgb, var(--theme-primary) 50%, transparent)'
-              }}
+              className="overflow-hidden border-[color-mix(in_srgb,var(--theme-primary)_50%,transparent)]"
             >
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div
-                      className="w-10 h-10 rounded-lg flex items-center justify-center"
-                      style={{
-                        backgroundColor: 'color-mix(in srgb, var(--theme-primary) 15%, transparent)'
-                      }}
+                      className="w-10 h-10 rounded-lg flex items-center justify-center bg-[color-mix(in_srgb,var(--theme-primary)_15%,transparent)]"
                     >
                       <Download
-                        className="h-5 w-5 animate-pulse"
-                        style={{ color: 'var(--theme-primary)' }}
+                        className="h-5 w-5 animate-pulse text-[var(--theme-primary)]"
                       />
                     </div>
                     <div>
@@ -1508,22 +1477,12 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                   <div className="h-3 rounded-full overflow-hidden bg-[var(--theme-progress-bg)]">
                     {prefillProgress.state === 'downloading' ? (
                       <div
-                        className="h-full rounded-full transition-all duration-300 ease-out"
-                        style={{
-                          width: `${Math.min(100, prefillProgress.percentComplete)}%`,
-                          background:
-                            'linear-gradient(90deg, var(--theme-primary) 0%, var(--theme-accent) 100%)'
-                        }}
+                        className="h-full rounded-full transition-all duration-300 ease-out bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-accent)]"
+                        style={{ width: `${Math.min(100, prefillProgress.percentComplete)}%` }}
                       />
                     ) : (
                       <div
-                        className="h-full rounded-full animate-pulse"
-                        style={{
-                          width: '100%',
-                          background:
-                            'linear-gradient(90deg, var(--theme-primary) 0%, var(--theme-accent) 100%)',
-                          opacity: 0.5
-                        }}
+                        className="h-full rounded-full animate-pulse w-full opacity-50 bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-accent)]"
                       />
                     )}
                   </div>
@@ -1625,20 +1584,14 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
               {/* Login Required Notice */}
               {!isLoggedIn && (
                 <div
-                  className="p-4 rounded-lg flex items-start gap-3"
-                  style={{
-                    backgroundColor: 'color-mix(in srgb, var(--theme-warning) 10%, transparent)',
-                    border: '1px solid color-mix(in srgb, var(--theme-warning) 25%, transparent)'
-                  }}
+                  className="p-4 rounded-lg flex items-start gap-3 bg-[color-mix(in_srgb,var(--theme-warning)_10%,transparent)] border border-[color-mix(in_srgb,var(--theme-warning)_25%,transparent)]"
                 >
                   <Shield
-                    className="h-5 w-5 flex-shrink-0 mt-0.5"
-                    style={{ color: 'var(--theme-warning)' }}
+                    className="h-5 w-5 flex-shrink-0 mt-0.5 text-[var(--theme-warning)]"
                   />
                   <div>
                     <p
-                      className="font-medium text-sm"
-                      style={{ color: 'var(--theme-warning-text)' }}
+                      className="font-medium text-sm text-[var(--theme-warning-text)]"
                     >
                       Login Required to Use Commands
                     </p>
@@ -1659,8 +1612,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           <Card padding="none" className="overflow-hidden">
             <div className="px-4 pt-4 pb-3 flex items-center gap-3 border-b border-[var(--theme-border-primary)]">
               <div
-                className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                style={{ backgroundColor: 'color-mix(in srgb, var(--theme-accent) 15%, transparent)' }}
+                className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-[color-mix(in_srgb,var(--theme-accent)_15%,transparent)]"
               >
                 <ScrollText className="h-4 w-4 text-[var(--theme-accent)]" />
               </div>

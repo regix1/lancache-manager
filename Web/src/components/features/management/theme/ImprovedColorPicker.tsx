@@ -189,11 +189,8 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
             ref={buttonRef}
             type="button"
             onClick={handlePickerToggle}
-            className="w-12 h-8 rounded border-2 cursor-pointer transition-all hover:scale-105"
-            style={{
-              backgroundColor: value,
-              borderColor: 'var(--theme-border-secondary)'
-            }}
+            className="w-12 h-8 rounded border-2 cursor-pointer transition-all hover:scale-105 border-themed-secondary"
+            style={{ backgroundColor: value }}
             title="Click to toggle color picker"
           />
 
@@ -202,14 +199,11 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
             createPortal(
               <div
                 ref={popupRef}
-                className="fixed p-3 rounded-lg shadow-2xl overflow-hidden"
+                className="fixed p-3 rounded-lg shadow-2xl overflow-hidden bg-themed-primary border border-themed-primary isolate"
                 style={{
-                  backgroundColor: 'var(--theme-bg-primary)',
-                  border: '1px solid var(--theme-border-primary)',
                   left: `${pickerPosition.left}px`,
                   top: `${pickerPosition.top}px`,
-                  zIndex: 100001,
-                  isolation: 'isolate'
+                  zIndex: 100001
                 }}
               >
                 <div className="flex items-center justify-between mb-2">
@@ -272,7 +266,7 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
             title="Copy color"
           >
             {copiedColor === value ? (
-              <Check className="w-3 h-3" style={{ color: 'var(--theme-success)' }} />
+              <Check className="w-3 h-3 icon-success" />
             ) : (
               <Copy className="w-3 h-3 text-themed-muted" />
             )}

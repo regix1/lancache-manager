@@ -79,11 +79,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
                 {service.datasources.map((ds) => (
                   <span
                     key={ds}
-                    className="px-1.5 py-0.5 rounded text-[10px] font-medium capitalize"
-                    style={{
-                      backgroundColor: 'var(--theme-accent-muted)',
-                      color: 'var(--theme-accent)'
-                    }}
+                    className="px-1.5 py-0.5 rounded text-[10px] font-medium capitalize bg-themed-accent-subtle text-themed-accent"
                   >
                     {ds}
                   </span>
@@ -151,11 +147,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
                 ).map((url, idx) => (
                   <div
                     key={idx}
-                    className="p-2 rounded border"
-                    style={{
-                      backgroundColor: 'var(--theme-bg-secondary)',
-                      borderColor: 'var(--theme-border-primary)'
-                    }}
+                    className="p-2 rounded border bg-themed-secondary border-themed-primary"
                   >
                     <Tooltip content={url}>
                       <span className="text-xs font-mono text-themed-primary truncate block">
@@ -200,11 +192,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
                 ).map((path, idx) => (
                   <div
                     key={idx}
-                    className="p-2 rounded border"
-                    style={{
-                      backgroundColor: 'var(--theme-bg-secondary)',
-                      borderColor: 'var(--theme-border-primary)'
-                    }}
+                    className="p-2 rounded border bg-themed-secondary border-themed-primary"
                   >
                     <Tooltip content={path}>
                       <span className="text-xs font-mono text-themed-primary truncate block">

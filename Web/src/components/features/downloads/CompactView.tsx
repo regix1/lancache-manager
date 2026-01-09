@@ -127,8 +127,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
       <button
         type="button"
         onClick={() => onItemClick(group.id)}
-        className="w-full text-left px-3 py-3 focus:outline-none"
-        style={{ WebkitTapHighlightColor: 'transparent' }}
+        className="w-full text-left px-3 py-3 focus:outline-none [-webkit-tap-highlight-color:transparent]"
       >
         {/* Get datasource from primary download */}
         {(() => {

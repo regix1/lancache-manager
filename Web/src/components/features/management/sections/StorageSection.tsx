@@ -50,10 +50,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
       {/* ==================== LOG OPERATIONS ==================== */}
       <div className="mb-6 sm:mb-8">
         <div className="flex items-center gap-2 mb-3 sm:mb-4">
-          <div
-            className="w-1 h-5 rounded-full"
-            style={{ backgroundColor: 'var(--theme-icon-blue)' }}
-          />
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-blue)]" />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
             Log Operations
           </h3>
@@ -82,10 +79,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
       {/* ==================== CACHE OPERATIONS ==================== */}
       <div>
         <div className="flex items-center gap-2 mb-3 sm:mb-4">
-          <div
-            className="w-1 h-5 rounded-full"
-            style={{ backgroundColor: 'var(--theme-icon-green)' }}
-          />
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-green)]" />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
             Cache Operations
           </h3>

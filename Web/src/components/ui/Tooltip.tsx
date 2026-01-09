@@ -285,12 +285,10 @@ const EdgeTooltip: React.FC<{
   return (
     <div
       ref={ref}
-      className={`fixed z-[9999] max-w-md px-2.5 py-1.5 text-xs themed-card text-themed-secondary rounded-md tooltip-edge ${contentClassName}`}
+      className={`fixed z-[9999] max-w-md px-2.5 py-1.5 text-xs themed-card text-themed-secondary rounded-md tooltip-edge transition-none ${pos ? 'visible' : 'invisible'} ${contentClassName}`}
       style={{
         left: pos?.x ?? -9999,
-        top: pos?.y ?? -9999,
-        visibility: pos ? 'visible' : 'hidden',
-        transition: 'none'
+        top: pos?.y ?? -9999
       }}
     >
       {content}

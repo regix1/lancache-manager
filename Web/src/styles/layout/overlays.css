@@ -1,0 +1,182 @@
+@layer components {
+  /* ===== UNIVERSAL OVERLAY FIXES ===== */
+
+  /* Fix ALL dropdown containers */
+  .custom-dropdown,
+  .relative:has(> .absolute),
+  .relative:has(.fixed + .absolute) {
+    position: relative !important;
+    z-index: auto !important;
+  }
+
+  /* Fix ALL absolute positioned overlays */
+  .absolute.z-20,
+  .absolute.z-10,
+  .absolute[class*='top-']:not(.input-icon),
+  .absolute[class*='right-']:not(.input-icon),
+  .absolute[class*='left-']:not(.input-icon),
+  .absolute[class*='bottom-']:not(.input-icon),
+  .custom-dropdown .absolute,
+  .relative > .absolute:not(.input-icon) {
+    position: absolute !important;
+    z-index: 99999 !important;
+  }
+
+  /* Input icons should stay at normal z-index */
+  .input-icon {
+    z-index: 1 !important;
+    pointer-events: none;
+  }
+
+  /* Fix backdrop overlays */
+  .fixed.inset-0.z-10,
+  .fixed.inset-0.z-20,
+  .custom-dropdown .fixed,
+  .relative > .fixed {
+    position: fixed !important;
+    z-index: 99998 !important;
+    pointer-events: auto !important;
+  }
+
+  /* CRITICAL FIX: Ensure parent containers don't expand when dropdowns open */
+  .relative:has(> .fixed + .absolute),
+  .relative:has(> .absolute.z-20) {
+    position: relative !important;
+    overflow: visible !important;
+    display: inline-block !important;
+    vertical-align: top !important;
+  }
+
+  /* Settings button specific - prevent layout shift */
+  .relative:has(button svg.lucide-settings) {
+    position: relative !important;
+    display: inline-block !important;
+    vertical-align: top !important;
+  }
+
+  /* Ensure dropdown is positioned from button, not affecting layout */
+  .relative:has(button svg.lucide-settings) > .absolute {
+    position: absolute !important;
+    z-index: 99999 !important;
+    top: calc(100% + 0.5rem) !important;
+    right: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Prevent any layout reflow when dropdown opens */
+  .relative > .fixed + .absolute {
+    position: absolute !important;
+    top: calc(100% + 0.5rem) !important;
+    margin: 0 !important;
+  }
+
+  /* Info icon tooltip specific */
+  .relative.inline-block > div:not(:first-child) {
+    position: absolute !important;
+    z-index: 100000 !important;
+  }
+
+  /* Radix UI or similar library tooltips */
+  [data-radix-popper-content-wrapper],
+  [data-state='open'],
+  [data-state='closed'],
+  [role='tooltip'] {
+    position: absolute !important;
+    z-index: 100000 !important;
+  }
+
+  /* Ensure modals stay on top */
+  .fixed.inset-0.bg-black {
+    z-index: 100001 !important;
+  }
+
+  /* Prevent overflow issues on containers */
+  .relative:has(.absolute) {
+    overflow: visible !important;
+  }
+
+  /* Ensure dropdown content is absolute */
+  .absolute.themed-card {
+    position: absolute !important;
+    z-index: 99999 !important;
+  }
+
+  /* ===== END UNIVERSAL OVERLAY FIXES ===== */
+
+  .animate-pulse-slow {
+    animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  .smooth-transition {
+    @apply transition-all duration-300 ease-in-out;
+  }
+
+  .hover-lift {
+    @apply hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200;
+  }
+
+  .button-press {
+    @apply active:scale-95 transition-transform duration-75;
+  }
+
+  /* Custom Scrollbar Classes (for specific overrides) - Theme aware */
+  .custom-scrollbar {
+    /* Firefox */
+    scrollbar-width: thin;
+    scrollbar-color: var(--theme-scrollbar-thumb) var(--theme-scrollbar-track);
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: var(--theme-scrollbar-track);
+    border-radius: var(--theme-border-radius, 0.5rem);
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--theme-scrollbar-thumb);
+    border-radius: var(--theme-border-radius, 0.5rem);
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--theme-scrollbar-hover);
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-corner {
+    background: var(--theme-scrollbar-track);
+  }
+
+  /* Alternative scrollbar for different areas - Theme aware */
+  .main-scrollbar {
+    /* Firefox */
+    scrollbar-width: thin;
+    scrollbar-color: var(--theme-scrollbar-thumb) var(--theme-bg-secondary);
+  }
+
+  .main-scrollbar::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .main-scrollbar::-webkit-scrollbar-track {
+    background: var(--theme-bg-secondary);
+    border-radius: var(--theme-border-radius-lg, 0.75rem);
+  }
+
+  .main-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--theme-scrollbar-thumb);
+    border-radius: var(--theme-border-radius-lg, 0.75rem);
+    border: 2px solid var(--theme-bg-secondary);
+  }
+
+  .main-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--theme-scrollbar-hover);
+  }
+
+  .main-scrollbar::-webkit-scrollbar-corner {
+    background: var(--theme-bg-secondary);
+  }
+}

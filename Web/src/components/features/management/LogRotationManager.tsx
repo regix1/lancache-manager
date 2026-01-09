@@ -186,9 +186,9 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
         <div className="p-4 rounded-lg bg-themed-tertiary">
           <div className="flex items-center gap-2 mb-2">
             {status.lastRotationSuccess ? (
-              <CheckCircle2 className="w-4 h-4" style={{ color: 'var(--theme-success)' }} />
+              <CheckCircle2 className="w-4 h-4 icon-success" />
             ) : status.lastRotationTime ? (
-              <XCircle className="w-4 h-4" style={{ color: 'var(--theme-error)' }} />
+              <XCircle className="w-4 h-4 icon-error" />
             ) : (
               <Clock className="w-4 h-4 text-themed-muted" />
             )}
@@ -200,7 +200,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
                 {formatDateTime(status.lastRotationTime)}
               </p>
               {!status.lastRotationSuccess && status.lastRotationError && (
-                <p className="text-xs mt-1" style={{ color: 'var(--theme-error)' }}>
+                <p className="text-xs mt-1 text-themed-error">
                   {status.lastRotationError}
                 </p>
               )}

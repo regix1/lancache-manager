@@ -1,0 +1,357 @@
+@layer components {
+  /* ==============================================
+   * FORMS - Inputs, Checkboxes, Range Sliders, Toggle
+   * ============================================== */
+
+  /* Theme-aware Input */
+  .themed-input {
+    @apply rounded-lg border;
+    background-color: var(--theme-input-bg);
+    border-color: var(--theme-input-border);
+    color: var(--theme-text-primary);
+  }
+
+  .themed-input::placeholder {
+    color: var(--theme-text-placeholder);
+    opacity: 1; /* Override browser defaults */
+  }
+
+  .themed-input:focus {
+    border-color: var(--theme-input-focus);
+    outline-color: var(--theme-input-focus);
+  }
+
+  /* Theme-aware focus outline utility for interactive controls */
+  .themed-outline {
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+  }
+
+  .themed-outline:focus,
+  .themed-outline:focus-visible {
+    outline-color: var(--theme-border-focus);
+  }
+
+  /* Remove blue outline on click, keep for keyboard navigation */
+  /* Only apply when user has disabled focus outlines */
+  [data-disable-focus-outlines='true'] .no-click-outline {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
+  [data-disable-focus-outlines='true'] .no-click-outline:focus {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
+  [data-disable-focus-outlines='true'] .no-click-outline:focus-visible {
+    outline: 2px solid var(--theme-card-outline) !important;
+    outline-offset: 2px !important;
+    box-shadow: none !important;
+  }
+
+  /* Also apply to buttons and interactive elements when disabled */
+  [data-disable-focus-outlines='true'] button:focus,
+  [data-disable-focus-outlines='true'] a:focus,
+  [data-disable-focus-outlines='true'] input:focus:not([type='checkbox']):not([type='range']),
+  [data-disable-focus-outlines='true'] select:focus,
+  [data-disable-focus-outlines='true'] textarea:focus {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
+  /* Keep focus-visible for accessibility */
+  [data-disable-focus-outlines='true'] button:focus-visible,
+  [data-disable-focus-outlines='true'] a:focus-visible {
+    outline: 2px solid var(--theme-primary) !important;
+    outline-offset: 2px !important;
+  }
+
+  /* Themed Checkbox Styling - Simplified */
+  .themed-checkbox {
+    @apply h-4 w-4 cursor-pointer transition-all appearance-none rounded relative;
+    border: 2px solid var(--theme-checkbox-border);
+    background-color: var(--theme-checkbox-bg);
+    box-shadow: var(--theme-checkbox-shadow);
+  }
+
+  .themed-checkbox:hover {
+    border-color: var(--theme-checkbox-accent);
+    box-shadow: var(--theme-checkbox-hover-shadow);
+    background-color: var(--theme-checkbox-hover-bg);
+  }
+
+  .themed-checkbox:checked {
+    background-color: var(--theme-checkbox-accent);
+    border-color: var(--theme-checkbox-accent);
+  }
+
+  .themed-checkbox:focus {
+    outline: 2px solid var(--theme-checkbox-focus);
+    outline-offset: 2px;
+  }
+
+  /* Checkmark using pseudo-element */
+  .themed-checkbox:checked::after {
+    content: '✓';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: var(--theme-checkbox-checkmark);
+    font-size: 12px;
+    font-weight: bold;
+    line-height: 1;
+  }
+
+  /* Checkbox styling - Modern and Pretty */
+  input[type='checkbox'] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--theme-checkbox-border);
+    border-radius: 4px;
+    background: var(--theme-input-bg);
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s ease;
+  }
+
+  input[type='checkbox']:checked {
+    background: var(--theme-checkbox-accent);
+    border-color: var(--theme-checkbox-accent);
+  }
+
+  input[type='checkbox']:checked::after {
+    content: '';
+    position: absolute;
+    left: 5px;
+    top: 2px;
+    width: 6px;
+    height: 10px;
+    border: solid var(--theme-checkbox-checkmark);
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+
+  input[type='checkbox']:hover {
+    border-color: var(--theme-checkbox-accent);
+    box-shadow: 0 0 0 3px rgba(var(--theme-primary-rgb), 0.1);
+  }
+
+  input[type='checkbox']:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(var(--theme-primary-rgb), 0.2);
+  }
+
+  input[type='checkbox']:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* Range/Slider styling - Modern and Pretty */
+  input[type='range'] {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+    height: 20px;
+  }
+
+  /* Track styling - Webkit */
+  input[type='range']::-webkit-slider-runnable-track {
+    background: var(--theme-slider-track);
+    height: 6px;
+    border-radius: 3px;
+    border: 1px solid var(--theme-border-primary);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+  }
+
+  /* Track styling - Firefox */
+  input[type='range']::-moz-range-track {
+    background: var(--theme-slider-track);
+    height: 6px;
+    border-radius: 3px;
+    border: 1px solid var(--theme-border-primary);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+  }
+
+  /* Thumb styling - Webkit */
+  input[type='range']::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--theme-slider-thumb);
+    border: 2px solid var(--theme-bg-primary);
+    border-radius: 50%;
+    height: 18px;
+    width: 18px;
+    margin-top: -7px;
+    box-shadow:
+      0 2px 4px rgba(0, 0, 0, 0.2),
+      0 1px 2px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s ease;
+  }
+
+  /* Thumb styling - Firefox */
+  input[type='range']::-moz-range-thumb {
+    background: var(--theme-slider-thumb);
+    border: 2px solid var(--theme-bg-primary);
+    border-radius: 50%;
+    height: 18px;
+    width: 18px;
+    box-shadow:
+      0 2px 4px rgba(0, 0, 0, 0.2),
+      0 1px 2px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s ease;
+    cursor: pointer;
+  }
+
+  /* Hover state for thumb */
+  input[type='range']:hover::-webkit-slider-thumb {
+    transform: scale(1.1);
+    box-shadow:
+      0 3px 6px rgba(0, 0, 0, 0.3),
+      0 2px 4px rgba(0, 0, 0, 0.15);
+  }
+
+  input[type='range']:hover::-moz-range-thumb {
+    transform: scale(1.1);
+    box-shadow:
+      0 3px 6px rgba(0, 0, 0, 0.3),
+      0 2px 4px rgba(0, 0, 0, 0.15);
+  }
+
+  /* Active/focus state */
+  input[type='range']:focus {
+    outline: none;
+  }
+
+  input[type='range']:focus::-webkit-slider-thumb {
+    box-shadow:
+      0 0 0 4px rgba(var(--theme-primary-rgb), 0.1),
+      0 3px 6px rgba(0, 0, 0, 0.3);
+  }
+
+  input[type='range']:focus::-moz-range-thumb {
+    box-shadow:
+      0 0 0 4px rgba(var(--theme-primary-rgb), 0.1),
+      0 3px 6px rgba(0, 0, 0, 0.3);
+  }
+
+  /* Progress fill effect (for Webkit - shows filled portion) */
+  input[type='range'] {
+    background-image: linear-gradient(
+      to right,
+      var(--theme-slider-accent) 0%,
+      var(--theme-slider-accent) var(--range-progress, 50%),
+      transparent var(--range-progress, 50%),
+      transparent 100%
+    );
+    background-size: 100% 6px;
+    background-position: 0 center;
+    background-repeat: no-repeat;
+  }
+
+  /* Number input - Hide native spinner and create custom themed buttons */
+  input[type='number'] {
+    -webkit-appearance: textfield;
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    display: none;
+    margin: 0;
+  }
+
+  /* Custom number input container */
+  .number-input-wrapper {
+    position: relative;
+    display: inline-block;
+    width: 100%;
+  }
+
+  .number-input-wrapper input[type='number'] {
+    padding-right: 2.5rem;
+  }
+
+  .number-input-wrapper .spinner-buttons {
+    position: absolute;
+    right: 0.375rem;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+  }
+
+  .number-input-wrapper .spinner-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.25rem;
+    background-color: transparent;
+    border: none;
+    color: var(--theme-text-muted);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    user-select: none;
+    border-radius: 0.25rem;
+    padding: 0;
+  }
+
+  .number-input-wrapper .spinner-btn:hover:not(:disabled) {
+    background-color: var(--theme-bg-hover);
+    color: var(--theme-primary);
+  }
+
+  .number-input-wrapper .spinner-btn:active:not(:disabled) {
+    background-color: var(--theme-primary);
+    color: var(--theme-button-text);
+    transform: scale(0.95);
+  }
+
+  .number-input-wrapper .spinner-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+
+  .number-input-wrapper .spinner-btn svg {
+    width: 1rem;
+    height: 1rem;
+    stroke-width: 2.5;
+  }
+
+  /* Modern toggle switch */
+  .modern-toggle {
+    @apply relative inline-flex h-6 w-11 items-center rounded-full cursor-pointer;
+    background: var(--theme-bg-tertiary);
+    border: 1px solid var(--theme-border-secondary);
+    transition: all 0.2s ease;
+  }
+
+  .modern-toggle.checked {
+    background: var(--theme-primary);
+    border-color: var(--theme-primary);
+  }
+
+  .modern-toggle .toggle-thumb {
+    @apply inline-block h-4 w-4 rounded-full shadow-sm;
+    background: white;
+    transform: translateX(2px);
+    transition: transform 0.2s ease;
+  }
+
+  .modern-toggle.checked .toggle-thumb {
+    transform: translateX(22px);
+  }
+
+  /* Themed checkbox/radio accent color */
+  .accent-themed {
+    accent-color: var(--theme-primary);
+  }
+}

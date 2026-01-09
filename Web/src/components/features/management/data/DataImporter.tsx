@@ -282,13 +282,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
 
   // Header actions - compatibility badge
   const headerActions = (
-    <div
-      className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm"
-      style={{
-        backgroundColor: 'var(--theme-bg-tertiary)',
-        border: '1px solid var(--theme-border-secondary)'
-      }}
-    >
+    <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm bg-themed-tertiary border border-themed-secondary">
       <Database className={`w-4 h-4 ${importType === 'develancache' ? 'icon-purple' : 'icon-blue'}`} />
       <span className="text-themed-secondary font-medium">{selectedImportTypeLabel}</span>
     </div>
@@ -335,53 +329,37 @@ const DataImporter: React.FC<DataImporterProps> = ({
 
         {/* Mode Toggle */}
         <div className="flex items-center gap-4">
-          <div
-            className="flex-1 h-[2px] rounded-full"
-            style={{
-              background: 'repeating-linear-gradient(90deg, var(--theme-border-secondary) 0px, var(--theme-border-secondary) 4px, transparent 4px, transparent 8px)'
-            }}
-          />
+          <div className="flex-1 h-[2px] rounded-full divider-dashed" />
           <div className="inline-flex items-center gap-1 p-1 rounded-lg bg-themed-tertiary">
             <button
               onClick={() => setInputMode('auto')}
               disabled={mockMode || !isAuthenticated}
-              className="px-4 py-1.5 rounded-md text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{
-                backgroundColor: inputMode === 'auto' ? 'var(--theme-primary)' : 'transparent',
-                color: inputMode === 'auto' ? 'var(--theme-button-text)' : 'var(--theme-text-secondary)'
-              }}
+              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
+                inputMode === 'auto' ? 'toggle-btn-active' : 'toggle-btn-inactive'
+              }`}
             >
               Auto
             </button>
             <button
               onClick={() => setInputMode('browse')}
               disabled={mockMode || !isAuthenticated}
-              className="px-4 py-1.5 rounded-md text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{
-                backgroundColor: inputMode === 'browse' ? 'var(--theme-primary)' : 'transparent',
-                color: inputMode === 'browse' ? 'var(--theme-button-text)' : 'var(--theme-text-secondary)'
-              }}
+              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
+                inputMode === 'browse' ? 'toggle-btn-active' : 'toggle-btn-inactive'
+              }`}
             >
               Browse
             </button>
             <button
               onClick={() => setInputMode('manual')}
               disabled={mockMode || !isAuthenticated}
-              className="px-4 py-1.5 rounded-md text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{
-                backgroundColor: inputMode === 'manual' ? 'var(--theme-primary)' : 'transparent',
-                color: inputMode === 'manual' ? 'var(--theme-button-text)' : 'var(--theme-text-secondary)'
-              }}
+              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
+                inputMode === 'manual' ? 'toggle-btn-active' : 'toggle-btn-inactive'
+              }`}
             >
               Manual
             </button>
           </div>
-          <div
-            className="flex-1 h-[2px] rounded-full"
-            style={{
-              background: 'repeating-linear-gradient(90deg, var(--theme-border-secondary) 0px, var(--theme-border-secondary) 4px, transparent 4px, transparent 8px)'
-            }}
-          />
+          <div className="flex-1 h-[2px] rounded-full divider-dashed" />
         </div>
 
         {/* Auto Mode - Found Databases */}
@@ -408,20 +386,16 @@ const DataImporter: React.FC<DataImporterProps> = ({
             {autoSearching ? (
               <LoadingState message="Searching for databases..." />
             ) : foundDatabases.length > 0 ? (
-              <div
-                className="rounded-lg border overflow-hidden"
-                style={{ borderColor: 'var(--theme-border-secondary)' }}
-              >
+              <div className="rounded-lg border overflow-hidden border-themed-secondary">
                 <div className="max-h-[200px] overflow-y-auto custom-scrollbar">
                   {foundDatabases.map((item, index) => (
                     <button
                       key={index}
                       onClick={() => handleAutoSelect(item)}
                       className={`w-full px-3 py-2.5 flex items-center gap-3 transition-all text-left border-b last:border-b-0
-                        hover:bg-themed-hover cursor-pointer
+                        hover:bg-themed-hover cursor-pointer border-themed-secondary
                         ${connectionString === item.path ? 'bg-themed-accent-subtle ring-1 ring-inset ring-themed-accent' : ''}
                       `}
-                      style={{ borderColor: 'var(--theme-border-secondary)' }}
                     >
                       <div className="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center icon-bg-green">
                         <Database className="w-4 h-4 icon-green" />
@@ -485,14 +459,8 @@ const DataImporter: React.FC<DataImporterProps> = ({
 
         {/* Validation Success */}
         {validationResult?.valid && (
-          <div
-            className="flex items-center gap-3 p-3 rounded-lg"
-            style={{
-              backgroundColor: 'var(--theme-success-bg)',
-              border: '1px solid var(--theme-success)'
-            }}
-          >
-            <CheckCircle2 className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--theme-success)' }} />
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-themed-success border border-success">
+            <CheckCircle2 className="w-5 h-5 flex-shrink-0 icon-success" />
             <div>
               <p className="font-medium text-themed-success">Connection Valid</p>
               <p className="text-sm text-themed-secondary">
@@ -589,11 +557,8 @@ const DataImporter: React.FC<DataImporterProps> = ({
             </div>
             <div className="h-2 rounded-full overflow-hidden bg-themed-tertiary">
               <div
-                className="h-full rounded-full transition-all duration-300"
-                style={{
-                  width: `${importProgress}%`,
-                  backgroundColor: 'var(--theme-icon-green)'
-                }}
+                className="h-full rounded-full transition-all duration-300 progress-bar-green"
+                style={{ width: `${importProgress}%` }}
               />
             </div>
           </div>
@@ -602,15 +567,12 @@ const DataImporter: React.FC<DataImporterProps> = ({
         {/* Import Result */}
         {importResult && (
           <div
-            className="p-4 rounded-lg"
-            style={{
-              backgroundColor: importResult.errors > 0 ? 'var(--theme-warning-bg)' : 'var(--theme-success-bg)',
-              border: `1px solid ${importResult.errors > 0 ? 'var(--theme-warning)' : 'var(--theme-success)'}`
-            }}
+            className={`p-4 rounded-lg border ${
+              importResult.errors > 0 ? 'bg-themed-warning border-warning' : 'bg-themed-success border-success'
+            }`}
           >
             <p
-              className="font-medium mb-3"
-              style={{ color: importResult.errors > 0 ? 'var(--theme-warning-text)' : 'var(--theme-success-text)' }}
+              className={`font-medium mb-3 ${importResult.errors > 0 ? 'text-themed-warning' : 'text-themed-success'}`}
             >
               {importResult.message}
             </p>
@@ -640,8 +602,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
             </div>
             {importResult.backupPath && !importResult.backupPath.includes('(no backup') && (
               <div
-                className="pt-3 border-t"
-                style={{ borderColor: importResult.errors > 0 ? 'var(--theme-warning)' : 'var(--theme-success)' }}
+                className={`pt-3 border-t ${importResult.errors > 0 ? 'border-warning' : 'border-success'}`}
               >
                 <p className="text-xs text-themed-muted mb-1">Database backup created:</p>
                 <p className="text-xs font-mono text-themed-secondary bg-themed-tertiary px-2 py-1 rounded break-all">

@@ -536,11 +536,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
                             {corruptionDetails[service].map((chunk, idx) => (
                               <div
                                 key={idx}
-                                className="p-2 rounded border"
-                                style={{
-                                  backgroundColor: 'var(--theme-bg-secondary)',
-                                  borderColor: 'var(--theme-border-primary)'
-                                }}
+                                className="p-2 rounded border bg-themed-secondary border-themed-primary"
                               >
                                 <div className="flex items-start gap-2">
                                   <AlertTriangle className="w-4 h-4 text-themed-warning flex-shrink-0 mt-0.5" />

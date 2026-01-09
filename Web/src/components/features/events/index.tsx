@@ -93,13 +93,7 @@ const EventsTab: React.FC = () => {
 
       {/* Error message */}
       {error && (
-        <div
-          className="p-4 rounded-lg animate-fadeIn"
-          style={{
-            backgroundColor: 'color-mix(in srgb, var(--theme-status-error) 10%, transparent)',
-            border: '1px solid color-mix(in srgb, var(--theme-status-error) 30%, transparent)'
-          }}
-        >
+        <div className="p-4 rounded-lg animate-fadeIn bg-[color-mix(in_srgb,var(--theme-status-error)_10%,transparent)] border border-[color-mix(in_srgb,var(--theme-status-error)_30%,transparent)]">
           <p className="text-sm text-[var(--theme-status-error)]">{error}</p>
         </div>
       )}
@@ -108,10 +102,7 @@ const EventsTab: React.FC = () => {
       {activeEvents.length > 0 && (
         <Card padding="md" glassmorphism>
           <div className="flex items-start gap-3">
-            <div
-              className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-              style={{ backgroundColor: 'color-mix(in srgb, var(--theme-status-success) 15%, transparent)' }}
-            >
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-[color-mix(in_srgb,var(--theme-status-success)_15%,transparent)]">
               <Sparkles className="w-4 h-4 text-[var(--theme-status-success)]" />
             </div>
             <div className="flex-1 min-w-0">

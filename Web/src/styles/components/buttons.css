@@ -1,0 +1,126 @@
+@layer components {
+  /* ==============================================
+   * BUTTONS - Action, Themed, Hover
+   * ============================================== */
+
+  /* Action Buttons */
+  .action-reset {
+    background-color: var(--theme-action-reset-bg);
+    color: var(--theme-button-text);
+    transition: background-color 0.2s ease;
+  }
+
+  .action-reset:hover {
+    background-color: var(--theme-action-reset-hover);
+  }
+
+  .action-process {
+    background-color: var(--theme-action-process-bg);
+    color: var(--theme-button-text);
+    transition: background-color 0.2s ease;
+  }
+
+  .action-process:hover {
+    background-color: var(--theme-action-process-hover);
+  }
+
+  .action-delete {
+    background-color: var(--theme-action-delete-bg);
+    color: var(--theme-button-text);
+    transition: background-color 0.2s ease;
+  }
+
+  .action-delete:hover {
+    background-color: var(--theme-action-delete-hover);
+  }
+
+  /* Subtle delete hover for icon buttons */
+  .delete-hover {
+    transition: background-color 0.2s, color 0.2s;
+  }
+  .delete-hover:hover {
+    background-color: color-mix(in srgb, var(--theme-icon-red) 15%, transparent);
+    color: var(--theme-icon-red);
+  }
+
+  /* Theme-aware Button */
+  .themed-button-primary {
+    @apply rounded-lg;
+    background-color: var(--theme-button-bg);
+    color: var(--theme-button-text);
+    border-color: var(--theme-button-bg);
+    transition: background-color 0.2s ease;
+  }
+
+  .themed-button-primary:hover {
+    background-color: var(--theme-button-hover);
+    border-color: var(--theme-button-hover);
+  }
+
+  /* Hover button - for popover/list items */
+  .hover-btn {
+    transition: background-color 0.15s ease;
+  }
+
+  .hover-btn:not(:disabled):hover {
+    background-color: var(--theme-bg-hover) !important;
+  }
+
+  .hover-btn-trigger {
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+
+  .hover-btn-trigger:hover {
+    background-color: var(--theme-bg-hover) !important;
+    color: var(--theme-text-primary) !important;
+  }
+
+  /* Light hover for buttons on colored backgrounds */
+  .hover-btn-light {
+    transition: background-color 0.15s ease;
+  }
+
+  .hover-btn-light:hover {
+    background-color: rgba(255, 255, 255, 0.2) !important;
+  }
+
+  /* Toggle/Tab button utilities - active and inactive states */
+  .toggle-btn-active {
+    background-color: var(--theme-primary);
+    color: var(--theme-button-text);
+  }
+
+  .toggle-btn-inactive {
+    background-color: transparent;
+    color: var(--theme-text-secondary);
+  }
+
+  /* Tab button utilities */
+  .tab-active {
+    background-color: var(--theme-bg-secondary);
+  }
+
+  .tab-inactive {
+    background-color: transparent;
+  }
+
+  /* Remove default browser focus styles globally and use theme colors */
+  button:focus,
+  button:focus:not(:focus-visible),
+  select:focus,
+  select:focus:not(:focus-visible),
+  a:focus,
+  a:focus:not(:focus-visible) {
+    outline: none !important;
+    box-shadow: none;
+  }
+
+  /* Apply theme-based focus border only for keyboard navigation */
+  button:focus-visible,
+  select:focus-visible,
+  a:focus-visible {
+    outline: 2px solid var(--theme-border-focus) !important;
+    outline-offset: 2px !important;
+    box-shadow: none;
+  }
+}

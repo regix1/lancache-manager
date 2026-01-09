@@ -1,0 +1,160 @@
+@layer base {
+  html {
+    /* Removed overflow-x: hidden to allow position: sticky to work properly */
+  }
+
+  body {
+    @apply bg-gray-900 text-gray-100;
+    overflow-x: hidden;
+    width: 100%;
+    /* Reserve space for scrollbar to prevent layout shift */
+    overflow-y: scroll;
+  }
+
+  /* Remove ALL default browser focus styles globally */
+  *,
+  *::before,
+  *::after {
+    outline: none !important;
+    outline-color: transparent !important;
+    outline-style: none !important;
+    outline-width: 0 !important;
+    -webkit-tap-highlight-color: transparent !important;
+    /* Remove Tailwind ring utilities */
+    --tw-ring-shadow: 0 0 #0000 !important;
+    --tw-ring-offset-shadow: 0 0 #0000 !important;
+    --tw-ring-color: transparent !important;
+    --tw-ring-opacity: 0 !important;
+    --tw-ring-offset-width: 0px !important;
+    --tw-ring-offset-color: transparent !important;
+  }
+
+  *:focus,
+  *:active,
+  *:focus-within {
+    outline: none !important;
+    outline-color: transparent !important;
+    outline-style: none !important;
+    outline-width: 0 !important;
+    box-shadow: none !important;
+    /* Remove Tailwind ring utilities on focus */
+    --tw-ring-shadow: 0 0 #0000 !important;
+    --tw-ring-offset-shadow: 0 0 #0000 !important;
+    --tw-ring-color: transparent !important;
+    --tw-ring-opacity: 0 !important;
+    --tw-ring-offset-width: 0px !important;
+    --tw-ring-offset-color: transparent !important;
+  }
+
+  /* Remove focus ring completely */
+  *:focus:not(:focus-visible) {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
+  /* Only show outline for keyboard navigation */
+  *:focus-visible {
+    outline: 2px solid var(--theme-border-focus) !important;
+    outline-offset: 2px !important;
+    box-shadow: none !important;
+  }
+
+  /* Remove any blue highlight/border from buttons */
+  button,
+  button:active,
+  button:focus,
+  button:focus:not(:focus-visible) {
+    outline: 0 !important;
+    outline: none !important;
+    outline-width: 0 !important;
+    box-shadow: none !important;
+    -webkit-appearance: none !important;
+    --tw-ring-shadow: 0 0 #0000 !important;
+    --tw-ring-offset-shadow: 0 0 #0000 !important;
+  }
+
+  /* Remove Tailwind ring from all interactive elements */
+  input,
+  button,
+  select,
+  textarea,
+  a,
+  div[role='button'],
+  *[tabindex] {
+    --tw-ring-shadow: 0 0 #0000 !important;
+    --tw-ring-offset-shadow: 0 0 #0000 !important;
+  }
+
+  input:focus,
+  button:focus,
+  select:focus,
+  textarea:focus,
+  a:focus,
+  div[role='button']:focus,
+  *[tabindex]:focus {
+    --tw-ring-shadow: 0 0 #0000 !important;
+    --tw-ring-offset-shadow: 0 0 #0000 !important;
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
+  /* Aggressive removal of browser default focus styles */
+  *:focus,
+  *:focus-within,
+  *:active {
+    -webkit-tap-highlight-color: transparent !important;
+    -webkit-focus-ring-color: transparent !important;
+  }
+
+  /* Remove blue/default browser outline from all clickable elements */
+  a:focus,
+  a:active,
+  button:focus,
+  button:active,
+  input:focus,
+  select:focus,
+  textarea:focus,
+  [role='button']:focus,
+  [role='menuitem']:focus,
+  [role='option']:focus,
+  [tabindex]:focus {
+    outline: 0 !important;
+    outline: none !important;
+    outline-width: 0 !important;
+    outline-style: none !important;
+    outline-color: transparent !important;
+    box-shadow: none !important;
+    -webkit-box-shadow: none !important;
+    -moz-box-shadow: none !important;
+  }
+
+  /* FORCE CUSTOM SCROLLBARS ON ALL ELEMENTS - Theme aware */
+  * {
+    /* Firefox */
+    scrollbar-width: thin;
+    scrollbar-color: var(--theme-scrollbar-thumb) var(--theme-scrollbar-track);
+  }
+
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: var(--theme-scrollbar-track);
+    border-radius: var(--theme-border-radius, 0.5rem);
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: var(--theme-scrollbar-thumb);
+    border-radius: var(--theme-border-radius, 0.5rem);
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: var(--theme-scrollbar-hover);
+  }
+
+  *::-webkit-scrollbar-corner {
+    background: var(--theme-scrollbar-track);
+  }
+}

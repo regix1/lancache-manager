@@ -204,16 +204,14 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
       {isOpen && createPortal(
         <div
           ref={popoverRef}
-          className={`fixed rounded-lg border shadow-2xl themed-card ${
+          className={`fixed rounded-lg border shadow-[0_10px_40px_rgba(0,0,0,0.4)] themed-card max-w-[calc(100vw-24px)] ${
             popoverPos ? 'visible' : 'invisible'
           }`}
           style={{
             left: popoverPos?.x ?? -9999,
             top: popoverPos?.y ?? -9999,
             width: effectiveWidth,
-            maxWidth: `calc(100vw - 24px)`,
-            maxHeight: maxHeight || `calc(100vh - 100px)`,
-            boxShadow: '0 10px 40px rgba(0, 0, 0, 0.4)'
+            maxHeight: maxHeight || `calc(100vh - 100px)`
           }}
         >
           {maxHeight ? (

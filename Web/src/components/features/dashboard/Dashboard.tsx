@@ -781,27 +781,12 @@ const Dashboard: React.FC = () => {
           {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
             <div
               key={i}
-              className="rounded-lg p-4 border animate-pulse glass-card"
-              style={{
-                height: '160px'
-              }}
+              className="rounded-lg p-4 border animate-pulse glass-card h-40"
             >
-              <div
-                className="h-4 rounded"
-                style={{ backgroundColor: 'var(--theme-bg-hover)', width: '60%' }}
-              ></div>
-              <div
-                className="h-8 rounded mt-2"
-                style={{ backgroundColor: 'var(--theme-bg-hover)', width: '80%' }}
-              ></div>
-              <div
-                className="h-3 rounded mt-2"
-                style={{ backgroundColor: 'var(--theme-bg-hover)', width: '40%' }}
-              ></div>
-              <div
-                className="h-8 rounded mt-3"
-                style={{ backgroundColor: 'var(--theme-bg-hover)', width: '100%' }}
-              ></div>
+              <div className="h-4 rounded w-3/5 bg-themed-hover" />
+              <div className="h-8 rounded mt-2 w-4/5 bg-themed-hover" />
+              <div className="h-3 rounded mt-2 w-2/5 bg-themed-hover" />
+              <div className="h-8 rounded mt-3 w-full bg-themed-hover" />
             </div>
           ))}
         </div>
@@ -955,19 +940,10 @@ const Dashboard: React.FC = () => {
           {[1, 2].map((i) => (
             <div
               key={i}
-              className="rounded-lg p-6 border animate-pulse glass-card flex flex-col"
-              style={{
-                height: '400px'
-              }}
+              className="rounded-lg p-6 border animate-pulse glass-card flex flex-col h-[400px]"
             >
-              <div
-                className="h-6 rounded mb-4 flex-shrink-0"
-                style={{ backgroundColor: 'var(--theme-bg-hover)', width: '40%' }}
-              ></div>
-              <div
-                className="flex-1 rounded"
-                style={{ backgroundColor: 'var(--theme-bg-hover)' }}
-              ></div>
+              <div className="h-6 rounded mb-4 flex-shrink-0 w-2/5 bg-themed-hover" />
+              <div className="flex-1 rounded bg-themed-hover" />
             </div>
           ))}
         </div>
@@ -987,22 +963,12 @@ const Dashboard: React.FC = () => {
           {[1, 2, 3, 4].map((i) => (
             <div
               key={i}
-              className="rounded-lg p-4 border animate-pulse glass-card"
-              style={{
-                height: '200px'
-              }}
+              className="rounded-lg p-4 border animate-pulse glass-card h-[200px]"
             >
-              <div
-                className="h-5 rounded mb-3"
-                style={{ backgroundColor: 'var(--theme-bg-hover)', width: '50%' }}
-              ></div>
+              <div className="h-5 rounded mb-3 w-1/2 bg-themed-hover" />
               <div className="space-y-2">
                 {[1, 2, 3].map((j) => (
-                  <div
-                    key={j}
-                    className="h-8 rounded"
-                    style={{ backgroundColor: 'var(--theme-bg-hover)' }}
-                  ></div>
+                  <div key={j} className="h-8 rounded bg-themed-hover" />
                 ))}
               </div>
             </div>
@@ -1027,23 +993,11 @@ const Dashboard: React.FC = () => {
 
       {/* Top Clients - Pass the filtered data arrays */}
       {showLoading ? (
-        <div
-          className="rounded-lg p-6 border animate-pulse animate-fadeIn glass-card flex flex-col"
-          style={{
-            height: '400px'
-          }}
-        >
-          <div
-            className="h-6 rounded mb-4 flex-shrink-0"
-            style={{ backgroundColor: 'var(--theme-bg-hover)', width: '30%' }}
-          ></div>
+        <div className="rounded-lg p-6 border animate-pulse animate-fadeIn glass-card flex flex-col h-[400px]">
+          <div className="h-6 rounded mb-4 flex-shrink-0 w-[30%] bg-themed-hover" />
           <div className="flex-1 flex flex-col justify-start gap-3">
             {[1, 2, 3, 4, 5].map((i) => (
-              <div
-                key={i}
-                className="h-12 rounded flex-shrink-0"
-                style={{ backgroundColor: 'var(--theme-bg-hover)' }}
-              ></div>
+              <div key={i} className="h-12 rounded flex-shrink-0 bg-themed-hover" />
             ))}
           </div>
         </div>

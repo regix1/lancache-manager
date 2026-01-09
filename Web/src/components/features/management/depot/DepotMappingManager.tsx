@@ -652,23 +652,14 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
         {/* GitHub Download In Progress */}
         {githubDownloading && (
-          <div
-            className="mb-4 p-3 rounded-lg border"
-            style={{
-              backgroundColor: 'var(--theme-info-bg)',
-              borderColor: 'var(--theme-info)'
-            }}
-          >
+          <div className="mb-4 p-3 rounded-lg border bg-themed-info border-themed-info">
             <div className="flex items-start gap-3">
-              <Loader2
-                className="w-5 h-5 flex-shrink-0 mt-0.5 animate-spin"
-                style={{ color: 'var(--theme-info)' }}
-              />
+              <Loader2 className="w-5 h-5 flex-shrink-0 mt-0.5 animate-spin icon-info" />
               <div className="flex-1">
-                <p className="font-medium text-sm mb-1" style={{ color: 'var(--theme-info-text)' }}>
+                <p className="font-medium text-sm mb-1 text-themed-info">
                   Downloading Depot Mappings from GitHub...
                 </p>
-                <p className="text-xs" style={{ color: 'var(--theme-info-text)', opacity: 0.9 }}>
+                <p className="text-xs text-themed-info opacity-90">
                   Fetching pre-created depot mappings (290k+ depots). This may take a few moments.
                 </p>
               </div>
@@ -678,23 +669,14 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
         {/* GitHub Download Complete - Incremental Scan Required */}
         {githubDownloadComplete && !depotConfig?.isProcessing && !githubDownloading && (
-          <div
-            className="mb-4 p-3 rounded-lg border"
-            style={{
-              backgroundColor: 'var(--theme-info-bg)',
-              borderColor: 'var(--theme-info)'
-            }}
-          >
+          <div className="mb-4 p-3 rounded-lg border bg-themed-info border-themed-info">
             <div className="flex items-start gap-3">
-              <Database
-                className="w-5 h-5 flex-shrink-0 mt-0.5"
-                style={{ color: 'var(--theme-info)' }}
-              />
+              <Database className="w-5 h-5 flex-shrink-0 mt-0.5 icon-info" />
               <div className="flex-1">
-                <p className="font-medium text-sm mb-1" style={{ color: 'var(--theme-info-text)' }}>
+                <p className="font-medium text-sm mb-1 text-themed-info">
                   GitHub Data Downloaded - Applying Mappings
                 </p>
-                <p className="text-xs" style={{ color: 'var(--theme-info-text)', opacity: 0.9 }}>
+                <p className="text-xs text-themed-info opacity-90">
                   Pre-created depot mappings have been imported from GitHub. The system is now
                   applying these mappings to your download history.
                 </p>
@@ -706,26 +688,14 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
         {/* Automatic Scan Skipped Warning - Don't show if GitHub download is complete or in progress */}
         {/* Note: automaticScanSkipped is now handled via SignalR in App.tsx */}
         {false && (
-          <div
-            className="mb-4 p-3 rounded-lg border"
-            style={{
-              backgroundColor: 'var(--theme-error-bg)',
-              borderColor: 'var(--theme-error)'
-            }}
-          >
+          <div className="mb-4 p-3 rounded-lg border bg-themed-error border-themed-error">
             <div className="flex items-start gap-3">
-              <AlertCircle
-                className="w-5 h-5 flex-shrink-0 mt-0.5"
-                style={{ color: 'var(--theme-error)' }}
-              />
+              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5 icon-error" />
               <div className="flex-1">
-                <p
-                  className="font-medium text-sm mb-1"
-                  style={{ color: 'var(--theme-error-text)' }}
-                >
+                <p className="font-medium text-sm mb-1 text-themed-error">
                   Automatic Scan Skipped - Data Update Required
                 </p>
-                <p className="text-xs" style={{ color: 'var(--theme-error-text)', opacity: 0.9 }}>
+                <p className="text-xs text-themed-error opacity-90">
                   The scheduled incremental scan was skipped because the change gap is too large. Please
                   download the latest pre-created data from GitHub to reset your baseline, then
                   incremental scans will work again.
@@ -747,7 +717,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
               </div>
               <div className="text-xs text-themed-muted space-y-2 sm:space-y-1.5">
                 <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-0.5 sm:gap-2">
-                  <span style={{ opacity: 0.6 }} className="text-left whitespace-nowrap">Runs every:</span>
+                  <span className="opacity-60 text-left whitespace-nowrap">Runs every:</span>
                   <span className="font-medium text-themed-primary">
                     {!depotConfig
                       ? 'Loading...'
@@ -772,7 +742,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                   </span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-0.5 sm:gap-2">
-                  <span style={{ opacity: 0.6 }} className="text-left whitespace-nowrap">Scan mode:</span>
+                  <span className="opacity-60 text-left whitespace-nowrap">Scan mode:</span>
                   <span className="font-medium text-themed-primary">
                     {!depotConfig
                       ? 'Loading...'
@@ -797,7 +767,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                   </span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-0.5 sm:gap-2">
-                  <span style={{ opacity: 0.6 }} className="text-left whitespace-nowrap">Next run:</span>
+                  <span className="opacity-60 text-left whitespace-nowrap">Next run:</span>
                   <span className="font-medium text-themed-primary">
                     {!depotConfig || depotConfig.crawlIntervalHours === 0
                       ? 'Disabled'
@@ -806,7 +776,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                 </div>
                 {depotConfig?.lastCrawlTime && (
                   <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-0.5 sm:gap-2">
-                    <span style={{ opacity: 0.6 }} className="text-left whitespace-nowrap">Last run:</span>
+                    <span className="opacity-60 text-left whitespace-nowrap">Last run:</span>
                     <span className="font-medium text-themed-primary">
                       {depotConfig.crawlIntervalHours === 0
                         ? 'Disabled'

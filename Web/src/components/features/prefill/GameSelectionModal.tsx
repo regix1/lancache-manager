@@ -295,20 +295,10 @@ export function GameSelectionModal({
               {/* Selected games section - sticky at top */}
               {sortedGames.some(g => localSelected.has(g.appId)) && (
                 <div
-                  className="flex-shrink-0"
-                  style={{
-                    maxHeight: '40%',
-                    display: 'flex',
-                    flexDirection: 'column'
-                  }}
+                  className="flex-shrink-0 max-h-[40%] flex flex-col"
                 >
                   <div
-                    className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0"
-                    style={{
-                      backgroundColor: 'color-mix(in srgb, var(--theme-primary) 15%, var(--theme-bg-tertiary))',
-                      color: 'var(--theme-primary)',
-                      borderBottom: '1px solid var(--theme-border-secondary)'
-                    }}
+                    className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0 bg-[color-mix(in_srgb,var(--theme-primary)_15%,var(--theme-bg-tertiary))] text-[var(--theme-primary)] border-b border-[var(--theme-border-secondary)]"
                   >
                     Selected ({localSelected.size})
                   </div>
@@ -318,17 +308,7 @@ export function GameSelectionModal({
                         <button
                           key={game.appId}
                           onClick={() => toggleGame(game.appId)}
-                          className="w-full flex items-center gap-3 px-4 py-3 text-left smooth-transition"
-                          style={{
-                            backgroundColor: 'color-mix(in srgb, var(--theme-primary) 10%, transparent)',
-                            borderBottom: '1px solid var(--theme-border-secondary)'
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.backgroundColor = 'color-mix(in srgb, var(--theme-primary) 15%, transparent)';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.backgroundColor = 'color-mix(in srgb, var(--theme-primary) 10%, transparent)';
-                          }}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-left smooth-transition bg-[color-mix(in_srgb,var(--theme-primary)_10%,transparent)] border-b border-[var(--theme-border-secondary)] hover:bg-[color-mix(in_srgb,var(--theme-primary)_15%,transparent)]"
                         >
                           <div className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center bg-[var(--theme-primary)] border-2 border-[var(--theme-primary)]">
                             <Check className="h-3 w-3 text-white" />
@@ -360,17 +340,7 @@ export function GameSelectionModal({
                         <button
                           key={game.appId}
                           onClick={() => toggleGame(game.appId)}
-                          className="w-full flex items-center gap-3 px-4 py-3 text-left smooth-transition"
-                          style={{
-                            backgroundColor: 'transparent',
-                            borderBottom: '1px solid var(--theme-border-secondary)'
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.backgroundColor = 'transparent';
-                          }}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-left smooth-transition bg-transparent border-b border-[var(--theme-border-secondary)] hover:bg-[var(--theme-bg-hover)]"
                         >
                           <div className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center bg-transparent border-2 border-[var(--theme-border-primary)]" />
                           <div className="flex-1 min-w-0">

@@ -61,12 +61,7 @@ export const Pagination: React.FC<PaginationProps> = ({
           <button
             onClick={() => onPageChange(Math.max(1, currentPage - 1))}
             disabled={currentPage === 1}
-            className="p-1.5 rounded-md transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{
-              backgroundColor: 'var(--theme-bg-tertiary)',
-              color: 'var(--theme-text-primary)',
-              border: '1px solid var(--theme-border-secondary)'
-            }}
+            className="p-1.5 rounded-md transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] border border-[var(--theme-border-secondary)]"
             title="Previous page"
           >
             <ChevronLeft size={14} />
@@ -79,12 +74,7 @@ export const Pagination: React.FC<PaginationProps> = ({
           <button
             onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
             disabled={currentPage === totalPages}
-            className="p-1.5 rounded-md transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{
-              backgroundColor: 'var(--theme-bg-tertiary)',
-              color: 'var(--theme-text-primary)',
-              border: '1px solid var(--theme-border-secondary)'
-            }}
+            className="p-1.5 rounded-md transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] border border-[var(--theme-border-secondary)]"
             title="Next page"
           >
             <ChevronRight size={14} />
@@ -99,19 +89,14 @@ export const Pagination: React.FC<PaginationProps> = ({
 
     return (
       <div
-        className={`relative mt-4 z-20 ${className}`}
+        className={`relative mt-4 z-20 pt-3 bg-[var(--theme-card-bg)] border-t border-[var(--theme-border-primary)] rounded-b-xl ${className}`}
         style={{
           marginLeft: `-${offset}`,
           marginRight: `-${offset}`,
           marginBottom: `-${offset}`,
           paddingLeft: offset,
           paddingRight: offset,
-          paddingTop: '0.75rem',
-          paddingBottom: offset,
-          backgroundColor: 'var(--theme-card-bg)',
-          borderTop: '1px solid var(--theme-border-primary)',
-          borderBottomLeftRadius: 'var(--theme-border-radius-lg, 0.75rem)',
-          borderBottomRightRadius: 'var(--theme-border-radius-lg, 0.75rem)'
+          paddingBottom: offset
         }}
       >
         {compactContent}
@@ -137,12 +122,7 @@ export const Pagination: React.FC<PaginationProps> = ({
         <button
           onClick={() => onPageChange(1)}
           disabled={currentPage === 1}
-          className="p-2 rounded-lg transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
-          style={{
-            backgroundColor: 'var(--theme-bg-secondary)',
-            color: 'var(--theme-text-primary)',
-            border: '1px solid var(--theme-border-primary)'
-          }}
+          className="p-2 rounded-lg transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 bg-[var(--theme-bg-secondary)] text-[var(--theme-text-primary)] border border-[var(--theme-border-primary)]"
           title="First page"
           aria-label="Go to first page"
         >
@@ -153,12 +133,7 @@ export const Pagination: React.FC<PaginationProps> = ({
         <button
           onClick={() => onPageChange(Math.max(1, currentPage - 1))}
           disabled={currentPage === 1}
-          className="p-2 rounded-lg transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
-          style={{
-            backgroundColor: 'var(--theme-bg-secondary)',
-            color: 'var(--theme-text-primary)',
-            border: '1px solid var(--theme-border-primary)'
-          }}
+          className="p-2 rounded-lg transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 bg-[var(--theme-bg-secondary)] text-[var(--theme-text-primary)] border border-[var(--theme-border-primary)]"
           title="Previous page"
           aria-label="Go to previous page"
         >
@@ -294,12 +269,7 @@ export const Pagination: React.FC<PaginationProps> = ({
         <button
           onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
           disabled={currentPage === totalPages}
-          className="p-2 rounded-lg transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
-          style={{
-            backgroundColor: 'var(--theme-bg-secondary)',
-            color: 'var(--theme-text-primary)',
-            border: '1px solid var(--theme-border-primary)'
-          }}
+          className="p-2 rounded-lg transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 bg-[var(--theme-bg-secondary)] text-[var(--theme-text-primary)] border border-[var(--theme-border-primary)]"
           title="Next page"
           aria-label="Go to next page"
         >
@@ -310,12 +280,7 @@ export const Pagination: React.FC<PaginationProps> = ({
         <button
           onClick={() => onPageChange(totalPages)}
           disabled={currentPage === totalPages}
-          className="p-2 rounded-lg transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
-          style={{
-            backgroundColor: 'var(--theme-bg-secondary)',
-            color: 'var(--theme-text-primary)',
-            border: '1px solid var(--theme-border-primary)'
-          }}
+          className="p-2 rounded-lg transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 bg-[var(--theme-bg-secondary)] text-[var(--theme-text-primary)] border border-[var(--theme-border-primary)]"
           title="Last page"
           aria-label="Go to last page"
         >
@@ -348,7 +313,7 @@ export const Pagination: React.FC<PaginationProps> = ({
 
   return (
     <div
-      className={`relative mt-4 z-20 ${className}`}
+      className={`relative mt-4 z-20 pt-4 bg-[var(--theme-card-bg)] border-t border-[var(--theme-border-primary)] rounded-b-xl ${className}`}
       style={{
         // Use negative margins to extend beyond parent padding and cover rounded corners
         marginLeft: `-${offset}`,
@@ -356,12 +321,7 @@ export const Pagination: React.FC<PaginationProps> = ({
         marginBottom: `-${offset}`,
         paddingLeft: offset,
         paddingRight: offset,
-        paddingTop: '1rem',
-        paddingBottom: offset,
-        backgroundColor: 'var(--theme-card-bg)',
-        borderTop: '1px solid var(--theme-border-primary)',
-        borderBottomLeftRadius: 'var(--theme-border-radius-lg, 0.75rem)',
-        borderBottomRightRadius: 'var(--theme-border-radius-lg, 0.75rem)'
+        paddingBottom: offset
       }}
     >
       {content}

@@ -79,7 +79,7 @@ const OptionItem = memo<OptionItemProps>(({ option, isSelected, isDisabled, isLa
           {option.label}
         </div>
         {option.description && (
-          <div className="text-xs leading-relaxed mt-1 text-themed-muted" style={{ lineHeight: '1.4' }}>
+          <div className="text-xs leading-[1.4] mt-1 text-themed-muted">
             {option.description}
           </div>
         )}

@@ -469,10 +469,8 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       />
 
       {/* Main Card */}
-      <div
-        className="relative z-10 w-full max-w-4xl rounded-xl border overflow-hidden flex flex-col bg-themed-secondary border-themed-primary"
-        style={{ maxHeight: 'min(calc(100vh - 2rem), 800px)' }}
-      >
+      <div className="relative z-10 w-full max-w-4xl rounded-xl border overflow-hidden flex flex-col bg-themed-secondary border-themed-primary max-h-[min(calc(100vh-2rem),800px)]">
+
         {/* Header */}
         <div className="px-8 py-5 border-b flex items-center justify-between border-themed-secondary">
           <div className="flex items-center gap-3">

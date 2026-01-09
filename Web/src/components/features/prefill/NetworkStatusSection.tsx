@@ -121,14 +121,13 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
                 </span>
                 {result.success ? (
                   <span
-                    className="text-xs ml-auto font-mono"
-                    style={{
-                      color: result.isPrivateIp
-                        ? 'var(--theme-success)'
+                    className={`text-xs ml-auto font-mono ${
+                      result.isPrivateIp
+                        ? 'text-[var(--theme-success)]'
                         : diagnostics.useHostNetworking
-                          ? 'var(--theme-info)'
-                          : 'var(--theme-warning)'
-                    }}
+                          ? 'text-[var(--theme-info)]'
+                          : 'text-[var(--theme-warning)]'
+                    }`}
                   >
                     {result.resolvedIp}
                   </span>
@@ -142,15 +141,11 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
               {/* DNS Info/Warning for public IP - different message based on host networking */}
               {result.success && !result.isPrivateIp && (
                 <div
-                  className="ml-6 text-xs p-2 rounded"
-                  style={{
-                    backgroundColor: diagnostics.useHostNetworking
-                      ? 'var(--theme-info-bg)'
-                      : 'var(--theme-warning-bg)',
-                    color: diagnostics.useHostNetworking
-                      ? 'var(--theme-info-text)'
-                      : 'var(--theme-warning-text)'
-                  }}
+                  className={`ml-6 text-xs p-2 rounded ${
+                    diagnostics.useHostNetworking
+                      ? 'bg-[var(--theme-info-bg)] text-[var(--theme-info-text)]'
+                      : 'bg-[var(--theme-warning-bg)] text-[var(--theme-warning-text)]'
+                  }`}
                 >
                   {diagnostics.useHostNetworking ? (
                     <>

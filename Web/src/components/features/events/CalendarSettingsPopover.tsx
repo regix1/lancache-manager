@@ -185,13 +185,7 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
           }}
         >
           {/* Header */}
-          <div
-            className="px-4 py-3 flex items-center justify-between"
-            style={{
-              backgroundColor: 'var(--theme-bg-tertiary)',
-              borderBottom: '1px solid var(--theme-border-secondary)'
-            }}
-          >
+          <div className="px-4 py-3 flex items-center justify-between bg-[var(--theme-bg-tertiary)] border-b border-[var(--theme-border-secondary)]">
             <div className="flex items-center gap-2">
               <Settings className="w-4 h-4 text-[var(--theme-primary)]" />
               <span className="text-sm font-semibold text-[var(--theme-text-primary)]">

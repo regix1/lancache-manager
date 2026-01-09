@@ -120,21 +120,6 @@ const GroupCard: React.FC<GroupCardProps> = ({
     (isSteam || isWsus || isRiot || isEpic || isEA || isBlizzard || isXbox || isOtherService);
   const hasSteamArtwork = showGameImage && steamAppId !== null && !imageErrors.has(steamAppId);
   const placeholderBaseClasses = 'min-h-[130px] sm:min-h-[130px]';
-  const placeholderIconColor = isSteam
-    ? 'var(--theme-steam)'
-    : isWsus
-      ? 'var(--theme-wsus)'
-      : isRiot
-        ? 'var(--theme-riot)'
-        : isEpic
-          ? 'var(--theme-epic)'
-          : isEA
-            ? 'var(--theme-origin)'
-            : isBlizzard
-              ? 'var(--theme-blizzard)'
-              : isXbox
-                ? 'var(--theme-xbox)'
-                : 'var(--theme-text-secondary)';
   const placeholderIconSize = fullHeightBanners ? 80 : 72;
   const bannerWrapperClasses = fullHeightBanners
     ? 'w-full h-[130px] sm:w-[280px] sm:h-[130px]'
@@ -196,39 +181,39 @@ const GroupCard: React.FC<GroupCardProps> = ({
           {isSteam ? (
             <SteamIcon
               size={placeholderIconSize}
-              style={{ color: placeholderIconColor, opacity: 0.75 }}
+              className="opacity-75 text-[var(--theme-steam)]"
             />
           ) : isWsus ? (
             <WsusIcon
               size={placeholderIconSize}
-              style={{ color: placeholderIconColor, opacity: 0.75 }}
+              className="opacity-75 text-[var(--theme-wsus)]"
             />
           ) : isRiot ? (
             <RiotIcon
               size={placeholderIconSize}
-              style={{ color: placeholderIconColor, opacity: 0.75 }}
+              className="opacity-75 text-[var(--theme-riot)]"
             />
           ) : isEpic ? (
             <EpicIcon size={placeholderIconSize} className="opacity-75" />
           ) : isEA ? (
             <EAIcon
               size={placeholderIconSize}
-              style={{ color: placeholderIconColor, opacity: 0.75 }}
+              className="opacity-75 text-[var(--theme-origin)]"
             />
           ) : isBlizzard ? (
             <BlizzardIcon
               size={placeholderIconSize}
-              style={{ color: placeholderIconColor, opacity: 0.75 }}
+              className="opacity-75 text-[var(--theme-blizzard)]"
             />
           ) : isXbox ? (
             <XboxIcon
               size={placeholderIconSize}
-              style={{ color: placeholderIconColor, opacity: 0.75 }}
+              className="opacity-75 text-[var(--theme-xbox)]"
             />
           ) : (
             <UnknownServiceIcon
               size={placeholderIconSize + 12}
-              style={{ color: placeholderIconColor, opacity: 0.75 }}
+              className="opacity-75 text-[var(--theme-text-secondary)]"
             />
           )}
         </div>
@@ -383,11 +368,8 @@ const GroupCard: React.FC<GroupCardProps> = ({
     <div
       ref={cardRef}
       className={`rounded-lg border overflow-hidden shadow-sm transition-all duration-300 ${
-        isExpanded ? 'ring-2' : 'hover:shadow-md'
+        isExpanded ? 'ring-2 border-[var(--theme-primary)]' : 'hover:shadow-md border-[var(--theme-border-primary)]'
       }`}
-      style={{
-        borderColor: isExpanded ? 'var(--theme-primary)' : 'var(--theme-border-primary)'
-      }}
     >
       {fullHeightBanners ? (
         <div
@@ -407,11 +389,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
 
       {isExpanded && (
         <div
-          className="border-t bg-gradient-to-b from-[var(--theme-bg-secondary)] to-[var(--theme-bg-primary)] px-4 pb-4 pt-4 sm:px-6 sm:pb-6 sm:pt-5"
-          style={{
-            borderColor: 'var(--theme-primary)',
-            animation: 'expandDown 0.4s cubic-bezier(0.4, 0, 0.2, 1)'
-          }}
+          className="border-t border-[var(--theme-primary)] bg-gradient-to-b from-[var(--theme-bg-secondary)] to-[var(--theme-bg-primary)] px-4 pb-4 pt-4 sm:px-6 sm:pb-6 sm:pt-5 animate-[expandDown_0.4s_cubic-bezier(0.4,0,0.2,1)]"
           onClick={(event) => event.stopPropagation()}
         >
           <div className="flex flex-col gap-4 sm:gap-6">

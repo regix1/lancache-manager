@@ -90,11 +90,7 @@ const GameCard: React.FC<GameCardProps> = ({
                 {game.datasources.map((ds) => (
                   <span
                     key={ds}
-                    className="px-1.5 py-0.5 rounded text-[10px] font-medium capitalize"
-                    style={{
-                      backgroundColor: 'var(--theme-accent-muted)',
-                      color: 'var(--theme-accent)'
-                    }}
+                    className="px-1.5 py-0.5 rounded text-[10px] font-medium capitalize bg-themed-accent-subtle text-themed-accent"
                   >
                     {ds}
                   </span>
@@ -145,12 +141,7 @@ const GameCard: React.FC<GameCardProps> = ({
                 {game.depot_ids.map((depotId) => (
                   <span
                     key={depotId}
-                    className="text-xs px-2 py-0.5 rounded border"
-                    style={{
-                      backgroundColor: 'var(--theme-bg-elevated)',
-                      borderColor: 'var(--theme-border-primary)',
-                      color: 'var(--theme-text-secondary)'
-                    }}
+                    className="text-xs px-2 py-0.5 rounded border bg-themed-elevated border-themed-primary text-themed-secondary"
                   >
                     {depotId}
                   </span>
@@ -182,11 +173,7 @@ const GameCard: React.FC<GameCardProps> = ({
                   (url, idx) => (
                     <div
                       key={idx}
-                      className="p-2 rounded border"
-                      style={{
-                        backgroundColor: 'var(--theme-bg-secondary)',
-                        borderColor: 'var(--theme-border-primary)'
-                      }}
+                      className="p-2 rounded border bg-themed-secondary border-themed-primary"
                     >
                       <Tooltip content={url}>
                         <span className="text-xs font-mono text-themed-primary truncate block">
@@ -232,11 +219,7 @@ const GameCard: React.FC<GameCardProps> = ({
                 ).map((path, idx) => (
                   <div
                     key={idx}
-                    className="p-2 rounded border"
-                    style={{
-                      backgroundColor: 'var(--theme-bg-secondary)',
-                      borderColor: 'var(--theme-border-primary)'
-                    }}
+                    className="p-2 rounded border bg-themed-secondary border-themed-primary"
                   >
                     <Tooltip content={path}>
                       <span className="text-xs font-mono text-themed-primary truncate block">

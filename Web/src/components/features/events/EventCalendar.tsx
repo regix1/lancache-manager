@@ -416,16 +416,9 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
               {/* Week number cell */}
               {settings.showWeekNumbers && (
                 <div
-                  className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} rounded-lg flex items-start justify-center pt-2`}
-                  style={{ backgroundColor: 'color-mix(in srgb, var(--theme-bg-tertiary) 50%, transparent)' }}
+                  className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} rounded-lg flex items-start justify-center pt-2 bg-[color-mix(in_srgb,var(--theme-bg-tertiary)_50%,transparent)]`}
                 >
-                  <span
-                    className="text-xs font-semibold px-1.5 py-0.5 rounded"
-                    style={{
-                      color: 'var(--theme-text-muted)',
-                      backgroundColor: 'var(--theme-bg-tertiary)'
-                    }}
-                  >
+                  <span className="text-xs font-semibold px-1.5 py-0.5 rounded text-[var(--theme-text-muted)] bg-[var(--theme-bg-tertiary)]">
                     {weekNumber}
                   </span>
                 </div>
@@ -453,13 +446,9 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                     return (
                       <div
                         key={`adjacent-${week.weekIndex}-${colIndex}`}
-                        className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} p-1.5 sm:p-2 rounded-lg`}
-                        style={{ backgroundColor: 'color-mix(in srgb, var(--theme-bg-tertiary) 30%, transparent)' }}
+                        className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} p-1.5 sm:p-2 rounded-lg bg-[color-mix(in_srgb,var(--theme-bg-tertiary)_30%,transparent)]`}
                       >
-                        <span
-                          className="text-sm font-medium w-6 h-6 flex items-center justify-center rounded-full"
-                          style={{ color: 'var(--theme-text-muted)', opacity: 0.5 }}
-                        >
+                        <span className="text-sm font-medium w-6 h-6 flex items-center justify-center rounded-full text-[var(--theme-text-muted)] opacity-50">
                           {adjacentDay}
                         </span>
                       </div>
@@ -469,8 +458,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                   return (
                     <div
                       key={`empty-${week.weekIndex}-${colIndex}`}
-                      className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} rounded-lg`}
-                      style={{ backgroundColor: 'color-mix(in srgb, var(--theme-bg-tertiary) 30%, transparent)' }}
+                      className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} rounded-lg bg-[color-mix(in_srgb,var(--theme-bg-tertiary)_30%,transparent)]`}
                     />
                   );
                 }
@@ -771,45 +759,18 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                   }}
                 >
                   {/* Header */}
-                  <div
-                    className="flex items-center justify-between px-3 py-2.5"
-                    style={{
-                      borderBottom: '1px solid var(--theme-border-secondary)',
-                      backgroundColor: 'var(--theme-bg-tertiary)',
-                    }}
-                  >
+                  <div className="flex items-center justify-between px-3 py-2.5 border-b border-[var(--theme-border-secondary)] bg-[var(--theme-bg-tertiary)]">
                     <div className="flex items-center gap-2">
-                      <div
-                        className="w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold"
-                        style={{
-                          backgroundColor: 'var(--theme-primary)',
-                          color: 'var(--theme-primary-text)'
-                        }}
-                      >
+                      <div className="w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold bg-[var(--theme-primary)] text-[var(--theme-primary-text)]">
                         {expandedDay.day}
                       </div>
-                      <span
-                        className="text-sm font-medium"
-                        style={{ color: 'var(--theme-text-primary)' }}
-                      >
+                      <span className="text-sm font-medium text-[var(--theme-text-primary)]">
                         {monthNames[currentMonth.getMonth()]}
                       </span>
                     </div>
                     <button
                       onClick={() => setExpandedDay(null)}
-                      className="w-6 h-6 flex items-center justify-center rounded-md transition-all"
-                      style={{
-                        color: 'var(--theme-text-muted)',
-                        backgroundColor: 'transparent'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
-                        e.currentTarget.style.color = 'var(--theme-text-primary)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = 'transparent';
-                        e.currentTarget.style.color = 'var(--theme-text-muted)';
-                      }}
+                      className="w-6 h-6 flex items-center justify-center rounded-md transition-all text-[var(--theme-text-muted)] bg-transparent hover:bg-[var(--theme-bg-hover)] hover:text-[var(--theme-text-primary)]"
                     >
                       <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                         <path d="M2 2l8 8M10 2l-8 8" />
@@ -818,13 +779,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                   </div>
 
                   {/* Events count */}
-                  <div
-                    className="px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider"
-                    style={{
-                      color: 'var(--theme-text-muted)',
-                      borderBottom: '1px solid var(--theme-border-secondary)'
-                    }}
-                  >
+                  <div className="px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-[var(--theme-text-muted)] border-b border-[var(--theme-border-secondary)]">
                     {dayEvents.length} Event{dayEvents.length !== 1 ? 's' : ''}
                   </div>
 
@@ -884,10 +839,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
 
       {/* Empty month message */}
       {!hasEventsThisMonth && (
-        <div
-          className="mt-6 py-6 text-center rounded-lg border border-dashed border-[var(--theme-border-secondary)]"
-          style={{ backgroundColor: 'color-mix(in srgb, var(--theme-bg-tertiary) 50%, transparent)' }}
-        >
+        <div className="mt-6 py-6 text-center rounded-lg border border-dashed border-[var(--theme-border-secondary)] bg-[color-mix(in_srgb,var(--theme-bg-tertiary)_50%,transparent)]">
           <p className="text-sm font-medium mb-1 text-[var(--theme-text-secondary)]">
             No events in {monthNames[currentMonth.getMonth()]}
           </p>

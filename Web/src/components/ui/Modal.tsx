@@ -90,20 +90,17 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
 
   const modalContent = (
     <div
-      className={`modal-backdrop fixed inset-0 overflow-y-auto py-8 transition-all duration-250 ease-out`}
-      style={{
-        zIndex,
-        backgroundColor: isAnimating ? 'rgba(0, 0, 0, 0.5)' : 'transparent',
-        pointerEvents: isAnimating ? 'auto' : 'none'
-      }}
+      className={`modal-backdrop fixed inset-0 overflow-y-auto py-8 transition-all duration-250 ease-out ${
+        isAnimating ? 'bg-black/50 pointer-events-auto' : 'bg-transparent pointer-events-none'
+      }`}
+      style={{ zIndex }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div className="min-h-full flex items-center justify-center">
         <div
           className={`themed-card border rounded-lg ${sizes[size]} w-full mx-4 transform transition-all duration-250 ease-out ${
-            isAnimating ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-90 translate-y-8'
+            isAnimating ? 'opacity-100 scale-100 translate-y-0 delay-[50ms]' : 'opacity-0 scale-90 translate-y-8 delay-0'
           }`}
-          style={{ transitionDelay: isAnimating ? '0.05s' : '0s' }}
         >
           {title && (
             <div className="flex items-center justify-between p-6 border-b border-themed-secondary">

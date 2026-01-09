@@ -166,12 +166,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                 size="xs"
                 variant="filled"
                 onClick={clearAutoLogoutMessage}
-                style={{
-                  backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                  color: 'var(--theme-button-text)',
-                  border: 'none'
-                }}
-                className="hover:!bg-white/30"
+                className="bg-white/20 text-themed-button border-none hover:!bg-white/30"
               >
                 Dismiss
               </Button>
@@ -181,20 +176,14 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
 
         {/* V2 API Required Info Banner */}
         {steamAuthDisabled && !webApiLoading && (
-          <div
-            className="mb-4 p-3 rounded-lg border"
-            style={{
-              backgroundColor: 'var(--theme-info-bg)',
-              borderColor: 'var(--theme-info)'
-            }}
-          >
+          <div className="mb-4 p-3 rounded-lg border bg-themed-info border-info">
             <div className="flex items-start gap-3">
-              <Info className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-info)' }} />
+              <Info className="w-5 h-5 flex-shrink-0 mt-0.5 icon-info" />
               <div className="flex-1">
-                <p className="font-medium text-sm mb-1" style={{ color: 'var(--theme-info-text)' }}>
+                <p className="font-medium text-sm mb-1 text-themed-info">
                   Steam Account Login Unavailable
                 </p>
-                <p className="text-xs" style={{ color: 'var(--theme-info-text)', opacity: 0.9 }}>
+                <p className="text-xs text-themed-info opacity-90">
                   Steam account login requires V2 API which is currently unavailable.
                   {hasV1ApiKey
                     ? ' Your V1 API key already provides access to playtest/restricted games since it\'s tied to your Steam account.'
@@ -231,13 +220,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                 />
               </div>
             ) : (
-              <div
-                className="w-full sm:w-auto sm:min-w-[180px] px-3 py-2 rounded-lg text-center"
-                style={{
-                  backgroundColor: 'var(--theme-bg-secondary)',
-                  border: '1px solid var(--theme-border-primary)'
-                }}
-              >
+              <div className="w-full sm:w-auto sm:min-w-[180px] px-3 py-2 rounded-lg text-center bg-themed-secondary border border-themed-primary">
                 <p className="text-sm text-themed-muted">
                   {steamAuthMode === 'authenticated' ? 'Account Login' : 'Anonymous'}
                 </p>
@@ -265,11 +248,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                 disabled={loading || mockMode || steamAuthDisabled}
                 className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${
                   loading || mockMode || steamAuthDisabled ? 'opacity-50 cursor-not-allowed' : ''
-                }`}
-                style={{
-                  backgroundColor: autoStartPics ? 'var(--theme-primary)' : 'transparent',
-                  color: autoStartPics ? 'var(--theme-button-text)' : 'var(--theme-text-secondary)'
-                }}
+                } ${autoStartPics ? 'toggle-btn-active' : 'toggle-btn-inactive'}`}
               >
                 Automatic
               </button>
@@ -278,11 +257,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                 disabled={loading || mockMode || steamAuthDisabled}
                 className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${
                   loading || mockMode || steamAuthDisabled ? 'opacity-50 cursor-not-allowed' : ''
-                }`}
-                style={{
-                  backgroundColor: !autoStartPics ? 'var(--theme-primary)' : 'transparent',
-                  color: !autoStartPics ? 'var(--theme-button-text)' : 'var(--theme-text-secondary)'
-                }}
+                } ${!autoStartPics ? 'toggle-btn-active' : 'toggle-btn-inactive'}`}
               >
                 Manual
               </button>

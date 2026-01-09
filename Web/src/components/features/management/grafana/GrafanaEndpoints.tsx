@@ -197,13 +197,7 @@ const GrafanaEndpoints: React.FC = () => {
             {copiedEndpoint === 'prometheus' ? 'Copied!' : 'Copy'}
           </Button>
         </div>
-        <code
-          className="text-xs block break-all px-3 py-2 rounded-md mb-2 font-mono"
-          style={{
-            backgroundColor: 'var(--theme-bg-secondary)',
-            color: 'var(--theme-text-secondary)'
-          }}
-        >
+        <code className="text-xs block break-all px-3 py-2 rounded-md mb-2 font-mono bg-themed-secondary text-themed-secondary">
           {apiBaseUrl}/metrics
         </code>
         <p className="text-xs text-themed-muted">
@@ -277,28 +271,28 @@ const GrafanaEndpoints: React.FC = () => {
               <div className="ml-4">metrics_path: '/metrics'</div>
               {metricsSecured && (
                 <>
-                  <div className="ml-4" style={{ color: 'var(--theme-success-text)' }}>authorization:</div>
-                  <div className="ml-6" style={{ color: 'var(--theme-success-text)' }}>type: Bearer</div>
-                  <div className="ml-6" style={{ color: 'var(--theme-success-text)' }}>credentials: 'your-api-key-here'</div>
+                  <div className="ml-4 text-themed-success">authorization:</div>
+                  <div className="ml-6 text-themed-success">type: Bearer</div>
+                  <div className="ml-6 text-themed-success">credentials: 'your-api-key-here'</div>
                 </>
               )}
             </div>
           </div>
           {metricsSecured && (
             <p className="text-xs text-themed-muted flex items-center gap-1.5">
-              <Lightbulb className="w-3 h-3" style={{ color: 'var(--theme-warning)' }} />
+              <Lightbulb className="w-3 h-3 icon-warning" />
               Replace 'your-api-key-here' with the API key from your lancache-manager instance
             </p>
           )}
           <p className="text-xs text-themed-muted flex items-center gap-1.5">
-            <Lightbulb className="w-3 h-3" style={{ color: 'var(--theme-info)' }} />
+            <Lightbulb className="w-3 h-3 icon-info" />
             Port 80 is the internal container port. External access uses your mapped port (e.g., 8080:80)
           </p>
         </div>
 
         {parseInt(scrapeInterval) < parseInt(dataRefreshRate) && (
-          <p className="text-xs mt-3 flex items-center gap-1.5" style={{ color: 'var(--theme-warning-text)' }}>
-            <Lightbulb className="w-3 h-3" style={{ color: 'var(--theme-warning)' }} />
+          <p className="text-xs mt-3 flex items-center gap-1.5 text-themed-warning">
+            <Lightbulb className="w-3 h-3 icon-warning" />
             Scrape interval is faster than data refresh - you may see stale data
           </p>
         )}

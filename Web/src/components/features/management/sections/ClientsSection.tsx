@@ -167,10 +167,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
       {/* Client Nicknames */}
       <div className="mb-8">
         <div className="flex items-center gap-2 mb-4">
-          <div
-            className="w-1 h-5 rounded-full"
-            style={{ backgroundColor: 'var(--theme-primary)' }}
-          />
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-primary)]" />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
             Nicknames ({clientGroups.length})
           </h3>
@@ -214,11 +211,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                           {isMultiIp && (
                             <Tooltip content="This nickname is shared by multiple IPs">
                               <span
-                                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs"
-                                style={{
-                                  backgroundColor: 'color-mix(in srgb, var(--theme-icon-orange) 15%, transparent)',
-                                  color: 'var(--theme-icon-orange)'
-                                }}
+                              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs icon-bg-orange icon-orange"
                               >
                                 <AlertTriangle className="w-3 h-3" />
                                 {group.memberIps.length} IPs
@@ -298,10 +291,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
       {(loadingClients || ungroupedClients.length > 0) && (
         <div>
           <div className="flex items-center gap-2 mb-4">
-            <div
-              className="w-1 h-5 rounded-full"
-              style={{ backgroundColor: 'var(--theme-icon-orange)' }}
-            />
+            <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-orange)]" />
             <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
               Without Nicknames {!loadingClients && `(${ungroupedClients.length})`}
             </h3>

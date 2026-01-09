@@ -121,14 +121,14 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
     }
 
     if (status?.isFullyOperational) {
-      return <CheckCircle className="w-5 h-5" style={{ color: 'var(--theme-success)' }} />;
+      return <CheckCircle className="w-5 h-5 icon-success" />;
     }
 
     if (needsApiKey) {
-      return <AlertCircle className="w-5 h-5" style={{ color: 'var(--theme-warning)' }} />;
+      return <AlertCircle className="w-5 h-5 icon-warning" />;
     }
 
-    return <AlertCircle className="w-5 h-5" style={{ color: 'var(--theme-error)' }} />;
+    return <AlertCircle className="w-5 h-5 icon-error" />;
   };
 
   const getStatusColor = () => {
@@ -141,27 +141,13 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
   const getVersionBadge = (version: string, available: boolean) => {
     return (
       <span
-        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border ${
-          available
-            ? 'border-transparent'
-            : 'border-transparent'
+        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border border-transparent ${
+          available ? 'bg-themed-success text-themed-success' : 'bg-themed-tertiary text-themed-muted'
         }`}
-        style={{
-          backgroundColor: available
-            ? 'var(--theme-success-bg)'
-            : 'var(--theme-bg-tertiary)',
-          color: available
-            ? 'var(--theme-success-text)'
-            : 'var(--theme-text-muted)'
-        }}
       >
         <span
-          className={`w-1.5 h-1.5 rounded-full ${available ? '' : ''}`}
-          style={{
-            backgroundColor: available
-              ? 'var(--theme-success)'
-              : 'var(--theme-text-muted)'
-          }}
+          className="w-1.5 h-1.5 rounded-full"
+          style={{ backgroundColor: available ? 'var(--theme-success)' : 'var(--theme-text-muted)' }}
         />
         {version}
       </span>
@@ -257,23 +243,14 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
 
         {/* Warning Banner - Only show for critical errors (both APIs down with key configured) */}
         {showWarning && status?.version === 'BothFailed' && status?.hasApiKey && (
-          <div
-            className="mb-4 p-3 rounded-lg border"
-            style={{
-              backgroundColor: 'var(--theme-error-bg)',
-              borderColor: 'var(--theme-error)'
-            }}
-          >
+          <div className="mb-4 p-3 rounded-lg border bg-themed-error border-error">
             <div className="flex items-start gap-3">
-              <AlertCircle
-                className="w-5 h-5 flex-shrink-0 mt-0.5"
-                style={{ color: 'var(--theme-error)' }}
-              />
+              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5 icon-error" />
               <div className="flex-1">
-                <p className="font-medium text-sm mb-1" style={{ color: 'var(--theme-error-text)' }}>
+                <p className="font-medium text-sm mb-1 text-themed-error">
                   Both V2 and V1 Unavailable
                 </p>
-                <p className="text-xs" style={{ color: 'var(--theme-error-text)', opacity: 0.9 }}>
+                <p className="text-xs text-themed-error opacity-90">
                   Both Steam Web API V2 and V1 are currently unavailable. This may be a temporary
                   Steam service issue. Please try again later.
                 </p>

@@ -75,26 +75,20 @@ const UnifiedNotificationItem = ({
       switch (notification.details.notificationType) {
         case 'success':
           return (
-            <CheckCircle
-              className="w-4 h-4 flex-shrink-0"
-              style={{ color: 'var(--theme-success)' }}
-            />
+            <CheckCircle className="w-4 h-4 flex-shrink-0 text-[var(--theme-success)]" />
           );
         case 'error':
           return (
-            <XCircle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-error)' }} />
+            <XCircle className="w-4 h-4 flex-shrink-0 text-[var(--theme-error)]" />
           );
         case 'warning':
           return (
-            <AlertCircle
-              className="w-4 h-4 flex-shrink-0"
-              style={{ color: 'var(--theme-warning)' }}
-            />
+            <AlertCircle className="w-4 h-4 flex-shrink-0 text-[var(--theme-warning)]" />
           );
         case 'info':
-          return <Info className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-info)' }} />;
+          return <Info className="w-4 h-4 flex-shrink-0 text-[var(--theme-info)]" />;
         default:
-          return <Info className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-info)' }} />;
+          return <Info className="w-4 h-4 flex-shrink-0 text-[var(--theme-info)]" />;
       }
     }
     return null;

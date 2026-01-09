@@ -71,11 +71,8 @@ const Navigation: React.FC<NavigationProps> = React.memo(
         return (
           <button
             onClick={onClick}
-            className={`flex items-center space-x-2 px-3 py-2 rounded-lg font-medium transition-all duration-200 ${className}`}
-            style={{
-              color: isActive ? 'var(--theme-nav-tab-active)' : 'var(--theme-nav-tab-inactive)',
-              backgroundColor: 'transparent'
-            }}
+            className={`flex items-center space-x-2 px-3 py-2 rounded-lg font-medium transition-all duration-200 bg-transparent ${className}`}
+            style={{ color: isActive ? 'var(--theme-nav-tab-active)' : 'var(--theme-nav-tab-inactive)' }}
             onMouseEnter={(e) => {
               if (!isActive) {
                 e.currentTarget.style.color = 'var(--theme-nav-tab-hover)';
@@ -93,8 +90,7 @@ const Navigation: React.FC<NavigationProps> = React.memo(
             <span>{tab.label}</span>
             {isActive && (
               <div
-                className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full"
-                style={{ backgroundColor: 'var(--theme-nav-tab-active-border)' }}
+                className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-themed-nav-tab-active-border"
               />
             )}
           </button>
@@ -132,24 +128,11 @@ const Navigation: React.FC<NavigationProps> = React.memo(
               </div>
               <button
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="p-2 rounded-lg transition-colors flex items-center gap-1"
-                style={{
-                  color: 'var(--theme-nav-tab-inactive)',
-                  backgroundColor: 'transparent'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = 'var(--theme-nav-mobile-item-hover)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'transparent';
-                }}
+                className="p-2 rounded-lg transition-colors flex items-center gap-1 bg-transparent text-[var(--theme-nav-tab-inactive)] hover:bg-[var(--theme-nav-mobile-item-hover)]"
               >
                 <Menu className="w-5 h-5" />
                 <ChevronDown
-                  className="w-4 h-4 transition-transform duration-300 ease-out"
-                  style={{
-                    transform: mobileMenuOpen ? 'rotate(180deg)' : 'rotate(0deg)'
-                  }}
+                  className={`w-4 h-4 transition-transform duration-300 ease-out ${mobileMenuOpen ? 'rotate-180' : 'rotate-0'}`}
                 />
               </button>
             </div>

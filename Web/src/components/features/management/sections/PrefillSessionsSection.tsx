@@ -129,11 +129,7 @@ const StatusBadge: React.FC<{ status: string; isLive?: boolean }> = ({ status, i
       {isLive && (
         <Tooltip content="Session is currently active in memory">
           <span
-            className="px-1.5 py-0.5 rounded text-xs font-medium flex items-center gap-1"
-            style={{
-              backgroundColor: 'color-mix(in srgb, var(--theme-icon-green) 20%, transparent)',
-              color: 'var(--theme-icon-green)'
-            }}
+            className="px-1.5 py-0.5 rounded text-xs font-medium flex items-center gap-1 icon-bg-green icon-green"
           >
             <Play className="w-3 h-3" />
             Live
@@ -406,11 +402,8 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <Card>
           <CardContent className="py-4 flex items-center gap-4">
-            <div
-              className="w-12 h-12 rounded-lg flex items-center justify-center"
-              style={{ backgroundColor: 'color-mix(in srgb, var(--theme-icon-green) 20%, transparent)' }}
-            >
-              <Play className="w-6 h-6" style={{ color: 'var(--theme-icon-green)' }} />
+            <div className="w-12 h-12 rounded-lg flex items-center justify-center icon-bg-green">
+              <Play className="w-6 h-6 icon-green" />
             </div>
             <div>
               <div className="text-2xl font-bold text-themed-primary">{activeSessions.length}</div>
@@ -421,11 +414,8 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
 
         <Card>
           <CardContent className="py-4 flex items-center gap-4">
-            <div
-              className="w-12 h-12 rounded-lg flex items-center justify-center"
-              style={{ backgroundColor: 'color-mix(in srgb, var(--theme-primary) 20%, transparent)' }}
-            >
-              <Container className="w-6 h-6" style={{ color: 'var(--theme-primary)' }} />
+            <div className="w-12 h-12 rounded-lg flex items-center justify-center icon-bg-blue">
+              <Container className="w-6 h-6 icon-primary" />
             </div>
             <div>
               <div className="text-2xl font-bold text-themed-primary">{totalCount}</div>
@@ -436,11 +426,8 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
 
         <Card>
           <CardContent className="py-4 flex items-center gap-4">
-            <div
-              className="w-12 h-12 rounded-lg flex items-center justify-center"
-              style={{ backgroundColor: 'color-mix(in srgb, var(--theme-icon-red) 20%, transparent)' }}
-            >
-              <Ban className="w-6 h-6" style={{ color: 'var(--theme-icon-red)' }} />
+            <div className="w-12 h-12 rounded-lg flex items-center justify-center icon-bg-red">
+              <Ban className="w-6 h-6 icon-red" />
             </div>
             <div>
               <div className="text-2xl font-bold text-themed-primary">
@@ -455,10 +442,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       {/* Live Sessions */}
       <div className="mb-8">
         <div className="flex items-center gap-2 mb-4">
-          <div
-            className="w-1 h-5 rounded-full"
-            style={{ backgroundColor: 'var(--theme-icon-green)' }}
-          />
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-green)]" />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
             Live Sessions ({activeSessions.length})
           </h3>
@@ -503,8 +487,8 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                         {/* Steam username if available */}
                         {session.steamUsername && (
                           <div className="flex items-center gap-1.5 mt-1.5 text-sm">
-                            <User className="w-3.5 h-3.5" style={{ color: 'var(--theme-steam)' }} />
-                            <span className="font-medium" style={{ color: 'var(--theme-steam)' }}>
+                            <User className="w-3.5 h-3.5 service-steam" />
+                            <span className="font-medium service-steam">
                               {session.steamUsername}
                             </span>
                           </div>
@@ -513,8 +497,8 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                         {/* Prefilling status - shown prominently when active */}
                         {session.isPrefilling && (
                           <div className="flex items-center gap-2 mt-2">
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: 'var(--theme-primary)' }} />
-                            <span className="text-sm" style={{ color: 'var(--theme-primary)' }}>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin icon-primary" />
+                            <span className="text-sm icon-primary">
                               {session.currentAppName || 'Prefilling...'}
                             </span>
                             {(session.totalBytesTransferred ?? 0) > 0 && (
@@ -528,7 +512,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                         {/* Show downloaded amount when not prefilling but has data */}
                         {!session.isPrefilling && (session.totalBytesTransferred ?? 0) > 0 && (
                           <div className="flex items-center gap-1.5 mt-2 text-sm text-themed-muted">
-                            <CheckCircle className="w-3.5 h-3.5" style={{ color: 'var(--theme-icon-green)' }} />
+                            <CheckCircle className="w-3.5 h-3.5 icon-green" />
                             <span>{formatBytes(session.totalBytesTransferred!)} downloaded</span>
                           </div>
                         )}
@@ -680,7 +664,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                                         )}
                                       </div>
                                       {entry.errorMessage && (
-                                        <div className="flex items-center gap-1 mt-1 text-[10px]" style={{ color: 'var(--theme-icon-red)' }}>
+                                        <div className="flex items-center gap-1 mt-1 text-[10px] icon-red">
                                           <XCircle className="w-3 h-3" />
                                           <span className="truncate">{entry.errorMessage}</span>
                                         </div>
@@ -721,10 +705,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       <div className="mb-8">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <div
-              className="w-1 h-5 rounded-full"
-              style={{ backgroundColor: 'var(--theme-primary)' }}
-            />
+            <div className="w-1 h-5 rounded-full bg-[var(--theme-primary)]" />
             <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
               Session History ({totalCount})
             </h3>
@@ -788,18 +769,14 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                               <StatusBadge status={session.status} isLive={session.isLive} />
                               {session.isAuthenticated && (
                                 <Tooltip content="Steam authenticated">
-                                  <CheckCircle className="w-4 h-4" style={{ color: 'var(--theme-icon-green)' }} />
+                                  <CheckCircle className="w-4 h-4 icon-green" />
                                 </Tooltip>
                               )}
                               {/* Show summary badges if history is loaded */}
                               {gamesCount > 0 && (
                                 <Tooltip content={`${gamesCount} game${gamesCount !== 1 ? 's' : ''} prefilled`}>
                                   <span
-                                    className="px-1.5 py-0.5 rounded text-xs flex items-center gap-1"
-                                    style={{
-                                      backgroundColor: 'color-mix(in srgb, var(--theme-primary) 15%, transparent)',
-                                      color: 'var(--theme-primary)'
-                                    }}
+                                    className="px-1.5 py-0.5 rounded text-xs flex items-center gap-1 icon-bg-blue icon-primary"
                                   >
                                     <Gamepad2 className="w-3 h-3" />
                                     {gamesCount}
@@ -809,11 +786,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                               {totalBytesFromHistory > 0 && (
                                 <Tooltip content="Total data downloaded">
                                   <span
-                                    className="px-1.5 py-0.5 rounded text-xs"
-                                    style={{
-                                      backgroundColor: 'color-mix(in srgb, var(--theme-icon-green) 15%, transparent)',
-                                      color: 'var(--theme-icon-green)'
-                                    }}
+                                    className="px-1.5 py-0.5 rounded text-xs icon-bg-green icon-green"
                                   >
                                     {formatBytes(totalBytesFromHistory)}
                                   </span>
@@ -950,7 +923,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                                             )}
                                           </div>
                                           {entry.errorMessage && (
-                                            <div className="flex items-center gap-1 mt-1 text-[10px]" style={{ color: 'var(--theme-icon-red)' }}>
+                                            <div className="flex items-center gap-1 mt-1 text-[10px] icon-red">
                                               <XCircle className="w-3 h-3" />
                                               <span className="truncate">{entry.errorMessage}</span>
                                             </div>
@@ -1006,10 +979,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       <div>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <div
-              className="w-1 h-5 rounded-full"
-              style={{ backgroundColor: 'var(--theme-icon-red)' }}
-            />
+            <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-red)]" />
             <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
               Banned Steam Users ({bans.filter(b => b.isActive).length})
             </h3>
@@ -1067,23 +1037,11 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                             {ban.username || 'Unknown'}
                           </span>
                           {ban.isActive ? (
-                            <span
-                              className="px-2 py-0.5 rounded text-xs font-medium"
-                              style={{
-                                backgroundColor: 'var(--theme-icon-red)',
-                                color: '#fff'
-                              }}
-                            >
+                            <span className="px-2 py-0.5 rounded text-xs font-medium bg-[var(--theme-icon-red)] text-white">
                               Active
                             </span>
                           ) : (
-                            <span
-                              className="px-2 py-0.5 rounded text-xs font-medium"
-                              style={{
-                                backgroundColor: 'var(--theme-text-muted)',
-                                color: '#fff'
-                              }}
-                            >
+                            <span className="px-2 py-0.5 rounded text-xs font-medium bg-[var(--theme-text-muted)] text-white">
                               Lifted
                             </span>
                           )}

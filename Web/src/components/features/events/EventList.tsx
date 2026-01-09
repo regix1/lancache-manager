@@ -382,22 +382,13 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
   if (events.length === 0) {
     return (
       <div className="text-center py-16">
-        <div
-          className="w-16 h-16 mx-auto mb-4 rounded-2xl flex items-center justify-center"
-          style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-        >
-          <CalendarClock className="w-8 h-8" style={{ color: 'var(--theme-text-muted)' }} />
+        <div className="w-16 h-16 mx-auto mb-4 rounded-2xl flex items-center justify-center bg-[var(--theme-bg-tertiary)]">
+          <CalendarClock className="w-8 h-8 text-[var(--theme-text-muted)]" />
         </div>
-        <h3
-          className="text-lg font-semibold mb-2"
-          style={{ color: 'var(--theme-text-primary)' }}
-        >
+        <h3 className="text-lg font-semibold mb-2 text-[var(--theme-text-primary)]">
           No Events
         </h3>
-        <p
-          className="text-sm max-w-sm mx-auto"
-          style={{ color: 'var(--theme-text-secondary)' }}
-        >
+        <p className="text-sm max-w-sm mx-auto text-[var(--theme-text-secondary)]">
           Create your first event to start tracking downloads during LAN parties.
         </p>
       </div>
