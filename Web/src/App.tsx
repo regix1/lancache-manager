@@ -48,6 +48,7 @@ import EventsTab from '@components/features/events';
 import ManagementTab from '@components/features/management/ManagementTab';
 import MemoryDiagnostics from '@components/features/memory/MemoryDiagnostics';
 import { PrefillPanel } from '@components/features/prefill';
+import ActiveEventBorder from '@components/common/ActiveEventBorder';
 
 // Wrapper components to inject mockMode from context into providers
 const StatsProviderWithMockMode: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -525,6 +526,10 @@ const AppContent: React.FC = () => {
   };
 
   const renderContent = () => {
+    // Tabs that should show the active event border
+    const eventBorderTabs = ['dashboard', 'downloads', 'clients'];
+    const shouldShowEventBorder = eventBorderTabs.includes(activeTab);
+
     const TabComponent = (() => {
       switch (activeTab) {
         case 'dashboard':
@@ -549,6 +554,14 @@ const AppContent: React.FC = () => {
           return Dashboard;
       }
     })();
+
+    // Wrap content with ActiveEventBorder for applicable tabs
+    const wrapWithEventBorder = (content: React.ReactNode) => {
+      if (shouldShowEventBorder) {
+        return <ActiveEventBorder>{content}</ActiveEventBorder>;
+      }
+      return content;
+    };
 
     return (
       <>
@@ -580,7 +593,7 @@ const AppContent: React.FC = () => {
         ) : activeTab === 'authenticate' ? (
           <AuthenticateTab />
         ) : (
-          <TabComponent />
+          wrapWithEventBorder(<TabComponent />)
         )}
       </>
     );

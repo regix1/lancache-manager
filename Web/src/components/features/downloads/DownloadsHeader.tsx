@@ -435,38 +435,56 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
       <div className="header-content">
         {/* Left: Speed Display */}
         <div className="speed-section">
-          <div className={`speed-indicator ${isActive ? 'active' : ''}`}>
+          <div className={`speed-indicator ${!isHistoricalView && isActive ? 'active' : ''}`}>
             <div className="speed-ring" />
-            <TrendingUp className="speed-icon" size={28} />
+            {isHistoricalView ? (
+              <Clock className="speed-icon" size={28} />
+            ) : (
+              <TrendingUp className="speed-icon" size={28} />
+            )}
           </div>
 
           <div className="speed-content">
-            <span className="speed-label">
-              {isActive ? 'Transfer Speed' : 'Idle'}
-            </span>
-            <div className="speed-value">
-              <span className={`speed-number ${isActive ? 'active' : ''}`}>
-                {speedValue}
-              </span>
-              <span className="speed-unit">{speedUnit}</span>
-            </div>
-            <div className="stats-row">
-              {activeGamesCount > 0 && (
-                <span className="stat-chip highlight">
-                  <HardDrive />
-                  {activeGamesCount} {activeGamesCount === 1 ? 'game' : 'games'}
+            {isHistoricalView ? (
+              <>
+                <span className="speed-label">Historical View</span>
+                <div className="speed-value">
+                  <span className="speed-number">Viewing past data</span>
+                </div>
+                <div className="stats-row">
+                  <span className="stat-chip">Live stats unavailable</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <span className="speed-label">
+                  {isActive ? 'Transfer Speed' : 'Idle'}
                 </span>
-              )}
-              {activeClientsCount > 0 && (
-                <span className="stat-chip">
-                  <Users />
-                  {activeClientsCount} {activeClientsCount === 1 ? 'client' : 'clients'}
-                </span>
-              )}
-              {!isActive && (
-                <span className="stat-chip">No active downloads</span>
-              )}
-            </div>
+                <div className="speed-value">
+                  <span className={`speed-number ${isActive ? 'active' : ''}`}>
+                    {speedValue}
+                  </span>
+                  <span className="speed-unit">{speedUnit}</span>
+                </div>
+                <div className="stats-row">
+                  {activeGamesCount > 0 && (
+                    <span className="stat-chip highlight">
+                      <HardDrive />
+                      {activeGamesCount} {activeGamesCount === 1 ? 'game' : 'games'}
+                    </span>
+                  )}
+                  {activeClientsCount > 0 && (
+                    <span className="stat-chip">
+                      <Users />
+                      {activeClientsCount} {activeClientsCount === 1 ? 'client' : 'clients'}
+                    </span>
+                  )}
+                  {!isActive && (
+                    <span className="stat-chip">No active downloads</span>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
 

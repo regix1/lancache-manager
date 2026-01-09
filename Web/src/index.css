@@ -23,6 +23,7 @@
 @import './styles/features/management.css';
 @import './styles/features/user.css';
 @import './styles/features/edit-mode.css';
+@import './styles/features/events.css';
 
 @tailwind base;
 @tailwind components;

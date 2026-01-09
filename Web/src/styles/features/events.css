@@ -1,0 +1,36 @@
+/* ==============================================
+ * EVENTS - Active event border and animations
+ * ============================================== */
+
+/* Breathing animation for active event border */
+@keyframes eventBorderBreathing {
+  0%, 100% {
+    opacity: 0.6;
+    filter: brightness(1);
+  }
+  50% {
+    opacity: 1;
+    filter: brightness(1.2);
+  }
+}
+
+/* 
+ * The ActiveEventBorder component uses inline styles for critical positioning
+ * to ensure the border does NOT affect layout. These classes are kept for
+ * any additional styling needs.
+ */
+
+/* Container for the event border wrapper */
+.active-event-border-wrapper {
+  /* isolation: isolate is set inline for stacking context */
+}
+
+/* The dashed border frame - purely decorative */
+.active-event-border-frame {
+  transition: opacity 0.3s ease;
+}
+
+/* Event label badge */
+.active-event-label {
+  /* Positioned inline to ensure correct placement */
+}

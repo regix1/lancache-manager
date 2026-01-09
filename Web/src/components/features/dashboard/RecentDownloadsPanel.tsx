@@ -10,6 +10,7 @@ import { useDownloadAssociations } from '@contexts/DownloadAssociationsContext';
 import { useClientGroups } from '@contexts/ClientGroupContext';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useRefreshRate } from '@contexts/RefreshRateContext';
+import { useTimeFilter } from '@contexts/TimeFilterContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import ApiService from '@services/api.service';
 import EventBadge from '../downloads/EventBadge';
@@ -178,8 +179,19 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   const { getGroupForIp } = useClientGroups();
   const signalR = useSignalR();
   const { getRefreshInterval } = useRefreshRate();
+  const { timeRange: contextTimeRange, selectedEventIds } = useTimeFilter();
   const lastUpdateRef = useRef<number>(0);
   const pendingUpdateRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Determine if we're viewing historical data (not live)
+  const isHistoricalView = contextTimeRange === 'custom' || selectedEventIds.length > 0;
+
+  // Auto-switch to Recent view when user switches to historical view while on Active tab
+  useEffect(() => {
+    if (isHistoricalView && viewMode === 'active') {
+      setViewMode('recent');
+    }
+  }, [isHistoricalView, viewMode]);
 
   // Fetch real-time speeds (for initial load)
   const fetchSpeeds = useCallback(async () => {
@@ -983,7 +995,9 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
               {
                 value: 'active',
                 label: activeCount > 0 ? `Active (${activeCount})` : 'Active',
-                icon: <Activity size={14} />
+                icon: <Activity size={14} />,
+                disabled: isHistoricalView,
+                title: isHistoricalView ? 'Active downloads only available in Live mode' : undefined
               }
             ]}
             value={viewMode}
