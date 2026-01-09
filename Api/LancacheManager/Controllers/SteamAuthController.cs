@@ -1,10 +1,12 @@
 using System.ComponentModel.DataAnnotations;
-using LancacheManager.Application.DTOs;
-using LancacheManager.Application.Services;
+using LancacheManager.Models;
+using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using LancacheManager.Core.Services.SteamKit2;
+
 
 namespace LancacheManager.Controllers;
 

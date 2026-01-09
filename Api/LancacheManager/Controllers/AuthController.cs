@@ -1,6 +1,6 @@
-using LancacheManager.Application.DTOs;
-using LancacheManager.Application.Services;
-using LancacheManager.Data;
+using LancacheManager.Models;
+using LancacheManager.Core.Services;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Security;

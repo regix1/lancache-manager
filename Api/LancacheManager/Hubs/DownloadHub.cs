@@ -1,4 +1,4 @@
-using LancacheManager.Application.Services;
+using LancacheManager.Core.Services;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.SignalR;
 

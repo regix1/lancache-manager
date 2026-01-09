@@ -1,4 +1,4 @@
-using LancacheManager.Infrastructure.Services.Interfaces;
+using LancacheManager.Core.Interfaces.Services;
 
 namespace LancacheManager.Infrastructure.Services;
 

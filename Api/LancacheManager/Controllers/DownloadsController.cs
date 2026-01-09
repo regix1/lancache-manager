@@ -1,9 +1,8 @@
-using LancacheManager.Application.DTOs;
-using LancacheManager.Data;
-using LancacheManager.Infrastructure.Repositories;
-using LancacheManager.Infrastructure.Repositories.Interfaces;
-using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
+using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Repositories;
+using LancacheManager.Core.Interfaces.Repositories;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;

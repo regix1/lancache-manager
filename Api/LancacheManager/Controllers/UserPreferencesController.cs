@@ -1,10 +1,10 @@
-using LancacheManager.Application.DTOs;
-using LancacheManager.Application.Services;
+using LancacheManager.Models;
+using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
-using static LancacheManager.Application.Services.UserPreferencesService;
+using static LancacheManager.Core.Services.UserPreferencesService;
 
 namespace LancacheManager.Controllers;
 

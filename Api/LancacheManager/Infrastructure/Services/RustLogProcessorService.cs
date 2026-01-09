@@ -1,11 +1,11 @@
 using System.Diagnostics;
 using System.Text.Json;
-using LancacheManager.Application.Services;
-using LancacheManager.Data;
+using LancacheManager.Core.Services;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Repositories;
-using LancacheManager.Infrastructure.Repositories.Interfaces;
-using LancacheManager.Infrastructure.Services.Interfaces;
+using LancacheManager.Core.Interfaces.Repositories;
+using LancacheManager.Core.Interfaces.Services;
 using LancacheManager.Infrastructure.Utilities;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;

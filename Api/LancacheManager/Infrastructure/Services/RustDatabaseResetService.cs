@@ -1,8 +1,8 @@
 using System.Diagnostics;
 using System.Text.Json;
-using LancacheManager.Application.Services;
+using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
-using LancacheManager.Infrastructure.Services.Interfaces;
+using LancacheManager.Core.Interfaces.Services;
 using LancacheManager.Infrastructure.Utilities;
 using Microsoft.AspNetCore.SignalR;
 

@@ -1,5 +1,5 @@
-using LancacheManager.Data;
-using LancacheManager.Infrastructure.Repositories.Interfaces;
+using LancacheManager.Infrastructure.Data;
+using LancacheManager.Core.Interfaces.Repositories;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;

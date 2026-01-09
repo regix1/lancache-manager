@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
-using LancacheManager.Data;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;

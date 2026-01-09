@@ -1,10 +1,10 @@
-using LancacheManager.Application.DTOs;
-using LancacheManager.Application.Services;
+using LancacheManager.Models;
+using LancacheManager.Core.Services;
 using LancacheManager.Security;
-using LancacheManager.Data;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Repositories;
-using LancacheManager.Infrastructure.Repositories.Interfaces;
+using LancacheManager.Core.Interfaces.Repositories;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 

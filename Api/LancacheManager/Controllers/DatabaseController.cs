@@ -1,4 +1,4 @@
-using LancacheManager.Application.DTOs;
+using LancacheManager.Models;
 using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Security;

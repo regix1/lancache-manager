@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
-using LancacheManager.Application.DTOs;
-using LancacheManager.Data;
-using LancacheManager.Infrastructure.Services.Interfaces;
+using LancacheManager.Models;
+using LancacheManager.Infrastructure.Data;
+using LancacheManager.Core.Interfaces.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 

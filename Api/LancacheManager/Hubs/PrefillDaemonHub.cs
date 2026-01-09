@@ -1,5 +1,5 @@
-using LancacheManager.Application.Services;
-using LancacheManager.Application.SteamPrefill;
+using LancacheManager.Core.Services;
+using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.SignalR;
 

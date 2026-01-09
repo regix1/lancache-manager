@@ -1,13 +1,15 @@
-using LancacheManager.Application.Services;
-using LancacheManager.Data;
+using LancacheManager.Core.Services;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
-using LancacheManager.Infrastructure.Repositories.Interfaces;
-using LancacheManager.Infrastructure.Services.Interfaces;
+using LancacheManager.Core.Interfaces.Repositories;
+using LancacheManager.Core.Interfaces.Services;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Concurrent;
+using LancacheManager.Core.Services.SteamKit2;
+
 
 namespace LancacheManager.Infrastructure.Repositories;
 

@@ -1,7 +1,7 @@
 using System.Text.Json;
-using LancacheManager.Infrastructure.Repositories.Interfaces;
+using LancacheManager.Core.Interfaces.Repositories;
 using LancacheManager.Infrastructure.Services;
-using LancacheManager.Infrastructure.Services.Interfaces;
+using LancacheManager.Core.Interfaces.Services;
 
 namespace LancacheManager.Infrastructure.Repositories;
 

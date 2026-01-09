@@ -1,7 +1,6 @@
-using LancacheManager.Application.DTOs;
-using LancacheManager.Application.Services;
-using LancacheManager.Hubs;
 using LancacheManager.Models;
+using LancacheManager.Core.Services;
+using LancacheManager.Hubs;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;

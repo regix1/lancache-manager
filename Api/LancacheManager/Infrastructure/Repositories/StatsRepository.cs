@@ -1,9 +1,9 @@
-using LancacheManager.Application.DTOs;
-using LancacheManager.Data;
-using LancacheManager.Infrastructure.Repositories.Interfaces;
-using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
+using LancacheManager.Infrastructure.Data;
+using LancacheManager.Core.Interfaces.Repositories;
+using LancacheManager.Infrastructure.Utilities;
 using Microsoft.EntityFrameworkCore;
+
 
 namespace LancacheManager.Infrastructure.Repositories;
 

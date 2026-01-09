@@ -1,4 +1,4 @@
-using LancacheManager.Application.DTOs;
+using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 

@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using LancacheManager.Infrastructure.Repositories;
-using LancacheManager.Infrastructure.Services.Interfaces;
+using LancacheManager.Core.Interfaces.Services;
 
 namespace LancacheManager.Middleware;
 

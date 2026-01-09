@@ -1,5 +1,5 @@
 using System.Text.Json;
-using LancacheManager.Infrastructure.Services.Interfaces;
+using LancacheManager.Core.Interfaces.Services;
 using Microsoft.Extensions.Hosting;
 
 namespace LancacheManager.Infrastructure.Services;

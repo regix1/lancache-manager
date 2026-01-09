@@ -1,7 +1,7 @@
-using LancacheManager.Application.DTOs;
-using LancacheManager.Application.Services;
+using LancacheManager.Models;
+using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
-using LancacheManager.Infrastructure.Services.Interfaces;
+using LancacheManager.Core.Interfaces.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;

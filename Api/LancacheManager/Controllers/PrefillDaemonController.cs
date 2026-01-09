@@ -1,6 +1,6 @@
-using LancacheManager.Application.DTOs;
-using LancacheManager.Application.Services;
-using LancacheManager.Application.SteamPrefill;
+using LancacheManager.Models;
+using LancacheManager.Core.Services;
+using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 

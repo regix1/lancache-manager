@@ -1,10 +1,9 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using LancacheManager.Application.DTOs;
-using LancacheManager.Hubs;
-using LancacheManager.Infrastructure.Repositories.Interfaces;
-using LancacheManager.Infrastructure.Services.Interfaces;
 using LancacheManager.Models;
+using LancacheManager.Hubs;
+using LancacheManager.Core.Interfaces.Repositories;
+using LancacheManager.Core.Interfaces.Services;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;

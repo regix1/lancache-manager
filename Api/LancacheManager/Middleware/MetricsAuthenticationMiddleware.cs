@@ -1,4 +1,4 @@
-using LancacheManager.Infrastructure.Repositories.Interfaces;
+using LancacheManager.Core.Interfaces.Repositories;
 using LancacheManager.Security;
 
 namespace LancacheManager.Middleware;

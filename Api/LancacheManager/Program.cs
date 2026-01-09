@@ -1,11 +1,13 @@
-using LancacheManager.Application.Services;
+using LancacheManager.Core.Services;
+using LancacheManager.Core.Services.SteamKit2;
 using LancacheManager.Configuration;
-using LancacheManager.Data;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Repositories;
-using LancacheManager.Infrastructure.Repositories.Interfaces;
+using LancacheManager.Core.Interfaces.Repositories;
 using LancacheManager.Infrastructure.Services;
-using LancacheManager.Infrastructure.Services.Interfaces;
+using LancacheManager.Core.Interfaces.Services;
+using LancacheManager.Infrastructure.Platform;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
 using LancacheManager.Security;
@@ -300,11 +302,11 @@ builder.Services.AddHttpClient("SteamImages", client =>
 builder.Services.AddSingleton<ApiKeyService>();
 builder.Services.AddSingleton<DeviceAuthService>();
 builder.Services.AddSingleton<GuestSessionService>();
-builder.Services.AddSingleton<LancacheManager.Application.Services.UserPreferencesService>();
-builder.Services.AddSingleton<LancacheManager.Application.Services.SessionMigrationService>();
+builder.Services.AddSingleton<LancacheManager.Core.Services.UserPreferencesService>();
+builder.Services.AddSingleton<LancacheManager.Core.Services.SessionMigrationService>();
 
 // Register SignalR connection tracking service for targeted messaging
-builder.Services.AddSingleton<LancacheManager.Application.Services.ConnectionTrackingService>();
+builder.Services.AddSingleton<LancacheManager.Core.Services.ConnectionTrackingService>();
 
 // Register SteamKit2Service for real-time Steam depot mapping
 builder.Services.AddSingleton<SteamKit2Service>();
@@ -433,7 +435,7 @@ builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database", LogLevel.Non
 builder.Logging.AddFilter("Microsoft.EntityFrameworkCore", LogLevel.Error);
 builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
 builder.Logging.AddFilter("Microsoft.Extensions.Http.DefaultHttpClientFactory", LogLevel.Warning);
-builder.Logging.AddFilter("LancacheManager.Infrastructure.Services.WindowsPathResolver", LogLevel.Warning);
+builder.Logging.AddFilter("LancacheManager.Infrastructure.Platform.WindowsPathResolver", LogLevel.Warning);
 builder.Logging.AddFilter("LancacheManager.Security.ApiKeyService", LogLevel.Information);
 builder.Logging.AddFilter("LancacheManager.Infrastructure.Services.RustLogProcessorService", LogLevel.Information);
 builder.Logging.AddFilter("LancacheManager.Services.CacheManagementService", LogLevel.Warning);
@@ -460,7 +462,7 @@ using (var scope = app.Services.CreateScope())
         logger.LogInformation("Checking database migrations...");
 
         // Fix schema issues before migrations (SQLite doesn't support ADD COLUMN IF NOT EXISTS)
-        await LancacheManager.Infrastructure.Database.DatabaseSchemaFixer.ApplyPreMigrationFixesAsync(dbContext, logger);
+        await LancacheManager.Infrastructure.Data.DatabaseSchemaFixer.ApplyPreMigrationFixesAsync(dbContext, logger);
 
         // This will create the database if it doesn't exist and apply all pending migrations
         await dbContext.Database.MigrateAsync();
@@ -585,7 +587,7 @@ app.MapGet("/health", () => Results.Ok(new
 app.MapGet("/api/version", () =>
 {
     var version = Environment.GetEnvironmentVariable("LANCACHE_MANAGER_VERSION") ?? "dev";
-    return Results.Ok(new LancacheManager.Application.DTOs.VersionResponse { Version = version });
+    return Results.Ok(new LancacheManager.Models.VersionResponse { Version = version });
 });
 
 // Fallback to index.html for client-side routing

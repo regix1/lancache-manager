@@ -1,10 +1,12 @@
-using LancacheManager.Application.DTOs;
-using LancacheManager.Application.Services;
+using LancacheManager.Models;
+using LancacheManager.Core.Services;
 using LancacheManager.Security;
 using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Hubs;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
+using LancacheManager.Core.Services.SteamKit2;
+
 
 namespace LancacheManager.Controllers;
 

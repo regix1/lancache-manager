@@ -1,4 +1,4 @@
-using LancacheManager.Data;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
