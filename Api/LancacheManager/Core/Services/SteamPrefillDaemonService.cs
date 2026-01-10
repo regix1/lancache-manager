@@ -1447,16 +1447,22 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                     status = "Completed";
                 }
 
+                // Use bytes from the app_completed event - daemon sends accurate final values
+                // For Success: BytesDownloaded = TotalBytes (full size)
+                // For AlreadyUpToDate/Skipped: BytesDownloaded = 0
+                var bytesDownloaded = progress.BytesDownloaded > 0 ? progress.BytesDownloaded : session.CurrentBytesDownloaded;
+                var totalBytes = progress.TotalBytes > 0 ? progress.TotalBytes : session.CurrentTotalBytes;
+
                 await _sessionService.CompletePrefillEntryAsync(
                     session.Id,
                     progress.CurrentAppId,
                     status,
-                    session.CurrentBytesDownloaded,
-                    session.CurrentTotalBytes);
+                    bytesDownloaded,
+                    totalBytes);
 
                 _logger.LogInformation("App {Status} ({Result}): {AppId} ({AppName}) - {Bytes}/{Total} bytes",
                     status, progress.Result, progress.CurrentAppId, progress.CurrentAppName,
-                    session.CurrentBytesDownloaded, session.CurrentTotalBytes);
+                    bytesDownloaded, totalBytes);
 
                 // Broadcast history update
                 await BroadcastPrefillHistoryUpdatedAsync(session.Id, progress.CurrentAppId, status);
