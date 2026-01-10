@@ -1199,7 +1199,8 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             // Log raw JSON for debugging bytes issue
             _logger.LogDebug("Raw progress JSON: {Json}", json);
 
-            // Deserialize using the internal DTO with JsonPropertyName attributes for snake_case
+            // Deserialize using the internal DTO with JsonPropertyName attributes for camelCase
+            // The daemon writes camelCase JSON (e.g., currentAppId, bytesDownloaded, totalBytes)
             var dto = JsonSerializer.Deserialize<DaemonPrefillProgressDto>(json);
 
             if (dto != null)
@@ -2368,7 +2369,8 @@ public class PrefillProgress
 
 /// <summary>
 /// Internal DTO for deserializing the daemon's prefill_progress.json file.
-/// Uses JsonPropertyName attributes to map snake_case JSON to PascalCase properties.
+/// Uses JsonPropertyName attributes to map camelCase JSON to PascalCase properties.
+/// The daemon writes camelCase (e.g., currentAppId, bytesDownloaded, totalBytes).
 /// This class is NOT used for SignalR - only for file deserialization.
 /// </summary>
 internal class DaemonPrefillProgressDto
@@ -2379,51 +2381,51 @@ internal class DaemonPrefillProgressDto
     [JsonPropertyName("message")]
     public string? Message { get; set; }
 
-    [JsonPropertyName("current_app_id")]
+    [JsonPropertyName("currentAppId")]
     public uint CurrentAppId { get; set; }
 
-    [JsonPropertyName("current_app_name")]
+    [JsonPropertyName("currentAppName")]
     public string? CurrentAppName { get; set; }
 
-    [JsonPropertyName("total_bytes")]
+    [JsonPropertyName("totalBytes")]
     public long TotalBytes { get; set; }
 
-    [JsonPropertyName("bytes_downloaded")]
+    [JsonPropertyName("bytesDownloaded")]
     public long BytesDownloaded { get; set; }
 
-    [JsonPropertyName("percent_complete")]
+    [JsonPropertyName("percentComplete")]
     public double PercentComplete { get; set; }
 
-    [JsonPropertyName("bytes_per_second")]
+    [JsonPropertyName("bytesPerSecond")]
     public double BytesPerSecond { get; set; }
 
-    [JsonPropertyName("elapsed_seconds")]
+    [JsonPropertyName("elapsedSeconds")]
     public double ElapsedSeconds { get; set; }
 
     [JsonPropertyName("result")]
     public string? Result { get; set; }
 
-    [JsonPropertyName("error_message")]
+    [JsonPropertyName("errorMessage")]
     public string? ErrorMessage { get; set; }
 
-    [JsonPropertyName("total_apps")]
+    [JsonPropertyName("totalApps")]
     public int TotalApps { get; set; }
 
-    [JsonPropertyName("updated_apps")]
+    [JsonPropertyName("updatedApps")]
     public int UpdatedApps { get; set; }
 
-    [JsonPropertyName("already_up_to_date")]
+    [JsonPropertyName("alreadyUpToDate")]
     public int AlreadyUpToDate { get; set; }
 
-    [JsonPropertyName("failed_apps")]
+    [JsonPropertyName("failedApps")]
     public int FailedApps { get; set; }
 
-    [JsonPropertyName("total_bytes_transferred")]
+    [JsonPropertyName("totalBytesTransferred")]
     public long TotalBytesTransferred { get; set; }
 
-    [JsonPropertyName("total_time_seconds")]
+    [JsonPropertyName("totalTimeSeconds")]
     public double TotalTimeSeconds { get; set; }
 
-    [JsonPropertyName("updated_at")]
+    [JsonPropertyName("updatedAt")]
     public DateTime UpdatedAt { get; set; }
 }
