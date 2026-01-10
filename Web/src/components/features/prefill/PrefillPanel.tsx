@@ -259,7 +259,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       // Keep modal open on error to allow retry
     },
     onDeviceConfirmationTimeout: () => {
-      // Close modal and show End Session button
+      // Close modal - daemon login is already cancelled by the hook
       setShowAuthModal(false);
     }
   });

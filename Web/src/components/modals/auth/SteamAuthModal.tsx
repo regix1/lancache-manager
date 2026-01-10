@@ -71,9 +71,22 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
     if (waitingForMobileConfirmation) {
       cancelPendingRequest();
       actions.resetAuthForm();
+      if (isPrefillMode) {
+        onCancelLogin?.(); // End the session in prefill mode
+      }
       onClose();
       return;
     }
+    
+    // In prefill mode, closing during any auth state should cancel the login
+    if (isPrefillMode && (loading || needsTwoFactor || needsEmailCode)) {
+      cancelPendingRequest();
+      actions.resetAuthForm();
+      onCancelLogin?.();
+      onClose();
+      return;
+    }
+    
     if (!loading && !isSubmitting) {
       onClose();
     }

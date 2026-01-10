@@ -171,11 +171,20 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     };
   }, [hubConnection, sessionId]);
 
-  // Timeout for device confirmation - notify user and suggest ending session
+  // Timeout for device confirmation - cancel daemon login and reset state
   useEffect(() => {
-    if (waitingForMobileConfirmation) {
-      deviceConfirmationTimeoutRef.current = setTimeout(() => {
-        console.log('[usePrefillSteamAuth] Device confirmation timed out');
+    if (waitingForMobileConfirmation && hubConnection && sessionId) {
+      deviceConfirmationTimeoutRef.current = setTimeout(async () => {
+        console.log('[usePrefillSteamAuth] Device confirmation timed out, cancelling login');
+        
+        // Cancel the login on the daemon to reset its state
+        try {
+          await hubConnection.invoke('CancelLogin', sessionId);
+          console.log('[usePrefillSteamAuth] Login cancelled on daemon');
+        } catch (err) {
+          console.error('[usePrefillSteamAuth] Failed to cancel login on daemon:', err);
+        }
+        
         // Reset all auth state
         setUsername('');
         setPassword('');
@@ -188,11 +197,12 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         setLoading(false);
         setPendingChallenge(null);
         isWaitingForDeviceConfirmationRef.current = false;
+        hasStartedAuthRef.current = false;
 
         addNotification({
           type: 'generic',
           status: 'failed',
-          message: 'Device confirmation timed out. Please click "End Session" and try again.',
+          message: 'Device confirmation timed out. Please try logging in again.',
           details: { notificationType: 'warning' }
         });
         onDeviceConfirmationTimeout?.();
@@ -205,7 +215,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         }
       };
     }
-  }, [waitingForMobileConfirmation, addNotification, onDeviceConfirmationTimeout]);
+  }, [waitingForMobileConfirmation, hubConnection, sessionId, addNotification, onDeviceConfirmationTimeout]);
 
   const cancelPendingRequest = useCallback(() => {
     setLoading(false);
