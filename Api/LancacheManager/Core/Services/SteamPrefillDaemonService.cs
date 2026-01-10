@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Docker.DotNet;
 using Docker.DotNet.Models;
 using LancacheManager.Core.Services.SteamPrefill;
@@ -1194,7 +1195,10 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             }
 
             var json = await File.ReadAllTextAsync(filePath);
-            
+
+            // Log raw JSON for debugging bytes issue
+            _logger.LogInformation("Raw progress JSON: {Json}", json);
+
             // Note: PropertyNameCaseInsensitive handles camelCase/PascalCase
             var progress = JsonSerializer.Deserialize<PrefillProgress>(json, new JsonSerializerOptions
             {
@@ -1203,8 +1207,8 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
             if (progress != null)
             {
-                _logger.LogDebug("Parsed progress - AppId: {AppId}, AppName: {AppName}, BytesDownloaded: {Bytes}, TotalBytes: {Total}",
-                    progress.CurrentAppId, progress.CurrentAppName, progress.BytesDownloaded, progress.TotalBytes);
+                _logger.LogInformation("Parsed progress - AppId: {AppId}, AppName: {AppName}, State: {State}, BytesDownloaded: {Bytes}, TotalBytes: {Total}",
+                    progress.CurrentAppId, progress.CurrentAppName, progress.State, progress.BytesDownloaded, progress.TotalBytes);
 
                 await NotifyPrefillProgressAsync(session, progress);
             }
@@ -1384,13 +1388,18 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                 try
                 {
                     var status = progress.State == "completed" ? "Completed" : "Failed";
-                    // For completion states, use the current progress values (they're for the current app)
+                    // Use the best available bytes values:
+                    // - Prefer session values if they're larger (accumulated during download)
+                    // - Fall back to progress values (might be 0 on completion events)
+                    var bytesDownloaded = Math.Max(progress.BytesDownloaded, session.CurrentBytesDownloaded);
+                    var totalBytes = Math.Max(progress.TotalBytes, session.CurrentTotalBytes);
+
                     await _sessionService.CompletePrefillEntryAsync(
                         session.Id,
                         session.CurrentAppId,
                         status,
-                        progress.BytesDownloaded,
-                        progress.TotalBytes,
+                        bytesDownloaded,
+                        totalBytes,
                         progress.ErrorMessage);
 
                     _logger.LogDebug("Completed prefill history for app {AppId} ({AppName}) with status {Status}",
@@ -2295,26 +2304,62 @@ public class LastPrefillResultDto
 }
 
 /// <summary>
-/// Prefill progress update from the daemon
+/// Prefill progress update from the daemon.
+/// Uses JsonPropertyName to handle snake_case from daemon output.
 /// </summary>
 public class PrefillProgress
 {
+    [JsonPropertyName("state")]
     public string State { get; set; } = "idle";
+
+    [JsonPropertyName("message")]
     public string? Message { get; set; }
+
+    [JsonPropertyName("current_app_id")]
     public uint CurrentAppId { get; set; }
+
+    [JsonPropertyName("current_app_name")]
     public string? CurrentAppName { get; set; }
+
+    [JsonPropertyName("total_bytes")]
     public long TotalBytes { get; set; }
+
+    [JsonPropertyName("bytes_downloaded")]
     public long BytesDownloaded { get; set; }
+
+    [JsonPropertyName("percent_complete")]
     public double PercentComplete { get; set; }
+
+    [JsonPropertyName("bytes_per_second")]
     public double BytesPerSecond { get; set; }
+
+    [JsonPropertyName("elapsed_seconds")]
     public double ElapsedSeconds { get; set; }
+
+    [JsonPropertyName("result")]
     public string? Result { get; set; }
+
+    [JsonPropertyName("error_message")]
     public string? ErrorMessage { get; set; }
+
+    [JsonPropertyName("total_apps")]
     public int TotalApps { get; set; }
+
+    [JsonPropertyName("updated_apps")]
     public int UpdatedApps { get; set; }
+
+    [JsonPropertyName("already_up_to_date")]
     public int AlreadyUpToDate { get; set; }
+
+    [JsonPropertyName("failed_apps")]
     public int FailedApps { get; set; }
+
+    [JsonPropertyName("total_bytes_transferred")]
     public long TotalBytesTransferred { get; set; }
+
+    [JsonPropertyName("total_time_seconds")]
     public double TotalTimeSeconds { get; set; }
+
+    [JsonPropertyName("updated_at")]
     public DateTime UpdatedAt { get; set; }
 }
