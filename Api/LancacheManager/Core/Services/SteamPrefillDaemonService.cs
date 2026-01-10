@@ -1196,9 +1196,6 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
             var json = await File.ReadAllTextAsync(filePath);
 
-            // Log raw JSON for debugging bytes issue
-            _logger.LogDebug("Raw progress JSON: {Json}", json);
-
             // Deserialize using the internal DTO with JsonPropertyName attributes for camelCase
             // The daemon writes camelCase JSON (e.g., currentAppId, bytesDownloaded, totalBytes)
             var dto = JsonSerializer.Deserialize<DaemonPrefillProgressDto>(json);
@@ -1208,8 +1205,9 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                 // Convert to PrefillProgress for internal use and SignalR
                 var progress = PrefillProgress.FromDaemonJson(dto);
 
-                _logger.LogDebug("Parsed progress - AppId: {AppId}, AppName: {AppName}, State: {State}, BytesDownloaded: {Bytes}, TotalBytes: {Total}",
-                    progress.CurrentAppId, progress.CurrentAppName, progress.State, progress.BytesDownloaded, progress.TotalBytes);
+                _logger.LogDebug("Progress: {AppName} ({AppId}) - {State}, {Bytes}/{Total} bytes",
+                    progress.CurrentAppName, progress.CurrentAppId, progress.State,
+                    progress.BytesDownloaded, progress.TotalBytes);
 
                 await NotifyPrefillProgressAsync(session, progress);
             }
@@ -1389,7 +1387,46 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             session.CurrentTotalBytes = 0;
         }
 
-        // Handle completion/failure states
+        // Handle individual app completion (daemon sends "app_completed" for each app)
+        if (progress.State == "app_completed")
+        {
+            if (session.CurrentAppId > 0)
+            {
+                try
+                {
+                    // Use best available bytes: prefer progress (from daemon) if available, fall back to stored
+                    var bytesDownloaded = progress.BytesDownloaded > 0 ? progress.BytesDownloaded : session.CurrentBytesDownloaded;
+                    var totalBytes = progress.TotalBytes > 0 ? progress.TotalBytes : session.CurrentTotalBytes;
+
+                    await _sessionService.CompletePrefillEntryAsync(
+                        session.Id,
+                        session.CurrentAppId,
+                        "Completed",
+                        bytesDownloaded,
+                        totalBytes);
+
+                    _logger.LogInformation("App completed: {AppId} ({AppName}) - {Bytes}/{Total} bytes",
+                        session.CurrentAppId, session.CurrentAppName,
+                        bytesDownloaded, totalBytes);
+
+                    // Broadcast history update
+                    await BroadcastPrefillHistoryUpdatedAsync(session.Id, session.CurrentAppId, "Completed");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to complete prefill history entry for app {AppId}", session.CurrentAppId);
+                }
+            }
+            // Update tracking for completed app
+            session.PreviousAppId = session.CurrentAppId;
+            session.PreviousAppName = session.CurrentAppName;
+            // Reset bytes for next app
+            session.CurrentBytesDownloaded = 0;
+            session.CurrentTotalBytes = 0;
+            return; // Early return - don't process further for app_completed
+        }
+
+        // Handle overall prefill completion/failure states
         if (progress.State == "completed" || progress.State == "failed" || progress.State == "error")
         {
             if (session.CurrentAppId > 0)
@@ -1425,9 +1462,9 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         }
 
         // Track current app's bytes for the next transition
-        // Always update - when app changes, this sets the starting bytes for the new app
-        // When app is the same, this updates the running total for real-time display
-        if (progress.CurrentAppId > 0)
+        // Only update when progress includes actual byte data (downloading events)
+        // Don't update from completion events which may have 0 bytes
+        if (progress.CurrentAppId > 0 && (progress.BytesDownloaded > 0 || progress.TotalBytes > 0))
         {
             session.CurrentBytesDownloaded = progress.BytesDownloaded;
             session.CurrentTotalBytes = progress.TotalBytes;
