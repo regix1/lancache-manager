@@ -379,6 +379,24 @@ public class PrefillSessionService
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
+        // First, clean up any stale "InProgress" entries for this app in this session
+        // This prevents duplicate entries when prefill is restarted or interrupted
+        var staleEntries = await context.PrefillHistoryEntries
+            .Where(e => e.SessionId == sessionId && e.AppId == appId && e.Status == "InProgress")
+            .ToListAsync();
+
+        if (staleEntries.Count > 0)
+        {
+            foreach (var stale in staleEntries)
+            {
+                stale.Status = "Cancelled";
+                stale.CompletedAtUtc = DateTime.UtcNow;
+                stale.ErrorMessage = "Superseded by new prefill operation";
+            }
+            _logger.LogDebug("Cancelled {Count} stale InProgress entries for app {AppId} in session {SessionId}",
+                staleEntries.Count, appId, sessionId);
+        }
+
         var entry = new PrefillHistoryEntry
         {
             SessionId = sessionId,

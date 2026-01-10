@@ -189,6 +189,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const isReceivingProgressRef = useRef(false); // Track if actively receiving progress updates
 
   const [session, setSession] = useState<PrefillSessionDto | null>(null);
+  // Ref to track current session for use in SignalR handlers (avoids stale closure issues)
+  const sessionRef = useRef<PrefillSessionDto | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
@@ -295,6 +297,11 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     },
     [authActions, trigger2FAPrompt, triggerEmailPrompt, addLog]
   );
+
+  // Keep sessionRef in sync with session state (for use in SignalR handlers)
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
 
   // Timer for session countdown
   useEffect(() => {
@@ -597,15 +604,16 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       connection.onreconnected(async (connectionId) => {
         console.log('Hub reconnected:', connectionId);
         addLog('success', 'Reconnected to server');
-        // Re-subscribe to session if we have one
-        if (session) {
+        // Re-subscribe to session if we have one (use ref to get current value)
+        const currentSession = sessionRef.current;
+        if (currentSession) {
           try {
-            await connection.invoke('SubscribeToSession', session.id);
+            await connection.invoke('SubscribeToSession', currentSession.id);
 
             // Check if prefill completed while we were disconnected
             // Query the server for the last prefill result
             try {
-              const lastResult = await connection.invoke('GetLastPrefillResult', session.id) as {
+              const lastResult = await connection.invoke('GetLastPrefillResult', currentSession.id) as {
                 status: string;
                 completedAt: string;
                 durationSeconds: number;
@@ -616,7 +624,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                 const now = Date.now();
                 // If completed in last 5 minutes and we don't have a background notification yet
                 // and we're not actively receiving progress updates
-                if (now - completedTime < 5 * 60 * 1000 && !backgroundCompletion && !isReceivingProgressRef.current) {
+                if (now - completedTime < 5 * 60 * 1000 && !isReceivingProgressRef.current) {
                   setBackgroundCompletion({
                     completedAt: lastResult.completedAt,
                     message: `Prefill completed in ${lastResult.durationSeconds}s`,
@@ -1037,37 +1045,58 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       isPageHiddenRef.current = document.hidden;
 
       // When page becomes visible, check if prefill completed while away
-      if (wasHidden && !document.hidden && session && hubConnection.current?.state === 'Connected') {
-        // Query the server for the last prefill result
-        // This reliably detects completion even if WebSocket was disconnected
-        try {
-          const lastResult = await hubConnection.current.invoke('GetLastPrefillResult', session.id) as {
-            status: string;
-            completedAt: string;
-            durationSeconds: number;
-          } | null;
+      if (wasHidden && !document.hidden) {
+        const currentSession = sessionRef.current;
+        if (!currentSession) return;
 
-          if (lastResult && lastResult.status === 'completed') {
-            const completedTime = new Date(lastResult.completedAt).getTime();
-            const now = Date.now();
-            // If completed in last 5 minutes and we don't have a background notification yet
-            // and we're not actively receiving progress updates
-            if (now - completedTime < 5 * 60 * 1000 && !backgroundCompletion && !isReceivingProgressRef.current) {
-              setBackgroundCompletion({
-                completedAt: lastResult.completedAt,
-                message: `Prefill completed in ${lastResult.durationSeconds}s`,
-                duration: lastResult.durationSeconds
-              });
-              addLog('success', `Prefill completed while in background (${lastResult.durationSeconds}s)`);
-            }
+        // Helper function to check last prefill result
+        const checkLastPrefillResult = async () => {
+          if (!hubConnection.current || hubConnection.current.state !== 'Connected') {
+            return;
           }
-        } catch (err) {
-          console.debug('Failed to check last prefill result on visibility change:', err);
-          // Non-critical - don't show error to user
-        }
 
-        // Clear any stale tracking flags
-        try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
+          try {
+            const lastResult = await hubConnection.current.invoke('GetLastPrefillResult', currentSession.id) as {
+              status: string;
+              completedAt: string;
+              durationSeconds: number;
+            } | null;
+
+            if (lastResult && lastResult.status === 'completed') {
+              const completedTime = new Date(lastResult.completedAt).getTime();
+              const now = Date.now();
+              // If completed in last 5 minutes and we're not actively receiving progress
+              if (now - completedTime < 5 * 60 * 1000 && !isReceivingProgressRef.current) {
+                // Check current backgroundCompletion state to avoid duplicates
+                const currentBgCompletion = sessionStorage.getItem('prefill_background_completion');
+                if (!currentBgCompletion) {
+                  setBackgroundCompletion({
+                    completedAt: lastResult.completedAt,
+                    message: `Prefill completed in ${lastResult.durationSeconds}s`,
+                    duration: lastResult.durationSeconds
+                  });
+                  addLog('success', `Prefill completed while in background (${lastResult.durationSeconds}s)`);
+                }
+              }
+            }
+          } catch (err) {
+            console.debug('Failed to check last prefill result on visibility change:', err);
+          }
+
+          // Clear any stale tracking flags
+          try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
+        };
+
+        // If connected, check immediately
+        if (hubConnection.current?.state === 'Connected') {
+          await checkLastPrefillResult();
+        } else {
+          // If not connected yet, wait a bit for reconnection then check
+          // The onreconnected handler will also check, but this is a fallback
+          setTimeout(async () => {
+            await checkLastPrefillResult();
+          }, 2000);
+        }
       }
     };
 
@@ -1075,7 +1104,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [session, backgroundCompletion, setBackgroundCompletion, addLog]);
+  }, [setBackgroundCompletion, addLog]);
 
   // Auto-dismiss background completion notification after 10 seconds
   useEffect(() => {
