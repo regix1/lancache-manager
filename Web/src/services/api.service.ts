@@ -1545,6 +1545,63 @@ class ApiService {
       throw error;
     }
   }
+
+  // =====================
+  // Prefill Cache APIs
+  // =====================
+
+  // Get all cached apps
+  static async getPrefillCachedApps(signal?: AbortSignal): Promise<CachedAppDto[]> {
+    try {
+      const res = await fetch(`${API_BASE}/prefill-admin/cache`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<CachedAppDto[]>(res);
+    } catch (error: unknown) {
+      if (!isAbortError(error)) console.error('getPrefillCachedApps error:', error);
+      throw error;
+    }
+  }
+
+  // Check which apps are cached
+  static async checkAppsCached(appIds: number[], signal?: AbortSignal): Promise<CacheCheckResponse> {
+    try {
+      const res = await fetch(`${API_BASE}/prefill-admin/cache/check`, this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(appIds),
+        signal
+      }));
+      return await this.handleResponse<CacheCheckResponse>(res);
+    } catch (error: unknown) {
+      if (!isAbortError(error)) console.error('checkAppsCached error:', error);
+      throw error;
+    }
+  }
+
+  // Clear cache for a specific app
+  static async clearAppPrefillCache(appId: number): Promise<{ message: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/prefill-admin/cache/${appId}`, this.getFetchOptions({
+        method: 'DELETE'
+      }));
+      return await this.handleResponse<{ message: string }>(res);
+    } catch (error: unknown) {
+      console.error('clearAppPrefillCache error:', error);
+      throw error;
+    }
+  }
+
+  // Clear entire prefill cache
+  static async clearAllPrefillCache(): Promise<{ message: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/prefill-admin/cache`, this.getFetchOptions({
+        method: 'DELETE'
+      }));
+      return await this.handleResponse<{ message: string }>(res);
+    } catch (error: unknown) {
+      console.error('clearAllPrefillCache error:', error);
+      throw error;
+    }
+  }
 }
 
 // Prefill admin types
@@ -1641,6 +1698,21 @@ export interface PrefillHistoryEntryDto {
   totalBytes: number;
   status: string;
   errorMessage?: string;
+}
+
+export interface CachedAppDto {
+  appId: number;
+  appName?: string;
+  depotCount: number;
+  totalBytes: number;
+  cachedAtUtc: string;
+  cachedBy?: string;
+}
+
+export interface CacheCheckResponse {
+  cachedAppIds: number[];
+  uncachedAppIds: number[];
+  cacheInfo: CachedAppDto[];
 }
 
 export default ApiService;

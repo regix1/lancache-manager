@@ -23,6 +23,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     private readonly IHubContext<DownloadHub> _downloadHubContext;
     private readonly IConfiguration _configuration;
     private readonly PrefillSessionService _sessionService;
+    private readonly PrefillCacheService _cacheService;
     private readonly ConcurrentDictionary<string, DaemonSession> _sessions = new();
     private DockerClient? _dockerClient;
     private Timer? _cleanupTimer;
@@ -42,13 +43,15 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         IHubContext<PrefillDaemonHub> hubContext,
         IHubContext<DownloadHub> downloadHubContext,
         IConfiguration configuration,
-        PrefillSessionService sessionService)
+        PrefillSessionService sessionService,
+        PrefillCacheService cacheService)
     {
         _logger = logger;
         _hubContext = hubContext;
         _downloadHubContext = downloadHubContext;
         _configuration = configuration;
         _sessionService = sessionService;
+        _cacheService = cacheService;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -1466,6 +1469,27 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
                 // Broadcast history update
                 await BroadcastPrefillHistoryUpdatedAsync(session.Id, progress.CurrentAppId, status);
+
+                // Record cached depots for successful downloads (including AlreadyUpToDate)
+                // This allows us to skip re-downloading games that are already cached
+                if (progress.Result is "Success" or "AlreadyUpToDate" && progress.Depots != null && progress.Depots.Count > 0)
+                {
+                    try
+                    {
+                        await _cacheService.RecordCachedDepotsAsync(
+                            progress.CurrentAppId,
+                            progress.CurrentAppName,
+                            progress.Depots.Select(d => (d.DepotId, d.ManifestId, d.TotalBytes)),
+                            session.SteamUsername);
+
+                        _logger.LogDebug("Recorded {Count} cached depots for app {AppId}",
+                            progress.Depots.Count, progress.CurrentAppId);
+                    }
+                    catch (Exception cacheEx)
+                    {
+                        _logger.LogWarning(cacheEx, "Failed to record cached depots for app {AppId}", progress.CurrentAppId);
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -2430,6 +2454,11 @@ public class PrefillProgress
     public DateTime UpdatedAt { get; set; }
 
     /// <summary>
+    /// Depot manifest info for cache tracking - sent with app_completed events.
+    /// </summary>
+    public List<DepotManifestProgressInfo>? Depots { get; set; }
+
+    /// <summary>
     /// Creates a PrefillProgress from the daemon's JSON format (snake_case).
     /// Internal because it uses the internal DaemonPrefillProgressDto type.
     /// </summary>
@@ -2454,9 +2483,25 @@ public class PrefillProgress
             FailedApps = dto.FailedApps,
             TotalBytesTransferred = dto.TotalBytesTransferred,
             TotalTimeSeconds = dto.TotalTimeSeconds,
-            UpdatedAt = dto.UpdatedAt
+            UpdatedAt = dto.UpdatedAt,
+            Depots = dto.Depots?.Select(d => new DepotManifestProgressInfo
+            {
+                DepotId = d.DepotId,
+                ManifestId = d.ManifestId,
+                TotalBytes = d.TotalBytes
+            }).ToList()
         };
     }
+}
+
+/// <summary>
+/// Depot manifest info for cache tracking in progress updates.
+/// </summary>
+public class DepotManifestProgressInfo
+{
+    public uint DepotId { get; set; }
+    public ulong ManifestId { get; set; }
+    public long TotalBytes { get; set; }
 }
 
 /// <summary>
@@ -2520,4 +2565,22 @@ internal class DaemonPrefillProgressDto
 
     [JsonPropertyName("updatedAt")]
     public DateTime UpdatedAt { get; set; }
+
+    [JsonPropertyName("depots")]
+    public List<DaemonDepotManifestDto>? Depots { get; set; }
+}
+
+/// <summary>
+/// Internal DTO for deserializing depot manifest info from the daemon.
+/// </summary>
+internal class DaemonDepotManifestDto
+{
+    [JsonPropertyName("depotId")]
+    public uint DepotId { get; set; }
+
+    [JsonPropertyName("manifestId")]
+    public ulong ManifestId { get; set; }
+
+    [JsonPropertyName("totalBytes")]
+    public long TotalBytes { get; set; }
 }

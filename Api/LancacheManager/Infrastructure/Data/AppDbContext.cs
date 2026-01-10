@@ -23,6 +23,7 @@ public class AppDbContext : DbContext
     public DbSet<BannedSteamUser> BannedSteamUsers { get; set; }
     public DbSet<PrefillSession> PrefillSessions { get; set; }
     public DbSet<PrefillHistoryEntry> PrefillHistoryEntries { get; set; }
+    public DbSet<PrefillCachedDepot> PrefillCachedDepots { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

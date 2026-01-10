@@ -8,7 +8,7 @@ import { usePrefillSteamAuth } from '@hooks/usePrefillSteamAuth';
 import { ActivityLog, type LogEntryType } from './ActivityLog';
 import { GameSelectionModal, type OwnedGame } from './GameSelectionModal';
 import { NetworkStatusSection } from './NetworkStatusSection';
-import type { NetworkDiagnostics } from '@services/api.service';
+import ApiService, { type NetworkDiagnostics } from '@services/api.service';
 import { usePrefillContext } from '@contexts/PrefillContext';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import authService from '@services/auth.service';
@@ -205,6 +205,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const [selectedAppIds, setSelectedAppIds] = useState<number[]>([]);
   const [showGameSelection, setShowGameSelection] = useState(false);
   const [isLoadingGames, setIsLoadingGames] = useState(false);
+  const [cachedAppIds, setCachedAppIds] = useState<number[]>([]);
 
   // Prefill settings state
   const [selectedOS, setSelectedOS] = useState<string[]>(['windows', 'linux', 'macos']);
@@ -884,6 +885,21 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
               const games = await response.json();
               setOwnedGames(games || []);
               addLog('info', `Found ${games?.length || 0} owned games`);
+
+              // Fetch cached apps to show which games are already in the lancache
+              if (games && games.length > 0) {
+                try {
+                  const cachedApps = await ApiService.getPrefillCachedApps();
+                  setCachedAppIds(cachedApps.map(a => a.appId));
+                  if (cachedApps.length > 0) {
+                    addLog('info', `${cachedApps.length} games already cached in lancache`);
+                  }
+                } catch (err) {
+                  console.warn('Failed to fetch cached apps:', err);
+                  // Non-critical, continue without cached app info
+                }
+              }
+
               setShowGameSelection(true);
             } finally {
               setIsLoadingGames(false);
@@ -1421,6 +1437,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         selectedAppIds={selectedAppIds}
         onSave={handleSaveGameSelection}
         isLoading={isLoadingGames}
+        cachedAppIds={cachedAppIds}
       />
 
       {/* Large Prefill Confirmation Dialog */}

@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect, ChangeEvent } from 'react';
 import { Modal } from '../../ui/Modal';
 import { Button } from '../../ui/Button';
 import { CustomScrollbar } from '../../ui/CustomScrollbar';
-import { Search, Check, Gamepad2, Loader2, Import } from 'lucide-react';
+import { Search, Check, Gamepad2, Loader2, Import, Database, EyeOff, Eye } from 'lucide-react';
 
 export interface OwnedGame {
   appId: number;
@@ -16,6 +16,7 @@ interface GameSelectionModalProps {
   selectedAppIds: number[];
   onSave: (selectedIds: number[]) => Promise<void>;
   isLoading?: boolean;
+  cachedAppIds?: number[];
 }
 
 export function GameSelectionModal({
@@ -24,12 +25,17 @@ export function GameSelectionModal({
   games,
   selectedAppIds,
   onSave,
-  isLoading = false
+  isLoading = false,
+  cachedAppIds = []
 }: GameSelectionModalProps) {
   const [search, setSearch] = useState('');
   const [localSelected, setLocalSelected] = useState<Set<number>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
-  
+  const [hideCached, setHideCached] = useState(false);
+
+  // Create a Set for O(1) lookup
+  const cachedAppIdsSet = useMemo(() => new Set(cachedAppIds), [cachedAppIds]);
+
   // Import state
   const [showImport, setShowImport] = useState(false);
   const [importText, setImportText] = useState('');
@@ -110,15 +116,32 @@ export function GameSelectionModal({
     }
   }, [importText, games, parseImportText]);
 
-  // Filter games by search
+  // Filter games by search and cached status
   const filteredGames = useMemo(() => {
-    if (!search.trim()) return games;
-    const searchLower = search.toLowerCase();
-    return games.filter(game =>
-      game.name.toLowerCase().includes(searchLower) ||
-      game.appId.toString().includes(search)
-    );
-  }, [games, search]);
+    let filtered = games;
+
+    // Filter by search
+    if (search.trim()) {
+      const searchLower = search.toLowerCase();
+      filtered = filtered.filter(game =>
+        game.name.toLowerCase().includes(searchLower) ||
+        game.appId.toString().includes(search)
+      );
+    }
+
+    // Filter out cached games if hideCached is enabled
+    if (hideCached) {
+      filtered = filtered.filter(game => !cachedAppIdsSet.has(game.appId));
+    }
+
+    return filtered;
+  }, [games, search, hideCached, cachedAppIdsSet]);
+
+  // Count cached games for display
+  const cachedCount = useMemo(() =>
+    games.filter(g => cachedAppIdsSet.has(g.appId)).length,
+    [games, cachedAppIdsSet]
+  );
 
   // Sort: selected first, then alphabetically
   const sortedGames = useMemo(() => {
@@ -173,9 +196,9 @@ export function GameSelectionModal({
       <div className="flex flex-col h-[60vh]">
         {/* Search and actions */}
         <div className="flex gap-2 mb-3">
-          <Button 
-            variant={showImport ? 'filled' : 'outline'} 
-            size="sm" 
+          <Button
+            variant={showImport ? 'filled' : 'outline'}
+            size="sm"
             onClick={() => setShowImport(!showImport)}
           >
             <Import className="h-4 w-4" />
@@ -191,6 +214,17 @@ export function GameSelectionModal({
               className="w-full pl-9 pr-3 py-2 text-sm rounded-lg smooth-transition bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-primary)] outline-none focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-primary)]/20"
             />
           </div>
+          {cachedCount > 0 && (
+            <Button
+              variant={hideCached ? 'filled' : 'outline'}
+              size="sm"
+              onClick={() => setHideCached(!hideCached)}
+              title={hideCached ? 'Show cached games' : 'Hide cached games'}
+            >
+              {hideCached ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+              {hideCached ? 'Show Cached' : 'Hide Cached'}
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={selectAll}>
             Select All
           </Button>
@@ -267,9 +301,15 @@ export function GameSelectionModal({
         <div className="text-sm mb-2 text-[var(--theme-text-muted)]">
           <span className="text-[var(--theme-primary)] font-semibold">{localSelected.size}</span>
           {' '}of {games.length} games selected
-          {search && (
+          {cachedCount > 0 && (
+            <span className="ml-2">
+              <Database className="inline h-3.5 w-3.5 mr-1 text-[var(--theme-success)]" />
+              <span className="text-[var(--theme-success)]">{cachedCount} cached</span>
+            </span>
+          )}
+          {(search || hideCached) && (
             <span className="text-[var(--theme-text-muted)]">
-              {' '}(showing {filteredGames.length} matching "{search}")
+              {' '}(showing {filteredGames.length}{search ? ` matching "${search}"` : ''}{hideCached ? ', hiding cached' : ''})
             </span>
           )}
         </div>
@@ -304,25 +344,34 @@ export function GameSelectionModal({
                   </div>
                   <CustomScrollbar maxHeight="100%" className="flex-1 min-h-0" paddingMode="compact">
                     <div>
-                      {sortedGames.filter(g => localSelected.has(g.appId)).map(game => (
-                        <button
-                          key={game.appId}
-                          onClick={() => toggleGame(game.appId)}
-                          className="w-full flex items-center gap-3 px-4 py-3 text-left smooth-transition bg-[color-mix(in_srgb,var(--theme-primary)_10%,transparent)] border-b border-[var(--theme-border-secondary)] hover:bg-[color-mix(in_srgb,var(--theme-primary)_15%,transparent)]"
-                        >
-                          <div className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center bg-[var(--theme-primary)] border-2 border-[var(--theme-primary)]">
-                            <Check className="h-3 w-3 text-white" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="truncate font-medium text-[var(--theme-text-primary)]">
-                              {game.name}
+                      {sortedGames.filter(g => localSelected.has(g.appId)).map(game => {
+                        const isCached = cachedAppIdsSet.has(game.appId);
+                        return (
+                          <button
+                            key={game.appId}
+                            onClick={() => toggleGame(game.appId)}
+                            className="w-full flex items-center gap-3 px-4 py-3 text-left smooth-transition bg-[color-mix(in_srgb,var(--theme-primary)_10%,transparent)] border-b border-[var(--theme-border-secondary)] hover:bg-[color-mix(in_srgb,var(--theme-primary)_15%,transparent)]"
+                          >
+                            <div className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center bg-[var(--theme-primary)] border-2 border-[var(--theme-primary)]">
+                              <Check className="h-3 w-3 text-white" />
                             </div>
-                            <div className="text-xs text-[var(--theme-text-muted)]">
-                              App ID: {game.appId}
+                            <div className="flex-1 min-w-0">
+                              <div className="truncate font-medium text-[var(--theme-text-primary)]">
+                                {game.name}
+                              </div>
+                              <div className="text-xs text-[var(--theme-text-muted)] flex items-center gap-2">
+                                <span>App ID: {game.appId}</span>
+                                {isCached && (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[var(--theme-success)]/15 text-[var(--theme-success)]">
+                                    <Database className="h-2.5 w-2.5" />
+                                    Cached
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        </button>
-                      ))}
+                          </button>
+                        );
+                      })}
                     </div>
                   </CustomScrollbar>
                 </div>
@@ -336,23 +385,32 @@ export function GameSelectionModal({
                   </div>
                   <CustomScrollbar maxHeight="100%" className="flex-1 min-h-0" paddingMode="compact">
                     <div>
-                      {sortedGames.filter(g => !localSelected.has(g.appId)).map(game => (
-                        <button
-                          key={game.appId}
-                          onClick={() => toggleGame(game.appId)}
-                          className="w-full flex items-center gap-3 px-4 py-3 text-left smooth-transition bg-transparent border-b border-[var(--theme-border-secondary)] hover:bg-[var(--theme-bg-hover)]"
-                        >
-                          <div className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center bg-transparent border-2 border-[var(--theme-border-primary)]" />
-                          <div className="flex-1 min-w-0">
-                            <div className="truncate font-medium text-[var(--theme-text-primary)]">
-                              {game.name}
+                      {sortedGames.filter(g => !localSelected.has(g.appId)).map(game => {
+                        const isCached = cachedAppIdsSet.has(game.appId);
+                        return (
+                          <button
+                            key={game.appId}
+                            onClick={() => toggleGame(game.appId)}
+                            className="w-full flex items-center gap-3 px-4 py-3 text-left smooth-transition bg-transparent border-b border-[var(--theme-border-secondary)] hover:bg-[var(--theme-bg-hover)]"
+                          >
+                            <div className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center bg-transparent border-2 border-[var(--theme-border-primary)]" />
+                            <div className="flex-1 min-w-0">
+                              <div className="truncate font-medium text-[var(--theme-text-primary)]">
+                                {game.name}
+                              </div>
+                              <div className="text-xs text-[var(--theme-text-muted)] flex items-center gap-2">
+                                <span>App ID: {game.appId}</span>
+                                {isCached && (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[var(--theme-success)]/15 text-[var(--theme-success)]">
+                                    <Database className="h-2.5 w-2.5" />
+                                    Cached
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                            <div className="text-xs text-[var(--theme-text-muted)]">
-                              App ID: {game.appId}
-                            </div>
-                          </div>
-                        </button>
-                      ))}
+                          </button>
+                        );
+                      })}
                     </div>
                   </CustomScrollbar>
                 </div>

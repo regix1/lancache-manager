@@ -18,17 +18,20 @@ public class PrefillAdminController : ControllerBase
 {
     private readonly PrefillSessionService _sessionService;
     private readonly SteamPrefillDaemonService _daemonService;
+    private readonly PrefillCacheService _cacheService;
     private readonly ILogger<PrefillAdminController> _logger;
     private readonly IHubContext<DownloadHub> _hubContext;
 
     public PrefillAdminController(
         PrefillSessionService sessionService,
         SteamPrefillDaemonService daemonService,
+        PrefillCacheService cacheService,
         ILogger<PrefillAdminController> logger,
         IHubContext<DownloadHub> hubContext)
     {
         _sessionService = sessionService;
         _daemonService = daemonService;
+        _cacheService = cacheService;
         _logger = logger;
         _hubContext = hubContext;
     }
@@ -318,6 +321,86 @@ public class PrefillAdminController : ControllerBase
     }
 
     #endregion
+
+    #region Prefill Cache
+
+    /// <summary>
+    /// Gets all cached apps with their cache timestamps.
+    /// </summary>
+    [HttpGet("cache")]
+    public async Task<ActionResult<List<CachedAppDto>>> GetCachedApps()
+    {
+        var apps = await _cacheService.GetCachedAppsAsync();
+
+        return Ok(apps.Select(a => new CachedAppDto
+        {
+            AppId = a.AppId,
+            AppName = a.AppName,
+            DepotCount = a.DepotCount,
+            TotalBytes = a.TotalBytes,
+            CachedAtUtc = a.CachedAtUtc,
+            CachedBy = a.CachedBy
+        }).ToList());
+    }
+
+    /// <summary>
+    /// Checks if specific apps are cached. Returns which ones are cached.
+    /// </summary>
+    [HttpPost("cache/check")]
+    public async Task<ActionResult<CacheCheckResponse>> CheckAppsCached([FromBody] List<uint> appIds)
+    {
+        if (appIds == null || appIds.Count == 0)
+        {
+            return BadRequest(ApiResponse.Error("No app IDs provided"));
+        }
+
+        var cachedApps = await _cacheService.GetCachedAppsAsync();
+        var cachedAppIds = cachedApps.Select(a => a.AppId).ToHashSet();
+
+        var result = new CacheCheckResponse
+        {
+            CachedAppIds = appIds.Where(id => cachedAppIds.Contains(id)).ToList(),
+            UncachedAppIds = appIds.Where(id => !cachedAppIds.Contains(id)).ToList(),
+            CacheInfo = cachedApps
+                .Where(a => appIds.Contains(a.AppId))
+                .Select(a => new CachedAppDto
+                {
+                    AppId = a.AppId,
+                    AppName = a.AppName,
+                    DepotCount = a.DepotCount,
+                    TotalBytes = a.TotalBytes,
+                    CachedAtUtc = a.CachedAtUtc,
+                    CachedBy = a.CachedBy
+                })
+                .ToList()
+        };
+
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Clears cache for a specific app (for force re-download).
+    /// </summary>
+    [HttpDelete("cache/{appId}")]
+    public async Task<ActionResult> ClearAppCache(uint appId)
+    {
+        await _cacheService.ClearAppCacheAsync(appId);
+        _logger.LogInformation("Cache cleared for app {AppId} by {DeviceId}", appId, GetDeviceId());
+        return Ok(ApiResponse.Message($"Cache cleared for app {appId}"));
+    }
+
+    /// <summary>
+    /// Clears the entire prefill cache.
+    /// </summary>
+    [HttpDelete("cache")]
+    public async Task<ActionResult> ClearAllCache()
+    {
+        await _cacheService.ClearAllCacheAsync();
+        _logger.LogInformation("Entire prefill cache cleared by {DeviceId}", GetDeviceId());
+        return Ok(ApiResponse.Message("Prefill cache cleared"));
+    }
+
+    #endregion
 }
 
 #region DTOs
@@ -396,6 +479,23 @@ public class BanByUsernameRequest
     public string? Reason { get; set; }
     public string? DeviceId { get; set; }
     public DateTime? ExpiresAt { get; set; }
+}
+
+public class CachedAppDto
+{
+    public uint AppId { get; set; }
+    public string? AppName { get; set; }
+    public int DepotCount { get; set; }
+    public long TotalBytes { get; set; }
+    public DateTime CachedAtUtc { get; set; }
+    public string? CachedBy { get; set; }
+}
+
+public class CacheCheckResponse
+{
+    public List<uint> CachedAppIds { get; set; } = new();
+    public List<uint> UncachedAppIds { get; set; } = new();
+    public List<CachedAppDto> CacheInfo { get; set; } = new();
 }
 
 #endregion

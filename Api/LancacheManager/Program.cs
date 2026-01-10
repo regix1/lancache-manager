@@ -360,6 +360,9 @@ builder.Services.AddSingleton<CorruptionDetectionService>();
 // Register PrefillSessionService for ban management and session persistence
 builder.Services.AddSingleton<PrefillSessionService>();
 
+// Register PrefillCacheService for tracking cached depots across sessions
+builder.Services.AddSingleton<PrefillCacheService>();
+
 // Register SteamPrefillDaemonService for secure daemon-based prefill management
 builder.Services.AddSingleton<SteamPrefillDaemonService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<SteamPrefillDaemonService>());
