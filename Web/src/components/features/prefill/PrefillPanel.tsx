@@ -181,7 +181,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const isCancelling = useRef(false);
 
   // Use context for log entries (persists across tab switches)
-  const { logEntries, addLog, clearLogs, backgroundCompletion, setBackgroundCompletion, clearBackgroundCompletion } = usePrefillContext();
+  const { logEntries, addLog, clearLogs, backgroundCompletion, setBackgroundCompletion, clearBackgroundCompletion, isCompletionDismissed } = usePrefillContext();
 
   // Track page visibility for background completion detection
   const isPageHiddenRef = useRef(document.hidden);
@@ -637,8 +637,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                 const completedTime = new Date(lastResult.completedAt).getTime();
                 const now = Date.now();
 
-                // If completed in last 5 minutes, show the notification
-                if (now - completedTime < 5 * 60 * 1000) {
+                // If completed in last 5 minutes and not already dismissed, show the notification
+                if (now - completedTime < 5 * 60 * 1000 && !isCompletionDismissed(lastResult.completedAt)) {
                   setBackgroundCompletion({
                     completedAt: lastResult.completedAt,
                     message: `Prefill completed in ${lastResult.durationSeconds}s`,
@@ -670,7 +670,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       setIsConnecting(false);
       return null;
     }
-  }, [session, onSessionEnd, handleAuthStateChanged, addLog, setBackgroundCompletion, clearBackgroundCompletion]);
+  }, [session, onSessionEnd, handleAuthStateChanged, addLog, setBackgroundCompletion, clearBackgroundCompletion, isCompletionDismissed]);
 
   // Check for existing sessions and reconnect if found
   const initializeSession = useCallback(async () => {
@@ -729,10 +729,10 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             const completedTime = new Date(lastResult.completedAt).getTime();
             const now = Date.now();
 
-            // Show notification if completed in last 5 minutes
+            // Show notification if completed in last 5 minutes and not already dismissed
             if (now - completedTime < 5 * 60 * 1000) {
               const currentBgCompletion = sessionStorage.getItem('prefill_background_completion');
-              if (!currentBgCompletion) {
+              if (!currentBgCompletion && !isCompletionDismissed(lastResult.completedAt)) {
                 setBackgroundCompletion({
                   completedAt: lastResult.completedAt,
                   message: `Prefill completed in ${lastResult.durationSeconds}s`,
@@ -752,7 +752,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     } finally {
       setIsInitializing(false);
     }
-  }, [connectToHub, addLog, formatTimeRemaining]);
+  }, [connectToHub, addLog, formatTimeRemaining, setBackgroundCompletion, isCompletionDismissed]);
 
   // Initialize on mount - empty deps to run only once
   useEffect(() => {
@@ -1132,10 +1132,10 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
               const completedTime = new Date(lastResult.completedAt).getTime();
               const now = Date.now();
 
-              // If completed in last 5 minutes, show the notification
+              // If completed in last 5 minutes and not already dismissed, show the notification
               if (now - completedTime < 5 * 60 * 1000) {
                 const currentBgCompletion = sessionStorage.getItem('prefill_background_completion');
-                if (!currentBgCompletion) {
+                if (!currentBgCompletion && !isCompletionDismissed(lastResult.completedAt)) {
                   setBackgroundCompletion({
                     completedAt: lastResult.completedAt,
                     message: `Prefill completed in ${lastResult.durationSeconds}s`,
@@ -1166,7 +1166,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [setBackgroundCompletion, addLog]);
+  }, [setBackgroundCompletion, addLog, isCompletionDismissed]);
 
   // Auto-dismiss background completion notification after 10 seconds
   useEffect(() => {

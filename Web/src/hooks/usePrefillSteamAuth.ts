@@ -42,6 +42,9 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
 
   // Track if we're in device confirmation mode to handle success correctly
   const isWaitingForDeviceConfirmationRef = useRef(false);
+  
+  // Track if we've started authentication (to avoid showing error on initial NotAuthenticated state)
+  const hasStartedAuthRef = useRef(false);
 
   // Form state
   const [username, setUsername] = useState('');
@@ -70,7 +73,35 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
 
         // Note: PrefillPanel's handleAuthStateChanged handles the log entry,
         // so we don't add a notification here to avoid duplicates
+        hasStartedAuthRef.current = false;
         onSuccess?.();
+      } else if (newState === 'NotAuthenticated') {
+        // Login failed - clear any pending timeouts and reset state
+        if (deviceConfirmationTimeoutRef.current) {
+          clearTimeout(deviceConfirmationTimeoutRef.current);
+          deviceConfirmationTimeoutRef.current = null;
+        }
+        
+        // Only show error if we were actively trying to authenticate
+        const wasAuthenticating = hasStartedAuthRef.current;
+        
+        isWaitingForDeviceConfirmationRef.current = false;
+        setWaitingForMobileConfirmation(false);
+        setNeedsTwoFactor(false);
+        setNeedsEmailCode(false);
+        setLoading(false);
+        setPendingChallenge(null);
+        
+        if (wasAuthenticating) {
+          addNotification({
+            type: 'generic',
+            status: 'failed',
+            message: 'Authentication failed. Please check your credentials and try again.',
+            details: { notificationType: 'error' }
+          });
+          onError?.('Authentication failed');
+        }
+        hasStartedAuthRef.current = false;
       }
     };
 
@@ -79,7 +110,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     return () => {
       hubConnection.off('AuthStateChanged', handleAuthStateChanged);
     };
-  }, [hubConnection, sessionId, onSuccess]);
+  }, [hubConnection, sessionId, onSuccess, addNotification, onError]);
 
   // Listen for credential challenges from the daemon
   useEffect(() => {
@@ -327,6 +358,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     }
 
     setLoading(true);
+    hasStartedAuthRef.current = true;
 
     try {
       // Start login to get initial challenge (username)

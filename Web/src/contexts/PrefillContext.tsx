@@ -4,6 +4,7 @@ import { createLogEntry } from '@components/features/prefill/ActivityLog';
 
 const STORAGE_KEY = 'prefill_activity_log';
 const BACKGROUND_COMPLETION_KEY = 'prefill_background_completion';
+const DISMISSED_COMPLETION_KEY = 'prefill_dismissed_completion_at';
 const MAX_LOG_ENTRIES = 500; // Limit stored entries to prevent storage bloat
 
 export interface BackgroundCompletion {
@@ -23,6 +24,8 @@ interface PrefillContextType {
   backgroundCompletion: BackgroundCompletion | null;
   setBackgroundCompletion: (completion: BackgroundCompletion | null) => void;
   clearBackgroundCompletion: () => void;
+  // Track dismissed completion to prevent re-showing
+  isCompletionDismissed: (completedAt: string) => boolean;
 }
 
 const PrefillContext = createContext<PrefillContextType | undefined>(undefined);
@@ -152,11 +155,30 @@ export const PrefillProvider: React.FC<PrefillProviderProps> = ({ children }) =>
   }, []);
 
   const clearBackgroundCompletion = useCallback(() => {
+    // Record the completedAt timestamp before clearing so we don't re-show it
+    const current = backgroundCompletion;
+    if (current?.completedAt) {
+      try {
+        sessionStorage.setItem(DISMISSED_COMPLETION_KEY, current.completedAt);
+      } catch {
+        // Ignore errors
+      }
+    }
     setBackgroundCompletionState(null);
     try {
       sessionStorage.removeItem(BACKGROUND_COMPLETION_KEY);
     } catch {
       // Ignore errors
+    }
+  }, [backgroundCompletion]);
+
+  // Check if a completion with a specific timestamp has been dismissed
+  const isCompletionDismissed = useCallback((completedAt: string): boolean => {
+    try {
+      const dismissedAt = sessionStorage.getItem(DISMISSED_COMPLETION_KEY);
+      return dismissedAt === completedAt;
+    } catch {
+      return false;
     }
   }, []);
 
@@ -168,7 +190,8 @@ export const PrefillProvider: React.FC<PrefillProviderProps> = ({ children }) =>
     setSessionId,
     backgroundCompletion,
     setBackgroundCompletion,
-    clearBackgroundCompletion
+    clearBackgroundCompletion,
+    isCompletionDismissed
   };
 
   return <PrefillContext.Provider value={value}>{children}</PrefillContext.Provider>;

@@ -1481,9 +1481,6 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                             progress.CurrentAppName,
                             progress.Depots.Select(d => (d.DepotId, d.ManifestId, d.TotalBytes)),
                             session.SteamUsername);
-
-                        _logger.LogDebug("Recorded {Count} cached depots for app {AppId}",
-                            progress.Depots.Count, progress.CurrentAppId);
                     }
                     catch (Exception cacheEx)
                     {
