@@ -485,6 +485,21 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         _logger.LogInformation("Starting login for session {SessionId}. ResponsesDir: {ResponsesDir}",
             sessionId, session.ResponsesDir);
 
+        // If already authenticated, don't change state - just check with daemon
+        if (session.AuthState == DaemonAuthState.Authenticated)
+        {
+            _logger.LogInformation("Session {SessionId} is already authenticated, checking daemon status", sessionId);
+            var existingChallenge = await session.Client.StartLoginAsync(timeout, cancellationToken);
+            if (existingChallenge == null)
+            {
+                // Daemon confirms we're still logged in
+                _logger.LogInformation("Session {SessionId} confirmed authenticated by daemon", sessionId);
+                return null;
+            }
+            // Daemon needs re-authentication - fall through to normal flow
+            _logger.LogInformation("Session {SessionId} requires re-authentication", sessionId);
+        }
+
         // Log what files exist in the responses directory
         if (Directory.Exists(session.ResponsesDir))
         {
