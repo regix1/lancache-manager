@@ -583,10 +583,11 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       // Handle daemon session updated (broadcast to all clients)
       connection.on('DaemonSessionUpdated', (sessionDto: PrefillSessionDto) => {
         // Update session if it matches our current session
+        // Note: We don't update isLoggedIn here - AuthStateChanged is the authoritative source
+        // for auth state. DaemonSessionUpdated may contain stale auth state during login flow.
         setSession((currentSession) => {
           if (currentSession && sessionDto.id === currentSession.id) {
             setTimeRemaining(sessionDto.timeRemainingSeconds);
-            setIsLoggedIn(sessionDto.authState === 'Authenticated');
             return sessionDto;
           }
           return currentSession;
