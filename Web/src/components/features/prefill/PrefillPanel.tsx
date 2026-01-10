@@ -602,7 +602,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       });
 
       connection.onreconnected(async (connectionId) => {
-        console.log('Hub reconnected:', connectionId);
+        console.log('[PrefillPanel] Hub reconnected:', connectionId);
         addLog('success', 'Reconnected to server');
         // Re-subscribe to session if we have one (use ref to get current value)
         const currentSession = sessionRef.current;
@@ -613,35 +613,52 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             // Check if prefill completed while we were disconnected
             // Query the server for the last prefill result
             try {
+              // IMPORTANT: Reset the progress ref since we're reconnecting.
+              // If we were receiving progress before disconnect, the final state event
+              // was never received, leaving this ref stale. Reconnecting means we're
+              // definitely not actively receiving progress anymore.
+              const wasReceivingProgress = isReceivingProgressRef.current;
+              isReceivingProgressRef.current = false;
+              console.log('[PrefillPanel] onreconnected - Checking for missed completion. wasReceivingProgress:', wasReceivingProgress);
+
               const lastResult = await connection.invoke('GetLastPrefillResult', currentSession.id) as {
                 status: string;
                 completedAt: string;
                 durationSeconds: number;
               } | null;
 
+              console.log('[PrefillPanel] onreconnected - GetLastPrefillResult:', lastResult);
+
               if (lastResult && lastResult.status === 'completed') {
                 const completedTime = new Date(lastResult.completedAt).getTime();
                 const now = Date.now();
-                // If completed in last 5 minutes and we don't have a background notification yet
-                // and we're not actively receiving progress updates
-                if (now - completedTime < 5 * 60 * 1000 && !isReceivingProgressRef.current) {
+                const ageMinutes = (now - completedTime) / 60000;
+                console.log('[PrefillPanel] onreconnected - Completion age:', ageMinutes.toFixed(1), 'minutes');
+
+                // If completed in last 5 minutes, show the notification
+                if (now - completedTime < 5 * 60 * 1000) {
+                  console.log('[PrefillPanel] onreconnected - Showing background completion notification');
                   setBackgroundCompletion({
                     completedAt: lastResult.completedAt,
                     message: `Prefill completed in ${lastResult.durationSeconds}s`,
                     duration: lastResult.durationSeconds
                   });
                   addLog('success', `Prefill completed while disconnected (${lastResult.durationSeconds}s)`);
+                } else {
+                  console.log('[PrefillPanel] onreconnected - Completion too old, not showing notification');
                 }
+              } else {
+                console.log('[PrefillPanel] onreconnected - No completed prefill found or status not completed');
               }
             } catch (err) {
-              console.debug('Failed to check last prefill result:', err);
+              console.debug('[PrefillPanel] Failed to check last prefill result:', err);
               // Non-critical - don't fail reconnection
             }
 
             // Clear any stale tracking flags
             try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
           } catch (err) {
-            console.error('Failed to resubscribe:', err);
+            console.error('[PrefillPanel] Failed to resubscribe:', err);
           }
         }
       });
@@ -1049,27 +1066,54 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         const currentSession = sessionRef.current;
         if (!currentSession) return;
 
+        console.log('[PrefillPanel] Visibility changed - page became visible');
+
         // Helper function to check last prefill result
-        const checkLastPrefillResult = async () => {
+        const checkLastPrefillResult = async (attempt = 1) => {
+          console.log('[PrefillPanel] checkLastPrefillResult attempt', attempt,
+            'connection state:', hubConnection.current?.state);
+
           if (!hubConnection.current || hubConnection.current.state !== 'Connected') {
+            // If not connected and we haven't retried too many times, retry
+            if (attempt < 3) {
+              console.log('[PrefillPanel] Not connected, will retry in 2 seconds');
+              setTimeout(() => checkLastPrefillResult(attempt + 1), 2000);
+            } else {
+              console.log('[PrefillPanel] Not connected after 3 attempts, giving up');
+            }
             return;
           }
 
           try {
+            // IMPORTANT: Reset the progress ref since we're checking after visibility change.
+            // If we were receiving progress before tab switch, the connection may have dropped
+            // and the final state event was never received, leaving this ref stale.
+            const wasReceivingProgress = isReceivingProgressRef.current;
+            isReceivingProgressRef.current = false;
+            console.log('[PrefillPanel] checkLastPrefillResult - wasReceivingProgress:', wasReceivingProgress);
+
             const lastResult = await hubConnection.current.invoke('GetLastPrefillResult', currentSession.id) as {
               status: string;
               completedAt: string;
               durationSeconds: number;
             } | null;
 
+            console.log('[PrefillPanel] checkLastPrefillResult - GetLastPrefillResult:', lastResult);
+
             if (lastResult && lastResult.status === 'completed') {
               const completedTime = new Date(lastResult.completedAt).getTime();
               const now = Date.now();
-              // If completed in last 5 minutes and we're not actively receiving progress
-              if (now - completedTime < 5 * 60 * 1000 && !isReceivingProgressRef.current) {
+              const ageMinutes = (now - completedTime) / 60000;
+              console.log('[PrefillPanel] checkLastPrefillResult - Completion age:', ageMinutes.toFixed(1), 'minutes');
+
+              // If completed in last 5 minutes, show the notification
+              if (now - completedTime < 5 * 60 * 1000) {
                 // Check current backgroundCompletion state to avoid duplicates
                 const currentBgCompletion = sessionStorage.getItem('prefill_background_completion');
+                console.log('[PrefillPanel] checkLastPrefillResult - Existing notification in storage:', !!currentBgCompletion);
+
                 if (!currentBgCompletion) {
+                  console.log('[PrefillPanel] checkLastPrefillResult - Showing background completion notification');
                   setBackgroundCompletion({
                     completedAt: lastResult.completedAt,
                     message: `Prefill completed in ${lastResult.durationSeconds}s`,
@@ -1077,10 +1121,14 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                   });
                   addLog('success', `Prefill completed while in background (${lastResult.durationSeconds}s)`);
                 }
+              } else {
+                console.log('[PrefillPanel] checkLastPrefillResult - Completion too old, not showing notification');
               }
+            } else {
+              console.log('[PrefillPanel] checkLastPrefillResult - No completed prefill found or status not completed');
             }
           } catch (err) {
-            console.debug('Failed to check last prefill result on visibility change:', err);
+            console.debug('[PrefillPanel] Failed to check last prefill result on visibility change:', err);
           }
 
           // Clear any stale tracking flags
@@ -1093,9 +1141,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         } else {
           // If not connected yet, wait a bit for reconnection then check
           // The onreconnected handler will also check, but this is a fallback
-          setTimeout(async () => {
-            await checkLastPrefillResult();
-          }, 2000);
+          console.log('[PrefillPanel] Not connected on visibility change, waiting for reconnection');
+          setTimeout(() => checkLastPrefillResult(), 2000);
         }
       }
     };
