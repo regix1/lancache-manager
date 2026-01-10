@@ -1199,10 +1199,11 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             // Log raw JSON for debugging bytes issue
             _logger.LogInformation("Raw progress JSON: {Json}", json);
 
-            // Note: PropertyNameCaseInsensitive handles camelCase/PascalCase
+            // Use snake_case naming policy to match daemon output (e.g., bytes_downloaded, total_bytes)
             var progress = JsonSerializer.Deserialize<PrefillProgress>(json, new JsonSerializerOptions
             {
-                PropertyNameCaseInsensitive = true
+                PropertyNameCaseInsensitive = true,
+                PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
             });
 
             if (progress != null)
@@ -2305,61 +2306,25 @@ public class LastPrefillResultDto
 
 /// <summary>
 /// Prefill progress update from the daemon.
-/// Uses JsonPropertyName to handle snake_case from daemon output.
 /// </summary>
 public class PrefillProgress
 {
-    [JsonPropertyName("state")]
     public string State { get; set; } = "idle";
-
-    [JsonPropertyName("message")]
     public string? Message { get; set; }
-
-    [JsonPropertyName("current_app_id")]
     public uint CurrentAppId { get; set; }
-
-    [JsonPropertyName("current_app_name")]
     public string? CurrentAppName { get; set; }
-
-    [JsonPropertyName("total_bytes")]
     public long TotalBytes { get; set; }
-
-    [JsonPropertyName("bytes_downloaded")]
     public long BytesDownloaded { get; set; }
-
-    [JsonPropertyName("percent_complete")]
     public double PercentComplete { get; set; }
-
-    [JsonPropertyName("bytes_per_second")]
     public double BytesPerSecond { get; set; }
-
-    [JsonPropertyName("elapsed_seconds")]
     public double ElapsedSeconds { get; set; }
-
-    [JsonPropertyName("result")]
     public string? Result { get; set; }
-
-    [JsonPropertyName("error_message")]
     public string? ErrorMessage { get; set; }
-
-    [JsonPropertyName("total_apps")]
     public int TotalApps { get; set; }
-
-    [JsonPropertyName("updated_apps")]
     public int UpdatedApps { get; set; }
-
-    [JsonPropertyName("already_up_to_date")]
     public int AlreadyUpToDate { get; set; }
-
-    [JsonPropertyName("failed_apps")]
     public int FailedApps { get; set; }
-
-    [JsonPropertyName("total_bytes_transferred")]
     public long TotalBytesTransferred { get; set; }
-
-    [JsonPropertyName("total_time_seconds")]
     public double TotalTimeSeconds { get; set; }
-
-    [JsonPropertyName("updated_at")]
     public DateTime UpdatedAt { get; set; }
 }
