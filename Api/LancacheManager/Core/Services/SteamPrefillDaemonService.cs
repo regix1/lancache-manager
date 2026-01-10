@@ -1351,20 +1351,25 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                 }
             }
 
-            // Start a new history entry for the current app
-            try
+            // Start a new history entry for the current app, but NOT if we're in a final state
+            // (completed/failed/error means the entire prefill operation is done, no new entry needed)
+            var isFinalState = progress.State == "completed" || progress.State == "failed" || progress.State == "error";
+            if (!isFinalState)
             {
-                await _sessionService.StartPrefillEntryAsync(session.Id, progress.CurrentAppId, progress.CurrentAppName);
+                try
+                {
+                    await _sessionService.StartPrefillEntryAsync(session.Id, progress.CurrentAppId, progress.CurrentAppName);
 
-                _logger.LogDebug("Started prefill history for app {AppId} ({AppName}) in session {SessionId}",
-                    progress.CurrentAppId, progress.CurrentAppName, session.Id);
+                    _logger.LogDebug("Started prefill history for app {AppId} ({AppName}) in session {SessionId}",
+                        progress.CurrentAppId, progress.CurrentAppName, session.Id);
 
-                // Broadcast history update
-                await BroadcastPrefillHistoryUpdatedAsync(session.Id, progress.CurrentAppId, "InProgress");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to start prefill history entry for app {AppId}", progress.CurrentAppId);
+                    // Broadcast history update
+                    await BroadcastPrefillHistoryUpdatedAsync(session.Id, progress.CurrentAppId, "InProgress");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to start prefill history entry for app {AppId}", progress.CurrentAppId);
+                }
             }
 
             // Reset bytes tracking for the new app
