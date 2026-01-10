@@ -89,7 +89,7 @@ const HistoryStatusBadge: React.FC<{ status: string; completedAtUtc?: string }> 
         return { bg: 'var(--theme-icon-red)', text: '#fff' };
       case 'cancelled':
         return { bg: 'var(--theme-icon-orange)', text: '#fff' };
-      case 'skipped':
+      case 'cached':
         return { bg: 'var(--theme-text-muted)', text: '#fff' };
       default:
         return { bg: 'var(--theme-bg-tertiary)', text: 'var(--theme-text-secondary)' };
@@ -106,7 +106,7 @@ const HistoryStatusBadge: React.FC<{ status: string; completedAtUtc?: string }> 
       case 'failed': return 'Failed';
       case 'error': return 'Error';
       case 'cancelled': return 'Cancelled';
-      case 'skipped': return 'Skipped';
+      case 'cached': return 'Cached';
       default: return status;
     }
   };
@@ -763,7 +763,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                                         )}
                                         {(entry.bytesDownloaded > 0 || entry.totalBytes > 0) && (
                                           <span>
-                                            {entry.totalBytes > 0 && entry.bytesDownloaded !== entry.totalBytes && entry.status.toLowerCase() !== 'skipped'
+                                            {entry.totalBytes > 0 && entry.bytesDownloaded !== entry.totalBytes && entry.status.toLowerCase() !== 'cached'
                                               ? `${formatBytes(entry.bytesDownloaded)} / ${formatBytes(entry.totalBytes)}`
                                               : formatBytes(entry.bytesDownloaded || entry.totalBytes)}
                                           </span>

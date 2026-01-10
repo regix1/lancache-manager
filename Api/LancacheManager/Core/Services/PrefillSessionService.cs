@@ -380,16 +380,16 @@ public class PrefillSessionService
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
-        // Check if this app was just completed or skipped (within last 5 seconds) - don't create duplicate
+        // Check if this app was just completed or cached (within last 5 seconds) - don't create duplicate
         var recentCutoff = DateTime.UtcNow.AddSeconds(-5);
         var recentlyFinished = await context.PrefillHistoryEntries
             .Where(e => e.SessionId == sessionId && e.AppId == appId)
-            .Where(e => (e.Status == "Completed" || e.Status == "Skipped") && e.CompletedAtUtc != null && e.CompletedAtUtc > recentCutoff)
+            .Where(e => (e.Status == "Completed" || e.Status == "Cached") && e.CompletedAtUtc != null && e.CompletedAtUtc > recentCutoff)
             .AnyAsync();
 
         if (recentlyFinished)
         {
-            _logger.LogDebug("Skipping InProgress entry for app {AppId} - was just completed or skipped", appId);
+            _logger.LogDebug("Skipping InProgress entry for app {AppId} - was just completed or cached", appId);
             return null;
         }
 

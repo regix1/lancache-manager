@@ -1358,8 +1358,8 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             {
                 try
                 {
-                    // If no bytes were downloaded, mark as Skipped (cached)
-                    var status = session.CurrentBytesDownloaded == 0 ? "Skipped" : "Completed";
+                    // If no bytes were downloaded, mark as Cached
+                    var status = session.CurrentBytesDownloaded == 0 ? "Cached" : "Completed";
 
                     await _sessionService.CompletePrefillEntryAsync(
                         session.Id,
@@ -1430,13 +1430,13 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             {
                 // Check the Result field from daemon to determine if game was actually downloaded
                 // "Success" = downloaded, "AlreadyUpToDate"/"Skipped"/"NoDepotsToDownload" = cached/skipped
-                var isSkipped = progress.Result is "AlreadyUpToDate" or "Skipped" or "NoDepotsToDownload";
+                var isCached = progress.Result is "AlreadyUpToDate" or "Skipped" or "NoDepotsToDownload";
 
                 // Determine the status based on the result
                 string status;
-                if (isSkipped)
+                if (isCached)
                 {
-                    status = "Skipped";
+                    status = "Cached";
                 }
                 else if (progress.Result == "Failed")
                 {
@@ -1489,11 +1489,11 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             {
                 try
                 {
-                    // Determine status: Skipped if no bytes on success, Failed if error, Completed otherwise
+                    // Determine status: Cached if no bytes on success, Failed if error, Completed otherwise
                     string status;
                     if (progress.State == "completed" && session.CurrentBytesDownloaded == 0)
                     {
-                        status = "Skipped";
+                        status = "Cached";
                     }
                     else if (progress.State == "failed" || progress.State == "error")
                     {
