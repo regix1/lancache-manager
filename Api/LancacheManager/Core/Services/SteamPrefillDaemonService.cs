@@ -1197,26 +1197,33 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             var json = await File.ReadAllTextAsync(filePath);
 
             // Log raw JSON for debugging bytes issue
-            _logger.LogInformation("Raw progress JSON: {Json}", json);
+            _logger.LogDebug("Raw progress JSON: {Json}", json);
 
-            // Use snake_case naming policy to match daemon output (e.g., bytes_downloaded, total_bytes)
-            var progress = JsonSerializer.Deserialize<PrefillProgress>(json, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true,
-                PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
-            });
+            // Deserialize using the internal DTO with JsonPropertyName attributes for snake_case
+            var dto = JsonSerializer.Deserialize<DaemonPrefillProgressDto>(json);
 
-            if (progress != null)
+            if (dto != null)
             {
-                _logger.LogInformation("Parsed progress - AppId: {AppId}, AppName: {AppName}, State: {State}, BytesDownloaded: {Bytes}, TotalBytes: {Total}",
+                // Convert to PrefillProgress for internal use and SignalR
+                var progress = PrefillProgress.FromDaemonJson(dto);
+
+                _logger.LogDebug("Parsed progress - AppId: {AppId}, AppName: {AppName}, State: {State}, BytesDownloaded: {Bytes}, TotalBytes: {Total}",
                     progress.CurrentAppId, progress.CurrentAppName, progress.State, progress.BytesDownloaded, progress.TotalBytes);
 
                 await NotifyPrefillProgressAsync(session, progress);
+            }
+            else
+            {
+                _logger.LogWarning("Failed to deserialize progress JSON (returned null). Raw JSON: {Json}", json);
             }
         }
         catch (FileNotFoundException)
         {
             // File was deleted during read - prefill completed
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "JSON deserialization error for progress file {Path}", filePath);
         }
         catch (Exception ex)
         {
@@ -2306,6 +2313,7 @@ public class LastPrefillResultDto
 
 /// <summary>
 /// Prefill progress update from the daemon.
+/// This class is used for SignalR serialization to the frontend - do NOT add JsonPropertyName attributes.
 /// </summary>
 public class PrefillProgress
 {
@@ -2326,5 +2334,96 @@ public class PrefillProgress
     public int FailedApps { get; set; }
     public long TotalBytesTransferred { get; set; }
     public double TotalTimeSeconds { get; set; }
+    public DateTime UpdatedAt { get; set; }
+
+    /// <summary>
+    /// Creates a PrefillProgress from the daemon's JSON format (snake_case).
+    /// Internal because it uses the internal DaemonPrefillProgressDto type.
+    /// </summary>
+    internal static PrefillProgress FromDaemonJson(DaemonPrefillProgressDto dto)
+    {
+        return new PrefillProgress
+        {
+            State = dto.State ?? "idle",
+            Message = dto.Message,
+            CurrentAppId = dto.CurrentAppId,
+            CurrentAppName = dto.CurrentAppName,
+            TotalBytes = dto.TotalBytes,
+            BytesDownloaded = dto.BytesDownloaded,
+            PercentComplete = dto.PercentComplete,
+            BytesPerSecond = dto.BytesPerSecond,
+            ElapsedSeconds = dto.ElapsedSeconds,
+            Result = dto.Result,
+            ErrorMessage = dto.ErrorMessage,
+            TotalApps = dto.TotalApps,
+            UpdatedApps = dto.UpdatedApps,
+            AlreadyUpToDate = dto.AlreadyUpToDate,
+            FailedApps = dto.FailedApps,
+            TotalBytesTransferred = dto.TotalBytesTransferred,
+            TotalTimeSeconds = dto.TotalTimeSeconds,
+            UpdatedAt = dto.UpdatedAt
+        };
+    }
+}
+
+/// <summary>
+/// Internal DTO for deserializing the daemon's prefill_progress.json file.
+/// Uses JsonPropertyName attributes to map snake_case JSON to PascalCase properties.
+/// This class is NOT used for SignalR - only for file deserialization.
+/// </summary>
+internal class DaemonPrefillProgressDto
+{
+    [JsonPropertyName("state")]
+    public string? State { get; set; }
+
+    [JsonPropertyName("message")]
+    public string? Message { get; set; }
+
+    [JsonPropertyName("current_app_id")]
+    public uint CurrentAppId { get; set; }
+
+    [JsonPropertyName("current_app_name")]
+    public string? CurrentAppName { get; set; }
+
+    [JsonPropertyName("total_bytes")]
+    public long TotalBytes { get; set; }
+
+    [JsonPropertyName("bytes_downloaded")]
+    public long BytesDownloaded { get; set; }
+
+    [JsonPropertyName("percent_complete")]
+    public double PercentComplete { get; set; }
+
+    [JsonPropertyName("bytes_per_second")]
+    public double BytesPerSecond { get; set; }
+
+    [JsonPropertyName("elapsed_seconds")]
+    public double ElapsedSeconds { get; set; }
+
+    [JsonPropertyName("result")]
+    public string? Result { get; set; }
+
+    [JsonPropertyName("error_message")]
+    public string? ErrorMessage { get; set; }
+
+    [JsonPropertyName("total_apps")]
+    public int TotalApps { get; set; }
+
+    [JsonPropertyName("updated_apps")]
+    public int UpdatedApps { get; set; }
+
+    [JsonPropertyName("already_up_to_date")]
+    public int AlreadyUpToDate { get; set; }
+
+    [JsonPropertyName("failed_apps")]
+    public int FailedApps { get; set; }
+
+    [JsonPropertyName("total_bytes_transferred")]
+    public long TotalBytesTransferred { get; set; }
+
+    [JsonPropertyName("total_time_seconds")]
+    public double TotalTimeSeconds { get; set; }
+
+    [JsonPropertyName("updated_at")]
     public DateTime UpdatedAt { get; set; }
 }
