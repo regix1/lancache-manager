@@ -1351,25 +1351,24 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                 }
             }
 
-            // Start a new history entry for the current app, but NOT if we're in a final state
-            // (completed/failed/error means the entire prefill operation is done, no new entry needed)
-            var isFinalState = progress.State == "completed" || progress.State == "failed" || progress.State == "error";
-            if (!isFinalState)
+            // Start a new history entry for the current app
+            try
             {
-                try
-                {
-                    await _sessionService.StartPrefillEntryAsync(session.Id, progress.CurrentAppId, progress.CurrentAppName);
+                var entry = await _sessionService.StartPrefillEntryAsync(session.Id, progress.CurrentAppId, progress.CurrentAppName);
 
+                // Only broadcast if an entry was actually created (won't create if recently completed)
+                if (entry != null)
+                {
                     _logger.LogDebug("Started prefill history for app {AppId} ({AppName}) in session {SessionId}",
                         progress.CurrentAppId, progress.CurrentAppName, session.Id);
 
                     // Broadcast history update
                     await BroadcastPrefillHistoryUpdatedAsync(session.Id, progress.CurrentAppId, "InProgress");
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to start prefill history entry for app {AppId}", progress.CurrentAppId);
-                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to start prefill history entry for app {AppId}", progress.CurrentAppId);
             }
 
             // Reset bytes tracking for the new app

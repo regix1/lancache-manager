@@ -371,15 +371,29 @@ public class PrefillSessionService
 
     /// <summary>
     /// Records the start of a game prefill.
+    /// Returns null if the app was recently completed (prevents duplicate entries).
     /// </summary>
-    public async Task<PrefillHistoryEntry> StartPrefillEntryAsync(
+    public async Task<PrefillHistoryEntry?> StartPrefillEntryAsync(
         string sessionId,
         uint appId,
         string? appName)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
-        // First, clean up any stale "InProgress" entries for this app in this session
+        // Check if this app was just completed (within last 5 seconds) - don't create duplicate
+        var recentCutoff = DateTime.UtcNow.AddSeconds(-5);
+        var recentlyCompleted = await context.PrefillHistoryEntries
+            .Where(e => e.SessionId == sessionId && e.AppId == appId)
+            .Where(e => e.Status == "Completed" && e.CompletedAtUtc != null && e.CompletedAtUtc > recentCutoff)
+            .AnyAsync();
+
+        if (recentlyCompleted)
+        {
+            _logger.LogDebug("Skipping InProgress entry for app {AppId} - was just completed", appId);
+            return null;
+        }
+
+        // Clean up any stale "InProgress" entries for this app in this session
         // This prevents duplicate entries when prefill is restarted or interrupted
         var staleEntries = await context.PrefillHistoryEntries
             .Where(e => e.SessionId == sessionId && e.AppId == appId && e.Status == "InProgress")
