@@ -727,7 +727,8 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                         session.Id,
                         session.CurrentAppId,
                         result.Success ? "Completed" : "Failed",
-                        0, 0, // bytes will be in the result
+                        session.CurrentBytesDownloaded,
+                        session.CurrentTotalBytes,
                         result.Success ? null : "Prefill ended");
 
                     await BroadcastPrefillHistoryUpdatedAsync(session.Id, session.CurrentAppId,

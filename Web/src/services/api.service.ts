@@ -1438,16 +1438,8 @@ class ApiService {
     signal?: AbortSignal
   ): Promise<PrefillHistoryEntryDto[]> {
     try {
-      console.log(`[ApiService] getPrefillSessionHistory - Fetching for sessionId: ${sessionId}`);
       const res = await fetch(`${API_BASE}/prefill-admin/sessions/${sessionId}/history`, this.getFetchOptions({ signal }));
-      const data = await this.handleResponse<PrefillHistoryEntryDto[]>(res);
-      console.log(`[ApiService] getPrefillSessionHistory - Got ${data.length} entries for ${sessionId}:`, data);
-      if (data.length > 0) {
-        data.forEach((entry, i) => {
-          console.log(`  [ApiService] Entry ${i}: appId=${entry.appId}, bytesDownloaded=${entry.bytesDownloaded}, totalBytes=${entry.totalBytes}, status=${entry.status}, completedAtUtc=${entry.completedAtUtc}`);
-        });
-      }
-      return data;
+      return await this.handleResponse<PrefillHistoryEntryDto[]>(res);
     } catch (error: unknown) {
       if (!isAbortError(error)) console.error('getPrefillSessionHistory error:', error);
       throw error;

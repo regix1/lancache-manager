@@ -68,11 +68,8 @@ const HistoryStatusBadge: React.FC<{ status: string; completedAtUtc?: string }> 
   const getEffectiveStatus = () => {
     const normalizedStatus = status.toLowerCase();
 
-    console.log(`[HistoryStatusBadge] status=${status}, normalizedStatus=${normalizedStatus}, completedAtUtc=${completedAtUtc}`);
-
     // If completedAtUtc is set but status is still InProgress, treat as Completed
     if (completedAtUtc && normalizedStatus === 'inprogress') {
-      console.log('[HistoryStatusBadge] Overriding InProgress -> Completed due to completedAtUtc');
       return 'completed';
     }
 
@@ -209,14 +206,11 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   // Load sessions and pre-fetch history for summary badges
   const loadSessions = useCallback(async () => {
     setLoadingSessions(true);
-    console.log('[PrefillSessions] loadSessions - Starting...');
     try {
       const [sessionsRes, activeRes] = await Promise.all([
         ApiService.getPrefillSessions(page, pageSize, statusFilter || undefined),
         ApiService.getActivePrefillSessions()
       ]);
-      console.log('[PrefillSessions] loadSessions - Sessions:', sessionsRes.sessions);
-      console.log('[PrefillSessions] loadSessions - Active sessions:', activeRes);
       setSessions(sessionsRes.sessions);
       setTotalCount(sessionsRes.totalCount);
       setActiveSessions(activeRes);
@@ -226,10 +220,8 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       const historyPromises = sessionsRes.sessions.map(async (session) => {
         try {
           const history = await ApiService.getPrefillSessionHistory(session.sessionId);
-          console.log(`[PrefillSessions] History for ${session.sessionId}:`, history);
           return { sessionId: session.sessionId, history };
-        } catch (err) {
-          console.error(`[PrefillSessions] Failed to load history for ${session.sessionId}:`, err);
+        } catch {
           return { sessionId: session.sessionId, history: [] };
         }
       });
@@ -238,33 +230,21 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       const activeHistoryPromises = activeRes.map(async (session) => {
         try {
           const history = await ApiService.getPrefillSessionHistory(session.id);
-          console.log(`[PrefillSessions] Active session history for ${session.id}:`, history);
           return { sessionId: session.id, history };
-        } catch (err) {
-          console.error(`[PrefillSessions] Failed to load history for active session ${session.id}:`, err);
+        } catch {
           return { sessionId: session.id, history: [] };
         }
       });
 
       // Combine results without blocking
       Promise.all([...historyPromises, ...activeHistoryPromises]).then((results) => {
-        console.log('[PrefillSessions] All history results:', results);
         const newHistoryData: Record<string, PrefillHistoryEntryDto[]> = {};
         results.forEach(({ sessionId, history }) => {
           newHistoryData[sessionId] = history;
-          // Debug: Log each entry's bytes
-          if (history.length > 0) {
-            const totalBytes = history.reduce((sum, e) => sum + Math.max(e.bytesDownloaded, e.totalBytes || 0), 0);
-            console.log(`[PrefillSessions] Session ${sessionId} - ${history.length} entries, totalBytes: ${totalBytes}`);
-            history.forEach((e, i) => {
-              console.log(`  Entry ${i}: appId=${e.appId}, bytesDownloaded=${e.bytesDownloaded}, totalBytes=${e.totalBytes}, status=${e.status}, completedAtUtc=${e.completedAtUtc}`);
-            });
-          }
         });
         setHistoryData(prev => ({ ...prev, ...newHistoryData }));
       });
     } catch (error) {
-      console.error('[PrefillSessions] loadSessions error:', error);
       onError(getErrorMessage(error));
     } finally {
       setLoadingSessions(false);
@@ -286,20 +266,11 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
 
   // Load prefill history for a session
   const loadHistory = useCallback(async (sessionId: string) => {
-    console.log(`[PrefillSessions] loadHistory - Loading for session: ${sessionId}`);
     setLoadingHistory(prev => new Set(prev).add(sessionId));
     try {
       const history = await ApiService.getPrefillSessionHistory(sessionId);
-      console.log(`[PrefillSessions] loadHistory - Got ${history.length} entries for ${sessionId}:`, history);
-      // Debug each entry
-      history.forEach((e, i) => {
-        console.log(`  Entry ${i}: appId=${e.appId}, appName=${e.appName}, bytesDownloaded=${e.bytesDownloaded}, totalBytes=${e.totalBytes}, status=${e.status}, completedAtUtc=${e.completedAtUtc}`);
-      });
-      const totalBytes = history.reduce((sum, e) => sum + Math.max(e.bytesDownloaded, e.totalBytes || 0), 0);
-      console.log(`[PrefillSessions] loadHistory - Total bytes for ${sessionId}: ${totalBytes}`);
       setHistoryData(prev => ({ ...prev, [sessionId]: history }));
     } catch (error) {
-      console.error(`[PrefillSessions] loadHistory error for ${sessionId}:`, error);
       onError(getErrorMessage(error));
     } finally {
       setLoadingHistory(prev => {
@@ -336,15 +307,6 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     loadBans();
   }, [loadBans]);
 
-  // Debug: Log when historyData changes
-  useEffect(() => {
-    console.log('[PrefillSessions] historyData updated:', historyData);
-    Object.entries(historyData).forEach(([sessionId, entries]) => {
-      const totalBytes = entries.reduce((sum, e) => sum + Math.max(e.bytesDownloaded, e.totalBytes || 0), 0);
-      console.log(`[PrefillSessions] Session ${sessionId}: ${entries.length} entries, ${totalBytes} bytes total`);
-    });
-  }, [historyData]);
-
   // SignalR subscriptions for real-time updates
   useEffect(() => {
     const handleSessionCreated = (session: DaemonSessionCreatedEvent) => {
@@ -361,17 +323,30 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       );
     };
 
-    const handleSessionTerminated = (event: DaemonSessionTerminatedEvent) => {
+    const handleSessionTerminated = async (event: DaemonSessionTerminatedEvent) => {
       setActiveSessions(prev => prev.filter(s => s.id !== event.sessionId));
-      // Reload session history to show the terminated session
-      loadSessions();
+      // Reload sessions to show the terminated session in history
+      try {
+        const [sessionsRes, activeRes] = await Promise.all([
+          ApiService.getPrefillSessions(1, 20),
+          ApiService.getActivePrefillSessions()
+        ]);
+        setSessions(sessionsRes.sessions);
+        setTotalCount(sessionsRes.totalCount);
+        setActiveSessions(activeRes);
+      } catch {
+        // Ignore errors in SignalR handler
+      }
     };
 
-    const handlePrefillHistoryUpdated = (event: PrefillHistoryUpdatedEvent) => {
-      console.log('[PrefillSessions] PrefillHistoryUpdated event received:', event);
-      // Reload history for this session - both for expanded views and summary badges
-      // Since history is pre-loaded for summary badges, we should update it on any history change
-      loadHistory(event.sessionId);
+    const handlePrefillHistoryUpdated = async (event: PrefillHistoryUpdatedEvent) => {
+      // Reload history for this session
+      try {
+        const history = await ApiService.getPrefillSessionHistory(event.sessionId);
+        setHistoryData(prev => ({ ...prev, [event.sessionId]: history }));
+      } catch {
+        // Ignore errors in SignalR handler
+      }
     };
 
     on('DaemonSessionCreated', handleSessionCreated);
@@ -385,7 +360,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       off('DaemonSessionTerminated', handleSessionTerminated);
       off('PrefillHistoryUpdated', handlePrefillHistoryUpdated);
     };
-  }, [on, off, loadSessions, expandedHistory, loadHistory]);
+  }, [on, off]);
 
   // Terminate a single session
   const handleTerminateSession = async (sessionId: string) => {
@@ -565,15 +540,6 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                 ? sessionHistory.reduce((sum, e) => sum + Math.max(e.bytesDownloaded, e.totalBytes || 0), 0)
                 : 0;
               const gamesCount = sessionHistory?.length || 0;
-
-              // Debug: Log render-time calculations
-              console.log(`[PrefillSessions] Rendering active session ${session.id}:`, {
-                hasHistory: !!sessionHistory,
-                historyLength: sessionHistory?.length || 0,
-                totalBytesFromHistory,
-                gamesCount,
-                historyEntries: sessionHistory
-              });
 
               return (
               <Card key={session.id}>
@@ -890,16 +856,6 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                   ? sessionHistory.reduce((sum, e) => sum + Math.max(e.bytesDownloaded, e.totalBytes || 0), 0)
                   : 0;
                 const gamesCount = sessionHistory?.length || 0;
-
-                // Debug: Log render-time calculations for session history
-                console.log(`[PrefillSessions] Rendering session history ${session.sessionId}:`, {
-                  sessionId: session.sessionId,
-                  hasHistory: !!sessionHistory,
-                  historyLength: sessionHistory?.length || 0,
-                  totalBytesFromHistory,
-                  gamesCount,
-                  historyEntries: sessionHistory
-                });
 
                 return (
                   <Card key={session.id}>
