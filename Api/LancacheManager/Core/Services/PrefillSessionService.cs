@@ -469,32 +469,6 @@ public class PrefillSessionService
     }
 
     /// <summary>
-    /// Deletes an in-progress prefill entry (for cached/skipped games).
-    /// </summary>
-    public async Task DeletePrefillEntryAsync(string sessionId, uint appId)
-    {
-        await using var context = await _contextFactory.CreateDbContextAsync();
-
-        var entry = await context.PrefillHistoryEntries
-            .Where(e => e.SessionId == sessionId && e.AppId == appId && e.Status == "InProgress")
-            .OrderByDescending(e => e.StartedAtUtc)
-            .FirstOrDefaultAsync();
-
-        if (entry == null)
-        {
-            _logger.LogDebug("No in-progress prefill entry found to delete for session {SessionId}, app {AppId}",
-                sessionId, appId);
-            return;
-        }
-
-        context.PrefillHistoryEntries.Remove(entry);
-        await context.SaveChangesAsync();
-
-        _logger.LogDebug("Deleted prefill entry for session {SessionId}: {AppName} ({AppId}) - skipped/cached",
-            sessionId, entry.AppName, appId);
-    }
-
-    /// <summary>
     /// Gets prefill history for a session.
     /// </summary>
     public async Task<List<PrefillHistoryEntry>> GetPrefillHistoryAsync(string sessionId)

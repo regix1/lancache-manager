@@ -724,30 +724,37 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             {
                 try
                 {
-                    // Skip cached games (bytesDownloaded = 0) on successful completion
+                    // Determine status: Skipped if no bytes on success, Failed if error, Completed otherwise
+                    string status;
                     if (result.Success && session.CurrentBytesDownloaded == 0)
                     {
-                        await _sessionService.DeletePrefillEntryAsync(session.Id, session.CurrentAppId);
-                        _logger.LogInformation("Final app skipped (cached): {AppId} ({AppName})",
-                            session.CurrentAppId, session.CurrentAppName);
+                        status = "Skipped";
+                    }
+                    else if (!result.Success)
+                    {
+                        status = "Failed";
                     }
                     else
                     {
-                        await _sessionService.CompletePrefillEntryAsync(
-                            session.Id,
-                            session.CurrentAppId,
-                            result.Success ? "Completed" : "Failed",
-                            session.CurrentBytesDownloaded,
-                            session.CurrentTotalBytes,
-                            result.Success ? null : "Prefill ended");
-
-                        await BroadcastPrefillHistoryUpdatedAsync(session.Id, session.CurrentAppId,
-                            result.Success ? "Completed" : "Failed");
+                        status = "Completed";
                     }
+
+                    await _sessionService.CompletePrefillEntryAsync(
+                        session.Id,
+                        session.CurrentAppId,
+                        status,
+                        session.CurrentBytesDownloaded,
+                        session.CurrentTotalBytes,
+                        result.Success ? null : "Prefill ended");
+
+                    _logger.LogInformation("Final app {Status}: {AppId} ({AppName})",
+                        status, session.CurrentAppId, session.CurrentAppName);
+
+                    await BroadcastPrefillHistoryUpdatedAsync(session.Id, session.CurrentAppId, status);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to complete/skip final prefill history entry");
+                    _logger.LogWarning(ex, "Failed to complete final prefill history entry");
                 }
             }
 
@@ -1351,33 +1358,26 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             {
                 try
                 {
-                    // Skip cached games (bytesDownloaded = 0) - delete the in-progress entry
-                    if (session.CurrentBytesDownloaded == 0)
-                    {
-                        await _sessionService.DeletePrefillEntryAsync(session.Id, session.CurrentAppId);
-                        _logger.LogInformation("App skipped (cached): {AppId} ({AppName}) in session {SessionId}",
-                            session.CurrentAppId, session.CurrentAppName, session.Id);
-                    }
-                    else
-                    {
-                        await _sessionService.CompletePrefillEntryAsync(
-                            session.Id,
-                            session.CurrentAppId,
-                            "Completed",
-                            session.CurrentBytesDownloaded,
-                            session.CurrentTotalBytes);
+                    // If no bytes were downloaded, mark as Skipped (cached)
+                    var status = session.CurrentBytesDownloaded == 0 ? "Skipped" : "Completed";
 
-                        _logger.LogInformation("Completed prefill history for app {AppId} ({AppName}) in session {SessionId}: {Bytes}/{Total} bytes",
-                            session.CurrentAppId, session.CurrentAppName, session.Id,
-                            session.CurrentBytesDownloaded, session.CurrentTotalBytes);
+                    await _sessionService.CompletePrefillEntryAsync(
+                        session.Id,
+                        session.CurrentAppId,
+                        status,
+                        session.CurrentBytesDownloaded,
+                        session.CurrentTotalBytes);
 
-                        // Broadcast history update
-                        await BroadcastPrefillHistoryUpdatedAsync(session.Id, session.CurrentAppId, "Completed");
-                    }
+                    _logger.LogInformation("App {Status} in session {SessionId}: {AppId} ({AppName}) - {Bytes}/{Total} bytes",
+                        status, session.Id, session.CurrentAppId, session.CurrentAppName,
+                        session.CurrentBytesDownloaded, session.CurrentTotalBytes);
+
+                    // Broadcast history update
+                    await BroadcastPrefillHistoryUpdatedAsync(session.Id, session.CurrentAppId, status);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to complete/skip prefill history entry for app {AppId}", session.CurrentAppId);
+                    _logger.LogWarning(ex, "Failed to complete prefill history entry for app {AppId}", session.CurrentAppId);
                 }
             }
 
@@ -1421,47 +1421,55 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         }
 
         // Handle individual app completion (daemon sends "app_completed" for each app)
-        if (progress.State == "app_completed")
+        // IMPORTANT: Use progress.CurrentAppId here, NOT session.CurrentAppId
+        // For cached games, daemon sends app_completed without a prior "downloading" event,
+        // so session.CurrentAppId may still point to the previous app
+        if (progress.State == "app_completed" && progress.CurrentAppId > 0)
         {
-            if (session.CurrentAppId > 0)
+            try
             {
-                try
-                {
-                    // Check the Result field from daemon to determine if game was actually downloaded
-                    // "Success" = downloaded, "AlreadyUpToDate"/"Skipped"/"NoDepotsToDownload" = cached/skipped
-                    var isSkipped = progress.Result is "AlreadyUpToDate" or "Skipped" or "NoDepotsToDownload";
+                // Check the Result field from daemon to determine if game was actually downloaded
+                // "Success" = downloaded, "AlreadyUpToDate"/"Skipped"/"NoDepotsToDownload" = cached/skipped
+                var isSkipped = progress.Result is "AlreadyUpToDate" or "Skipped" or "NoDepotsToDownload";
 
-                    if (isSkipped)
-                    {
-                        await _sessionService.DeletePrefillEntryAsync(session.Id, session.CurrentAppId);
-                        _logger.LogInformation("App skipped ({Result}): {AppId} ({AppName})",
-                            progress.Result, session.CurrentAppId, session.CurrentAppName);
-                    }
-                    else
-                    {
-                        await _sessionService.CompletePrefillEntryAsync(
-                            session.Id,
-                            session.CurrentAppId,
-                            progress.Result == "Failed" ? "Failed" : "Completed",
-                            session.CurrentBytesDownloaded,
-                            session.CurrentTotalBytes);
-
-                        _logger.LogInformation("App completed ({Result}): {AppId} ({AppName}) - {Bytes}/{Total} bytes",
-                            progress.Result, session.CurrentAppId, session.CurrentAppName,
-                            session.CurrentBytesDownloaded, session.CurrentTotalBytes);
-                        // Broadcast history update
-                        await BroadcastPrefillHistoryUpdatedAsync(session.Id, session.CurrentAppId,
-                            progress.Result == "Failed" ? "Failed" : "Completed");
-                    }
-                }
-                catch (Exception ex)
+                // Determine the status based on the result
+                string status;
+                if (isSkipped)
                 {
-                    _logger.LogWarning(ex, "Failed to complete/skip prefill history entry for app {AppId}", session.CurrentAppId);
+                    status = "Skipped";
                 }
+                else if (progress.Result == "Failed")
+                {
+                    status = "Failed";
+                }
+                else
+                {
+                    status = "Completed";
+                }
+
+                await _sessionService.CompletePrefillEntryAsync(
+                    session.Id,
+                    progress.CurrentAppId,
+                    status,
+                    session.CurrentBytesDownloaded,
+                    session.CurrentTotalBytes);
+
+                _logger.LogInformation("App {Status} ({Result}): {AppId} ({AppName}) - {Bytes}/{Total} bytes",
+                    status, progress.Result, progress.CurrentAppId, progress.CurrentAppName,
+                    session.CurrentBytesDownloaded, session.CurrentTotalBytes);
+
+                // Broadcast history update
+                await BroadcastPrefillHistoryUpdatedAsync(session.Id, progress.CurrentAppId, status);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to complete/skip prefill history entry for app {AppId}", progress.CurrentAppId);
             }
             // Update tracking for completed app
             session.PreviousAppId = session.CurrentAppId;
             session.PreviousAppName = session.CurrentAppName;
+            session.CurrentAppId = progress.CurrentAppId;
+            session.CurrentAppName = progress.CurrentAppName;
             // Reset bytes for next app
             session.CurrentBytesDownloaded = 0;
             session.CurrentTotalBytes = 0;
@@ -1475,34 +1483,38 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             {
                 try
                 {
-                    // Skip cached games (bytesDownloaded = 0) on successful completion
+                    // Determine status: Skipped if no bytes on success, Failed if error, Completed otherwise
+                    string status;
                     if (progress.State == "completed" && session.CurrentBytesDownloaded == 0)
                     {
-                        await _sessionService.DeletePrefillEntryAsync(session.Id, session.CurrentAppId);
-                        _logger.LogInformation("App skipped (cached): {AppId} ({AppName})",
-                            session.CurrentAppId, session.CurrentAppName);
+                        status = "Skipped";
+                    }
+                    else if (progress.State == "failed" || progress.State == "error")
+                    {
+                        status = "Failed";
                     }
                     else
                     {
-                        var status = progress.State == "completed" ? "Completed" : "Failed";
-                        await _sessionService.CompletePrefillEntryAsync(
-                            session.Id,
-                            session.CurrentAppId,
-                            status,
-                            session.CurrentBytesDownloaded,
-                            session.CurrentTotalBytes,
-                            progress.ErrorMessage);
-
-                        _logger.LogDebug("Completed prefill history for app {AppId} ({AppName}) with status {Status}",
-                            session.CurrentAppId, session.CurrentAppName, status);
-
-                        // Broadcast history update
-                        await BroadcastPrefillHistoryUpdatedAsync(session.Id, session.CurrentAppId, status);
+                        status = "Completed";
                     }
+
+                    await _sessionService.CompletePrefillEntryAsync(
+                        session.Id,
+                        session.CurrentAppId,
+                        status,
+                        session.CurrentBytesDownloaded,
+                        session.CurrentTotalBytes,
+                        progress.ErrorMessage);
+
+                    _logger.LogDebug("App {Status} for {AppId} ({AppName})",
+                        status, session.CurrentAppId, session.CurrentAppName);
+
+                    // Broadcast history update
+                    await BroadcastPrefillHistoryUpdatedAsync(session.Id, session.CurrentAppId, status);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to complete/skip prefill history entry for app {AppId}", session.CurrentAppId);
+                    _logger.LogWarning(ex, "Failed to complete prefill history entry for app {AppId}", session.CurrentAppId);
                 }
             }
         }
