@@ -468,6 +468,16 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             setPrefillProgress(progress);
             // Track elapsed time for background completion message
             prefillDurationRef.current = progress.elapsedSeconds;
+          } else if (progress.state === 'app_completed') {
+            // When a game completes, show it at 100% briefly before transitioning
+            // This prevents the progress bar from disappearing between games
+            setPrefillProgress(prev => prev ? {
+              ...prev,
+              state: 'app_completed',
+              percentComplete: 100,
+              // Keep showing the completed app name
+              currentAppName: progress.currentAppName || prev.currentAppName
+            } : null);
           } else if (
             progress.state === 'loading-metadata' ||
             progress.state === 'metadata-loaded' ||
@@ -490,10 +500,11 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
               bytesDownloaded: 0,
               totalBytes: 0
             });
-          } else {
-            // Clear progress for any other state (app_completed, etc.)
+          } else if (progress.state === 'completed' || progress.state === 'failed' || progress.state === 'cancelled') {
+            // Only clear progress for final states
             setPrefillProgress(null);
           }
+          // For other states (like intermediate status updates), keep current progress visible
         }
       );
 
@@ -1672,11 +1683,14 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                               ? 'Starting'
                               : prefillProgress.state === 'preparing'
                                 ? 'Preparing'
-                                : 'Downloading'}
+                                : prefillProgress.state === 'app_completed'
+                                  ? 'Loading Next Game'
+                                  : 'Downloading'}
                       </p>
-                      {prefillProgress.state === 'downloading' && (
+                      {(prefillProgress.state === 'downloading' || prefillProgress.state === 'app_completed') && (
                         <p className="text-sm text-themed-muted truncate max-w-[300px]">
                           {prefillProgress.currentAppName || `App ${prefillProgress.currentAppId}`}
+                          {prefillProgress.state === 'app_completed' && ' - Complete'}
                         </p>
                       )}
                     </div>
@@ -1703,7 +1717,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                 {/* Progress Bar */}
                 <div className="space-y-2">
                   <div className="h-3 rounded-full overflow-hidden bg-[var(--theme-progress-bg)]">
-                    {prefillProgress.state === 'downloading' ? (
+                    {prefillProgress.state === 'downloading' || prefillProgress.state === 'app_completed' ? (
                       <div
                         className="h-full rounded-full transition-all duration-300 ease-out bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-accent)]"
                         style={{ width: `${Math.min(100, prefillProgress.percentComplete)}%` }}
@@ -1725,6 +1739,10 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                         {prefillProgress.percentComplete.toFixed(1)}%
                       </span>
                     </div>
+                  ) : prefillProgress.state === 'app_completed' ? (
+                    <p className="text-sm text-themed-muted text-center">
+                      Loading next game...
+                    </p>
                   ) : (
                     <p className="text-sm text-themed-muted text-center">
                       {prefillProgress.message || 'Preparing prefill operation...'}
