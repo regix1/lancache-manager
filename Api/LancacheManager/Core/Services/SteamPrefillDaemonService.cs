@@ -1394,20 +1394,16 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             {
                 try
                 {
-                    // Use best available bytes: prefer progress (from daemon) if available, fall back to stored
-                    var bytesDownloaded = progress.BytesDownloaded > 0 ? progress.BytesDownloaded : session.CurrentBytesDownloaded;
-                    var totalBytes = progress.TotalBytes > 0 ? progress.TotalBytes : session.CurrentTotalBytes;
-
                     await _sessionService.CompletePrefillEntryAsync(
                         session.Id,
                         session.CurrentAppId,
                         "Completed",
-                        bytesDownloaded,
-                        totalBytes);
+                        session.CurrentBytesDownloaded,
+                        session.CurrentTotalBytes);
 
                     _logger.LogInformation("App completed: {AppId} ({AppName}) - {Bytes}/{Total} bytes",
                         session.CurrentAppId, session.CurrentAppName,
-                        bytesDownloaded, totalBytes);
+                        session.CurrentBytesDownloaded, session.CurrentTotalBytes);
 
                     // Broadcast history update
                     await BroadcastPrefillHistoryUpdatedAsync(session.Id, session.CurrentAppId, "Completed");
@@ -1434,18 +1430,13 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                 try
                 {
                     var status = progress.State == "completed" ? "Completed" : "Failed";
-                    // Use the best available bytes values:
-                    // - Prefer session values if they're larger (accumulated during download)
-                    // - Fall back to progress values (might be 0 on completion events)
-                    var bytesDownloaded = Math.Max(progress.BytesDownloaded, session.CurrentBytesDownloaded);
-                    var totalBytes = Math.Max(progress.TotalBytes, session.CurrentTotalBytes);
 
                     await _sessionService.CompletePrefillEntryAsync(
                         session.Id,
                         session.CurrentAppId,
                         status,
-                        bytesDownloaded,
-                        totalBytes,
+                        session.CurrentBytesDownloaded,
+                        session.CurrentTotalBytes,
                         progress.ErrorMessage);
 
                     _logger.LogDebug("Completed prefill history for app {AppId} ({AppName}) with status {Status}",
@@ -1462,12 +1453,18 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         }
 
         // Track current app's bytes for the next transition
-        // Only update when progress includes actual byte data (downloading events)
-        // Don't update from completion events which may have 0 bytes
-        if (progress.CurrentAppId > 0 && (progress.BytesDownloaded > 0 || progress.TotalBytes > 0))
+        // Update values independently - don't reset BytesDownloaded when TotalBytes is set but BytesDownloaded is 0
+        // This prevents completion events (which may have TotalBytes but BytesDownloaded=0) from wiping accumulated progress
+        if (progress.CurrentAppId > 0)
         {
-            session.CurrentBytesDownloaded = progress.BytesDownloaded;
-            session.CurrentTotalBytes = progress.TotalBytes;
+            if (progress.BytesDownloaded > 0)
+            {
+                session.CurrentBytesDownloaded = progress.BytesDownloaded;
+            }
+            if (progress.TotalBytes > 0)
+            {
+                session.CurrentTotalBytes = progress.TotalBytes;
+            }
         }
 
         // Update previous app tracking before changing current
