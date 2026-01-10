@@ -509,6 +509,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
       // Handle prefill state changes
       connection.on('PrefillStateChanged', (_sessionId: string, state: string, durationSeconds?: number) => {
+        console.log('[PrefillPanel] PrefillStateChanged received:', state, 'duration:', durationSeconds, 'pageHidden:', isPageHiddenRef.current);
+
         if (state === 'started') {
           addLog('download', 'Prefill operation started');
           prefillDurationRef.current = 0;
@@ -524,6 +526,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           } catch { /* ignore */ }
         } else if (state === 'completed') {
           const duration = durationSeconds || prefillDurationRef.current;
+          console.log('[PrefillPanel] Prefill completed! duration:', duration, 'pageHidden:', isPageHiddenRef.current);
           addLog('success', `Prefill completed in ${Math.round(duration)}s`);
           isCancelling.current = false;
           isReceivingProgressRef.current = false;
@@ -533,6 +536,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
           // If page was hidden, store background completion for notification
           if (isPageHiddenRef.current) {
+            console.log('[PrefillPanel] Page was hidden during completion, setting background completion');
             setBackgroundCompletion({
               completedAt: new Date().toISOString(),
               message: `Prefill completed in ${Math.round(duration)}s`,
