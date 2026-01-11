@@ -1469,6 +1469,37 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                         _logger.LogWarning(cacheEx, "Failed to record cached depots for app {AppId}", progress.CurrentAppId);
                     }
                 }
+
+                // Send the app completion event to frontend with appropriate state
+                // For cached games, use "already_cached" so frontend can show animation
+                // For downloaded games, use "app_completed"
+                var frontendProgress = new PrefillProgress
+                {
+                    State = isCached ? "already_cached" : "app_completed",
+                    CurrentAppId = progress.CurrentAppId,
+                    CurrentAppName = progress.CurrentAppName,
+                    TotalBytes = totalBytes,
+                    BytesDownloaded = bytesDownloaded,
+                    PercentComplete = 100,
+                    BytesPerSecond = 0,
+                    Result = progress.Result,
+                    TotalApps = progress.TotalApps,
+                    UpdatedApps = progress.UpdatedApps
+                };
+
+                foreach (var connectionId in session.SubscribedConnections.ToList())
+                {
+                    try
+                    {
+                        await _hubContext.Clients.Client(connectionId)
+                            .SendAsync("PrefillProgress", session.Id, frontendProgress);
+                    }
+                    catch (Exception notifyEx)
+                    {
+                        _logger.LogWarning(notifyEx, "Failed to notify app completion to {ConnectionId}", connectionId);
+                        session.SubscribedConnections.Remove(connectionId);
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -1482,6 +1513,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             // Reset bytes for next app
             session.CurrentBytesDownloaded = 0;
             session.CurrentTotalBytes = 0;
+
             return; // Early return - don't process further for app_completed
         }
 
