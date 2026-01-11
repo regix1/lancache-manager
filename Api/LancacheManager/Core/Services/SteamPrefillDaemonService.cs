@@ -1178,18 +1178,19 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         try
         {
             // Convert socket progress to internal PrefillProgress format
+            // Property names match daemon's PrefillProgressUpdate class
             var progress = new PrefillProgress
             {
-                State = socketProgress.Status ?? "downloading",
+                State = socketProgress.State ?? "downloading",
                 CurrentAppId = socketProgress.CurrentAppId,
-                CurrentAppName = socketProgress.CurrentApp,
+                CurrentAppName = socketProgress.CurrentAppName,
                 TotalBytes = socketProgress.TotalBytes,
-                BytesDownloaded = socketProgress.DownloadedBytes,
+                BytesDownloaded = socketProgress.BytesDownloaded,
                 PercentComplete = socketProgress.PercentComplete,
-                BytesPerSecond = socketProgress.BytesPerSecond,
+                BytesPerSecond = (long)socketProgress.BytesPerSecond,
                 TotalApps = socketProgress.TotalApps,
-                UpdatedApps = socketProgress.CompletedApps,
-                UpdatedAt = socketProgress.Timestamp
+                UpdatedApps = socketProgress.UpdatedApps,
+                UpdatedAt = socketProgress.UpdatedAt
             };
 
             _logger.LogDebug("Socket Progress: {AppName} ({AppId}) - {State}, {Bytes}/{Total} bytes",

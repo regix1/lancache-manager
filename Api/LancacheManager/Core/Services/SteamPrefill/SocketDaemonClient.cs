@@ -844,42 +844,67 @@ public sealed class SocketDaemonClient : IDaemonClient
 
 /// <summary>
 /// Progress update from prefill operation via socket.
+/// Matches daemon's PrefillProgressUpdate class property names.
 /// </summary>
 public class SocketPrefillProgress
 {
-    [JsonPropertyName("type")]
-    public string Type { get; set; } = "progress";
+    [JsonPropertyName("state")]
+    public string? State { get; set; }
 
-    [JsonPropertyName("currentApp")]
-    public string? CurrentApp { get; set; }
+    [JsonPropertyName("message")]
+    public string? Message { get; set; }
 
     [JsonPropertyName("currentAppId")]
     public uint CurrentAppId { get; set; }
 
-    [JsonPropertyName("completedApps")]
-    public int CompletedApps { get; set; }
-
-    [JsonPropertyName("totalApps")]
-    public int TotalApps { get; set; }
-
-    [JsonPropertyName("downloadedBytes")]
-    public long DownloadedBytes { get; set; }
+    [JsonPropertyName("currentAppName")]
+    public string? CurrentAppName { get; set; }
 
     [JsonPropertyName("totalBytes")]
     public long TotalBytes { get; set; }
 
-    [JsonPropertyName("bytesPerSecond")]
-    public long BytesPerSecond { get; set; }
+    [JsonPropertyName("bytesDownloaded")]
+    public long BytesDownloaded { get; set; }
 
     [JsonPropertyName("percentComplete")]
     public double PercentComplete { get; set; }
 
-    [JsonPropertyName("estimatedTimeRemaining")]
-    public string? EstimatedTimeRemaining { get; set; }
+    [JsonPropertyName("bytesPerSecond")]
+    public double BytesPerSecond { get; set; }
 
-    [JsonPropertyName("status")]
-    public string? Status { get; set; }
+    [JsonPropertyName("elapsed")]
+    public TimeSpan Elapsed { get; set; }
 
-    [JsonPropertyName("timestamp")]
-    public DateTime Timestamp { get; set; }
+    [JsonPropertyName("elapsedSeconds")]
+    public double ElapsedSeconds { get; set; }
+
+    [JsonPropertyName("result")]
+    public string? Result { get; set; }
+
+    [JsonPropertyName("errorMessage")]
+    public string? ErrorMessage { get; set; }
+
+    [JsonPropertyName("totalApps")]
+    public int TotalApps { get; set; }
+
+    [JsonPropertyName("updatedApps")]
+    public int UpdatedApps { get; set; }
+
+    [JsonPropertyName("alreadyUpToDate")]
+    public int AlreadyUpToDate { get; set; }
+
+    [JsonPropertyName("failedApps")]
+    public int FailedApps { get; set; }
+
+    [JsonPropertyName("totalBytesTransferred")]
+    public long TotalBytesTransferred { get; set; }
+
+    [JsonPropertyName("totalTime")]
+    public TimeSpan TotalTime { get; set; }
+
+    [JsonPropertyName("totalTimeSeconds")]
+    public double TotalTimeSeconds { get; set; }
+
+    [JsonPropertyName("updatedAt")]
+    public DateTime UpdatedAt { get; set; }
 }
