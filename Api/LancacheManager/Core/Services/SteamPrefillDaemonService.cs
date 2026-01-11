@@ -1124,6 +1124,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             // Update auth state based on credential type
             session.AuthState = challenge.CredentialType switch
             {
+                "username" => DaemonAuthState.UsernameRequired,
                 "password" => DaemonAuthState.PasswordRequired,
                 "2fa" => DaemonAuthState.TwoFactorRequired,
                 "steamguard" => DaemonAuthState.SteamGuardRequired,
@@ -2292,6 +2293,7 @@ public enum DaemonAuthState
 {
     NotAuthenticated,
     LoggingIn,
+    UsernameRequired,
     PasswordRequired,
     TwoFactorRequired,
     SteamGuardRequired,
