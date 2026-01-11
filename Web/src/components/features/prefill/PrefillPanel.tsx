@@ -982,7 +982,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             }
             addLog('download', `Starting prefill of ${selectedAppIds.length} selected apps...`);
             const result = await callPrefillApi(session.id, {});
-            setPrefillProgress(null); // Clear progress on completion
+            // Note: Don't clear progress here - let SignalR PrefillStateChanged handler manage it
+            // to allow cached game animations to complete properly
             if (result?.success) {
               const totalSeconds = result.totalSeconds || 0;
               addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
@@ -994,7 +995,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           case 'prefill-all': {
             addLog('download', 'Starting prefill of all owned games...');
             const result = await callPrefillApi(session.id, { all: true });
-            setPrefillProgress(null); // Clear progress on completion
+            // Note: Don't clear progress here - let SignalR PrefillStateChanged handler manage it
             if (result?.success) {
               const totalSeconds = result.totalSeconds || 0;
               addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
@@ -1006,7 +1007,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           case 'prefill-recent': {
             addLog('download', 'Starting prefill of recently played games...');
             const result = await callPrefillApi(session.id, { recent: true });
-            setPrefillProgress(null); // Clear progress on completion
+            // Note: Don't clear progress here - let SignalR PrefillStateChanged handler manage it
             if (result?.success) {
               const totalSeconds = result.totalSeconds || 0;
               addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
@@ -1018,7 +1019,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           case 'prefill-recent-purchased': {
             addLog('download', 'Starting prefill of recently purchased games...');
             const result = await callPrefillApi(session.id, { recentlyPurchased: true });
-            setPrefillProgress(null); // Clear progress on completion
+            // Note: Don't clear progress here - let SignalR PrefillStateChanged handler manage it
             if (result?.success) {
               const totalSeconds = result.totalSeconds || 0;
               addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
@@ -1030,7 +1031,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           case 'prefill-top': {
             addLog('download', 'Starting prefill of top 50 popular games...');
             const result = await callPrefillApi(session.id, { top: 50 });
-            setPrefillProgress(null); // Clear progress on completion
+            // Note: Don't clear progress here - let SignalR PrefillStateChanged handler manage it
             if (result?.success) {
               const totalSeconds = result.totalSeconds || 0;
               addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
@@ -1042,7 +1043,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           case 'prefill-force': {
             addLog('download', 'Starting force prefill (re-downloading)...');
             const result = await callPrefillApi(session.id, { force: true });
-            setPrefillProgress(null); // Clear progress on completion
+            // Note: Don't clear progress here - let SignalR PrefillStateChanged handler manage it
             if (result?.success) {
               const totalSeconds = result.totalSeconds || 0;
               addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
