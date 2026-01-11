@@ -452,6 +452,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             elapsedSeconds: number;
           }
         ) => {
+          console.log(`[DEBUG] PrefillProgress received: state=${progress.state}, app=${progress.currentAppName}, counter=${cachedAnimationCountRef.current}`);
           // Final states should reset the cancelling flag and clear progress
           const isFinalState =
             progress.state === 'completed' ||
@@ -494,6 +495,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
             // Increment animation counter so completion handler knows to wait
             cachedAnimationCountRef.current++;
+            console.log(`[DEBUG] already_cached received for ${progress.currentAppName}, counter now: ${cachedAnimationCountRef.current}`);
 
             // First set to 0% with the app name
             setPrefillProgress({
@@ -522,10 +524,12 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             // Use setTimeout to handle completion after animation (avoids closure issues)
             setTimeout(() => {
               cachedAnimationCountRef.current--;
+              console.log(`[DEBUG] Animation ended, counter now: ${cachedAnimationCountRef.current}, pending: ${!!pendingCompletionRef.current}`);
 
               // Check if there's a pending completion to show AND all animations are done
               const pending = pendingCompletionRef.current;
               if (pending && cachedAnimationCountRef.current === 0) {
+                console.log('[DEBUG] All animations done, showing completion from animation timeout');
                 pendingCompletionRef.current = null;
                 setPrefillProgress(null);
                 // Use ref to get current function (avoids stale closure)
@@ -579,6 +583,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       // Handle prefill state changes
       connection.on('PrefillStateChanged', (_sessionId: string, state: string, durationSeconds?: number) => {
         if (state === 'started') {
+          console.log('[DEBUG] PrefillStateChanged: started - resetting counter and pending');
           addLog('download', 'Prefill operation started');
           prefillDurationRef.current = 0;
           isReceivingProgressRef.current = true;
@@ -595,26 +600,38 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           } catch { /* ignore */ }
         } else if (state === 'completed') {
           const duration = durationSeconds || prefillDurationRef.current;
+          console.log(`[DEBUG] PrefillStateChanged: completed received, counter: ${cachedAnimationCountRef.current}`);
           addLog('success', `Prefill completed in ${Math.round(duration)}s`);
           isCancelling.current = false;
           isReceivingProgressRef.current = false;
           // Clear prefill in progress tracking
           try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
 
-          // If any cached game animations are in progress, defer the completion notification
-          if (cachedAnimationCountRef.current > 0) {
-            pendingCompletionRef.current = { duration };
-            // Don't clear progress yet - let the animation finish
-          } else {
-            // No animation in progress, show completion immediately
-            setPrefillProgress(null);
-            // Use ref to get current function (avoids stale closure)
-            setBackgroundCompletionRef.current({
-              completedAt: new Date().toISOString(),
-              message: `Prefill completed in ${Math.round(duration)}s`,
-              duration: duration
-            });
-          }
+          // Always store as pending first - this handles race conditions where
+          // 'completed' arrives before 'already_cached' events are processed
+          pendingCompletionRef.current = { duration };
+          console.log('[DEBUG] Stored pending completion, waiting 150ms for any pending events');
+
+          // Use a short delay to allow any pending already_cached events to be processed
+          // before checking if we should show completion immediately
+          setTimeout(() => {
+            console.log(`[DEBUG] 150ms timeout fired, counter: ${cachedAnimationCountRef.current}, pending: ${!!pendingCompletionRef.current}`);
+            // If animations started, they'll handle showing completion when done
+            // If no animations (counter still 0), show completion now
+            if (cachedAnimationCountRef.current === 0 && pendingCompletionRef.current) {
+              console.log('[DEBUG] Counter is 0, showing completion from 150ms timeout');
+              const pending = pendingCompletionRef.current;
+              pendingCompletionRef.current = null;
+              setPrefillProgress(null);
+              setBackgroundCompletionRef.current({
+                completedAt: new Date().toISOString(),
+                message: `Prefill completed in ${Math.round(pending.duration)}s`,
+                duration: pending.duration
+              });
+            } else {
+              console.log('[DEBUG] Counter > 0 or no pending, animations will handle completion');
+            }
+          }, 150); // Small delay to allow SignalR events to be processed
         } else if (state === 'failed') {
           addLog('error', 'Prefill operation failed');
           isCancelling.current = false;
