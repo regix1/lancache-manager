@@ -9,7 +9,7 @@ namespace LancacheManager.Core.Services.SteamPrefill;
 /// Client library for communicating with SteamPrefill daemon.
 /// Uses secure encrypted credential exchange (ECDH + AES-GCM).
 /// </summary>
-public sealed class DaemonClient : IDisposable
+public sealed class DaemonClient : IDaemonClient
 {
     private readonly string _commandsDir;
     private readonly string _responsesDir;

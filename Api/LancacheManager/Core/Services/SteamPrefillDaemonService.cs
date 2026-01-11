@@ -330,18 +330,38 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                 "doesn't resolve Steam CDN to lancache. Set Prefill__LancacheDnsIp or Prefill__NetworkMode=host.");
         }
 
+        // Determine if socket mode should be used
+        var useSocketMode = GetUseSocketMode();
+        var socketPath = useSocketMode ? Path.Combine(responsesDir, "daemon.sock") : null;
+
+        // Build command and environment based on mode
+        var cmd = useSocketMode
+            ? new List<string> { "daemon", "--socket" }
+            : new List<string> { "daemon", "-c", "/commands", "-r", "/responses" };
+
+        var env = new List<string>
+        {
+            $"PREFILL_COMMANDS_DIR=/commands",
+            $"PREFILL_RESPONSES_DIR=/responses"
+        };
+
+        if (useSocketMode)
+        {
+            // Socket is placed in responses directory for easy access
+            env.Add("PREFILL_USE_SOCKET=true");
+            env.Add("PREFILL_SOCKET_PATH=/responses/daemon.sock");
+        }
+
+        _logger.LogInformation("Creating daemon container for session {SessionId} in {Mode} mode",
+            sessionId, useSocketMode ? "socket" : "file");
+
         var createResponse = await _dockerClient.Containers.CreateContainerAsync(
             new CreateContainerParameters
             {
                 Name = containerName,
                 Image = imageName,
-                // Run in daemon mode - watches for command files
-                Cmd = new List<string> { "daemon", "-c", "/commands", "-r", "/responses" },
-                Env = new List<string>
-                {
-                    $"PREFILL_COMMANDS_DIR=/commands",
-                    $"PREFILL_RESPONSES_DIR=/responses"
-                },
+                Cmd = cmd,
+                Env = env,
                 HostConfig = hostConfig
             },
             cancellationToken);
@@ -429,14 +449,74 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             OperatingSystem = os,
             Browser = browser,
             LastSeenAt = DateTime.UtcNow,
-            NetworkDiagnostics = networkDiagnostics
+            NetworkDiagnostics = networkDiagnostics,
+            UseSocketMode = useSocketMode,
+            SocketPath = socketPath
         };
 
-        // Create daemon client
-        session.Client = new DaemonClient(commandsDir, responsesDir);
+        // Create daemon client based on mode
+        if (useSocketMode)
+        {
+            var socketClient = new SocketDaemonClient(socketPath!, _logger as ILogger<SocketDaemonClient>);
 
-        // Start watching for status and challenge files
-        StartStatusWatcher(session);
+            // Wire up socket events to session handlers
+            socketClient.OnCredentialChallenge += async challenge =>
+            {
+                await HandleSocketCredentialChallengeAsync(session, challenge);
+            };
+            socketClient.OnStatusUpdate += async status =>
+            {
+                await HandleStatusChangeFromSocketAsync(session, status);
+            };
+            socketClient.OnProgressUpdate += async progress =>
+            {
+                await HandleProgressChangeFromSocketAsync(session, progress);
+            };
+            socketClient.OnError += async error =>
+            {
+                _logger.LogWarning("Socket error for session {SessionId}: {Error}", sessionId, error);
+                await Task.CompletedTask;
+            };
+            socketClient.OnDisconnected += async () =>
+            {
+                _logger.LogWarning("Socket disconnected for session {SessionId}", sessionId);
+                await Task.CompletedTask;
+            };
+
+            // Connect to socket (daemon should create it shortly after starting)
+            try
+            {
+                await socketClient.ConnectAsync(cancellationToken);
+                _logger.LogInformation("Connected to daemon socket for session {SessionId}", sessionId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to connect to socket for session {SessionId}, falling back to file mode", sessionId);
+                socketClient.Dispose();
+
+                // Fall back to file-based client
+                session.UseSocketMode = false;
+                session.SocketPath = null;
+                session.Client = new DaemonClient(commandsDir, responsesDir);
+
+                // Start file watcher as fallback
+                StartStatusWatcher(session);
+            }
+
+            if (session.UseSocketMode)
+            {
+                session.Client = socketClient;
+                // No file watcher needed in socket mode - events come through socket
+            }
+        }
+        else
+        {
+            // Use file-based client
+            session.Client = new DaemonClient(commandsDir, responsesDir);
+
+            // Start watching for status and challenge files
+            StartStatusWatcher(session);
+        }
 
         _sessions[sessionId] = session;
 
@@ -1265,6 +1345,99 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         }
     }
 
+    #region Socket Event Handlers
+
+    /// <summary>
+    /// Handles credential challenge events from socket communication.
+    /// </summary>
+    private async Task HandleSocketCredentialChallengeAsync(DaemonSession session, CredentialChallenge challenge)
+    {
+        try
+        {
+            // Update auth state based on credential type
+            session.AuthState = challenge.CredentialType switch
+            {
+                "password" => DaemonAuthState.PasswordRequired,
+                "2fa" => DaemonAuthState.TwoFactorRequired,
+                "steamguard" => DaemonAuthState.SteamGuardRequired,
+                "device-confirmation" => DaemonAuthState.DeviceConfirmationRequired,
+                _ => session.AuthState
+            };
+
+            await NotifyCredentialChallengeAsync(session, challenge);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error handling socket credential challenge for session {SessionId}", session.Id);
+        }
+    }
+
+    /// <summary>
+    /// Handles status update events from socket communication.
+    /// </summary>
+    private async Task HandleStatusChangeFromSocketAsync(DaemonSession session, DaemonStatus status)
+    {
+        try
+        {
+            var previousAuthState = session.AuthState;
+
+            // Update auth state based on status
+            session.AuthState = status.Status switch
+            {
+                "awaiting-login" => DaemonAuthState.NotAuthenticated,
+                "logged-in" => DaemonAuthState.Authenticated,
+                _ => session.AuthState
+            };
+
+            if (session.AuthState != previousAuthState)
+            {
+                await NotifyAuthStateChangeAsync(session);
+            }
+
+            await NotifyStatusChangeAsync(session, status);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error handling socket status change for session {SessionId}", session.Id);
+        }
+    }
+
+    /// <summary>
+    /// Handles progress update events from socket communication.
+    /// </summary>
+    private async Task HandleProgressChangeFromSocketAsync(DaemonSession session, SocketPrefillProgress socketProgress)
+    {
+        try
+        {
+            // Convert socket progress to internal PrefillProgress format
+            var progress = new PrefillProgress
+            {
+                State = socketProgress.Status ?? "downloading",
+                CurrentAppId = socketProgress.CurrentAppId,
+                CurrentAppName = socketProgress.CurrentApp,
+                TotalBytes = socketProgress.TotalBytes,
+                BytesDownloaded = socketProgress.DownloadedBytes,
+                PercentComplete = socketProgress.PercentComplete,
+                BytesPerSecond = socketProgress.BytesPerSecond,
+                TotalApps = socketProgress.TotalApps,
+                UpdatedApps = socketProgress.CompletedApps,
+                UpdatedAt = socketProgress.Timestamp
+            };
+
+            _logger.LogDebug("Socket Progress: {AppName} ({AppId}) - {State}, {Bytes}/{Total} bytes",
+                progress.CurrentAppName, progress.CurrentAppId, progress.State,
+                progress.BytesDownloaded, progress.TotalBytes);
+
+            await NotifyPrefillProgressAsync(session, progress);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error handling socket progress for session {SessionId}", session.Id);
+        }
+    }
+
+    #endregion
+
     private async Task NotifyAuthStateChangeAsync(DaemonSession session)
     {
         foreach (var connectionId in session.SubscribedConnections.ToList())
@@ -1761,6 +1934,17 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     private int GetSessionTimeoutMinutes()
     {
         return _configuration.GetValue<int>("Prefill:SessionTimeoutMinutes", DefaultSessionTimeoutMinutes);
+    }
+
+    /// <summary>
+    /// Gets whether socket mode should be used for daemon communication.
+    /// Socket mode is more reliable than file-based communication but requires
+    /// the daemon to support it.
+    /// </summary>
+    private bool GetUseSocketMode()
+    {
+        // Default to true (socket mode) for better reliability
+        return _configuration.GetValue<bool>("Prefill:UseSocketMode", true);
     }
 
     /// <summary>
@@ -2332,8 +2516,18 @@ public class DaemonSession
     public int? LastPrefillDurationSeconds { get; set; }
     public string? LastPrefillStatus { get; set; }
 
-    public DaemonClient Client { get; set; } = null!;
+    public IDaemonClient Client { get; set; } = null!;
     public FileSystemWatcher? StatusWatcher { get; set; }
+
+    /// <summary>
+    /// Whether this session uses socket-based communication (more reliable) vs file-based.
+    /// </summary>
+    public bool UseSocketMode { get; set; }
+
+    /// <summary>
+    /// Path to the daemon's Unix socket (when using socket mode).
+    /// </summary>
+    public string? SocketPath { get; set; }
     public HashSet<string> SubscribedConnections { get; } = new();
     public CancellationTokenSource CancellationTokenSource { get; } = new();
 }
