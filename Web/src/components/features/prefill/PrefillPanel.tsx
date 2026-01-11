@@ -189,6 +189,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const isReceivingProgressRef = useRef(false); // Track if actively receiving progress updates
   const cachedAnimationCountRef = useRef(0); // Track number of cached game animations running
   const pendingCompletionRef = useRef<{ duration: number } | null>(null); // Store pending completion when animation is running
+  const expectedAppCountRef = useRef(0); // Track how many apps we expect to process
+  const completedAppCountRef = useRef(0); // Track how many apps have completed (cached or downloaded)
   // Ref to always have current setBackgroundCompletion function (avoids stale closure in SignalR handlers)
   const setBackgroundCompletionRef = useRef(setBackgroundCompletion);
 
@@ -480,7 +482,10 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             // Track elapsed time for background completion message
             prefillDurationRef.current = progress.elapsedSeconds;
           } else if (progress.state === 'app_completed') {
-            // When a game completes, show it at 100% briefly before transitioning
+            // When a game completes (actually downloaded), increment completed count
+            completedAppCountRef.current++;
+            console.log(`[DEBUG] app_completed received for ${progress.currentAppName}, completed: ${completedAppCountRef.current}/${expectedAppCountRef.current}`);
+            // Show it at 100% briefly before transitioning
             // This prevents the progress bar from disappearing between games
             setPrefillProgress(prev => prev ? {
               ...prev,
@@ -493,9 +498,10 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             // For cached games, show a 2-second animation
             const animationDuration = 2000; // 2 seconds
 
-            // Increment animation counter so completion handler knows to wait
+            // Increment counters
             cachedAnimationCountRef.current++;
-            console.log(`[DEBUG] already_cached received for ${progress.currentAppName}, counter now: ${cachedAnimationCountRef.current}`);
+            completedAppCountRef.current++;
+            console.log(`[DEBUG] already_cached received for ${progress.currentAppName}, animations: ${cachedAnimationCountRef.current}, completed: ${completedAppCountRef.current}/${expectedAppCountRef.current}`);
 
             // First set to 0% with the app name
             setPrefillProgress({
@@ -524,12 +530,17 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             // Use setTimeout to handle completion after animation (avoids closure issues)
             setTimeout(() => {
               cachedAnimationCountRef.current--;
-              console.log(`[DEBUG] Animation ended, counter now: ${cachedAnimationCountRef.current}, pending: ${!!pendingCompletionRef.current}`);
+              const knowExpectedCount = expectedAppCountRef.current > 0;
+              const allAppsReceived = knowExpectedCount &&
+                                       completedAppCountRef.current >= expectedAppCountRef.current;
+              console.log(`[DEBUG] Animation ended, animations: ${cachedAnimationCountRef.current}, completed: ${completedAppCountRef.current}/${expectedAppCountRef.current}, pending: ${!!pendingCompletionRef.current}`);
 
-              // Check if there's a pending completion to show AND all animations are done
+              // Show completion when: all animations done AND (all apps received OR unknown count) AND pending completion exists
               const pending = pendingCompletionRef.current;
-              if (pending && cachedAnimationCountRef.current === 0) {
-                console.log('[DEBUG] All animations done, showing completion from animation timeout');
+              const shouldShowCompletion = pending && cachedAnimationCountRef.current === 0 &&
+                                           (allAppsReceived || !knowExpectedCount);
+              if (shouldShowCompletion) {
+                console.log('[DEBUG] All animations done, showing completion');
                 pendingCompletionRef.current = null;
                 setPrefillProgress(null);
                 // Use ref to get current function (avoids stale closure)
@@ -583,12 +594,14 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       // Handle prefill state changes
       connection.on('PrefillStateChanged', (_sessionId: string, state: string, durationSeconds?: number) => {
         if (state === 'started') {
-          console.log('[DEBUG] PrefillStateChanged: started - resetting counter and pending');
+          console.log('[DEBUG] PrefillStateChanged: started - resetting counters');
           addLog('download', 'Prefill operation started');
           prefillDurationRef.current = 0;
           isReceivingProgressRef.current = true;
           cachedAnimationCountRef.current = 0;
           pendingCompletionRef.current = null;
+          completedAppCountRef.current = 0;
+          // expectedAppCountRef is set when prefill is initiated (in executeCommand)
           // Clear any previous background completion notification
           clearBackgroundCompletion();
           // Track prefill in progress for background detection
@@ -600,26 +613,21 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           } catch { /* ignore */ }
         } else if (state === 'completed') {
           const duration = durationSeconds || prefillDurationRef.current;
-          console.log(`[DEBUG] PrefillStateChanged: completed received, counter: ${cachedAnimationCountRef.current}`);
+          console.log(`[DEBUG] PrefillStateChanged: completed received, animations: ${cachedAnimationCountRef.current}, completed: ${completedAppCountRef.current}/${expectedAppCountRef.current}`);
           addLog('success', `Prefill completed in ${Math.round(duration)}s`);
           isCancelling.current = false;
           isReceivingProgressRef.current = false;
           // Clear prefill in progress tracking
           try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
 
-          // Always store as pending first - this handles race conditions where
-          // 'completed' arrives before 'already_cached' events are processed
+          // Store pending completion - animations will show it when done
           pendingCompletionRef.current = { duration };
-          console.log('[DEBUG] Stored pending completion, waiting 150ms for any pending events');
 
-          // Use a short delay to allow any pending already_cached events to be processed
-          // before checking if we should show completion immediately
-          setTimeout(() => {
-            console.log(`[DEBUG] 150ms timeout fired, counter: ${cachedAnimationCountRef.current}, pending: ${!!pendingCompletionRef.current}`);
-            // If animations started, they'll handle showing completion when done
-            // If no animations (counter still 0), show completion now
+          // Helper function to check and show completion
+          const tryShowCompletion = () => {
+            console.log(`[DEBUG] tryShowCompletion: animations: ${cachedAnimationCountRef.current}, pending: ${!!pendingCompletionRef.current}`);
             if (cachedAnimationCountRef.current === 0 && pendingCompletionRef.current) {
-              console.log('[DEBUG] Counter is 0, showing completion from 150ms timeout');
+              console.log('[DEBUG] Showing completion now');
               const pending = pendingCompletionRef.current;
               pendingCompletionRef.current = null;
               setPrefillProgress(null);
@@ -628,10 +636,34 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                 message: `Prefill completed in ${Math.round(pending.duration)}s`,
                 duration: pending.duration
               });
-            } else {
-              console.log('[DEBUG] Counter > 0 or no pending, animations will handle completion');
+            } else if (cachedAnimationCountRef.current > 0) {
+              console.log('[DEBUG] Animations in progress, they will handle completion');
             }
-          }, 150); // Small delay to allow SignalR events to be processed
+          };
+
+          // Check if all expected apps have been processed
+          // If expectedAppCountRef is 0, we don't know the count (prefill-all, etc.) - rely on animations
+          const knowExpectedCount = expectedAppCountRef.current > 0;
+          const allAppsReceived = knowExpectedCount &&
+                                   completedAppCountRef.current >= expectedAppCountRef.current;
+
+          if (!knowExpectedCount) {
+            // Unknown count (prefill-all, prefill-recent, etc.)
+            // Wait for animations to finish, they'll handle completion
+            console.log('[DEBUG] Unknown expected count, animations will handle completion');
+            if (cachedAnimationCountRef.current === 0) {
+              // No animations running, show completion now
+              tryShowCompletion();
+            }
+          } else if (allAppsReceived) {
+            // All apps received, check if animations are still running
+            console.log('[DEBUG] All apps received, checking animations');
+            tryShowCompletion();
+          } else {
+            // Not all apps received yet - they're still coming
+            // The animation handlers will show completion when the last one finishes
+            console.log(`[DEBUG] Waiting for remaining apps (${completedAppCountRef.current}/${expectedAppCountRef.current})`);
+          }
         } else if (state === 'failed') {
           addLog('error', 'Prefill operation failed');
           isCancelling.current = false;
@@ -997,6 +1029,9 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
               );
               break;
             }
+            // Set expected app count for completion tracking
+            expectedAppCountRef.current = selectedAppIds.length;
+            console.log(`[DEBUG] Starting prefill, expecting ${expectedAppCountRef.current} apps`);
             addLog('download', `Starting prefill of ${selectedAppIds.length} selected apps...`);
             const result = await callPrefillApi(session.id, {});
             // Note: Don't clear progress here - let SignalR PrefillStateChanged handler manage it
@@ -1010,6 +1045,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             break;
           }
           case 'prefill-all': {
+            expectedAppCountRef.current = 0; // Unknown count
             addLog('download', 'Starting prefill of all owned games...');
             const result = await callPrefillApi(session.id, { all: true });
             // Note: Don't clear progress here - let SignalR PrefillStateChanged handler manage it
@@ -1022,6 +1058,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             break;
           }
           case 'prefill-recent': {
+            expectedAppCountRef.current = 0; // Unknown count
             addLog('download', 'Starting prefill of recently played games...');
             const result = await callPrefillApi(session.id, { recent: true });
             // Note: Don't clear progress here - let SignalR PrefillStateChanged handler manage it
@@ -1034,6 +1071,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             break;
           }
           case 'prefill-recent-purchased': {
+            expectedAppCountRef.current = 0; // Unknown count
             addLog('download', 'Starting prefill of recently purchased games...');
             const result = await callPrefillApi(session.id, { recentlyPurchased: true });
             // Note: Don't clear progress here - let SignalR PrefillStateChanged handler manage it
@@ -1046,6 +1084,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             break;
           }
           case 'prefill-top': {
+            expectedAppCountRef.current = 50; // Known count for top 50
             addLog('download', 'Starting prefill of top 50 popular games...');
             const result = await callPrefillApi(session.id, { top: 50 });
             // Note: Don't clear progress here - let SignalR PrefillStateChanged handler manage it
@@ -1058,6 +1097,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             break;
           }
           case 'prefill-force': {
+            expectedAppCountRef.current = selectedAppIds.length || 0; // Use selected apps if available
             addLog('download', 'Starting force prefill (re-downloading)...');
             const result = await callPrefillApi(session.id, { force: true });
             // Note: Don't clear progress here - let SignalR PrefillStateChanged handler manage it

@@ -798,6 +798,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             }
 
             var result = await session.Client.PrefillAsync(all, recent, recentlyPurchased, top, force, operatingSystems, maxConcurrency, cachedDepots, cancellationToken);
+
             await NotifyPrefillStateChangeAsync(session, result.Success ? "completed" : "failed");
 
             // Complete the last in-progress entry if any (the final game)
