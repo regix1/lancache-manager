@@ -15,11 +15,13 @@ public sealed class SocketDaemonClient : IDaemonClient
 {
     private readonly string _socketPath;
     private readonly ILogger<SocketDaemonClient>? _logger;
+    private readonly string? _sharedSecret;
     private Socket? _socket;
     private NetworkStream? _stream;
     private Task? _receiveTask;
     private CancellationTokenSource? _receiveCts;
     private bool _disposed;
+    private bool _isAuthenticated;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private readonly SemaphoreSlim _connectLock = new(1, 1);
 
@@ -61,6 +63,11 @@ public sealed class SocketDaemonClient : IDaemonClient
     /// </summary>
     public bool IsConnected => _socket?.Connected == true;
 
+    /// <summary>
+    /// Whether the client has been authenticated with the daemon.
+    /// </summary>
+    public bool IsAuthenticated => _isAuthenticated;
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -72,6 +79,13 @@ public sealed class SocketDaemonClient : IDaemonClient
     {
         _socketPath = socketPath;
         _logger = logger;
+
+        // Read optional shared secret for socket authentication
+        _sharedSecret = Environment.GetEnvironmentVariable("PREFILL_SOCKET_SECRET");
+        if (!string.IsNullOrEmpty(_sharedSecret))
+        {
+            _logger?.LogInformation("Socket authentication configured via PREFILL_SOCKET_SECRET");
+        }
     }
 
     /// <summary>
@@ -136,6 +150,16 @@ public sealed class SocketDaemonClient : IDaemonClient
             _receiveTask = ReceiveLoopAsync(_receiveCts.Token);
 
             _logger?.LogInformation("Connected to daemon socket");
+
+            // Authenticate if shared secret is configured
+            if (!string.IsNullOrEmpty(_sharedSecret))
+            {
+                await AuthenticateAsync(cancellationToken);
+            }
+            else
+            {
+                _isAuthenticated = true; // No auth required
+            }
         }
         catch (Exception ex)
         {
@@ -146,8 +170,32 @@ public sealed class SocketDaemonClient : IDaemonClient
         }
     }
 
+    /// <summary>
+    /// Authenticates with the daemon using the shared secret.
+    /// </summary>
+    private async Task AuthenticateAsync(CancellationToken cancellationToken)
+    {
+        _logger?.LogDebug("Authenticating with daemon...");
+
+        var response = await SendCommandInternalAsync("auth", new Dictionary<string, string>
+        {
+            ["secret"] = _sharedSecret!
+        }, TimeSpan.FromSeconds(10), cancellationToken);
+
+        if (!response.Success)
+        {
+            _isAuthenticated = false;
+            throw new UnauthorizedAccessException($"Socket authentication failed: {response.Error}");
+        }
+
+        _isAuthenticated = true;
+        _logger?.LogInformation("Socket authentication successful");
+    }
+
     private async Task DisconnectInternalAsync()
     {
+        _isAuthenticated = false;
+
         if (_receiveCts != null)
         {
             _receiveCts.Cancel();
@@ -394,7 +442,19 @@ public sealed class SocketDaemonClient : IDaemonClient
         CancellationToken cancellationToken = default)
     {
         await EnsureConnectedAsync(cancellationToken);
+        return await SendCommandInternalAsync(type, parameters, timeout, cancellationToken);
+    }
 
+    /// <summary>
+    /// Internal method to send command without connection check.
+    /// Used during authentication when we're already connected but not yet authenticated.
+    /// </summary>
+    private async Task<CommandResponse> SendCommandInternalAsync(
+        string type,
+        Dictionary<string, string>? parameters,
+        TimeSpan? timeout,
+        CancellationToken cancellationToken)
+    {
         var command = new CommandRequest
         {
             Id = Guid.NewGuid().ToString(),
