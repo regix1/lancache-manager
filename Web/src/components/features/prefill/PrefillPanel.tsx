@@ -568,14 +568,12 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           // Clear prefill in progress tracking
           try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
 
-          // If page was hidden, store background completion for notification
-          if (isPageHiddenRef.current) {
-            setBackgroundCompletion({
-              completedAt: new Date().toISOString(),
-              message: `Prefill completed in ${Math.round(duration)}s`,
-              duration: duration
-            });
-          }
+          // Always show completion notification with dismiss button
+          setBackgroundCompletion({
+            completedAt: new Date().toISOString(),
+            message: `Prefill completed in ${Math.round(duration)}s`,
+            duration: duration
+          });
         } else if (state === 'failed') {
           addLog('error', 'Prefill operation failed');
           isCancelling.current = false;
@@ -1765,7 +1763,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                   <div className="h-3 rounded-full overflow-hidden bg-[var(--theme-progress-bg)]">
                     {prefillProgress.state === 'already_cached' ? (
                       <div
-                        className="h-full rounded-full transition-all duration-100 ease-linear bg-gradient-to-r from-[#1a9fff] to-[#66c0f4]"
+                        className="h-full rounded-full transition-all duration-100 ease-linear bg-[var(--theme-info)]"
                         style={{ width: `${Math.min(100, prefillProgress.percentComplete)}%` }}
                       />
                     ) : prefillProgress.state === 'downloading' || prefillProgress.state === 'app_completed' ? (
@@ -1792,10 +1790,10 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                     </div>
                   ) : prefillProgress.state === 'already_cached' ? (
                     <div className="flex items-center justify-between text-xs text-themed-muted">
-                      <span className="text-[#66c0f4]">
+                      <span className="text-[var(--theme-info)]">
                         Game is already up to date in cache
                       </span>
-                      <span className="font-medium text-[#1a9fff]">
+                      <span className="font-medium text-[var(--theme-info)]">
                         {prefillProgress.percentComplete.toFixed(0)}%
                       </span>
                     </div>
