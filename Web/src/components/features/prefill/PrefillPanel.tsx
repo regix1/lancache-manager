@@ -187,6 +187,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const isPageHiddenRef = useRef(document.hidden);
   const prefillDurationRef = useRef<number>(0);
   const isReceivingProgressRef = useRef(false); // Track if actively receiving progress updates
+  const cachedAnimationInProgressRef = useRef(false); // Track if cached game animation is running
+  const pendingCompletionRef = useRef<{ duration: number } | null>(null); // Store pending completion when animation is running
 
   const [session, setSession] = useState<PrefillSessionDto | null>(null);
   // Ref to track current session for use in SignalR handlers (avoids stale closure issues)
@@ -480,7 +482,10 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
               currentAppName: progress.currentAppName || prev.currentAppName
             } : null);
           } else if (progress.state === 'already_cached') {
-            // For cached games, show a 2-second blue animation
+            // For cached games, show a 2-second animation
+            // Mark animation as in progress
+            cachedAnimationInProgressRef.current = true;
+
             // First set to 0% with the app name
             setPrefillProgress({
               ...progress,
@@ -501,6 +506,21 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
               } : prev);
               if (elapsed < animationDuration) {
                 requestAnimationFrame(animateProgress);
+              } else {
+                // Animation finished - mark as not in progress
+                cachedAnimationInProgressRef.current = false;
+
+                // Check if there's a pending completion to show
+                if (pendingCompletionRef.current) {
+                  const { duration } = pendingCompletionRef.current;
+                  pendingCompletionRef.current = null;
+                  setPrefillProgress(null);
+                  setBackgroundCompletion({
+                    completedAt: new Date().toISOString(),
+                    message: `Prefill completed in ${Math.round(duration)}s`,
+                    duration: duration
+                  });
+                }
               }
             };
             requestAnimationFrame(animateProgress);
@@ -550,6 +570,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           addLog('download', 'Prefill operation started');
           prefillDurationRef.current = 0;
           isReceivingProgressRef.current = true;
+          cachedAnimationInProgressRef.current = false;
+          pendingCompletionRef.current = null;
           // Clear any previous background completion notification
           clearBackgroundCompletion();
           // Track prefill in progress for background detection
@@ -564,16 +586,22 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           addLog('success', `Prefill completed in ${Math.round(duration)}s`);
           isCancelling.current = false;
           isReceivingProgressRef.current = false;
-          setPrefillProgress(null);
           // Clear prefill in progress tracking
           try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
 
-          // Always show completion notification with dismiss button
-          setBackgroundCompletion({
-            completedAt: new Date().toISOString(),
-            message: `Prefill completed in ${Math.round(duration)}s`,
-            duration: duration
-          });
+          // If a cached game animation is in progress, defer the completion notification
+          if (cachedAnimationInProgressRef.current) {
+            pendingCompletionRef.current = { duration };
+            // Don't clear progress yet - let the animation finish
+          } else {
+            // No animation in progress, show completion immediately
+            setPrefillProgress(null);
+            setBackgroundCompletion({
+              completedAt: new Date().toISOString(),
+              message: `Prefill completed in ${Math.round(duration)}s`,
+              duration: duration
+            });
+          }
         } else if (state === 'failed') {
           addLog('error', 'Prefill operation failed');
           isCancelling.current = false;
