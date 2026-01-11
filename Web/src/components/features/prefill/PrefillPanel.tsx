@@ -187,7 +187,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const isPageHiddenRef = useRef(document.hidden);
   const prefillDurationRef = useRef<number>(0);
   const isReceivingProgressRef = useRef(false); // Track if actively receiving progress updates
-  const cachedAnimationInProgressRef = useRef(false); // Track if cached game animation is running
+  const cachedAnimationCountRef = useRef(0); // Track number of cached game animations running
   const pendingCompletionRef = useRef<{ duration: number } | null>(null); // Store pending completion when animation is running
   // Ref to always have current setBackgroundCompletion function (avoids stale closure in SignalR handlers)
   const setBackgroundCompletionRef = useRef(setBackgroundCompletion);
@@ -492,8 +492,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             // For cached games, show a 2-second animation
             const animationDuration = 2000; // 2 seconds
 
-            // Mark animation end time so completion handler knows when to show
-            cachedAnimationInProgressRef.current = true;
+            // Increment animation counter so completion handler knows to wait
+            cachedAnimationCountRef.current++;
 
             // First set to 0% with the app name
             setPrefillProgress({
@@ -521,11 +521,11 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
             // Use setTimeout to handle completion after animation (avoids closure issues)
             setTimeout(() => {
-              cachedAnimationInProgressRef.current = false;
+              cachedAnimationCountRef.current--;
 
-              // Check if there's a pending completion to show
+              // Check if there's a pending completion to show AND all animations are done
               const pending = pendingCompletionRef.current;
-              if (pending) {
+              if (pending && cachedAnimationCountRef.current === 0) {
                 pendingCompletionRef.current = null;
                 setPrefillProgress(null);
                 // Use ref to get current function (avoids stale closure)
@@ -582,7 +582,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           addLog('download', 'Prefill operation started');
           prefillDurationRef.current = 0;
           isReceivingProgressRef.current = true;
-          cachedAnimationInProgressRef.current = false;
+          cachedAnimationCountRef.current = 0;
           pendingCompletionRef.current = null;
           // Clear any previous background completion notification
           clearBackgroundCompletion();
@@ -601,8 +601,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           // Clear prefill in progress tracking
           try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
 
-          // If a cached game animation is in progress, defer the completion notification
-          if (cachedAnimationInProgressRef.current) {
+          // If any cached game animations are in progress, defer the completion notification
+          if (cachedAnimationCountRef.current > 0) {
             pendingCompletionRef.current = { duration };
             // Don't clear progress yet - let the animation finish
           } else {
