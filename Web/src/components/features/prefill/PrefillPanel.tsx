@@ -189,6 +189,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const isReceivingProgressRef = useRef(false); // Track if actively receiving progress updates
   const cachedAnimationInProgressRef = useRef(false); // Track if cached game animation is running
   const pendingCompletionRef = useRef<{ duration: number } | null>(null); // Store pending completion when animation is running
+  // Ref to always have current setBackgroundCompletion function (avoids stale closure in SignalR handlers)
+  const setBackgroundCompletionRef = useRef(setBackgroundCompletion);
 
   const [session, setSession] = useState<PrefillSessionDto | null>(null);
   // Ref to track current session for use in SignalR handlers (avoids stale closure issues)
@@ -305,6 +307,11 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   useEffect(() => {
     sessionRef.current = session;
   }, [session]);
+
+  // Keep setBackgroundCompletionRef in sync (for use in setTimeout/async callbacks)
+  useEffect(() => {
+    setBackgroundCompletionRef.current = setBackgroundCompletion;
+  }, [setBackgroundCompletion]);
 
   // Timer for session countdown
   useEffect(() => {
@@ -483,7 +490,9 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             } : null);
           } else if (progress.state === 'already_cached') {
             // For cached games, show a 2-second animation
-            // Mark animation as in progress
+            const animationDuration = 2000; // 2 seconds
+
+            // Mark animation end time so completion handler knows when to show
             cachedAnimationInProgressRef.current = true;
 
             // First set to 0% with the app name
@@ -493,9 +502,9 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
               percentComplete: 0,
               bytesDownloaded: 0
             });
-            // Animate to 100% over 2 seconds
+
+            // Animate to 100% over 2 seconds (pure visual animation)
             const startTime = Date.now();
-            const animationDuration = 2000; // 2 seconds
             const animateProgress = () => {
               const elapsed = Date.now() - startTime;
               const percent = Math.min(100, (elapsed / animationDuration) * 100);
@@ -506,24 +515,27 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
               } : prev);
               if (elapsed < animationDuration) {
                 requestAnimationFrame(animateProgress);
-              } else {
-                // Animation finished - mark as not in progress
-                cachedAnimationInProgressRef.current = false;
-
-                // Check if there's a pending completion to show
-                if (pendingCompletionRef.current) {
-                  const { duration } = pendingCompletionRef.current;
-                  pendingCompletionRef.current = null;
-                  setPrefillProgress(null);
-                  setBackgroundCompletion({
-                    completedAt: new Date().toISOString(),
-                    message: `Prefill completed in ${Math.round(duration)}s`,
-                    duration: duration
-                  });
-                }
               }
             };
             requestAnimationFrame(animateProgress);
+
+            // Use setTimeout to handle completion after animation (avoids closure issues)
+            setTimeout(() => {
+              cachedAnimationInProgressRef.current = false;
+
+              // Check if there's a pending completion to show
+              const pending = pendingCompletionRef.current;
+              if (pending) {
+                pendingCompletionRef.current = null;
+                setPrefillProgress(null);
+                // Use ref to get current function (avoids stale closure)
+                setBackgroundCompletionRef.current({
+                  completedAt: new Date().toISOString(),
+                  message: `Prefill completed in ${Math.round(pending.duration)}s`,
+                  duration: pending.duration
+                });
+              }
+            }, animationDuration + 100); // Small buffer after animation
           } else if (
             progress.state === 'loading-metadata' ||
             progress.state === 'metadata-loaded' ||
@@ -596,7 +608,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           } else {
             // No animation in progress, show completion immediately
             setPrefillProgress(null);
-            setBackgroundCompletion({
+            // Use ref to get current function (avoids stale closure)
+            setBackgroundCompletionRef.current({
               completedAt: new Date().toISOString(),
               message: `Prefill completed in ${Math.round(duration)}s`,
               duration: duration
