@@ -330,30 +330,21 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                 "doesn't resolve Steam CDN to lancache. Set Prefill__LancacheDnsIp or Prefill__NetworkMode=host.");
         }
 
-        // Determine if socket mode should be used
-        var useSocketMode = GetUseSocketMode();
-        var socketPath = useSocketMode ? Path.Combine(responsesDir, "daemon.sock") : null;
+        // Socket path for Unix Domain Socket communication
+        var socketPath = Path.Combine(responsesDir, "daemon.sock");
 
-        // Build command and environment based on mode
-        var cmd = useSocketMode
-            ? new List<string> { "daemon", "--socket" }
-            : new List<string> { "daemon", "-c", "/commands", "-r", "/responses" };
+        // Build command and environment for socket mode
+        var cmd = new List<string> { "daemon", "--socket" };
 
         var env = new List<string>
         {
             $"PREFILL_COMMANDS_DIR=/commands",
-            $"PREFILL_RESPONSES_DIR=/responses"
+            $"PREFILL_RESPONSES_DIR=/responses",
+            "PREFILL_USE_SOCKET=true",
+            "PREFILL_SOCKET_PATH=/responses/daemon.sock"
         };
 
-        if (useSocketMode)
-        {
-            // Socket is placed in responses directory for easy access
-            env.Add("PREFILL_USE_SOCKET=true");
-            env.Add("PREFILL_SOCKET_PATH=/responses/daemon.sock");
-        }
-
-        _logger.LogInformation("Creating daemon container for session {SessionId} in {Mode} mode",
-            sessionId, useSocketMode ? "socket" : "file");
+        _logger.LogInformation("Creating daemon container for session {SessionId} using socket mode", sessionId);
 
         var createResponse = await _dockerClient.Containers.CreateContainerAsync(
             new CreateContainerParameters
@@ -450,73 +441,41 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             Browser = browser,
             LastSeenAt = DateTime.UtcNow,
             NetworkDiagnostics = networkDiagnostics,
-            UseSocketMode = useSocketMode,
             SocketPath = socketPath
         };
 
-        // Create daemon client based on mode
-        if (useSocketMode)
+        // Create socket daemon client
+        var socketClient = new SocketDaemonClient(socketPath, _logger as ILogger<SocketDaemonClient>);
+
+        // Wire up socket events to session handlers
+        socketClient.OnCredentialChallenge += async challenge =>
         {
-            var socketClient = new SocketDaemonClient(socketPath!, _logger as ILogger<SocketDaemonClient>);
-
-            // Wire up socket events to session handlers
-            socketClient.OnCredentialChallenge += async challenge =>
-            {
-                await HandleSocketCredentialChallengeAsync(session, challenge);
-            };
-            socketClient.OnStatusUpdate += async status =>
-            {
-                await HandleStatusChangeFromSocketAsync(session, status);
-            };
-            socketClient.OnProgressUpdate += async progress =>
-            {
-                await HandleProgressChangeFromSocketAsync(session, progress);
-            };
-            socketClient.OnError += async error =>
-            {
-                _logger.LogWarning("Socket error for session {SessionId}: {Error}", sessionId, error);
-                await Task.CompletedTask;
-            };
-            socketClient.OnDisconnected += async () =>
-            {
-                _logger.LogWarning("Socket disconnected for session {SessionId}", sessionId);
-                await Task.CompletedTask;
-            };
-
-            // Connect to socket (daemon should create it shortly after starting)
-            try
-            {
-                await socketClient.ConnectAsync(cancellationToken);
-                _logger.LogInformation("Connected to daemon socket for session {SessionId}", sessionId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to connect to socket for session {SessionId}, falling back to file mode", sessionId);
-                socketClient.Dispose();
-
-                // Fall back to file-based client
-                session.UseSocketMode = false;
-                session.SocketPath = null;
-                session.Client = new DaemonClient(commandsDir, responsesDir);
-
-                // Start file watcher as fallback
-                StartStatusWatcher(session);
-            }
-
-            if (session.UseSocketMode)
-            {
-                session.Client = socketClient;
-                // No file watcher needed in socket mode - events come through socket
-            }
-        }
-        else
+            await HandleSocketCredentialChallengeAsync(session, challenge);
+        };
+        socketClient.OnStatusUpdate += async status =>
         {
-            // Use file-based client
-            session.Client = new DaemonClient(commandsDir, responsesDir);
+            await HandleStatusChangeFromSocketAsync(session, status);
+        };
+        socketClient.OnProgressUpdate += async progress =>
+        {
+            await HandleProgressChangeFromSocketAsync(session, progress);
+        };
+        socketClient.OnError += async error =>
+        {
+            _logger.LogWarning("Socket error for session {SessionId}: {Error}", sessionId, error);
+            await Task.CompletedTask;
+        };
+        socketClient.OnDisconnected += async () =>
+        {
+            _logger.LogWarning("Socket disconnected for session {SessionId}", sessionId);
+            await Task.CompletedTask;
+        };
 
-            // Start watching for status and challenge files
-            StartStatusWatcher(session);
-        }
+        // Connect to socket (daemon should create it shortly after starting)
+        await socketClient.ConnectAsync(cancellationToken);
+        _logger.LogInformation("Connected to daemon socket for session {SessionId}", sessionId);
+
+        session.Client = socketClient;
 
         _sessions[sessionId] = session;
 
@@ -1033,7 +992,6 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
         // Cleanup
         session.Client.Dispose();
-        session.StatusWatcher?.Dispose();
         session.CancellationTokenSource.Dispose();
 
         // Clean up directories
@@ -1151,197 +1109,6 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                     imageName);
                 throw;
             }
-        }
-    }
-
-    private void StartStatusWatcher(DaemonSession session)
-    {
-        // Use a ConcurrentDictionary to track pending file changes for deduplication
-        // FileSystemWatcher fires multiple events for a single file change
-        var pendingChanges = new ConcurrentDictionary<string, DateTime>();
-        var processLock = new SemaphoreSlim(1, 1);
-
-        session.StatusWatcher = new FileSystemWatcher(session.ResponsesDir, "*.json")
-        {
-            // Only watch for LastWrite - this reduces duplicate events
-            NotifyFilter = NotifyFilters.LastWrite,
-            EnableRaisingEvents = true
-        };
-
-        // Use a single handler for all changes to simplify deduplication
-        async void HandleFileChange(object sender, FileSystemEventArgs e)
-        {
-            var fileName = Path.GetFileName(e.FullPath);
-            var now = DateTime.UtcNow;
-
-            // Deduplicate: if we've processed this file in the last 100ms, skip it
-            if (pendingChanges.TryGetValue(fileName, out var lastProcessed) &&
-                (now - lastProcessed).TotalMilliseconds < 100)
-            {
-                return;
-            }
-
-            pendingChanges[fileName] = now;
-
-            // Wait a bit for file to be fully written
-            await Task.Delay(50);
-
-            // Use lock to ensure we don't process the same file concurrently
-            await processLock.WaitAsync();
-            try
-            {
-                if (fileName.StartsWith("auth_challenge_"))
-                {
-                    await HandleResponseFileAsync(session, e.FullPath);
-                }
-                else if (fileName == "daemon_status.json")
-                {
-                    await HandleStatusChangeAsync(session, e.FullPath);
-                }
-                else if (fileName == "prefill_progress.json")
-                {
-                    await HandleProgressChangeAsync(session, e.FullPath);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error handling file change {Path}", e.FullPath);
-            }
-            finally
-            {
-                processLock.Release();
-            }
-        }
-
-        session.StatusWatcher.Changed += HandleFileChange;
-        session.StatusWatcher.Created += HandleFileChange;
-    }
-
-    private async Task HandleResponseFileAsync(DaemonSession session, string filePath)
-    {
-        var fileName = Path.GetFileName(filePath);
-
-        // Handle credential challenges
-        if (fileName.StartsWith("auth_challenge_"))
-        {
-            await Task.Delay(50); // Ensure file is written
-
-            try
-            {
-                // Check if file still exists (daemon may have deleted it after processing)
-                if (!File.Exists(filePath))
-                {
-                    _logger.LogDebug("Challenge file no longer exists (already processed): {Path}", filePath);
-                    return;
-                }
-
-                var json = await File.ReadAllTextAsync(filePath);
-                var challenge = JsonSerializer.Deserialize<CredentialChallenge>(json);
-
-                if (challenge != null)
-                {
-                    // Update auth state based on credential type
-                    session.AuthState = challenge.CredentialType switch
-                    {
-                        "password" => DaemonAuthState.PasswordRequired,
-                        "2fa" => DaemonAuthState.TwoFactorRequired,
-                        "steamguard" => DaemonAuthState.SteamGuardRequired,
-                        "device-confirmation" => DaemonAuthState.DeviceConfirmationRequired,
-                        _ => session.AuthState
-                    };
-
-                    await NotifyCredentialChallengeAsync(session, challenge);
-                }
-            }
-            catch (FileNotFoundException)
-            {
-                // File was deleted between existence check and read - this is normal
-                _logger.LogDebug("Challenge file was deleted during read (already processed): {Path}", filePath);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error parsing credential challenge from {Path}", filePath);
-            }
-        }
-    }
-
-    private async Task HandleStatusChangeAsync(DaemonSession session, string filePath)
-    {
-        try
-        {
-            var json = await File.ReadAllTextAsync(filePath);
-            var status = JsonSerializer.Deserialize<DaemonStatus>(json);
-
-            if (status != null)
-            {
-                var previousAuthState = session.AuthState;
-
-                // Update auth state based on status
-                session.AuthState = status.Status switch
-                {
-                    "awaiting-login" => DaemonAuthState.NotAuthenticated,
-                    "logged-in" => DaemonAuthState.Authenticated,
-                    _ => session.AuthState
-                };
-
-                if (session.AuthState != previousAuthState)
-                {
-                    await NotifyAuthStateChangeAsync(session);
-                }
-
-                await NotifyStatusChangeAsync(session, status);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error parsing status from {Path}", filePath);
-        }
-    }
-
-    private async Task HandleProgressChangeAsync(DaemonSession session, string filePath)
-    {
-        await Task.Delay(50); // Ensure file is written
-
-        try
-        {
-            if (!File.Exists(filePath))
-            {
-                return; // File was deleted (prefill completed)
-            }
-
-            var json = await File.ReadAllTextAsync(filePath);
-
-            // Deserialize using the internal DTO with JsonPropertyName attributes for camelCase
-            // The daemon writes camelCase JSON (e.g., currentAppId, bytesDownloaded, totalBytes)
-            var dto = JsonSerializer.Deserialize<DaemonPrefillProgressDto>(json);
-
-            if (dto != null)
-            {
-                // Convert to PrefillProgress for internal use and SignalR
-                var progress = PrefillProgress.FromDaemonJson(dto);
-
-                _logger.LogDebug("Progress: {AppName} ({AppId}) - {State}, {Bytes}/{Total} bytes",
-                    progress.CurrentAppName, progress.CurrentAppId, progress.State,
-                    progress.BytesDownloaded, progress.TotalBytes);
-
-                await NotifyPrefillProgressAsync(session, progress);
-            }
-            else
-            {
-                _logger.LogWarning("Failed to deserialize progress JSON (returned null). Raw JSON: {Json}", json);
-            }
-        }
-        catch (FileNotFoundException)
-        {
-            // File was deleted during read - prefill completed
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogWarning(ex, "JSON deserialization error for progress file {Path}", filePath);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error parsing progress from {Path}", filePath);
         }
     }
 
@@ -1937,17 +1704,6 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Gets whether socket mode should be used for daemon communication.
-    /// Socket mode is more reliable than file-based communication but requires
-    /// the daemon to support it.
-    /// </summary>
-    private bool GetUseSocketMode()
-    {
-        // Default to true (socket mode) for better reliability
-        return _configuration.GetValue<bool>("Prefill:UseSocketMode", true);
-    }
-
-    /// <summary>
     /// Gets the lancache DNS IP for prefill containers.
     /// Auto-detects from lancache-dns container if not explicitly configured.
     /// </summary>
@@ -2401,8 +2157,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         foreach (var session in _sessions.Values)
         {
             session.Client.Dispose();
-            session.StatusWatcher?.Dispose();
-            session.CancellationTokenSource.Dispose();
+                session.CancellationTokenSource.Dispose();
         }
 
         _disposed = true;
@@ -2517,15 +2272,9 @@ public class DaemonSession
     public string? LastPrefillStatus { get; set; }
 
     public IDaemonClient Client { get; set; } = null!;
-    public FileSystemWatcher? StatusWatcher { get; set; }
 
     /// <summary>
-    /// Whether this session uses socket-based communication (more reliable) vs file-based.
-    /// </summary>
-    public bool UseSocketMode { get; set; }
-
-    /// <summary>
-    /// Path to the daemon's Unix socket (when using socket mode).
+    /// Path to the daemon's Unix socket.
     /// </summary>
     public string? SocketPath { get; set; }
     public HashSet<string> SubscribedConnections { get; } = new();
