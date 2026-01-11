@@ -554,15 +554,16 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                 const elapsed = Date.now() - startTime;
                 const percent = Math.min(100, (elapsed / animationDuration) * 100);
 
-                // Set progress directly with captured data
+                // Create fresh progress object - don't spread item.progress which has percentComplete: 100
                 setPrefillProgress({
-                  ...item.progress,
                   state: 'already_cached',
                   currentAppId: item.appId,
                   currentAppName: item.appName,
                   percentComplete: percent,
                   bytesDownloaded: Math.floor((percent / 100) * item.totalBytes),
-                  totalBytes: item.totalBytes
+                  totalBytes: item.totalBytes,
+                  bytesPerSecond: 0,
+                  elapsedSeconds: 0
                 });
 
                 if (elapsed < animationDuration) {
@@ -1918,11 +1919,13 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                   <div className="h-3 rounded-full overflow-hidden bg-[var(--theme-progress-bg)]">
                     {prefillProgress.state === 'already_cached' ? (
                       <div
-                        className="h-full rounded-full transition-all duration-100 ease-linear bg-[var(--theme-info)]"
-                        style={{ width: `${Math.min(100, prefillProgress.percentComplete)}%` }}
+                        key={`cached-${prefillProgress.currentAppId}`}
+                        className="h-full rounded-full bg-[var(--theme-info)]"
+                        style={{ width: `${prefillProgress.percentComplete}%` }}
                       />
                     ) : prefillProgress.state === 'downloading' || prefillProgress.state === 'app_completed' ? (
                       <div
+                        key={`download-${prefillProgress.currentAppId}`}
                         className="h-full rounded-full transition-all duration-300 ease-out bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-accent)]"
                         style={{ width: `${Math.min(100, prefillProgress.percentComplete)}%` }}
                       />
