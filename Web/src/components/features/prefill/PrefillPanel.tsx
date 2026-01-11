@@ -479,6 +479,31 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
               // Keep showing the completed app name
               currentAppName: progress.currentAppName || prev.currentAppName
             } : null);
+          } else if (progress.state === 'already_cached') {
+            // For cached games, show a 2-second blue animation
+            // First set to 0% with the app name
+            setPrefillProgress({
+              ...progress,
+              state: 'already_cached',
+              percentComplete: 0,
+              bytesDownloaded: 0
+            });
+            // Animate to 100% over 2 seconds
+            const startTime = Date.now();
+            const animationDuration = 2000; // 2 seconds
+            const animateProgress = () => {
+              const elapsed = Date.now() - startTime;
+              const percent = Math.min(100, (elapsed / animationDuration) * 100);
+              setPrefillProgress(prev => prev?.state === 'already_cached' ? {
+                ...prev,
+                percentComplete: percent,
+                bytesDownloaded: Math.floor((percent / 100) * (prev.totalBytes || 0))
+              } : prev);
+              if (elapsed < animationDuration) {
+                requestAnimationFrame(animateProgress);
+              }
+            };
+            requestAnimationFrame(animateProgress);
           } else if (
             progress.state === 'loading-metadata' ||
             progress.state === 'metadata-loaded' ||
@@ -1703,12 +1728,15 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                                 ? 'Preparing'
                                 : prefillProgress.state === 'app_completed'
                                   ? 'Loading Next Game'
-                                  : 'Downloading'}
+                                  : prefillProgress.state === 'already_cached'
+                                    ? 'Already Cached'
+                                    : 'Downloading'}
                       </p>
-                      {(prefillProgress.state === 'downloading' || prefillProgress.state === 'app_completed') && (
+                      {(prefillProgress.state === 'downloading' || prefillProgress.state === 'app_completed' || prefillProgress.state === 'already_cached') && (
                         <p className="text-sm text-themed-muted truncate max-w-[300px]">
                           {prefillProgress.currentAppName || `App ${prefillProgress.currentAppId}`}
                           {prefillProgress.state === 'app_completed' && ' - Complete'}
+                          {prefillProgress.state === 'already_cached' && ' - Up to Date'}
                         </p>
                       )}
                     </div>
@@ -1735,7 +1763,12 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                 {/* Progress Bar */}
                 <div className="space-y-2">
                   <div className="h-3 rounded-full overflow-hidden bg-[var(--theme-progress-bg)]">
-                    {prefillProgress.state === 'downloading' || prefillProgress.state === 'app_completed' ? (
+                    {prefillProgress.state === 'already_cached' ? (
+                      <div
+                        className="h-full rounded-full transition-all duration-100 ease-linear bg-gradient-to-r from-[#1a9fff] to-[#66c0f4]"
+                        style={{ width: `${Math.min(100, prefillProgress.percentComplete)}%` }}
+                      />
+                    ) : prefillProgress.state === 'downloading' || prefillProgress.state === 'app_completed' ? (
                       <div
                         className="h-full rounded-full transition-all duration-300 ease-out bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-accent)]"
                         style={{ width: `${Math.min(100, prefillProgress.percentComplete)}%` }}
@@ -1755,6 +1788,15 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                       </span>
                       <span className="font-medium text-[var(--theme-primary)]">
                         {prefillProgress.percentComplete.toFixed(1)}%
+                      </span>
+                    </div>
+                  ) : prefillProgress.state === 'already_cached' ? (
+                    <div className="flex items-center justify-between text-xs text-themed-muted">
+                      <span className="text-[#66c0f4]">
+                        Game is already up to date in cache
+                      </span>
+                      <span className="font-medium text-[#1a9fff]">
+                        {prefillProgress.percentComplete.toFixed(0)}%
                       </span>
                     </div>
                   ) : prefillProgress.state === 'app_completed' ? (
