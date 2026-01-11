@@ -773,7 +773,31 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
         try
         {
-            var result = await session.Client.PrefillAsync(all, recent, recentlyPurchased, top, force, operatingSystems, maxConcurrency, cancellationToken);
+            // Fetch cached depots from database so daemon knows which games are already up-to-date
+            List<CachedDepotInput>? cachedDepots = null;
+            if (!force) // Only use cached depots if not forcing re-download
+            {
+                try
+                {
+                    var cachedData = await _cacheService.GetAllCachedDepotsAsync();
+                    if (cachedData.Count > 0)
+                    {
+                        cachedDepots = cachedData.Select(d => new CachedDepotInput
+                        {
+                            AppId = d.AppId,
+                            DepotId = d.DepotId,
+                            ManifestId = d.ManifestId
+                        }).ToList();
+                        _logger.LogInformation("Passing {Count} cached depot manifests to daemon for skip detection", cachedDepots.Count);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to fetch cached depots, proceeding without cache data");
+                }
+            }
+
+            var result = await session.Client.PrefillAsync(all, recent, recentlyPurchased, top, force, operatingSystems, maxConcurrency, cachedDepots, cancellationToken);
             await NotifyPrefillStateChangeAsync(session, result.Success ? "completed" : "failed");
 
             // Complete the last in-progress entry if any (the final game)

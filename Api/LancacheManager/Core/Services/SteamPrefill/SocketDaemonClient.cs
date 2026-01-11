@@ -717,6 +717,7 @@ public sealed class SocketDaemonClient : IDaemonClient
         bool force = false,
         List<string>? operatingSystems = null,
         int? maxConcurrency = null,
+        List<CachedDepotInput>? cachedDepots = null,
         CancellationToken cancellationToken = default)
     {
         var parameters = new Dictionary<string, string>();
@@ -731,6 +732,13 @@ public sealed class SocketDaemonClient : IDaemonClient
         parameters["os"] = operatingSystems != null && operatingSystems.Count > 0
             ? string.Join(",", operatingSystems)
             : "windows,linux,macos";
+
+        // Pass cached depot manifests so daemon can skip up-to-date games
+        if (cachedDepots != null && cachedDepots.Count > 0)
+        {
+            parameters["cachedDepots"] = JsonSerializer.Serialize(cachedDepots, JsonOptions);
+            _logger?.LogInformation("Sending {Count} cached depot manifests to daemon", cachedDepots.Count);
+        }
 
         var response = await SendCommandAsync("prefill", parameters,
             timeout: TimeSpan.FromHours(24),

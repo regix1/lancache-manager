@@ -177,6 +177,22 @@ public class SelectedAppsStatus
     public string? Message { get; set; }
 }
 
+/// <summary>
+/// Input for cached depot manifest info to send to daemon.
+/// Format matches daemon's CachedDepotInput class.
+/// </summary>
+public class CachedDepotInput
+{
+    [JsonPropertyName("appId")]
+    public uint AppId { get; set; }
+
+    [JsonPropertyName("depotId")]
+    public uint DepotId { get; set; }
+
+    [JsonPropertyName("manifestId")]
+    public ulong ManifestId { get; set; }
+}
+
 #endregion
 
 #region Crypto

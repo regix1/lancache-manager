@@ -233,6 +233,23 @@ public class PrefillCacheService
         await context.PrefillCachedDepots.ExecuteDeleteAsync();
         _logger.LogInformation("Cleared entire prefill cache ({Count} entries)", count);
     }
+
+    /// <summary>
+    /// Gets all cached depots in the format needed for the prefill daemon.
+    /// Returns the complete list of depot/manifest pairs that are currently cached.
+    /// </summary>
+    public async Task<List<(uint AppId, uint DepotId, ulong ManifestId)>> GetAllCachedDepotsAsync()
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+
+        var cachedDepots = await context.PrefillCachedDepots
+            .Select(d => new { d.AppId, d.DepotId, d.ManifestId })
+            .ToListAsync();
+
+        _logger.LogDebug("Retrieved {Count} cached depot manifests from database", cachedDepots.Count);
+
+        return cachedDepots.Select(d => (d.AppId, d.DepotId, d.ManifestId)).ToList();
+    }
 }
 
 /// <summary>

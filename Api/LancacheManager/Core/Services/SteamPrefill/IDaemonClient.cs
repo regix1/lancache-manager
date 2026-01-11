@@ -72,6 +72,7 @@ public interface IDaemonClient : IDisposable
         bool force = false,
         List<string>? operatingSystems = null,
         int? maxConcurrency = null,
+        List<CachedDepotInput>? cachedDepots = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
