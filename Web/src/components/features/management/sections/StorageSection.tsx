@@ -15,8 +15,8 @@ interface StorageSectionProps {
   onError: (message: string) => void;
   onSuccess: (message: string) => void;
   onDataRefresh: () => void;
-  logRemovalReloadRef: React.MutableRefObject<(() => Promise<void>) | null>;
-  corruptionReloadRef: React.MutableRefObject<(() => Promise<void>) | null>;
+  logRemovalReloadRef: React.RefObject<(() => Promise<void>) | null>;
+  corruptionReloadRef: React.RefObject<(() => Promise<void>) | null>;
 }
 
 const StorageSection: React.FC<StorageSectionProps> = ({

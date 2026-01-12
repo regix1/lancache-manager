@@ -32,7 +32,7 @@ interface CorruptionManagerProps {
   authMode: AuthMode;
   mockMode: boolean;
   onError?: (message: string) => void;
-  onReloadRef?: React.MutableRefObject<(() => Promise<void>) | null>;
+  onReloadRef?: React.RefObject<(() => Promise<void>) | null>;
 }
 
 const CorruptionManager: React.FC<CorruptionManagerProps> = ({

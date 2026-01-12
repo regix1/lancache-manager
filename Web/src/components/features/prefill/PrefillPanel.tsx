@@ -1,250 +1,54 @@
-import { useEffect, useRef, useCallback, useState } from 'react';
-import { HubConnection, HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
+import { useEffect, useCallback, useState } from 'react';
 import { Card, CardContent } from '../../ui/Card';
 import { Button } from '../../ui/Button';
-import { Modal } from '../../ui/Modal';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { usePrefillSteamAuth } from '@hooks/usePrefillSteamAuth';
-import { ActivityLog, type LogEntryType } from './ActivityLog';
+import { ActivityLog } from './ActivityLog';
 import { GameSelectionModal, type OwnedGame } from './GameSelectionModal';
 import { NetworkStatusSection } from './NetworkStatusSection';
-import ApiService, { type NetworkDiagnostics } from '@services/api.service';
+import ApiService from '@services/api.service';
 import { usePrefillContext } from '@contexts/PrefillContext';
 import { useAuth } from '@contexts/AuthContext';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import authService from '@services/auth.service';
-import { SIGNALR_BASE, API_BASE } from '@utils/constants';
-import { formatSpeed } from '@utils/formatters';
+import { API_BASE } from '@utils/constants';
+
+import { ScrollText, X, Timer, LogIn, CheckCircle2, AlertCircle } from 'lucide-react';
+
+// Import extracted components
+import { PrefillStartScreen } from './PrefillStartScreen';
+import { PrefillLoadingState } from './PrefillLoadingState';
+import { PrefillProgressCard } from './PrefillProgressCard';
+import { PrefillCommandButtons } from './PrefillCommandButtons';
+import { PrefillConfirmModal } from './PrefillConfirmModal';
+import { CompletionBanner } from './CompletionBanner';
+import { usePrefillSignalR } from './hooks/usePrefillSignalR';
 import {
-  Loader2,
-  ScrollText,
-  X,
-  XCircle,
-  Clock,
-  AlertCircle,
-  Play,
-  Download,
-  List,
-  Trash2,
-  RefreshCw,
-  Gamepad2,
-  TrendingUp,
-  ShoppingCart,
-  LogIn,
-  CheckCircle2,
-  Zap,
-  Timer,
-  Shield,
-  Settings,
-  Monitor,
-  Cpu,
-  Database
-} from 'lucide-react';
-import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
-import { MultiSelectDropdown, type MultiSelectOption } from '@components/ui/MultiSelectDropdown';
-
-// Auth states from backend - matches SteamAuthState enum
-type SteamAuthState =
-  | 'NotAuthenticated'
-  | 'CredentialsRequired'
-  | 'TwoFactorRequired'
-  | 'EmailCodeRequired'
-  | 'Authenticated';
-
-interface PrefillSessionDto {
-  id: string;
-  userId: string;
-  containerId: string;
-  containerName: string;
-  status: string;
-  createdAt: string;
-  expiresAt: string;
-  endedAt: string | null;
-  timeRemainingSeconds: number;
-  authState: SteamAuthState;
-  networkDiagnostics?: NetworkDiagnostics;
-}
-
-interface PrefillPanelProps {
-  onSessionEnd?: () => void;
-}
-
-type CommandType =
-  | 'select-apps'
-  | 'prefill'
-  | 'prefill-all'
-  | 'prefill-recent'
-  | 'prefill-recent-purchased'
-  | 'prefill-top'
-  | 'prefill-force'
-  | 'clear-temp'
-  | 'clear-cache-data';
-
-interface CommandButton {
-  id: CommandType;
-  label: string;
-  description: string;
-  icon: React.ReactNode;
-  variant?: 'default' | 'outline' | 'filled' | 'subtle';
-  requiresLogin?: boolean;
-  authOnly?: boolean; // Only show for authenticated users (not guests)
-  color?: 'blue' | 'green' | 'red' | 'yellow' | 'purple' | 'gray' | 'orange' | 'default';
-}
-
-// Grouped command buttons for better organization
-// Note: ALL commands require login - nothing works without Steam auth
-const SELECTION_COMMANDS: CommandButton[] = [
-  {
-    id: 'select-apps',
-    label: 'Select Apps',
-    description: 'Choose games to prefill',
-    icon: <List className="h-4 w-4" />,
-    variant: 'filled',
-    color: 'blue'
-  }
-];
-
-const PREFILL_COMMANDS: CommandButton[] = [
-  {
-    id: 'prefill',
-    label: 'Prefill Selected',
-    description: 'Download selected games',
-    icon: <Download className="h-4 w-4" />,
-    variant: 'filled',
-    color: 'green'
-  },
-  {
-    id: 'prefill-all',
-    label: 'Prefill All',
-    description: 'All owned games',
-    icon: <Gamepad2 className="h-4 w-4" />,
-    variant: 'outline'
-  },
-  {
-    id: 'prefill-recent',
-    label: 'Recent Played',
-    description: 'Last 2 weeks',
-    icon: <Clock className="h-4 w-4" />,
-    variant: 'outline'
-  },
-  {
-    id: 'prefill-recent-purchased',
-    label: 'Recent Bought',
-    description: 'Last 2 weeks',
-    icon: <ShoppingCart className="h-4 w-4" />,
-    variant: 'outline'
-  },
-  {
-    id: 'prefill-top',
-    label: 'Top 50',
-    description: 'Popular games',
-    icon: <TrendingUp className="h-4 w-4" />,
-    variant: 'outline'
-  }
-];
-
-const UTILITY_COMMANDS: CommandButton[] = [
-  {
-    id: 'prefill-force',
-    label: 'Force Download',
-    description: 'Re-download all',
-    icon: <RefreshCw className="h-4 w-4" />,
-    variant: 'outline'
-  },
-  {
-    id: 'clear-temp',
-    label: 'Clear Temp',
-    description: 'Free disk space',
-    icon: <Trash2 className="h-4 w-4" />,
-    variant: 'outline',
-    color: 'red'
-  },
-  {
-    id: 'clear-cache-data',
-    label: 'Clear Database',
-    description: 'Remove cache records',
-    icon: <Database className="h-4 w-4" />,
-    variant: 'outline',
-    color: 'red',
-    authOnly: true
-  }
-];
-
-// Operating system options for prefill (multi-select)
-const OS_OPTIONS: MultiSelectOption[] = [
-  { value: 'windows', label: 'Windows', description: 'Windows game depots' },
-  { value: 'linux', label: 'Linux', description: 'Native Linux depots' },
-  { value: 'macos', label: 'macOS', description: 'macOS depots' }
-];
-
-// Max concurrency/thread options
-const THREAD_OPTIONS: DropdownOption[] = [
-  { value: 'default', label: 'Auto', description: 'Let daemon decide (recommended)' },
-  { value: '1', label: '1 Thread', description: 'Minimal bandwidth usage' },
-  { value: '2', label: '2 Threads', description: 'Low bandwidth usage' },
-  { value: '4', label: '4 Threads', description: 'Moderate bandwidth' },
-  { value: '8', label: '8 Threads', description: 'High bandwidth' },
-  { value: '16', label: '16 Threads', description: 'Very high bandwidth' },
-  { value: '32', label: '32 Threads', description: 'Maximum performance' }
-];
+  type SteamAuthState,
+  type PrefillPanelProps,
+  type CommandType,
+  formatTimeRemaining
+} from './types';
 
 export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
-  const hubConnection = useRef<HubConnection | null>(null);
-  const initializationAttempted = useRef(false);
-  const isCancelling = useRef(false);
-
   // Use context for log entries (persists across tab switches)
-  const { logEntries, addLog, clearLogs, backgroundCompletion, setBackgroundCompletion, clearBackgroundCompletion, isCompletionDismissed } = usePrefillContext();
+  const {
+    logEntries,
+    addLog,
+    clearLogs,
+    backgroundCompletion,
+    setBackgroundCompletion,
+    clearBackgroundCompletion,
+    isCompletionDismissed
+  } = usePrefillContext();
 
   // Check if user is authenticated (not guest) for auth-only features
   const { isAuthenticated, authMode } = useAuth();
   const isUserAuthenticated = isAuthenticated && authMode === 'authenticated';
 
-  // Simple state to track if a prefill operation is active (for button disabling)
-  const [isPrefillActive, setIsPrefillActive] = useState(false);
-
-  // Track page visibility for background completion detection
-  const isPageHiddenRef = useRef(document.hidden);
-  const prefillDurationRef = useRef<number>(0);
-  const prefillStartTimeRef = useRef<number>(0); // Track start time for accurate duration
-  const isReceivingProgressRef = useRef(false);
-  const cachedAnimationCountRef = useRef(0);
-  const pendingCompletionRef = useRef<{ duration: number } | null>(null);
-  const expectedAppCountRef = useRef(0);
-  const completedAppCountRef = useRef(0);
-  const hasShownCompletionRef = useRef(false);
-  const currentAnimationAppIdRef = useRef(0);
-  const cachedAnimationQueueRef = useRef<Array<{
-    appId: number;
-    appName?: string;
-    totalBytes: number;
-    progress: {
-      state: string;
-      message?: string;
-      currentAppId: number;
-      currentAppName?: string;
-      percentComplete: number;
-      bytesDownloaded: number;
-      totalBytes: number;
-      bytesPerSecond: number;
-      elapsedSeconds: number;
-    };
-  }>>([]);
-  const isProcessingAnimationRef = useRef(false);
-  // Ref to always have current setBackgroundCompletion function (avoids stale closure in SignalR handlers)
-  const setBackgroundCompletionRef = useRef(setBackgroundCompletion);
-
-  const [session, setSession] = useState<PrefillSessionDto | null>(null);
-  // Ref to track current session for use in SignalR handlers (avoids stale closure issues)
-  const sessionRef = useRef<PrefillSessionDto | null>(null);
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
-  const [isExecuting, setIsExecuting] = useState(false);
-  const [isInitializing, setIsInitializing] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [timeRemaining, setTimeRemaining] = useState<number>(0);
+  // Local UI state
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isExecuting, setIsExecuting] = useState(false);
 
   // Game selection state
   const [ownedGames, setOwnedGames] = useState<OwnedGame[]>([]);
@@ -257,7 +61,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const [selectedOS, setSelectedOS] = useState<string[]>(['windows', 'linux', 'macos']);
   const [maxConcurrency, setMaxConcurrency] = useState<string>('default');
 
-  // Confirmation dialog state for large prefill operations
+  // Confirmation dialog state
   const [pendingConfirmCommand, setPendingConfirmCommand] = useState<CommandType | null>(null);
   const [estimatedSize, setEstimatedSize] = useState<{
     bytes: number;
@@ -271,53 +75,14 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       unavailableReason?: string;
     }>;
     message?: string;
-  }>({
-    bytes: 0,
-    loading: false
-  });
+  }>({ bytes: 0, loading: false });
 
-  // Prefill progress state
-  const [prefillProgress, setPrefillProgress] = useState<{
-    state: string;
-    message?: string;
-    currentAppId: number;
-    currentAppName?: string;
-    percentComplete: number;
-    bytesDownloaded: number;
-    totalBytes: number;
-    bytesPerSecond: number;
-    elapsedSeconds: number;
-  } | null>(null);
-
-  // Steam auth hook for container-based authentication
-  const {
-    state: authState,
-    actions: authActions,
-    trigger2FAPrompt,
-    triggerEmailPrompt
-  } = usePrefillSteamAuth({
-    sessionId: session?.id ?? null,
-    hubConnection: hubConnection.current,
-    onSuccess: () => {
-      setShowAuthModal(false);
-    },
-    onError: () => {
-      // Keep modal open on error to allow retry
-    },
-    onDeviceConfirmationTimeout: () => {
-      // Close modal - daemon login is already cancelled by the hook
-      setShowAuthModal(false);
-    }
-  });
-
-  /**
-   * Handle auth state changes from backend SignalR events
-   */
+  // Handle auth state changes from backend SignalR events
   const handleAuthStateChanged = useCallback(
-    async (newState: SteamAuthState) => {
+    (newState: SteamAuthState) => {
       switch (newState) {
         case 'Authenticated':
-          setIsLoggedIn(true);
+          signalR.setIsLoggedIn(true);
           setShowAuthModal(false);
           authActions.resetAuthForm();
           addLog('success', 'Successfully logged in to Steam');
@@ -338,667 +103,61 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           addLog('auth', 'Email verification code required');
           break;
         case 'NotAuthenticated':
-          setIsLoggedIn(false);
+          signalR.setIsLoggedIn(false);
           break;
       }
     },
-    [authActions, trigger2FAPrompt, triggerEmailPrompt, addLog]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [addLog]
   );
 
-  // Keep sessionRef in sync with session state (for use in SignalR handlers)
-  useEffect(() => {
-    sessionRef.current = session;
-  }, [session]);
+  // SignalR hook - manages connection, session, and progress
+  const signalR = usePrefillSignalR({
+    onSessionEnd,
+    addLog,
+    setBackgroundCompletion,
+    clearBackgroundCompletion,
+    isCompletionDismissed,
+    onAuthStateChanged: handleAuthStateChanged
+  });
 
-  // Keep setBackgroundCompletionRef in sync (for use in setTimeout/async callbacks)
-  useEffect(() => {
-    setBackgroundCompletionRef.current = setBackgroundCompletion;
-  }, [setBackgroundCompletion]);
+  // Steam auth hook for container-based authentication
+  const {
+    state: authState,
+    actions: authActions,
+    trigger2FAPrompt,
+    triggerEmailPrompt
+  } = usePrefillSteamAuth({
+    sessionId: signalR.session?.id ?? null,
+    hubConnection: signalR.hubConnection.current,
+    onSuccess: () => setShowAuthModal(false),
+    onError: () => {
+      /* Keep modal open on error */
+    },
+    onDeviceConfirmationTimeout: () => setShowAuthModal(false)
+  });
 
   // Timer for session countdown
   useEffect(() => {
-    if (!session || session.status !== 'Active') return;
+    if (!signalR.session || signalR.session.status !== 'Active') return;
 
     const interval = setInterval(() => {
       const remaining = Math.max(
         0,
-        Math.floor((new Date(session.expiresAt).getTime() - Date.now()) / 1000)
+        Math.floor((new Date(signalR.session!.expiresAt).getTime() - Date.now()) / 1000)
       );
-      setTimeRemaining(remaining);
+      signalR.setTimeRemaining(remaining);
 
       if (remaining <= 0) {
-        setError('Session expired');
+        signalR.setError('Session expired');
         handleEndSession();
       }
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [session]);
+  }, [signalR.session]);
 
-  const formatTimeRemaining = useCallback((seconds: number): string => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    }
-    return `${minutes}:${secs.toString().padStart(2, '0')}`;
-  }, []);
-
-  const formatBytes = useCallback((bytes: number): string => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  }, []);
-
-  const connectToHub = useCallback(async (): Promise<HubConnection | null> => {
-    const deviceId = authService.getDeviceId();
-    if (!deviceId) {
-      setError('Not authenticated');
-      return null;
-    }
-
-    // Reuse existing connection if already connected
-    if (hubConnection.current?.state === 'Connected') {
-      return hubConnection.current;
-    }
-
-    // Stop any existing connection before creating a new one
-    if (hubConnection.current) {
-      try {
-        await hubConnection.current.stop();
-      } catch {
-        // Ignore errors stopping old connection
-      }
-      hubConnection.current = null;
-    }
-
-    setIsConnecting(true);
-    setError(null);
-
-    try {
-      const connection = new HubConnectionBuilder()
-        .withUrl(`${SIGNALR_BASE}/prefill-daemon?deviceId=${encodeURIComponent(deviceId)}`)
-        .withAutomaticReconnect()
-        .configureLogging(LogLevel.Information)
-        .build();
-
-      // Handle daemon output - parse and add to log
-      connection.on('TerminalOutput', (_sessionId: string, output: string) => {
-        // Parse output and determine log type
-        const trimmed = output.trim();
-        if (!trimmed) return;
-
-        // Detect log type from content
-        let type: LogEntryType = 'info';
-        if (trimmed.includes('Error') || trimmed.includes('error') || trimmed.includes('failed')) {
-          type = 'error';
-        } else if (
-          trimmed.includes('Success') ||
-          trimmed.includes('Complete') ||
-          trimmed.includes('Done')
-        ) {
-          type = 'success';
-        } else if (trimmed.includes('Warning') || trimmed.includes('warn')) {
-          type = 'warning';
-        } else if (
-          trimmed.includes('Download') ||
-          trimmed.includes('Prefill') ||
-          trimmed.includes('%')
-        ) {
-          type = 'download';
-        }
-
-        addLog(type, trimmed);
-      });
-
-      // Handle auth state changes from backend
-      connection.on('AuthStateChanged', (_sessionId: string, newState: SteamAuthState) => {
-        handleAuthStateChanged(newState);
-      });
-
-      // Handle session subscribed confirmation
-      connection.on('SessionSubscribed', (sessionDto: PrefillSessionDto) => {
-        setSession(sessionDto);
-        setTimeRemaining(sessionDto.timeRemainingSeconds);
-        // Initialize login state from session auth state
-        setIsLoggedIn(sessionDto.authState === 'Authenticated');
-      });
-
-      // Handle session ended
-      connection.on('SessionEnded', (_sessionId: string, reason: string) => {
-        addLog('warning', `Session ended: ${reason}`);
-        setSession(null);
-        setIsExecuting(false);
-        setIsLoggedIn(false);
-        setIsPrefillActive(false);
-        setPrefillProgress(null);
-        onSessionEnd?.();
-      });
-
-      // Handle prefill progress updates
-      connection.on(
-        'PrefillProgress',
-        (
-          _sessionId: string,
-          progress: {
-            state: string;
-            message?: string;
-            currentAppId: number;
-            currentAppName?: string;
-            percentComplete: number;
-            bytesDownloaded: number;
-            totalBytes: number;
-            bytesPerSecond: number;
-            elapsedSeconds: number;
-            totalApps: number;
-          }
-        ) => {
-          // Final states should reset the cancelling flag and clear progress
-          const isFinalState =
-            progress.state === 'completed' ||
-            progress.state === 'failed' ||
-            progress.state === 'cancelled' ||
-            progress.state === 'idle';
-
-          if (isFinalState) {
-            isCancelling.current = false;
-            isReceivingProgressRef.current = false;
-            setPrefillProgress(null);
-            return;
-          }
-
-          // Ignore progress updates while cancellation is in progress
-          if (isCancelling.current) {
-            return;
-          }
-
-          // Mark that we're actively receiving progress
-          isReceivingProgressRef.current = true;
-
-          if (progress.state === 'downloading') {
-            // Only update if no cached animation is running for a different app
-            // This prevents 'downloading' from interrupting a cached game's animation
-            if (currentAnimationAppIdRef.current === 0 || currentAnimationAppIdRef.current === progress.currentAppId) {
-              setPrefillProgress(progress);
-            }
-            // Track elapsed time for background completion message
-            prefillDurationRef.current = progress.elapsedSeconds;
-            // Update expected app count from daemon if we don't know it yet
-            if (expectedAppCountRef.current === 0 && progress.totalApps > 0) {
-              expectedAppCountRef.current = progress.totalApps;
-            }
-          } else if (progress.state === 'app_completed') {
-            // Update expected app count from daemon if we don't know it yet
-            if (expectedAppCountRef.current === 0 && progress.totalApps > 0) {
-              expectedAppCountRef.current = progress.totalApps;
-            }
-            // Track elapsed time for completion message
-            if (progress.elapsedSeconds > 0) {
-              prefillDurationRef.current = progress.elapsedSeconds;
-            }
-            // When a game completes (actually downloaded), increment completed count
-            completedAppCountRef.current++;
-            currentAnimationAppIdRef.current = 0; // Clear animation tracking
-            // Show it at 100% briefly before transitioning
-            setPrefillProgress(prev => prev ? {
-              ...prev,
-              state: 'app_completed',
-              percentComplete: 100,
-              currentAppName: progress.currentAppName || prev.currentAppName
-            } : null);
-            // Don't detect completion here - wait for PrefillStateChanged 'completed' from daemon
-          } else if (progress.state === 'already_cached') {
-            // Update expected app count from daemon if we don't know it yet
-            if (expectedAppCountRef.current === 0 && progress.totalApps > 0) {
-              expectedAppCountRef.current = progress.totalApps;
-            }
-            // Track elapsed time for completion message
-            if (progress.elapsedSeconds > 0) {
-              prefillDurationRef.current = progress.elapsedSeconds;
-            }
-            // For cached games, queue the animation to run one at a time
-            const appId = progress.currentAppId;
-            const totalBytes = progress.totalBytes || 0;
-            const appName = progress.currentAppName;
-
-            // Increment counters
-            cachedAnimationCountRef.current++;
-            completedAppCountRef.current++;
-
-            // Add to animation queue
-            cachedAnimationQueueRef.current.push({
-              appId,
-              appName,
-              totalBytes,
-              progress
-            });
-
-            // Process queue function - runs animations one at a time
-            const processAnimationQueue = () => {
-              // Already processing or queue is empty
-              if (isProcessingAnimationRef.current || cachedAnimationQueueRef.current.length === 0) {
-                return;
-              }
-
-              // Get next animation from queue
-              const item = cachedAnimationQueueRef.current.shift();
-              if (!item) return;
-
-              isProcessingAnimationRef.current = true;
-              currentAnimationAppIdRef.current = item.appId;
-
-              const animationDuration = 2000; // 2 seconds
-              const startTime = Date.now();
-
-              // Animate from 0% to 100% over 2 seconds
-              const animateProgress = () => {
-                const elapsed = Date.now() - startTime;
-                const percent = Math.min(100, (elapsed / animationDuration) * 100);
-
-                // Create fresh progress object - don't spread item.progress which has percentComplete: 100
-                setPrefillProgress({
-                  state: 'already_cached',
-                  currentAppId: item.appId,
-                  currentAppName: item.appName,
-                  percentComplete: percent,
-                  bytesDownloaded: Math.floor((percent / 100) * item.totalBytes),
-                  totalBytes: item.totalBytes,
-                  bytesPerSecond: 0,
-                  elapsedSeconds: 0
-                });
-
-                if (elapsed < animationDuration) {
-                  requestAnimationFrame(animateProgress);
-                } else {
-                  // Animation complete - process next item after a brief pause
-                  setTimeout(() => {
-                    cachedAnimationCountRef.current--;
-                    isProcessingAnimationRef.current = false;
-                    currentAnimationAppIdRef.current = 0;
-
-                    // Process next animation in queue
-                    // Don't detect completion here - wait for PrefillStateChanged 'completed' from daemon
-                    processAnimationQueue();
-                  }, 100);
-                }
-              };
-
-              // Start the animation
-              animateProgress();
-            };
-
-            // Start processing if not already
-            processAnimationQueue();
-          } else if (
-            progress.state === 'loading-metadata' ||
-            progress.state === 'metadata-loaded' ||
-            progress.state === 'starting' ||
-            progress.state === 'preparing'
-          ) {
-            // Log status message
-            if (progress.message) {
-              addLog('info', progress.message);
-            }
-            // Don't show progress bar for "0 games" scenarios - nothing to download
-            if (progress.message?.includes('0 games')) {
-              setPrefillProgress(null);
-              return;
-            }
-            // Set a loading state so UI shows something is happening
-            setPrefillProgress({
-              ...progress,
-              percentComplete: 0,
-              bytesDownloaded: 0,
-              totalBytes: 0
-            });
-          } else if (progress.state === 'completed' || progress.state === 'failed' || progress.state === 'cancelled') {
-            // Only clear progress for final states
-            setPrefillProgress(null);
-          }
-          // For other states (like intermediate status updates), keep current progress visible
-        }
-      );
-
-      // Handle status changes (daemon status updates)
-      connection.on(
-        'StatusChanged',
-        (_sessionId: string, status: { status: string; message: string }) => {
-          if (status.message) {
-            addLog('info', `Status: ${status.message}`);
-          }
-        }
-      );
-
-      // Handle prefill state changes
-      connection.on('PrefillStateChanged', (_sessionId: string, state: string, durationSeconds?: number) => {
-        if (state === 'started') {
-          setIsPrefillActive(true); // Enable button disabling
-          addLog('download', 'Prefill operation started');
-          prefillDurationRef.current = 0;
-          prefillStartTimeRef.current = Date.now(); // Track start time for accurate duration
-          isReceivingProgressRef.current = true;
-          cachedAnimationCountRef.current = 0;
-          pendingCompletionRef.current = null;
-          completedAppCountRef.current = 0;
-          hasShownCompletionRef.current = false; // Reset completion tracking
-          // Reset animation queue
-          cachedAnimationQueueRef.current = [];
-          isProcessingAnimationRef.current = false;
-          currentAnimationAppIdRef.current = 0;
-          // expectedAppCountRef is set when prefill is initiated (in executeCommand)
-          // Clear any previous background completion notification
-          clearBackgroundCompletion();
-          // Track prefill in progress for background detection
-          try {
-            sessionStorage.setItem('prefill_in_progress', JSON.stringify({
-              startedAt: new Date().toISOString(),
-              sessionId: _sessionId
-            }));
-          } catch { /* ignore */ }
-        } else if (state === 'completed') {
-          setIsPrefillActive(false); // Re-enable buttons
-          // Use backend duration - it's the authoritative source
-          const duration = durationSeconds ?? 0;
-          addLog('success', `Prefill completed in ${duration}s`);
-          
-          isCancelling.current = false;
-          isReceivingProgressRef.current = false;
-          setPrefillProgress(null);
-          
-          // Clear animation queue
-          cachedAnimationQueueRef.current = [];
-          isProcessingAnimationRef.current = false;
-          currentAnimationAppIdRef.current = 0;
-          cachedAnimationCountRef.current = 0;
-          
-          // Show background completion notification
-          setBackgroundCompletionRef.current({
-            completedAt: new Date().toISOString(),
-            message: `Prefill completed in ${duration}s`,
-            duration: duration
-          });
-          
-          // Clear prefill in progress tracking
-          try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
-        } else if (state === 'failed') {
-          setIsPrefillActive(false); // Re-enable buttons
-          addLog('error', 'Prefill operation failed');
-          isCancelling.current = false;
-          isReceivingProgressRef.current = false;
-          setPrefillProgress(null);
-          // Clear animation queue
-          cachedAnimationQueueRef.current = [];
-          isProcessingAnimationRef.current = false;
-          currentAnimationAppIdRef.current = 0;
-          cachedAnimationCountRef.current = 0;
-          // Clear prefill in progress tracking
-          try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
-        } else if (state === 'cancelled') {
-          setIsPrefillActive(false); // Re-enable buttons
-          addLog('info', 'Prefill operation cancelled');
-          isCancelling.current = false;
-          isReceivingProgressRef.current = false;
-          setPrefillProgress(null);
-          // Clear animation queue
-          cachedAnimationQueueRef.current = [];
-          isProcessingAnimationRef.current = false;
-          currentAnimationAppIdRef.current = 0;
-          cachedAnimationCountRef.current = 0;
-          // Clear prefill in progress tracking
-          try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
-        }
-      });
-
-      // Handle daemon session created (broadcast to all clients)
-      connection.on('DaemonSessionCreated', (sessionDto: PrefillSessionDto) => {
-        // Update session if it matches our current session
-        setSession((currentSession) => {
-          if (currentSession && sessionDto.id === currentSession.id) {
-            setTimeRemaining(sessionDto.timeRemainingSeconds);
-            return sessionDto;
-          }
-          return currentSession;
-        });
-      });
-
-      // Handle daemon session updated (broadcast to all clients)
-      connection.on('DaemonSessionUpdated', (sessionDto: PrefillSessionDto) => {
-        // Update session if it matches our current session
-        // Note: We don't update isLoggedIn here - AuthStateChanged is the authoritative source
-        // for auth state. DaemonSessionUpdated may contain stale auth state during login flow.
-        setSession((currentSession) => {
-          if (currentSession && sessionDto.id === currentSession.id) {
-            setTimeRemaining(sessionDto.timeRemainingSeconds);
-            return sessionDto;
-          }
-          return currentSession;
-        });
-      });
-
-      // Handle prefill history updated (broadcast to all clients)
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      connection.on(
-        'PrefillHistoryUpdated',
-        (_event: { sessionId: string; appId: number; status: string }) => {
-          // This event is primarily for admin pages to refresh history views
-          // PrefillPanel doesn't need to act on this directly
-        }
-      );
-
-      connection.onclose((error) => {
-        console.log('Hub connection closed:', error);
-        setIsConnecting(false);
-      });
-
-      connection.onreconnecting((error) => {
-        console.log('Hub reconnecting:', error);
-        addLog('warning', 'Connection lost, reconnecting...');
-      });
-
-      connection.onreconnected(async (connectionId) => {
-        console.log('Hub reconnected:', connectionId);
-        addLog('success', 'Reconnected to server');
-        // Re-subscribe to session if we have one (use ref to get current value)
-        const currentSession = sessionRef.current;
-        if (currentSession) {
-          try {
-            await connection.invoke('SubscribeToSession', currentSession.id);
-
-            // Check if prefill completed while we were disconnected
-            try {
-              // Reset the progress ref since we're reconnecting
-              isReceivingProgressRef.current = false;
-
-              const lastResult = await connection.invoke('GetLastPrefillResult', currentSession.id) as {
-                status: string;
-                completedAt: string;
-                durationSeconds: number;
-              } | null;
-
-              if (lastResult && lastResult.status === 'completed') {
-                const completedTime = new Date(lastResult.completedAt).getTime();
-                const now = Date.now();
-
-                // If completed in last 5 minutes and not already dismissed, show the notification
-                if (now - completedTime < 5 * 60 * 1000 && !isCompletionDismissed(lastResult.completedAt)) {
-                  setBackgroundCompletion({
-                    completedAt: lastResult.completedAt,
-                    message: `Prefill completed in ${lastResult.durationSeconds}s`,
-                    duration: lastResult.durationSeconds
-                  });
-                  addLog('success', `Prefill completed while disconnected (${lastResult.durationSeconds}s)`);
-                }
-              }
-            } catch {
-              // Non-critical - don't fail reconnection
-            }
-
-            // Clear any stale tracking flags
-            try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
-          } catch (err) {
-            console.error('Failed to resubscribe:', err);
-          }
-        }
-      });
-
-      await connection.start();
-      hubConnection.current = connection;
-      setIsConnecting(false);
-
-      return connection;
-    } catch (err) {
-      console.error('Failed to connect to hub:', err);
-      setError('Failed to connect to server');
-      setIsConnecting(false);
-      return null;
-    }
-  }, [session, onSessionEnd, handleAuthStateChanged, addLog, setBackgroundCompletion, clearBackgroundCompletion, isCompletionDismissed]);
-
-  // Check for existing sessions and reconnect if found
-  const initializeSession = useCallback(async () => {
-    if (initializationAttempted.current) return;
-    initializationAttempted.current = true;
-
-    setIsInitializing(true);
-
-    try {
-      const connection = await connectToHub();
-      if (!connection) {
-        setIsInitializing(false);
-        return;
-      }
-
-      // Check for existing sessions
-      const existingSessions = await connection.invoke<PrefillSessionDto[]>('GetMySessions');
-      const activeSession = existingSessions?.find((s) => s.status === 'Active');
-
-      if (activeSession) {
-        addLog('info', 'Reconnecting to existing session...', `Session: ${activeSession.id}`);
-
-        // Subscribe to the session
-        await connection.invoke('SubscribeToSession', activeSession.id);
-
-        setSession(activeSession);
-        setTimeRemaining(activeSession.timeRemainingSeconds);
-        setIsLoggedIn(activeSession.authState === 'Authenticated');
-
-        addLog(
-          'success',
-          'Reconnected to existing session',
-          `Container: ${activeSession.containerName}`
-        );
-        addLog(
-          'info',
-          `Session expires in ${formatTimeRemaining(activeSession.timeRemainingSeconds)}`
-        );
-
-        if (activeSession.authState === 'Authenticated') {
-          addLog('info', 'Already logged in to Steam');
-        } else {
-          addLog('info', 'Click "Login to Steam" to authenticate');
-        }
-
-        // Check for missed prefill completions when reconnecting to existing session
-        try {
-          isReceivingProgressRef.current = false;
-          const lastResult = await connection.invoke('GetLastPrefillResult', activeSession.id) as {
-            status: string;
-            completedAt: string;
-            durationSeconds: number;
-          } | null;
-
-          if (lastResult && lastResult.status === 'completed') {
-            const completedTime = new Date(lastResult.completedAt).getTime();
-            const now = Date.now();
-
-            // Show notification if completed in last 5 minutes and not already dismissed
-            if (now - completedTime < 5 * 60 * 1000) {
-              const currentBgCompletion = sessionStorage.getItem('prefill_background_completion');
-              if (!currentBgCompletion && !isCompletionDismissed(lastResult.completedAt)) {
-                setBackgroundCompletion({
-                  completedAt: lastResult.completedAt,
-                  message: `Prefill completed in ${lastResult.durationSeconds}s`,
-                  duration: lastResult.durationSeconds
-                });
-                addLog('success', `Prefill completed while away (${lastResult.durationSeconds}s)`);
-              }
-            }
-          }
-        } catch {
-          // Non-critical - don't fail session recovery
-        }
-      }
-    } catch (err) {
-      console.error('Failed to initialize session:', err);
-      // Don't set error - just means no existing session
-    } finally {
-      setIsInitializing(false);
-    }
-  }, [connectToHub, addLog, formatTimeRemaining, setBackgroundCompletion, isCompletionDismissed]);
-
-  // Initialize on mount - empty deps to run only once
-  useEffect(() => {
-    initializeSession();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const createSession = useCallback(async () => {
-    setIsCreating(true);
-    setError(null);
-    clearLogs(); // Clear previous logs
-
-    try {
-      // Connect to hub if not connected
-      let connection = hubConnection.current;
-      if (!connection || connection.state !== 'Connected') {
-        connection = await connectToHub();
-      }
-
-      if (!connection) {
-        throw new Error('Failed to establish connection');
-      }
-
-      addLog('info', 'Creating prefill session...');
-
-      // Create session via hub (returns existing session if one exists)
-      const sessionDto = await connection.invoke<PrefillSessionDto>('CreateSession');
-      setSession(sessionDto);
-      setTimeRemaining(sessionDto.timeRemainingSeconds);
-
-      // Check if this was an existing session or a new one
-      const isExistingSession = sessionDto.authState === 'Authenticated';
-      setIsLoggedIn(isExistingSession);
-
-      if (isExistingSession) {
-        addLog(
-          'success',
-          'Connected to existing session',
-          `Container: ${sessionDto.containerName}`
-        );
-        addLog('info', 'Already logged in to Steam');
-      } else {
-        addLog('success', 'Session created successfully', `Container: ${sessionDto.containerName}`);
-        addLog('info', 'Click "Login to Steam" to authenticate before using prefill commands');
-      }
-      addLog('info', `Session expires in ${formatTimeRemaining(sessionDto.timeRemainingSeconds)}`);
-
-      // Subscribe to session to start receiving events
-      await connection.invoke('SubscribeToSession', sessionDto.id);
-
-      setIsCreating(false);
-    } catch (err) {
-      console.error('Failed to create session:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Failed to create session';
-      setError(errorMessage);
-      addLog('error', errorMessage);
-      setIsCreating(false);
-    }
-  }, [connectToHub, formatTimeRemaining, addLog, clearLogs]);
-
-  // Helper to call prefill REST API (bypasses SignalR serialization issues)
+  // Helper to call prefill REST API
   const callPrefillApi = useCallback(
     async (
       sessionId: string,
@@ -1010,18 +169,14 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         force?: boolean;
       } = {}
     ) => {
-      // Reset cancelling flag when starting a new prefill
-      isCancelling.current = false;
+      signalR.isCancelling.current = false;
 
-      // Build the full request with settings
       const requestBody: Record<string, unknown> = { ...options };
 
-      // Add OS selection (only if not all platforms selected)
       if (selectedOS.length > 0 && selectedOS.length < 3) {
         requestBody.operatingSystems = selectedOS;
       }
 
-      // Add max concurrency if not default
       if (maxConcurrency !== 'default') {
         requestBody.maxConcurrency = parseInt(maxConcurrency, 10);
       }
@@ -1042,116 +197,101 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
       return response.json();
     },
-    [selectedOS, maxConcurrency]
+    [selectedOS, maxConcurrency, signalR.isCancelling]
   );
 
   const executeCommand = useCallback(
     async (commandType: CommandType) => {
-      if (!session || !hubConnection.current) return;
+      if (!signalR.session || !signalR.hubConnection.current) return;
 
       setIsExecuting(true);
-      addLog('command', `Running: ${commandType}`);
 
       try {
         switch (commandType) {
           case 'select-apps': {
-            // Get owned games list via REST API
             setIsLoadingGames(true);
+            setShowGameSelection(true);
+
             try {
-              const response = await fetch(
-                `${API_BASE}/prefill-daemon/sessions/${session.id}/games`,
-                {
-                  headers: authService.getAuthHeaders()
-                }
+              // Fetch owned games via direct API call
+              const gamesResponse = await fetch(
+                `${API_BASE}/prefill-daemon/sessions/${signalR.session.id}/games`,
+                { headers: authService.getAuthHeaders() }
               );
-              if (!response.ok) {
-                throw new Error(`Failed to get games: HTTP ${response.status}`);
+              if (!gamesResponse.ok) {
+                throw new Error(`Failed to get games: HTTP ${gamesResponse.status}`);
               }
-              const games = await response.json();
+              const games = await gamesResponse.json();
               setOwnedGames(games || []);
               addLog('info', `Found ${games?.length || 0} owned games`);
 
-              // Fetch cached apps to show which games are already in the lancache
-              if (games && games.length > 0) {
-                try {
-                  const cachedApps = await ApiService.getPrefillCachedApps();
-                  setCachedAppIds(cachedApps.map(a => a.appId));
-                  if (cachedApps.length > 0) {
-                    addLog('info', `${cachedApps.length} games already cached in lancache`);
-                  }
-                } catch (err) {
-                  console.warn('Failed to fetch cached apps:', err);
-                  // Non-critical, continue without cached app info
-                }
+              // Get cached apps via ApiService
+              const cachedApps = await ApiService.getPrefillCachedApps();
+              setCachedAppIds(cachedApps.map(a => a.appId));
+              if (cachedApps.length > 0) {
+                addLog('info', `${cachedApps.length} games already cached in lancache`);
               }
-
-              setShowGameSelection(true);
+            } catch (err) {
+              console.error('Failed to load games:', err);
+              addLog('error', 'Failed to load game library');
             } finally {
               setIsLoadingGames(false);
             }
             break;
           }
           case 'prefill': {
-            // Check if any games are selected
             if (selectedAppIds.length === 0) {
-              addLog(
-                'warning',
-                'No games selected. Use "Select Apps" to choose games for prefill first.'
-              );
+              addLog('warning', 'No games selected. Use "Select Apps" to choose games for prefill first.');
               break;
             }
-            // Set expected app count for completion tracking
-            expectedAppCountRef.current = selectedAppIds.length;
+            signalR.expectedAppCountRef.current = selectedAppIds.length;
             addLog('download', `Starting prefill of ${selectedAppIds.length} selected apps...`);
-            const result = await callPrefillApi(session.id, {});
-            // Note: Don't log completion here - SignalR PrefillStateChanged handler does that
-            // Only log errors since SignalR might not receive error details
+            const result = await callPrefillApi(signalR.session.id, {});
             if (!result?.success) {
               addLog('error', result?.errorMessage || 'Prefill failed');
             }
             break;
           }
           case 'prefill-all': {
-            expectedAppCountRef.current = 0; // Unknown count
+            signalR.expectedAppCountRef.current = 0;
             addLog('download', 'Starting prefill of all owned games...');
-            const result = await callPrefillApi(session.id, { all: true });
-            // Note: Don't log completion here - SignalR PrefillStateChanged handler does that
+            const result = await callPrefillApi(signalR.session.id, { all: true });
             if (!result?.success) {
               addLog('error', result?.errorMessage || 'Prefill failed');
             }
             break;
           }
           case 'prefill-recent': {
-            expectedAppCountRef.current = 0; // Unknown count
+            signalR.expectedAppCountRef.current = 0;
             addLog('download', 'Starting prefill of recently played games...');
-            const result = await callPrefillApi(session.id, { recent: true });
+            const result = await callPrefillApi(signalR.session.id, { recent: true });
             if (!result?.success) {
               addLog('error', result?.errorMessage || 'Prefill failed');
             }
             break;
           }
           case 'prefill-recent-purchased': {
-            expectedAppCountRef.current = 0; // Unknown count
+            signalR.expectedAppCountRef.current = 0;
             addLog('download', 'Starting prefill of recently purchased games...');
-            const result = await callPrefillApi(session.id, { recentlyPurchased: true });
+            const result = await callPrefillApi(signalR.session.id, { recentlyPurchased: true });
             if (!result?.success) {
               addLog('error', result?.errorMessage || 'Prefill failed');
             }
             break;
           }
           case 'prefill-top': {
-            expectedAppCountRef.current = 50; // Known count for top 50
+            signalR.expectedAppCountRef.current = 50;
             addLog('download', 'Starting prefill of top 50 popular games...');
-            const result = await callPrefillApi(session.id, { top: 50 });
+            const result = await callPrefillApi(signalR.session.id, { top: 50 });
             if (!result?.success) {
               addLog('error', result?.errorMessage || 'Prefill failed');
             }
             break;
           }
           case 'prefill-force': {
-            expectedAppCountRef.current = selectedAppIds.length || 0; // Use selected apps if available
+            signalR.expectedAppCountRef.current = selectedAppIds.length || 0;
             addLog('download', 'Starting force prefill (re-downloading)...');
-            const result = await callPrefillApi(session.id, { force: true });
+            const result = await callPrefillApi(signalR.session.id, { force: true });
             if (!result?.success) {
               addLog('error', result?.errorMessage || 'Prefill failed');
             }
@@ -1160,251 +300,121 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           case 'clear-temp': {
             addLog('info', 'Clearing temporary cache...');
             try {
-              const clearResult = await hubConnection.current.invoke('ClearCache', session.id);
-              if (clearResult?.success) {
-                addLog('success', clearResult.message || 'Cache cleared successfully');
-              } else {
-                addLog('error', clearResult?.message || 'Failed to clear cache');
-              }
-            } catch {
-              addLog('warning', 'Clear cache not supported by current daemon version');
-            }
-            break;
-          }
-          case 'clear-cache-data': {
-            addLog('info', 'Clearing prefill cache database records...');
-            try {
-              const result = await ApiService.clearAllPrefillCache();
-              addLog('success', result.message || 'Prefill cache database cleared successfully');
-              // Also clear local cached app IDs state
-              setCachedAppIds([]);
+              await signalR.hubConnection.current.invoke('ClearTemporaryCache', signalR.session.id);
+              addLog('success', 'Temporary cache cleared');
             } catch (err) {
-              const errorMessage = err instanceof Error ? err.message : 'Failed to clear prefill cache database';
+              const errorMessage = err instanceof Error ? err.message : 'Failed to clear cache';
               addLog('error', errorMessage);
             }
             break;
           }
-          default:
-            addLog('warning', `Command '${commandType}' not yet implemented`);
+          case 'clear-cache-data': {
+            addLog('info', 'Clearing prefill cache database...');
+            try {
+              const result = await ApiService.clearAllPrefillCache();
+              addLog('success', result.message || 'Prefill cache database cleared successfully');
+              setCachedAppIds([]);
+            } catch (err) {
+              const errorMessage = err instanceof Error ? err.message : 'Failed to clear cache database';
+              addLog('error', errorMessage);
+            }
+            break;
+          }
         }
       } catch (err) {
-        console.error('Failed to execute command:', err);
-        const errorMessage = err instanceof Error ? err.message : 'Failed to execute command';
-        addLog('error', errorMessage);
+        console.error('Command execution failed:', err);
+        addLog('error', err instanceof Error ? err.message : 'Command failed');
       } finally {
-        setTimeout(() => setIsExecuting(false), 1000);
+        setIsExecuting(false);
       }
     },
-    [session, addLog, selectedAppIds, ownedGames, callPrefillApi]
+    [signalR.session, signalR.hubConnection, signalR.expectedAppCountRef, callPrefillApi, selectedAppIds, addLog]
   );
 
   const handleEndSession = useCallback(async () => {
-    if (!session || !hubConnection.current) return;
+    if (!signalR.session || !signalR.hubConnection.current) return;
 
     try {
-      await hubConnection.current.invoke('EndSession', session.id);
+      await signalR.hubConnection.current.invoke('EndSession', signalR.session.id);
     } catch (err) {
       console.error('Failed to end session:', err);
     }
-
-    setSession(null);
-    setIsExecuting(false);
-    setIsLoggedIn(false);
-    setIsPrefillActive(false);
-    onSessionEnd?.();
-  }, [session, onSessionEnd]);
+  }, [signalR.session, signalR.hubConnection]);
 
   const handleCancelLogin = useCallback(async () => {
-    if (!session || !hubConnection.current) return;
+    if (!signalR.session || !signalR.hubConnection.current) return;
 
     try {
-      await hubConnection.current.invoke('CancelLogin', session.id);
-      addLog('info', 'Login cancelled');
+      await signalR.hubConnection.current.invoke('CancelLogin', signalR.session.id);
+      setShowAuthModal(false);
+      authActions.resetAuthForm();
     } catch (err) {
       console.error('Failed to cancel login:', err);
     }
-  }, [session, addLog]);
+  }, [signalR.session, signalR.hubConnection, authActions]);
 
   const handleCancelPrefill = useCallback(async () => {
-    if (!session || !hubConnection.current) return;
+    if (!signalR.session || !signalR.hubConnection.current) return;
 
-    // Set cancelling flag to prevent incoming progress events from re-setting state
-    isCancelling.current = true;
+    signalR.isCancelling.current = true;
+    addLog('info', 'Cancelling prefill operation...');
 
     try {
-      await hubConnection.current.invoke('CancelPrefill', session.id);
-      addLog('info', 'Prefill cancellation requested');
-      setPrefillProgress(null);
+      await signalR.hubConnection.current.invoke('CancelPrefill', signalR.session.id);
     } catch (err) {
-      console.error('Failed to cancel prefill:', err);
+      signalR.isCancelling.current = false;
       addLog('error', 'Failed to cancel prefill');
-      // Reset flag on error so user can try again
-      isCancelling.current = false;
     }
-  }, [session, addLog]);
+  }, [signalR.session, signalR.hubConnection, signalR.isCancelling, addLog]);
 
   const handleOpenAuthModal = useCallback(() => {
     authActions.resetAuthForm();
     setShowAuthModal(true);
   }, [authActions]);
 
-  // Handle saving game selection via REST API
   const handleSaveGameSelection = useCallback(
-    async (selectedIds: number[]) => {
-      if (!session) return;
+    async (appIds: number[]) => {
+      if (!signalR.session) return;
 
-      const response = await fetch(
-        `${API_BASE}/prefill-daemon/sessions/${session.id}/selected-apps`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...authService.getAuthHeaders()
-          },
-          body: JSON.stringify({ appIds: selectedIds })
+      setSelectedAppIds(appIds);
+      setShowGameSelection(false);
+
+      try {
+        const response = await fetch(
+          `${API_BASE}/prefill-daemon/sessions/${signalR.session.id}/selected-apps`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...authService.getAuthHeaders()
+            },
+            body: JSON.stringify({ appIds })
+          }
+        );
+        if (!response.ok) {
+          throw new Error(`Failed to save selection: HTTP ${response.status}`);
         }
-      );
-
-      if (!response.ok) {
-        throw new Error(`Failed to set selected apps: HTTP ${response.status}`);
+        addLog('success', `Selected ${appIds.length} game${appIds.length !== 1 ? 's' : ''} for prefill`);
+      } catch (err) {
+        console.error('Failed to save selection:', err);
+        addLog('error', 'Failed to save game selection');
       }
-
-      setSelectedAppIds(selectedIds);
-      addLog('success', `Selected ${selectedIds.length} games for prefill`);
     },
-    [session, addLog]
+    [signalR.session, addLog]
   );
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      hubConnection.current?.stop();
-    };
-  }, []);
-
-  // Track page visibility for background completion detection
-  useEffect(() => {
-    const handleVisibilityChange = async () => {
-      const wasHidden = isPageHiddenRef.current;
-      isPageHiddenRef.current = document.hidden;
-
-      // When page becomes visible, check if prefill completed while away
-      if (wasHidden && !document.hidden) {
-        const currentSession = sessionRef.current;
-        if (!currentSession) return;
-
-        // Helper function to check last prefill result with retry
-        const checkLastPrefillResult = async (attempt = 1) => {
-          if (!hubConnection.current || hubConnection.current.state !== 'Connected') {
-            // Retry up to 3 times with 2 second delays
-            if (attempt < 3) {
-              setTimeout(() => checkLastPrefillResult(attempt + 1), 2000);
-            }
-            return;
-          }
-
-          try {
-            // Reset the progress ref since we're checking after visibility change
-            isReceivingProgressRef.current = false;
-
-            const lastResult = await hubConnection.current.invoke('GetLastPrefillResult', currentSession.id) as {
-              status: string;
-              completedAt: string;
-              durationSeconds: number;
-            } | null;
-
-            if (lastResult && lastResult.status === 'completed') {
-              const completedTime = new Date(lastResult.completedAt).getTime();
-              const now = Date.now();
-
-              // If completed in last 5 minutes and not already dismissed, show the notification
-              if (now - completedTime < 5 * 60 * 1000) {
-                const currentBgCompletion = sessionStorage.getItem('prefill_background_completion');
-                if (!currentBgCompletion && !isCompletionDismissed(lastResult.completedAt)) {
-                  setBackgroundCompletion({
-                    completedAt: lastResult.completedAt,
-                    message: `Prefill completed in ${lastResult.durationSeconds}s`,
-                    duration: lastResult.durationSeconds
-                  });
-                  addLog('success', `Prefill completed while in background (${lastResult.durationSeconds}s)`);
-                }
-              }
-            }
-          } catch {
-            // Non-critical
-          }
-
-          // Clear any stale tracking flags
-          try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
-        };
-
-        // If connected, check immediately; otherwise wait for reconnection
-        if (hubConnection.current?.state === 'Connected') {
-          await checkLastPrefillResult();
-        } else {
-          setTimeout(() => checkLastPrefillResult(), 2000);
-        }
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [setBackgroundCompletion, addLog, isCompletionDismissed]);
-
-  // Auto-dismiss background completion notification after 10 seconds
-  useEffect(() => {
-    if (backgroundCompletion) {
-      const timer = setTimeout(() => {
-        clearBackgroundCompletion();
-      }, 10000);
-      return () => clearTimeout(timer);
-    }
-  }, [backgroundCompletion, clearBackgroundCompletion]);
-
-  // Commands that need confirmation before execution
-  const COMMANDS_REQUIRING_CONFIRMATION: CommandType[] = ['prefill', 'prefill-all', 'prefill-top', 'clear-cache-data'];
-
-  const getConfirmationMessage = (commandType: CommandType): { title: string; message: string } => {
-    switch (commandType) {
-      case 'prefill':
-        return {
-          title: 'Prefill Selected Games?',
-          message: `This will download ${selectedAppIds.length} selected game${selectedAppIds.length !== 1 ? 's' : ''} to your cache.`
-        };
-      case 'prefill-all':
-        return {
-          title: 'Prefill All Games?',
-          message:
-            'This will download ALL games in your Steam library. Depending on your library size, this could be hundreds of gigabytes and take many hours. Are you sure you want to continue?'
-        };
-      case 'prefill-top':
-        return {
-          title: 'Prefill Top 50 Games?',
-          message:
-            'This will download the 50 most popular games. This could be several hundred gigabytes of data. Are you sure you want to continue?'
-        };
-      case 'clear-cache-data':
-        return {
-          title: 'Clear Prefill Database?',
-          message:
-            'This will remove all prefill cache records from the database. Games will need to be re-prefilled to update the cache records. This does not delete the actual cached files from your lancache. Are you sure you want to continue?'
-        };
-      default:
-        return { title: 'Confirm', message: 'Are you sure?' };
-    }
-  };
-
-  // Fetch estimated download size for selected apps
+  // Confirmation dialog logic
   const fetchEstimatedSize = useCallback(async () => {
-    if (!session?.id || !hubConnection.current) return;
+    if (!signalR.session || !signalR.hubConnection.current || selectedAppIds.length === 0) return;
 
     setEstimatedSize({ bytes: 0, loading: true });
 
     try {
-      // Pass selected operating systems to get accurate size calculations
-      const status = (await hubConnection.current.invoke('GetSelectedAppsStatus', session.id, selectedOS)) as {
+      const status = await signalR.hubConnection.current.invoke(
+        'GetSelectedAppsStatus',
+        signalR.session.id,
+        selectedOS
+      ) as {
         totalDownloadSize: number;
         message?: string;
         apps?: Array<{
@@ -1415,38 +425,77 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           unavailableReason?: string;
         }>;
       };
+
       setEstimatedSize({
-        bytes: status.totalDownloadSize,
+        bytes: status.totalDownloadSize || 0,
         loading: false,
-        apps: status.apps,
+        apps: status.apps?.map((a) => ({
+          appId: a.appId,
+          name: a.name,
+          downloadSize: a.downloadSize,
+          isUnsupportedOs: a.isUnsupportedOs,
+          unavailableReason: a.unavailableReason
+        })),
         message: status.message
       });
-    } catch (error) {
-      console.error('Failed to fetch estimated size:', error);
-      setEstimatedSize({ bytes: 0, loading: false, error: 'Could not estimate size' });
+    } catch (err) {
+      setEstimatedSize({
+        bytes: 0,
+        loading: false,
+        error: 'Unable to estimate size'
+      });
     }
-  }, [session?.id, selectedOS]);
+  }, [signalR.session, signalR.hubConnection, selectedAppIds, selectedOS]);
 
-  // Handle button click - show confirmation for large operations
-  const handleCommandClick = useCallback(
-    async (commandType: CommandType) => {
-      if (COMMANDS_REQUIRING_CONFIRMATION.includes(commandType)) {
-        setPendingConfirmCommand(commandType);
-        // Fetch estimated size for prefill selected (apps are already set)
-        if (commandType === 'prefill' && selectedAppIds.length > 0) {
-          await fetchEstimatedSize();
-        } else {
-          // For prefill-all and prefill-top, we can't easily estimate without selecting first
-          setEstimatedSize({ bytes: 0, loading: false });
-        }
-      } else {
-        executeCommand(commandType);
+  const getConfirmationMessage = useCallback(
+    (command: CommandType): { title: string; message: string } => {
+      switch (command) {
+        case 'prefill':
+          return {
+            title: 'Confirm Download',
+            message: `You are about to download ${selectedAppIds.length} game${selectedAppIds.length !== 1 ? 's' : ''}. This may take a while and use significant bandwidth.`
+          };
+        case 'prefill-all':
+          return {
+            title: 'Download All Games',
+            message:
+              'This will download ALL games in your Steam library. This could be hundreds of gigabytes and take many hours.'
+          };
+        case 'prefill-force':
+          return {
+            title: 'Force Re-download',
+            message:
+              'This will re-download games even if they are already cached. Use this if you suspect cache corruption.'
+          };
+        case 'clear-cache-data':
+          return {
+            title: 'Clear Cache Database',
+            message:
+              'This will remove all cache records from the database. Cached files will remain but tracking data will be lost.'
+          };
+        default:
+          return { title: 'Confirm', message: 'Are you sure you want to proceed?' };
       }
     },
-    [executeCommand, selectedAppIds.length, fetchEstimatedSize]
+    [selectedAppIds]
   );
 
-  // Handle confirmation
+  const handleCommandClick = useCallback(
+    (command: CommandType) => {
+      const requiresConfirmation = ['prefill', 'prefill-all', 'prefill-force', 'clear-cache-data'].includes(command);
+
+      if (requiresConfirmation) {
+        setPendingConfirmCommand(command);
+        if (command === 'prefill') {
+          fetchEstimatedSize();
+        }
+      } else {
+        executeCommand(command);
+      }
+    },
+    [executeCommand, fetchEstimatedSize]
+  );
+
   const handleConfirmCommand = useCallback(() => {
     if (pendingConfirmCommand) {
       executeCommand(pendingConfirmCommand);
@@ -1460,62 +509,10 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     setEstimatedSize({ bytes: 0, loading: false });
   }, []);
 
-  // Render command button - ALL commands disabled until logged in
-  const renderCommandButton = (cmd: CommandButton) => {
-    // Special handling for "Prefill Selected" - disable if no games selected
-    const isPrefillSelected = cmd.id === 'prefill';
-    const noGamesSelected = selectedAppIds.length === 0;
-    // Disable prefill buttons while a prefill is in progress
-    const isPrefillCommand = cmd.id.startsWith('prefill');
-    const isDisabled = isExecuting || !isLoggedIn || (isPrefillSelected && noGamesSelected) || (isPrefillCommand && isPrefillActive);
-
-    // Dynamic label for prefill selected
-    const label =
-      isPrefillSelected && selectedAppIds.length > 0
-        ? `Prefill Selected (${selectedAppIds.length})`
-        : cmd.label;
-
-    // Dynamic description for prefill selected
-    const description = isPrefillSelected
-      ? noGamesSelected
-        ? 'Select games first'
-        : `${selectedAppIds.length} game${selectedAppIds.length !== 1 ? 's' : ''} ready`
-      : cmd.description;
-
-    return (
-      <Button
-        key={cmd.id}
-        variant={cmd.variant || 'default'}
-        color={cmd.color}
-        onClick={() => handleCommandClick(cmd.id)}
-        disabled={isDisabled}
-        className="h-auto py-3 px-4 flex-col items-start gap-1"
-        size="sm"
-      >
-        <div className="flex items-center gap-2 w-full">
-          <span
-            className="p-1.5 rounded-md"
-            style={{
-              backgroundColor:
-                cmd.variant === 'filled'
-                  ? 'rgba(255,255,255,0.15)'
-                  : 'color-mix(in srgb, var(--theme-primary) 15%, transparent)'
-            }}
-          >
-            {cmd.icon}
-          </span>
-          <span className="font-medium text-sm">{label}</span>
-        </div>
-        <span className="text-xs opacity-70 pl-8">{description}</span>
-      </Button>
-    );
-  };
-
   // No session state - show start screen
-  if (!session && !isCreating && !isInitializing) {
+  if (!signalR.session && !signalR.isInitializing) {
     return (
-      <div className="animate-fade-in">
-        {/* Steam Auth Modal */}
+      <>
         <SteamAuthModal
           opened={showAuthModal}
           onClose={() => setShowAuthModal(false)}
@@ -1524,89 +521,18 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           isPrefillMode={true}
           onCancelLogin={handleCancelLogin}
         />
-
-        <Card className="max-w-2xl mx-auto">
-          <CardContent className="py-12">
-            <div className="flex flex-col items-center text-center space-y-6">
-              {/* Steam Icon */}
-              <div className="w-20 h-20 rounded-2xl flex items-center justify-center bg-[var(--theme-steam)]">
-                <SteamIcon size={40} className="text-white" />
-              </div>
-
-              <div className="space-y-2">
-                <h2 className="text-2xl font-bold text-themed-primary">Steam Prefill</h2>
-                <p className="text-themed-muted max-w-md">
-                  Pre-download Steam games to your cache for faster LAN party downloads. Connect to
-                  your Steam library and prefill games before the event.
-                </p>
-              </div>
-
-              {error && (
-                <div
-                  className="w-full max-w-md p-4 rounded-lg flex items-center gap-3 bg-[var(--theme-error-bg)] border border-[color-mix(in_srgb,var(--theme-error)_30%,transparent)]"
-                >
-                  <AlertCircle className="h-5 w-5 flex-shrink-0 text-[var(--theme-error)]" />
-                  <span className="text-sm text-[var(--theme-error-text)]">
-                    {error}
-                  </span>
-                </div>
-              )}
-
-              <div className="flex flex-col items-center gap-3 pt-2">
-                <Button
-                  onClick={createSession}
-                  disabled={isConnecting}
-                  variant="filled"
-                  size="lg"
-                  className="min-w-[200px]"
-                >
-                  {isConnecting ? (
-                    <>
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                      Connecting...
-                    </>
-                  ) : (
-                    <>
-                      <Play className="h-5 w-5" />
-                      Start Session
-                    </>
-                  )}
-                </Button>
-                <p className="text-xs text-themed-muted flex items-center gap-1.5">
-                  <Shield className="h-3.5 w-3.5" />
-                  Requires Steam login to access your game library
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+        <PrefillStartScreen
+          error={signalR.error}
+          isConnecting={signalR.isConnecting}
+          onCreateSession={() => signalR.createSession(clearLogs)}
+        />
+      </>
     );
   }
 
   // Loading/Creating state
-  if (isInitializing || isCreating) {
-    return (
-      <div className="animate-fade-in">
-        <Card className="max-w-2xl mx-auto">
-          <CardContent className="py-12">
-            <div className="flex flex-col items-center justify-center gap-4">
-              <div
-                className="w-16 h-16 rounded-xl flex items-center justify-center bg-[color-mix(in_srgb,var(--theme-steam)_15%,transparent)]"
-              >
-                <Loader2 className="h-8 w-8 animate-spin text-[var(--theme-steam)]" />
-              </div>
-              <div className="text-center">
-                <p className="text-lg font-medium text-themed-primary">
-                  {isInitializing ? 'Checking for existing session...' : 'Creating session...'}
-                </p>
-                <p className="text-sm text-themed-muted mt-1">This may take a moment</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
+  if (signalR.isInitializing) {
+    return <PrefillLoadingState isInitializing={true} />;
   }
 
   // Active session - full interface
@@ -1634,104 +560,13 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       />
 
       {/* Large Prefill Confirmation Dialog */}
-      <Modal
-        opened={!!pendingConfirmCommand}
-        onClose={handleCancelConfirm}
-        title={
-          <div className="flex items-center gap-3">
-            <div
-              className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-[color-mix(in_srgb,var(--theme-warning)_15%,transparent)]"
-            >
-              <AlertCircle className="h-5 w-5 text-[var(--theme-warning)]" />
-            </div>
-            <span>
-              {pendingConfirmCommand ? getConfirmationMessage(pendingConfirmCommand).title : ''}
-            </span>
-          </div>
-        }
-        size="md"
-      >
-        <div className="space-y-4">
-          <p className="text-sm text-themed-muted">
-            {pendingConfirmCommand ? getConfirmationMessage(pendingConfirmCommand).message : ''}
-          </p>
-
-          {/* Estimated download size */}
-          {pendingConfirmCommand === 'prefill' && (
-            <div className="p-3 rounded-lg bg-[var(--theme-bg-secondary)]">
-              {estimatedSize.loading ? (
-                <div className="flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin text-[var(--theme-primary)]" />
-                  <span className="text-sm text-themed-muted">Calculating download size...</span>
-                </div>
-              ) : estimatedSize.error ? (
-                <span className="text-sm text-themed-muted">{estimatedSize.error}</span>
-              ) : (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-themed-muted">Total estimated download:</span>
-                    <span className="text-sm font-semibold text-[var(--theme-primary)]">
-                      {formatBytes(estimatedSize.bytes)}
-                    </span>
-                  </div>
-                  {estimatedSize.apps && estimatedSize.apps.length > 0 && (
-                    <div className="pt-2 border-t border-[var(--theme-border-primary)]">
-                      <div className="text-xs text-themed-muted mb-1">
-                        Breakdown ({estimatedSize.apps.length} games):
-                      </div>
-                      <div className="space-y-1 max-h-32 overflow-y-auto">
-                        {estimatedSize.apps.map((app) => (
-                          <div
-                            key={app.appId}
-                            className={`flex items-center justify-between text-xs ${
-                              app.isUnsupportedOs ? 'opacity-50' : ''
-                            }`}
-                          >
-                            <span
-                              className={`truncate mr-2 max-w-[200px] ${
-                                app.isUnsupportedOs
-                                  ? 'text-themed-muted line-through'
-                                  : 'text-themed-secondary'
-                              }`}
-                              title={app.unavailableReason || app.name}
-                            >
-                              {app.name}
-                            </span>
-                            <span
-                              className={`whitespace-nowrap ${
-                                app.isUnsupportedOs ? 'text-amber-500' : 'text-themed-muted'
-                              }`}
-                              title={app.unavailableReason}
-                            >
-                              {app.isUnsupportedOs
-                                ? app.unavailableReason || 'Unsupported OS'
-                                : formatBytes(app.downloadSize)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="outline" onClick={handleCancelConfirm}>
-              Cancel
-            </Button>
-            <Button
-              variant="filled"
-              color="blue"
-              onClick={handleConfirmCommand}
-              disabled={pendingConfirmCommand === 'prefill' && estimatedSize.loading}
-            >
-              {pendingConfirmCommand === 'prefill' ? 'Start Download' : 'Yes, Continue'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+      <PrefillConfirmModal
+        pendingCommand={pendingConfirmCommand}
+        estimatedSize={estimatedSize}
+        onConfirm={handleConfirmCommand}
+        onCancel={handleCancelConfirm}
+        getConfirmationMessage={getConfirmationMessage}
+      />
 
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-lg bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)]">
@@ -1749,22 +584,22 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           {/* Session Timer */}
           <div
             className={`flex items-center gap-2 px-4 py-2 rounded-lg flex-1 sm:flex-initial justify-center border ${
-              timeRemaining < 600
+              signalR.timeRemaining < 600
                 ? 'bg-[color-mix(in_srgb,var(--theme-warning)_15%,transparent)] border-[color-mix(in_srgb,var(--theme-warning)_30%,transparent)]'
                 : 'bg-[var(--theme-bg-tertiary)] border-[var(--theme-border-secondary)]'
             }`}
           >
             <Timer
               className={`h-4 w-4 ${
-                timeRemaining < 600 ? 'text-[var(--theme-warning)]' : 'text-[var(--theme-text-muted)]'
+                signalR.timeRemaining < 600 ? 'text-[var(--theme-warning)]' : 'text-[var(--theme-text-muted)]'
               }`}
             />
             <span
               className={`font-mono font-semibold tabular-nums ${
-                timeRemaining < 600 ? 'text-[var(--theme-warning-text)]' : 'text-[var(--theme-text-primary)]'
+                signalR.timeRemaining < 600 ? 'text-[var(--theme-warning-text)]' : 'text-[var(--theme-text-primary)]'
               }`}
             >
-              {formatTimeRemaining(timeRemaining)}
+              {formatTimeRemaining(signalR.timeRemaining)}
             </span>
           </div>
 
@@ -1782,12 +617,10 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       </div>
 
       {/* Error Banner */}
-      {error && (
-        <div
-          className="p-4 rounded-lg flex items-center gap-3 bg-[var(--theme-error-bg)] border border-[color-mix(in_srgb,var(--theme-error)_30%,transparent)]"
-        >
+      {signalR.error && (
+        <div className="p-4 rounded-lg flex items-center gap-3 bg-[var(--theme-error-bg)] border border-[color-mix(in_srgb,var(--theme-error)_30%,transparent)]">
           <AlertCircle className="h-5 w-5 flex-shrink-0 text-[var(--theme-error)]" />
-          <span className="text-[var(--theme-error-text)]">{error}</span>
+          <span className="text-[var(--theme-error-text)]">{signalR.error}</span>
         </div>
       )}
 
@@ -1801,12 +634,12 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
               <div className="flex items-center gap-3">
                 <div
                   className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                    isLoggedIn
+                    signalR.isLoggedIn
                       ? 'bg-[color-mix(in_srgb,var(--theme-success)_15%,transparent)]'
                       : 'bg-[color-mix(in_srgb,var(--theme-warning)_15%,transparent)]'
                   }`}
                 >
-                  {isLoggedIn ? (
+                  {signalR.isLoggedIn ? (
                     <CheckCircle2 className="h-5 w-5 text-[var(--theme-success)]" />
                   ) : (
                     <LogIn className="h-5 w-5 text-[var(--theme-warning)]" />
@@ -1814,17 +647,17 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                 </div>
                 <div>
                   <p className="font-medium text-themed-primary">
-                    {isLoggedIn ? 'Logged In to Steam' : 'Steam Login Required'}
+                    {signalR.isLoggedIn ? 'Logged In to Steam' : 'Steam Login Required'}
                   </p>
                   <p className="text-sm text-themed-muted">
-                    {isLoggedIn
+                    {signalR.isLoggedIn
                       ? 'You can now use prefill commands'
                       : 'Authenticate to access your game library'}
                   </p>
                 </div>
               </div>
 
-              {!isLoggedIn && (
+              {!signalR.isLoggedIn && (
                 <Button variant="filled" onClick={handleOpenAuthModal} className="flex-shrink-0">
                   <SteamIcon size={18} />
                   Login to Steam
@@ -1834,263 +667,38 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           </Card>
 
           {/* Network Status Card */}
-          <NetworkStatusSection diagnostics={session?.networkDiagnostics} />
+          <NetworkStatusSection diagnostics={signalR.session?.networkDiagnostics} />
 
           {/* Background Completion Notification Banner */}
-          {backgroundCompletion && !prefillProgress && (
-            <Card
-              padding="md"
-              className="overflow-hidden border-[color-mix(in_srgb,var(--theme-success)_50%,transparent)] animate-fade-in"
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[color-mix(in_srgb,var(--theme-success)_15%,transparent)]">
-                    <CheckCircle2 className="h-5 w-5 text-[var(--theme-success)]" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-themed-primary">Download Completed</p>
-                    <p className="text-sm text-themed-muted">
-                      {backgroundCompletion.message}
-                    </p>
-                  </div>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={clearBackgroundCompletion}
-                  className="flex-shrink-0"
-                >
-                  <X className="h-4 w-4" />
-                  Dismiss
-                </Button>
-              </div>
-            </Card>
+          {backgroundCompletion && !signalR.prefillProgress && (
+            <CompletionBanner completion={backgroundCompletion} onDismiss={clearBackgroundCompletion} />
           )}
 
           {/* Download Progress Card */}
-          {prefillProgress && (
-            <Card
-              padding="md"
-              className="overflow-hidden border-[color-mix(in_srgb,var(--theme-primary)_50%,transparent)]"
-            >
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="w-10 h-10 rounded-lg flex items-center justify-center bg-[color-mix(in_srgb,var(--theme-primary)_15%,transparent)]"
-                    >
-                      <Download
-                        className="h-5 w-5 animate-pulse text-[var(--theme-primary)]"
-                      />
-                    </div>
-                    <div>
-                      <p className="font-medium text-themed-primary">
-                        {prefillProgress.state === 'loading-metadata'
-                          ? 'Loading Game Data'
-                          : prefillProgress.state === 'metadata-loaded'
-                            ? 'Preparing Download'
-                            : prefillProgress.state === 'starting'
-                              ? 'Starting'
-                              : prefillProgress.state === 'preparing'
-                                ? 'Preparing'
-                                : prefillProgress.state === 'app_completed'
-                                  ? 'Loading Next Game'
-                                  : prefillProgress.state === 'already_cached'
-                                    ? 'Already Cached'
-                                    : 'Downloading'}
-                      </p>
-                      {(prefillProgress.state === 'downloading' || prefillProgress.state === 'app_completed' || prefillProgress.state === 'already_cached') && (
-                        <p className="text-sm text-themed-muted truncate max-w-[300px]">
-                          {prefillProgress.currentAppName || `App ${prefillProgress.currentAppId}`}
-                          {prefillProgress.state === 'app_completed' && ' - Complete'}
-                          {prefillProgress.state === 'already_cached' && ' - Up to Date'}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    {prefillProgress.state === 'downloading' && (
-                      <div className="text-right hidden sm:block">
-                        <p className="text-sm font-medium text-themed-primary">
-                          {formatSpeed(prefillProgress.bytesPerSecond)}
-                        </p>
-                        <p className="text-xs text-themed-muted">
-                          {formatTimeRemaining(Math.floor(prefillProgress.elapsedSeconds))} elapsed
-                        </p>
-                      </div>
-                    )}
-                    <Button variant="outline" size="sm" onClick={handleCancelPrefill}>
-                      <XCircle className="h-4 w-4" />
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Progress Bar */}
-                <div className="space-y-2">
-                  <div className="h-3 rounded-full overflow-hidden bg-[var(--theme-progress-bg)]">
-                    {prefillProgress.state === 'already_cached' ? (
-                      <div
-                        key={`cached-${prefillProgress.currentAppId}`}
-                        className="h-full rounded-full bg-[var(--theme-info)]"
-                        style={{ width: `${prefillProgress.percentComplete}%` }}
-                      />
-                    ) : prefillProgress.state === 'downloading' || prefillProgress.state === 'app_completed' ? (
-                      <div
-                        key={`download-${prefillProgress.currentAppId}`}
-                        className="h-full rounded-full transition-all duration-300 ease-out bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-accent)]"
-                        style={{ width: `${Math.min(100, prefillProgress.percentComplete)}%` }}
-                      />
-                    ) : (
-                      <div
-                        className="h-full rounded-full animate-pulse w-full opacity-50 bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-accent)]"
-                      />
-                    )}
-                  </div>
-
-                  {prefillProgress.state === 'downloading' ? (
-                    <div className="flex items-center justify-between text-xs text-themed-muted">
-                      <span>
-                        {formatBytes(prefillProgress.bytesDownloaded)} /{' '}
-                        {formatBytes(prefillProgress.totalBytes)}
-                      </span>
-                      <span className="font-medium text-[var(--theme-primary)]">
-                        {prefillProgress.percentComplete.toFixed(1)}%
-                      </span>
-                    </div>
-                  ) : prefillProgress.state === 'already_cached' ? (
-                    <div className="flex items-center justify-between text-xs text-themed-muted">
-                      <span className="text-[var(--theme-info)]">
-                        Game is already up to date in cache
-                      </span>
-                      <span className="font-medium text-[var(--theme-info)]">
-                        {prefillProgress.percentComplete.toFixed(0)}%
-                      </span>
-                    </div>
-                  ) : prefillProgress.state === 'app_completed' ? (
-                    <p className="text-sm text-themed-muted text-center">
-                      Loading next game...
-                    </p>
-                  ) : (
-                    <p className="text-sm text-themed-muted text-center">
-                      {prefillProgress.message || 'Preparing prefill operation...'}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </Card>
+          {signalR.prefillProgress && (
+            <PrefillProgressCard progress={signalR.prefillProgress} onCancel={handleCancelPrefill} />
           )}
 
           {/* Command Buttons */}
-          <Card padding="md">
-            <div className="space-y-6">
-              {/* Selection Commands */}
-              <div>
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-themed-muted mb-3 flex items-center gap-2">
-                  <List className="h-3.5 w-3.5" />
-                  Game Selection
-                </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {SELECTION_COMMANDS.map(renderCommandButton)}
-                </div>
-              </div>
-
-              {/* Download Settings */}
-              <div>
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-themed-muted mb-3 flex items-center gap-2">
-                  <Settings className="h-3.5 w-3.5" />
-                  Download Settings
-                </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* OS Selection */}
-                  <div>
-                    <label className="text-sm font-medium text-themed-secondary mb-1.5 flex items-center gap-2">
-                      <Monitor className="h-3.5 w-3.5" />
-                      Target Platforms
-                    </label>
-                    <MultiSelectDropdown
-                      options={OS_OPTIONS}
-                      values={selectedOS}
-                      onChange={setSelectedOS}
-                      disabled={isExecuting || !isLoggedIn}
-                      minSelections={1}
-                      placeholder="Select platforms"
-                    />
-                  </div>
-                  {/* Thread/Concurrency Selection */}
-                  <div>
-                    <label className="text-sm font-medium text-themed-secondary mb-1.5 flex items-center gap-2">
-                      <Cpu className="h-3.5 w-3.5" />
-                      Download Threads
-                    </label>
-                    <EnhancedDropdown
-                      options={THREAD_OPTIONS}
-                      value={maxConcurrency}
-                      onChange={setMaxConcurrency}
-                      disabled={isExecuting || !isLoggedIn}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Prefill Commands */}
-              <div>
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-themed-muted mb-3 flex items-center gap-2">
-                  <Download className="h-3.5 w-3.5" />
-                  Prefill Options
-                </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                  {PREFILL_COMMANDS.map(renderCommandButton)}
-                </div>
-              </div>
-
-              {/* Utility Commands */}
-              <div>
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-themed-muted mb-3 flex items-center gap-2">
-                  <Zap className="h-3.5 w-3.5" />
-                  Utilities
-                </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {UTILITY_COMMANDS
-                    .filter(cmd => !cmd.authOnly || isUserAuthenticated)
-                    .map(renderCommandButton)}
-                </div>
-              </div>
-
-              {/* Login Required Notice */}
-              {!isLoggedIn && (
-                <div
-                  className="p-4 rounded-lg flex items-start gap-3 bg-[color-mix(in_srgb,var(--theme-warning)_10%,transparent)] border border-[color-mix(in_srgb,var(--theme-warning)_25%,transparent)]"
-                >
-                  <Shield
-                    className="h-5 w-5 flex-shrink-0 mt-0.5 text-[var(--theme-warning)]"
-                  />
-                  <div>
-                    <p
-                      className="font-medium text-sm text-[var(--theme-warning-text)]"
-                    >
-                      Login Required to Use Commands
-                    </p>
-                    <p className="text-sm text-themed-muted mt-1">
-                      All prefill commands require Steam authentication. Click "Login to Steam"
-                      above to enable commands. Your credentials are sent directly to the container
-                      and never stored by this application.
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </Card>
+          <PrefillCommandButtons
+            isLoggedIn={signalR.isLoggedIn}
+            isExecuting={isExecuting}
+            isPrefillActive={signalR.isPrefillActive}
+            isUserAuthenticated={isUserAuthenticated}
+            selectedAppIds={selectedAppIds}
+            selectedOS={selectedOS}
+            maxConcurrency={maxConcurrency}
+            onCommandClick={handleCommandClick}
+            onSelectedOSChange={setSelectedOS}
+            onMaxConcurrencyChange={setMaxConcurrency}
+          />
         </div>
 
         {/* Right Column - Activity Log */}
         <div className="xl:col-span-1">
           <Card padding="none" className="overflow-hidden">
             <div className="px-4 pt-4 pb-3 flex items-center gap-3 border-b border-[var(--theme-border-primary)]">
-              <div
-                className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-[color-mix(in_srgb,var(--theme-accent)_15%,transparent)]"
-              >
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-[color-mix(in_srgb,var(--theme-accent)_15%,transparent)]">
                 <ScrollText className="h-4 w-4 text-[var(--theme-accent)]" />
               </div>
               <div>

@@ -113,6 +113,8 @@ CLAUDE.md
 nul
 project.yml
 .serena/
+tmpclaude-*
+**/tmpclaude-*
 
 # Documentation and reference files (local only)
 docs/
