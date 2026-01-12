@@ -2,7 +2,7 @@ import { useRef, useState, useCallback, useEffect } from 'react';
 import { HubConnection, HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
 import { SIGNALR_BASE } from '@utils/constants';
 import authService from '@services/auth.service';
-import type { SteamAuthState, PrefillSessionDto } from '../types';
+import { formatDuration, type SteamAuthState, type PrefillSessionDto } from '../types';
 import type { LogEntryType } from '../ActivityLog';
 
 interface PrefillProgress {
@@ -269,6 +269,11 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
             const startTime = Date.now();
 
             const animateProgress = () => {
+              // Stop animation if completion was received (resetAnimationState clears isProcessingAnimationRef)
+              if (!isProcessingAnimationRef.current) {
+                return;
+              }
+
               const elapsed = Date.now() - startTime;
               const percent = Math.min(100, (elapsed / animationDuration) * 100);
 
@@ -350,14 +355,15 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         } else if (state === 'completed') {
           setIsPrefillActive(false);
           const duration = durationSeconds ?? 0;
-          addLog('success', `Prefill completed in ${duration}s`);
+          const formattedDuration = formatDuration(duration);
+          addLog('success', `Prefill completed in ${formattedDuration}`);
           isCancelling.current = false;
           isReceivingProgressRef.current = false;
           setPrefillProgress(null);
           resetAnimationState();
           setBackgroundCompletionRef.current({
             completedAt: new Date().toISOString(),
-            message: `Prefill completed in ${duration}s`,
+            message: `Prefill completed in ${formattedDuration}`,
             duration: duration
           });
           try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
@@ -430,12 +436,13 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
             if (lastResult && lastResult.status === 'completed') {
               const completedTime = new Date(lastResult.completedAt).getTime();
               if (Date.now() - completedTime < 5 * 60 * 1000 && !isCompletionDismissed(lastResult.completedAt)) {
+                const formattedDuration = formatDuration(lastResult.durationSeconds);
                 setBackgroundCompletion({
                   completedAt: lastResult.completedAt,
-                  message: `Prefill completed in ${lastResult.durationSeconds}s`,
+                  message: `Prefill completed in ${formattedDuration}`,
                   duration: lastResult.durationSeconds
                 });
-                addLog('success', `Prefill completed while disconnected (${lastResult.durationSeconds}s)`);
+                addLog('success', `Prefill completed while disconnected (${formattedDuration})`);
               }
             }
             try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
@@ -504,12 +511,13 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
             if (Date.now() - completedTime < 5 * 60 * 1000) {
               const currentBgCompletion = sessionStorage.getItem('prefill_background_completion');
               if (!currentBgCompletion && !isCompletionDismissed(lastResult.completedAt)) {
+                const formattedDuration = formatDuration(lastResult.durationSeconds);
                 setBackgroundCompletion({
                   completedAt: lastResult.completedAt,
-                  message: `Prefill completed in ${lastResult.durationSeconds}s`,
+                  message: `Prefill completed in ${formattedDuration}`,
                   duration: lastResult.durationSeconds
                 });
-                addLog('success', `Prefill completed while away (${lastResult.durationSeconds}s)`);
+                addLog('success', `Prefill completed while away (${formattedDuration})`);
               }
             }
           }

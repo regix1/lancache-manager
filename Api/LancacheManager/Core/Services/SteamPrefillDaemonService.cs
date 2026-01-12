@@ -705,6 +705,10 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                 await BroadcastPrefillHistoryUpdatedAsync(sessionId, session.CurrentAppId, "Cancelled");
             }
 
+            // Mark session as no longer prefilling and notify frontend
+            session.IsPrefilling = false;
+            await NotifyPrefillStateChangeAsync(session, "cancelled");
+
             _logger.LogInformation("Prefill cancelled for session {SessionId}", sessionId);
         }
         catch (Exception ex)
@@ -1533,8 +1537,8 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             return; // Early return - don't process further for app_completed
         }
 
-        // Handle overall prefill completion/failure states
-        if (progress.State == "completed" || progress.State == "failed" || progress.State == "error")
+        // Handle overall prefill completion/failure/cancelled states
+        if (progress.State == "completed" || progress.State == "failed" || progress.State == "error" || progress.State == "cancelled")
         {
             if (session.CurrentAppId > 0)
             {
