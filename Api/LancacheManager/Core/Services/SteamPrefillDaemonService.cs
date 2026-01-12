@@ -1215,7 +1215,16 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                 BytesPerSecond = (long)socketProgress.BytesPerSecond,
                 TotalApps = socketProgress.TotalApps,
                 UpdatedApps = socketProgress.UpdatedApps,
-                UpdatedAt = socketProgress.UpdatedAt
+                UpdatedAt = socketProgress.UpdatedAt,
+                Result = socketProgress.Result,
+                ErrorMessage = socketProgress.ErrorMessage,
+                // Map depot info for cache tracking
+                Depots = socketProgress.Depots?.Select(d => new DepotManifestProgressInfo
+                {
+                    DepotId = d.DepotId,
+                    ManifestId = d.ManifestId,
+                    TotalBytes = d.TotalBytes
+                }).ToList()
             };
 
             _logger.LogDebug("Socket Progress: {AppName} ({AppId}) - {State}, {Bytes}/{Total} bytes",

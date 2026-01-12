@@ -915,4 +915,25 @@ public class SocketPrefillProgress
 
     [JsonPropertyName("updatedAt")]
     public DateTime UpdatedAt { get; set; }
+
+    /// <summary>
+    /// Depot manifest info for cache tracking - sent with app_completed events.
+    /// </summary>
+    [JsonPropertyName("depots")]
+    public List<SocketDepotManifestInfo>? Depots { get; set; }
+}
+
+/// <summary>
+/// Depot manifest info from socket progress updates.
+/// </summary>
+public class SocketDepotManifestInfo
+{
+    [JsonPropertyName("depotId")]
+    public uint DepotId { get; set; }
+
+    [JsonPropertyName("manifestId")]
+    public ulong ManifestId { get; set; }
+
+    [JsonPropertyName("totalBytes")]
+    public long TotalBytes { get; set; }
 }
