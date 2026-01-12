@@ -314,6 +314,20 @@ public class PrefillDaemonHub : Hub
     }
 
     /// <summary>
+    /// Checks cached games against Steam's current manifests and removes outdated entries.
+    /// Should be called after successful authentication to ensure cache status is accurate.
+    /// </summary>
+    /// <returns>Number of outdated cache entries removed</returns>
+    public async Task<int> CheckAndUpdateCacheStatus(string sessionId, List<string>? operatingSystems = null)
+    {
+        ValidateSessionAccess(sessionId, out var session);
+
+        _logger.LogInformation("Checking cache status for session {SessionId}", sessionId);
+
+        return await _daemonService.CheckAndUpdateCacheStatusAsync(sessionId, operatingSystems);
+    }
+
+    /// <summary>
     /// Terminates a session immediately (force kill)
     /// </summary>
     public async Task EndSession(string sessionId)

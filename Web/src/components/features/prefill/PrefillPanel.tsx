@@ -10,6 +10,7 @@ import { GameSelectionModal, type OwnedGame } from './GameSelectionModal';
 import { NetworkStatusSection } from './NetworkStatusSection';
 import ApiService, { type NetworkDiagnostics } from '@services/api.service';
 import { usePrefillContext } from '@contexts/PrefillContext';
+import { useAuth } from '@contexts/AuthContext';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import authService from '@services/auth.service';
 import { SIGNALR_BASE, API_BASE } from '@utils/constants';
@@ -36,7 +37,8 @@ import {
   Shield,
   Settings,
   Monitor,
-  Cpu
+  Cpu,
+  Database
 } from 'lucide-react';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { MultiSelectDropdown, type MultiSelectOption } from '@components/ui/MultiSelectDropdown';
@@ -75,7 +77,8 @@ type CommandType =
   | 'prefill-recent-purchased'
   | 'prefill-top'
   | 'prefill-force'
-  | 'clear-temp';
+  | 'clear-temp'
+  | 'clear-cache-data';
 
 interface CommandButton {
   id: CommandType;
@@ -84,6 +87,7 @@ interface CommandButton {
   icon: React.ReactNode;
   variant?: 'default' | 'outline' | 'filled' | 'subtle';
   requiresLogin?: boolean;
+  authOnly?: boolean; // Only show for authenticated users (not guests)
   color?: 'blue' | 'green' | 'red' | 'yellow' | 'purple' | 'gray' | 'orange' | 'default';
 }
 
@@ -154,6 +158,15 @@ const UTILITY_COMMANDS: CommandButton[] = [
     icon: <Trash2 className="h-4 w-4" />,
     variant: 'outline',
     color: 'red'
+  },
+  {
+    id: 'clear-cache-data',
+    label: 'Clear Database',
+    description: 'Remove cache records',
+    icon: <Database className="h-4 w-4" />,
+    variant: 'outline',
+    color: 'red',
+    authOnly: true
   }
 ];
 
@@ -182,6 +195,10 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
   // Use context for log entries (persists across tab switches)
   const { logEntries, addLog, clearLogs, backgroundCompletion, setBackgroundCompletion, clearBackgroundCompletion, isCompletionDismissed } = usePrefillContext();
+
+  // Check if user is authenticated (not guest) for auth-only features
+  const { isAuthenticated, authMode } = useAuth();
+  const isUserAuthenticated = isAuthenticated && authMode === 'authenticated';
 
   // Track page visibility for background completion detection
   const isPageHiddenRef = useRef(document.hidden);
@@ -293,13 +310,34 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
    * Handle auth state changes from backend SignalR events
    */
   const handleAuthStateChanged = useCallback(
-    (newState: SteamAuthState) => {
+    async (newState: SteamAuthState) => {
       switch (newState) {
         case 'Authenticated':
           setIsLoggedIn(true);
           setShowAuthModal(false);
           authActions.resetAuthForm();
           addLog('success', 'Successfully logged in to Steam');
+
+          // Check cached games for updates against Steam
+          if (sessionRef.current && hubConnection.current) {
+            try {
+              addLog('info', 'Checking cached games for updates...');
+              const removedCount = await hubConnection.current.invoke(
+                'CheckAndUpdateCacheStatus',
+                sessionRef.current.id,
+                null // operatingSystems - use default
+              ) as number;
+
+              if (removedCount > 0) {
+                addLog('info', `Found ${removedCount} game${removedCount > 1 ? 's' : ''} with updates available`);
+              } else {
+                addLog('info', 'All cached games are up-to-date');
+              }
+            } catch (err) {
+              // Non-critical - don't fail auth if cache check fails
+              console.warn('Failed to check cache status:', err);
+            }
+          }
           break;
         case 'CredentialsRequired':
           authActions.resetAuthForm();
@@ -884,6 +922,25 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
         if (activeSession.authState === 'Authenticated') {
           addLog('info', 'Already logged in to Steam');
+
+          // Check cached games for updates against Steam
+          try {
+            addLog('info', 'Checking cached games for updates...');
+            const removedCount = await connection.invoke(
+              'CheckAndUpdateCacheStatus',
+              activeSession.id,
+              null // operatingSystems - use default
+            ) as number;
+
+            if (removedCount > 0) {
+              addLog('info', `Found ${removedCount} game${removedCount > 1 ? 's' : ''} with updates available`);
+            } else {
+              addLog('info', 'All cached games are up-to-date');
+            }
+          } catch (err) {
+            // Non-critical - don't fail session recovery if cache check fails
+            console.warn('Failed to check cache status:', err);
+          }
         } else {
           addLog('info', 'Click "Login to Steam" to authenticate');
         }
@@ -1158,6 +1215,19 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             }
             break;
           }
+          case 'clear-cache-data': {
+            addLog('info', 'Clearing prefill cache database records...');
+            try {
+              const result = await ApiService.clearAllPrefillCache();
+              addLog('success', result.message || 'Prefill cache database cleared successfully');
+              // Also clear local cached app IDs state
+              setCachedAppIds([]);
+            } catch (err) {
+              const errorMessage = err instanceof Error ? err.message : 'Failed to clear prefill cache database';
+              addLog('error', errorMessage);
+            }
+            break;
+          }
           default:
             addLog('warning', `Command '${commandType}' not yet implemented`);
         }
@@ -1337,7 +1407,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   }, [backgroundCompletion, clearBackgroundCompletion]);
 
   // Commands that need confirmation before execution
-  const COMMANDS_REQUIRING_CONFIRMATION: CommandType[] = ['prefill', 'prefill-all', 'prefill-top'];
+  const COMMANDS_REQUIRING_CONFIRMATION: CommandType[] = ['prefill', 'prefill-all', 'prefill-top', 'clear-cache-data'];
 
   const getConfirmationMessage = (commandType: CommandType): { title: string; message: string } => {
     switch (commandType) {
@@ -1357,6 +1427,12 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           title: 'Prefill Top 50 Games?',
           message:
             'This will download the 50 most popular games. This could be several hundred gigabytes of data. Are you sure you want to continue?'
+        };
+      case 'clear-cache-data':
+        return {
+          title: 'Clear Prefill Database?',
+          message:
+            'This will remove all prefill cache records from the database. Games will need to be re-prefilled to update the cache records. This does not delete the actual cached files from your lancache. Are you sure you want to continue?'
         };
       default:
         return { title: 'Confirm', message: 'Are you sure?' };
@@ -2017,7 +2093,9 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                   Utilities
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {UTILITY_COMMANDS.map(renderCommandButton)}
+                  {UTILITY_COMMANDS
+                    .filter(cmd => !cmd.authOnly || isUserAuthenticated)
+                    .map(renderCommandButton)}
                 </div>
               </div>
 
