@@ -799,8 +799,13 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
             var result = await session.Client.PrefillAsync(all, recent, recentlyPurchased, top, force, operatingSystems, maxConcurrency, cachedDepots, cancellationToken);
 
-            // Notify completion/failure - the daemon waits for all operations to complete before returning
-            await NotifyPrefillStateChangeAsync(session, result.Success ? "completed" : "failed");
+            // NOTE: Don't notify completion here - the daemon returns immediately with an acknowledgement.
+            // The actual completion is detected by the frontend by counting completed apps.
+            // Only notify failure if the command itself failed.
+            if (!result.Success)
+            {
+                await NotifyPrefillStateChangeAsync(session, "failed");
+            }
 
             // Complete the last in-progress entry if any (the final game)
             if (session.CurrentAppId > 0)

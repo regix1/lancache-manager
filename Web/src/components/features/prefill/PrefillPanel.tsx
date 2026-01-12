@@ -208,6 +208,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const pendingCompletionRef = useRef<{ duration: number } | null>(null); // Store pending completion when animation is running
   const expectedAppCountRef = useRef(0); // Track how many apps we expect to process
   const completedAppCountRef = useRef(0); // Track how many apps have completed (cached or downloaded)
+  const hasShownCompletionRef = useRef(false); // Prevent duplicate completion logs
   const currentAnimationAppIdRef = useRef(0); // Track which app's animation is currently active
   // Queue for cached game animations - process one at a time
   const cachedAnimationQueueRef = useRef<Array<{
@@ -532,31 +533,33 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
               currentAppName: progress.currentAppName || prev.currentAppName
             } : null);
 
-            // Check if prefill already completed (PrefillStateChanged arrived before this event)
-            // If so, we need to show completion now
-            const pending = pendingCompletionRef.current;
-            if (pending) {
-              const knowExpectedCount = expectedAppCountRef.current > 0;
-              const allAppsReceived = knowExpectedCount &&
-                                       completedAppCountRef.current >= expectedAppCountRef.current;
-              const queueEmpty = cachedAnimationQueueRef.current.length === 0;
-              const notProcessing = !isProcessingAnimationRef.current;
-              const shouldShowCompletion = queueEmpty && notProcessing &&
-                                           cachedAnimationCountRef.current === 0 &&
-                                           (allAppsReceived || !knowExpectedCount);
+            // Check if all expected apps have been processed
+            // The daemon doesn't send a "completed" event, so we detect completion by counting apps
+            const knowExpectedCount = expectedAppCountRef.current > 0;
+            const allAppsReceived = knowExpectedCount &&
+                                     completedAppCountRef.current >= expectedAppCountRef.current;
+            const queueEmpty = cachedAnimationQueueRef.current.length === 0;
+            const notProcessing = !isProcessingAnimationRef.current;
+            const shouldShowCompletion = queueEmpty && notProcessing &&
+                                         cachedAnimationCountRef.current === 0 &&
+                                         allAppsReceived;
 
-              if (shouldShowCompletion) {
-                // Brief delay to show "Complete" state before clearing
-                setTimeout(() => {
-                  pendingCompletionRef.current = null;
-                  setPrefillProgress(null);
-                  setBackgroundCompletionRef.current({
-                    completedAt: new Date().toISOString(),
-                    message: `Prefill completed in ${Math.round(pending.duration)}s`,
-                    duration: pending.duration
-                  });
-                }, 500);
-              }
+            if (shouldShowCompletion) {
+              // Brief delay to show "Complete" state before clearing
+              setTimeout(() => {
+                const duration = pendingCompletionRef.current?.duration || prefillDurationRef.current;
+                pendingCompletionRef.current = null;
+                isReceivingProgressRef.current = false;
+                setPrefillProgress(null);
+                addLog('success', `Prefill completed in ${Math.round(duration)}s`);
+                setBackgroundCompletionRef.current({
+                  completedAt: new Date().toISOString(),
+                  message: `Prefill completed in ${Math.round(duration)}s`,
+                  duration: duration
+                });
+                // Clear prefill tracking
+                try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
+              }, 500);
             }
           } else if (progress.state === 'already_cached') {
             // For cached games, queue the animation to run one at a time
@@ -620,22 +623,27 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                     currentAnimationAppIdRef.current = 0;
 
                     // Check if we should show completion
+                    // Daemon doesn't send "completed" event, so we detect by counting apps
                     const knowExpectedCount = expectedAppCountRef.current > 0;
                     const allAppsReceived = knowExpectedCount &&
                                              completedAppCountRef.current >= expectedAppCountRef.current;
-                    const pending = pendingCompletionRef.current;
                     const queueEmpty = cachedAnimationQueueRef.current.length === 0;
-                    const shouldShowCompletion = pending && queueEmpty && cachedAnimationCountRef.current === 0 &&
-                                                 (allAppsReceived || !knowExpectedCount);
+                    const shouldShowCompletion = queueEmpty && cachedAnimationCountRef.current === 0 &&
+                                                 allAppsReceived;
 
                     if (shouldShowCompletion) {
+                      const duration = pendingCompletionRef.current?.duration || prefillDurationRef.current;
                       pendingCompletionRef.current = null;
+                      isReceivingProgressRef.current = false;
                       setPrefillProgress(null);
+                      addLog('success', `Prefill completed in ${Math.round(duration)}s`);
                       setBackgroundCompletionRef.current({
                         completedAt: new Date().toISOString(),
-                        message: `Prefill completed in ${Math.round(pending.duration)}s`,
-                        duration: pending.duration
+                        message: `Prefill completed in ${Math.round(duration)}s`,
+                        duration: duration
                       });
+                      // Clear prefill tracking
+                      try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
                     } else {
                       // Process next animation in queue
                       processAnimationQueue();
@@ -699,6 +707,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           cachedAnimationCountRef.current = 0;
           pendingCompletionRef.current = null;
           completedAppCountRef.current = 0;
+          hasShownCompletionRef.current = false; // Reset completion tracking
           // Reset animation queue
           cachedAnimationQueueRef.current = [];
           isProcessingAnimationRef.current = false;
@@ -714,8 +723,12 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             }));
           } catch { /* ignore */ }
         } else if (state === 'completed') {
+          // Only log if we haven't already shown completion via app counting
           const duration = durationSeconds || prefillDurationRef.current;
-          addLog('success', `Prefill completed in ${Math.round(duration)}s`);
+          if (!hasShownCompletionRef.current) {
+            hasShownCompletionRef.current = true;
+            addLog('success', `Prefill completed in ${Math.round(duration)}s`);
+          }
           isCancelling.current = false;
           isReceivingProgressRef.current = false;
           // Clear prefill in progress tracking
