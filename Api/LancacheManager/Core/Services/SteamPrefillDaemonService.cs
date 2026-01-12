@@ -799,7 +799,13 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
             var result = await session.Client.PrefillAsync(all, recent, recentlyPurchased, top, force, operatingSystems, maxConcurrency, cachedDepots, cancellationToken);
 
-            await NotifyPrefillStateChangeAsync(session, result.Success ? "completed" : "failed");
+            // NOTE: Don't notify completion here - the daemon returns immediately to acknowledge the command.
+            // Actual completion is notified when we receive a "completed" progress event via socket.
+            // Only notify failure if the command itself failed to start.
+            if (!result.Success)
+            {
+                await NotifyPrefillStateChangeAsync(session, "failed");
+            }
 
             // Complete the last in-progress entry if any (the final game)
             if (session.CurrentAppId > 0)
@@ -1567,6 +1573,11 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                     _logger.LogWarning(ex, "Failed to complete prefill history entry for app {AppId}", session.CurrentAppId);
                 }
             }
+
+            // Notify frontend of prefill state change (completed/failed)
+            var notifyState = progress.State == "error" ? "failed" : progress.State;
+            await NotifyPrefillStateChangeAsync(session, notifyState);
+            return; // Don't process further for terminal states
         }
 
         // Update previous app tracking before changing current
