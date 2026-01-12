@@ -895,65 +895,6 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Checks cached games against Steam's current manifests and removes outdated entries from the database.
-    /// Should be called after successful authentication to ensure cache status is accurate.
-    /// </summary>
-    /// <returns>Number of outdated cache entries removed</returns>
-    public async Task<int> CheckAndUpdateCacheStatusAsync(string sessionId, List<string>? operatingSystems = null, CancellationToken cancellationToken = default)
-    {
-        if (!_sessions.TryGetValue(sessionId, out var session))
-        {
-            throw new KeyNotFoundException($"Session not found: {sessionId}");
-        }
-
-        // Get all cached apps from our database
-        var cachedApps = await _cacheService.GetCachedAppsAsync();
-        if (cachedApps.Count == 0)
-        {
-            _logger.LogDebug("No cached apps to check for updates");
-            return 0;
-        }
-
-        var cachedAppIds = cachedApps.Select(a => a.AppId).ToList();
-        _logger.LogInformation("Checking {Count} cached apps for updates against Steam", cachedAppIds.Count);
-
-        try
-        {
-            // Set cached apps as selected so we can check their status
-            await session.Client.SetSelectedAppsAsync(cachedAppIds, cancellationToken);
-
-            // Get current status from Steam (this queries Steam for current manifests)
-            var status = await session.Client.GetSelectedAppsStatusAsync(operatingSystems, cancellationToken);
-
-            // Find apps that are NOT up-to-date (have updates available)
-            var outdatedApps = status.Apps
-                .Where(a => !a.IsUpToDate && cachedAppIds.Contains(a.AppId))
-                .ToList();
-
-            if (outdatedApps.Count == 0)
-            {
-                _logger.LogInformation("All {Count} cached apps are up-to-date", cachedApps.Count);
-                return 0;
-            }
-
-            // Remove outdated apps from cache database
-            _logger.LogInformation("Found {Count} cached apps with available updates, removing from cache", outdatedApps.Count);
-            foreach (var app in outdatedApps)
-            {
-                await _cacheService.ClearAppCacheAsync(app.AppId);
-                _logger.LogInformation("Removed outdated cache entry for {AppName} (AppId: {AppId})", app.Name, app.AppId);
-            }
-
-            return outdatedApps.Count;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to check cache status against Steam, proceeding with existing cache data");
-            return 0;
-        }
-    }
-
-    /// <summary>
     /// Shuts down the daemon for a session
     /// </summary>
     public async Task ShutdownDaemonAsync(string sessionId, CancellationToken cancellationToken = default)

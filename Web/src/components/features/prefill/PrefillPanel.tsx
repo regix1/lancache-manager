@@ -317,27 +317,6 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           setShowAuthModal(false);
           authActions.resetAuthForm();
           addLog('success', 'Successfully logged in to Steam');
-
-          // Check cached games for updates against Steam
-          if (sessionRef.current && hubConnection.current) {
-            try {
-              addLog('info', 'Checking cached games for updates...');
-              const removedCount = await hubConnection.current.invoke(
-                'CheckAndUpdateCacheStatus',
-                sessionRef.current.id,
-                null // operatingSystems - use default
-              ) as number;
-
-              if (removedCount > 0) {
-                addLog('info', `Found ${removedCount} game${removedCount > 1 ? 's' : ''} with updates available`);
-              } else {
-                addLog('info', 'All cached games are up-to-date');
-              }
-            } catch (err) {
-              // Non-critical - don't fail auth if cache check fails
-              console.warn('Failed to check cache status:', err);
-            }
-          }
           break;
         case 'CredentialsRequired':
           authActions.resetAuthForm();
@@ -552,6 +531,33 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
               percentComplete: 100,
               currentAppName: progress.currentAppName || prev.currentAppName
             } : null);
+
+            // Check if prefill already completed (PrefillStateChanged arrived before this event)
+            // If so, we need to show completion now
+            const pending = pendingCompletionRef.current;
+            if (pending) {
+              const knowExpectedCount = expectedAppCountRef.current > 0;
+              const allAppsReceived = knowExpectedCount &&
+                                       completedAppCountRef.current >= expectedAppCountRef.current;
+              const queueEmpty = cachedAnimationQueueRef.current.length === 0;
+              const notProcessing = !isProcessingAnimationRef.current;
+              const shouldShowCompletion = queueEmpty && notProcessing &&
+                                           cachedAnimationCountRef.current === 0 &&
+                                           (allAppsReceived || !knowExpectedCount);
+
+              if (shouldShowCompletion) {
+                // Brief delay to show "Complete" state before clearing
+                setTimeout(() => {
+                  pendingCompletionRef.current = null;
+                  setPrefillProgress(null);
+                  setBackgroundCompletionRef.current({
+                    completedAt: new Date().toISOString(),
+                    message: `Prefill completed in ${Math.round(pending.duration)}s`,
+                    duration: pending.duration
+                  });
+                }, 500);
+              }
+            }
           } else if (progress.state === 'already_cached') {
             // For cached games, queue the animation to run one at a time
             const appId = progress.currentAppId;
@@ -922,25 +928,6 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
         if (activeSession.authState === 'Authenticated') {
           addLog('info', 'Already logged in to Steam');
-
-          // Check cached games for updates against Steam
-          try {
-            addLog('info', 'Checking cached games for updates...');
-            const removedCount = await connection.invoke(
-              'CheckAndUpdateCacheStatus',
-              activeSession.id,
-              null // operatingSystems - use default
-            ) as number;
-
-            if (removedCount > 0) {
-              addLog('info', `Found ${removedCount} game${removedCount > 1 ? 's' : ''} with updates available`);
-            } else {
-              addLog('info', 'All cached games are up-to-date');
-            }
-          } catch (err) {
-            // Non-critical - don't fail session recovery if cache check fails
-            console.warn('Failed to check cache status:', err);
-          }
         } else {
           addLog('info', 'Click "Login to Steam" to authenticate');
         }
