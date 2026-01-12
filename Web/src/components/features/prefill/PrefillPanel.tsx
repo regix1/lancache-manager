@@ -489,6 +489,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             totalBytes: number;
             bytesPerSecond: number;
             elapsedSeconds: number;
+            totalApps: number;
           }
         ) => {
           // Final states should reset the cancelling flag and clear progress
@@ -521,7 +522,19 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             }
             // Track elapsed time for background completion message
             prefillDurationRef.current = progress.elapsedSeconds;
+            // Update expected app count from daemon if we don't know it yet
+            if (expectedAppCountRef.current === 0 && progress.totalApps > 0) {
+              expectedAppCountRef.current = progress.totalApps;
+            }
           } else if (progress.state === 'app_completed') {
+            // Update expected app count from daemon if we don't know it yet
+            if (expectedAppCountRef.current === 0 && progress.totalApps > 0) {
+              expectedAppCountRef.current = progress.totalApps;
+            }
+            // Track elapsed time for completion message
+            if (progress.elapsedSeconds > 0) {
+              prefillDurationRef.current = progress.elapsedSeconds;
+            }
             // When a game completes (actually downloaded), increment completed count
             completedAppCountRef.current++;
             currentAnimationAppIdRef.current = 0; // Clear animation tracking
@@ -562,6 +575,14 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
               }, 500);
             }
           } else if (progress.state === 'already_cached') {
+            // Update expected app count from daemon if we don't know it yet
+            if (expectedAppCountRef.current === 0 && progress.totalApps > 0) {
+              expectedAppCountRef.current = progress.totalApps;
+            }
+            // Track elapsed time for completion message
+            if (progress.elapsedSeconds > 0) {
+              prefillDurationRef.current = progress.elapsedSeconds;
+            }
             // For cached games, queue the animation to run one at a time
             const appId = progress.currentAppId;
             const totalBytes = progress.totalBytes || 0;
@@ -1508,7 +1529,10 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     // Special handling for "Prefill Selected" - disable if no games selected
     const isPrefillSelected = cmd.id === 'prefill';
     const noGamesSelected = selectedAppIds.length === 0;
-    const isDisabled = isExecuting || !isLoggedIn || (isPrefillSelected && noGamesSelected);
+    // Disable prefill buttons while a prefill is in progress
+    const isPrefillCommand = cmd.id.startsWith('prefill');
+    const isPrefillRunning = prefillProgress !== null;
+    const isDisabled = isExecuting || !isLoggedIn || (isPrefillSelected && noGamesSelected) || (isPrefillCommand && isPrefillRunning);
 
     // Dynamic label for prefill selected
     const label =
