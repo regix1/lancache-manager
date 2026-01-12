@@ -220,7 +220,10 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         if (isFinalState) {
           isCancelling.current = false;
           isReceivingProgressRef.current = false;
-          setPrefillProgress(null);
+          // Don't clear progress if there are pending cached animations
+          if (cachedAnimationQueueRef.current.length === 0 && !isProcessingAnimationRef.current) {
+            setPrefillProgress(null);
+          }
           return;
         }
 
@@ -295,7 +298,12 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
                   cachedAnimationCountRef.current--;
                   isProcessingAnimationRef.current = false;
                   currentAnimationAppIdRef.current = 0;
-                  processAnimationQueue();
+                  // Clear progress if this was the last animation and no more in queue
+                  if (cachedAnimationQueueRef.current.length === 0) {
+                    setPrefillProgress(null);
+                  } else {
+                    processAnimationQueue();
+                  }
                 }, 100);
               }
             };
