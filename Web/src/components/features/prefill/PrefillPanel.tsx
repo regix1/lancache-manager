@@ -1091,12 +1091,9 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             expectedAppCountRef.current = selectedAppIds.length;
             addLog('download', `Starting prefill of ${selectedAppIds.length} selected apps...`);
             const result = await callPrefillApi(session.id, {});
-            // Note: Don't clear progress here - let SignalR PrefillStateChanged handler manage it
-            // to allow cached game animations to complete properly
-            if (result?.success) {
-              const totalSeconds = result.totalSeconds || 0;
-              addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
-            } else {
+            // Note: Don't log completion here - SignalR PrefillStateChanged handler does that
+            // Only log errors since SignalR might not receive error details
+            if (!result?.success) {
               addLog('error', result?.errorMessage || 'Prefill failed');
             }
             break;
@@ -1105,11 +1102,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             expectedAppCountRef.current = 0; // Unknown count
             addLog('download', 'Starting prefill of all owned games...');
             const result = await callPrefillApi(session.id, { all: true });
-            // Note: Don't clear progress here - let SignalR PrefillStateChanged handler manage it
-            if (result?.success) {
-              const totalSeconds = result.totalSeconds || 0;
-              addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
-            } else {
+            // Note: Don't log completion here - SignalR PrefillStateChanged handler does that
+            if (!result?.success) {
               addLog('error', result?.errorMessage || 'Prefill failed');
             }
             break;
@@ -1118,11 +1112,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             expectedAppCountRef.current = 0; // Unknown count
             addLog('download', 'Starting prefill of recently played games...');
             const result = await callPrefillApi(session.id, { recent: true });
-            // Note: Don't clear progress here - let SignalR PrefillStateChanged handler manage it
-            if (result?.success) {
-              const totalSeconds = result.totalSeconds || 0;
-              addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
-            } else {
+            if (!result?.success) {
               addLog('error', result?.errorMessage || 'Prefill failed');
             }
             break;
@@ -1131,11 +1121,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             expectedAppCountRef.current = 0; // Unknown count
             addLog('download', 'Starting prefill of recently purchased games...');
             const result = await callPrefillApi(session.id, { recentlyPurchased: true });
-            // Note: Don't clear progress here - let SignalR PrefillStateChanged handler manage it
-            if (result?.success) {
-              const totalSeconds = result.totalSeconds || 0;
-              addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
-            } else {
+            if (!result?.success) {
               addLog('error', result?.errorMessage || 'Prefill failed');
             }
             break;
@@ -1144,11 +1130,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             expectedAppCountRef.current = 50; // Known count for top 50
             addLog('download', 'Starting prefill of top 50 popular games...');
             const result = await callPrefillApi(session.id, { top: 50 });
-            // Note: Don't clear progress here - let SignalR PrefillStateChanged handler manage it
-            if (result?.success) {
-              const totalSeconds = result.totalSeconds || 0;
-              addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
-            } else {
+            if (!result?.success) {
               addLog('error', result?.errorMessage || 'Prefill failed');
             }
             break;
@@ -1157,11 +1139,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             expectedAppCountRef.current = selectedAppIds.length || 0; // Use selected apps if available
             addLog('download', 'Starting force prefill (re-downloading)...');
             const result = await callPrefillApi(session.id, { force: true });
-            // Note: Don't clear progress here - let SignalR PrefillStateChanged handler manage it
-            if (result?.success) {
-              const totalSeconds = result.totalSeconds || 0;
-              addLog('success', `Prefill completed in ${Math.round(totalSeconds)}s`);
-            } else {
+            if (!result?.success) {
               addLog('error', result?.errorMessage || 'Prefill failed');
             }
             break;
