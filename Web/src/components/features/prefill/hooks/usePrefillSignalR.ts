@@ -220,10 +220,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         if (isFinalState) {
           isCancelling.current = false;
           isReceivingProgressRef.current = false;
-          // Don't clear progress if there are pending cached animations
-          if (cachedAnimationQueueRef.current.length === 0 && !isProcessingAnimationRef.current) {
-            setPrefillProgress(null);
-          }
+          setPrefillProgress(null);
           return;
         }
 
@@ -272,11 +269,6 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
             const startTime = Date.now();
 
             const animateProgress = () => {
-              // Stop animation if completion was received (resetAnimationState clears isProcessingAnimationRef)
-              if (!isProcessingAnimationRef.current) {
-                return;
-              }
-
               const elapsed = Date.now() - startTime;
               const percent = Math.min(100, (elapsed / animationDuration) * 100);
 
@@ -298,7 +290,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
                   cachedAnimationCountRef.current--;
                   isProcessingAnimationRef.current = false;
                   currentAnimationAppIdRef.current = 0;
-                  // Clear progress if this was the last animation and no more in queue
+                  // If queue is empty, clear progress (prefill may have already completed)
                   if (cachedAnimationQueueRef.current.length === 0) {
                     setPrefillProgress(null);
                   } else {
@@ -367,8 +359,15 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
           addLog('success', `Prefill completed in ${formattedDuration}`);
           isCancelling.current = false;
           isReceivingProgressRef.current = false;
-          setPrefillProgress(null);
-          resetAnimationState();
+
+          // If there are pending cached animations, let them finish before clearing
+          const hasPendingAnimations = cachedAnimationQueueRef.current.length > 0 || isProcessingAnimationRef.current;
+          if (!hasPendingAnimations) {
+            setPrefillProgress(null);
+            resetAnimationState();
+          }
+          // Note: Animation completion handler will clear progress when done
+
           setBackgroundCompletionRef.current({
             completedAt: new Date().toISOString(),
             message: `Prefill completed in ${formattedDuration}`,
