@@ -1219,6 +1219,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                 BytesDownloaded = socketProgress.BytesDownloaded,
                 PercentComplete = socketProgress.PercentComplete,
                 BytesPerSecond = (long)socketProgress.BytesPerSecond,
+                ElapsedSeconds = socketProgress.ElapsedSeconds,
                 TotalApps = socketProgress.TotalApps,
                 UpdatedApps = socketProgress.UpdatedApps,
                 UpdatedAt = socketProgress.UpdatedAt,

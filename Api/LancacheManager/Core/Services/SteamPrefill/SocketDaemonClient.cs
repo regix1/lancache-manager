@@ -723,7 +723,7 @@ public sealed class SocketDaemonClient : IDaemonClient
         var parameters = new Dictionary<string, string>();
         if (all) parameters["all"] = "true";
         if (recent) parameters["recent"] = "true";
-        if (recentlyPurchased) parameters["recentlyPurchased"] = "true";
+        if (recentlyPurchased) parameters["recently_purchased"] = "true";
         if (top.HasValue) parameters["top"] = top.Value.ToString();
         if (force) parameters["force"] = "true";
         if (maxConcurrency.HasValue && maxConcurrency.Value > 0)
