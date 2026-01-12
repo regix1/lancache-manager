@@ -200,17 +200,19 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const { isAuthenticated, authMode } = useAuth();
   const isUserAuthenticated = isAuthenticated && authMode === 'authenticated';
 
+  // Simple state to track if a prefill operation is active (for button disabling)
+  const [isPrefillActive, setIsPrefillActive] = useState(false);
+
   // Track page visibility for background completion detection
   const isPageHiddenRef = useRef(document.hidden);
   const prefillDurationRef = useRef<number>(0);
-  const isReceivingProgressRef = useRef(false); // Track if actively receiving progress updates
-  const cachedAnimationCountRef = useRef(0); // Track number of cached game animations running
-  const pendingCompletionRef = useRef<{ duration: number } | null>(null); // Store pending completion when animation is running
-  const expectedAppCountRef = useRef(0); // Track how many apps we expect to process
-  const completedAppCountRef = useRef(0); // Track how many apps have completed (cached or downloaded)
-  const hasShownCompletionRef = useRef(false); // Prevent duplicate completion logs
-  const currentAnimationAppIdRef = useRef(0); // Track which app's animation is currently active
-  // Queue for cached game animations - process one at a time
+  const isReceivingProgressRef = useRef(false);
+  const cachedAnimationCountRef = useRef(0);
+  const pendingCompletionRef = useRef<{ duration: number } | null>(null);
+  const expectedAppCountRef = useRef(0);
+  const completedAppCountRef = useRef(0);
+  const hasShownCompletionRef = useRef(false);
+  const currentAnimationAppIdRef = useRef(0);
   const cachedAnimationQueueRef = useRef<Array<{
     appId: number;
     appName?: string;
@@ -227,7 +229,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       elapsedSeconds: number;
     };
   }>>([]);
-  const isProcessingAnimationRef = useRef(false); // Track if we're currently running an animation
+  const isProcessingAnimationRef = useRef(false);
   // Ref to always have current setBackgroundCompletion function (avoids stale closure in SignalR handlers)
   const setBackgroundCompletionRef = useRef(setBackgroundCompletion);
 
@@ -470,6 +472,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         setSession(null);
         setIsExecuting(false);
         setIsLoggedIn(false);
+        setIsPrefillActive(false);
         setPrefillProgress(null);
         onSessionEnd?.();
       });
@@ -722,6 +725,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       // Handle prefill state changes
       connection.on('PrefillStateChanged', (_sessionId: string, state: string, durationSeconds?: number) => {
         if (state === 'started') {
+          setIsPrefillActive(true); // Enable button disabling
           addLog('download', 'Prefill operation started');
           prefillDurationRef.current = 0;
           isReceivingProgressRef.current = true;
@@ -744,6 +748,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             }));
           } catch { /* ignore */ }
         } else if (state === 'completed') {
+          setIsPrefillActive(false); // Re-enable buttons
           // Only log if we haven't already shown completion via app counting
           const duration = durationSeconds || prefillDurationRef.current;
           if (!hasShownCompletionRef.current) {
@@ -791,6 +796,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           }
           // If queue not empty or still processing, animation handlers will show completion
         } else if (state === 'failed') {
+          setIsPrefillActive(false); // Re-enable buttons
           addLog('error', 'Prefill operation failed');
           isCancelling.current = false;
           isReceivingProgressRef.current = false;
@@ -803,6 +809,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           // Clear prefill in progress tracking
           try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
         } else if (state === 'cancelled') {
+          setIsPrefillActive(false); // Re-enable buttons
           addLog('info', 'Prefill operation cancelled');
           isCancelling.current = false;
           isReceivingProgressRef.current = false;
@@ -1275,6 +1282,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     setSession(null);
     setIsExecuting(false);
     setIsLoggedIn(false);
+    setIsPrefillActive(false);
     onSessionEnd?.();
   }, [session, onSessionEnd]);
 
@@ -1531,8 +1539,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     const noGamesSelected = selectedAppIds.length === 0;
     // Disable prefill buttons while a prefill is in progress
     const isPrefillCommand = cmd.id.startsWith('prefill');
-    const isPrefillRunning = prefillProgress !== null;
-    const isDisabled = isExecuting || !isLoggedIn || (isPrefillSelected && noGamesSelected) || (isPrefillCommand && isPrefillRunning);
+    const isDisabled = isExecuting || !isLoggedIn || (isPrefillSelected && noGamesSelected) || (isPrefillCommand && isPrefillActive);
 
     // Dynamic label for prefill selected
     const label =
