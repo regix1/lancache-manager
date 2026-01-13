@@ -998,7 +998,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                 label: activeCount > 0 ? `Active (${activeCount})` : 'Active',
                 icon: <Activity size={14} />,
                 disabled: isHistoricalView,
-                title: isHistoricalView ? 'Active downloads only available in Live mode' : undefined
+                tooltip: isHistoricalView ? 'Active downloads only available in Live mode' : undefined
               }
             ]}
             value={viewMode}

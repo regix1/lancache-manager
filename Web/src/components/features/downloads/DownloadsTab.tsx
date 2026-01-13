@@ -1243,9 +1243,9 @@ const DownloadsTab: React.FC = () => {
               {/* View mode toggle inline with dropdowns */}
               <SegmentedControl
                 options={[
-                  { value: 'compact', icon: <List />, title: 'Compact' },
-                  { value: 'normal', icon: <Grid3x3 />, title: 'Normal' },
-                  { value: 'retro', icon: <Table />, title: 'Retro' }
+                  { value: 'compact', icon: <List />, tooltip: 'Compact' },
+                  { value: 'normal', icon: <Grid3x3 />, tooltip: 'Normal' },
+                  { value: 'retro', icon: <Table />, tooltip: 'Retro' }
                 ]}
                 value={settings.viewMode}
                 onChange={(value) => setSettings({ ...settings, viewMode: value as ViewMode })}

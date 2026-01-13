@@ -502,13 +502,13 @@ const Dashboard: React.FC = () => {
       },
       usedSpace: {
         key: 'usedSpace',
-        title: isHistoricalView && cacheSnapshot?.hasData ? 'Used Space (est.)' : 'Used Space',
+        title: isHistoricalView && cacheSnapshot?.hasData ? 'Used Space (end)' : 'Used Space',
         value: isHistoricalView
-          ? (cacheSnapshot?.hasData ? formatBytes(cacheSnapshot.averageUsedSize) : 'No data')
+          ? (cacheSnapshot?.hasData ? formatBytes(cacheSnapshot.endUsedSize) : 'No data')
           : (cacheInfo ? formatBytes(cacheInfo.usedCacheSize) : '0 B'),
         subtitle: isHistoricalView
           ? (cacheSnapshot?.hasData
-            ? `${cacheSnapshot.snapshotCount} snapshot${cacheSnapshot.snapshotCount !== 1 ? 's' : ''} avg`
+            ? `started at ${formatBytes(cacheSnapshot.startUsedSize)} • ${cacheSnapshot.snapshotCount} snapshot${cacheSnapshot.snapshotCount !== 1 ? 's' : ''}`
             : 'No snapshots yet')
           : (cacheInfo ? formatPercent(cacheInfo.usagePercent) : '0%'),
         icon: HardDrive,
@@ -583,6 +583,7 @@ const Dashboard: React.FC = () => {
     }),
     [
       cacheInfo,
+      cacheSnapshot,
       cardVisibility,
       stats,
       timeRange,

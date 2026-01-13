@@ -1,10 +1,11 @@
 import React from 'react';
+import { Tooltip } from './Tooltip';
 
 export interface SegmentedControlOption {
   value: string;
   label?: string;
   icon?: React.ReactNode;
-  title?: string;
+  tooltip?: string;
   disabled?: boolean;
 }
 
@@ -52,7 +53,7 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
         const isActive = value === option.value;
         const isDisabled = option.disabled;
 
-        return (
+        const buttonElement = (
           <button
             key={option.value}
             onClick={() => !isDisabled && onChange(option.value)}
@@ -66,7 +67,6 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
                 ? 'bg-[var(--theme-primary)] text-themed-button shadow-[0_2px_4px_color-mix(in_srgb,var(--theme-primary)_25%,transparent)]'
                 : 'bg-transparent text-themed-muted'
             } ${isDisabled ? 'cursor-default' : 'cursor-pointer'}`}
-            title={option.title || option.label}
           >
             {option.icon && React.isValidElement(option.icon)
               ? React.cloneElement(option.icon as React.ReactElement<{ size?: number }>, {
@@ -80,6 +80,14 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
               <span className={`${sizes.text} hidden lg:inline`}>{option.label}</span>
             )}
           </button>
+        );
+
+        return option.tooltip ? (
+          <Tooltip key={option.value} content={option.tooltip} strategy="overlay">
+            {buttonElement}
+          </Tooltip>
+        ) : (
+          <React.Fragment key={option.value}>{buttonElement}</React.Fragment>
         );
       })}
     </div>
