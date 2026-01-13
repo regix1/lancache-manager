@@ -839,9 +839,8 @@ const Dashboard: React.FC = () => {
         >
           {visibleCards.map((card: StatCardData, visualIndex: number) => {
             // Check if this is a live-only card that should be disabled in historical view
-            // Note: usedSpace is only disabled if we don't have historical snapshot data
-            const isLiveOnlyCard = card.key === 'activeDownloads' || card.key === 'activeClients' ||
-              (card.key === 'usedSpace' && !cacheSnapshot?.hasData);
+            // Note: usedSpace now supports historical data via snapshots, so it's never disabled
+            const isLiveOnlyCard = card.key === 'activeDownloads' || card.key === 'activeClients';
             const isCardDisabled = isLiveOnlyCard && isHistoricalView;
 
             return (

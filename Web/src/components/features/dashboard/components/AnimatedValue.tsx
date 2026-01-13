@@ -12,10 +12,11 @@ interface AnimatedValueProps {
 
 /**
  * Parses a formatted string like "1.5 GB" into { number: 1.5, suffix: " GB" }
+ * Returns isTextOnly: true when the value is pure text (no leading number)
  */
-const parseFormattedValue = (value: string | number): { number: number; suffix: string; decimals: number } => {
+const parseFormattedValue = (value: string | number): { number: number; suffix: string; decimals: number; isTextOnly: boolean } => {
   if (typeof value === 'number') {
-    return { number: value, suffix: '', decimals: 0 };
+    return { number: value, suffix: '', decimals: 0, isTextOnly: false };
   }
 
   // Match number at the start, possibly with decimals, and capture the rest as suffix
@@ -31,12 +32,12 @@ const parseFormattedValue = (value: string | number): { number: number; suffix: 
     const decimals = decimalIndex >= 0 ? numStr.length - decimalIndex - 1 : 0;
 
     if (!isNaN(num)) {
-      return { number: num, suffix, decimals };
+      return { number: num, suffix, decimals, isTextOnly: false };
     }
   }
 
-  // If parsing fails, return 0 with the original value as suffix
-  return { number: 0, suffix: value, decimals: 0 };
+  // If parsing fails, mark as text-only (don't show 0 prefix)
+  return { number: 0, suffix: value, decimals: 0, isTextOnly: true };
 };
 
 /**
@@ -55,6 +56,15 @@ const AnimatedValue: React.FC<AnimatedValueProps> = ({
     return (
       <span className={`${className} tabular-nums text-themed-primary`}>
         {typeof value === 'string' ? value : value.toLocaleString()}
+      </span>
+    );
+  }
+
+  // For text-only values (like "Disabled" or "No data"), just display the text
+  if (parsed.isTextOnly) {
+    return (
+      <span className={`${className} tabular-nums text-themed-primary`}>
+        {parsed.suffix}
       </span>
     );
   }
