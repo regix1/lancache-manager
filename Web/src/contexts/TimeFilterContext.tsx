@@ -196,7 +196,11 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
       // Set end time to end of day (23:59:59) instead of start of day
       const endDate = new Date(customEndDate);
       endDate.setHours(23, 59, 59, 999);
-      const endTime = Math.floor(endDate.getTime() / 1000);
+      // Cap end time at current time to prevent fetching "future" data
+      // This ensures custom ranges are always historical, never live
+      const now = Date.now();
+      const endTimestamp = Math.min(endDate.getTime(), now);
+      const endTime = Math.floor(endTimestamp / 1000);
 
       return { startTime, endTime };
     }
