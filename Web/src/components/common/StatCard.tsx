@@ -21,6 +21,8 @@ interface StatCardProps {
   percentChange?: number;
   // Trend help content for HelpPopover (shown next to percentage)
   trendHelp?: React.ReactNode;
+  // Tooltip shown next to title (help icon)
+  tooltip?: React.ReactNode;
   // Animation props
   animateValue?: boolean;
   // Glassmorphism
@@ -53,6 +55,7 @@ const StatCard: React.FC<StatCardProps> = ({
   trend,
   percentChange,
   trendHelp,
+  tooltip,
   animateValue = false,
   glassmorphism = false,
   staggerIndex,
@@ -124,7 +127,17 @@ const StatCard: React.FC<StatCardProps> = ({
             >
               {title}
             </p>
-            {trendHelp && <HelpPopover width={240}>{trendHelp}</HelpPopover>}
+            {(tooltip || trendHelp) && (
+              <HelpPopover width={260}>
+                <div className="space-y-2">
+                  {tooltip}
+                  {tooltip && trendHelp && (
+                    <div className="border-t border-themed-primary pt-2 mt-2" />
+                  )}
+                  {trendHelp}
+                </div>
+              </HelpPopover>
+            )}
           </div>
 
           {/* Main value with optional animation */}

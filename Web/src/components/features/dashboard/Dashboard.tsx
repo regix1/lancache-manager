@@ -65,15 +65,73 @@ const DEFAULT_CARD_ORDER: string[] = [
   'cacheHitRatio'
 ];
 
-const StatTooltips: Record<string, string> = {
-  totalCache: 'Total storage capacity of your LANCache system',
-  usedSpace: 'Amount of storage currently occupied by cached content',
-  bandwidthSaved: 'Internet bandwidth saved by serving from cache',
-  addedToCache: 'New content downloaded and cached',
-  totalServed: 'Total data delivered to clients',
-  activeDownloads: 'Number of downloads currently in progress',
-  activeClients: 'Number of clients currently downloading through the cache',
-  cacheHitRatio: 'Cache hits vs internet downloads. Higher is better!'
+const StatTooltips: Record<string, React.ReactNode> = {
+  totalCache: (
+    <div className="space-y-1.5">
+      <HelpDefinition term="Capacity" termColor="blue">Total storage available for caching</HelpDefinition>
+      <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
+        Based on your configured cache drive size
+      </div>
+    </div>
+  ),
+  usedSpace: (
+    <div className="space-y-1.5">
+      <HelpDefinition term="Live" termColor="green">Current cache size on disk</HelpDefinition>
+      <HelpDefinition term="Historical" termColor="blue">Average from periodic snapshots</HelpDefinition>
+      <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
+        Snapshots record cache size hourly for historical views
+      </div>
+    </div>
+  ),
+  bandwidthSaved: (
+    <div className="space-y-1.5">
+      <HelpDefinition term="Saved" termColor="green">Data served from cache instead of internet</HelpDefinition>
+      <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
+        Higher values mean more efficient caching
+      </div>
+    </div>
+  ),
+  addedToCache: (
+    <div className="space-y-1.5">
+      <HelpDefinition term="New Data" termColor="purple">Content downloaded and stored in cache</HelpDefinition>
+      <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
+        This data will be served locally for future requests
+      </div>
+    </div>
+  ),
+  totalServed: (
+    <div className="space-y-1.5">
+      <HelpDefinition term="Served" termColor="blue">Total bytes delivered to all clients</HelpDefinition>
+      <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
+        Includes both cache hits and new downloads
+      </div>
+    </div>
+  ),
+  activeDownloads: (
+    <div className="space-y-1.5">
+      <HelpDefinition term="Active" termColor="orange">Downloads currently in progress</HelpDefinition>
+      <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
+        Only available in Live mode
+      </div>
+    </div>
+  ),
+  activeClients: (
+    <div className="space-y-1.5">
+      <HelpDefinition term="Active" termColor="orange">Clients currently downloading</HelpDefinition>
+      <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
+        Only available in Live mode
+      </div>
+    </div>
+  ),
+  cacheHitRatio: (
+    <div className="space-y-1.5">
+      <HelpDefinition term="High %" termColor="green">More data served from cache</HelpDefinition>
+      <HelpDefinition term="Low %" termColor="orange">More data fetched from internet</HelpDefinition>
+      <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
+        Higher ratios mean better cache efficiency
+      </div>
+    </div>
+  )
 };
 
 // Trend help content for cards with sparklines
@@ -923,6 +981,7 @@ const Dashboard: React.FC = () => {
                 subtitle={card.subtitle}
                 icon={card.icon}
                 color={card.color}
+                tooltip={card.tooltip}
                 glassmorphism={true}
                 animateValue={true}
                 sparklineData={

@@ -1,5 +1,6 @@
 // types.ts
 import type { LucideIcon } from 'lucide-react';
+import type { ReactNode } from 'react';
 
 export interface CacheInfo {
   totalCacheSize: number;
@@ -284,7 +285,7 @@ export interface StatCardData {
   icon: LucideIcon;
   color: 'blue' | 'green' | 'emerald' | 'purple' | 'indigo' | 'orange' | 'yellow' | 'cyan';
   visible: boolean;
-  tooltip?: string;
+  tooltip?: ReactNode;
 }
 
 export interface CorruptedChunkDetail {
