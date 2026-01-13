@@ -39,7 +39,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
   const { timeRange } = useTimeFilter();
 
   // Determine if we're viewing historical/filtered data (not live)
-  // Any non-live mode should disable real-time only stats
+  // Any time range other than 'live' is historical (including presets like 12h, 24h, 7d, etc.)
   const isHistoricalView = timeRange !== 'live';
 
   const [speedSnapshot, setSpeedSnapshot] = useState<DownloadSpeedSnapshot | null>(null);
