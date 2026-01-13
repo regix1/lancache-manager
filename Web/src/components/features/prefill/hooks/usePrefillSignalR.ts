@@ -204,7 +204,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         setIsLoggedIn(sessionDto.authState === 'Authenticated');
       });
 
-      // Handle session ended
+      // Handle session ended (sent to session owner)
       connection.on('SessionEnded', (_sessionId: string, reason: string) => {
         addLog('warning', `Session ended: ${reason}`);
         setSession(null);
@@ -214,6 +214,23 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         // Clear all prefill-related storage when session ends
         clearAllPrefillStorage();
         onSessionEnd?.();
+      });
+
+      // Handle daemon session terminated (broadcast to all clients)
+      // This is used by admin pages; for the prefill panel, SessionEnded handles our session
+      connection.on('DaemonSessionTerminated', (_event: { sessionId: string; reason: string }) => {
+        // Check if this termination is for our current session
+        const currentSession = sessionRef.current;
+        if (currentSession && _event.sessionId === currentSession.id) {
+          // Our session was terminated externally (e.g., by admin)
+          addLog('warning', `Session terminated: ${_event.reason}`);
+          setSession(null);
+          setIsLoggedIn(false);
+          setIsPrefillActive(false);
+          setPrefillProgress(null);
+          clearAllPrefillStorage();
+          onSessionEnd?.();
+        }
       });
 
       // Handle prefill progress updates
