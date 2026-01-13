@@ -216,16 +216,6 @@ public class PrefillDaemonHub : Hub
     }
 
     /// <summary>
-    /// Gets the daemon status for a session
-    /// </summary>
-    public async Task<DaemonStatus?> GetStatus(string sessionId)
-    {
-        ValidateSessionAccess(sessionId, out var session);
-
-        return await _daemonService.GetSessionStatusAsync(sessionId);
-    }
-
-    /// <summary>
     /// Gets owned games for a logged-in session
     /// </summary>
     public async Task<List<OwnedGame>> GetOwnedGames(string sessionId)
@@ -291,16 +281,6 @@ public class PrefillDaemonHub : Hub
     }
 
     /// <summary>
-    /// Gets cache info
-    /// </summary>
-    public async Task<ClearCacheResult> GetCacheInfo(string sessionId)
-    {
-        ValidateSessionAccess(sessionId, out var session);
-
-        return await _daemonService.GetCacheInfoAsync(sessionId);
-    }
-
-    /// <summary>
     /// Gets selected apps status with download sizes
     /// </summary>
     public async Task<SelectedAppsStatus> GetSelectedAppsStatus(string sessionId, List<string>? operatingSystems = null)
@@ -323,15 +303,6 @@ public class PrefillDaemonHub : Hub
         _logger.LogInformation("Force ending session {SessionId}", sessionId);
         // Use force=true for immediate termination without waiting
         await _daemonService.TerminateSessionAsync(sessionId, "User ended session", force: true);
-    }
-
-    /// <summary>
-    /// Gets session info
-    /// </summary>
-    public DaemonSessionDto? GetSessionInfo(string sessionId)
-    {
-        var session = _daemonService.GetSession(sessionId);
-        return session != null ? DaemonSessionDto.FromSession(session) : null;
     }
 
     /// <summary>

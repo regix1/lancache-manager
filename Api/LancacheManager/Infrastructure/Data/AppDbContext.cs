@@ -24,6 +24,7 @@ public class AppDbContext : DbContext
     public DbSet<PrefillSession> PrefillSessions { get; set; }
     public DbSet<PrefillHistoryEntry> PrefillHistoryEntries { get; set; }
     public DbSet<PrefillCachedDepot> PrefillCachedDepots { get; set; }
+    public DbSet<CacheSnapshot> CacheSnapshots { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -270,5 +271,10 @@ public class AppDbContext : DbContext
             .HasForeignKey(h => h.SessionId)
             .HasPrincipalKey(s => s.SessionId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // CacheSnapshot configuration - index for time-based queries
+        modelBuilder.Entity<CacheSnapshot>()
+            .HasIndex(c => c.TimestampUtc)
+            .HasDatabaseName("IX_CacheSnapshots_TimestampUtc");
     }
 }

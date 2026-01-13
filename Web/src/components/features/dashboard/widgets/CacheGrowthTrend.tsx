@@ -31,6 +31,10 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
   staggerIndex,
 }) => {
   const { timeRange, getTimeRangeParams, selectedEventIds } = useTimeFilter();
+
+  // Determine if we're viewing historical/filtered data (not live)
+  // Any non-live mode should disable real-time only stats
+  const isHistoricalView = timeRange !== 'live';
   const { mockMode } = useMockMode();
   const [data, setData] = useState<CacheGrowthResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -91,6 +95,12 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
   const sparklineData = useMemo(() => {
     if (!data?.dataPoints?.length) return [];
     return data.dataPoints.map(dp => dp.cumulativeCacheMissBytes);
+  }, [data]);
+
+  // Calculate total growth during the selected period
+  const periodGrowth = useMemo(() => {
+    if (!data?.dataPoints?.length) return 0;
+    return data.dataPoints.reduce((sum, dp) => sum + dp.growthFromPrevious, 0);
   }, [data]);
 
   // Get values from API or props
@@ -196,34 +206,51 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
         )}
       </div>
 
-      {/* Current usage */}
-      <div className="flex items-baseline gap-2 mb-2">
-        <span className="text-xl font-bold text-themed-primary">
-          {formatBytes(usedCacheSize)}
-        </span>
-        {totalCacheSize > 0 && (
-          <span className="text-sm text-themed-muted">
-            / {formatBytes(totalCacheSize)}
-          </span>
-        )}
-      </div>
+      {/* Current usage or period growth */}
+      {isHistoricalView ? (
+        <>
+          <div className="flex items-baseline gap-2 mb-2">
+            <span className="text-xl font-bold text-themed-primary">
+              {formatBytes(periodGrowth)}
+            </span>
+            <span className="text-sm text-themed-muted">
+              added during period
+            </span>
+          </div>
+          {/* No usage bar for historical view - we don't have snapshot data */}
+          <div className="h-1 mb-3" />
+        </>
+      ) : (
+        <>
+          <div className="flex items-baseline gap-2 mb-2">
+            <span className="text-xl font-bold text-themed-primary">
+              {formatBytes(usedCacheSize)}
+            </span>
+            {totalCacheSize > 0 && (
+              <span className="text-sm text-themed-muted">
+                / {formatBytes(totalCacheSize)}
+              </span>
+            )}
+          </div>
 
-      {/* Usage bar */}
-      {totalCacheSize > 0 && (
-        <div className="widget-progress mb-3">
-          <div
-            className="widget-progress-fill"
-            style={{
-              width: `${usagePercent}%`,
-              backgroundColor:
-                usagePercent >= 90
-                  ? 'var(--theme-error)'
-                  : usagePercent >= 75
-                    ? 'var(--theme-warning)'
-                    : 'var(--theme-primary)',
-            }}
-          />
-        </div>
+          {/* Usage bar */}
+          {totalCacheSize > 0 && (
+            <div className="widget-progress mb-3">
+              <div
+                className="widget-progress-fill"
+                style={{
+                  width: `${usagePercent}%`,
+                  backgroundColor:
+                    usagePercent >= 90
+                      ? 'var(--theme-error)'
+                      : usagePercent >= 75
+                        ? 'var(--theme-warning)'
+                        : 'var(--theme-primary)',
+                }}
+              />
+            </div>
+          )}
+        </>
       )}
 
       {/* Sparkline */}
@@ -251,7 +278,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
       <div className="grid grid-cols-2 gap-4 text-xs">
         <div>
           <div className="text-themed-muted">
-            {cacheWasCleared ? 'Download Rate' : hasDataDeletion ? 'Net Growth' : 'Growth Rate'}
+            {isHistoricalView ? 'Avg. Growth' : cacheWasCleared ? 'Download Rate' : hasDataDeletion ? 'Net Growth' : 'Growth Rate'}
           </div>
           <div
             className={`font-medium ${
@@ -271,16 +298,18 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
         </div>
         <div>
           <div className="text-themed-muted">
-            {daysUntilFull !== null && daysUntilFull > 0 ? 'Est. Full' : 'Status'}
+            {isHistoricalView ? 'Data Points' : daysUntilFull !== null && daysUntilFull > 0 ? 'Est. Full' : 'Status'}
           </div>
           <div className="font-medium text-themed-primary">
-            {daysUntilFull !== null && daysUntilFull > 0
-              ? `~${daysUntilFull} days`
-              : daysUntilFull === 0
-                ? 'Full'
-                : usagePercent > 0
-                  ? `${usagePercent.toFixed(1)}% used`
-                  : 'Empty'}
+            {isHistoricalView
+              ? `${sparklineData.length} samples`
+              : daysUntilFull !== null && daysUntilFull > 0
+                ? `~${daysUntilFull} days`
+                : daysUntilFull === 0
+                  ? 'Full'
+                  : usagePercent > 0
+                    ? `${usagePercent.toFixed(1)}% used`
+                    : 'Empty'}
           </div>
         </div>
       </div>

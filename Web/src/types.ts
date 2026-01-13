@@ -187,6 +187,16 @@ export interface SparklineDataResponse {
   period: string;
 }
 
+export interface CacheSnapshotResponse {
+  hasData: boolean;
+  startUsedSize: number;
+  endUsedSize: number;
+  averageUsedSize: number;
+  totalCacheSize: number;
+  snapshotCount: number;
+  isEstimate: boolean;
+}
+
 // API Response Types - matching api.service.ts
 export interface CacheClearStatus {
   operationId: string;

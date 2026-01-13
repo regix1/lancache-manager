@@ -300,7 +300,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           case 'clear-temp': {
             addLog('info', 'Clearing temporary cache...');
             try {
-              await signalR.hubConnection.current.invoke('ClearTemporaryCache', signalR.session.id);
+              await signalR.hubConnection.current.invoke('ClearCache', signalR.session.id);
               addLog('success', 'Temporary cache cleared');
             } catch (err) {
               const errorMessage = err instanceof Error ? err.message : 'Failed to clear cache';

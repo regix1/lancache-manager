@@ -27,7 +27,7 @@ import { useRefreshRate } from '@contexts/RefreshRateContext';
 import { useDraggableCards } from '@hooks/useDraggableCards';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { STORAGE_KEYS } from '@utils/constants';
-import { type StatCardData, type SparklineDataResponse, type DownloadSpeedSnapshot } from '../../../types';
+import { type StatCardData, type SparklineDataResponse, type DownloadSpeedSnapshot, type CacheSnapshotResponse } from '../../../types';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
 import StatCard from '@components/common/StatCard';
@@ -131,8 +131,9 @@ const Dashboard: React.FC = () => {
   // Real-time speed snapshot for accurate active downloads count
   const [speedSnapshot, setSpeedSnapshot] = useState<DownloadSpeedSnapshot | null>(null);
 
-  // Determine if we're viewing historical data (not live)
-  const isHistoricalView = timeRange === 'custom' || selectedEventIds.length > 0;
+  // Determine if we're viewing historical/filtered data (not live)
+  // Any non-live mode should disable real-time only stats
+  const isHistoricalView = timeRange !== 'live';
 
   // Mark initial animation as complete after entrance animations finish
   useEffect(() => {
@@ -147,6 +148,9 @@ const Dashboard: React.FC = () => {
 
   // Sparkline data from API
   const [sparklineData, setSparklineData] = useState<SparklineDataResponse | null>(null);
+
+  // Historical cache snapshot data
+  const [cacheSnapshot, setCacheSnapshot] = useState<CacheSnapshotResponse | null>(null);
 
   // Fetch sparkline data when time range or event filter changes
   useEffect(() => {
@@ -173,6 +177,38 @@ const Dashboard: React.FC = () => {
 
     return () => controller.abort();
   }, [timeRange, getTimeRangeParams, selectedEventIds]);
+
+  // Fetch historical cache snapshot when in historical view
+  useEffect(() => {
+    const controller = new AbortController();
+
+    // Clear cache snapshot when switching views
+    setCacheSnapshot(null);
+
+    // Only fetch when in historical view (not live mode)
+    if (!isHistoricalView) {
+      return;
+    }
+
+    const fetchCacheSnapshot = async () => {
+      try {
+        const { startTime, endTime } = getTimeRangeParams();
+        if (startTime && endTime) {
+          const data = await ApiService.getCacheSnapshot(controller.signal, startTime, endTime);
+          setCacheSnapshot(data);
+        }
+      } catch (err) {
+        // Ignore abort errors
+        if (!controller.signal.aborted) {
+          console.error('Failed to fetch cache snapshot:', err);
+        }
+      }
+    };
+
+    fetchCacheSnapshot();
+
+    return () => controller.abort();
+  }, [timeRange, getTimeRangeParams, isHistoricalView]);
 
   // Fetch real-time speeds - uses SignalR with user-controlled throttling
   const lastSpeedUpdateRef = useRef<number>(0);
@@ -466,9 +502,15 @@ const Dashboard: React.FC = () => {
       },
       usedSpace: {
         key: 'usedSpace',
-        title: 'Used Space',
-        value: cacheInfo ? formatBytes(cacheInfo.usedCacheSize) : '0 B',
-        subtitle: cacheInfo ? formatPercent(cacheInfo.usagePercent) : '0%',
+        title: isHistoricalView && cacheSnapshot?.hasData ? 'Used Space (est.)' : 'Used Space',
+        value: isHistoricalView
+          ? (cacheSnapshot?.hasData ? formatBytes(cacheSnapshot.averageUsedSize) : 'No data')
+          : (cacheInfo ? formatBytes(cacheInfo.usedCacheSize) : '0 B'),
+        subtitle: isHistoricalView
+          ? (cacheSnapshot?.hasData
+            ? `${cacheSnapshot.snapshotCount} snapshot${cacheSnapshot.snapshotCount !== 1 ? 's' : ''} avg`
+            : 'No snapshots yet')
+          : (cacheInfo ? formatPercent(cacheInfo.usagePercent) : '0%'),
         icon: HardDrive,
         color: 'green' as const,
         visible: cardVisibility.usedSpace,
@@ -507,9 +549,9 @@ const Dashboard: React.FC = () => {
       activeDownloads: {
         key: 'activeDownloads',
         title: 'Active Downloads',
-        value: stats.totalActiveDownloads,
+        value: isHistoricalView ? 'Disabled' : stats.totalActiveDownloads,
         subtitle: isHistoricalView
-          ? '(Live) real-time data'
+          ? 'Live data only'
           : `${dashboardStats?.period?.downloads || filteredLatestDownloads.length} in period`,
         icon: Download,
         color: 'orange' as const,
@@ -519,9 +561,9 @@ const Dashboard: React.FC = () => {
       activeClients: {
         key: 'activeClients',
         title: 'Active Clients',
-        value: stats.activeClients,
+        value: isHistoricalView ? 'Disabled' : stats.activeClients,
         subtitle: isHistoricalView
-          ? '(Live) real-time data'
+          ? 'Live data only'
           : `${stats.uniqueClients} unique in period`,
         icon: Users,
         color: 'yellow' as const,
@@ -796,9 +838,11 @@ const Dashboard: React.FC = () => {
           style={{ opacity: loading ? 0.7 : 1 }}
         >
           {visibleCards.map((card: StatCardData, visualIndex: number) => {
-            // Check if this is an "active" card that should be disabled in historical view
-            const isActiveCard = card.key === 'activeDownloads' || card.key === 'activeClients';
-            const isCardDisabled = isActiveCard && isHistoricalView;
+            // Check if this is a live-only card that should be disabled in historical view
+            // Note: usedSpace is only disabled if we don't have historical snapshot data
+            const isLiveOnlyCard = card.key === 'activeDownloads' || card.key === 'activeClients' ||
+              (card.key === 'usedSpace' && !cacheSnapshot?.hasData);
+            const isCardDisabled = isLiveOnlyCard && isHistoricalView;
 
             return (
             <div

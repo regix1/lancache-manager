@@ -204,65 +204,6 @@ public class CachedDepotInput
 /// </summary>
 public static class SecureCredentialExchange
 {
-    public static EncryptedCredentialResponse EncryptCredential(
-        string challengeId,
-        string serverPublicKeyBase64,
-        string credential)
-    {
-        // Create client ECDH key pair
-        using var clientEcdh = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
-
-        // Export client public key as raw EC point (uncompressed: 04 || X || Y)
-        var clientParams = clientEcdh.ExportParameters(true); // true = include private key for derivation
-        var clientPublicKeyRaw = new byte[65];
-        clientPublicKeyRaw[0] = 0x04; // Uncompressed point indicator
-        Array.Copy(clientParams.Q.X!, 0, clientPublicKeyRaw, 1, 32);
-        Array.Copy(clientParams.Q.Y!, 0, clientPublicKeyRaw, 33, 32);
-
-        // Import server's raw EC point
-        var serverPublicKeyBytes = Convert.FromBase64String(serverPublicKeyBase64);
-        if (serverPublicKeyBytes.Length != 65 || serverPublicKeyBytes[0] != 0x04)
-        {
-            throw new CryptographicException($"Invalid server public key format. Expected 65-byte uncompressed EC point, got {serverPublicKeyBytes.Length} bytes");
-        }
-
-        var serverParams = new ECParameters
-        {
-            Curve = ECCurve.NamedCurves.nistP256,
-            Q = new ECPoint
-            {
-                X = serverPublicKeyBytes[1..33],
-                Y = serverPublicKeyBytes[33..65]
-            }
-        };
-
-        using var serverEcdh = ECDiffieHellman.Create(serverParams);
-
-        // Derive shared secret using SHA-256 hash (common approach for interoperability)
-        // .NET's DeriveKeyMaterial already does SHA-256 internally
-        var sharedSecret = clientEcdh.DeriveKeyMaterial(serverEcdh.PublicKey);
-
-        // Encrypt credential with AES-GCM using first 32 bytes as key
-        using var aes = new AesGcm(sharedSecret[..32], 16);
-        var nonce = new byte[12];
-        RandomNumberGenerator.Fill(nonce);
-
-        var plaintext = Encoding.UTF8.GetBytes(credential);
-        var ciphertext = new byte[plaintext.Length];
-        var tag = new byte[16];
-
-        aes.Encrypt(nonce, plaintext, ciphertext, tag);
-
-        return new EncryptedCredentialResponse
-        {
-            ChallengeId = challengeId,
-            ClientPublicKey = Convert.ToBase64String(clientPublicKeyRaw),
-            EncryptedCredential = Convert.ToBase64String(ciphertext),
-            Nonce = Convert.ToBase64String(nonce),
-            Tag = Convert.ToBase64String(tag)
-        };
-    }
-
     /// <summary>
     /// Encrypts credentials using ECDH + HKDF + AES-GCM
     /// Matches the daemon's SecureCredentialExchange implementation exactly

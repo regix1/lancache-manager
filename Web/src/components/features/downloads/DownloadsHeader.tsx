@@ -36,10 +36,11 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
   const { latestDownloads } = useDownloads();
   const signalR = useSignalR();
   const { getRefreshInterval } = useRefreshRate();
-  const { timeRange, selectedEventIds } = useTimeFilter();
+  const { timeRange } = useTimeFilter();
 
-  // Determine if we're viewing historical data (not live)
-  const isHistoricalView = timeRange === 'custom' || selectedEventIds.length > 0;
+  // Determine if we're viewing historical/filtered data (not live)
+  // Any non-live mode should disable real-time only stats
+  const isHistoricalView = timeRange !== 'live';
 
   const [speedSnapshot, setSpeedSnapshot] = useState<DownloadSpeedSnapshot | null>(null);
   const [historySnapshot, setHistorySnapshot] = useState<SpeedHistorySnapshot | null>(null);
@@ -395,6 +396,10 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
           border: 1px solid var(--theme-border-secondary);
         }
 
+        .today-stat.disabled {
+          opacity: 0.5;
+        }
+
         .today-stat svg {
           width: 16px;
           height: 16px;
@@ -497,9 +502,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
                 >
                   <Zap />
                   Active
-                  <span className="tab-badge">
-                    {activeGamesCount}
-                  </span>
+                  <span className="tab-badge">—</span>
                 </button>
               </Tooltip>
             ) : (
@@ -524,10 +527,10 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
             </button>
           </div>
 
-          <div className="today-stat">
+          <div className={`today-stat ${isHistoricalView ? 'disabled' : ''}`}>
             <HardDrive />
             <span className="today-label">Today:</span>
-            <span className="today-value">{formatBytes(todayTotal)}</span>
+            <span className="today-value">{isHistoricalView ? 'Disabled' : formatBytes(todayTotal)}</span>
             {isActive && !isHistoricalView && <div className="active-dot" />}
           </div>
         </div>

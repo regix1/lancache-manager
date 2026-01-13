@@ -327,6 +327,10 @@ builder.Services.AddSingleton<CacheManagementService>();
 builder.Services.AddSingleton<RemovalOperationTracker>();
 builder.Services.AddSingleton<PicsDataService>();
 
+// Register cache snapshot service for historical cache size tracking
+builder.Services.AddSingleton<CacheSnapshotService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<CacheSnapshotService>());
+
 // Register metrics service for Prometheus/Grafana as both singleton and hosted service
 builder.Services.AddSingleton<LancacheMetricsService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<LancacheMetricsService>());

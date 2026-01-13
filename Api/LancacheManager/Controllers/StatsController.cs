@@ -3,6 +3,7 @@ using LancacheManager.Configuration;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Core.Interfaces.Repositories;
+using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Utilities;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
@@ -22,6 +23,7 @@ public class StatsController : ControllerBase
     private readonly AppDbContext _context;
     private readonly StatsRepository _statsService;
     private readonly IClientGroupsRepository _clientGroupsRepository;
+    private readonly CacheSnapshotService _cacheSnapshotService;
     private readonly ILogger<StatsController> _logger;
     private readonly IOptions<ApiOptions> _apiOptions;
 
@@ -29,12 +31,14 @@ public class StatsController : ControllerBase
         AppDbContext context,
         StatsRepository statsService,
         IClientGroupsRepository clientGroupsRepository,
+        CacheSnapshotService cacheSnapshotService,
         ILogger<StatsController> logger,
         IOptions<ApiOptions> apiOptions)
     {
         _context = context;
         _statsService = statsService;
         _clientGroupsRepository = clientGroupsRepository;
+        _cacheSnapshotService = cacheSnapshotService;
         _logger = logger;
         _apiOptions = apiOptions;
     }
@@ -1038,4 +1042,62 @@ public class StatsController : ControllerBase
         };
     }
 
+    /// <summary>
+    /// Get historical cache size snapshot for a time range.
+    /// Returns estimated used space based on periodic snapshots.
+    /// </summary>
+    [HttpGet("cache-snapshot")]
+    [OutputCache(PolicyName = "stats-short")]
+    public async Task<IActionResult> GetCacheSnapshot(
+        [FromQuery] long? startTime = null,
+        [FromQuery] long? endTime = null)
+    {
+        try
+        {
+            if (!startTime.HasValue || !endTime.HasValue)
+            {
+                return Ok(new CacheSnapshotResponse { HasData = false });
+            }
+
+            var startUtc = DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime;
+            var endUtc = DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime;
+
+            var summary = await _cacheSnapshotService.GetSnapshotSummaryAsync(startUtc, endUtc);
+
+            if (summary == null)
+            {
+                return Ok(new CacheSnapshotResponse { HasData = false });
+            }
+
+            return Ok(new CacheSnapshotResponse
+            {
+                HasData = true,
+                StartUsedSize = summary.StartUsedSize,
+                EndUsedSize = summary.EndUsedSize,
+                AverageUsedSize = summary.AverageUsedSize,
+                TotalCacheSize = summary.TotalCacheSize,
+                SnapshotCount = summary.SnapshotCount,
+                IsEstimate = summary.IsEstimate
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting cache snapshot data");
+            return Ok(new CacheSnapshotResponse { HasData = false });
+        }
+    }
+}
+
+/// <summary>
+/// Response for historical cache size snapshots
+/// </summary>
+public class CacheSnapshotResponse
+{
+    public bool HasData { get; set; }
+    public long StartUsedSize { get; set; }
+    public long EndUsedSize { get; set; }
+    public long AverageUsedSize { get; set; }
+    public long TotalCacheSize { get; set; }
+    public int SnapshotCount { get; set; }
+    public bool IsEstimate { get; set; }
 }

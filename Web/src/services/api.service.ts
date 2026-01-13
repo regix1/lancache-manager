@@ -16,6 +16,7 @@ import type {
   HourlyActivityResponse,
   CacheGrowthResponse,
   SparklineDataResponse,
+  CacheSnapshotResponse,
   CorruptedChunkDetail,
   GameDetectionStatus,
   GameCacheInfo,
@@ -377,6 +378,30 @@ class ApiService {
         // Silently ignore abort errors
       } else if (!this.isGuestSessionError(error)) {
         console.error('getSparklineData error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // Historical cache size snapshots for displaying used space in time ranges
+  static async getCacheSnapshot(
+    signal?: AbortSignal,
+    startTime?: number,
+    endTime?: number
+  ): Promise<CacheSnapshotResponse> {
+    try {
+      let url = `${API_BASE}/stats/cache-snapshot`;
+      const params = new URLSearchParams();
+      if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
+      if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
+      if (params.toString()) url += `?${params}`;
+      const res = await fetch(url, this.getFetchOptions({ signal }));
+      return await this.handleResponse<CacheSnapshotResponse>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getCacheSnapshot error:', error);
       }
       throw error;
     }
