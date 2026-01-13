@@ -83,7 +83,8 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
-  const [popoverPos, setPopoverPos] = useState<{ x: number; y: number } | null>(null);
+  const [popoverPos, setPopoverPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isReady, setIsReady] = useState(false);
   const [effectiveWidth, setEffectiveWidth] = useState(width);
 
   // Calculate effective width based on viewport
@@ -106,7 +107,7 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
   // Reset position when closing so stale position doesn't flash on reopen
   useEffect(() => {
     if (!isOpen) {
-      setPopoverPos(null);
+      setIsReady(false);
     }
   }, [isOpen]);
 
@@ -182,6 +183,7 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
       y = Math.max(viewportPadding, y);
 
       setPopoverPos({ x, y });
+      setIsReady(true);
     }, 10);
 
     return () => clearTimeout(timer);
@@ -204,14 +206,18 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
       {isOpen && createPortal(
         <div
           ref={popoverRef}
-          className={`fixed rounded-lg border shadow-[0_10px_40px_rgba(0,0,0,0.4)] themed-card max-w-[calc(100vw-24px)] ${
-            popoverPos ? 'visible' : 'invisible'
-          }`}
+          className="fixed rounded-lg border shadow-[0_10px_40px_rgba(0,0,0,0.4)] themed-card max-w-[calc(100vw-24px)]"
           style={{
-            left: popoverPos?.x ?? -9999,
-            top: popoverPos?.y ?? -9999,
+            left: popoverPos.x,
+            top: popoverPos.y,
             width: effectiveWidth,
-            maxHeight: maxHeight || `calc(100vh - 100px)`
+            maxHeight: maxHeight || `calc(100vh - 100px)`,
+            // Use opacity for instant appear/disappear without animation
+            opacity: isReady ? 1 : 0,
+            // Ensure no transitions that could cause flying effect
+            transition: 'none',
+            // Prevent interaction during measurement
+            pointerEvents: isReady ? 'auto' : 'none'
           }}
         >
           {maxHeight ? (
