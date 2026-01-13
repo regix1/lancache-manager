@@ -39,7 +39,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     backgroundCompletion,
     setBackgroundCompletion,
     clearBackgroundCompletion,
-    isCompletionDismissed
+    isCompletionDismissed,
+    clearAllPrefillStorage
   } = usePrefillContext();
 
   // Check if user is authenticated (not guest) for auth-only features
@@ -118,7 +119,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     setBackgroundCompletion,
     clearBackgroundCompletion,
     isCompletionDismissed,
-    onAuthStateChanged: handleAuthStateChanged
+    onAuthStateChanged: handleAuthStateChanged,
+    clearAllPrefillStorage
   });
 
   // Steam auth hook for container-based authentication

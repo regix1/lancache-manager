@@ -26,6 +26,8 @@ interface PrefillContextType {
   clearBackgroundCompletion: () => void;
   // Track dismissed completion to prevent re-showing
   isCompletionDismissed: (completedAt: string) => boolean;
+  // Clear all prefill-related storage (for session end/cleanup)
+  clearAllPrefillStorage: () => void;
 }
 
 const PrefillContext = createContext<PrefillContextType | undefined>(undefined);
@@ -182,6 +184,27 @@ export const PrefillProvider: React.FC<PrefillProviderProps> = ({ children }) =>
     }
   }, []);
 
+  // Clear all prefill-related storage (for session end/cleanup)
+  const clearAllPrefillStorage = useCallback(() => {
+    try {
+      // Clear all prefill-related sessionStorage keys
+      sessionStorage.removeItem(STORAGE_KEY); // prefill_activity_log
+      sessionStorage.removeItem(BACKGROUND_COMPLETION_KEY); // prefill_background_completion
+      sessionStorage.removeItem(DISMISSED_COMPLETION_KEY); // prefill_dismissed_completion_at
+      sessionStorage.removeItem('prefill_session_id');
+      sessionStorage.removeItem('prefill_in_progress');
+
+      // Reset local state
+      setLogEntries([]);
+      setSessionIdState(null);
+      setBackgroundCompletionState(null);
+
+      console.log('[PrefillContext] Cleared all prefill storage');
+    } catch (error) {
+      console.error('[PrefillContext] Failed to clear prefill storage:', error);
+    }
+  }, []);
+
   const value = {
     logEntries,
     addLog,
@@ -191,7 +214,8 @@ export const PrefillProvider: React.FC<PrefillProviderProps> = ({ children }) =>
     backgroundCompletion,
     setBackgroundCompletion,
     clearBackgroundCompletion,
-    isCompletionDismissed
+    isCompletionDismissed,
+    clearAllPrefillStorage
   };
 
   return <PrefillContext.Provider value={value}>{children}</PrefillContext.Provider>;

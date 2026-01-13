@@ -37,6 +37,7 @@ interface UsePrefillSignalROptions {
   clearBackgroundCompletion: () => void;
   isCompletionDismissed: (completedAt: string) => boolean;
   onAuthStateChanged: (state: SteamAuthState) => void;
+  clearAllPrefillStorage: () => void;
 }
 
 interface UsePrefillSignalRReturn {
@@ -81,7 +82,8 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     setBackgroundCompletion,
     clearBackgroundCompletion,
     isCompletionDismissed,
-    onAuthStateChanged
+    onAuthStateChanged,
+    clearAllPrefillStorage
   } = options;
 
   // Connection refs
@@ -209,6 +211,8 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         setIsLoggedIn(false);
         setIsPrefillActive(false);
         setPrefillProgress(null);
+        // Clear all prefill-related storage when session ends
+        clearAllPrefillStorage();
         onSessionEnd?.();
       });
 
@@ -469,7 +473,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
       setIsConnecting(false);
       return null;
     }
-  }, [addLog, onAuthStateChanged, onSessionEnd, clearBackgroundCompletion, setBackgroundCompletion, isCompletionDismissed]);
+  }, [addLog, onAuthStateChanged, onSessionEnd, clearBackgroundCompletion, setBackgroundCompletion, isCompletionDismissed, clearAllPrefillStorage]);
 
   const initializeSession = useCallback(async () => {
     if (initializationAttempted.current) return;
@@ -531,13 +535,23 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         } catch {
           // Non-critical
         }
+      } else {
+        // No active session found - check if there's stale storage data from a previous session
+        // This happens when the server was stopped/restarted and cleared sessions
+        const hasStaleData = sessionStorage.getItem('prefill_session_id') ||
+                           sessionStorage.getItem('prefill_activity_log') ||
+                           sessionStorage.getItem('prefill_in_progress');
+        if (hasStaleData) {
+          console.log('[usePrefillSignalR] No active session but found stale storage data, clearing...');
+          clearAllPrefillStorage();
+        }
       }
     } catch (err) {
       console.error('Failed to initialize session:', err);
     } finally {
       setIsInitializing(false);
     }
-  }, [connectToHub, addLog, formatTimeRemaining, setBackgroundCompletion, isCompletionDismissed]);
+  }, [connectToHub, addLog, formatTimeRemaining, setBackgroundCompletion, isCompletionDismissed, clearAllPrefillStorage]);
 
   const createSession = useCallback(async (clearLogs: () => void) => {
     setIsCreating(true);
