@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, Download, Scan, Loader2 } from 'lucide-react';
+import { AlertTriangle, Download, Scan, Github, Clock, Database, RefreshCw } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
 
@@ -12,7 +12,6 @@ interface FullScanRequiredModalProps {
   showDownloadOption?: boolean;
   hasSteamApiKey?: boolean;
   title?: string;
-  subtitle?: string;
   isDownloading?: boolean;
 }
 
@@ -25,10 +24,13 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
   showDownloadOption = true,
   hasSteamApiKey = false,
   title = 'Data Update Required',
-  subtitle,
   isDownloading = false
 }) => {
-  const defaultSubtitle = 'Change gap too large - please download latest data from GitHub';
+  const formatNumber = (num: number) => {
+    if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
+    if (num >= 1000) return `${(num / 1000).toFixed(0)}K`;
+    return num.toLocaleString();
+  };
 
   return (
     <Modal
@@ -36,124 +38,102 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
       onClose={onCancel}
       title={
         <div className="flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-error">
-            <AlertTriangle className="w-6 h-6 text-error" />
+          <div className="full-scan-modal-icon">
+            <AlertTriangle className="w-5 h-5" />
           </div>
           <span>{title}</span>
         </div>
       }
-      size="lg"
+      size="md"
     >
-      <div className="space-y-4">
-        <div className="rounded-lg p-4 border bg-error border-error">
-          <p className="font-medium mb-2 text-error-text">
-            {subtitle || defaultSubtitle}
-          </p>
-          <div className="space-y-1 text-sm text-themed-secondary">
-            {changeGap && (
-              <p>
-                • Change gap:{' '}
-                <span className="font-mono text-error-text">
-                  {changeGap.toLocaleString()}
-                </span>{' '}
-                updates behind
-              </p>
-            )}
-            <p>
-              •{' '}
-              {estimatedApps ? (
-                <>
-                  Estimated apps to scan:{' '}
-                  <span className="font-mono text-error-text">
-                    ~{estimatedApps.toLocaleString()}
-                  </span>{' '}
-                  apps
-                </>
-              ) : (
-                <>
-                  Will need to scan{' '}
-                  <span className="font-bold text-error-text">
-                    ALL
-                  </span>{' '}
-                  Steam apps (currently 300,000+)
-                </>
-              )}
-            </p>
-            <p>
-              • Steam's PICS API{' '}
-              <span className="font-bold text-error-text">
-                cannot process
-              </span>{' '}
-              incremental updates with this large gap
-            </p>
+      <div className="full-scan-modal-content">
+        {/* Stats Display */}
+        <div className="full-scan-modal-stats">
+          {changeGap && (
+            <div className="full-scan-modal-stat">
+              <div className="full-scan-modal-stat-icon">
+                <RefreshCw className="w-4 h-4" />
+              </div>
+              <div className="full-scan-modal-stat-content">
+                <span className="full-scan-modal-stat-value">{formatNumber(changeGap)}</span>
+                <span className="full-scan-modal-stat-label">updates behind</span>
+              </div>
+            </div>
+          )}
+          <div className="full-scan-modal-stat">
+            <div className="full-scan-modal-stat-icon">
+              <Database className="w-4 h-4" />
+            </div>
+            <div className="full-scan-modal-stat-content">
+              <span className="full-scan-modal-stat-value">
+                {estimatedApps ? `~${formatNumber(estimatedApps)}` : '300K+'}
+              </span>
+              <span className="full-scan-modal-stat-label">apps to scan</span>
+            </div>
           </div>
         </div>
 
-        <div className="space-y-3">
-          <p className="text-themed-primary">
-            <strong>Why this happens:</strong> When depot data becomes too outdated (change gap
-            &gt;20,000), Steam's PICS API refuses incremental updates. Full scans are no longer
-            supported - use GitHub downloads to reset your baseline.
-          </p>
+        {/* Description */}
+        <p className="full-scan-modal-description">
+          Your depot data is too outdated for incremental updates. Download the latest mappings from GitHub to continue.
+        </p>
 
-          {showDownloadOption && (
-            <div className="rounded-lg p-4 border bg-info border-info">
-              <p className="font-medium mb-2 text-info-text">
-                Solution: Download from GitHub
-              </p>
-              <ul className="space-y-1 text-sm text-themed-secondary">
-                <li>✓ Fast: Get pre-generated depot mappings in 1-2 minutes</li>
-                <li>✓ Complete: Contains 300,000+ current Steam depot mappings</li>
-                <li>✓ Up-to-date: Updated daily from Steam's PICS data</li>
-                <li>✓ Resets baseline: Incremental scans will work again after download</li>
-              </ul>
+        {/* GitHub Option */}
+        {showDownloadOption && (
+          <div className="full-scan-modal-option full-scan-modal-option-primary">
+            <div className="full-scan-modal-option-header">
+              <Github className="w-4 h-4" />
+              <span>Download from GitHub</span>
+              <span className="full-scan-modal-badge">Recommended</span>
             </div>
-          )}
-        </div>
-
-        <div className="flex flex-col sm:flex-row gap-3 pt-2">
-          {showDownloadOption && (
+            <div className="full-scan-modal-option-features">
+              <div className="full-scan-modal-feature">
+                <Clock className="w-3.5 h-3.5" />
+                <span>1-2 minutes</span>
+              </div>
+              <div className="full-scan-modal-feature">
+                <Database className="w-3.5 h-3.5" />
+                <span>300K+ depot mappings</span>
+              </div>
+            </div>
             <Button
               onClick={onDownloadFromGitHub}
               variant="filled"
               color="blue"
-              className="flex-1"
-              disabled={isDownloading}
+              fullWidth
+              loading={isDownloading}
+              leftSection={!isDownloading ? <Download className="w-4 h-4" /> : undefined}
             >
-              {isDownloading ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Downloading...
-                </>
-              ) : (
-                <>
-                  <Download className="w-4 h-4 mr-2" />
-                  Download from GitHub
-                </>
-              )}
+              {isDownloading ? 'Downloading...' : 'Download from GitHub'}
             </Button>
-          )}
+          </div>
+        )}
 
-          {hasSteamApiKey && onConfirm && (
-            <>
-              {showDownloadOption && (
-                <div className="flex items-center gap-2 sm:mx-2">
-                  <div className="flex-1 h-px bg-themed-border"></div>
-                  <span className="text-xs text-themed-muted">OR</span>
-                  <div className="flex-1 h-px bg-themed-border"></div>
-                </div>
-              )}
-              <Button onClick={onConfirm} variant="filled" color="orange" className="flex-1">
-                <Scan className="w-4 h-4 mr-2" />
-                Full Scan (Slow)
+        {/* Full Scan Option - only show if Steam API key available */}
+        {hasSteamApiKey && onConfirm && (
+          <>
+            {showDownloadOption && (
+              <div className="full-scan-modal-divider">
+                <span>or</span>
+              </div>
+            )}
+            <div className="full-scan-modal-option full-scan-modal-option-secondary">
+              <Button
+                onClick={onConfirm}
+                variant="outline"
+                fullWidth
+                leftSection={<Scan className="w-4 h-4" />}
+              >
+                Full Scan (Slower)
               </Button>
-            </>
-          )}
+            </div>
+          </>
+        )}
 
-          <Button onClick={onCancel} variant="default">
-            Cancel
-          </Button>
-        </div>
+        {/* Cancel */}
+        <Button onClick={onCancel} variant="subtle" fullWidth className="mt-2">
+          Cancel
+        </Button>
       </div>
     </Modal>
   );

@@ -131,5 +131,3 @@ class SafeStorage {
 // Export a singleton instance
 export const storage = new SafeStorage();
 
-// Export the class for testing purposes
-export { SafeStorage };

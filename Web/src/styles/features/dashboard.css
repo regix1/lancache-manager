@@ -1,5 +1,5 @@
 /* ==============================================
- * DASHBOARD - Card animations, Sparklines, Widgets, Leaderboard
+ * DASHBOARD - Card animations, Sparklines, Widgets
  * ============================================== */
 
 /* ===== DASHBOARD CARD ANIMATIONS ===== */
@@ -34,18 +34,6 @@
 .stagger-8 { animation-delay: 320ms; }
 .stagger-9 { animation-delay: 360ms; }
 .stagger-10 { animation-delay: 400ms; }
-.stagger-11 { animation-delay: 440ms; }
-.stagger-12 { animation-delay: 480ms; }
-
-/* Number counting animation pulse */
-@keyframes countPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
-}
-
-.animate-count {
-  animation: countPulse 0.1s ease-out;
-}
 
 /* Sparkline container */
 .sparkline-container {
@@ -73,47 +61,6 @@
   animation: sparklineGrow 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
-/* Trend indicators */
-.trend-up {
-  color: var(--theme-success, #22c55e);
-}
-
-.trend-down {
-  color: var(--theme-icon-orange, #f97316);
-}
-
-.trend-stable {
-  color: var(--theme-text-muted, #9ca3af);
-}
-
-/* Leaderboard rank badges - subtle styling */
-.rank-badge {
-  @apply flex items-center justify-center w-6 h-6 rounded-full text-xs font-medium;
-}
-
-.rank-badge.gold {
-  background: color-mix(in srgb, var(--theme-warning) 20%, transparent);
-  color: var(--theme-warning);
-  border: 1px solid color-mix(in srgb, var(--theme-warning) 30%, transparent);
-}
-
-.rank-badge.silver {
-  background: color-mix(in srgb, var(--theme-text-muted) 15%, transparent);
-  color: var(--theme-text-secondary);
-  border: 1px solid color-mix(in srgb, var(--theme-text-muted) 20%, transparent);
-}
-
-.rank-badge.bronze {
-  background: color-mix(in srgb, var(--theme-warning) 15%, transparent);
-  color: var(--theme-text-secondary);
-  border: 1px solid color-mix(in srgb, var(--theme-warning) 20%, transparent);
-}
-
-.rank-badge.default {
-  background: var(--theme-bg-tertiary);
-  color: var(--theme-text-muted);
-}
-
 /* Progress bar for widgets */
 .widget-progress {
   @apply h-2 rounded-full overflow-hidden;
@@ -122,34 +69,4 @@
 
 .widget-progress-fill {
   @apply h-full rounded-full transition-all duration-500 ease-out;
-}
-
-/* Hour bar chart styles */
-.hour-bar {
-  @apply rounded-t transition-all duration-300;
-  min-height: 4px;
-}
-
-.hour-bar:hover {
-  filter: brightness(1.2);
-}
-
-.hour-bar.current-hour {
-  box-shadow: 0 0 8px currentColor;
-}
-
-.hour-bar.peak-hour {
-  position: relative;
-}
-
-.hour-bar.peak-hour::after {
-  content: '';
-  position: absolute;
-  top: -4px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 6px;
-  height: 6px;
-  background: var(--theme-warning, #f59e0b);
-  border-radius: 50%;
 }

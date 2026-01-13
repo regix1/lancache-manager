@@ -25,7 +25,7 @@ function hasHoursMinutesSeconds(obj: object): obj is { hours: number; minutes: n
  * - A TimeSpan string ("HH:MM:SS" or "D.HH:MM:SS")
  * - A TimeSpan object with totalSeconds, totalHours, or hours/minutes/seconds properties
  */
-export type TimeValue =
+type TimeValue =
   | number
   | string
   | null
@@ -123,28 +123,6 @@ export function formatNextCrawlTime(
   const hours = Math.floor(totalHours);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
-}
-
-/**
- * Converts a time value to total hours
- * @param timeValue The time value (can be seconds, string, or object)
- * @returns Total hours as a number
- */
-export function toTotalHours(timeValue: TimeValue): number {
-  if (typeof timeValue === 'object' && timeValue !== null && hasTotalHours(timeValue)) {
-    return timeValue.totalHours;
-  } else if (typeof timeValue === 'string') {
-    const parts = timeValue.split(':');
-    if (parts.length >= 2) {
-      const hours = parseInt(parts[0]) || 0;
-      const minutes = parseInt(parts[1]) || 0;
-      return hours + minutes / 60;
-    }
-  } else if (typeof timeValue === 'number') {
-    // Assume seconds
-    return timeValue / 3600;
-  }
-  return 0;
 }
 
 /**

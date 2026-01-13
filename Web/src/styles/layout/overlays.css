@@ -103,16 +103,8 @@
 
   /* ===== END UNIVERSAL OVERLAY FIXES ===== */
 
-  .animate-pulse-slow {
-    animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-  }
-
   .smooth-transition {
     @apply transition-all duration-300 ease-in-out;
-  }
-
-  .hover-lift {
-    @apply hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200;
   }
 
   .button-press {

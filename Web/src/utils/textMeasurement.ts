@@ -30,7 +30,7 @@ function getCanvasContext(): CanvasRenderingContext2D | null {
  * @param font - CSS font string (e.g., "14px Inter, sans-serif")
  * @returns Width in pixels, or 0 if measurement fails
  */
-export function measureTextWidth(text: string, font: string): number {
+function measureTextWidth(text: string, font: string): number {
   const ctx = getCanvasContext();
   if (!ctx) return 0;
 
@@ -54,7 +54,7 @@ export function measureTextWidth(text: string, font: string): number {
  * @param padding - Additional padding to add (default 16px for cell padding)
  * @returns Maximum width in pixels
  */
-export function measureMaxTextWidth(texts: string[], font: string, padding: number = 16): number {
+function measureMaxTextWidth(texts: string[], font: string, padding: number = 16): number {
   if (texts.length === 0) return 0;
 
   const maxWidth = texts.reduce((max, text) => {
@@ -68,7 +68,7 @@ export function measureMaxTextWidth(texts: string[], font: string, padding: numb
 /**
  * Font definitions matching the RetroView component styles
  */
-export const RETRO_VIEW_FONTS = {
+const RETRO_VIEW_FONTS = {
   // Header font (uppercase, semibold, tracking-wide)
   header: '600 11px system-ui, -apple-system, sans-serif',
   // Timestamp cell (text-xs)
@@ -91,7 +91,7 @@ export const RETRO_VIEW_FONTS = {
  * Sample data patterns for calculating minimum column widths
  * Uses generic text patterns to estimate typical content widths
  */
-export const SAMPLE_DATA_PATTERNS = {
+const SAMPLE_DATA_PATTERNS = {
   // Timestamp patterns - longest format with full date on both sides including seconds
   timestamp: [
     'Dec 31, 2025, 10:05:19 PM - Dec 31, 2025, 10:05:48 PM',

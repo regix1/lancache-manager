@@ -2,19 +2,6 @@
  * ANIMATIONS - All @keyframes and animation classes
  * ============================================== */
 
-@keyframes shimmer {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(100%);
-  }
-}
-
-.animate-shimmer {
-  animation: shimmer 2s infinite;
-}
-
 /* Chart Animations */
 @keyframes fadeInUp {
   from {
@@ -32,17 +19,6 @@
     opacity: 0;
   }
   to {
-    opacity: 1;
-  }
-}
-
-@keyframes scaleIn {
-  from {
-    transform: scale(0.8);
-    opacity: 0;
-  }
-  to {
-    transform: scale(1);
     opacity: 1;
   }
 }
@@ -198,25 +174,6 @@
   transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Chart container animations */
-.chart-animate-in {
-  animation: scaleIn 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.chart-legend-animate {
-  animation: fadeInUp 0.5s ease-out;
-}
-
-/* Smooth transitions for all chart elements */
-.chart-transition {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.chart-hover-grow:hover {
-  transform: scale(1.05);
-  transition: transform 0.2s ease-out;
-}
-
 /* Downloads page animations */
 .animate-fade-in {
   animation: fadeIn 0.5s ease-out;
@@ -236,42 +193,6 @@
 
 .animate-zoom-in {
   animation: zoomIn 0.3s ease-out;
-}
-
-.animate-scale-in {
-  animation: scaleIn 0.3s ease-out;
-}
-
-/* Staggered animations */
-.animate-stagger-1 {
-  animation-delay: 50ms;
-}
-.animate-stagger-2 {
-  animation-delay: 100ms;
-}
-.animate-stagger-3 {
-  animation-delay: 150ms;
-}
-.animate-stagger-4 {
-  animation-delay: 200ms;
-}
-.animate-stagger-5 {
-  animation-delay: 250ms;
-}
-.animate-stagger-6 {
-  animation-delay: 300ms;
-}
-.animate-stagger-7 {
-  animation-delay: 350ms;
-}
-.animate-stagger-8 {
-  animation-delay: 400ms;
-}
-.animate-stagger-9 {
-  animation-delay: 450ms;
-}
-.animate-stagger-10 {
-  animation-delay: 500ms;
 }
 
 /* Smooth data transition animations */

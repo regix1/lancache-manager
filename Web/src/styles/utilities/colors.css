@@ -8,26 +8,6 @@
     background-color: var(--theme-chart-cache-hit);
   }
 
-  .progress-bar-medium {
-    background-color: var(--theme-primary);
-  }
-
-  .progress-bar-low {
-    background-color: var(--theme-action-reset-bg);
-  }
-
-  .progress-bar-critical {
-    background-color: var(--theme-error);
-  }
-
-  .progress-bar-info {
-    background-color: var(--theme-info);
-  }
-
-  .progress-bar-warning {
-    background-color: var(--theme-warning);
-  }
-
   .progress-track {
     background-color: var(--theme-progress-bg);
   }
@@ -40,30 +20,6 @@
   /* Service Colors */
   .service-steam {
     color: var(--theme-steam);
-  }
-
-  .service-epic {
-    color: var(--theme-epic);
-  }
-
-  .service-origin {
-    color: var(--theme-origin);
-  }
-
-  .service-blizzard {
-    color: var(--theme-blizzard);
-  }
-
-  .service-wsus {
-    color: var(--theme-wsus);
-  }
-
-  .service-riot {
-    color: var(--theme-riot);
-  }
-
-  .service-xbox {
-    color: var(--theme-xbox);
   }
 
   /* Icon Colors - for component icons */

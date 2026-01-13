@@ -13,10 +13,7 @@ interface OperationState {
   expiresAt?: string;
 }
 
-interface StateUpdateResponse {
-  success: boolean;
-  state?: OperationState;
-}
+
 
 interface QueuedRequest<T = unknown> {
   execute: () => Promise<T>;
@@ -38,24 +35,8 @@ class OperationStateService {
   private activeRequests = 0;
   private readonly MAX_CONCURRENT_REQUESTS = 3;
   private readonly REQUEST_DELAY_MS = 100;
-  private updateDebounceTimers = new Map<string, NodeJS.Timeout>();
-  private readonly UPDATE_DEBOUNCE_MS = 500;
-  async getState(key: string): Promise<OperationState | null> {
-    try {
-      const response = await fetch(`${API_URL}/api/operation-state/${key}`, {
-        signal: AbortSignal.timeout(5000)
-      });
 
-      if (response.ok) {
-        return await response.json();
-      }
-
-      return null;
-    } catch {
-      // Silently handle errors - operation state checks are non-critical
-      return null;
-    }
-  }
+  
 
   async saveState(
     key: string,
@@ -92,91 +73,11 @@ class OperationStateService {
     });
   }
 
-  async updateState(key: string, updates: OperationStateData): Promise<StateUpdateResponse | null> {
-    return new Promise((resolve) => {
-      const existingTimer = this.updateDebounceTimers.get(key);
-      if (existingTimer) {
-        clearTimeout(existingTimer);
-      }
+  
 
-      const timer = setTimeout(() => {
-        this.updateDebounceTimers.delete(key);
-        this.queueRequest(async () => {
-          try {
-            const url = `${API_URL}/api/operation-state/${encodeURIComponent(key)}`;
+  
 
-            const response = await fetch(url, {
-              method: 'PATCH',
-              headers: {
-                'Content-Type': 'application/json',
-                ...authService.getAuthHeaders()
-              },
-              body: JSON.stringify({
-                updates: updates || {}
-              })
-            });
-
-            if (!response.ok) {
-              const error = await response.text();
-              console.error('Update state response:', response.status, error);
-              throw new Error(`Failed to update state: ${response.status} - ${error}`);
-            }
-
-            return await response.json();
-          } catch (error: unknown) {
-            console.error('Error updating state:', error);
-            return null;
-          }
-        }).then(resolve);
-      }, this.UPDATE_DEBOUNCE_MS);
-
-      this.updateDebounceTimers.set(key, timer);
-    });
-  }
-
-  async removeState(key: string): Promise<{ success: boolean; message?: string }> {
-    return this.queueRequest(async () => {
-      try {
-        const response = await this.fetchWithRetry(
-          `${API_URL}/api/operation-state/${encodeURIComponent(key)}`,
-          {
-            method: 'DELETE',
-            headers: authService.getAuthHeaders()
-          }
-        );
-
-        if (!response.ok) {
-          throw new Error('Failed to remove state');
-        }
-
-        return await response.json();
-      } catch (error: unknown) {
-        console.error('Error removing state:', error);
-        throw error;
-      }
-    });
-  }
-
-  async getAllStates(type: string | null = null): Promise<OperationState[]> {
-    try {
-      const url = type
-        ? `${API_URL}/api/operation-state?type=${type}`
-        : `${API_URL}/api/operation-state`;
-
-      const response = await fetch(url, {
-        headers: authService.getAuthHeaders()
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to get states');
-      }
-
-      return await response.json();
-    } catch (error: unknown) {
-      console.error('Error getting all states:', error);
-      return [];
-    }
-  }
+  
 
   async migrateFromLocalStorage(): Promise<number> {
     const keys = [

@@ -76,13 +76,6 @@ export interface PrefillProgress {
   remainingSeconds?: number;
 }
 
-export interface LogEntry {
-  id: string;
-  timestamp: Date;
-  type: 'info' | 'error' | 'warning' | 'download' | 'success';
-  message: string;
-}
-
 // Grouped command buttons for better organization
 // Note: ALL commands require login - nothing works without Steam auth
 export const SELECTION_COMMANDS: CommandButton[] = [

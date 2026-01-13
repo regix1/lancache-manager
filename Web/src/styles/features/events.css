@@ -29,8 +29,3 @@
 .active-event-border-frame {
   transition: opacity 0.3s ease;
 }
-
-/* Event label badge */
-.active-event-label {
-  /* Positioned inline to ensure correct placement */
-}

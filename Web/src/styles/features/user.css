@@ -103,13 +103,6 @@
   border: 1px solid var(--theme-border-secondary);
 }
 
-/* Section divider */
-.section-divider {
-  @apply my-4;
-  height: 1px;
-  background: linear-gradient(to right, transparent, var(--theme-border-secondary), transparent);
-}
-
 /* Tooltip styles */
 .tooltip-overlay {
   @apply fixed max-w-xs px-2.5 py-1.5 text-xs rounded-md pointer-events-none;

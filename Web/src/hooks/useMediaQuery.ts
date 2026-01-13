@@ -35,10 +35,3 @@ export function useIsDesktop(): boolean {
   return useMediaQuery('(min-width: 1024px)');
 }
 
-/**
- * Convenience hook for mobile detection
- * Returns true when viewport is < 1024px
- */
-export function useIsMobile(): boolean {
-  return !useMediaQuery('(min-width: 1024px)');
-}

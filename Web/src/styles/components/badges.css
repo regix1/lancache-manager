@@ -1,6 +1,6 @@
 @layer components {
   /* ==============================================
-   * BADGES - Hit Rate, Status, Cache, Download, Alert
+   * BADGES - Hit Rate, Status, Cache, Alert
    * ============================================== */
 
   /* Hit Rate Badges */
@@ -25,18 +25,6 @@
   }
 
   /* Status Indicators */
-  .status-active {
-    background-color: var(--theme-success-bg);
-    color: var(--theme-success-text);
-    border-color: var(--theme-success);
-  }
-
-  .status-completed {
-    background-color: var(--theme-bg-hover);
-    color: var(--theme-text-muted);
-    border-color: var(--theme-border-secondary);
-  }
-
   .status-error {
     background-color: var(--theme-error-bg);
     color: var(--theme-error-text);
@@ -50,25 +38,6 @@
 
   .cache-miss {
     color: var(--theme-warning-text);
-  }
-
-  /* Download Type Indicators */
-  .download-game {
-    background-color: var(--theme-success-bg);
-    color: var(--theme-success-text);
-    border-color: var(--theme-success);
-  }
-
-  .download-metadata {
-    background-color: var(--theme-bg-hover);
-    color: var(--theme-text-muted);
-    border-color: var(--theme-border-secondary);
-  }
-
-  .download-content {
-    background-color: var(--theme-info-bg);
-    color: var(--theme-info-text);
-    border-color: var(--theme-info);
   }
 
   /* Alert Variants */
@@ -120,19 +89,6 @@
 
   .hit-rate-badge.warning {
     @apply hit-rate-warning;
-  }
-
-  /* Access Indicator Classes */
-  .access-indicator-public {
-    background-color: var(--theme-public-access-bg);
-    color: var(--theme-public-access-text);
-    border-color: var(--theme-public-access-border);
-  }
-
-  .access-indicator-secured {
-    background-color: var(--theme-secured-access-bg);
-    color: var(--theme-secured-access-text);
-    border-color: var(--theme-secured-access-border);
   }
 
   /* Session badges */

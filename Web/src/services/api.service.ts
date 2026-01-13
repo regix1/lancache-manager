@@ -7,7 +7,7 @@ import type {
   Download,
   ClientStat,
   ServiceStat,
-  CacheClearStatus,
+
   ProcessingStatus,
   ClearCacheResponse,
   MessageResponse,
@@ -18,7 +18,7 @@ import type {
   SparklineDataResponse,
   CacheSnapshotResponse,
   CorruptedChunkDetail,
-  GameDetectionStatus,
+
   GameCacheInfo,
   ServiceCacheInfo,
   DatasourceLogPosition,
@@ -59,13 +59,7 @@ interface OperationResponse {
   estimatedApps?: number;
 }
 
-interface LogRemovalStatus {
-  isActive: boolean;
-  service?: string;
-  progress?: number;
-  linesProcessed?: number;
-  totalLines?: number;
-}
+
 
 interface PicsStatus {
   isScanning: boolean;
@@ -437,17 +431,7 @@ class ApiService {
   }
 
   // Get status of cache clearing operation
-  static async getCacheClearStatus(operationId: string): Promise<CacheClearStatus> {
-    try {
-      const res = await fetch(`${API_BASE}/cache/operations/${operationId}/status`, this.getFetchOptions({
-        signal: AbortSignal.timeout(5000)
-      }));
-      return await this.handleResponse<CacheClearStatus>(res);
-    } catch (error) {
-      console.error('getCacheClearStatus error:', error);
-      throw error;
-    }
-  }
+  
 
   // Cancel cache clearing operation (requires auth)
   static async cancelCacheClear(operationId: string): Promise<OperationResponse> {
@@ -618,15 +602,7 @@ class ApiService {
   }
 
   // Get log removal status
-  static async getLogRemovalStatus(): Promise<LogRemovalStatus> {
-    try {
-      const res = await fetch(`${API_BASE}/logs/remove/status`, this.getFetchOptions());
-      return await this.handleResponse<LogRemovalStatus>(res);
-    } catch (error: unknown) {
-      console.error('getLogRemovalStatus error:', error);
-      throw error;
-    }
-  }
+  
 
   // Get counts of log entries per service, grouped by datasource
   static async getServiceLogCountsByDatasource(): Promise<DatasourceServiceCounts[]> {
@@ -829,18 +805,7 @@ class ApiService {
 
 
   // Get corruption summary (counts of corrupted chunks per service) - synchronous, for backwards compatibility
-  static async getCorruptionSummary(forceRefresh = false): Promise<Record<string, number>> {
-    try {
-      const url = `${API_BASE}/cache/corruption/summary${forceRefresh ? '?forceRefresh=true' : ''}`;
-      const res = await fetch(url, this.getFetchOptions({
-        // No timeout - can take hours for massive log files
-      }));
-      return await this.handleResponse<Record<string, number>>(res);
-    } catch (error) {
-      console.error('getCorruptionSummary error:', error);
-      throw error;
-    }
-  }
+  
 
   // Get cached corruption detection results (returns immediately without running a scan)
   static async getCachedCorruptionDetection(): Promise<{
@@ -882,29 +847,7 @@ class ApiService {
   }
 
   // Get corruption detection status
-  static async getCorruptionDetectionStatus(): Promise<{
-    isRunning: boolean;
-    operationId?: string;
-    status?: string;
-    message?: string;
-    startTime?: string;
-  }> {
-    try {
-      const res = await fetch(`${API_BASE}/cache/corruption/detect/status`, this.getFetchOptions({
-        signal: AbortSignal.timeout(10000)
-      }));
-      return await this.handleResponse<{
-        isRunning: boolean;
-        operationId?: string;
-        status?: string;
-        message?: string;
-        startTime?: string;
-      }>(res);
-    } catch (error) {
-      console.error('getCorruptionDetectionStatus error:', error);
-      throw error;
-    }
-  }
+  
 
   // Remove corrupted chunks for a specific service (requires auth)
   static async removeCorruptedChunks(
@@ -956,37 +899,11 @@ class ApiService {
   }
 
   // Get status of game cache detection operation
-  static async getGameDetectionStatus(operationId: string): Promise<GameDetectionStatus> {
-    try {
-      const res = await fetch(`${API_BASE}/games/detect/${operationId}/status`, this.getFetchOptions({
-        signal: AbortSignal.timeout(30000) // 30 seconds - status check can be slow with many games
-      }));
-      return await this.handleResponse<GameDetectionStatus>(res);
-    } catch (error) {
-      console.error('getGameDetectionStatus error:', error);
-      throw error;
-    }
-  }
+  
 
   // Get active game cache detection operation (if any)
   // Note: Used by NotificationsContext for recovery
-  static async getActiveGameDetection(): Promise<{
-    hasActiveOperation: boolean;
-    operation?: GameDetectionStatus;
-  }> {
-    try {
-      const res = await fetch(`${API_BASE}/games/detect/active`, this.getFetchOptions({
-        signal: AbortSignal.timeout(5000)
-      }));
-      return await this.handleResponse<{
-        hasActiveOperation: boolean;
-        operation?: GameDetectionStatus;
-      }>(res);
-    } catch (error) {
-      console.error('getActiveGameDetection error:', error);
-      throw error;
-    }
-  }
+  
 
   // Get cached game detection results from database (if available)
   static async getCachedGameDetection(): Promise<{
@@ -1049,44 +966,15 @@ class ApiService {
 
   // Get active cache operations (for recovery on page load)
   // Note: Used by NotificationsContext for operation recovery
-  static async getActiveCacheOperations(): Promise<{ operations: CacheClearStatus[] }> {
-    try {
-      const res = await fetch(`${API_BASE}/cache/operations`, this.getFetchOptions());
-      return await this.handleResponse<{ operations: CacheClearStatus[] }>(res);
-    } catch (error: unknown) {
-      console.error('getActiveCacheOperations error:', error);
-      throw error;
-    }
-  }
+  
 
   // Get database reset status (for recovery on page load)
   // Note: Used by NotificationsContext for operation recovery
-  static async getDatabaseResetStatus(): Promise<{ isResetting: boolean; progress?: number; currentTable?: string }> {
-    try {
-      const res = await fetch(`${API_BASE}/database/reset-status`, this.getFetchOptions());
-      return await this.handleResponse<{ isResetting: boolean; progress?: number; currentTable?: string }>(res);
-    } catch (error: unknown) {
-      console.error('getDatabaseResetStatus error:', error);
-      throw error;
-    }
-  }
+  
 
   // Get all active removal operations (games, services, corruption)
   // Used for universal recovery on page refresh
-  static async getActiveRemovals(): Promise<{
-    hasActiveOperations: boolean;
-    gameRemovals: Array<{ gameAppId: number; gameName: string; status: string; message: string; filesDeleted: number; bytesFreed: number; startedAt: string }>;
-    serviceRemovals: Array<{ serviceName: string; status: string; message: string; filesDeleted: number; bytesFreed: number; startedAt: string }>;
-    corruptionRemovals: Array<{ service: string; operationId: string; status: string; message: string; startedAt: string }>;
-  }> {
-    try {
-      const res = await fetch(`${API_BASE}/cache/removals/active`, this.getFetchOptions());
-      return await this.handleResponse(res);
-    } catch (error) {
-      console.error('getActiveRemovals error:', error);
-      throw error;
-    }
-  }
+  
 
   // Set guest session duration configuration
   static async setGuestSessionDuration(
@@ -1142,19 +1030,7 @@ class ApiService {
   }
 
   // Get a single event by ID
-  static async getEvent(id: number, signal?: AbortSignal): Promise<Event> {
-    try {
-      const res = await fetch(`${API_BASE}/events/${id}`, this.getFetchOptions({ signal }));
-      return await this.handleResponse<Event>(res);
-    } catch (error: unknown) {
-      if (isAbortError(error)) {
-        // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
-        console.error('getEvent error:', error);
-      }
-      throw error;
-    }
-  }
+  
 
   // Create a new event
   static async createEvent(data: CreateEventRequest): Promise<Event> {
@@ -1203,42 +1079,12 @@ class ApiService {
   }
 
   // Get downloads for an event
-  static async getEventDownloads(eventId: number, taggedOnly: boolean = false, signal?: AbortSignal): Promise<Download[]> {
-    try {
-      const res = await fetch(
-        `${API_BASE}/events/${eventId}/downloads?taggedOnly=${taggedOnly}`,
-        this.getFetchOptions({ signal })
-      );
-      return await this.handleResponse<Download[]>(res);
-    } catch (error: unknown) {
-      if (isAbortError(error)) {
-        // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
-        console.error('getEventDownloads error:', error);
-      }
-      throw error;
-    }
-  }
+  
 
   // ==================== Downloads with Associations ====================
 
   // Get a single download with its events
-  static async getDownloadWithAssociations(
-    downloadId: number,
-    signal?: AbortSignal
-  ): Promise<{ download: Download; events: Array<{ id: number; name: string; colorIndex: number; startTimeUtc: string; endTimeUtc: string; autoTagged: boolean; taggedAtUtc: string }> }> {
-    try {
-      const res = await fetch(`${API_BASE}/downloads/${downloadId}`, this.getFetchOptions({ signal }));
-      return await this.handleResponse(res);
-    } catch (error: unknown) {
-      if (isAbortError(error)) {
-        // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
-        console.error('getDownloadWithAssociations error:', error);
-      }
-      throw error;
-    }
-  }
+  
 
   // Get events for multiple downloads in a single batch request
   static async getBatchDownloadEvents(
@@ -1318,19 +1164,7 @@ class ApiService {
   }
 
   // Get a single client group by ID
-  static async getClientGroup(id: number, signal?: AbortSignal): Promise<ClientGroup> {
-    try {
-      const res = await fetch(`${API_BASE}/client-groups/${id}`, this.getFetchOptions({ signal }));
-      return await this.handleResponse<ClientGroup>(res);
-    } catch (error: unknown) {
-      if (isAbortError(error)) {
-        // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
-        console.error('getClientGroup error:', error);
-      }
-      throw error;
-    }
-  }
+  
 
   // Create a new client group
   static async createClientGroup(data: CreateClientGroupRequest): Promise<ClientGroup> {
@@ -1410,19 +1244,7 @@ class ApiService {
   }
 
   // Get IP to group mapping for efficient lookups
-  static async getClientGroupMapping(signal?: AbortSignal): Promise<Record<string, { groupId: number; nickname: string }>> {
-    try {
-      const res = await fetch(`${API_BASE}/client-groups/mapping`, this.getFetchOptions({ signal }));
-      return await this.handleResponse<Record<string, { groupId: number; nickname: string }>>(res);
-    } catch (error: unknown) {
-      if (isAbortError(error)) {
-        // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
-        console.error('getClientGroupMapping error:', error);
-      }
-      throw error;
-    }
-  }
+  
 
   // =====================
   // Prefill Admin APIs
@@ -1539,24 +1361,7 @@ class ApiService {
   }
 
   // Ban a Steam user by username
-  static async banSteamUserByUsername(
-    username: string,
-    reason?: string,
-    deviceId?: string,
-    expiresAt?: string
-  ): Promise<BannedSteamUserDto> {
-    try {
-      const res = await fetch(`${API_BASE}/prefill-admin/bans`, this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, reason, deviceId, expiresAt })
-      }));
-      return await this.handleResponse<BannedSteamUserDto>(res);
-    } catch (error: unknown) {
-      console.error('banSteamUserByUsername error:', error);
-      throw error;
-    }
-  }
+  
 
   // Lift a Steam user ban
   static async liftSteamBan(banId: number): Promise<{ message: string }> {
@@ -1587,33 +1392,10 @@ class ApiService {
   }
 
   // Check which apps are cached
-  static async checkAppsCached(appIds: number[], signal?: AbortSignal): Promise<CacheCheckResponse> {
-    try {
-      const res = await fetch(`${API_BASE}/prefill-admin/cache/check`, this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(appIds),
-        signal
-      }));
-      return await this.handleResponse<CacheCheckResponse>(res);
-    } catch (error: unknown) {
-      if (!isAbortError(error)) console.error('checkAppsCached error:', error);
-      throw error;
-    }
-  }
+  
 
   // Clear cache for a specific app
-  static async clearAppPrefillCache(appId: number): Promise<{ message: string }> {
-    try {
-      const res = await fetch(`${API_BASE}/prefill-admin/cache/${appId}`, this.getFetchOptions({
-        method: 'DELETE'
-      }));
-      return await this.handleResponse<{ message: string }>(res);
-    } catch (error: unknown) {
-      console.error('clearAppPrefillCache error:', error);
-      throw error;
-    }
-  }
+  
 
   // Clear entire prefill cache
   static async clearAllPrefillCache(): Promise<{ message: string }> {
@@ -1734,10 +1516,6 @@ export interface CachedAppDto {
   cachedBy?: string;
 }
 
-export interface CacheCheckResponse {
-  cachedAppIds: number[];
-  uncachedAppIds: number[];
-  cacheInfo: CachedAppDto[];
-}
+
 
 export default ApiService;

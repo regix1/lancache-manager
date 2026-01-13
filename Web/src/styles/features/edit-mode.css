@@ -68,17 +68,6 @@
   animation: swapBounce 0.3s ease-out;
 }
 
-/* Edit mode overlay gradient */
-.edit-mode-overlay {
-  background: linear-gradient(
-    to bottom,
-    color-mix(in srgb, var(--theme-bg-primary) 95%, transparent) 0%,
-    transparent 100%
-  );
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
-}
-
 /* Edit mode button styles */
 .edit-mode-toggle {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);

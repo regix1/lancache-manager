@@ -3,7 +3,7 @@ import authService from './auth.service';
 import preferencesService from './preferences.service';
 import * as TOML from 'toml';
 import { storage } from '@utils/storage';
-import { getErrorMessage } from '@utils/error';
+
 
 interface ThemeColors {
   // Core colors
@@ -191,19 +191,7 @@ interface Theme {
 
 class ThemeService {
   // Get the best text color for a given background using theme colors
-  public getContrastText(background: string): string {
-    if (!background || background === 'transparent') {
-      return 'var(--theme-text-primary)';
-    }
-
-    // Get the actual theme button text color
-    const buttonText =
-      getComputedStyle(document.documentElement).getPropertyValue('--theme-button-text').trim() ||
-      '#ffffff';
-
-    // For primary color backgrounds, always use the theme's button text
-    return buttonText;
-  }
+  
 
   private currentTheme: Theme | null = null;
   private styleElement: HTMLStyleElement | null = null;
@@ -799,54 +787,9 @@ class ThemeService {
     }
   }
 
-  async uploadTheme(file: File): Promise<Theme> {
-    const text = await file.text();
-    const theme = this.parseTomlTheme(text);
+  
 
-    if (!theme) {
-      throw new Error('Invalid TOML theme format');
-    }
-
-    const formData = new FormData();
-    formData.append('file', file);
-
-    try {
-      const response = await fetch(`${API_BASE}/themes/upload`, {
-        method: 'POST',
-        credentials: 'include', // Important: include HttpOnly session cookies
-        headers: authService.getAuthHeaders(),
-        body: formData
-      });
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Failed to upload theme' }));
-        throw new Error(error.error || 'Failed to upload theme');
-      }
-
-      return theme;
-    } catch (error: unknown) {
-      const errorMsg = getErrorMessage(error);
-      if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
-        throw new Error(
-          'Cannot save theme: API server is not running. Please start the LANCache Manager API service.'
-        );
-      }
-      throw error;
-    }
-  }
-
-  async deleteTheme(themeId: string): Promise<void> {
-    const response = await fetch(`${API_BASE}/themes/${themeId}`, {
-      method: 'DELETE',
-      credentials: 'include', // Important: include HttpOnly session cookies
-      headers: authService.getAuthHeaders()
-    });
-
-    if (!response.ok && response.status !== 404) {
-      const error = await response.json().catch(() => ({ error: 'Failed to delete theme' }));
-      throw new Error(error.error || 'Failed to delete theme');
-    }
-  }
+  
 
   private applyDefaultVariables(): void {
     const sharpCorners = this.getSharpCornersSync();
@@ -1051,24 +994,7 @@ class ThemeService {
     defaultStyleElement.textContent = defaultStyles;
   }
 
-  clearTheme(): void {
-    if (this.styleElement) {
-      this.styleElement.remove();
-      this.styleElement = null;
-    }
-
-    const root = document.documentElement;
-    root.removeAttribute('data-theme');
-    root.removeAttribute('data-theme-id');
-    this.currentTheme = null;
-
-    // Clear all saved theme data
-    storage.removeItem('lancache_selected_theme');
-    storage.removeItem('lancache_theme_css');
-    storage.removeItem('lancache_theme_dark');
-
-    this.applyDefaultVariables();
-  }
+  
 
   applyTheme(theme: Theme): void {
     if (!theme || !theme.colors) return;
@@ -1434,13 +1360,9 @@ class ThemeService {
     return this.currentTheme?.meta.id || 'dark-default';
   }
 
-  getCurrentTheme(): Theme | null {
-    return this.currentTheme;
-  }
+  
 
-  isThemeApplied(): boolean {
-    return this.currentTheme !== null;
-  }
+  
 
   exportTheme(theme: Theme): string {
     let toml = '';
@@ -1499,9 +1421,7 @@ class ThemeService {
     }
   }
 
-  async getSharpCorners(): Promise<boolean> {
-    return await preferencesService.getPreference('sharpCorners');
-  }
+  
 
   getSharpCornersSync(): boolean {
     const prefs = preferencesService.getPreferencesSync();
@@ -1519,9 +1439,7 @@ class ThemeService {
     window.dispatchEvent(new Event('focusoutlineschange'));
   }
 
-  async getDisableFocusOutlines(): Promise<boolean> {
-    return await preferencesService.getPreference('disableFocusOutlines');
-  }
+  
 
   getDisableFocusOutlinesSync(): boolean {
     const prefs = preferencesService.getPreferencesSync();
@@ -1539,9 +1457,7 @@ class ThemeService {
     window.dispatchEvent(new Event('tooltipschange'));
   }
 
-  async getDisableTooltips(): Promise<boolean> {
-    return await preferencesService.getPreference('disableTooltips');
-  }
+  
 
   getDisableTooltipsSync(): boolean {
     const prefs = preferencesService.getPreferencesSync();
@@ -1556,9 +1472,7 @@ class ThemeService {
     window.dispatchEvent(new Event('picsvisibilitychange'));
   }
 
-  async getPicsAlwaysVisible(): Promise<boolean> {
-    return await preferencesService.getPreference('picsAlwaysVisible');
-  }
+  
 
   getPicsAlwaysVisibleSync(): boolean {
     const prefs = preferencesService.getPreferencesSync();
@@ -1573,9 +1487,7 @@ class ThemeService {
     window.dispatchEvent(new Event('stickynotificationschange'));
   }
 
-  async getDisableStickyNotifications(): Promise<boolean> {
-    return await preferencesService.getPreference('disableStickyNotifications');
-  }
+  
 
   getDisableStickyNotificationsSync(): boolean {
     const prefs = preferencesService.getPreferencesSync();

@@ -32,24 +32,3 @@ export function getEventColorStyles(colorIndex: number): React.CSSProperties {
   };
 }
 
-/**
- * Get just the background color with transparency for a color index.
- * @param colorIndex - 1-8, the color index
- * @param opacity - 0-100, the opacity percentage (default 20)
- * @returns CSS value like "color-mix(in srgb, var(--theme-event-1) 20%, transparent)"
- */
-export function getEventColorBg(colorIndex: number, opacity: number = 20): string {
-  const colorVar = getEventColorVar(colorIndex);
-  return `color-mix(in srgb, ${colorVar} ${opacity}%, transparent)`;
-}
-
-/**
- * Get a border color for a color index.
- * @param colorIndex - 1-8, the color index
- * @param opacity - 0-100, the opacity percentage (default 40)
- * @returns CSS value like "color-mix(in srgb, var(--theme-event-1) 40%, transparent)"
- */
-export function getEventColorBorder(colorIndex: number, opacity: number = 40): string {
-  const colorVar = getEventColorVar(colorIndex);
-  return `color-mix(in srgb, ${colorVar} ${opacity}%, transparent)`;
-}

@@ -14,7 +14,7 @@ export function getServerTimezone(): string {
 /**
  * Get the browser's local timezone
  */
-export function getLocalTimezone(): string {
+function getLocalTimezone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 

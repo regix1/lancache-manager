@@ -107,41 +107,7 @@ class PreferencesService {
     }
   }
 
-  /**
-   * Save preferences to the API
-   */
-  async savePreferences(preferences: UserPreferences): Promise<boolean> {
-    try {
-      const response = await fetch(`${API_BASE}/user-preferences`, {
-        method: 'PUT',
-        credentials: 'include', // Important: include HttpOnly session cookies
-        headers: {
-          'Content-Type': 'application/json',
-          ...authService.getAuthHeaders()
-        },
-        body: JSON.stringify(preferences)
-      });
 
-      // Handle 401 Unauthorized - device was revoked or session expired
-      if (response.status === 401) {
-        console.warn('[PreferencesService] Unauthorized while saving preferences - triggering logout');
-        authService.handleUnauthorized();
-        return false;
-      }
-
-      if (response.ok) {
-        this.preferences = preferences;
-        // console.log('[PreferencesService] Saved preferences to API');
-        return true;
-      } else {
-        console.error('[PreferencesService] Failed to save preferences:', response.status);
-        return false;
-      }
-    } catch (error) {
-      console.error('[PreferencesService] Error saving preferences:', error);
-      return false;
-    }
-  }
 
   /**
    * Update a single preference
@@ -508,78 +474,9 @@ class PreferencesService {
     };
   }
 
-  /**
-   * Get preferences for a specific session (admin only)
-   */
-  async getPreferencesForSession(sessionId: string): Promise<UserPreferences | null> {
-    try {
-      const response = await fetch(`${API_BASE}/user-preferences/session/${sessionId}`, {
-        credentials: 'include', // Important: include HttpOnly session cookies
-        headers: authService.getAuthHeaders()
-      });
 
-      if (response.ok) {
-        const data = await response.json();
-        return {
-          selectedTheme: data.selectedTheme || null,
-          sharpCorners: data.sharpCorners || false,
-          disableFocusOutlines: data.disableFocusOutlines || false,
-          disableTooltips: data.disableTooltips || false,
-          picsAlwaysVisible: data.picsAlwaysVisible || false,
-          disableStickyNotifications: data.disableStickyNotifications || false,
-          useLocalTimezone: data.useLocalTimezone || false,
-          use24HourFormat: data.use24HourFormat || false,
-          showDatasourceLabels: data.showDatasourceLabels ?? true,
-          showYearInDates: data.showYearInDates || false,
-          refreshRate: data.refreshRate || null,
-          allowedTimeFormats: data.allowedTimeFormats || null
-        };
-      } else {
-        console.error(
-          '[PreferencesService] Failed to load preferences for session:',
-          response.status
-        );
-        return null;
-      }
-    } catch (error) {
-      console.error('[PreferencesService] Error loading preferences for session:', error);
-      return null;
-    }
-  }
 
-  /**
-   * Save preferences for a specific session (admin only)
-   */
-  async savePreferencesForSession(
-    sessionId: string,
-    preferences: UserPreferences
-  ): Promise<boolean> {
-    try {
-      const response = await fetch(`${API_BASE}/user-preferences/session/${sessionId}`, {
-        method: 'PUT',
-        credentials: 'include', // Important: include HttpOnly session cookies
-        headers: {
-          'Content-Type': 'application/json',
-          ...authService.getAuthHeaders()
-        },
-        body: JSON.stringify(preferences)
-      });
 
-      if (response.ok) {
-        console.log('[PreferencesService] Saved preferences for session:', sessionId);
-        return true;
-      } else {
-        console.error(
-          '[PreferencesService] Failed to save preferences for session:',
-          response.status
-        );
-        return false;
-      }
-    } catch (error) {
-      console.error('[PreferencesService] Error saving preferences for session:', error);
-      return false;
-    }
-  }
 }
 
 export default new PreferencesService();

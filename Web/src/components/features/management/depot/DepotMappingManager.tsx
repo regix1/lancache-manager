@@ -1025,7 +1025,6 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
         <FullScanRequiredModal
           changeGap={changeGapWarning.changeGap}
           estimatedApps={changeGapWarning.estimatedApps}
-          subtitle={changeGapWarning.message}
           onCancel={() => setChangeGapWarning(null)}
           onConfirm={async () => {
             setChangeGapWarning(null); // Close the modal immediately
