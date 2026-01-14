@@ -1183,6 +1183,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         try
         {
             var previousAuthState = session.AuthState;
+            var shouldBackfillUsername = false;
 
             // Update auth state based on status
             session.AuthState = status.Status switch
@@ -1197,7 +1198,27 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                 await NotifyAuthStateChangeAsync(session);
             }
 
+            if (session.AuthState == DaemonAuthState.Authenticated &&
+                string.IsNullOrWhiteSpace(session.SteamUsername))
+            {
+                shouldBackfillUsername = true;
+            }
+
             await NotifyStatusChangeAsync(session, status);
+
+            if (shouldBackfillUsername)
+            {
+                var fallbackUsername = await _sessionService.GetLatestUsernameForDeviceAsync(session.UserId);
+                if (!string.IsNullOrWhiteSpace(fallbackUsername))
+                {
+                    session.SteamUsername = fallbackUsername;
+                    await _sessionService.SetSessionUsernameAsync(session.Id, fallbackUsername);
+
+                    var updatedDto = DaemonSessionDto.FromSession(session);
+                    await _hubContext.Clients.All.SendAsync("DaemonSessionUpdated", updatedDto);
+                    await _downloadHubContext.Clients.All.SendAsync("DaemonSessionUpdated", updatedDto);
+                }
+            }
         }
         catch (Exception ex)
         {

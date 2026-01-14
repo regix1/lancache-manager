@@ -3,7 +3,7 @@ import type { ServiceStat } from '@/types';
 import type { ChartData, TabId } from './types';
 import { useServiceColors } from './useServiceColors';
 
-const MIN_SLICE_DEGREES = 2;
+const MIN_SLICE_DEGREES = 4;
 
 function applyMinimumSlice(values: number[], minPercent: number): number[] {
   const total = values.reduce((sum, value) => sum + value, 0);
