@@ -20,6 +20,7 @@
 
 /* Features */
 @import './styles/features/dashboard.css';
+@import './styles/features/service-analytics.css';
 @import './styles/features/management.css';
 @import './styles/features/user.css';
 @import './styles/features/edit-mode.css';
