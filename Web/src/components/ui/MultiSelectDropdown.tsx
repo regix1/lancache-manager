@@ -156,8 +156,15 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
   useEffect(() => {
     if (!isOpen) return;
 
-    const handleClickOutside = (e: MouseEvent) => {
-      if (!dropdownRef.current?.contains(e.target as Node) && !buttonRef.current?.contains(e.target as Node)) {
+    const isEventInside = (event: Event) => {
+      const path = (event as Event & { composedPath?: () => EventTarget[] }).composedPath?.() || [];
+      if (dropdownRef.current && path.includes(dropdownRef.current)) return true;
+      if (buttonRef.current && path.includes(buttonRef.current)) return true;
+      return false;
+    };
+
+    const handlePointerDown = (e: PointerEvent) => {
+      if (!isEventInside(e)) {
         setIsOpen(false);
       }
     };
@@ -166,10 +173,10 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
       if (e.key === 'Escape') setIsOpen(false);
     };
 
-    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('pointerdown', handlePointerDown);
     document.addEventListener('keydown', handleEscape);
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('pointerdown', handlePointerDown);
       document.removeEventListener('keydown', handleEscape);
     };
   }, [isOpen]);
@@ -178,7 +185,14 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
   useEffect(() => {
     if (!isOpen) return;
 
-    const handleScrollOrResize = () => {
+    const handleScrollOrResize = (event?: Event) => {
+      if (event && event.type === 'scroll') {
+        const target = event.target as Node | null;
+        if (target && dropdownRef.current?.contains(target)) {
+          return; // Don't reposition when scrolling inside the dropdown
+        }
+      }
+
       if (rafRef.current !== null) return;
       rafRef.current = window.requestAnimationFrame(() => {
         rafRef.current = null;
@@ -245,6 +259,8 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
             left: dropdownStyle.left,
             animation: dropdownStyle.animation
           }}
+          onPointerDown={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
         >
           {title && (
             <div className="px-4 py-3 text-xs font-semibold uppercase tracking-wider border-b border-themed-secondary text-themed-muted bg-themed-tertiary">
@@ -252,7 +268,12 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
             </div>
           )}
 
-          <div className="overflow-y-auto max-h-[280px] bg-themed-secondary">
+          <div
+            className="overflow-y-auto max-h-[280px] bg-themed-secondary"
+            style={{ overscrollBehavior: 'contain' }}
+            onWheel={(event) => event.stopPropagation()}
+            onTouchMove={(event) => event.stopPropagation()}
+          >
             {options.map((option, i) => (
               <OptionItem
                 key={option.value}

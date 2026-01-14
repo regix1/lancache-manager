@@ -40,8 +40,9 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
         elements: {
           arc: {
             // Ensure tiny slices are still visible.
+            // Note: minAngle is a valid Chart.js runtime option but not in TS types
             minAngle: 2,
-          },
+          } as Record<string, unknown>,
         },
         animation: {
           animateRotate: true,

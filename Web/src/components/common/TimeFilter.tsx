@@ -162,7 +162,11 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
     };
 
     // Close on scroll to prevent dropdown from being mispositioned
-    const handleScroll = () => {
+    const handleScroll = (e: Event) => {
+      // Ignore scroll events originating from inside the dropdown
+      if (dropdownRef.current && dropdownRef.current.contains(e.target as Node)) {
+        return;
+      }
       setIsOpen(false);
     };
 
