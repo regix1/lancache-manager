@@ -195,11 +195,12 @@ const ActiveEventBorder: React.FC<ActiveEventBorderProps> = ({ children, enabled
 
   const eventColor = getEventColorVar(activeEvent.colorIndex);
   const borderOffset = 10; // How far the border extends beyond content
+  const topMargin = 16; // Space between nav and the active event frame
 
   return (
     <>
       {/* Content wrapper - just for measurement, no style impact */}
-      <div ref={contentRef}>
+      <div ref={contentRef} style={{ marginTop: `${topMargin}px` }}>
         {children}
       </div>
 
