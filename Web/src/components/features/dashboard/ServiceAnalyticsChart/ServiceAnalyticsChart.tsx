@@ -25,11 +25,12 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
       if (chartData.isEmpty || !chartData.datasets[0]) return [];
 
       const dataset = chartData.datasets[0];
+      const originalData = dataset.originalData ?? dataset.data;
       return chartData.labels.map((label, index) => ({
         label,
-        value: dataset.data[index],
+        value: originalData[index],
         color: dataset.backgroundColor[index],
-        percentage: chartData.total > 0 ? (dataset.data[index] / chartData.total) * 100 : 0,
+        percentage: chartData.total > 0 ? (originalData[index] / chartData.total) * 100 : 0,
       }));
     }, [chartData]);
 

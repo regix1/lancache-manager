@@ -64,7 +64,8 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
             boxPadding: 6,
             callbacks: {
               label: (context) => {
-                const value = context.raw as number;
+                const dataset = context.dataset as { originalData?: number[] };
+                const value = dataset.originalData?.[context.dataIndex] ?? (context.raw as number);
                 const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0';
                 return `${context.label}: ${formatBytes(value)} (${percentage}%)`;
               },

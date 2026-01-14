@@ -12,6 +12,7 @@ export interface TabConfig {
 export interface ChartDataset {
   id: string;
   data: number[];
+  originalData?: number[];
   backgroundColor: string[];
   borderColor: string;
   borderWidth: number;
