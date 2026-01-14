@@ -392,10 +392,10 @@ builder.Services.AddOutputCache(options =>
         builder.Expire(TimeSpan.FromSeconds(5)));
     options.AddPolicy("stats-short", builder =>
         builder.Expire(TimeSpan.FromSeconds(10))
-               .SetVaryByQuery("startTime", "endTime", "since", "eventId", "includeExcluded"));
+               .SetVaryByQuery("startTime", "endTime", "since", "eventId", "includeExcluded", "cacheBust"));
     options.AddPolicy("stats-long", builder =>
         builder.Expire(TimeSpan.FromSeconds(30))
-               .SetVaryByQuery("startTime", "endTime", "interval", "eventId"));
+               .SetVaryByQuery("startTime", "endTime", "interval", "eventId", "cacheBust"));
 });
 
 // Configure OpenTelemetry Metrics for Prometheus + Grafana

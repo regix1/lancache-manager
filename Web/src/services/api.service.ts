@@ -237,7 +237,8 @@ class ApiService {
     startTime?: number,
     endTime?: number,
     eventIds?: number[],
-    includeExcluded?: boolean
+    includeExcluded?: boolean,
+    cacheBust?: number
   ): Promise<ClientStat[]> {
     try {
       let url = `${API_BASE}/stats/clients`;
@@ -246,6 +247,7 @@ class ApiService {
       if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
       if (eventIds && eventIds.length > 0) params.append('eventId', eventIds[0].toString());
       if (includeExcluded) params.append('includeExcluded', 'true');
+      if (cacheBust) params.append('cacheBust', cacheBust.toString());
       if (params.toString()) url += `?${params}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<ClientStat[]>(res);
@@ -294,7 +296,8 @@ class ApiService {
     signal?: AbortSignal,
     startTime?: number,
     endTime?: number,
-    eventIds?: number[]
+    eventIds?: number[],
+    cacheBust?: number
   ): Promise<ServiceStat[]> {
     try {
       let url = `${API_BASE}/stats/services`;
@@ -302,6 +305,7 @@ class ApiService {
       if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
       if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
       if (eventIds && eventIds.length > 0) params.append('eventId', eventIds[0].toString());
+      if (cacheBust) params.append('cacheBust', cacheBust.toString());
       if (params.toString()) url += `?${params}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<ServiceStat[]>(res);
@@ -320,7 +324,8 @@ class ApiService {
     signal?: AbortSignal,
     startTime?: number,
     endTime?: number,
-    eventIds?: number[]
+    eventIds?: number[],
+    cacheBust?: number
   ): Promise<DashboardStats> {
     try {
       let url = `${API_BASE}/stats/dashboard`;
@@ -328,6 +333,7 @@ class ApiService {
       if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
       if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
       if (eventIds && eventIds.length > 0) params.append('eventId', eventIds[0].toString());
+      if (cacheBust) params.append('cacheBust', cacheBust.toString());
       if (params.toString()) url += `?${params}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<DashboardStats>(res);

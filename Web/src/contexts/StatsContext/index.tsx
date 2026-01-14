@@ -139,6 +139,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     const { startTime, endTime } = getTimeRangeParamsRef.current();
     // Support multiple event IDs - pass as array for API
     const eventIds = currentEventIds.length > 0 ? currentEventIds : undefined;
+    const cacheBust = forceRefresh ? Date.now() : undefined;
 
     abortControllerRef.current = new AbortController();
 
@@ -161,9 +162,9 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       // Pass eventIds to filter to only tagged downloads when events are selected
       const [cache, clients, services, dashboard] = await Promise.allSettled([
         ApiService.getCacheInfo(abortControllerRef.current.signal),
-        ApiService.getClientStats(abortControllerRef.current.signal, startTime, endTime, eventIds),
-        ApiService.getServiceStats(abortControllerRef.current.signal, startTime, endTime, eventIds),
-        ApiService.getDashboardStats(abortControllerRef.current.signal, startTime, endTime, eventIds)
+        ApiService.getClientStats(abortControllerRef.current.signal, startTime, endTime, eventIds, undefined, cacheBust),
+        ApiService.getServiceStats(abortControllerRef.current.signal, startTime, endTime, eventIds, cacheBust),
+        ApiService.getDashboardStats(abortControllerRef.current.signal, startTime, endTime, eventIds, cacheBust)
       ]);
 
       clearTimeout(timeoutId);
@@ -224,8 +225,8 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   }, []);
 
   // Public refresh function for manual refreshes
-  const refreshStats = useCallback(async () => {
-    await fetchStats({ showLoading: true });
+  const refreshStats = useCallback(async (forceRefresh: boolean = false) => {
+    await fetchStats({ showLoading: true, forceRefresh });
   }, [fetchStats]);
 
   // Subscribe to SignalR events for real-time updates

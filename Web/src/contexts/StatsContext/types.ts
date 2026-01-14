@@ -8,7 +8,7 @@ export interface StatsContextType {
   loading: boolean;
   error: string | null;
   connectionStatus: string;
-  refreshStats: () => Promise<void>;
+  refreshStats: (forceRefresh?: boolean) => Promise<void>;
   updateStats: (updater: {
     cacheInfo?: (prev: CacheInfo | null) => CacheInfo | null;
     clientStats?: (prev: ClientStat[]) => ClientStat[];

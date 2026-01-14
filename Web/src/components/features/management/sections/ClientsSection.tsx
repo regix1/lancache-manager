@@ -7,6 +7,7 @@ import { Alert } from '@components/ui/Alert';
 import { Pagination } from '@components/ui/Pagination';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
 import { useClientGroups } from '@contexts/ClientGroupContext';
+import { useStats } from '@contexts/StatsContext';
 import ApiService from '@services/api.service';
 import { Plus, Users, Trash2, Edit2, X, Loader2, User, AlertTriangle } from 'lucide-react';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
@@ -34,6 +35,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
     deleteClientGroup,
     removeMember
   } = useClientGroups();
+  const { refreshStats } = useStats();
 
   // Fetch ALL client IPs without time filtering - management sections should not be affected by time filters
   const [allClientIps, setAllClientIps] = useState<string[]>([]);
@@ -163,6 +165,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
       setExcludedIps(response.ips);
       setSavedExcludedIps(response.ips);
       onSuccess('Excluded IPs updated');
+      await refreshStats(true);
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Failed to update excluded IPs');
     } finally {
@@ -594,9 +597,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                 )}
 
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
-                  <div className="text-xs text-themed-muted">
-                    Changes apply to all statistics within ~30 seconds due to caching.
-                  </div>
+                  <div />
                   <Button
                     onClick={handleSaveExcluded}
                     disabled={!hasExcludedChanges || savingExcluded || loadingExcluded}

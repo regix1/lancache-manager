@@ -2,6 +2,7 @@ import React, { useMemo, useState, useCallback, useRef } from 'react';
 import { Calendar, Clock, ChevronRight, Zap, History, CalendarClock, Loader2, Pencil, BarChart3 } from 'lucide-react';
 import { useTimezone } from '@contexts/TimezoneContext';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
+import { Tooltip } from '@components/ui/Tooltip';
 import { formatBytes } from '@utils/formatters';
 import { getEventColorStyles, getEventColorVar } from '@utils/eventColors';
 import ApiService from '@services/api.service';
@@ -138,26 +139,28 @@ const EventCard: React.FC<EventCardProps> = ({
 
           {/* Action buttons */}
           <div className="flex gap-2 flex-shrink-0">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onViewStatsClick();
-              }}
-              className="w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200 hover:bg-[var(--theme-bg-hover)] bg-[var(--theme-bg-tertiary)]"
-              title="View stats on dashboard"
-            >
-              <BarChart3 className="w-4 h-4 text-[var(--theme-text-secondary)]" />
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onEditClick();
-              }}
-              className="w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200 hover:bg-[var(--theme-bg-hover)] bg-[var(--theme-bg-tertiary)]"
-              title="Edit event"
-            >
-              <Pencil className="w-4 h-4 text-[var(--theme-text-secondary)]" />
-            </button>
+            <Tooltip content="View stats on dashboard" position="top">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onViewStatsClick();
+                }}
+                className="w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200 hover:bg-[var(--theme-bg-hover)] bg-[var(--theme-bg-tertiary)]"
+              >
+                <BarChart3 className="w-4 h-4 text-[var(--theme-text-secondary)]" />
+              </button>
+            </Tooltip>
+            <Tooltip content="Edit event" position="top">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEditClick();
+                }}
+                className="w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200 hover:bg-[var(--theme-bg-hover)] bg-[var(--theme-bg-tertiary)]"
+              >
+                <Pencil className="w-4 h-4 text-[var(--theme-text-secondary)]" />
+              </button>
+            </Tooltip>
           </div>
         </div>
       </div>
