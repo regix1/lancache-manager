@@ -47,7 +47,7 @@ interface EventProviderProps {
 }
 
 export const EventProvider: React.FC<EventProviderProps> = ({ children }) => {
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { isAuthenticated, authMode, isLoading: authLoading } = useAuth();
   const { on, off } = useSignalR();
   const [events, setEvents] = useState<Event[]>([]);
   const [activeEvents, setActiveEvents] = useState<Event[]>([]);
@@ -105,32 +105,48 @@ export const EventProvider: React.FC<EventProviderProps> = ({ children }) => {
     setLoading(true);
     setError(null);
     try {
-      const [allEvents, active] = await Promise.all([
+      // Fetch both endpoints independently so active events can still show for guests
+      // even if the full event list is unavailable.
+      const [allEventsResult, activeResult] = await Promise.allSettled([
         ApiService.getEvents(),
         ApiService.getActiveEvents()
       ]);
-      setEvents(allEvents);
-      setActiveEvents(active);
 
-      // Clear selected event if it no longer exists
-      if (selectedEventId && !allEvents.find(e => e.id === selectedEventId)) {
-        setSelectedEventId(null);
+      if (activeResult.status === 'fulfilled') {
+        setActiveEvents(activeResult.value);
+      } else {
+        setActiveEvents([]);
+        const message = activeResult.reason instanceof Error ? activeResult.reason.message : 'Failed to fetch active events';
+        setError(message);
+        console.error('Failed to fetch active events:', activeResult.reason);
       }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to fetch events';
-      setError(message);
-      console.error('Failed to fetch events:', err);
+
+      if (allEventsResult.status === 'fulfilled') {
+        const allEvents = allEventsResult.value;
+        setEvents(allEvents);
+
+        // Clear selected event if it no longer exists
+        if (selectedEventId && !allEvents.find(e => e.id === selectedEventId)) {
+          setSelectedEventId(null);
+        }
+      } else if (authMode === 'authenticated') {
+        // Guests may not have access to the full event list; avoid surfacing a noisy error in that case.
+        const message = allEventsResult.reason instanceof Error ? allEventsResult.reason.message : 'Failed to fetch events';
+        setError(prev => prev ?? message);
+        console.error('Failed to fetch events:', allEventsResult.reason);
+      }
     } finally {
       setLoading(false);
     }
-  }, [selectedEventId, setSelectedEventId]);
+  }, [authMode, selectedEventId, setSelectedEventId]);
 
-  // Initial load - only fetch when authenticated
+  // Initial load - fetch when authenticated or in guest mode
+  const hasAccess = isAuthenticated || authMode === 'guest';
   useEffect(() => {
-    if (!authLoading && isAuthenticated) {
+    if (!authLoading && hasAccess) {
       refreshEvents();
     }
-  }, [authLoading, isAuthenticated, refreshEvents]);
+  }, [authLoading, hasAccess, refreshEvents]);
 
   // CRUD operations
   const createEvent = useCallback(async (data: CreateEventRequest): Promise<Event> => {

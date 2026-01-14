@@ -35,7 +35,7 @@ public class EventsController : ControllerBase
     /// Get all events
     /// </summary>
     [HttpGet]
-    [RequireAuth]
+    [RequireGuestSession]
     [ResponseCache(Duration = 5)]
     public async Task<IActionResult> GetAll()
     {
@@ -55,7 +55,7 @@ public class EventsController : ControllerBase
     /// Get currently active events
     /// </summary>
     [HttpGet("active")]
-    [RequireAuth]
+    [RequireGuestSession]
     [ResponseCache(Duration = 5)]
     public async Task<IActionResult> GetActive()
     {
@@ -75,7 +75,7 @@ public class EventsController : ControllerBase
     /// Get events for calendar view (by date range)
     /// </summary>
     [HttpGet("calendar")]
-    [RequireAuth]
+    [RequireGuestSession]
     [ResponseCache(Duration = 5)]
     public async Task<IActionResult> GetCalendarEvents([FromQuery] long start, [FromQuery] long end)
     {
@@ -98,7 +98,7 @@ public class EventsController : ControllerBase
     /// Get a single event by ID
     /// </summary>
     [HttpGet("{id:int}")]
-    [RequireAuth]
+    [RequireGuestSession]
     public async Task<IActionResult> GetById(int id)
     {
         try
@@ -247,7 +247,7 @@ public class EventsController : ControllerBase
     /// Get downloads for an event
     /// </summary>
     [HttpGet("{id:int}/downloads")]
-    [RequireAuth]
+    [RequireGuestSession]
     [ResponseCache(Duration = 5)]
     public async Task<IActionResult> GetDownloads(int id, [FromQuery] bool taggedOnly = false)
     {

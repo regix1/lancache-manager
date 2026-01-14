@@ -60,6 +60,7 @@ public class SystemController : ControllerBase
     /// GET /api/system/config - Get system configuration
     /// </summary>
     [HttpGet("config")]
+    [RequireGuestSession]
     public IActionResult GetConfig()
     {
         var datasources = _datasourceService.GetDatasources();
@@ -100,6 +101,7 @@ public class SystemController : ControllerBase
     /// GET /api/system/state - Get application state
     /// </summary>
     [HttpGet("state")]
+    [RequireGuestSession]
     public IActionResult GetState()
     {
         return Ok(new SystemStateResponse
@@ -115,6 +117,7 @@ public class SystemController : ControllerBase
     /// GET /api/system/permissions - Check directory permissions and docker socket availability
     /// </summary>
     [HttpGet("permissions")]
+    [RequireGuestSession]
     public IActionResult GetPermissions()
     {
         var cachePath = _pathResolver.GetCacheDirectory();
@@ -149,6 +152,7 @@ public class SystemController : ControllerBase
     /// GET /api/system/setup - Get setup status
     /// </summary>
     [HttpGet("setup")]
+    [RequireGuestSession]
     public IActionResult GetSetupStatus()
     {
         var isCompleted = _stateService.GetSetupCompleted();
@@ -190,6 +194,7 @@ public class SystemController : ControllerBase
     /// GET /api/system/rsync/available - Check if rsync is available
     /// </summary>
     [HttpGet("rsync/available")]
+    [RequireGuestSession]
     public IActionResult CheckRsyncAvailable()
     {
         var isAvailable = _cacheClearingService.IsRsyncAvailable();
@@ -287,6 +292,7 @@ public class SystemController : ControllerBase
     /// GET /api/system/refresh-rate - Get the current refresh rate setting
     /// </summary>
     [HttpGet("refresh-rate")]
+    [RequireGuestSession]
     public IActionResult GetRefreshRate()
     {
         var rate = _stateService.GetRefreshRate();
@@ -326,6 +332,7 @@ public class SystemController : ControllerBase
     /// GET /api/system/default-guest-refresh-rate - Get the default refresh rate for guest users
     /// </summary>
     [HttpGet("default-guest-refresh-rate")]
+    [RequireGuestSession]
     public IActionResult GetDefaultGuestRefreshRate()
     {
         var rate = _stateService.GetDefaultGuestRefreshRate();
@@ -372,6 +379,7 @@ public class SystemController : ControllerBase
     /// Get default guest preferences
     /// </summary>
     [HttpGet("default-guest-preferences")]
+    [RequireGuestSession]
     public IActionResult GetDefaultGuestPreferences()
     {
         var state = _stateService.GetState();
@@ -480,6 +488,7 @@ public class SystemController : ControllerBase
     /// GET /api/system/log-rotation/status - Get nginx log rotation status
     /// </summary>
     [HttpGet("log-rotation/status")]
+    [RequireGuestSession]
     public IActionResult GetLogRotationStatus()
     {
         var status = _logRotationService.GetStatus();

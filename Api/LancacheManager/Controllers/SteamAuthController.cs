@@ -39,6 +39,7 @@ public class SteamAuthController : ControllerBase
     /// GET /api/steam-auth/status - Get Steam authentication status
     /// </summary>
     [HttpGet("status")]
+    [RequireGuestSession]
     public IActionResult GetSteamAuthStatus()
     {
         var authMode = _stateService.GetSteamAuthMode();
@@ -163,6 +164,7 @@ public class SteamAuthController : ControllerBase
     /// Used during setup to explicitly save the user's auth mode choice
     /// </summary>
     [HttpPut("mode")]
+    [RequireAuth]
     public IActionResult SetSteamAuthMode([FromBody] SetModeRequest request)
     {
         if (string.IsNullOrWhiteSpace(request?.Mode))

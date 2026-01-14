@@ -35,6 +35,7 @@ public class GcController : ControllerBase
     }
 
     [HttpGet("settings")]
+    [RequireGuestSession]
     public IActionResult GetSettings()
     {
         if (!IsGcManagementEnabled())

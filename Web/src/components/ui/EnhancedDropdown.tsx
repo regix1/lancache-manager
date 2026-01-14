@@ -11,6 +11,71 @@ interface DropdownPosition {
   width: number;
 }
 
+const VIEWPORT_PADDING_PX = 8;
+const DROPDOWN_MAX_WIDTH_MARGIN_PX = 32; // Matches `max-w-[calc(100vw-32px)]`
+
+function getRootFontSizePx(): number {
+  const fontSize = window.getComputedStyle(document.documentElement).fontSize;
+  const parsed = Number.parseFloat(fontSize);
+  return Number.isFinite(parsed) ? parsed : 16;
+}
+
+function resolveCssWidthToPx(value: string, fallbackPx: number, rootFontSizePx: number): number {
+  const trimmed = value.trim();
+
+  const pxMatch = trimmed.match(/^(\d+(?:\.\d+)?)px$/);
+  if (pxMatch) return Number.parseFloat(pxMatch[1]);
+
+  const remMatch = trimmed.match(/^(\d+(?:\.\d+)?)rem$/);
+  if (remMatch) return Number.parseFloat(remMatch[1]) * rootFontSizePx;
+
+  const percentMatch = trimmed.match(/^(\d+(?:\.\d+)?)%$/);
+  if (percentMatch) return (Number.parseFloat(percentMatch[1]) / 100) * window.innerWidth;
+
+  const vwMatch = trimmed.match(/^(\d+(?:\.\d+)?)vw$/);
+  if (vwMatch) return (Number.parseFloat(vwMatch[1]) / 100) * window.innerWidth;
+
+  const numeric = Number.parseFloat(trimmed);
+  if (Number.isFinite(numeric)) return numeric;
+
+  return fallbackPx;
+}
+
+function resolveDropdownWidthToPx(dropdownWidth: string | undefined, fallbackPx: number): number {
+  if (!dropdownWidth) return fallbackPx;
+
+  const widthToken = dropdownWidth
+    .trim()
+    .split(/\s+/)
+    .find((token) => token.startsWith('w-'));
+
+  if (!widthToken) {
+    // Treat as CSS width value (e.g. "280px", "18rem")
+    return resolveCssWidthToPx(dropdownWidth, fallbackPx, getRootFontSizePx());
+  }
+
+  // Tailwind width classes (common cases used in this app)
+  if (widthToken === 'w-full' || widthToken === 'w-screen') {
+    return Math.max(fallbackPx, window.innerWidth - DROPDOWN_MAX_WIDTH_MARGIN_PX);
+  }
+
+  const bracketMatch = widthToken.match(/^w-\[(.+)\]$/);
+  if (bracketMatch) {
+    return resolveCssWidthToPx(bracketMatch[1], fallbackPx, getRootFontSizePx());
+  }
+
+  const numericMatch = widthToken.match(/^w-(\d+)$/);
+  if (numericMatch) {
+    const scale = Number.parseInt(numericMatch[1], 10);
+    if (Number.isFinite(scale)) {
+      // Tailwind spacing scale: 1 = 0.25rem
+      return scale * (getRootFontSizePx() / 4);
+    }
+  }
+
+  return fallbackPx;
+}
+
 interface IconComponentProps {
   size?: number;
   className?: string;
@@ -100,28 +165,15 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
 
       const rect = buttonRef.current.getBoundingClientRect();
       const dropdownHeight = 300; // Approximate max height
-      const dropdownWidthPx = dropdownWidth ? parseInt(dropdownWidth) || rect.width : rect.width;
       const spaceBelow = window.innerHeight - rect.bottom;
       const spaceAbove = rect.top;
       const shouldOpenUpward = spaceBelow < dropdownHeight && spaceAbove > dropdownHeight;
+      const dropdownWidthPx = resolveDropdownWidthToPx(dropdownWidth, rect.width);
 
-      // Calculate horizontal position
-      let left: number;
-      if (alignRight) {
-        // Align right edge of dropdown with right edge of button
-        left = rect.right - dropdownWidthPx;
-        // Ensure doesn't go off left side
-        if (left < 8) {
-          left = 8;
-        }
-      } else {
-        // Align left edge of dropdown with left edge of button
-        left = rect.left;
-        // Ensure doesn't go off right side
-        if (left + dropdownWidthPx > window.innerWidth - 8) {
-          left = window.innerWidth - dropdownWidthPx - 8;
-        }
-      }
+      // Calculate horizontal position and clamp within viewport
+      const desiredLeft = alignRight ? rect.right - dropdownWidthPx : rect.left;
+      const maxLeft = Math.max(VIEWPORT_PADDING_PX, window.innerWidth - dropdownWidthPx - VIEWPORT_PADDING_PX);
+      const left = Math.min(Math.max(desiredLeft, VIEWPORT_PADDING_PX), maxLeft);
 
       // Calculate vertical position
       const top = shouldOpenUpward
@@ -139,6 +191,24 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       });
     }
   }, [isOpen, alignRight, dropdownWidth]);
+
+  // After the dropdown is rendered, clamp its position using the *actual* measured width.
+  // This prevents overflows if CSS constraints (min/max width) or content affect final sizing.
+  useLayoutEffect(() => {
+    if (!isOpen || !dropdownPosition || !buttonRef.current || !dropdownRef.current) return;
+
+    const dropdownRect = dropdownRef.current.getBoundingClientRect();
+    const buttonRect = buttonRef.current.getBoundingClientRect();
+    const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+
+    const desiredLeft = alignRight ? buttonRect.right - dropdownRect.width : buttonRect.left;
+    const maxLeft = Math.max(VIEWPORT_PADDING_PX, viewportWidth - dropdownRect.width - VIEWPORT_PADDING_PX);
+    const clampedLeft = Math.min(Math.max(desiredLeft, VIEWPORT_PADDING_PX), maxLeft);
+
+    if (Math.abs(clampedLeft - dropdownPosition.left) > 0.5) {
+      setDropdownPosition({ ...dropdownPosition, left: clampedLeft });
+    }
+  }, [isOpen, alignRight, dropdownPosition]);
 
   // Event listeners
   useEffect(() => {
@@ -226,14 +296,18 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
 
       {/* Dropdown - rendered via portal to escape stacking context */}
       {isOpen && dropdownPosition && createPortal(
-        <div
+      <div
           ref={dropdownRef}
-          className="ed-dropdown fixed rounded-lg border border-themed-primary overflow-hidden bg-themed-secondary max-w-[calc(100vw-32px)] shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3),0_8px_10px_-6px_rgba(0,0,0,0.2)] z-[50000]"
+          className={`ed-dropdown fixed rounded-lg border border-themed-primary overflow-hidden bg-themed-secondary max-w-[calc(100vw-32px)] shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3),0_8px_10px_-6px_rgba(0,0,0,0.2)] z-[50000] ${dropdownWidth?.trim().startsWith('w-') ? dropdownWidth : ''}`}
           style={{
             top: dropdownPosition.top,
             left: dropdownPosition.left,
-            width: dropdownWidth || dropdownPosition.width,
-            minWidth: dropdownPosition.width,
+            ...(dropdownWidth && !dropdownWidth.trim().startsWith('w-')
+              ? { width: dropdownWidth }
+              : !dropdownWidth
+                ? { width: dropdownPosition.width }
+                : {}),
+            ...(!dropdownWidth ? { minWidth: dropdownPosition.width } : {}),
             animation: dropdownStyle.animation
           }}
         >

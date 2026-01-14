@@ -1,4 +1,23 @@
 @layer components {
+  /* ===== UNIVERSAL NOTIFICATION BAR - Mobile Sticky Fix ===== */
+  /* 
+   * On mobile, navigation is sticky at top:0. 
+   * The notification bar must be positioned below it (top: 3rem = 48px = h-12).
+   * On desktop, navigation is relative, so notification bar can be at top:0.
+   */
+  .notification-bar-sticky {
+    position: sticky;
+    z-index: 40; /* Below nav's z-50 */
+    top: 3rem; /* Below mobile nav (h-12 = 3rem = 48px) */
+  }
+
+  @media (min-width: 768px) {
+    .notification-bar-sticky {
+      top: 0; /* On desktop, nav is relative, so we can be at top */
+      z-index: 50;
+    }
+  }
+
   /* ===== MOBILE RESPONSIVE UTILITIES ===== */
 
   /* Extra small screens (below 480px) */

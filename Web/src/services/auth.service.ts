@@ -129,6 +129,9 @@ class AuthService {
     if (this.onGuestExpiredCallback) {
       this.onGuestExpiredCallback();
     }
+
+    // Notify app to refresh auth state and show modal
+    window.dispatchEvent(new CustomEvent('auth-state-changed'));
   }
 
   public onGuestExpired(callback: (() => void) | null): void {
@@ -140,6 +143,9 @@ class AuthService {
     // Just update local state
     this.authMode = 'unauthenticated';
     this.isAuthenticated = false;
+
+    // Notify app to refresh auth state
+    window.dispatchEvent(new CustomEvent('auth-state-changed'));
   }
 
   async checkAuth(): Promise<AuthCheckResponse> {

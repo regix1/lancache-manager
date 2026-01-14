@@ -180,8 +180,8 @@ const Header: React.FC<HeaderProps> = ({
                 />
               </div>
 
-              {/* Right: Controls in a row */}
-              <div className="flex items-center gap-1.5">
+              {/* Right: Controls in a row - constrained width to prevent overflow */}
+              <div className="flex items-center gap-1 flex-1 justify-end min-w-0">
                 <TimezoneSelector />
                 <RefreshRateSelector disabled={mockMode} />
                 <TimeFilter disabled={mockMode} />

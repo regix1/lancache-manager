@@ -14,6 +14,13 @@
   }
 }
 
+/* Moving dashes animation for SVG borders */
+@keyframes eventBorderDash {
+  to {
+    stroke-dashoffset: -16;
+  }
+}
+
 /* 
  * The ActiveEventBorder component uses inline styles for critical positioning
  * to ensure the border does NOT affect layout. These classes are kept for
@@ -28,4 +35,48 @@
 /* The dashed border frame - purely decorative */
 .active-event-border-frame {
   transition: opacity 0.3s ease;
+}
+
+/* Event badge container positioning */
+.active-event-badge-container {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+  max-width: calc(100% - 24px);
+  white-space: nowrap;
+}
+
+.active-event-badge {
+  max-width: 100%;
+}
+
+.active-event-badge-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* SVG border elements */
+.active-event-border-svg {
+  position: absolute;
+  inset: 0;
+}
+
+.active-event-border-stroke {
+  stroke-linecap: round;
+  animation: eventBorderDash 8s linear infinite;
+}
+
+/* Keep badge centered on all viewports */
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .active-event-border-overlay,
+  .active-event-border-stroke,
+  .active-event-badge {
+    animation: none !important;
+  }
 }

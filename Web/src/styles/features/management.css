@@ -18,6 +18,7 @@
 /* Section transition animation */
 .management-section {
   animation: sectionFadeIn 0.25s ease-out;
+  overflow-x: hidden;
 }
 
 @keyframes sectionFadeIn {

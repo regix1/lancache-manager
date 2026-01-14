@@ -280,7 +280,25 @@ services:
 | `Security__MaxAdminDevices` | 3 | Number of devices that can share the same API key. |
 | `Security__GuestSessionDurationHours` | 6 | Default guest session length (configurable in UI). |
 | `Security__RequireAuthForMetrics` | false | Require API key for `/metrics` endpoint. |
-| `Security__ProtectSwagger` | true | Require auth for Swagger API docs. |
+| `Security__ProtectSwagger` | true | Require auth for Swagger API docs in production. |
+
+#### Access Levels
+
+The API uses two levels of endpoint protection:
+
+| Level | Description | Examples |
+|-------|-------------|----------|
+| **Admin Only** | Requires API key authentication | Cache clearing, log processing, settings changes |
+| **Guest Session** | Requires admin auth OR valid guest session | Viewing downloads, stats, events, client data |
+
+**Guest sessions** allow read-only access without sharing your API key. Guests must have a valid session (created by an admin) to view data. No endpoints are publicly accessible without authentication.
+
+To grant guest access:
+1. Navigate to **Users** tab
+2. Click **Create Guest Link**
+3. Share the link with your guests
+
+Guests can view dashboards, downloads, and events but cannot modify settings or clear cache.
 
 ### Nginx Log Rotation
 
@@ -328,7 +346,7 @@ Browse everything that's been cached. Choose between Normal view (cards with gam
 Track every device that has downloaded through your cache. Group clients together with friendly names to identify machines at your LAN party.
 
 ### Users
-Manage active sessions. See who's connected, configure guest access duration, and revoke sessions when needed.
+Manage active sessions. See who's connected, create guest access links, configure session duration, and revoke sessions when needed. Guest sessions provide read-only access to dashboards, downloads, and events without sharing your API key.
 
 ### Events
 A calendar showing download activity over time. Create custom events to mark LAN parties, then review what got downloaded during each one.

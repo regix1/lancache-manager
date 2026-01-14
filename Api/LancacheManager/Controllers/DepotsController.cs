@@ -45,6 +45,7 @@ public class DepotsController : ControllerBase
     /// RESTful: Proper resource status endpoint
     /// </summary>
     [HttpGet("status")]
+    [RequireGuestSession]
     public async Task<IActionResult> GetDepotStatus()
     {
         var picsData = await _picsDataService.LoadPicsDataFromJsonAsync();
@@ -138,6 +139,7 @@ public class DepotsController : ControllerBase
     /// RESTful: Progress is a sub-resource of the rebuild operation
     /// </summary>
     [HttpGet("rebuild/progress")]
+    [RequireGuestSession]
     public IActionResult GetRebuildProgress()
     {
         var progress = _steamKit2Service.GetProgress();

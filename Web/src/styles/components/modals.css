@@ -31,6 +31,15 @@
   }
 
   /* ==============================================
+   * MODAL SCROLLING BEHAVIOR
+   * ============================================== */
+
+  /* Prevent scroll chaining when modal content is scrolled */
+  .modal-backdrop {
+    overscroll-behavior: contain;
+  }
+
+  /* ==============================================
    * FULL SCAN REQUIRED MODAL
    * ============================================== */
 
@@ -183,15 +192,81 @@
     background-color: var(--theme-border-primary);
   }
 
-  /* Responsive adjustments */
+  /* Responsive adjustments for tablets */
+  @media (max-width: 640px) {
+    .full-scan-modal-content {
+      gap: 0.75rem;
+    }
+
+    .full-scan-modal-stat {
+      padding: 0.75rem;
+      gap: 0.5rem;
+    }
+
+    .full-scan-modal-stat-value {
+      font-size: 1.125rem;
+    }
+
+    .full-scan-modal-option {
+      padding: 0.75rem;
+      gap: 0.5rem;
+    }
+  }
+
+  /* Responsive adjustments for mobile */
   @media (max-width: 480px) {
     .full-scan-modal-stats {
       flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .full-scan-modal-stat {
+      padding: 0.625rem 0.75rem;
+    }
+
+    .full-scan-modal-stat-icon {
+      width: 1.75rem;
+      height: 1.75rem;
+    }
+
+    .full-scan-modal-stat-icon svg {
+      width: 0.875rem;
+      height: 0.875rem;
+    }
+
+    .full-scan-modal-stat-value {
+      font-size: 1rem;
+    }
+
+    .full-scan-modal-stat-label {
+      font-size: 0.6875rem;
+    }
+
+    .full-scan-modal-description {
+      font-size: 0.8125rem;
+    }
+
+    .full-scan-modal-option {
+      padding: 0.625rem 0.75rem;
+    }
+
+    .full-scan-modal-option-header {
+      font-size: 0.8125rem;
+      flex-wrap: wrap;
+    }
+
+    .full-scan-modal-badge {
+      font-size: 0.5625rem;
+      padding: 0.125rem 0.375rem;
     }
 
     .full-scan-modal-option-features {
       flex-direction: column;
-      gap: 0.375rem;
+      gap: 0.25rem;
+    }
+
+    .full-scan-modal-feature {
+      font-size: 0.6875rem;
     }
   }
 }

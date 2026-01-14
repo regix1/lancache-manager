@@ -32,6 +32,7 @@ public class MetricsController : ControllerBase
     /// Get metrics endpoint security status
     /// </summary>
     [HttpGet("status")]
+    [RequireGuestSession]
     public IActionResult GetStatus()
     {
         var requiresAuth = _configuration.GetValue<bool>("Security:RequireAuthForMetrics", false);
@@ -48,6 +49,7 @@ public class MetricsController : ControllerBase
     /// Get the current metrics update interval
     /// </summary>
     [HttpGet("interval")]
+    [RequireGuestSession]
     public IActionResult GetInterval()
     {
         return Ok(new { interval = _metricsService.GetUpdateInterval() });
@@ -74,6 +76,7 @@ public class MetricsController : ControllerBase
     /// Returns current state, source (ui toggle or config), and env var default
     /// </summary>
     [HttpGet("security")]
+    [RequireGuestSession]
     public IActionResult GetSecurity()
     {
         // Get env var / appsettings.json value (the default)

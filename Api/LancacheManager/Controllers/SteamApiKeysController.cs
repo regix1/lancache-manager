@@ -30,6 +30,7 @@ public class SteamApiKeysController : ControllerBase
     /// RESTful: Status endpoint for the API keys resource
     /// </summary>
     [HttpGet("status")]
+    [RequireGuestSession]
     public async Task<IActionResult> GetStatus([FromQuery] bool forceRefresh = false)
     {
         var status = await _steamWebApiService.GetApiStatusAsync(forceRefresh);

@@ -5,6 +5,7 @@ using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Core.Interfaces.Repositories;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
@@ -18,6 +19,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/stats")]
+[RequireGuestSession]
 public class StatsController : ControllerBase
 {
     private readonly AppDbContext _context;

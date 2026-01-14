@@ -13,6 +13,7 @@ import MockDataService from '../../test/mockData.service';
 import { useTimeFilter } from '../TimeFilterContext';
 import { useRefreshRate } from '../RefreshRateContext';
 import { useSignalR } from '../SignalRContext';
+import { useAuth } from '../AuthContext';
 import { SIGNALR_REFRESH_EVENTS } from '../SignalRContext/types';
 import type { DownloadsContextType, DownloadsProviderProps } from './types';
 
@@ -44,6 +45,8 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   const { getTimeRangeParams, timeRange, customStartDate, customEndDate, selectedEventIds } = useTimeFilter();
   const { getRefreshInterval } = useRefreshRate();
   const signalR = useSignalR();
+  const { isAuthenticated, authMode, isLoading: authLoading } = useAuth();
+  const hasAccess = isAuthenticated || authMode === 'guest';
 
   // ============================================
   // STATE
@@ -78,12 +81,16 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   const getRefreshIntervalRef = useRef(getRefreshInterval);
   const mockModeRef = useRef(mockMode);
   const selectedEventIdsRef = useRef<number[]>(selectedEventIds);
+  const authLoadingRef = useRef(authLoading);
+  const hasAccessRef = useRef(hasAccess);
 
   currentTimeRangeRef.current = timeRange;
   getTimeRangeParamsRef.current = getTimeRangeParams;
   getRefreshIntervalRef.current = getRefreshInterval;
   mockModeRef.current = mockMode;
   selectedEventIdsRef.current = selectedEventIds;
+  authLoadingRef.current = authLoading;
+  hasAccessRef.current = hasAccess;
 
   // ============================================
   // CORE DATA FETCHING
@@ -91,6 +98,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
 
   const fetchDownloads = useCallback(async (options: { showLoading?: boolean; isInitial?: boolean; forceRefresh?: boolean } = {}) => {
     if (mockModeRef.current) return;
+    if (authLoadingRef.current || !hasAccessRef.current) return;
 
     const { showLoading = false, isInitial = false, forceRefresh = false } = options;
 
@@ -260,6 +268,26 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   // PAGE VISIBILITY - Refresh when tab becomes visible
   // ============================================
 
+  // Mobile browsers pause SignalR when backgrounded, so we need to refresh on return
+  useEffect(() => {
+    if (mockMode) return;
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        // Page became visible - refresh data
+        // Use a small delay to let SignalR reconnect first
+        setTimeout(() => {
+          fetchDownloads({ showLoading: false, forceRefresh: true });
+        }, 500);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [mockMode, fetchDownloads]);
 
   // ============================================
   // EFFECTS
@@ -280,22 +308,22 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
 
   // Initial load
   useEffect(() => {
-    if (!mockMode) {
+    if (!mockMode && !authLoading && hasAccess) {
       fetchDownloads({ showLoading: true, isInitial: true });
     }
 
     return () => {
       if (abortControllerRef.current) abortControllerRef.current.abort();
     };
-  }, [mockMode, fetchDownloads]);
+  }, [mockMode, authLoading, hasAccess, fetchDownloads]);
 
   // Time range changes
   useEffect(() => {
-    if (!mockMode && !isInitialLoad.current) {
+    if (!mockMode && hasAccess && !isInitialLoad.current) {
       // Use forceRefresh to bypass debounce - time range changes should always trigger immediate fetch
       fetchDownloads({ showLoading: true, forceRefresh: true });
     }
-  }, [timeRange, mockMode, fetchDownloads]);
+  }, [timeRange, mockMode, hasAccess, fetchDownloads]);
 
   // Event filter changes - refetch when event filter is changed
   // Track previous event IDs - initialize with current value to prevent double-fetch on mount
@@ -305,17 +333,17 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   const prevEventIdsRef = useRef<string>(JSON.stringify(selectedEventIds));
   useEffect(() => {
     const currentEventIdsKey = JSON.stringify(selectedEventIds);
-    if (!mockMode && prevEventIdsRef.current !== currentEventIdsKey) {
+    if (!mockMode && hasAccess && prevEventIdsRef.current !== currentEventIdsKey) {
       prevEventIdsRef.current = currentEventIdsKey;
       // Clear downloads immediately to prevent showing stale data from different event filter
       setLatestDownloads([]);
       fetchDownloads({ showLoading: true, forceRefresh: true });
     }
-  }, [selectedEventIds, mockMode, fetchDownloads]);
+  }, [selectedEventIds, mockMode, hasAccess, fetchDownloads]);
 
   // Custom date changes (debounced)
   useEffect(() => {
-    if (timeRange === 'custom' && !mockMode) {
+    if (timeRange === 'custom' && !mockMode && hasAccess) {
       if (customStartDate && customEndDate) {
         const datesChanged =
           lastCustomDates.start?.getTime() !== customStartDate.getTime() ||
@@ -336,7 +364,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
         setLastCustomDates({ start: null, end: null });
       }
     }
-  }, [customStartDate, customEndDate, timeRange, mockMode, fetchDownloads, lastCustomDates]);
+  }, [customStartDate, customEndDate, timeRange, mockMode, hasAccess, fetchDownloads, lastCustomDates]);
 
   // ============================================
   // CONTEXT VALUE

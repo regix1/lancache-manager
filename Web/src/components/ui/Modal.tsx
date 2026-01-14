@@ -90,21 +90,21 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
 
   const modalContent = (
     <div
-      className={`modal-backdrop fixed inset-0 overflow-y-auto py-8 transition-all duration-250 ease-out ${
+      className={`modal-backdrop fixed inset-0 overflow-y-auto py-4 sm:py-8 transition-all duration-250 ease-out ${
         isAnimating ? 'bg-black/50 pointer-events-auto' : 'bg-transparent pointer-events-none'
       }`}
       style={{ zIndex }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="min-h-full flex items-center justify-center">
+      <div className="min-h-full flex items-center justify-center px-4">
         <div
-          className={`themed-card border rounded-lg ${sizes[size]} w-full mx-4 transform transition-all duration-250 ease-out ${
+          className={`themed-card border rounded-lg ${sizes[size]} w-full max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-4rem)] flex flex-col transform transition-all duration-250 ease-out ${
             isAnimating ? 'opacity-100 scale-100 translate-y-0 delay-[50ms]' : 'opacity-0 scale-90 translate-y-8 delay-0'
           }`}
         >
           {title && (
-            <div className="flex items-center justify-between p-6 border-b border-themed-secondary">
-              <div className="text-lg font-semibold text-themed-primary">{title}</div>
+            <div className="flex items-center justify-between p-4 sm:p-6 border-b border-themed-secondary flex-shrink-0">
+              <div className="text-base sm:text-lg font-semibold text-themed-primary">{title}</div>
               <button
                 onClick={onClose}
                 className="p-1 hover:bg-themed-hover rounded-lg smooth-transition"
@@ -113,7 +113,7 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
               </button>
             </div>
           )}
-          <div className="p-6">{children}</div>
+          <div className="p-4 sm:p-6 overflow-y-auto flex-1 min-h-0">{children}</div>
         </div>
       </div>
     </div>

@@ -19,6 +19,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/cache")]
+[RequireGuestSession]
 public class CacheController : ControllerBase
 {
     private readonly CacheManagementService _cacheService;

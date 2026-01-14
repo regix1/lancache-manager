@@ -410,6 +410,7 @@ public class PrefillDaemonController : ControllerBase
     /// Gets daemon service status (public endpoint)
     /// </summary>
     [HttpGet("status")]
+    [RequireGuestSession]
     public ActionResult GetStatus()
     {
         var sessions = _daemonService.GetAllSessions().ToList();

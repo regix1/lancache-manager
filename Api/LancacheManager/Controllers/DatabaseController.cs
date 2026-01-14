@@ -80,6 +80,7 @@ public class DatabaseController : ControllerBase
     /// Checks both Rust-based reset service and C# DatabaseRepository reset operations
     /// </summary>
     [HttpGet("reset-status")]
+    [RequireGuestSession]
     public IActionResult GetDatabaseResetStatus()
     {
         // Check C# DatabaseRepository reset operations first
@@ -104,6 +105,7 @@ public class DatabaseController : ControllerBase
     /// GET /api/database/log-entries-count - Get count of log entries in database
     /// </summary>
     [HttpGet("log-entries-count")]
+    [RequireGuestSession]
     public async Task<IActionResult> GetLogEntriesCount()
     {
         var count = await _dbService.GetLogEntriesCountAsync();

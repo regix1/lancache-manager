@@ -101,6 +101,21 @@ class ApiService {
         throw new Error(errorData.message || 'Your guest session has been revoked');
       }
 
+      // Check if guest session expired (treat similar to revoke to avoid auth reset loops)
+      if (errorData?.code === 'GUEST_SESSION_EXPIRED') {
+        authService.expireGuestMode();
+        throw new Error(errorData.message || 'Your guest session has expired');
+      }
+
+      // Guest session missing/invalid errors should not trigger unauthorized handler
+      if (errorData?.code === 'GUEST_SESSION_REQUIRED' || errorData?.code === 'GUEST_SESSION_INVALID' || errorData?.code === 'DEVICE_ID_REQUIRED') {
+        // If the client thought it was in guest mode, reset to unauthenticated so the auth modal can be shown
+        if (authService.isGuestModeActive()) {
+          authService.exitGuestMode();
+        }
+        throw new Error(errorData.message || 'Guest session required');
+      }
+
       // Only trigger handleUnauthorized if we had valid auth that was rejected
       // handleUnauthorized has its own check to prevent loops
       authService.handleUnauthorized();

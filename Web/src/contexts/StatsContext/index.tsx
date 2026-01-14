@@ -5,6 +5,7 @@ import MockDataService from '../../test/mockData.service';
 import { useTimeFilter } from '../TimeFilterContext';
 import { useRefreshRate } from '../RefreshRateContext';
 import { useSignalR } from '../SignalRContext';
+import { useAuth } from '../AuthContext';
 import { SIGNALR_REFRESH_EVENTS } from '../SignalRContext/types';
 import type { CacheInfo, ClientStat, ServiceStat, DashboardStats } from '../../types';
 import type { StatsContextType, StatsProviderProps } from './types';
@@ -23,6 +24,8 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   const { getTimeRangeParams, timeRange, customStartDate, customEndDate, selectedEventIds } = useTimeFilter();
   const { getRefreshInterval } = useRefreshRate();
   const signalR = useSignalR();
+  const { isAuthenticated, authMode, isLoading: authLoading } = useAuth();
+  const hasAccess = isAuthenticated || authMode === 'guest';
 
   const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null);
   const [clientStats, setClientStats] = useState<ClientStat[]>([]);
@@ -56,6 +59,8 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   const getRefreshIntervalRef = useRef(getRefreshInterval);
   const mockModeRef = useRef(mockMode);
   const selectedEventIdsRef = useRef<number[]>(selectedEventIds);
+  const authLoadingRef = useRef(authLoading);
+  const hasAccessRef = useRef(hasAccess);
 
   // Update refs synchronously on every render
   currentTimeRangeRef.current = timeRange;
@@ -63,6 +68,8 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   getRefreshIntervalRef.current = getRefreshInterval;
   mockModeRef.current = mockMode;
   selectedEventIdsRef.current = selectedEventIds;
+  authLoadingRef.current = authLoading;
+  hasAccessRef.current = hasAccess;
 
   const getApiUrl = (): string => {
     if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
@@ -98,6 +105,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   // This eliminates all stale closure issues - no timeRange is captured in closures
   const fetchStats = useCallback(async (options: { showLoading?: boolean; isInitial?: boolean; forceRefresh?: boolean } = {}) => {
     if (mockModeRef.current) return;
+    if (authLoadingRef.current || !hasAccessRef.current) return;
 
     const { showLoading = false, isInitial = false, forceRefresh = false } = options;
 
@@ -274,6 +282,27 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   }, [mockMode, signalR, fetchStats]);
 
   // Page visibility - refresh when tab becomes visible
+  // Mobile browsers pause SignalR when backgrounded, so we need to refresh on return
+  useEffect(() => {
+    if (mockMode) return;
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        // Page became visible - refresh data
+        // Use a small delay to let SignalR reconnect first
+        setTimeout(() => {
+          fetchStats({ showLoading: false, forceRefresh: true });
+        }, 500);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [mockMode, fetchStats]);
+
   // Load mock data when mock mode is enabled
   useEffect(() => {
     if (mockMode) {
@@ -294,25 +323,25 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
 
   // Initial load
   useEffect(() => {
-    if (!mockMode) {
+    if (!mockMode && !authLoading && hasAccess) {
       fetchStats({ showLoading: true, isInitial: true });
     }
 
     return () => {
       if (abortControllerRef.current) abortControllerRef.current.abort();
     };
-  }, [mockMode, fetchStats]);
+  }, [mockMode, authLoading, hasAccess, fetchStats]);
 
   // Handle time range changes - fetch new data
   useEffect(() => {
-    if (!mockMode && !isInitialLoad.current) {
+    if (!mockMode && hasAccess && !isInitialLoad.current) {
       // Don't clear stats - let new data atomically replace old data
       // This allows AnimatedValue to smoothly transition from old values to new values
       // The Dashboard's periodMatchesTimeRange validation prevents showing mismatched data
       // Use forceRefresh to bypass debounce - time range changes should always trigger immediate fetch
       fetchStats({ showLoading: true, forceRefresh: true });
     }
-  }, [timeRange, mockMode, fetchStats]);
+  }, [timeRange, mockMode, hasAccess, fetchStats]);
 
   // Event filter changes - refetch when event filter is changed
   // Uses prevEventIdsRef (initialized with current value) to prevent double-fetch on mount
@@ -321,7 +350,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   // 2. If user changes filter during initial load, we want to abort and fetch with new filter
   useEffect(() => {
     const currentEventIdsKey = JSON.stringify(selectedEventIds);
-    if (!mockMode && prevEventIdsRef.current !== currentEventIdsKey) {
+    if (!mockMode && hasAccess && prevEventIdsRef.current !== currentEventIdsKey) {
       prevEventIdsRef.current = currentEventIdsKey;
       // Clear stats immediately to prevent showing stale data from different event filter
       setClientStats([]);
@@ -329,11 +358,11 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       setDashboardStats(null);
       fetchStats({ showLoading: true, forceRefresh: true });
     }
-  }, [selectedEventIds, mockMode, fetchStats]);
+  }, [selectedEventIds, mockMode, hasAccess, fetchStats]);
 
   // Debounced custom date changes
   useEffect(() => {
-    if (timeRange === 'custom' && !mockMode) {
+    if (timeRange === 'custom' && !mockMode && hasAccess) {
       if (customStartDate && customEndDate) {
         const datesChanged =
           lastCustomDates.start?.getTime() !== customStartDate.getTime() ||
@@ -352,7 +381,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     } else if (timeRange !== 'custom') {
       setLastCustomDates({ start: null, end: null });
     }
-  }, [customStartDate, customEndDate, timeRange, mockMode, fetchStats]);
+  }, [customStartDate, customEndDate, timeRange, mockMode, hasAccess, fetchStats]);
 
   const updateStats = useCallback((updater: {
     cacheInfo?: (prev: CacheInfo | null) => CacheInfo | null;

@@ -51,6 +51,7 @@ public class LogsController : ControllerBase
     /// GET /api/logs - Get log information
     /// </summary>
     [HttpGet]
+    [RequireGuestSession]
     public IActionResult GetLogInfo()
     {
         var logsPath = _pathResolver.GetLogsDirectory();
@@ -65,6 +66,7 @@ public class LogsController : ControllerBase
     /// GET /api/logs/service-counts - Get log entry counts by service (aggregated from all datasources)
     /// </summary>
     [HttpGet("service-counts")]
+    [RequireGuestSession]
     public async Task<IActionResult> GetServiceCounts()
     {
         var datasources = _datasourceService.GetDatasources();
@@ -115,6 +117,7 @@ public class LogsController : ControllerBase
     /// GET /api/logs/service-counts/by-datasource - Get log entry counts by service, grouped by datasource
     /// </summary>
     [HttpGet("service-counts/by-datasource")]
+    [RequireGuestSession]
     public async Task<IActionResult> GetServiceCountsByDatasource()
     {
         var datasources = _datasourceService.GetDatasources();
@@ -178,6 +181,7 @@ public class LogsController : ControllerBase
     /// GET /api/logs/entries-count - Get total count of log entries in database
     /// </summary>
     [HttpGet("entries-count")]
+    [RequireGuestSession]
     public IActionResult GetEntriesCount()
     {
         // Delegate to DatabaseController's endpoint for consistency
@@ -333,6 +337,7 @@ public class LogsController : ControllerBase
     /// GET /api/logs/positions - Get log positions for all datasources
     /// </summary>
     [HttpGet("positions")]
+    [RequireGuestSession]
     public IActionResult GetLogPositions()
     {
         var datasources = _datasourceService.GetDatasources();
@@ -487,6 +492,7 @@ public class LogsController : ControllerBase
     /// GET /api/logs/process/status - Get log processing status
     /// </summary>
     [HttpGet("process/status")]
+    [RequireGuestSession]
     public IActionResult GetProcessingStatus()
     {
         var status = _rustLogProcessorService.GetStatus();
@@ -631,6 +637,7 @@ public class LogsController : ControllerBase
     /// GET /api/logs/remove/status - Get status of log removal operation
     /// </summary>
     [HttpGet("remove/status")]
+    [RequireGuestSession]
     public IActionResult GetRemovalStatus()
     {
         var status = _rustLogRemovalService.GetRemovalStatus();
