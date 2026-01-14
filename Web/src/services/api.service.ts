@@ -30,7 +30,8 @@ import type {
   SpeedHistorySnapshot,
   ClientGroup,
   CreateClientGroupRequest,
-  UpdateClientGroupRequest
+  UpdateClientGroupRequest,
+  StatsExclusionsResponse
 } from '../types';
 
 // Response types for API operations
@@ -235,7 +236,8 @@ class ApiService {
     signal?: AbortSignal,
     startTime?: number,
     endTime?: number,
-    eventIds?: number[]
+    eventIds?: number[],
+    includeExcluded?: boolean
   ): Promise<ClientStat[]> {
     try {
       let url = `${API_BASE}/stats/clients`;
@@ -243,6 +245,7 @@ class ApiService {
       if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
       if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
       if (eventIds && eventIds.length > 0) params.append('eventId', eventIds[0].toString());
+      if (includeExcluded) params.append('includeExcluded', 'true');
       if (params.toString()) url += `?${params}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<ClientStat[]>(res);
@@ -251,6 +254,37 @@ class ApiService {
         // Silently ignore abort errors
       } else {
         console.error('getClientStats error:', error);
+      }
+      throw error;
+    }
+  }
+
+  static async getStatsExclusions(signal?: AbortSignal): Promise<StatsExclusionsResponse> {
+    try {
+      const res = await fetch(`${API_BASE}/stats/exclusions`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<StatsExclusionsResponse>(res);
+    } catch (error: unknown) {
+      if (!this.isGuestSessionError(error)) {
+        console.error('getStatsExclusions error:', error);
+      }
+      throw error;
+    }
+  }
+
+  static async updateStatsExclusions(ips: string[]): Promise<StatsExclusionsResponse> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/stats/exclusions`,
+        this.getFetchOptions({
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ips })
+        })
+      );
+      return await this.handleResponse<StatsExclusionsResponse>(res);
+    } catch (error: unknown) {
+      if (!this.isGuestSessionError(error)) {
+        console.error('updateStatsExclusions error:', error);
       }
       throw error;
     }

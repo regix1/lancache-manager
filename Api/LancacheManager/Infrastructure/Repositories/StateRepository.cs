@@ -96,6 +96,9 @@ public class StateRepository : IStateRepository
         // Metrics authentication toggle (null = use env var default, true/false = UI override)
         public bool? RequireAuthForMetrics { get; set; } = null;
 
+        // Client IPs to exclude from stats calculations
+        public List<string> ExcludedClientIps { get; set; } = new();
+
         // LEGACY: SteamAuth has been migrated to separate file (data/steam_auth/credentials.json)
         // This property is kept temporarily for backward compatibility during migration
         public SteamAuthState? SteamAuth { get; set; }
@@ -160,6 +163,9 @@ public class StateRepository : IStateRepository
 
         // Metrics authentication toggle (null = use env var default)
         public bool? RequireAuthForMetrics { get; set; } = null;
+
+        // Client IPs to exclude from stats calculations
+        public List<string> ExcludedClientIps { get; set; } = new();
 
         // LEGACY: SteamAuth migrated to separate file - kept for reading old state.json during migration
         // JsonIgnore(Condition = WhenWritingNull) excludes it when saving (always null after migration)
@@ -887,6 +893,8 @@ public class StateRepository : IStateRepository
             LastSessionReplacement = persisted.LastSessionReplacement,
             // Metrics authentication toggle
             RequireAuthForMetrics = persisted.RequireAuthForMetrics,
+            // Client IPs excluded from stats
+            ExcludedClientIps = persisted.ExcludedClientIps ?? new List<string>(),
             // LEGACY: Only load SteamAuth if present (for migration from old state.json)
             SteamAuth = persisted.SteamAuth != null ? new SteamAuthState
             {
@@ -945,6 +953,8 @@ public class StateRepository : IStateRepository
             LastSessionReplacement = state.LastSessionReplacement,
             // Metrics authentication toggle
             RequireAuthForMetrics = state.RequireAuthForMetrics,
+            // Client IPs excluded from stats
+            ExcludedClientIps = state.ExcludedClientIps ?? new List<string>(),
             // LEGACY: Only persist SteamAuth if not null (will be null after migration)
             // JsonIgnore(WhenWritingNull) on property will exclude from JSON when null
             SteamAuth = state.SteamAuth != null ? new SteamAuthState
@@ -1169,6 +1179,20 @@ public class StateRepository : IStateRepository
     public void SetRequireAuthForMetrics(bool? value)
     {
         UpdateState(state => state.RequireAuthForMetrics = value);
+    }
+
+    // Stats Exclusion Methods
+    public List<string> GetExcludedClientIps()
+    {
+        var state = GetState();
+        return state.ExcludedClientIps != null
+            ? new List<string>(state.ExcludedClientIps)
+            : new List<string>();
+    }
+
+    public void SetExcludedClientIps(List<string> ips)
+    {
+        UpdateState(state => state.ExcludedClientIps = ips ?? new List<string>());
     }
 
     // Guest Prefill Permission Methods

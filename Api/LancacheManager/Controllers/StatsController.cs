@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using System.Net;
 
 namespace LancacheManager.Controllers;
 
@@ -26,6 +27,7 @@ public class StatsController : ControllerBase
     private readonly StatsRepository _statsService;
     private readonly IClientGroupsRepository _clientGroupsRepository;
     private readonly CacheSnapshotService _cacheSnapshotService;
+    private readonly IStateRepository _stateRepository;
     private readonly ILogger<StatsController> _logger;
     private readonly IOptions<ApiOptions> _apiOptions;
 
@@ -34,6 +36,7 @@ public class StatsController : ControllerBase
         StatsRepository statsService,
         IClientGroupsRepository clientGroupsRepository,
         CacheSnapshotService cacheSnapshotService,
+        IStateRepository stateRepository,
         ILogger<StatsController> logger,
         IOptions<ApiOptions> apiOptions)
     {
@@ -41,6 +44,7 @@ public class StatsController : ControllerBase
         _statsService = statsService;
         _clientGroupsRepository = clientGroupsRepository;
         _cacheSnapshotService = cacheSnapshotService;
+        _stateRepository = stateRepository;
         _logger = logger;
         _apiOptions = apiOptions;
     }
@@ -88,13 +92,58 @@ public class StatsController : ControllerBase
         return query.Where(d => eventDownloadIds.Contains(d.Id));
     }
 
+    private static IQueryable<Download> ApplyExcludedClientFilter(IQueryable<Download> query, List<string> excludedClientIps)
+    {
+        if (excludedClientIps.Count == 0)
+        {
+            return query;
+        }
+
+        return query.Where(d => !excludedClientIps.Contains(d.ClientIp));
+    }
+
+    private static List<string> NormalizeClientIps(IEnumerable<string>? ips, out List<string> invalidIps)
+    {
+        invalidIps = new List<string>();
+        var normalized = new List<string>();
+
+        if (ips == null)
+        {
+            return normalized;
+        }
+
+        foreach (var rawIp in ips)
+        {
+            var trimmed = rawIp?.Trim();
+            if (string.IsNullOrWhiteSpace(trimmed))
+            {
+                continue;
+            }
+
+            if (!IPAddress.TryParse(trimmed, out var parsed))
+            {
+                invalidIps.Add(trimmed);
+                continue;
+            }
+
+            var normalizedIp = parsed.ToString();
+            if (!normalized.Contains(normalizedIp))
+            {
+                normalized.Add(normalizedIp);
+            }
+        }
+
+        return normalized;
+    }
+
     [HttpGet("clients")]
     [OutputCache(PolicyName = "stats-short")]
     public async Task<IActionResult> GetClients(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
         [FromQuery] int? limit = null,
-        [FromQuery] int? eventId = null)
+        [FromQuery] int? eventId = null,
+        [FromQuery] bool includeExcluded = false)
     {
         try
         {
@@ -112,6 +161,9 @@ public class StatsController : ControllerBase
             // Apply event filter if provided (filters to only tagged downloads)
             HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
             query = ApplyEventFilter(query, eventIdList, eventDownloadIds);
+
+            var excludedClientIps = includeExcluded ? new List<string>() : _stateRepository.GetExcludedClientIps();
+            query = ApplyExcludedClientFilter(query, excludedClientIps);
 
             if (startTime.HasValue)
             {
@@ -240,6 +292,33 @@ public class StatsController : ControllerBase
         }
     }
 
+    [HttpGet("exclusions")]
+    [RequireAuth]
+    public IActionResult GetExcludedClients()
+    {
+        var excludedIps = _stateRepository.GetExcludedClientIps();
+        return Ok(new StatsExclusionsResponse { Ips = excludedIps });
+    }
+
+    [HttpPut("exclusions")]
+    [RequireAuth]
+    public IActionResult UpdateExcludedClients([FromBody] UpdateStatsExclusionsRequest request)
+    {
+        var normalizedIps = NormalizeClientIps(request.Ips, out var invalidIps);
+        if (invalidIps.Count > 0)
+        {
+            return BadRequest(new
+            {
+                error = "Invalid IP address",
+                message = "One or more IPs are not valid. Please correct them and try again.",
+                invalidIps
+            });
+        }
+
+        _stateRepository.SetExcludedClientIps(normalizedIps);
+        return Ok(new StatsExclusionsResponse { Ips = normalizedIps });
+    }
+
     /// <summary>
     /// Creates a ClientStatsWithGroup object with calculated metrics
     /// </summary>
@@ -292,6 +371,8 @@ public class StatsController : ControllerBase
             // ALWAYS query Downloads table directly to ensure consistency with dashboard stats
             // Previously used cached ServiceStats table which caused fluctuating values
             var query = _context.Downloads.AsNoTracking();
+            var excludedClientIps = _stateRepository.GetExcludedClientIps();
+            query = ApplyExcludedClientFilter(query, excludedClientIps);
 
             // Apply event filter if provided (filters to only tagged downloads)
             HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
@@ -358,6 +439,7 @@ public class StatsController : ControllerBase
     {
         // Parse event IDs
         var eventIdList = ParseEventId(eventId);
+        var excludedClientIps = _stateRepository.GetExcludedClientIps();
 
         // Use Unix timestamps if provided, otherwise return ALL data (no time filter)
         // This ensures consistency: frontend always provides timestamps for time-filtered queries
@@ -379,6 +461,7 @@ public class StatsController : ControllerBase
 
         // Build the base query for period-specific metrics
         var downloadsQuery = _context.Downloads.AsNoTracking();
+        downloadsQuery = ApplyExcludedClientFilter(downloadsQuery, excludedClientIps);
 
         // Apply event filter if provided (filters to only tagged downloads)
         HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
@@ -395,7 +478,7 @@ public class StatsController : ControllerBase
 
         // Calculate ALL-TIME totals from Downloads table directly (no cache)
         // Note: All-time totals should NOT be filtered by event - they represent overall system stats
-        var allTimeQuery = _context.Downloads.AsNoTracking();
+        var allTimeQuery = ApplyExcludedClientFilter(_context.Downloads.AsNoTracking(), excludedClientIps);
         var totalHitBytesTask = allTimeQuery.SumAsync(d => (long?)d.CacheHitBytes);
         var totalMissBytesTask = allTimeQuery.SumAsync(d => (long?)d.CacheMissBytes);
 
@@ -405,22 +488,20 @@ public class StatsController : ControllerBase
         var periodDownloadCountTask = downloadsQuery.CountAsync();
 
         // Get top service from Downloads table (not cached ServiceStats)
-        var topServiceTask = _context.Downloads
-            .AsNoTracking()
+        var topServiceTask = ApplyExcludedClientFilter(_context.Downloads.AsNoTracking(), excludedClientIps)
             .GroupBy(d => d.Service)
             .Select(g => new { Service = g.Key, TotalBytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes) })
             .OrderByDescending(s => s.TotalBytes)
             .FirstOrDefaultAsync();
 
         // Active downloads and unique clients
-        var activeDownloadsTask = _context.Downloads
-            .AsNoTracking()
+        var activeDownloadsTask = ApplyExcludedClientFilter(_context.Downloads.AsNoTracking(), excludedClientIps)
             .Where(d => d.IsActive && d.EndTimeUtc > DateTime.UtcNow.AddMinutes(-5))
             .CountAsync();
 
         var uniqueClientsQuery = cutoffTime.HasValue || endDateTime.HasValue
             ? downloadsQuery.Select(d => d.ClientIp).Distinct().CountAsync()
-            : _context.Downloads.AsNoTracking().Select(d => d.ClientIp).Distinct().CountAsync();
+            : ApplyExcludedClientFilter(_context.Downloads.AsNoTracking(), excludedClientIps).Select(d => d.ClientIp).Distinct().CountAsync();
 
         // Await all tasks in parallel
         await Task.WhenAll(
@@ -523,6 +604,8 @@ public class StatsController : ControllerBase
 
             // Build query with optional time filtering
             var query = _context.Downloads.AsNoTracking();
+            var excludedClientIps = _stateRepository.GetExcludedClientIps();
+            query = ApplyExcludedClientFilter(query, excludedClientIps);
 
             // Apply event filter if provided (filters to only tagged downloads)
             HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
@@ -641,6 +724,7 @@ public class StatsController : ControllerBase
         {
             // Parse event IDs
             var eventIdList = ParseEventId(eventId);
+            var excludedClientIps = _stateRepository.GetExcludedClientIps();
 
             DateTime? cutoffTime = startTime.HasValue
                 ? DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime
@@ -656,14 +740,14 @@ public class StatsController : ControllerBase
 
             // Try to get cache info from the system controller's cache service
             // For now, we'll calculate from downloads data
-            var totalCacheMiss = await _context.Downloads
-                .AsNoTracking()
+            var totalCacheMiss = await ApplyExcludedClientFilter(_context.Downloads.AsNoTracking(), excludedClientIps)
                 .SumAsync(d => (long?)d.CacheMissBytes) ?? 0;
 
             currentCacheSize = totalCacheMiss; // Approximation: total cache misses = data added to cache
 
             // Build base query with time filtering
             var baseQuery = _context.Downloads.AsNoTracking();
+            baseQuery = ApplyExcludedClientFilter(baseQuery, excludedClientIps);
 
             // Apply event filter if provided (filters to only tagged downloads)
             HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
@@ -779,8 +863,7 @@ public class StatsController : ControllerBase
             if (actualCacheSize.HasValue && actualCacheSize.Value > 0)
             {
                 // Total cumulative downloads (all data ever added to cache)
-                var cumulativeDownloads = await _context.Downloads
-                    .AsNoTracking()
+                var cumulativeDownloads = await ApplyExcludedClientFilter(_context.Downloads.AsNoTracking(), excludedClientIps)
                     .SumAsync(d => (long?)d.CacheMissBytes) ?? 0;
 
                 // If actual cache is smaller than cumulative downloads, data was deleted
@@ -873,6 +956,8 @@ public class StatsController : ControllerBase
 
             // Build query with optional time filtering
             var query = _context.Downloads.AsNoTracking();
+            var excludedClientIps = _stateRepository.GetExcludedClientIps();
+            query = ApplyExcludedClientFilter(query, excludedClientIps);
 
             // Apply event filter if provided (filters to only tagged downloads)
             HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
@@ -1102,4 +1187,14 @@ public class CacheSnapshotResponse
     public long TotalCacheSize { get; set; }
     public int SnapshotCount { get; set; }
     public bool IsEstimate { get; set; }
+}
+
+public class StatsExclusionsResponse
+{
+    public List<string> Ips { get; set; } = new();
+}
+
+public class UpdateStatsExclusionsRequest
+{
+    public List<string> Ips { get; set; } = new();
 }

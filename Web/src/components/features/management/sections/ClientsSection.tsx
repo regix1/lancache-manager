@@ -1,13 +1,15 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
 import { Modal } from '@components/ui/Modal';
 import { Alert } from '@components/ui/Alert';
 import { Pagination } from '@components/ui/Pagination';
+import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
 import { useClientGroups } from '@contexts/ClientGroupContext';
 import ApiService from '@services/api.service';
 import { Plus, Users, Trash2, Edit2, X, Loader2, User, AlertTriangle } from 'lucide-react';
+import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import ClientGroupModal from '@components/modals/ClientGroupModal';
 import type { ClientGroup } from '../../../../types';
 
@@ -42,7 +44,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
     const fetchAllClients = async () => {
       try {
         // Call getClientStats without time params to get all clients ever seen
-        const stats = await ApiService.getClientStats();
+        const stats = await ApiService.getClientStats(undefined, undefined, undefined, undefined, true);
         if (!cancelled) {
           const ips = stats.map(stat => stat.clientIp);
           setAllClientIps(ips);
@@ -58,6 +60,137 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
     fetchAllClients();
     return () => { cancelled = true; };
   }, []);
+
+  const [excludedIps, setExcludedIps] = useState<string[]>([]);
+  const [savedExcludedIps, setSavedExcludedIps] = useState<string[]>([]);
+  const [excludeInput, setExcludeInput] = useState('');
+  const [selectedKnownIps, setSelectedKnownIps] = useState<string[]>([]);
+  const [loadingExcluded, setLoadingExcluded] = useState(false);
+  const [savingExcluded, setSavingExcluded] = useState(false);
+
+  const hasExcludedChanges = useMemo(() => (
+    excludedIps.join('|') !== savedExcludedIps.join('|')
+  ), [excludedIps, savedExcludedIps]);
+
+  const loadExcludedIps = useCallback(async () => {
+    if (!isAuthenticated) return;
+    setLoadingExcluded(true);
+    try {
+      const response = await ApiService.getStatsExclusions();
+      setExcludedIps(response.ips);
+      setSavedExcludedIps(response.ips);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Failed to load excluded IPs');
+    } finally {
+      setLoadingExcluded(false);
+    }
+  }, [isAuthenticated, onError]);
+
+  useEffect(() => {
+    loadExcludedIps();
+  }, [loadExcludedIps]);
+
+  const isValidIpv4 = (value: string) => {
+    const parts = value.split('.');
+    if (parts.length !== 4) return false;
+    return parts.every(part => {
+      if (!/^\d{1,3}$/.test(part)) return false;
+      const num = Number(part);
+      return num >= 0 && num <= 255;
+    });
+  };
+
+  const isValidIpv6 = (value: string) => {
+    if (!value.includes(':')) return false;
+    if (!/^[0-9a-fA-F:]+$/.test(value)) return false;
+    const parts = value.split(':');
+    if (parts.length < 3 || parts.length > 8) return false;
+    return parts.every(part => part.length <= 4);
+  };
+
+  const parseIpCandidates = useCallback((input: string) => (
+    input
+      .split(/[,\s]+/)
+      .map(ip => ip.trim())
+      .filter(Boolean)
+  ), []);
+
+  const invalidInputIps = useMemo(() => (
+    parseIpCandidates(excludeInput).filter(ip => !isValidIpv4(ip) && !isValidIpv6(ip))
+  ), [excludeInput, parseIpCandidates]);
+
+  const handleAddExcluded = () => {
+    const candidates = parseIpCandidates(excludeInput);
+    const validCandidates = candidates.filter(ip => isValidIpv4(ip) || isValidIpv6(ip));
+
+    if (validCandidates.length === 0) return;
+
+    setExcludedIps((prev) => {
+      const next = [...prev];
+      for (const ip of validCandidates) {
+        if (!next.includes(ip)) {
+          next.push(ip);
+        }
+      }
+      return next;
+    });
+
+    setExcludeInput('');
+  };
+
+  const handleAddKnownIps = () => {
+    if (selectedKnownIps.length === 0) return;
+    setExcludedIps((prev) => {
+      const next = [...prev];
+      for (const ip of selectedKnownIps) {
+        if (!next.includes(ip)) {
+          next.push(ip);
+        }
+      }
+      return next;
+    });
+    setSelectedKnownIps([]);
+  };
+
+  const handleRemoveExcluded = (ip: string) => {
+    setExcludedIps((prev) => prev.filter(item => item !== ip));
+  };
+
+  const handleSaveExcluded = async () => {
+    setSavingExcluded(true);
+    try {
+      const response = await ApiService.updateStatsExclusions(excludedIps);
+      setExcludedIps(response.ips);
+      setSavedExcludedIps(response.ips);
+      onSuccess('Excluded IPs updated');
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Failed to update excluded IPs');
+    } finally {
+      setSavingExcluded(false);
+    }
+  };
+
+  const nicknameByIp = useMemo(() => {
+    const map = new Map<string, string>();
+    clientGroups.forEach(group => {
+      group.memberIps.forEach(ip => map.set(ip, group.nickname));
+    });
+    return map;
+  }, [clientGroups]);
+
+  const knownClientOptions = useMemo(() => {
+    const excludedSet = new Set(excludedIps);
+    return allClientIps
+      .filter(ip => !excludedSet.has(ip))
+      .sort((a, b) => a.localeCompare(b))
+      .map(ip => {
+        const nickname = nicknameByIp.get(ip);
+        return {
+          value: ip,
+          label: nickname ? `${nickname} (${ip})` : ip
+        };
+      });
+  }, [allClientIps, excludedIps, nicknameByIp]);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<ClientGroup | null>(null);
@@ -337,6 +470,147 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
           </Card>
         </div>
       )}
+
+      {/* Exclude IPs from Stats */}
+      <div className="mt-8">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-red)]" />
+          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+            Exclude From Stats
+          </h3>
+        </div>
+
+        <Card>
+          <CardContent className="py-5 space-y-4">
+            <div className="text-sm text-themed-secondary">
+              Excluded IPs are ignored in dashboard metrics, top clients, service stats,
+              hourly activity, cache growth, and sparklines.
+            </div>
+
+            {!isAuthenticated ? (
+              <Alert color="yellow">
+                <span className="text-sm">Authenticate to manage excluded IPs.</span>
+              </Alert>
+            ) : (
+              <>
+                <div className="space-y-3">
+                  <div className="text-xs text-themed-muted uppercase tracking-wide font-semibold">
+                    Pick From Known Clients
+                  </div>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    <MultiSelectDropdown
+                      options={knownClientOptions}
+                      values={selectedKnownIps}
+                      onChange={setSelectedKnownIps}
+                      placeholder="Select clients"
+                      minSelections={0}
+                      disabled={loadingExcluded || savingExcluded || knownClientOptions.length === 0}
+                      className="w-full"
+                    />
+                    <Button
+                      onClick={handleAddKnownIps}
+                      variant="filled"
+                      color="blue"
+                      className="sm:w-40"
+                      disabled={selectedKnownIps.length === 0 || loadingExcluded || savingExcluded}
+                    >
+                      Add Selected
+                    </Button>
+                  </div>
+                  {knownClientOptions.length === 0 && (
+                    <div className="text-sm text-themed-muted">
+                      All known clients are already excluded.
+                    </div>
+                  )}
+                </div>
+
+                <div className="border-t border-themed-primary pt-4" />
+
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                  <input
+                    type="text"
+                    value={excludeInput}
+                    onChange={(e) => setExcludeInput(e.target.value)}
+                    placeholder="Add IPs (comma or space separated)"
+                    className="w-full px-3 py-2 rounded-lg transition-colors
+                             bg-themed-secondary text-themed-primary
+                             border border-themed-secondary focus:border-themed-focus
+                             placeholder:text-themed-muted"
+                    disabled={loadingExcluded || savingExcluded}
+                  />
+                  <Button
+                    onClick={handleAddExcluded}
+                    variant="filled"
+                    color="blue"
+                    className="sm:w-32"
+                    disabled={loadingExcluded || savingExcluded || excludeInput.trim().length === 0 || invalidInputIps.length > 0}
+                  >
+                    Add
+                  </Button>
+                </div>
+                {excludeInput.trim().length > 0 && (
+                  <div className="text-xs text-themed-muted">
+                    Supports IPv4 and IPv6. Separate multiple IPs with commas or spaces.
+                  </div>
+                )}
+                {invalidInputIps.length > 0 && (
+                  <Alert color="yellow">
+                    <span className="text-sm">
+                      Invalid IPs: {invalidInputIps.join(', ')}
+                    </span>
+                  </Alert>
+                )}
+
+                {loadingExcluded ? (
+                  <div className="flex items-center gap-2 text-themed-muted text-sm">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Loading excluded IPs...
+                  </div>
+                ) : excludedIps.length === 0 ? (
+                  <div className="text-sm text-themed-muted">
+                    No excluded IPs configured.
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {excludedIps.map(ip => (
+                      <div
+                        key={ip}
+                        className="flex items-center gap-2 px-2 py-1 rounded text-sm bg-themed-tertiary text-themed-secondary"
+                      >
+                        <span className="font-mono">
+                          <ClientIpDisplay clientIp={ip} showTooltip={false} />
+                        </span>
+                        <button
+                          className="p-0.5 rounded text-themed-muted delete-hover"
+                          onClick={() => handleRemoveExcluded(ip)}
+                          disabled={savingExcluded}
+                          title="Remove IP"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
+                  <div className="text-xs text-themed-muted">
+                    Changes apply to all statistics within ~30 seconds due to caching.
+                  </div>
+                  <Button
+                    onClick={handleSaveExcluded}
+                    disabled={!hasExcludedChanges || savingExcluded || loadingExcluded}
+                    loading={savingExcluded}
+                    className="sm:w-40"
+                  >
+                    Save Changes
+                  </Button>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Edit/Create Modal */}
       <ClientGroupModal

@@ -22,7 +22,6 @@ import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { useHoldTimer } from '@hooks/useHoldTimer';
 import { useDownloadAssociations } from '@contexts/DownloadAssociationsContext';
 import { useAuth } from '@contexts/AuthContext';
-import authService from '@services/auth.service';
 import DownloadBadges from './DownloadBadges';
 import type { Download, DownloadGroup } from '../../../types';
 
@@ -91,7 +90,6 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const { fetchAssociations, getAssociations } = useDownloadAssociations();
   const { authMode } = useAuth();
   const canLoadProtectedImages = authMode === 'authenticated' || authMode === 'guest';
-  const deviceId = authService.getDeviceId();
   const isExpanded = expandedItem === group.id;
   const cardRef = React.useRef<HTMLDivElement>(null);
   const prevExpandedRef = React.useRef<boolean>(false);
@@ -172,7 +170,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
     if (hasSteamArtwork && steamAppId) {
       bannerContent = (
         <img
-          src={`${API_BASE}/game-images/${steamAppId}/header?deviceId=${encodeURIComponent(deviceId)}`}
+          src={`${API_BASE}/game-images/${steamAppId}/header`}
           alt={primaryName || group.name}
           className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
           loading="lazy"

@@ -15,7 +15,6 @@ import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
 import { HardDrive, Download, Zap } from 'lucide-react';
 import { useDownloadAssociations } from '@contexts/DownloadAssociationsContext';
 import { useAuth } from '@contexts/AuthContext';
-import authService from '@services/auth.service';
 import DownloadBadges from './DownloadBadges';
 import type { Download as DownloadType, DownloadGroup, EventSummary } from '../../../types';
 
@@ -457,7 +456,6 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
   const { authMode } = useAuth();
   const canLoadProtectedImages = authMode === 'authenticated' || authMode === 'guest';
-  const deviceId = authService.getDeviceId();
 
   // Use JavaScript-based breakpoint detection for conditional rendering
   // This completely removes desktop layout from DOM on mobile, preventing width calculation conflicts
@@ -1072,7 +1070,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                   <div className="px-2 flex items-center gap-2 overflow-hidden" data-cell>
                     {hasGameImage && data.gameAppId ? (
                       <img
-                        src={`${API_BASE}/game-images/${data.gameAppId}/header?deviceId=${encodeURIComponent(deviceId)}`}
+                        src={`${API_BASE}/game-images/${data.gameAppId}/header`}
                         alt={data.gameName || 'Game'}
                         className="min-w-[60px] max-w-[120px] w-2/5 h-auto aspect-[120/45] rounded object-cover flex-shrink transition-transform group-hover:scale-[1.02]"
                         loading="lazy"
@@ -1174,7 +1172,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                   <div className="flex items-center gap-2 sm:gap-3 w-full min-w-0">
                     {hasGameImage && data.gameAppId ? (
                       <img
-                        src={`${API_BASE}/game-images/${data.gameAppId}/header?deviceId=${encodeURIComponent(deviceId)}`}
+                        src={`${API_BASE}/game-images/${data.gameAppId}/header`}
                         alt={data.gameName || 'Game'}
                         className="w-[100px] h-[40px] sm:w-[130px] sm:h-[50px] rounded object-cover flex-shrink-0"
                         loading="lazy"

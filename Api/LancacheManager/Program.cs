@@ -56,8 +56,10 @@ builder.Services.AddSession(options =>
 {
     options.IdleTimeout = TimeSpan.FromHours(24); // Session timeout after 24 hours of inactivity
     options.Cookie.HttpOnly = true; // Prevent JavaScript access (XSS protection)
-    options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest; // Use HTTPS in production
-    options.Cookie.SameSite = SameSiteMode.Lax; // CSRF protection
+    // Option A: cookie-based auth for images/guests. Requires HTTPS when cross-site.
+    // SameSite=None allows cookies to be sent with image requests across origins.
+    options.Cookie.SecurePolicy = CookieSecurePolicy.Always; // Required for SameSite=None
+    options.Cookie.SameSite = SameSiteMode.None;
     options.Cookie.Name = "LancacheManager.Session"; // Custom cookie name
     options.Cookie.IsEssential = true; // Required for GDPR compliance
     options.Cookie.MaxAge = TimeSpan.FromDays(30); // Cookie persists for 30 days (survives browser restarts)
@@ -390,7 +392,7 @@ builder.Services.AddOutputCache(options =>
         builder.Expire(TimeSpan.FromSeconds(5)));
     options.AddPolicy("stats-short", builder =>
         builder.Expire(TimeSpan.FromSeconds(10))
-               .SetVaryByQuery("startTime", "endTime", "since", "eventId"));
+               .SetVaryByQuery("startTime", "endTime", "since", "eventId", "includeExcluded"));
     options.AddPolicy("stats-long", builder =>
         builder.Expire(TimeSpan.FromSeconds(30))
                .SetVaryByQuery("startTime", "endTime", "interval", "eventId"));

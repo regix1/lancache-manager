@@ -8,7 +8,6 @@ import { SteamIcon } from '@components/ui/SteamIcon';
 import { useHoldTimer } from '@hooks/useHoldTimer';
 import { useDownloadAssociations } from '@contexts/DownloadAssociationsContext';
 import { useAuth } from '@contexts/AuthContext';
-import authService from '@services/auth.service';
 import DownloadBadges from './DownloadBadges';
 import type { Download, DownloadGroup } from '../../../types';
 
@@ -79,7 +78,6 @@ const GroupRow: React.FC<GroupRowProps> = ({
   const { fetchAssociations, getAssociations } = useDownloadAssociations();
   const { authMode } = useAuth();
   const canLoadProtectedImages = authMode === 'authenticated' || authMode === 'guest';
-  const deviceId = authService.getDeviceId();
   const isExpanded = expandedItem === group.id;
   const rowRef = React.useRef<HTMLDivElement>(null);
   const prevExpandedRef = React.useRef<boolean>(false);
@@ -269,7 +267,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                   </div>
                 ) : (
                   <img
-                    src={`${API_BASE}/game-images/${primaryDownload.gameAppId}/header?deviceId=${encodeURIComponent(deviceId)}`}
+                    src={`${API_BASE}/game-images/${primaryDownload.gameAppId}/header`}
                     alt={primaryDownload.gameName || group.name}
                     className="w-full sm:w-[120px] h-[60px] sm:h-[56px] rounded object-cover"
                     loading="lazy"

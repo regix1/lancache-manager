@@ -198,6 +198,10 @@ export interface CacheSnapshotResponse {
   isEstimate: boolean;
 }
 
+export interface StatsExclusionsResponse {
+  ips: string[];
+}
+
 // API Response Types - matching api.service.ts
 export interface CacheClearStatus {
   operationId: string;

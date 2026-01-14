@@ -86,4 +86,8 @@ public interface IStateRepository
     // Metrics Authentication Toggle Methods
     bool? GetRequireAuthForMetrics();
     void SetRequireAuthForMetrics(bool? value);
+
+    // Stats Exclusion Methods
+    List<string> GetExcludedClientIps();
+    void SetExcludedClientIps(List<string> ips);
 }

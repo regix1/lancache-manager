@@ -200,8 +200,22 @@ public class AuthenticationMiddleware
             isApiKeyValid = true;
         }
 
-        // Device ID header - for guests, device ID = session ID
+        // Device ID - for guests, device ID = session ID.
+        // Most API calls send X-Device-Id, but some browser-initiated requests (notably <img>)
+        // cannot attach custom headers. Support safe fallbacks for those cases.
         var deviceId = context.Request.Headers["X-Device-Id"].FirstOrDefault();
+
+        // Fallback 1: guest session cookie (same-site) - if server session indicates guest mode.
+        if (string.IsNullOrEmpty(deviceId))
+        {
+            var sessionAuthMode = context.Session.GetString("AuthMode");
+            var sessionDeviceIdFallback = context.Session.GetString("DeviceId");
+            if (sessionAuthMode == "guest" && !string.IsNullOrEmpty(sessionDeviceIdFallback))
+            {
+                deviceId = sessionDeviceIdFallback;
+            }
+        }
+
 
         // Priority 3: Validate registered devices (device auth)
         bool isDeviceValid = false;

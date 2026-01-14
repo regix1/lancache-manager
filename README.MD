@@ -29,6 +29,7 @@ A web interface for monitoring and managing your [LANCache](https://lancache.net
 - [Custom Themes](#custom-themes)
 - [Grafana & Prometheus](#grafana--prometheus)
 - [Multiple Datasources](#multiple-datasources)
+- [Nginx Reverse Proxy](#nginx-reverse-proxy)
 - [Troubleshooting](#troubleshooting)
 - [Building from Source](#building-from-source)
 - [Need Help?](#need-help)
@@ -605,6 +606,84 @@ volumes:
 
 > [!NOTE]
 > Manual datasource configuration takes priority over auto-discovery.
+
+-----
+
+<a id="nginx-reverse-proxy"></a>
+## Nginx Reverse Proxy
+
+LANCache Manager works well behind Nginx. HTTPS is recommended (and required for guest session cookies to be sent on cross-origin image requests).
+
+### Single origin (recommended)
+
+Serve both the UI and API from the same origin. This keeps cookies first-party and avoids cross-origin issues.
+
+```nginx
+server {
+  listen 443 ssl http2;
+  server_name lancache.example.com;
+
+  ssl_certificate     /etc/letsencrypt/live/lancache.example.com/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/lancache.example.com/privkey.pem;
+
+  # Increase if you have large responses
+  client_max_body_size 50m;
+
+  location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host $host;
+
+    # SignalR (WebSockets)
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+  }
+}
+
+server {
+  listen 80;
+  server_name lancache.example.com;
+  return 301 https://$host$request_uri;
+}
+```
+
+### Separate API origin (only if required)
+
+If you split UI and API across hosts, you must use HTTPS and allow credentials. In that case:
+
+- Set `VITE_API_URL=https://api.lancache.example.com` when building the Web UI.
+- Keep `SameSite=None; Secure` cookies (configured by the app).
+- Ensure CORS allows credentials for your UI origin.
+
+Example API proxy:
+
+```nginx
+server {
+  listen 443 ssl http2;
+  server_name api.lancache.example.com;
+
+  ssl_certificate     /etc/letsencrypt/live/api.lancache.example.com/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/api.lancache.example.com/privkey.pem;
+
+  location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host $host;
+
+    # SignalR (WebSockets)
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+  }
+}
+```
 
 -----
 

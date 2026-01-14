@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useLayoutEffect, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Clock, Calendar, Radio, Info, ChevronDown, Check } from 'lucide-react';
+import { Clock, Calendar, Radio, Info, ChevronDown, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useTimeFilter, type TimeRange } from '@contexts/TimeFilterContext';
 import { useEvents } from '@contexts/EventContext';
 import DateRangePicker from './DateRangePicker';
@@ -30,6 +30,9 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
   const [dropdownStyle, setDropdownStyle] = useState<{ animation: string }>({ animation: '' });
+  const [isMobile, setIsMobile] = useState(false);
+  const [eventPage, setEventPage] = useState(0);
+  const touchStartX = useRef<number | null>(null);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -130,6 +133,19 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
     }
   }, [isOpen]);
 
+  useEffect(() => {
+    const updateIsMobile = () => {
+      setIsMobile(window.innerWidth < 640);
+    };
+    updateIsMobile();
+    window.addEventListener('resize', updateIsMobile);
+    return () => window.removeEventListener('resize', updateIsMobile);
+  }, []);
+
+  useEffect(() => {
+    setEventPage(0);
+  }, [sortedEvents.length, isMobile]);
+
   // Event listeners
   useEffect(() => {
     if (!isOpen) return;
@@ -171,10 +187,43 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
     setIsOpen(false);
   }, [setTimeRange]);
 
+  const eventsPerPage = isMobile ? 2 : 5;
+  const totalEventPages = Math.max(1, Math.ceil(sortedEvents.length / eventsPerPage));
+  const pagedEvents = sortedEvents.slice(
+    eventPage * eventsPerPage,
+    eventPage * eventsPerPage + eventsPerPage
+  );
+
   const handleEventToggle = useCallback((e: React.MouseEvent, eventId: number) => {
     e.stopPropagation();
     toggleEventId(eventId);
   }, [toggleEventId]);
+
+  const goToPrevPage = useCallback(() => {
+    setEventPage((prev) => (prev - 1 + totalEventPages) % totalEventPages);
+  }, [totalEventPages]);
+
+  const goToNextPage = useCallback(() => {
+    setEventPage((prev) => (prev + 1) % totalEventPages);
+  }, [totalEventPages]);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0]?.clientX ?? null;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX.current === null) return;
+    const endX = e.changedTouches[0]?.clientX ?? null;
+    if (endX === null) return;
+    const deltaX = endX - touchStartX.current;
+    touchStartX.current = null;
+    if (Math.abs(deltaX) < 40) return;
+    if (deltaX > 0) {
+      goToPrevPage();
+    } else {
+      goToNextPage();
+    }
+  };
 
   // Generate custom label for date ranges
   const getTimeRangeTriggerLabel = () => {
@@ -237,7 +286,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
                 Time Range
               </div>
 
-              <CustomScrollbar maxHeight="none" paddingMode="compact">
+              <CustomScrollbar maxHeight="min(70vh, 32rem)" paddingMode="compact">
                 {/* Time Range Options */}
                 <div className="py-1">
                   {timeOptions.map((option) => {
@@ -278,7 +327,38 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
                     <div
                       className="px-3 py-2 text-xs font-medium border-t mt-1 mb-1 flex items-center justify-between text-[var(--theme-text-muted)] border-[var(--theme-border-primary)] bg-[var(--theme-bg-tertiary)]"
                     >
-                      <span>Filter by Events</span>
+                      <div className="flex items-center gap-2">
+                        <span>Filter by Events</span>
+                        {sortedEvents.length > eventsPerPage && (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                goToPrevPage();
+                              }}
+                              className="h-6 w-6 rounded flex items-center justify-center text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-secondary)]"
+                              aria-label="Previous events page"
+                            >
+                              <ChevronLeft size={14} />
+                            </button>
+                            <span className="text-[10px] text-[var(--theme-text-secondary)]">
+                              {eventPage + 1}/{totalEventPages}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                goToNextPage();
+                              }}
+                              className="h-6 w-6 rounded flex items-center justify-center text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-secondary)]"
+                              aria-label="Next events page"
+                            >
+                              <ChevronRight size={14} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
                       {selectedEventIds.length > 0 && (
                         <button
                           onClick={(e) => {
@@ -291,8 +371,8 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
                         </button>
                       )}
                     </div>
-                    <div className="py-1">
-                      {sortedEvents.map((event) => {
+                    <div className="py-1" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+                      {pagedEvents.map((event) => {
                         const isSelected = selectedEventIds.includes(event.id);
                         const status = getEventStatus(event.startTimeUtc, event.endTimeUtc);
                         const colorVar = event.colorIndex ? getEventColorVar(event.colorIndex) : 'var(--theme-primary)';
