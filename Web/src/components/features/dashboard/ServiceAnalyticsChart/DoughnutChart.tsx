@@ -37,6 +37,12 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
         layout: {
           padding: 10,
         },
+        elements: {
+          arc: {
+            // Ensure tiny slices are still visible.
+            minAngle: 2,
+          },
+        },
         animation: {
           animateRotate: true,
           animateScale: false,
