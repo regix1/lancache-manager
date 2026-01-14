@@ -81,9 +81,9 @@ interface PicsProgressProviderProps {
 export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
   children,
   mockMode = false
-}) => {
+}: PicsProgressProviderProps) => {
   const signalR = useSignalR();
-  const { isAuthenticated, authMode, isLoading: authLoading } = useAuth();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   // PICS rebuild progress is an admin concern; guests shouldn't poll it.
   const hasAccess = isAuthenticated;
 

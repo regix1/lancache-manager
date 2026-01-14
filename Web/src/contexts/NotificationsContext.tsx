@@ -198,8 +198,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     return restoredNotifications;
   });
   const signalR = useSignalR();
-  const { isAuthenticated, authMode, isLoading: authLoading } = useAuth();
-  const hasAccess = isAuthenticated || authMode === 'guest';
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
 
   // Helper function to remove notification with animation
   const removeNotificationAnimated = useCallback((id: string) => {

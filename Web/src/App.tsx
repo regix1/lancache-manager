@@ -100,12 +100,15 @@ const AppContent: React.FC = () => {
 
   // Start heartbeat service when component mounts
   useEffect(() => {
-    heartbeatService.startHeartbeat();
-
-    return () => {
+    // Only start heartbeats for authenticated sessions (prevents 401 spam on cold load)
+    if (!checkingAuth && authMode === 'authenticated') {
+      heartbeatService.startHeartbeat();
+    } else {
       heartbeatService.stopHeartbeat();
-    };
-  }, []);
+    }
+
+    return () => heartbeatService.stopHeartbeat();
+  }, [authMode, checkingAuth]);
 
   // Derive setup state from context
   const setupCompleted = setupStatus?.isCompleted ?? null;
@@ -311,6 +314,10 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     const fetchTimezone = async () => {
       try {
+        // Config is protected; only request once auth has settled and user has access (auth or guest)
+        if (checkingAuth || authMode === 'unauthenticated') {
+          return;
+        }
         const config = await ApiService.getConfig();
         if (config.timeZone) {
           setServerTimezone(config.timeZone);
@@ -321,7 +328,7 @@ const AppContent: React.FC = () => {
     };
 
     fetchTimezone();
-  }, []);
+  }, [authMode, checkingAuth]);
 
   // NOTE: Automatic GC on page load is now handled by the backend GcMiddleware
   // which properly respects the memory threshold and aggressiveness settings.
@@ -388,8 +395,16 @@ const AppContent: React.FC = () => {
       return;
     }
 
+    // Depot status is an authenticated concern. If unauthenticated, don't call protected endpoint.
+    if (authMode !== 'authenticated') {
+      setDepotInitialized(null);
+      setCheckingDepotStatus(false);
+      return;
+    }
+
     const checkDepotStatus = async () => {
       try {
+        setCheckingDepotStatus(true);
         const response = await fetch('/api/depots/status', {
           headers: ApiService.getHeaders()
         });

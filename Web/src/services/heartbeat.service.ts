@@ -104,6 +104,12 @@ class HeartbeatService {
    */
   private async sendHeartbeat(): Promise<void> {
     try {
+      // Heartbeats are only meaningful for authenticated sessions.
+      // Avoid spamming protected endpoints (401) when unauthenticated / guest.
+      if (!authService.isRegistered()) {
+        return;
+      }
+
       const deviceId = authService.getDeviceId();
 
       if (!deviceId) {
@@ -119,8 +125,8 @@ class HeartbeatService {
         headers: authService.getAuthHeaders()
       });
 
-      if (!response.ok && response.status !== 404) {
-        // Only log non-404 errors (404 is expected after app restart)
+      if (!response.ok && response.status !== 404 && response.status !== 401 && response.status !== 403) {
+        // Only log non-404/non-auth errors (404 is expected after app restart; 401/403 can happen during auth transitions)
         // Heartbeats are non-critical - session will be auto-restored on next auth check
         console.warn(`[Heartbeat] Failed to send heartbeat: ${response.status}`);
       }
