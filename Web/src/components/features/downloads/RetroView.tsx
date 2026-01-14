@@ -455,7 +455,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
 }, ref) => {
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
   const { authMode } = useAuth();
-  const canLoadProtectedImages = authMode === 'authenticated';
+  const canLoadProtectedImages = authMode === 'authenticated' || authMode === 'guest';
 
   // Use JavaScript-based breakpoint detection for conditional rendering
   // This completely removes desktop layout from DOM on mobile, preventing width calculation conflicts

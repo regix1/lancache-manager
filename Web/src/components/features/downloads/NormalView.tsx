@@ -89,7 +89,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
 }) => {
   const { fetchAssociations, getAssociations } = useDownloadAssociations();
   const { authMode } = useAuth();
-  const canLoadProtectedImages = authMode === 'authenticated';
+  const canLoadProtectedImages = authMode === 'authenticated' || authMode === 'guest';
   const isExpanded = expandedItem === group.id;
   const cardRef = React.useRef<HTMLDivElement>(null);
   const prevExpandedRef = React.useRef<boolean>(false);

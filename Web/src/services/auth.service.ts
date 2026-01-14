@@ -76,8 +76,13 @@ class AuthService {
     // RESTful endpoint: POST /api/sessions?type=guest
     const response = await fetch(`${API_URL}/api/sessions?type=guest`, {
       method: 'POST',
+      // IMPORTANT: required when VITE_API_URL is set (cross-origin) so the HttpOnly session cookie
+      // created by the backend is actually stored and later sent on <img> requests (which can't add headers).
+      credentials: 'include',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        // Helpful for endpoints that validate via header; also allows backend to correlate this request.
+        'X-Device-Id': guestSessionId
       },
       body: JSON.stringify({
         deviceId: guestSessionId, // Send deviceId (browser fingerprint)

@@ -77,7 +77,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
 }) => {
   const { fetchAssociations, getAssociations } = useDownloadAssociations();
   const { authMode } = useAuth();
-  const canLoadProtectedImages = authMode === 'authenticated';
+  const canLoadProtectedImages = authMode === 'authenticated' || authMode === 'guest';
   const isExpanded = expandedItem === group.id;
   const rowRef = React.useRef<HTMLDivElement>(null);
   const prevExpandedRef = React.useRef<boolean>(false);
