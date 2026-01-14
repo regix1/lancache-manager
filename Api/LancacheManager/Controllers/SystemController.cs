@@ -58,9 +58,9 @@ public class SystemController : ControllerBase
 
     /// <summary>
     /// GET /api/system/config - Get system configuration
+    /// Note: Public endpoint - needed for app initialization before authentication
     /// </summary>
     [HttpGet("config")]
-    [RequireGuestSession]
     public IActionResult GetConfig()
     {
         var datasources = _datasourceService.GetDatasources();
@@ -150,9 +150,9 @@ public class SystemController : ControllerBase
 
     /// <summary>
     /// GET /api/system/setup - Get setup status
+    /// Note: Public endpoint - needed for AuthenticationModal before authentication
     /// </summary>
     [HttpGet("setup")]
-    [RequireGuestSession]
     public IActionResult GetSetupStatus()
     {
         var isCompleted = _stateService.GetSetupCompleted();
@@ -290,9 +290,9 @@ public class SystemController : ControllerBase
 
     /// <summary>
     /// GET /api/system/refresh-rate - Get the current refresh rate setting
+    /// Note: Public endpoint - needed for RefreshRateContext before authentication
     /// </summary>
     [HttpGet("refresh-rate")]
-    [RequireGuestSession]
     public IActionResult GetRefreshRate()
     {
         var rate = _stateService.GetRefreshRate();

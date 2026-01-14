@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import { useSignalR } from '@contexts/SignalRContext';
+import { useAuth } from '@contexts/AuthContext';
 import type {
   DepotMappingStartedEvent,
   DepotMappingProgressEvent,
@@ -81,6 +82,8 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
   mockMode = false
 }) => {
   const signalR = useSignalR();
+  const { isAuthenticated, authMode, isLoading: authLoading } = useAuth();
+  const hasAccess = isAuthenticated || authMode === 'guest';
 
   // Initialize progress from sessionStorage cache if available
   const [progress, setProgress] = useState<PicsProgress | null>(() => {
@@ -105,9 +108,14 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
     }
   });
 
-  const fetchProgress = async () => {
+  const fetchProgress = async (skipAuthCheck = false) => {
     if (mockMode) {
       setIsLoading(false);
+      return;
+    }
+
+    // Skip fetch if auth is loading or user doesn't have access (unless explicitly skipped for SignalR recovery)
+    if (!skipAuthCheck && (authLoading || !hasAccess)) {
       return;
     }
 
@@ -134,15 +142,20 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
     setProgress(updater);
   }, []);
 
-  // Initial fetch
+  // Initial fetch - only when auth is ready and user has access
   useEffect(() => {
-    fetchProgress();
-  }, [mockMode]);
+    if (!mockMode && !authLoading && hasAccess) {
+      fetchProgress();
+    }
+  }, [mockMode, authLoading, hasAccess]);
 
   // Monitor SignalR connection state - re-fetch state on reconnection
   // This ensures we recover from missed messages during connection loss
   useEffect(() => {
     if (mockMode) return;
+
+    // Only refetch on reconnection if user has access
+    if (authLoading || !hasAccess) return;
 
     console.log('[PicsProgress] SignalR connection state:', signalR.connectionState);
 
@@ -151,7 +164,7 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
       console.log('[PicsProgress] SignalR connected/reconnected - fetching current state');
       fetchProgress();
     }
-  }, [signalR.connectionState, mockMode]);
+  }, [signalR.connectionState, mockMode, authLoading, hasAccess]);
 
   // Listen for real-time depot mapping updates via SignalR
   useEffect(() => {

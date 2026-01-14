@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import ApiService from '@services/api.service';
+import { useAuth } from '@contexts/AuthContext';
 
 export interface SteamWebApiStatus {
   version: string;
@@ -15,6 +16,8 @@ export const useSteamWebApiStatus = () => {
   const [status, setStatus] = useState<SteamWebApiStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { isAuthenticated, authMode, isLoading: authLoading } = useAuth();
+  const hasAccess = isAuthenticated || authMode === 'guest';
 
   const fetchStatus = useCallback(async (forceRefresh: boolean = false, skipLoading: boolean = false) => {
     try {
@@ -45,12 +48,17 @@ export const useSteamWebApiStatus = () => {
   }, []);
 
   useEffect(() => {
+    // Only fetch when auth is ready and user has access
+    if (authLoading || !hasAccess) {
+      return;
+    }
+
     // Initial fetch
     fetchStatus();
 
     // No automatic polling - rely on optimistic updates and manual refresh
     // This prevents flickering and unnecessary API calls
-  }, [fetchStatus]);
+  }, [fetchStatus, authLoading, hasAccess]);
 
   const refresh = useCallback(() => fetchStatus(true, true), [fetchStatus]);
 

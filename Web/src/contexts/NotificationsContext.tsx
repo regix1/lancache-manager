@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
 import { useSignalR } from './SignalRContext';
+import { useAuth } from './AuthContext';
 import themeService from '@services/theme.service';
 import type {
   ProcessingProgressEvent,
@@ -196,6 +197,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     return restoredNotifications;
   });
   const signalR = useSignalR();
+  const { isAuthenticated, authMode, isLoading: authLoading } = useAuth();
+  const hasAccess = isAuthenticated || authMode === 'guest';
 
   // Helper function to remove notification with animation
   const removeNotificationAnimated = useCallback((id: string) => {
@@ -1598,7 +1601,13 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
   }, [addNotification, removeNotificationAnimated]);
 
   // Universal Recovery: Check all backend operations on mount
+  // Only run when user has access (authenticated or guest with valid session)
   React.useEffect(() => {
+    // Don't run recovery until auth is loaded and user has access
+    if (authLoading || !hasAccess) {
+      return;
+    }
+
     const recoverAllOperations = async () => {
       try {
         // Run all recovery checks in parallel
@@ -2419,7 +2428,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     recoverAllOperations();
-  }, []); // Run once on mount
+  }, [authLoading, hasAccess]); // Run when auth state is ready and user has access
 
   const value = {
     notifications,

@@ -37,9 +37,9 @@ public class SteamAuthController : ControllerBase
 
     /// <summary>
     /// GET /api/steam-auth/status - Get Steam authentication status
+    /// Note: Public endpoint - needed for SteamAuthContext before authentication
     /// </summary>
     [HttpGet("status")]
-    [RequireGuestSession]
     public IActionResult GetSteamAuthStatus()
     {
         var authMode = _stateService.GetSteamAuthMode();
