@@ -48,8 +48,20 @@ public class RequireGuestSessionAttribute : ActionFilterAttribute
             return;
         }
 
-        // From here on, we require a device ID to validate guest sessions.
+        // From here on, we need a device ID to validate device auth or guest sessions.
+        // Prefer X-Device-Id header (API clients), but fall back to session DeviceId
+        // for browser-based guest sessions where the cookie is authoritative.
         var deviceId = httpContext.Request.Headers["X-Device-Id"].FirstOrDefault();
+        if (string.IsNullOrEmpty(deviceId))
+        {
+            var authMode = httpContext.Session.GetString("AuthMode");
+            var sessionDeviceIdFallback = httpContext.Session.GetString("DeviceId");
+            if (authMode == "guest" && !string.IsNullOrEmpty(sessionDeviceIdFallback))
+            {
+                deviceId = sessionDeviceIdFallback;
+            }
+        }
+
         if (string.IsNullOrEmpty(deviceId))
         {
             logger?.LogWarning("[RequireGuestSession] No device ID provided");

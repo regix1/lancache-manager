@@ -416,6 +416,7 @@ public class CacheController : ControllerBase
     /// Returns immediately with an operation ID. Results sent via SignalR when complete.
     /// </summary>
     [HttpPost("corruption/detect")]
+    [RequireAuth]
     public async Task<IActionResult> StartCorruptionDetection()
     {
         var operationId = await _corruptionDetectionService.StartDetectionAsync();

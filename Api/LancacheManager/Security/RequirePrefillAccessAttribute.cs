@@ -26,7 +26,18 @@ public class RequirePrefillAccessAttribute : ActionFilterAttribute
             return;
         }
 
+        // Prefer X-Device-Id header, but fall back to session DeviceId for browser guest flows.
         var deviceId = httpContext.Request.Headers["X-Device-Id"].FirstOrDefault();
+        if (string.IsNullOrEmpty(deviceId))
+        {
+            var authMode = httpContext.Session.GetString("AuthMode");
+            var sessionDeviceIdFallback = httpContext.Session.GetString("DeviceId");
+            if (authMode == "guest" && !string.IsNullOrEmpty(sessionDeviceIdFallback))
+            {
+                deviceId = sessionDeviceIdFallback;
+            }
+        }
+
         if (string.IsNullOrEmpty(deviceId))
         {
             logger?.LogWarning("[RequirePrefillAccess] No device ID provided");

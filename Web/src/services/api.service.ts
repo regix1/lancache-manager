@@ -1110,12 +1110,14 @@ class ApiService {
       return {};
     }
     try {
-      const res = await fetch(`${API_BASE}/downloads/batch-download-events`, {
-        ...this.getFetchOptions({ signal }),
+      // IMPORTANT: use getFetchOptions() so we keep auth headers (especially X-Device-Id)
+      // and include credentials for HttpOnly session cookies.
+      const res = await fetch(`${API_BASE}/downloads/batch-download-events`, this.getFetchOptions({
+        signal,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ downloadIds })
-      });
+      }));
       return await this.handleResponse(res);
     } catch (error: unknown) {
       if (isAbortError(error)) {

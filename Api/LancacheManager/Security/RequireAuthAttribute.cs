@@ -94,16 +94,43 @@ public class AuthenticationMiddleware
         "/api/management/cache/delete"
     };
 
-    // Public endpoints that don't require any authentication
-    private readonly HashSet<string> _publicPaths = new(StringComparer.OrdinalIgnoreCase)
+    private static bool IsPublicEndpoint(HttpContext context, string path)
     {
-        "/api/auth/status",
-        "/api/auth/clear-session", // Allow clearing session cookies without auth
-        "/api/themes", // Allow getting theme list and preferences
-        "/api/user-preferences", // Allow getting default preferences for unauthenticated users
-        "/api/devices", // Allow device registration (POST)
-        "/api/config" // Allow getting server config (timezone, etc.)
-    };
+        // Keep this list small and method-specific.
+        var method = context.Request.Method;
+
+        // Auth status + guest availability checks (bootstrap)
+        if (HttpMethods.IsGet(method) && path.Equals("/api/auth/status", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (HttpMethods.IsGet(method) && path.Equals("/api/auth/guest/status", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (HttpMethods.IsPost(method) && path.Equals("/api/auth/clear-session", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // App bootstrap UX (unauthenticated)
+        if (HttpMethods.IsGet(method) && path.StartsWith("/api/themes", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (HttpMethods.IsGet(method) && path.Equals("/api/user-preferences", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (HttpMethods.IsGet(method) && path.Equals("/api/config", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (HttpMethods.IsGet(method) && path.Equals("/api/version", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (HttpMethods.IsGet(method) && path.Equals("/api/system/refresh-rate", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (HttpMethods.IsGet(method) && path.Equals("/api/steam-auth/status", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Device registration (authenticated mode bootstrap)
+        if (HttpMethods.IsPost(method) && path.Equals("/api/devices", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Guest session registration endpoint
+        if (HttpMethods.IsPost(method) && path.Equals("/api/sessions", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return false;
+    }
 
     public AuthenticationMiddleware(
         RequestDelegate next,
@@ -117,7 +144,10 @@ public class AuthenticationMiddleware
         _configuration = configuration;
     }
 
-    public async Task InvokeAsync(HttpContext context, GuestSessionService guestSessionService)
+    public async Task InvokeAsync(
+        HttpContext context,
+        GuestSessionService guestSessionService,
+        DeviceAuthService deviceAuthService)
     {
         var path = context.Request.Path.Value?.ToLower() ?? "";
 
@@ -141,15 +171,8 @@ public class AuthenticationMiddleware
             return;
         }
 
-        // Skip validation for public endpoints
-        if (_publicPaths.Contains(path))
-        {
-            await _next(context);
-            return;
-        }
-
-        // Allow POST /api/sessions (guest registration endpoint)
-        if (path == "/api/sessions" && context.Request.Method == "POST")
+        // Skip validation for explicit public endpoints
+        if (IsPublicEndpoint(context, path))
         {
             await _next(context);
             return;
@@ -177,17 +200,27 @@ public class AuthenticationMiddleware
             isApiKeyValid = true;
         }
 
-        // Priority 3: Validate guest sessions
-        // Check device ID header - for guests, device ID = session ID
+        // Device ID header - for guests, device ID = session ID
         var deviceId = context.Request.Headers["X-Device-Id"].FirstOrDefault();
 
-        if (!isSessionValid && !isApiKeyValid && !string.IsNullOrEmpty(deviceId))
+        // Priority 3: Validate registered devices (device auth)
+        bool isDeviceValid = false;
+        if (!string.IsNullOrEmpty(deviceId) && deviceAuthService.ValidateDevice(deviceId))
+        {
+            isDeviceValid = true;
+        }
+
+        // Priority 4: Validate guest sessions (only when not authenticated)
+        bool isGuestValid = false;
+
+        if (!isSessionValid && !isApiKeyValid && !isDeviceValid && !string.IsNullOrEmpty(deviceId))
         {
             // For guests, the device ID IS the session ID (we use device fingerprint as session ID)
             var (isValid, reason) = guestSessionService.ValidateSessionWithReason(deviceId);
             if (isValid)
             {
                 // Valid guest session - allow through
+                isGuestValid = true;
                 await _next(context);
                 return;
             }
@@ -226,8 +259,36 @@ public class AuthenticationMiddleware
                         }));
                     return;
                 }
-                // If reason is "not_found", allow through - user hasn't registered as guest yet
+                // If reason is "not_found", treat as unauthenticated below
             }
+        }
+
+        // Default behavior: Any /api/* endpoint that is not explicitly public requires at least
+        // a valid authenticated session OR a valid device auth OR a valid guest session.
+        //
+        // This prevents OutputCache from serving cached controller responses to unauthenticated users
+        // and provides defense-in-depth in case a controller action is missing a [Require*] attribute.
+        if (path.StartsWith("/api", StringComparison.OrdinalIgnoreCase))
+        {
+            if (isSessionValid || isApiKeyValid || isDeviceValid || isGuestValid)
+            {
+                await _next(context);
+                return;
+            }
+
+            _logger.LogWarning("Unauthorized API access attempt to {Path} from {IP}",
+                path, context.Connection.RemoteIpAddress);
+
+            context.Response.StatusCode = 401;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync(
+                System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    error = "Authentication required",
+                    message = "Please authenticate or start guest mode",
+                    path
+                }));
+            return;
         }
 
         // Check if this is a protected endpoint

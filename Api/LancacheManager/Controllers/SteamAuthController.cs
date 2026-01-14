@@ -69,6 +69,7 @@ public class SteamAuthController : ControllerBase
     /// </summary>
     [HttpPost("login")]
     [EnableRateLimiting("steam-auth")]
+    [RequireAuth]
     public async Task<IActionResult> LoginToSteam([FromBody] SteamLoginRequest? request)
     {
         // If user provides credentials, they want to authenticate (regardless of current mode)
@@ -195,6 +196,7 @@ public class SteamAuthController : ControllerBase
     /// Note: This endpoint does NOT require LANCache Manager authentication
     /// </summary>
     [HttpDelete]
+    [RequireAuth]
     public async Task<IActionResult> LogoutFromSteam()
     {
         await _steamKit2Service.LogoutAsync();

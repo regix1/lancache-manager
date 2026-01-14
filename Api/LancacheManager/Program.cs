@@ -542,11 +542,12 @@ app.UseRateLimiter();
 // Enable session middleware (must be before authentication middleware)
 app.UseSession();
 
-app.UseOutputCache();
-app.UseAuthorization();
-
 // Add Authentication Middleware (after routing and session so endpoints and sessions are resolved)
 app.UseMiddleware<AuthenticationMiddleware>();
+
+// Output cache must run AFTER authentication middleware, otherwise cached responses can bypass
+// controller-level auth filters (e.g. [RequireGuestSession]).
+app.UseOutputCache();
 
 // Add Metrics Authentication Middleware (optional API key for /metrics)
 app.UseMiddleware<MetricsAuthenticationMiddleware>();

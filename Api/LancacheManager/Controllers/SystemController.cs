@@ -305,6 +305,7 @@ public class SystemController : ControllerBase
     /// Request body: { "refreshRate": "LIVE" | "ULTRA" | "REALTIME" | "STANDARD" | "RELAXED" | "SLOW" }
     /// </summary>
     [HttpPatch("refresh-rate")]
+    [RequireAuth]
     public IActionResult SetRefreshRate([FromBody] SetRefreshRateRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.RefreshRate))
