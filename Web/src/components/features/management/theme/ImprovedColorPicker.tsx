@@ -83,7 +83,12 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
 
   // Close picker when user scrolls
   useEffect(() => {
-    const handleScroll = () => {
+    const handleScroll = (e: Event) => {
+      // Ignore scroll events originating from inside the popup
+      if (popupRef.current && popupRef.current.contains(e.target as Node)) {
+        return;
+      }
+
       // Commit history if color changed
       if (onColorCommit && colorBeforeEdit.current && colorBeforeEdit.current !== value) {
         onColorCommit(colorBeforeEdit.current);

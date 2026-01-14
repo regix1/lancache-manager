@@ -132,8 +132,12 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
     };
 
     // Close on scroll to prevent menu from being mispositioned
-    const handleScroll = () => {
+    const handleScroll = (e: Event) => {
       if (isOpen) {
+        // Ignore scroll events originating from inside the dropdown
+        if (dropdownRef.current && dropdownRef.current.contains(e.target as Node)) {
+          return;
+        }
         onClose();
       }
     };

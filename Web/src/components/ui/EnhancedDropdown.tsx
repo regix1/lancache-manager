@@ -121,6 +121,7 @@ interface EnhancedDropdownProps {
   footerNote?: string;
   footerIcon?: React.ComponentType<IconComponentProps>;
   cleanStyle?: boolean;
+  maxHeight?: string;
 }
 
 export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
@@ -138,7 +139,8 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
   dropdownTitle,
   footerNote,
   footerIcon: FooterIcon,
-  cleanStyle = false
+  cleanStyle = false,
+  maxHeight
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [dropdownStyle, setDropdownStyle] = useState<{ animation: string }>({ animation: '' });
@@ -164,7 +166,11 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       if (!buttonRef.current) return null;
 
       const rect = buttonRef.current.getBoundingClientRect();
-      const dropdownHeight = 300; // Approximate max height
+      // Parse maxHeight if provided in pixels, otherwise default to 300
+      const parsedMaxHeight = maxHeight && maxHeight.endsWith('px') 
+        ? parseInt(maxHeight, 10) 
+        : 300;
+      const dropdownHeight = parsedMaxHeight + 50; // Add buffer for header/footer
       const spaceBelow = window.innerHeight - rect.bottom;
       const spaceAbove = rect.top;
       const shouldOpenUpward = spaceBelow < dropdownHeight && spaceAbove > dropdownHeight;
@@ -226,7 +232,14 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
     };
 
     // Close on scroll to prevent dropdown from being mispositioned
-    const handleScroll = () => {
+    const handleScroll = (e: Event) => {
+      // Ignore scroll events originating from inside the dropdown or submenu
+      if (dropdownRef.current && dropdownRef.current.contains(e.target as Node)) {
+        return;
+      }
+      if (submenuRef.current && submenuRef.current.contains(e.target as Node)) {
+        return;
+      }
       setIsOpen(false);
     };
 
@@ -317,7 +330,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
             </div>
           )}
 
-          <CustomScrollbar maxHeight={cleanStyle ? 'none' : '280px'} paddingMode="compact">
+          <CustomScrollbar maxHeight={cleanStyle ? 'none' : (maxHeight || '280px')} paddingMode="compact">
             <div className="py-1">
               {options.map((option) =>
                 option.value === 'divider' ? (

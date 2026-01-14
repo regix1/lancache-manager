@@ -191,6 +191,7 @@ const TimezoneSelector: React.FC = () => {
       customTriggerLabel={currentTime}
       dropdownWidth="w-72"
       alignRight={true}
+      maxHeight="400px"
     />
   );
 };
