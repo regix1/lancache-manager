@@ -40,7 +40,7 @@
 /* Event badge container positioning */
 .active-event-badge-container {
   position: absolute;
-  top: -12px;
+  top: 8px;
   left: 50%;
   transform: translateX(-50%);
   pointer-events: none;
