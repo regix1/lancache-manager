@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useAuth } from '@contexts/AuthContext';
+import authService from '@services/auth.service';
 import type {
   DepotMappingStartedEvent,
   DepotMappingProgressEvent,
@@ -83,7 +84,8 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
 }) => {
   const signalR = useSignalR();
   const { isAuthenticated, authMode, isLoading: authLoading } = useAuth();
-  const hasAccess = isAuthenticated || authMode === 'guest';
+  // PICS rebuild progress is an admin concern; guests shouldn't poll it.
+  const hasAccess = isAuthenticated;
 
   // Initialize progress from sessionStorage cache if available
   const [progress, setProgress] = useState<PicsProgress | null>(() => {
@@ -120,7 +122,10 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
     }
 
     try {
-      const response = await fetch('/api/depots/rebuild/progress');
+      const response = await fetch('/api/depots/rebuild/progress', {
+        credentials: 'include',
+        headers: authService.getAuthHeaders()
+      });
       if (response.ok) {
         const data: PicsProgress = await response.json();
         setProgress(data);

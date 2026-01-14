@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { useAuth } from '@contexts/AuthContext';
+import authService from '@services/auth.service';
 
 export interface SetupStatus {
   isCompleted: boolean;
@@ -30,10 +32,15 @@ interface SetupStatusProviderProps {
 export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ children }) => {
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const { isAuthenticated, authMode, isLoading: authLoading } = useAuth();
+  const hasAccess = isAuthenticated || authMode === 'guest';
 
   const fetchSetupStatus = async () => {
     try {
-      const response = await fetch('/api/system/setup');
+      const response = await fetch('/api/system/setup', {
+        credentials: 'include',
+        headers: authService.getAuthHeaders()
+      });
       if (response.ok) {
         const data = await response.json();
         setSetupStatus({
@@ -69,8 +76,14 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
 
   // Initial fetch
   useEffect(() => {
+    // Avoid 401 spam before auth/guest session exists.
+    if (authLoading || !hasAccess) {
+      setIsLoading(false);
+      return;
+    }
+
     fetchSetupStatus();
-  }, []);
+  }, [authLoading, hasAccess]);
 
   return (
     <SetupStatusContext.Provider

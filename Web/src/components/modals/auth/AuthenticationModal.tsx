@@ -135,15 +135,12 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   const checkDataAvailability = async () => {
     setCheckingDataAvailability(true);
     try {
-      const setupResponse = await fetch('/api/system/setup');
-      if (setupResponse.ok) {
-        const setupData = await setupResponse.json();
-        const hasData = setupData.isSetupCompleted || setupData.hasProcessedLogs || false;
-        setDataAvailable(hasData);
-        return hasData;
-      }
-      setDataAvailable(false);
-      return false;
+      // Use the public auth status endpoint for this check.
+      // /api/system/setup requires a guest/admin session and will 401 before guest mode is started.
+      const authCheck = await authService.checkAuth();
+      const hasData = Boolean(authCheck.hasDataLoaded || authCheck.hasData);
+      setDataAvailable(hasData);
+      return hasData;
     } catch (error) {
       console.error('Failed to check data availability:', error);
       setDataAvailable(false);

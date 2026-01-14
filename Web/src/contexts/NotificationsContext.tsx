@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, type ReactNode
 import { useSignalR } from './SignalRContext';
 import { useAuth } from './AuthContext';
 import themeService from '@services/theme.service';
+import authService from '@services/auth.service';
 import type {
   ProcessingProgressEvent,
   FastProcessingCompleteEvent,
@@ -1601,12 +1602,15 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
   }, [addNotification, removeNotificationAnimated]);
 
   // Universal Recovery: Check all backend operations on mount
-  // Only run when user has access (authenticated or guest with valid session)
+  // Only run for authenticated users (admin view). Guests should not poll admin operations.
   React.useEffect(() => {
-    // Don't run recovery until auth is loaded and user has access
-    if (authLoading || !hasAccess) {
+    // Don't run recovery until auth is loaded and user is authenticated
+    if (authLoading || !isAuthenticated) {
       return;
     }
+
+    const fetchWithAuth = (url: string) =>
+      fetch(url, { credentials: 'include', headers: authService.getAuthHeaders() });
 
     const recoverAllOperations = async () => {
       try {
@@ -1628,7 +1632,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
     const recoverLogProcessing = async () => {
       try {
-        const response = await fetch('/api/logs/process/status');
+        const response = await fetchWithAuth('/api/logs/process/status');
         if (response.ok) {
           const data = await response.json();
           const notificationId = 'log_processing';
@@ -1708,7 +1712,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
     const recoverLogRemoval = async () => {
       try {
-        const response = await fetch('/api/logs/remove/status');
+        const response = await fetchWithAuth('/api/logs/remove/status');
         if (response.ok) {
           const data = await response.json();
           const notificationId = `log_removal-${data.service || 'unknown'}`;
@@ -1789,7 +1793,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
     const recoverDepotMapping = async () => {
       try {
-        const response = await fetch('/api/depots/rebuild/progress');
+        const response = await fetchWithAuth('/api/depots/rebuild/progress');
         if (response.ok) {
           const data = await response.json();
           const notificationId = 'depot_mapping';
@@ -1898,7 +1902,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
     const recoverCacheClearing = async () => {
       try {
-        const response = await fetch('/api/cache/operations');
+        const response = await fetchWithAuth('/api/cache/operations');
         if (response.ok) {
           const data = await response.json();
           const notificationId = 'cache_clearing';
@@ -1967,7 +1971,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
     const recoverDatabaseReset = async () => {
       try {
-        const response = await fetch('/api/database/reset-status');
+        const response = await fetchWithAuth('/api/database/reset-status');
         if (response.ok) {
           const data = await response.json();
           const notificationId = 'database-reset';
@@ -2027,7 +2031,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
     const recoverGameDetection = async () => {
       try {
-        const response = await fetch('/api/games/detect/active');
+        const response = await fetchWithAuth('/api/games/detect/active');
         if (response.ok) {
           const data = await response.json();
 
@@ -2105,7 +2109,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
     const recoverCorruptionDetection = async () => {
       try {
-        const response = await fetch('/api/cache/corruption/detect/status');
+        const response = await fetchWithAuth('/api/cache/corruption/detect/status');
         if (response.ok) {
           const data = await response.json();
 
@@ -2182,7 +2186,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     // Recover active cache removal operations (games, services, corruption)
     const recoverCacheRemovals = async () => {
       try {
-        const response = await fetch('/api/cache/removals/active');
+        const response = await fetchWithAuth('/api/cache/removals/active');
         if (response.ok) {
           const data = await response.json();
 
@@ -2428,7 +2432,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     recoverAllOperations();
-  }, [authLoading, hasAccess]); // Run when auth state is ready and user has access
+  }, [authLoading, isAuthenticated]); // Run when auth state is ready and user is authenticated
 
   const value = {
     notifications,

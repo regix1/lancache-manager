@@ -110,7 +110,10 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         const authRequired = authCheck.requiresAuth;
         setAuthDisabled(!authRequired);
 
-        const setupResponse = await fetch('/api/system/setup');
+        const setupResponse = await fetch('/api/system/setup', {
+          credentials: 'include',
+          headers: ApiService.getHeaders()
+        });
         const setupData = await setupResponse.json();
 
         if (setupData.isCompleted && authCheck.isAuthenticated) {
@@ -172,7 +175,10 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   const checkDataAvailability = async () => {
     setCheckingDataAvailability(true);
     try {
-      const setupResponse = await fetch('/api/system/setup');
+      const setupResponse = await fetch('/api/system/setup', {
+        credentials: 'include',
+        headers: ApiService.getHeaders()
+      });
       if (setupResponse.ok) {
         const setupData = await setupResponse.json();
         const hasData = setupData.isSetupCompleted || setupData.hasProcessedLogs || false;
@@ -258,7 +264,10 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     await authService.startGuestMode();
     onAuthChanged?.();
 
-    const setupResponse = await fetch('/api/system/setup');
+    const setupResponse = await fetch('/api/system/setup', {
+      credentials: 'include',
+      headers: ApiService.getHeaders()
+    });
     const setupData = await setupResponse.json();
 
     if (setupData.isSetupCompleted) {

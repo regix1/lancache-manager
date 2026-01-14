@@ -62,7 +62,10 @@ export const RefreshRateProvider: React.FC<RefreshRateProviderProps> = ({ childr
           }
 
           // Fall back to default guest rate
-          const defaultResponse = await fetch('/api/system/default-guest-refresh-rate');
+          const defaultResponse = await fetch('/api/system/default-guest-refresh-rate', {
+            credentials: 'include',
+            headers: authService.getAuthHeaders()
+          });
           if (defaultResponse.ok) {
             const data = await defaultResponse.json();
             if (data.refreshRate && data.refreshRate in REFRESH_RATES) {
