@@ -567,7 +567,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                       </div>
 
                       <div className="flex-1 min-w-0">
-                        {/* Primary: Steam username or Container name */}
+                        {/* Primary: Steam username or auth status */}
                         <div className="flex items-center gap-2 flex-wrap">
                           {session.steamUsername ? (
                             <span className="text-sm font-semibold text-themed-primary flex items-center gap-1.5">
@@ -575,11 +575,11 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                               {session.steamUsername}
                             </span>
                           ) : (
-                            <Tooltip content={session.containerName}>
-                              <span className="font-mono text-sm text-themed-secondary">
-                                {session.containerName}
-                              </span>
-                            </Tooltip>
+                            <span className="text-sm text-themed-muted">
+                              {session.authState === 'Authenticated'
+                                ? 'Unauthorized Steam account'
+                                : 'Not logged in session'}
+                            </span>
                           )}
                           <StatusBadge status={session.status} isLive />
                         </div>
@@ -887,7 +887,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                           </div>
 
                           <div className="flex-1 min-w-0">
-                            {/* Primary: Steam username or Session ID */}
+                            {/* Primary: Steam username or auth status */}
                             <div className="flex items-center gap-2 flex-wrap">
                               {session.steamUsername ? (
                                 <span className="text-sm font-semibold text-themed-primary flex items-center gap-1.5">
@@ -895,8 +895,10 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                                   {session.steamUsername}
                                 </span>
                               ) : (
-                                <span className="font-mono text-sm text-themed-secondary">
-                                  {session.sessionId}
+                                <span className="text-sm text-themed-muted">
+                                  {session.isAuthenticated
+                                    ? 'Unauthorized Steam account'
+                                    : 'Not logged in session'}
                                 </span>
                               )}
                               <StatusBadge status={session.status} isLive={session.isLive} />

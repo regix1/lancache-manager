@@ -307,25 +307,6 @@ public class PrefillSessionService
     }
 
     /// <summary>
-    /// Gets the most recent Steam username for a device (if any).
-    /// </summary>
-    public async Task<string?> GetLatestUsernameForDeviceAsync(string deviceId)
-    {
-        if (string.IsNullOrWhiteSpace(deviceId))
-        {
-            return null;
-        }
-
-        await using var context = await _contextFactory.CreateDbContextAsync();
-
-        return await context.PrefillSessions
-            .Where(s => s.DeviceId == deviceId && !string.IsNullOrEmpty(s.SteamUsername))
-            .OrderByDescending(s => s.CreatedAtUtc)
-            .Select(s => s.SteamUsername)
-            .FirstOrDefaultAsync();
-    }
-
-    /// <summary>
     /// Marks orphaned sessions (sessions marked as Active in DB but not in memory).
     /// Called on startup to detect containers that may still be running.
     /// </summary>
