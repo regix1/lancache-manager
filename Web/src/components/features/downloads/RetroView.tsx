@@ -14,6 +14,7 @@ import { XboxIcon } from '@components/ui/XboxIcon';
 import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
 import { HardDrive, Download, Zap } from 'lucide-react';
 import { useDownloadAssociations } from '@contexts/DownloadAssociationsContext';
+import { useAuth } from '@contexts/AuthContext';
 import DownloadBadges from './DownloadBadges';
 import type { Download as DownloadType, DownloadGroup, EventSummary } from '../../../types';
 
@@ -453,6 +454,8 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
   hasMultipleDatasources = false
 }, ref) => {
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
+  const { authMode } = useAuth();
+  const canLoadProtectedImages = authMode === 'authenticated';
 
   // Use JavaScript-based breakpoint detection for conditional rendering
   // This completely removes desktop layout from DOM on mobile, preventing width calculation conflicts
@@ -1020,7 +1023,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
         {groupedItems.map((data, index) => {
           const serviceLower = data.service.toLowerCase();
           const isSteam = serviceLower === 'steam';
-          const hasGameImage = !aestheticMode && isSteam &&
+          const hasGameImage = canLoadProtectedImages && !aestheticMode && isSteam &&
             data.gameAppId &&
             data.gameName &&
             data.gameName !== 'Unknown Steam Game' &&
