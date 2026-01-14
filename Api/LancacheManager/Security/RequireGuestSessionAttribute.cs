@@ -52,6 +52,14 @@ public class RequireGuestSessionAttribute : ActionFilterAttribute
         // Prefer X-Device-Id header (API clients), but fall back to session DeviceId
         // for browser-based guest sessions where the cookie is authoritative.
         var deviceId = httpContext.Request.Headers["X-Device-Id"].FirstOrDefault();
+
+        // Some browser requests (notably <img> tags) cannot send custom headers.
+        // Allow deviceId to be provided via querystring for read-only endpoints.
+        // Example: /api/game-images/123/header?deviceId=...
+        if (string.IsNullOrEmpty(deviceId))
+        {
+            deviceId = httpContext.Request.Query["deviceId"].FirstOrDefault();
+        }
         if (string.IsNullOrEmpty(deviceId))
         {
             var authMode = httpContext.Session.GetString("AuthMode");
