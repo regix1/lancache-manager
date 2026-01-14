@@ -7,7 +7,6 @@ import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { useHoldTimer } from '@hooks/useHoldTimer';
 import { useDownloadAssociations } from '@contexts/DownloadAssociationsContext';
-import { useAuth } from '@contexts/AuthContext';
 import DownloadBadges from './DownloadBadges';
 import type { Download, DownloadGroup } from '../../../types';
 
@@ -76,8 +75,6 @@ const GroupRow: React.FC<GroupRowProps> = ({
   hasMultipleDatasources
 }) => {
   const { fetchAssociations, getAssociations } = useDownloadAssociations();
-  const { authMode } = useAuth();
-  const canLoadProtectedImages = authMode === 'authenticated' || authMode === 'guest';
   const isExpanded = expandedItem === group.id;
   const rowRef = React.useRef<HTMLDivElement>(null);
   const prevExpandedRef = React.useRef<boolean>(false);
@@ -257,9 +254,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
             {/* Game image */}
             {showGameImage && primaryDownload?.gameAppId && (
               <div className="flex-shrink-0">
-                {aestheticMode ||
-                !canLoadProtectedImages ||
-                imageErrors.has(String(primaryDownload.gameAppId)) ? (
+                {aestheticMode || imageErrors.has(String(primaryDownload.gameAppId)) ? (
                   <div
                     className="w-full sm:w-[120px] h-[60px] sm:h-[56px] rounded border flex items-center justify-center bg-[var(--theme-bg-tertiary)] border-[var(--theme-border-primary)]"
                   >

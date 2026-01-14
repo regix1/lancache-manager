@@ -21,7 +21,6 @@ import { Tooltip } from '@components/ui/Tooltip';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { useHoldTimer } from '@hooks/useHoldTimer';
 import { useDownloadAssociations } from '@contexts/DownloadAssociationsContext';
-import { useAuth } from '@contexts/AuthContext';
 import DownloadBadges from './DownloadBadges';
 import type { Download, DownloadGroup } from '../../../types';
 
@@ -88,8 +87,6 @@ const GroupCard: React.FC<GroupCardProps> = ({
   hasMultipleDatasources
 }) => {
   const { fetchAssociations, getAssociations } = useDownloadAssociations();
-  const { authMode } = useAuth();
-  const canLoadProtectedImages = authMode === 'authenticated' || authMode === 'guest';
   const isExpanded = expandedItem === group.id;
   const cardRef = React.useRef<HTMLDivElement>(null);
   const prevExpandedRef = React.useRef<boolean>(false);
@@ -121,8 +118,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const shouldRenderBanner =
     !aestheticMode &&
     (isSteam || isWsus || isRiot || isEpic || isEA || isBlizzard || isXbox || isOtherService);
-  const hasSteamArtwork =
-    canLoadProtectedImages && showGameImage && steamAppId !== null && !imageErrors.has(steamAppId);
+  const hasSteamArtwork = showGameImage && steamAppId !== null && !imageErrors.has(steamAppId);
   const placeholderBaseClasses = 'min-h-[130px] sm:min-h-[130px]';
   const placeholderIconSize = fullHeightBanners ? 80 : 72;
   const bannerWrapperClasses = fullHeightBanners

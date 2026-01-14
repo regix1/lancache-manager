@@ -2,7 +2,6 @@ using System.Collections.Concurrent;
 using LancacheManager.Models;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Core.Interfaces.Services;
-using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,7 +13,6 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/game-images")]
-[RequireGuestSession]
 public class GameImagesController : ControllerBase
 {
     private readonly ILogger<GameImagesController> _logger;

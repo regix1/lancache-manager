@@ -107,6 +107,7 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
   const [dropdownStyle, setDropdownStyle] = useState<{ top?: number; bottom?: number; left: number; animation: string }>({ left: 0, animation: '' });
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const rafRef = useRef<number | null>(null);
 
   const valuesSet = useMemo(() => new Set(values), [values]);
   const selectedCount = valuesSet.size;
@@ -121,9 +122,8 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
     return `${selectedCount} selected`;
   }, [selectedCount, options, valuesSet, placeholder]);
 
-  // Calculate position before paint
-  useLayoutEffect(() => {
-    if (!isOpen || !buttonRef.current) return;
+  const updatePosition = useCallback(() => {
+    if (!buttonRef.current) return;
 
     const rect = buttonRef.current.getBoundingClientRect();
     const dropdownHeight = 300;
@@ -144,7 +144,13 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
       ? { bottom: window.innerHeight - rect.top + 4, left, animation: 'msdFadeInUp 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards' }
       : { top: rect.bottom + 4, left, animation: 'msdFadeInDown 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards' }
     );
-  }, [isOpen, alignRight]);
+  }, [alignRight]);
+
+  // Calculate position before paint and when opening
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+    updatePosition();
+  }, [isOpen, updatePosition]);
 
   // Combined event listeners
   useEffect(() => {
@@ -167,6 +173,31 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
       document.removeEventListener('keydown', handleEscape);
     };
   }, [isOpen]);
+
+  // Keep dropdown anchored during scroll/resize
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleScrollOrResize = () => {
+      if (rafRef.current !== null) return;
+      rafRef.current = window.requestAnimationFrame(() => {
+        rafRef.current = null;
+        updatePosition();
+      });
+    };
+
+    window.addEventListener('scroll', handleScrollOrResize, true);
+    window.addEventListener('resize', handleScrollOrResize);
+
+    return () => {
+      window.removeEventListener('scroll', handleScrollOrResize, true);
+      window.removeEventListener('resize', handleScrollOrResize);
+      if (rafRef.current !== null) {
+        window.cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
+  }, [isOpen, updatePosition]);
 
   const handleToggle = useCallback((optionValue: string) => {
     const isSelected = valuesSet.has(optionValue);
