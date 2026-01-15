@@ -349,30 +349,31 @@ public class SystemController : ControllerBase
     [RequireAuth]
     public async Task<IActionResult> SetDefaultGuestRefreshRate([FromBody] SetRefreshRateRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.RefreshRate))
+        if (request == null || string.IsNullOrWhiteSpace(request.RefreshRate))
         {
             return BadRequest(new ErrorResponse { Error = "Refresh rate is required" });
         }
 
+        var normalizedRate = request.RefreshRate.Trim().ToUpperInvariant();
         var validRates = new[] { "LIVE", "ULTRA", "REALTIME", "STANDARD", "RELAXED", "SLOW" };
-        if (!validRates.Contains(request.RefreshRate.ToUpperInvariant()))
+        if (!validRates.Contains(normalizedRate))
         {
             return BadRequest(new ErrorResponse { Error = "Invalid refresh rate. Must be LIVE, ULTRA, REALTIME, STANDARD, RELAXED, or SLOW" });
         }
 
-        _stateService.SetDefaultGuestRefreshRate(request.RefreshRate);
-        _logger.LogInformation("Default guest refresh rate set to: {Rate}", request.RefreshRate.ToUpperInvariant());
+        _stateService.SetDefaultGuestRefreshRate(normalizedRate);
+        _logger.LogInformation("Default guest refresh rate set to: {Rate}", normalizedRate);
 
         // Broadcast to all clients so guest users pick up the new default
         await _hubContext.Clients.All.SendAsync("DefaultGuestRefreshRateChanged", new
         {
-            refreshRate = request.RefreshRate.ToUpperInvariant()
+            refreshRate = normalizedRate
         });
 
         return Ok(new RefreshRateResponse
         {
             Message = "Default guest refresh rate updated",
-            RefreshRate = request.RefreshRate.ToUpperInvariant()
+            RefreshRate = normalizedRate
         });
     }
 

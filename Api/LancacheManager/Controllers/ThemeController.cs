@@ -49,6 +49,23 @@ public class ThemeController : ControllerBase
         // Frontend theme service handles built-in themes, backend only manages custom uploaded themes
     }
 
+    private bool ThemeExists(string themeId)
+    {
+        if (string.IsNullOrWhiteSpace(themeId))
+        {
+            return false;
+        }
+
+        if (SYSTEM_THEMES.Contains(themeId))
+        {
+            return true;
+        }
+
+        var tomlPath = Path.Combine(_themesPath, $"{themeId}.toml");
+        var jsonPath = Path.Combine(_themesPath, $"{themeId}.json");
+        return System.IO.File.Exists(tomlPath) || System.IO.File.Exists(jsonPath);
+    }
+
     [HttpGet]
     public async Task<IActionResult> GetThemes()
     {
@@ -464,7 +481,16 @@ public class ThemeController : ControllerBase
         }
 
         // Sanitize theme ID
-        var themeId = Regex.Replace(request.ThemeId, @"[^a-zA-Z0-9-_]", "");
+        var themeId = Regex.Replace(request.ThemeId, @"[^a-zA-Z0-9-_]", "").ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(themeId))
+        {
+            return BadRequest(new ErrorResponse { Error = "Theme ID is required" });
+        }
+
+        if (!ThemeExists(themeId))
+        {
+            return NotFound(new ErrorResponse { Error = "Theme not found" });
+        }
 
         _stateRepository.SetSelectedTheme(themeId);
         _logger.LogInformation($"Updated theme preference to: {themeId}");
@@ -500,7 +526,16 @@ public class ThemeController : ControllerBase
         }
 
         // Sanitize theme ID
-        var themeId = Regex.Replace(request.ThemeId, @"[^a-zA-Z0-9-_]", "");
+        var themeId = Regex.Replace(request.ThemeId, @"[^a-zA-Z0-9-_]", "").ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(themeId))
+        {
+            return BadRequest(new ErrorResponse { Error = "Theme ID is required" });
+        }
+
+        if (!ThemeExists(themeId))
+        {
+            return NotFound(new ErrorResponse { Error = "Theme not found" });
+        }
 
         _stateRepository.SetDefaultGuestTheme(themeId);
         _logger.LogInformation($"Updated default guest theme to: {themeId}");

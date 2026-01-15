@@ -357,6 +357,15 @@ public class AuthController : ControllerBase
     [RequireAuth]
     public async Task<IActionResult> SetGuestModeLock([FromBody] SetGuestLockRequest request)
     {
+        if (request == null)
+        {
+            return BadRequest(new
+            {
+                success = false,
+                error = "Lock state is required"
+            });
+        }
+
         _stateService.SetGuestModeLocked(request.IsLocked);
 
         _logger.LogInformation("Guest mode {Action} by admin", request.IsLocked ? "locked" : "unlocked");
