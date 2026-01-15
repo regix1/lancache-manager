@@ -5,6 +5,7 @@ using Docker.DotNet;
 using Docker.DotNet.Models;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Hubs;
+using LancacheManager.Core.Interfaces.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.SignalR;
@@ -22,12 +23,14 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     private readonly IHubContext<PrefillDaemonHub> _hubContext;
     private readonly IHubContext<DownloadHub> _downloadHubContext;
     private readonly IConfiguration _configuration;
+    private readonly IPathResolver _pathResolver;
     private readonly PrefillSessionService _sessionService;
     private readonly PrefillCacheService _cacheService;
     private readonly ConcurrentDictionary<string, DaemonSession> _sessions = new();
     private DockerClient? _dockerClient;
     private Timer? _cleanupTimer;
     private bool _disposed;
+    private readonly bool _isRunningInContainer;
 
     // Configuration defaults
     private const int DefaultSessionTimeoutMinutes = 120;
@@ -43,6 +46,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         IHubContext<PrefillDaemonHub> hubContext,
         IHubContext<DownloadHub> downloadHubContext,
         IConfiguration configuration,
+        IPathResolver pathResolver,
         PrefillSessionService sessionService,
         PrefillCacheService cacheService)
     {
@@ -50,8 +54,10 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         _hubContext = hubContext;
         _downloadHubContext = downloadHubContext;
         _configuration = configuration;
+        _pathResolver = pathResolver;
         _sessionService = sessionService;
         _cacheService = cacheService;
+        _isRunningInContainer = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true";
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -256,8 +262,16 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         // For Docker bind mounts, we need to translate container paths to host paths
         // /data inside this container maps to the host's data directory
         var hostDataPath = await GetHostDataPathAsync(cancellationToken);
-        var hostCommandsDir = commandsDir.Replace("/data", hostDataPath);
-        var hostResponsesDir = responsesDir.Replace("/data", hostDataPath);
+        var hostCommandsDir = commandsDir;
+        var hostResponsesDir = responsesDir;
+        var containerDataRoot = _pathResolver.GetDataDirectory();
+        if (!string.IsNullOrEmpty(hostDataPath) &&
+            _isRunningInContainer &&
+            commandsDir.StartsWith(containerDataRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            hostCommandsDir = commandsDir.Replace(containerDataRoot, hostDataPath, StringComparison.OrdinalIgnoreCase);
+            hostResponsesDir = responsesDir.Replace(containerDataRoot, hostDataPath, StringComparison.OrdinalIgnoreCase);
+        }
 
         _logger.LogInformation("Creating daemon container for session {SessionId}, user {UserId}", sessionId, userId);
         _logger.LogDebug("Container paths: commands={CommandsDir}, responses={ResponsesDir}", commandsDir, responsesDir);
@@ -1668,9 +1682,13 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
     private string GetDaemonBasePath()
     {
-        // Use /data directory which is a host mount, so both containers can access it
-        // The lancache-manager container writes here, and the prefill-daemon container reads from here
-        return _configuration["Prefill:DaemonBasePath"] ?? "/data/prefill-sessions";
+        var configured = _configuration["Prefill:DaemonBasePath"];
+        if (!string.IsNullOrEmpty(configured))
+        {
+            return _pathResolver.ResolvePath(configured);
+        }
+
+        return Path.Combine(_pathResolver.GetDataDirectory(), "prefill-sessions");
     }
 
     private string? _cachedHostDataPath;
@@ -1685,12 +1703,18 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         var configuredPath = _configuration["Prefill:HostDataPath"];
         if (!string.IsNullOrEmpty(configuredPath))
         {
-            _cachedHostDataPath = configuredPath;
-            return configuredPath;
+            _cachedHostDataPath = _pathResolver.ResolvePath(configuredPath);
+            return _cachedHostDataPath;
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            _cachedHostDataPath = _pathResolver.GetDataDirectory();
+            return _cachedHostDataPath;
         }
 
         // Auto-detect by inspecting our own container's mounts
-        if (_dockerClient != null)
+        if (_dockerClient != null && _isRunningInContainer)
         {
             try
             {
@@ -1716,7 +1740,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         }
 
         // Fallback - assume running directly on host
-        _cachedHostDataPath = "/data";
+        _cachedHostDataPath = _isRunningInContainer ? "/data" : _pathResolver.GetDataDirectory();
         _logger.LogWarning("Could not auto-detect host data path, using fallback: {HostDataPath}. " +
             "Set Prefill__HostDataPath environment variable if prefill containers can't access command files.",
             _cachedHostDataPath);
