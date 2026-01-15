@@ -19,7 +19,7 @@
     transition: background-color 0.15s ease, border-color 0.15s ease;
   }
 
-  /* Mobile: Compact triggers with reduced padding and icon-only display */
+  /* Mobile: Compact triggers with reduced padding */
   @media (max-width: 640px) {
     .ed-trigger {
       flex-shrink: 1;
@@ -29,12 +29,7 @@
       padding-right: 0.5rem;
     }
 
-    /* Hide text labels on mobile - show only icons */
-    .ed-trigger .font-medium {
-      display: none;
-    }
-
-    /* Make gap smaller when text is hidden */
+    /* Make gap smaller on mobile */
     .ed-trigger > div {
       gap: 0.25rem;
     }

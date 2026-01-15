@@ -27,6 +27,7 @@ interface ThemeCardProps {
   isPreviewing: boolean;
   isSystem: boolean;
   isAuthenticated: boolean;
+  isGuest: boolean;
   themeActionMenu: string | null;
   currentMenuId: string;
   onApplyTheme: (themeId: string) => void;
@@ -43,6 +44,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
   isPreviewing,
   isSystem,
   isAuthenticated,
+  isGuest,
   themeActionMenu,
   currentMenuId,
   onApplyTheme,
@@ -55,12 +57,12 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
   const isMenuOpen = themeActionMenu === currentMenuId;
 
   const colorPreview = [
-    theme.colors.primaryColor,
-    theme.colors.secondaryColor,
-    theme.colors.accentColor,
-    theme.colors.bgPrimary,
-    theme.colors.textPrimary
-  ].filter(Boolean) as string[];
+    { label: 'Primary', color: theme.colors.primaryColor },
+    { label: 'Secondary', color: theme.colors.secondaryColor },
+    { label: 'Accent', color: theme.colors.accentColor },
+    { label: 'Background', color: theme.colors.bgPrimary },
+    { label: 'Text', color: theme.colors.textPrimary }
+  ].filter((item) => Boolean(item.color)) as Array<{ label: string; color: string }>;
 
   return (
     <div
@@ -146,7 +148,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
             </button>
           }
         >
-          {!isActive && (
+          {!isGuest && !isActive && (
             <ActionMenuItem
               onClick={() => {
                 onApplyTheme(currentMenuId);
@@ -157,15 +159,19 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
               Apply Theme
             </ActionMenuItem>
           )}
-          <ActionMenuItem
-            onClick={() => {
-              onPreview(currentMenuId);
-              onMenuToggle(null);
-            }}
-            icon={isPreviewing ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-          >
-            {isPreviewing ? 'Stop Preview' : 'Preview'}
-          </ActionMenuItem>
+          {!isGuest && (
+            <ActionMenuItem
+              onClick={() => {
+                onPreview(currentMenuId);
+                onMenuToggle(null);
+              }}
+              icon={
+                isPreviewing ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />
+              }
+            >
+              {isPreviewing ? 'Stop Preview' : 'Preview'}
+            </ActionMenuItem>
+          )}
           {!isSystem && isAuthenticated && (
             <ActionMenuItem
               onClick={() => {
@@ -205,19 +211,19 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
 
       {/* Color Preview Strip */}
       <div className="flex gap-1">
-        {colorPreview.map((color, idx) => (
+        {colorPreview.map((item, idx) => (
           <Tooltip
             key={idx}
-            content={['Primary', 'Secondary', 'Accent', 'Background', 'Text'][idx]}
+            content={item.label}
             position="bottom"
             className="flex-1"
           >
             <div
               className="h-5 rounded transition-transform hover:scale-y-125"
               style={{
-                backgroundColor: color,
+                backgroundColor: item.color,
                 border:
-                  color === '#ffffff' || color.toLowerCase().includes('fff')
+                  item.color === '#ffffff' || item.color.toLowerCase().includes('fff')
                     ? '1px solid var(--theme-border-secondary)'
                     : 'none'
               }}

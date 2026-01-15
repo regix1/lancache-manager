@@ -16,6 +16,7 @@ import {
   Sun
 } from 'lucide-react';
 import themeService from '@services/theme.service';
+import preferencesService from '@services/preferences.service';
 import authService from '@services/auth.service';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
@@ -127,7 +128,27 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   }, []);
 
   const handleThemeChange = async (themeId: string) => {
+    if (authService.authMode === 'guest') {
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: 'Guest users cannot change themes',
+        details: { notificationType: 'error' }
+      });
+      return;
+    }
     try {
+      if (isAuthenticated) {
+        const saved = await preferencesService.setPreference('selectedTheme', themeId);
+        if (!saved) {
+          addNotification({
+            type: 'generic',
+            status: 'failed',
+            message: 'Failed to save theme preference',
+            details: { notificationType: 'error' }
+          });
+        }
+      }
       await themeService.setTheme(themeId);
       setCurrentTheme(themeId);
       setPreviewTheme(null);
@@ -140,6 +161,15 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   };
 
   const handlePreview = async (themeId: string) => {
+    if (authService.authMode === 'guest') {
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: 'Guest users cannot preview themes',
+        details: { notificationType: 'error' }
+      });
+      return;
+    }
     if (previewTheme === themeId) {
       // Toggle off preview - restore original theme from before preview started
       const originalTheme = themeService.getOriginalThemeBeforePreview() || 'dark-default';
@@ -249,14 +279,24 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     setLoading(true);
     try {
       const { name, description, author, version, isDark, customCSS, ...colors } = newTheme;
+      const trimmedName = name.trim();
+      if (!trimmedName) {
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message: 'Theme name cannot be empty',
+          details: { notificationType: 'error' }
+        });
+        return;
+      }
 
       // Generate a safe ID from the theme name
-      const themeId = name.toLowerCase().replace(/[^a-z0-9-_]/g, '-');
+      const themeId = trimmedName.toLowerCase().replace(/[^a-z0-9-_]/g, '-');
 
       const themeData: Theme = {
         meta: {
           id: themeId,
-          name,
+          name: trimmedName,
           description,
           author,
           version,
@@ -693,6 +733,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                     isPreviewing={previewTheme === theme.meta.id}
                     isSystem={isSystemTheme(theme.meta.id)}
                     isAuthenticated={isAuthenticated}
+                    isGuest={authService.authMode === 'guest'}
                     themeActionMenu={themeActionMenu}
                     currentMenuId={theme.meta.id}
                     onApplyTheme={handleThemeChange}
