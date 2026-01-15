@@ -5,6 +5,17 @@ namespace LancacheManager.Core.Services.SteamPrefill;
 /// </summary>
 public interface IDaemonClient : IDisposable
 {
+    event Func<CredentialChallenge, Task>? OnCredentialChallenge;
+    event Func<DaemonStatus, Task>? OnStatusUpdate;
+    event Func<SocketPrefillProgress, Task>? OnProgressUpdate;
+    event Func<string, Task>? OnError;
+    event Func<Task>? OnDisconnected;
+
+    /// <summary>
+    /// Connects to the daemon.
+    /// </summary>
+    Task ConnectAsync(CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Gets the current daemon status.
     /// </summary>

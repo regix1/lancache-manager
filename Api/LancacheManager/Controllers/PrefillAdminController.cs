@@ -1,5 +1,6 @@
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
+using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Hubs;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;

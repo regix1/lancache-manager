@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
+using System.Net;
+using System.Net.Sockets;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using Docker.DotNet;
 using Docker.DotNet.Models;
 using LancacheManager.Core.Services.SteamPrefill;
@@ -35,6 +36,7 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     // Configuration defaults
     private const int DefaultSessionTimeoutMinutes = 120;
     private const string DefaultDockerImage = "ghcr.io/regix1/steam-prefill-daemon:latest";
+    private const int DefaultTcpPort = 45555;
 
     /// <summary>
     /// Indicates whether Docker is available and connected.
@@ -346,19 +348,42 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
         // Socket path for Unix Domain Socket communication
         var socketPath = Path.Combine(responsesDir, "daemon.sock");
+        var useTcpMode = ShouldUseTcpMode();
+        var tcpContainerPort = useTcpMode ? GetContainerTcpPort() : (int?)null;
+        var tcpHostPort = useTcpMode ? GetHostTcpPort() : (int?)null;
 
-        // Build command and environment for socket mode
-        var cmd = new List<string> { "daemon", "--socket" };
+        // Build command and environment for daemon mode
+        var cmd = new List<string> { "daemon" };
 
         var env = new List<string>
         {
             $"PREFILL_COMMANDS_DIR=/commands",
-            $"PREFILL_RESPONSES_DIR=/responses",
-            "PREFILL_USE_SOCKET=true",
-            "PREFILL_SOCKET_PATH=/responses/daemon.sock"
+            $"PREFILL_RESPONSES_DIR=/responses"
         };
 
-        _logger.LogInformation("Creating daemon container for session {SessionId} using socket mode", sessionId);
+        if (useTcpMode && tcpContainerPort.HasValue)
+        {
+            env.Add($"PREFILL_TCP_PORT={tcpContainerPort.Value}");
+            _logger.LogInformation("Creating daemon container for session {SessionId} using TCP mode (host port {HostPort})",
+                sessionId, tcpHostPort);
+        }
+        else
+        {
+            env.Add("PREFILL_USE_SOCKET=true");
+            env.Add("PREFILL_SOCKET_PATH=/responses/daemon.sock");
+            _logger.LogInformation("Creating daemon container for session {SessionId} using socket mode", sessionId);
+        }
+
+        if (useTcpMode && tcpContainerPort.HasValue && tcpHostPort.HasValue)
+        {
+            hostConfig.PortBindings = new Dictionary<string, IList<PortBinding>>
+            {
+                [$"{tcpContainerPort.Value}/tcp"] = new List<PortBinding>
+                {
+                    new() { HostPort = tcpHostPort.Value.ToString(), HostIP = "127.0.0.1" }
+                }
+            };
+        }
 
         var createResponse = await _dockerClient.Containers.CreateContainerAsync(
             new CreateContainerParameters
@@ -367,7 +392,10 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
                 Image = imageName,
                 Cmd = cmd,
                 Env = env,
-                HostConfig = hostConfig
+                HostConfig = hostConfig,
+                ExposedPorts = useTcpMode && tcpContainerPort.HasValue
+                    ? new Dictionary<string, EmptyStruct> { [$"{tcpContainerPort.Value}/tcp"] = default }
+                    : null
             },
             cancellationToken);
 
@@ -455,41 +483,43 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
             Browser = browser,
             LastSeenAt = DateTime.UtcNow,
             NetworkDiagnostics = networkDiagnostics,
-            SocketPath = socketPath
+            SocketPath = useTcpMode ? null : socketPath
         };
 
-        // Create socket daemon client
-        var socketClient = new SocketDaemonClient(socketPath, _logger as ILogger<SocketDaemonClient>);
+        // Create daemon client
+        IDaemonClient daemonClient = useTcpMode && tcpHostPort.HasValue
+            ? new TcpDaemonClient(GetTcpHost(), tcpHostPort.Value, _logger as ILogger<TcpDaemonClient>)
+            : new SocketDaemonClient(socketPath, _logger as ILogger<SocketDaemonClient>);
 
         // Wire up socket events to session handlers
-        socketClient.OnCredentialChallenge += async challenge =>
+        daemonClient.OnCredentialChallenge += async challenge =>
         {
             await HandleSocketCredentialChallengeAsync(session, challenge);
         };
-        socketClient.OnStatusUpdate += async status =>
+        daemonClient.OnStatusUpdate += async status =>
         {
             await HandleStatusChangeFromSocketAsync(session, status);
         };
-        socketClient.OnProgressUpdate += async progress =>
+        daemonClient.OnProgressUpdate += async progress =>
         {
             await HandleProgressChangeFromSocketAsync(session, progress);
         };
-        socketClient.OnError += async error =>
+        daemonClient.OnError += async error =>
         {
             _logger.LogWarning("Socket error for session {SessionId}: {Error}", sessionId, error);
             await Task.CompletedTask;
         };
-        socketClient.OnDisconnected += async () =>
+        daemonClient.OnDisconnected += async () =>
         {
             _logger.LogWarning("Socket disconnected for session {SessionId}", sessionId);
             await Task.CompletedTask;
         };
 
-        // Connect to socket (daemon should create it shortly after starting)
-        await socketClient.ConnectAsync(cancellationToken);
-        _logger.LogInformation("Connected to daemon socket for session {SessionId}", sessionId);
+        // Connect to daemon (socket or TCP)
+        await daemonClient.ConnectAsync(cancellationToken);
+        _logger.LogInformation("Connected to daemon for session {SessionId}", sessionId);
 
-        session.Client = socketClient;
+        session.Client = daemonClient;
 
         _sessions[sessionId] = session;
 
@@ -575,19 +605,35 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         {
             _logger.LogInformation("Received challenge for session {SessionId}: Type={Type}, Id={ChallengeId}",
                 sessionId, challenge.CredentialType, challenge.ChallengeId);
-        }
-        else
-        {
-            // Log what files exist now
-            if (Directory.Exists(session.ResponsesDir))
-            {
-                var files = Directory.GetFiles(session.ResponsesDir);
-                _logger.LogWarning("No challenge received. Files in responses dir: {Files}",
-                    files.Length > 0 ? string.Join(", ", files.Select(Path.GetFileName)) : "(empty)");
-            }
+            return challenge;
         }
 
-        return challenge;
+        // If login is already in progress, a challenge might already be queued.
+        var pendingChallenge = await session.Client.WaitForChallengeAsync(TimeSpan.FromSeconds(10), cancellationToken);
+        if (pendingChallenge != null)
+        {
+            _logger.LogInformation("Received queued challenge for session {SessionId}: Type={Type}, Id={ChallengeId}",
+                sessionId, pendingChallenge.CredentialType, pendingChallenge.ChallengeId);
+            return pendingChallenge;
+        }
+
+        var status = await session.Client.GetStatusAsync(cancellationToken);
+        if (status?.Status == "logged-in")
+        {
+            session.AuthState = DaemonAuthState.Authenticated;
+            await NotifyAuthStateChangeAsync(session);
+            _logger.LogInformation("Session {SessionId} already authenticated - no challenge needed", sessionId);
+            return null;
+        }
+
+        if (Directory.Exists(session.ResponsesDir))
+        {
+            var files = Directory.GetFiles(session.ResponsesDir);
+            _logger.LogWarning("No challenge received. Files in responses dir: {Files}",
+                files.Length > 0 ? string.Join(", ", files.Select(Path.GetFileName)) : "(empty)");
+        }
+
+        throw new InvalidOperationException("No challenge received from daemon. Ensure the prefill daemon image supports TCP on Windows.");
     }
 
     /// <summary>
@@ -1691,6 +1737,43 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
         return Path.Combine(_pathResolver.GetDataDirectory(), "prefill-sessions");
     }
 
+    private bool ShouldUseTcpMode()
+    {
+        var configured = _configuration.GetValue<bool?>("Prefill:UseTcp");
+        if (configured.HasValue)
+        {
+            return configured.Value;
+        }
+
+        return OperatingSystem.IsWindows();
+    }
+
+    private int GetContainerTcpPort()
+    {
+        var configured = _configuration.GetValue<int?>("Prefill:TcpPort");
+        return configured.HasValue && configured.Value > 0 ? configured.Value : DefaultTcpPort;
+    }
+
+    private int GetHostTcpPort()
+    {
+        var configured = _configuration.GetValue<int?>("Prefill:HostTcpPort");
+        if (configured.HasValue && configured.Value > 0)
+        {
+            return configured.Value;
+        }
+
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return port;
+    }
+
+    private string GetTcpHost()
+    {
+        return _configuration["Prefill:TcpHost"] ?? "127.0.0.1";
+    }
+
     private string? _cachedHostDataPath;
 
     private async Task<string> GetHostDataPathAsync(CancellationToken cancellationToken = default)
@@ -2279,372 +2362,3 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 /// <summary>
 /// Result of a DNS resolution test for a single domain
 /// </summary>
-public class DnsTestResult
-{
-    public string Domain { get; set; } = string.Empty;
-    public string? ResolvedIp { get; set; }
-    public bool IsPrivateIp { get; set; }
-    public bool Success { get; set; }
-    public string? Error { get; set; }
-}
-
-/// <summary>
-/// Network diagnostics results for a prefill container
-/// </summary>
-public class NetworkDiagnostics
-{
-    public bool InternetConnectivity { get; set; }
-    public string? InternetConnectivityError { get; set; }
-    public List<DnsTestResult> DnsResults { get; set; } = new();
-    public DateTime TestedAt { get; set; } = DateTime.UtcNow;
-
-    /// <summary>
-    /// True if the container is using host networking mode.
-    /// When using host networking with transparent proxy setups, DNS may resolve to public IPs
-    /// but traffic still routes through lancache via router-level interception.
-    /// </summary>
-    public bool UseHostNetworking { get; set; }
-}
-
-public class DaemonSession
-{
-    public string Id { get; init; } = string.Empty;
-    public string UserId { get; init; } = string.Empty;
-    public string ContainerId { get; set; } = string.Empty;
-    public string ContainerName { get; set; } = string.Empty;
-    public string CommandsDir { get; init; } = string.Empty;
-    public string ResponsesDir { get; init; } = string.Empty;
-    public DaemonSessionStatus Status { get; set; } = DaemonSessionStatus.Active;
-    public DaemonAuthState AuthState { get; set; } = DaemonAuthState.NotAuthenticated;
-    public bool IsPrefilling { get; set; }
-    public DateTime? PrefillStartedAt { get; set; }
-    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
-    public DateTime? EndedAt { get; set; }
-    public DateTime ExpiresAt { get; init; }
-
-    /// <summary>
-    /// The Steam username (set when user provides username credential).
-    /// Used for ban display and admin visibility.
-    /// </summary>
-    public string? SteamUsername { get; set; }
-
-    /// <summary>
-    /// Current prefill progress info for admin visibility
-    /// </summary>
-    public uint CurrentAppId { get; set; }
-    public string? CurrentAppName { get; set; }
-
-    /// <summary>
-    /// Previous app ID for tracking history transitions
-    /// </summary>
-    public uint PreviousAppId { get; set; }
-    public string? PreviousAppName { get; set; }
-
-    /// <summary>
-    /// Total bytes transferred during this session (cumulative across all games)
-    /// This includes completed games + current game progress for real-time display
-    /// </summary>
-    public long TotalBytesTransferred { get; set; }
-    
-    /// <summary>
-    /// Bytes from completed games (used to calculate TotalBytesTransferred)
-    /// </summary>
-    public long CompletedBytesTransferred { get; set; }
-
-    /// <summary>
-    /// Current app's bytes downloaded (tracked before transition to record final values)
-    /// </summary>
-    public long CurrentBytesDownloaded { get; set; }
-    public long CurrentTotalBytes { get; set; }
-
-    /// <summary>
-    /// Client connection info for admin visibility
-    /// </summary>
-    public string? IpAddress { get; init; }
-    public string? UserAgent { get; init; }
-    public string? OperatingSystem { get; init; }
-    public string? Browser { get; init; }
-    public DateTime LastSeenAt { get; set; } = DateTime.UtcNow;
-
-    /// <summary>
-    /// Network diagnostics results (internet connectivity and DNS resolution tests)
-    /// </summary>
-    public NetworkDiagnostics? NetworkDiagnostics { get; set; }
-
-    /// <summary>
-    /// Last prefill completion result - used for background completion detection
-    /// when client was disconnected during prefill
-    /// </summary>
-    public DateTime? LastPrefillCompletedAt { get; set; }
-    public int? LastPrefillDurationSeconds { get; set; }
-    public string? LastPrefillStatus { get; set; }
-
-    public IDaemonClient Client { get; set; } = null!;
-
-    /// <summary>
-    /// Path to the daemon's Unix socket.
-    /// </summary>
-    public string? SocketPath { get; set; }
-    public HashSet<string> SubscribedConnections { get; } = new();
-    public CancellationTokenSource CancellationTokenSource { get; } = new();
-}
-
-public enum DaemonSessionStatus
-{
-    Active,
-    Terminated,
-    Error
-}
-
-public enum DaemonAuthState
-{
-    NotAuthenticated,
-    LoggingIn,
-    UsernameRequired,
-    PasswordRequired,
-    TwoFactorRequired,
-    SteamGuardRequired,
-    DeviceConfirmationRequired,
-    Authenticated
-}
-
-/// <summary>
-/// DTO for daemon session information
-/// </summary>
-public class DaemonSessionDto
-{
-    public string Id { get; set; } = string.Empty;
-    public string UserId { get; set; } = string.Empty;
-    public string ContainerName { get; set; } = string.Empty;
-    public string Status { get; set; } = string.Empty;
-    public string AuthState { get; set; } = string.Empty;
-    public bool IsPrefilling { get; set; }
-    public DateTime CreatedAt { get; set; }
-    public DateTime? EndedAt { get; set; }
-    public DateTime ExpiresAt { get; set; }
-    public int TimeRemainingSeconds { get; set; }
-
-    // Client info for admin visibility
-    public string? IpAddress { get; set; }
-    public string? OperatingSystem { get; set; }
-    public string? Browser { get; set; }
-    public DateTime LastSeenAt { get; set; }
-    public string? SteamUsername { get; set; }
-
-    // Current prefill progress info for admin visibility
-    public uint CurrentAppId { get; set; }
-    public string? CurrentAppName { get; set; }
-
-    /// <summary>
-    /// Total bytes transferred during this session (cumulative across all games)
-    /// </summary>
-    public long TotalBytesTransferred { get; set; }
-
-    /// <summary>
-    /// Network diagnostics results (internet connectivity and DNS resolution tests)
-    /// </summary>
-    public NetworkDiagnostics? NetworkDiagnostics { get; set; }
-
-    /// <summary>
-    /// Last prefill completion result - for background completion detection
-    /// </summary>
-    public DateTime? LastPrefillCompletedAt { get; set; }
-    public int? LastPrefillDurationSeconds { get; set; }
-    public string? LastPrefillStatus { get; set; }
-
-    public static DaemonSessionDto FromSession(DaemonSession session)
-    {
-        return new DaemonSessionDto
-        {
-            Id = session.Id,
-            UserId = session.UserId,
-            ContainerName = session.ContainerName,
-            Status = session.Status.ToString(),
-            AuthState = session.AuthState.ToString(),
-            IsPrefilling = session.IsPrefilling,
-            CreatedAt = session.CreatedAt,
-            EndedAt = session.EndedAt,
-            ExpiresAt = session.ExpiresAt,
-            TimeRemainingSeconds = Math.Max(0, (int)(session.ExpiresAt - DateTime.UtcNow).TotalSeconds),
-            IpAddress = session.IpAddress,
-            OperatingSystem = session.OperatingSystem,
-            Browser = session.Browser,
-            LastSeenAt = session.LastSeenAt,
-            SteamUsername = session.SteamUsername,
-            CurrentAppId = session.CurrentAppId,
-            CurrentAppName = session.CurrentAppName,
-            TotalBytesTransferred = session.TotalBytesTransferred,
-            NetworkDiagnostics = session.NetworkDiagnostics,
-            LastPrefillCompletedAt = session.LastPrefillCompletedAt,
-            LastPrefillDurationSeconds = session.LastPrefillDurationSeconds,
-            LastPrefillStatus = session.LastPrefillStatus
-        };
-    }
-}
-
-/// <summary>
-/// DTO for last prefill result - used for background completion detection
-/// </summary>
-public class LastPrefillResultDto
-{
-    public string Status { get; set; } = string.Empty;
-    public DateTime CompletedAt { get; set; }
-    public int DurationSeconds { get; set; }
-}
-
-/// <summary>
-/// Prefill progress update from the daemon.
-/// This class is used for SignalR serialization to the frontend - do NOT add JsonPropertyName attributes.
-/// </summary>
-public class PrefillProgress
-{
-    public string State { get; set; } = "idle";
-    public string? Message { get; set; }
-    public uint CurrentAppId { get; set; }
-    public string? CurrentAppName { get; set; }
-    public long TotalBytes { get; set; }
-    public long BytesDownloaded { get; set; }
-    public double PercentComplete { get; set; }
-    public double BytesPerSecond { get; set; }
-    public double ElapsedSeconds { get; set; }
-    public string? Result { get; set; }
-    public string? ErrorMessage { get; set; }
-    public int TotalApps { get; set; }
-    public int UpdatedApps { get; set; }
-    public int AlreadyUpToDate { get; set; }
-    public int FailedApps { get; set; }
-    public long TotalBytesTransferred { get; set; }
-    public double TotalTimeSeconds { get; set; }
-    public DateTime UpdatedAt { get; set; }
-
-    /// <summary>
-    /// Depot manifest info for cache tracking - sent with app_completed events.
-    /// </summary>
-    public List<DepotManifestProgressInfo>? Depots { get; set; }
-
-    /// <summary>
-    /// Creates a PrefillProgress from the daemon's JSON format (snake_case).
-    /// Internal because it uses the internal DaemonPrefillProgressDto type.
-    /// </summary>
-    internal static PrefillProgress FromDaemonJson(DaemonPrefillProgressDto dto)
-    {
-        return new PrefillProgress
-        {
-            State = dto.State ?? "idle",
-            Message = dto.Message,
-            CurrentAppId = dto.CurrentAppId,
-            CurrentAppName = dto.CurrentAppName,
-            TotalBytes = dto.TotalBytes,
-            BytesDownloaded = dto.BytesDownloaded,
-            PercentComplete = dto.PercentComplete,
-            BytesPerSecond = dto.BytesPerSecond,
-            ElapsedSeconds = dto.ElapsedSeconds,
-            Result = dto.Result,
-            ErrorMessage = dto.ErrorMessage,
-            TotalApps = dto.TotalApps,
-            UpdatedApps = dto.UpdatedApps,
-            AlreadyUpToDate = dto.AlreadyUpToDate,
-            FailedApps = dto.FailedApps,
-            TotalBytesTransferred = dto.TotalBytesTransferred,
-            TotalTimeSeconds = dto.TotalTimeSeconds,
-            UpdatedAt = dto.UpdatedAt,
-            Depots = dto.Depots?.Select(d => new DepotManifestProgressInfo
-            {
-                DepotId = d.DepotId,
-                ManifestId = d.ManifestId,
-                TotalBytes = d.TotalBytes
-            }).ToList()
-        };
-    }
-}
-
-/// <summary>
-/// Depot manifest info for cache tracking in progress updates.
-/// </summary>
-public class DepotManifestProgressInfo
-{
-    public uint DepotId { get; set; }
-    public ulong ManifestId { get; set; }
-    public long TotalBytes { get; set; }
-}
-
-/// <summary>
-/// Internal DTO for deserializing the daemon's prefill_progress.json file.
-/// Uses JsonPropertyName attributes to map camelCase JSON to PascalCase properties.
-/// The daemon writes camelCase (e.g., currentAppId, bytesDownloaded, totalBytes).
-/// This class is NOT used for SignalR - only for file deserialization.
-/// </summary>
-internal class DaemonPrefillProgressDto
-{
-    [JsonPropertyName("state")]
-    public string? State { get; set; }
-
-    [JsonPropertyName("message")]
-    public string? Message { get; set; }
-
-    [JsonPropertyName("currentAppId")]
-    public uint CurrentAppId { get; set; }
-
-    [JsonPropertyName("currentAppName")]
-    public string? CurrentAppName { get; set; }
-
-    [JsonPropertyName("totalBytes")]
-    public long TotalBytes { get; set; }
-
-    [JsonPropertyName("bytesDownloaded")]
-    public long BytesDownloaded { get; set; }
-
-    [JsonPropertyName("percentComplete")]
-    public double PercentComplete { get; set; }
-
-    [JsonPropertyName("bytesPerSecond")]
-    public double BytesPerSecond { get; set; }
-
-    [JsonPropertyName("elapsedSeconds")]
-    public double ElapsedSeconds { get; set; }
-
-    [JsonPropertyName("result")]
-    public string? Result { get; set; }
-
-    [JsonPropertyName("errorMessage")]
-    public string? ErrorMessage { get; set; }
-
-    [JsonPropertyName("totalApps")]
-    public int TotalApps { get; set; }
-
-    [JsonPropertyName("updatedApps")]
-    public int UpdatedApps { get; set; }
-
-    [JsonPropertyName("alreadyUpToDate")]
-    public int AlreadyUpToDate { get; set; }
-
-    [JsonPropertyName("failedApps")]
-    public int FailedApps { get; set; }
-
-    [JsonPropertyName("totalBytesTransferred")]
-    public long TotalBytesTransferred { get; set; }
-
-    [JsonPropertyName("totalTimeSeconds")]
-    public double TotalTimeSeconds { get; set; }
-
-    [JsonPropertyName("updatedAt")]
-    public DateTime UpdatedAt { get; set; }
-
-    [JsonPropertyName("depots")]
-    public List<DaemonDepotManifestDto>? Depots { get; set; }
-}
-
-/// <summary>
-/// Internal DTO for deserializing depot manifest info from the daemon.
-/// </summary>
-internal class DaemonDepotManifestDto
-{
-    [JsonPropertyName("depotId")]
-    public uint DepotId { get; set; }
-
-    [JsonPropertyName("manifestId")]
-    public ulong ManifestId { get; set; }
-
-    [JsonPropertyName("totalBytes")]
-    public long TotalBytes { get; set; }
-}
