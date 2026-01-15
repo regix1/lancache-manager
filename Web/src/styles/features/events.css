@@ -1,8 +1,8 @@
 /* ==============================================
- * EVENTS - Active event border and animations
+ * COMPONENTS - Event frame (active event border)
  * ============================================== */
 
-/* Breathing animation for active event border */
+/* Breathing animation for event frames */
 @keyframes eventBorderBreathing {
   0%, 100% {
     opacity: 0.6;
@@ -14,6 +14,15 @@
   }
 }
 
+@keyframes eventBorderBreathingLite {
+  0%, 100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 /* Moving dashes animation for SVG borders */
 @keyframes eventBorderDash {
   to {
@@ -21,26 +30,42 @@
   }
 }
 
-/* 
- * The ActiveEventBorder component uses inline styles for critical positioning
- * to ensure the border does NOT affect layout. These classes are kept for
- * any additional styling needs.
- */
-
-/* Container for the event border wrapper */
-.active-event-border-wrapper {
-  /* isolation: isolate is set inline for stacking context */
+/* Content wrapper */
+.event-frame-content {
+  margin-top: var(--event-frame-top-margin, 16px);
 }
 
-/* The dashed border frame - purely decorative */
-.active-event-border-frame {
-  transition: opacity 0.3s ease;
+/* Frame overlay rendered via portal */
+.event-frame-overlay {
+  position: absolute;
+  top: var(--event-frame-top);
+  left: var(--event-frame-left);
+  width: var(--event-frame-width);
+  height: var(--event-frame-height);
+  border-radius: var(--event-frame-radius, 12px);
+  pointer-events: none;
+  z-index: 40;
+  animation: eventBorderBreathing 3s ease-in-out infinite;
+}
+
+/* SVG border elements */
+.event-frame-svg {
+  position: absolute;
+  inset: 0;
+}
+
+.event-frame-stroke {
+  stroke: var(--event-frame-color, currentColor);
+  stroke-width: var(--event-frame-stroke-width, 2px);
+  stroke-dasharray: var(--event-frame-dash-array, 10 6);
+  stroke-linecap: round;
+  animation: eventBorderDash 8s linear infinite;
 }
 
 /* Event badge container positioning */
-.active-event-badge-container {
+.event-frame-badge-container {
   position: absolute;
-  top: -12px;
+  top: calc(-1 * var(--event-frame-badge-offset, 12px));
   left: 50%;
   transform: translateX(-50%);
   pointer-events: none;
@@ -48,35 +73,69 @@
   white-space: nowrap;
 }
 
-.active-event-badge {
+.event-frame-badge-bg {
+  position: absolute;
+  inset: -4px;
+  border-radius: 9999px;
+  background-color: var(--event-frame-badge-bg, var(--theme-bg-primary));
+}
+
+.event-frame-badge {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--event-frame-badge-gap, 0.375rem);
+  padding: var(--event-frame-badge-padding-y, 0.375rem) var(--event-frame-badge-padding-x, 1rem);
+  border-radius: 9999px;
+  font-size: var(--event-frame-badge-font-size, 0.75rem);
+  font-weight: 600;
+  color: var(--event-frame-color, currentColor);
+  border: var(--event-frame-badge-border-width, 2px) dashed var(--event-frame-color, currentColor);
+  animation: eventBorderBreathing 3s ease-in-out infinite;
   max-width: 100%;
 }
 
-.active-event-badge-name {
+.event-frame-badge-dot {
+  width: var(--event-frame-badge-dot-size, 0.5rem);
+  height: var(--event-frame-badge-dot-size, 0.5rem);
+  border-radius: 9999px;
+  background-color: var(--event-frame-color, currentColor);
+}
+
+.event-frame-badge-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
 }
 
-/* SVG border elements */
-.active-event-border-svg {
-  position: absolute;
-  inset: 0;
+.event-frame-badge-tag {
+  font-size: 0.625rem;
+  opacity: 0.7;
 }
 
-.active-event-border-stroke {
-  stroke-linecap: round;
-  animation: eventBorderDash 8s linear infinite;
-}
+/* Mobile perf: lower animation cost on coarse pointers */
+@media (hover: none) and (pointer: coarse) {
+  .event-frame-overlay,
+  .event-frame-badge {
+    animation: eventBorderBreathingLite 3s ease-in-out infinite;
+  }
 
-/* Keep badge centered on all viewports */
+  .event-frame-stroke {
+    animation: none;
+  }
+
+  .event-frame-badge-dot {
+    animation: none !important;
+  }
+}
 
 /* Reduced motion support */
 @media (prefers-reduced-motion: reduce) {
-  .active-event-border-overlay,
-  .active-event-border-stroke,
-  .active-event-badge {
+  .event-frame-overlay,
+  .event-frame-stroke,
+  .event-frame-badge,
+  .event-frame-badge-dot {
     animation: none !important;
   }
 }
