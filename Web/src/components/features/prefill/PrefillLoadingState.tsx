@@ -2,10 +2,15 @@ import { Card, CardContent } from '../../ui/Card';
 import { Loader2 } from 'lucide-react';
 
 interface PrefillLoadingStateProps {
-  isInitializing: boolean;
+  status: 'checking' | 'creating';
 }
 
-export function PrefillLoadingState({ isInitializing }: PrefillLoadingStateProps) {
+export function PrefillLoadingState({ status }: PrefillLoadingStateProps) {
+  const title =
+    status === 'creating'
+      ? 'Creating a new prefill session...'
+      : 'Looking for an active prefill session...';
+
   return (
     <div className="animate-fade-in">
       <Card className="max-w-2xl mx-auto">
@@ -16,7 +21,7 @@ export function PrefillLoadingState({ isInitializing }: PrefillLoadingStateProps
             </div>
             <div className="text-center">
               <p className="text-lg font-medium text-themed-primary">
-                {isInitializing ? 'Checking for existing session...' : 'Creating session...'}
+                {title}
               </p>
               <p className="text-sm text-themed-muted mt-1">This may take a moment</p>
             </div>

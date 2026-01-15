@@ -243,20 +243,20 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       <HelpSection title="Deletion Methods">
         <div className="space-y-1.5">
           <HelpDefinition term="Preserve" termColor="blue">
-            Deletes files individually, keeps directory structure intact
+            Deletes files one by one and keeps the folder structure intact
           </HelpDefinition>
           <HelpDefinition term="Remove All" termColor="green">
-            Removes entire directories at once — fastest for local storage
+            Deletes entire directories at once, fastest for local storage
           </HelpDefinition>
           <HelpDefinition term="Rsync" termColor="purple">
-            Uses rsync --delete — reliable for network storage (NFS/SMB)
+            Uses rsync --delete, safest for network storage (NFS/SMB)
           </HelpDefinition>
         </div>
       </HelpSection>
 
       <HelpNote type="warning">
-        Clearing cache deletes all cached game files.
-        Games will need to redownload content.
+        Clearing the cache deletes all cached game files.
+        Clients will need to download content again.
       </HelpNote>
     </HelpPopover>
   );

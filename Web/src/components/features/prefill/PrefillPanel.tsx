@@ -511,8 +511,10 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     setEstimatedSize({ bytes: 0, loading: false });
   }, []);
 
+  const isLoadingSession = signalR.isInitializing || signalR.isCreating;
+
   // No session state - show start screen
-  if (!signalR.session && !signalR.isInitializing) {
+  if (!signalR.session && !isLoadingSession) {
     return (
       <>
         <SteamAuthModal
@@ -533,8 +535,9 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   }
 
   // Loading/Creating state
-  if (signalR.isInitializing) {
-    return <PrefillLoadingState isInitializing={true} />;
+  if (isLoadingSession) {
+    const status = signalR.isCreating ? 'creating' : 'checking';
+    return <PrefillLoadingState status={status} />;
   }
 
   // Active session - full interface

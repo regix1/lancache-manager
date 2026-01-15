@@ -68,68 +68,58 @@ const DEFAULT_CARD_ORDER: string[] = [
 const StatTooltips: Record<string, React.ReactNode> = {
   totalCache: (
     <div className="space-y-1.5">
-      <HelpDefinition term="Capacity" termColor="blue">Total storage available for caching</HelpDefinition>
-      <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
-        Based on your configured cache drive size
-      </div>
+      <HelpDefinition term="What it shows" termColor="blue">
+        Total cache capacity configured for this instance, based on your cache drive size.
+      </HelpDefinition>
     </div>
   ),
   usedSpace: (
     <div className="space-y-1.5">
-      <HelpDefinition term="Live" termColor="green">Current cache size on disk</HelpDefinition>
-      <HelpDefinition term="Historical" termColor="blue">Average from periodic snapshots</HelpDefinition>
-      <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
-        Snapshots record cache size hourly for historical views
-      </div>
+      <HelpDefinition term="What it shows" termColor="blue">
+        Live is current size; Historical is the hourly average from snapshots.
+      </HelpDefinition>
     </div>
   ),
   bandwidthSaved: (
     <div className="space-y-1.5">
-      <HelpDefinition term="Saved" termColor="green">Data served from cache instead of internet</HelpDefinition>
-      <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
-        Higher values mean more efficient caching
-      </div>
+      <HelpDefinition term="Saved" termColor="green">
+        Data served from cache instead of the internet. Higher values mean better caching efficiency.
+      </HelpDefinition>
     </div>
   ),
   addedToCache: (
     <div className="space-y-1.5">
-      <HelpDefinition term="New Data" termColor="purple">Content downloaded and stored in cache</HelpDefinition>
-      <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
-        This data will be served locally for future requests
-      </div>
+      <HelpDefinition term="New Data" termColor="purple">
+        Content downloaded and stored in the cache, available for future requests.
+      </HelpDefinition>
     </div>
   ),
   totalServed: (
     <div className="space-y-1.5">
-      <HelpDefinition term="Served" termColor="blue">Total bytes delivered to all clients</HelpDefinition>
-      <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
-        Includes both cache hits and new downloads
-      </div>
+      <HelpDefinition term="Served" termColor="blue">
+        Total data delivered to all clients, including cache hits and new downloads.
+      </HelpDefinition>
     </div>
   ),
   activeDownloads: (
     <div className="space-y-1.5">
-      <HelpDefinition term="Active" termColor="orange">Downloads currently in progress</HelpDefinition>
-      <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
-        Only available in Live mode
-      </div>
+      <HelpDefinition term="Active" termColor="orange">
+        Downloads currently in progress (Live only); hidden in historical views.
+      </HelpDefinition>
     </div>
   ),
   activeClients: (
     <div className="space-y-1.5">
-      <HelpDefinition term="Active" termColor="orange">Clients currently downloading</HelpDefinition>
-      <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
-        Only available in Live mode
-      </div>
+      <HelpDefinition term="Active" termColor="orange">
+        Clients currently downloading (Live only); hidden in historical views.
+      </HelpDefinition>
     </div>
   ),
   cacheHitRatio: (
     <div className="space-y-1.5">
-      <HelpDefinition term="High %" termColor="green">More data served from cache</HelpDefinition>
-      <HelpDefinition term="Low %" termColor="orange">More data fetched from internet</HelpDefinition>
-      <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
-        Higher ratios mean better cache efficiency
-      </div>
+      <HelpDefinition term="Hit Ratio" termColor="green">
+        Percent of data served from cache; higher ratios mean better efficiency.
+      </HelpDefinition>
     </div>
   )
 };
@@ -138,38 +128,30 @@ const StatTooltips: Record<string, React.ReactNode> = {
 const TrendHelpContent: Record<string, React.ReactNode> = {
   bandwidthSaved: (
     <div className="space-y-1.5">
-      <HelpDefinition term="↑ Up" termColor="green">More bandwidth saved recently</HelpDefinition>
-      <HelpDefinition term="↓ Down" termColor="orange">Less bandwidth saved recently</HelpDefinition>
-      <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
-        Compares recent activity to earlier in the selected time period
-      </div>
+      <HelpDefinition term="Trend" termColor="green">
+        ↑ means more saved recently; ↓ means less saved recently, compared to earlier in the selected time range.
+      </HelpDefinition>
     </div>
   ),
   addedToCache: (
     <div className="space-y-1.5">
-      <HelpDefinition term="↑ Up" termColor="green">More new content being cached</HelpDefinition>
-      <HelpDefinition term="↓ Down" termColor="orange">Less new content being cached</HelpDefinition>
-      <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
-        Compares recent activity to earlier in the selected time period
-      </div>
+      <HelpDefinition term="Trend" termColor="green">
+        ↑ means more cached recently; ↓ means less cached recently, compared to earlier in the selected time range.
+      </HelpDefinition>
     </div>
   ),
   totalServed: (
     <div className="space-y-1.5">
-      <HelpDefinition term="↑ Up" termColor="green">More data served recently</HelpDefinition>
-      <HelpDefinition term="↓ Down" termColor="orange">Less data served recently</HelpDefinition>
-      <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
-        Compares recent activity to earlier in the selected time period
-      </div>
+      <HelpDefinition term="Trend" termColor="green">
+        ↑ means more served recently; ↓ means less served recently, compared to earlier in the selected time range.
+      </HelpDefinition>
     </div>
   ),
   cacheHitRatio: (
     <div className="space-y-1.5">
-      <HelpDefinition term="↑ Up" termColor="green">Hit ratio improving</HelpDefinition>
-      <HelpDefinition term="↓ Down" termColor="orange">Hit ratio declining</HelpDefinition>
-      <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
-        Shows change in percentage points (not percent change)
-      </div>
+      <HelpDefinition term="Trend" termColor="green">
+        ↑ improving; ↓ declining. Shows change in percentage points.
+      </HelpDefinition>
     </div>
   ),
 };

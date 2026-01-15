@@ -627,24 +627,24 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
               <HelpSection title="Scan Modes">
                 <div className="space-y-1.5">
                   <HelpDefinition term="Incremental" termColor="blue">
-                    Fetch only changed apps — fast updates
+                    Checks only changed apps for fast updates
                   </HelpDefinition>
                   <HelpDefinition term="Full" termColor="green">
-                    Fetch all ~300k apps — slower but complete
+                    Fetches all apps (about 300k) for a complete rebuild
                   </HelpDefinition>
                   <HelpDefinition term="GitHub" termColor="purple">
-                    Download pre-built depot data (290k+ depots, updated hourly)
+                    Downloads prebuilt depot data (updated hourly)
                   </HelpDefinition>
                 </div>
               </HelpSection>
 
               <HelpSection title="Settings" variant="subtle">
                 Automatic Schedule runs in the background at your chosen interval.
-                Apply Now uses the selected source for immediate updates.
+                Apply Now runs the selected mode immediately.
               </HelpSection>
 
               <HelpNote type="info">
-                GitHub mode uses a fixed 30-minute interval to stay in sync with hourly updates.
+                GitHub mode checks every 30 minutes to stay in sync with hourly updates.
               </HelpNote>
             </HelpPopover>
           }

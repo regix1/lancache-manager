@@ -570,21 +570,21 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       <HelpSection title="Removal">
         <div className="space-y-1.5">
           <HelpDefinition term="Game" termColor="green">
-            Removes cache files, log entries, and database records
+            Removes cache files, log entries, and database records for a game
           </HelpDefinition>
           <HelpDefinition term="Service" termColor="purple">
-            Cleans up non-game caches (Riot, Blizzard, Epic, WSUS)
+            Removes non-game caches (Riot, Blizzard, Epic, WSUS)
           </HelpDefinition>
         </div>
       </HelpSection>
 
       <HelpSection title="How It Works" variant="subtle">
-        Scans database for games and services, verifies cache files exist on disk,
-        then displays size and file count for each.
+        Scans the database for games and services, verifies cache files on disk,
+        then shows size and file count for each.
       </HelpSection>
 
       <HelpNote type="info">
-        Access logs must be processed first to populate the database.
+        Process access logs first so the database has entries to scan.
       </HelpNote>
     </HelpPopover>
   );

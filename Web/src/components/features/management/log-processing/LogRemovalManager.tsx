@@ -232,19 +232,19 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
   const helpContent = (
     <HelpPopover position="left" width={320}>
       <HelpSection title="What This Does">
-        Removes entries for a specific service from your access.log files.
-        This reduces log file size and can improve processing performance.
+        Removes access.log entries for a selected service to reduce log size
+        and speed up processing.
       </HelpSection>
 
       <HelpSection title="What It Affects" variant="subtle">
         <ul className="list-disc list-inside text-sm space-y-1">
           <li>Log files (entries removed)</li>
-          <li>Database records (cleaned up)</li>
+          <li>Database records (related rows cleaned up)</li>
         </ul>
       </HelpSection>
 
       <HelpNote type="info">
-        Cache files remain intact - only log entries are removed.
+        Cache files stay on disk; only log data is removed.
       </HelpNote>
     </HelpPopover>
   );

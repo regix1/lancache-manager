@@ -247,7 +247,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
       <HelpSection title="Import Types">
         <div className="space-y-1.5">
           <HelpDefinition term="DeveLanCacheUI_Backend" termColor="purple">
-            DeveLanCache monitoring system database
+            Database from the DeveLanCache monitoring system
           </HelpDefinition>
           <HelpDefinition term="LancacheManager" termColor="blue">
             LancacheManager database backup
@@ -258,21 +258,21 @@ const DataImporter: React.FC<DataImporterProps> = ({
       <HelpSection title="Input Methods">
         <div className="space-y-1.5">
           <HelpDefinition term="Browse" termColor="blue">
-            Navigate to select your SQLite database file
+            Choose a SQLite database file from disk
           </HelpDefinition>
           <HelpDefinition term="Manual" termColor="green">
-            Paste the file path directly
+            Paste the full file path
           </HelpDefinition>
         </div>
       </HelpSection>
 
       <HelpSection title="Compatibility" variant="subtle">
-        Select the correct import type for your database.
-        Mount external databases as Docker volumes.
+        Pick the import type that matches your database.
+        If the database is outside the container, mount it as a Docker volume.
       </HelpSection>
 
       <HelpNote type="warning">
-        Stop the external application before importing to avoid database locks.
+        Stop the source application before importing to avoid database locks.
       </HelpNote>
     </HelpPopover>
   );

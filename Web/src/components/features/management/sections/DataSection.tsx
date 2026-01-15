@@ -285,16 +285,16 @@ const DataSection: React.FC<DataSectionProps> = ({
                     Raw nginx access log records used for analytics
                   </HelpDefinition>
                   <HelpDefinition term="Downloads" termColor="green">
-                    Game download records with statistics and timestamps
+                    Download sessions with stats and timestamps
                   </HelpDefinition>
                   <HelpDefinition term="Depot Mappings" termColor="purple">
-                    Steam depot-to-game associations (also clears game names)
+                    Depot-to-game mappings (also clears cached game names)
                   </HelpDefinition>
                 </div>
               </HelpSection>
 
               <HelpNote type="info">
-                Cached files on disk are never touched — only database records are cleared.
+                Only database records are cleared; cached files on disk are untouched.
               </HelpNote>
             </HelpPopover>
           </div>

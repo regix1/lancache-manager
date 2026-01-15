@@ -138,21 +138,21 @@ const GrafanaEndpoints: React.FC = () => {
             <HelpSection title="Metrics">
               <div className="space-y-1.5">
                 <HelpDefinition term="Cache" termColor="blue">
-                  Capacity, usage, hit/miss bytes, and hit ratio
+                  Capacity, usage, hit and miss bytes, and hit ratio
                 </HelpDefinition>
                 <HelpDefinition term="Activity" termColor="green">
-                  Active downloads, connected clients, per-service counters
+                  Active downloads, connected clients, and per-service counters
                 </HelpDefinition>
               </div>
             </HelpSection>
 
             <HelpSection title="Integration" variant="subtle">
-              Compatible with Prometheus and Grafana JSON datasource plugins.
-              Poll every 10-30 seconds for real-time monitoring.
+              Works with Prometheus and Grafana JSON datasource plugins.
+              Poll every 10-30 seconds for near-real-time monitoring.
             </HelpSection>
 
             <HelpNote type="info">
-              Toggle authentication below or via docker-compose environment.
+              Toggle authentication below or via docker-compose environment variables.
             </HelpNote>
           </HelpPopover>
         </div>

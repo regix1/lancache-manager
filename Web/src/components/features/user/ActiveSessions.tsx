@@ -1021,7 +1021,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     items: [
                       {
                         label: 'Authenticated',
-                        description: 'Full access, no expiration',
+                        description: 'Full access with no automatic expiration',
                         color: 'var(--theme-user-session)'
                       },
                       {
@@ -1041,7 +1041,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                       },
                       {
                         label: 'Delete',
-                        description: 'Remove device from history',
+                        description: 'Remove the device from history',
                         color: 'var(--theme-error)'
                       }
                     ]

@@ -206,21 +206,21 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       <HelpSection title="Log Processing">
         <div className="space-y-1.5">
           <HelpDefinition term="Process" termColor="green">
-            Import log entries into the database from current position
+            Import log entries into the database from the current position
           </HelpDefinition>
           <HelpDefinition term="Reposition" termColor="blue">
-            Set where to start processing: beginning (reprocess all) or end (new entries only)
+            Choose where processing starts: beginning (reprocess all) or end (new entries only)
           </HelpDefinition>
           {hasMultiple && (
             <HelpDefinition term="Datasource" termColor="purple">
-              A named cache/logs directory pair for separate LANCache instances
+              A named cache/logs pair for separate LANCache instances
             </HelpDefinition>
           )}
         </div>
       </HelpSection>
 
       <HelpNote type="info">
-        Rust processor includes duplicate detection to avoid reimporting entries.
+        The Rust processor de-duplicates to avoid reimporting entries.
       </HelpNote>
     </HelpPopover>
   );

@@ -54,6 +54,7 @@ interface UsePrefillSignalRReturn {
   isLoggedIn: boolean;
   setIsLoggedIn: React.Dispatch<React.SetStateAction<boolean>>;
   isInitializing: boolean;
+  isCreating: boolean;
 
   // Progress
   prefillProgress: PrefillProgress | null;
@@ -633,7 +634,8 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     setTimeRemaining,
     isLoggedIn,
     setIsLoggedIn,
-    isInitializing: isInitializing || isCreating,
+    isInitializing,
+    isCreating,
 
     // Progress
     prefillProgress,

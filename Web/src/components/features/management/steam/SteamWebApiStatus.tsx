@@ -166,17 +166,17 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
             <HelpSection title="API Versions">
               <div className="space-y-1.5">
                 <HelpDefinition term="V2" termColor="green">
-                  No API key required — may become unavailable during high load
+                  No API key required, but it can be rate-limited or unavailable
                 </HelpDefinition>
                 <HelpDefinition term="V1" termColor="blue">
-                  Requires API key — provides reliable fallback when V2 is down
+                  Requires an API key and works as a fallback when V2 is down
                 </HelpDefinition>
               </div>
             </HelpSection>
 
             <HelpSection title="API Key" variant="subtle">
-              Optional — only needed if V2 becomes unavailable.
-              Anonymous users can use GitHub download as an alternative.
+              Optional. Only needed if V2 is unavailable.
+              Anonymous users can use the GitHub download instead.
             </HelpSection>
 
             <HelpNote type="info">
@@ -190,7 +190,7 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
               >
                 steamcommunity.com/dev/apikey
               </a>
-              {' '}and approve via Steam Mobile App confirmations.
+              {' '}and approve the confirmation in the Steam Mobile app.
             </HelpNote>
           </HelpPopover>
         </div>

@@ -319,20 +319,20 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   const helpContent = (
     <HelpPopover position="left" width={320}>
       <HelpSection title="What This Does">
-        Identifies cache chunks with 3+ repeated MISS requests, indicating the cached file
-        is corrupted and needs to be redownloaded.
+        Finds cache chunks with 3+ repeated MISS requests, which usually means
+        the cached file is corrupted and must be re-downloaded.
       </HelpSection>
 
       <HelpSection title="What Removal Deletes" variant="subtle">
         <ul className="list-disc list-inside text-sm space-y-1">
-          <li><strong>Cache files</strong> - corrupted chunks from disk</li>
-          <li><strong>Log entries</strong> - related entries from access.log</li>
-          <li><strong>Database records</strong> - download sessions with corruption</li>
+          <li><strong>Cache files</strong> - corrupted chunks on disk</li>
+          <li><strong>Log entries</strong> - related access.log entries</li>
+          <li><strong>Database records</strong> - download sessions marked as corrupt</li>
         </ul>
       </HelpSection>
 
       <HelpNote type="warning">
-        Removal affects both cache and logs - requires write access to both.
+        Removal affects both cache and logs, so write access to both is required.
       </HelpNote>
     </HelpPopover>
   );

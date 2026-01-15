@@ -567,17 +567,17 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                     Built-in themes that cannot be deleted
                   </HelpDefinition>
                   <HelpDefinition term="Custom" termColor="purple">
-                    User-created or imported from the community
+                    Themes you create or import from the community
                   </HelpDefinition>
                 </div>
               </HelpSection>
 
               <HelpSection title="Preview Mode" variant="subtle">
-                Preview themes without committing — click Apply to save your choice permanently.
+                Try a theme temporarily. Click Apply to make it your active theme.
               </HelpSection>
 
               <HelpNote type="info">
-                Theme files use TOML format. Download a sample to see the structure.
+                Theme files use TOML. Download a sample to see the expected structure.
               </HelpNote>
             </HelpPopover>
           </div>

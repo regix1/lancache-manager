@@ -243,27 +243,27 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
           <HelpPopover width={320}>
             <div className="space-y-2">
               <div className="text-[11px] pb-2 border-b border-themed-primary text-themed-secondary">
-                This widget analyzes your download history to show <strong>when downloads typically occur</strong> throughout the day.
+                Shows when downloads usually happen across the day based on your history.
               </div>
               <HelpDefinition term="Data Period">
                 {isMultiDayPeriod
-                  ? `Based on ${daysInPeriod} days of collected data. All statistics are averaged per day to show typical patterns.`
+                  ? `Based on ${daysInPeriod} days of data. Values are averaged per day to show typical patterns.`
                   : 'Based on the selected time range.'}
               </HelpDefinition>
               <HelpDefinition term="Peak Hour" termColor="orange">
                 {isMultiDayPeriod
-                  ? 'The hour of day that historically has the most download activity (averaged across all days).'
+                  ? 'The hour that averages the most download activity across all days.'
                   : 'The hour with the most downloads in the selected period.'}
               </HelpDefinition>
               {isTodayInRange && (
                 <HelpDefinition term="Current Hour" termColor="blue">
                   {isMultiDayPeriod
-                    ? 'Shows how the current hour typically performs based on historical averages, not live activity.'
+                    ? 'Shows the typical activity for the current hour (historical average).'
                     : 'Activity during the current hour.'}
                 </HelpDefinition>
               )}
               <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
-                <strong>Heatmap:</strong> Each block represents an hour (12AM-11PM). Brighter colors indicate more typical activity during that hour.
+                <strong>Heatmap:</strong> Each block is an hour (12AM-11PM). Brighter colors mean more activity.
               </div>
             </div>
           </HelpPopover>

@@ -178,20 +178,20 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
           </h3>
           <HelpPopover width={280}>
             <div className="space-y-1.5">
-              <HelpDefinition term="↑ Up" termColor="green">Cache growing faster recently</HelpDefinition>
-              <HelpDefinition term="↓ Down" termColor="orange">Cache growth slowing down</HelpDefinition>
+              <HelpDefinition term="↑ Up" termColor="green">Cache is growing faster recently</HelpDefinition>
+              <HelpDefinition term="↓ Down" termColor="orange">Cache growth is slowing recently</HelpDefinition>
               {hasDataDeletion && (
                 <HelpDefinition term="Net Growth" termColor="blue">
-                  Accounts for cache that was cleared/deleted
+                  Adjusts for cache that was cleared or deleted
                 </HelpDefinition>
               )}
               <HelpDefinition term="Data Points" termColor="purple">
-                Time buckets with download activity. More points = more granular trend data.
+                Time buckets with download activity. More points mean finer detail.
               </HelpDefinition>
               <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
                 {hasDataDeletion
-                  ? 'Cache was cleared - growth rate adjusted for deletions'
-                  : 'Shows new data downloaded during the period (not total cache size)'}
+                  ? 'Cache was cleared in this period; the trend accounts for deletions.'
+                  : 'Shows data added during the period (not total cache size).'}
               </div>
             </div>
           </HelpPopover>

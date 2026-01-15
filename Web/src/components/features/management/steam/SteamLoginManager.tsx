@@ -135,21 +135,21 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
             <HelpSection title="Authentication Modes">
               <div className="space-y-1.5">
                 <HelpDefinition term="Anonymous" termColor="blue">
-                  Only public games — no Steam account needed
+                  Public games only, no Steam account needed
                 </HelpDefinition>
                 <HelpDefinition term="Account Login" termColor="green">
-                  Access playtest and restricted games via your Steam account
+                  Access playtest and restricted games with your Steam account
                 </HelpDefinition>
               </div>
             </HelpSection>
 
             <HelpSection title="Depot Mapping" variant="subtle">
               Automatic mode rebuilds depot mappings after login.
-              Manual mode lets you trigger the rebuild yourself.
+              Manual mode lets you rebuild when you choose.
             </HelpSection>
 
             <HelpNote type="info">
-              V2 API is required for account login. V1 API key alone provides restricted game access.
+              Account login requires V2 API. A V1 API key alone can access restricted games but does not allow login.
             </HelpNote>
           </HelpPopover>
         </div>
