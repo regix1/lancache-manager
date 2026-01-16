@@ -234,7 +234,7 @@ public partial class SteamPrefillDaemonService
                 }
                 else
                 {
-                    _logger.LogInformation("  ⚠ DNS resolved to a public IP ({IpAddress})", resolvedIp);
+                    _logger.LogInformation("  ⚠ DNS resolved to a public IP ({IpAddress})", string.Join(", ", resolvedIps));
                 }
             }
             else
