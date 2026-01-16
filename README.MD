@@ -343,6 +343,7 @@ services:
       # TCP host used by the prefill daemon
       # - Prefill__TcpHost=127.0.0.1
 
+
       # Network configuration for prefill containers (AUTO-DETECTED)
       # The app auto-detects your lancache-dns setup:
       #   - If lancache-dns uses host networking -> prefill uses host networking

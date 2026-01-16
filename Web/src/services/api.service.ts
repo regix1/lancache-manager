@@ -1489,7 +1489,7 @@ export interface PrefillSessionDto {
 
 export interface DnsTestResult {
   domain: string;
-  resolvedIp?: string;
+  resolvedIps?: string[];
   isPrivateIp: boolean;
   success: boolean;
   error?: string;
@@ -1498,6 +1498,10 @@ export interface DnsTestResult {
 export interface NetworkDiagnostics {
   internetConnectivity: boolean;
   internetConnectivityError?: string;
+  internetConnectivityIpv4?: boolean | null;
+  internetConnectivityIpv4Error?: string;
+  internetConnectivityIpv6?: boolean | null;
+  internetConnectivityIpv6Error?: string;
   dnsResults: DnsTestResult[];
   testedAt: string;
   /** True if container uses host networking - steam-prefill will detect lancache via localhost/gateway fallback */

@@ -52,17 +52,17 @@ public sealed class TcpDaemonClient : IDaemonClient
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
-    public TcpDaemonClient(string host, int port, ILogger<TcpDaemonClient>? logger = null)
+    public TcpDaemonClient(string host, int port, string? sharedSecret = null, ILogger<TcpDaemonClient>? logger = null)
     {
         _host = host;
         _port = port;
         _logger = logger;
 
-        // Read optional shared secret for socket authentication
-        _sharedSecret = Environment.GetEnvironmentVariable("PREFILL_SOCKET_SECRET");
+        // Read shared secret for socket authentication
+        _sharedSecret = sharedSecret;
         if (!string.IsNullOrEmpty(_sharedSecret))
         {
-            _logger?.LogInformation("Socket authentication configured via PREFILL_SOCKET_SECRET");
+            _logger?.LogInformation("Socket authentication enabled for daemon client");
         }
     }
 
