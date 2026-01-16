@@ -149,10 +149,12 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
               <Globe className="h-4 w-4 text-themed-muted flex-shrink-0" />
               <span className="text-sm text-themed-primary">{t('prefill.network.ipv6Connectivity')}</span>
               {diagnostics.internetConnectivityIpv6 === false ? (
-                <span className="text-xs text-themed-muted ml-auto">{t('prefill.network.ok')}</span>
+                <span className="text-xs ml-auto text-[var(--theme-success)]">
+                  {t('prefill.network.ipv6NotDetected')}
+                </span>
               ) : diagnostics.internetConnectivityIpv6 === true ? (
                 <span className="text-xs ml-auto text-[var(--theme-error)]">
-                  {t('prefill.network.failed')}
+                  {t('prefill.network.ipv6Detected')}
                 </span>
               ) : (
                 <span className="text-xs ml-auto text-[var(--theme-info)]">
