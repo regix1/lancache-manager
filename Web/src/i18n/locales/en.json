@@ -573,7 +573,7 @@
       "typicalFor": "Typical for {{hour}}",
       "nowPeakHour": "Now (Peak Hour)",
       "ofPeak": "{{percent}}% of peak",
-      "totalDownloads": "{{count}} total downloads",
+      "totalDownloads": "{{formattedCount}} total downloads",
       "totalData": "{{size}} total",
       "currentHourLabel": "Current Hour",
       "busiestHourLabel": "Busiest Hour",
@@ -1848,7 +1848,7 @@
       "validation": {
         "valid": "Connection Valid",
         "failed": "Validation Failed",
-        "foundRecords": "Found {{count}} records ready to import",
+        "foundRecords": "Found {{formattedCount}} records ready to import",
         "hintDeveLanCache": "Make sure to select a DeveLanCacheUI_Backend database for this import type.",
         "hintLancacheManager": "Make sure to select a LancacheManager database for this import type."
       },
@@ -1867,11 +1867,11 @@
         "validate": "Validate Connection",
         "revalidate": "Re-validate",
         "importing": "Importing...",
-        "importRecords": "Import {{count}} Records",
+        "importRecords": "Import {{formattedCount}} Records",
         "import": "Import"
       },
       "confirm": {
-        "importQuestion": "Import {{count}} records from external database?",
+        "importQuestion": "Import {{formattedCount}} records from external database?",
         "mergeMode": "Merge/Sync Mode",
         "appendMode": "Append-Only Mode",
         "newRecordsAdded": "New records will be added",
@@ -1880,7 +1880,7 @@
         "duplicateDetection": "Duplicates detected by: Client IP + Start Time (UTC)"
       },
       "messages": {
-        "connectionValidated": "Connection validated! Found {{count}} records.",
+        "connectionValidated": "Connection validated! Found {{formattedCount}} records.",
         "importCompleted": "Import completed! {{imported}} imported, {{skipped}} skipped, {{errors}} errors",
         "selectedDatabase": "Selected database: {{path}}"
       },
@@ -3191,7 +3191,7 @@
       "confirmService": "Are you sure you want to remove {{name}} service from cache?",
       "thisWill": "This will:",
       "actions": {
-        "deleteFiles": "Delete approximately {{count}} cache files",
+        "deleteFiles": "Delete approximately {{formattedCount}} cache files",
         "freeSpace": "Free up approximately {{size}}",
         "removeDepots": "Remove cache for {{count}} depot",
         "removeDepots_plural": "Remove cache for {{count}} depots",
@@ -4131,8 +4131,8 @@
       "fetchingDesc": "Fetching pre-created depot mappings from GitHub...",
       "downloading": "Downloading...",
       "currentStatus": "Current Status:",
-      "jsonMappings": "JSON: {{count}} mappings.",
-      "dbMappings": "DB: {{count}} mappings.",
+      "jsonMappings": "JSON: {{formattedCount}} mappings.",
+      "dbMappings": "DB: {{formattedCount}} mappings.",
       "steamKitReady": "SteamKit ready.",
       "precreated": "Pre-created",
       "precreatedDesc": "Download from GitHub. Quick setup (~30s).",
@@ -4243,14 +4243,14 @@
       "skip": "Skip",
       "pleaseEnter": "Please enter a database path",
       "failedToValidate": "Failed to validate connection",
-      "foundRecords": "Found {{count}} records.",
+      "foundRecords": "Found {{formattedCount}} records.",
       "checkDeveLanCache": "Make sure to select a DeveLanCacheUI_Backend database for this import type.",
       "checkLancacheManager": "Make sure to select a LancacheManager database for this import type.",
       "importSuccess": "{{message}}",
-      "total": "Total: {{count}}",
-      "imported": "Imported: {{count}}",
-      "skipped": "Skipped: {{count}}",
-      "errors": "Errors: {{count}}",
+      "total": "Total: {{formattedCount}}",
+      "imported": "Imported: {{formattedCount}}",
+      "skipped": "Skipped: {{formattedCount}}",
+      "errors": "Errors: {{formattedCount}}",
       "importFailed": "Import failed: {{error}}"
     },
     "modal": {

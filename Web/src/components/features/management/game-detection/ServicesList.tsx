@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import ServiceCard from './ServiceCard';
 import type { ServiceCacheInfo } from '../../../../types';
 import type { UnifiedNotification } from '@contexts/NotificationsContext';

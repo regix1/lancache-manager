@@ -339,8 +339,14 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
         <div className="p-3 rounded-lg text-sm bg-themed-tertiary">
           <p className="text-themed-secondary">
             <strong className="text-themed-primary">{t('initialization.depotInit.currentStatus')}</strong>{' '}
-            {picsData.jsonFile?.exists && t('initialization.depotInit.jsonMappings', { count: picsData.jsonFile?.totalMappings?.toLocaleString() ?? 0 }) + ' '}
-            {t('initialization.depotInit.dbMappings', { count: picsData.database?.totalMappings?.toLocaleString() ?? 0 })}
+            {picsData.jsonFile?.exists && t('initialization.depotInit.jsonMappings', {
+              count: picsData.jsonFile?.totalMappings ?? 0,
+              formattedCount: (picsData.jsonFile?.totalMappings ?? 0).toLocaleString()
+            }) + ' '}
+            {t('initialization.depotInit.dbMappings', {
+              count: picsData.database?.totalMappings ?? 0,
+              formattedCount: (picsData.database?.totalMappings ?? 0).toLocaleString()
+            })}
             {picsData.steamKit2?.isReady ? ' ' + t('initialization.depotInit.steamKitReady') : ''}
           </p>
         </div>

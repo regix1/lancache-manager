@@ -227,10 +227,22 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
             {importResult.message}
           </p>
           <div className="grid grid-cols-2 gap-2 text-sm text-themed-success">
-            <div>{t('initialization.importHistorical.total', { count: importResult.totalRecords.toLocaleString() })}</div>
-            <div>{t('initialization.importHistorical.imported', { count: importResult.imported.toLocaleString() })}</div>
-            <div>{t('initialization.importHistorical.skipped', { count: importResult.skipped.toLocaleString() })}</div>
-            <div>{t('initialization.importHistorical.errors', { count: importResult.errors.toLocaleString() })}</div>
+            <div>{t('initialization.importHistorical.total', {
+              count: importResult.totalRecords,
+              formattedCount: importResult.totalRecords.toLocaleString()
+            })}</div>
+            <div>{t('initialization.importHistorical.imported', {
+              count: importResult.imported,
+              formattedCount: importResult.imported.toLocaleString()
+            })}</div>
+            <div>{t('initialization.importHistorical.skipped', {
+              count: importResult.skipped,
+              formattedCount: importResult.skipped.toLocaleString()
+            })}</div>
+            <div>{t('initialization.importHistorical.errors', {
+              count: importResult.errors,
+              formattedCount: importResult.errors.toLocaleString()
+            })}</div>
           </div>
         </div>
       )}
@@ -425,7 +437,10 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
           <div className={`text-sm ${validationResult.valid ? 'text-themed-success' : 'text-themed-error'}`}>
             <p>
               {validationResult.message}
-              {validationResult.recordCount != null && ` ${t('initialization.importHistorical.foundRecords', { count: validationResult.recordCount.toLocaleString() })}`}
+              {validationResult.recordCount != null && ` ${t('initialization.importHistorical.foundRecords', {
+                count: validationResult.recordCount ?? 0,
+                formattedCount: (validationResult.recordCount ?? 0).toLocaleString()
+              })}`}
             </p>
             {!validationResult.valid && validationResult.message.includes('DownloadEvents') && (
               <p className="mt-1 text-xs opacity-80">

@@ -86,6 +86,20 @@ services:
       # Example: http://localhost:3000,https://mysite.com
       # - Security__AllowedOrigins=
 
+      # Allowed file browser root paths (comma-separated)
+      # Example: /data,/mnt
+      # - Security__AllowedBrowsePaths=
+
+      #---------------------------------------------------------------------------
+      # API Options
+      #---------------------------------------------------------------------------
+
+      # Max number of clients returned in a single stats request
+      # - ApiOptions__MaxClientsPerRequest=1000
+
+      # Default limit for clients when no limit is provided
+      # - ApiOptions__DefaultClientsLimit=100
+
       #---------------------------------------------------------------------------
       # Nginx Log Rotation (auto-detects LANCache container)
       #---------------------------------------------------------------------------
@@ -142,6 +156,19 @@ services:
       # Example: If docker-compose.yml is at /srv/lancache/docker-compose.yml
       # and you have ./data:/data, set this to /srv/lancache/data
       # - Prefill__HostDataPath=/srv/lancache/data
+
+      # Use TCP mode for prefill daemon communication
+      # Default: true on Windows, false on Linux
+      # - Prefill__UseTcp=true
+
+      # TCP port inside the prefill container
+      # - Prefill__TcpPort=4379
+
+      # TCP port exposed on the host for prefill containers
+      # - Prefill__HostTcpPort=4379
+
+      # TCP host used by the prefill daemon
+      # - Prefill__TcpHost=127.0.0.1
 
       # Network configuration for prefill containers (AUTO-DETECTED)
       # The app auto-detects your lancache-dns setup:

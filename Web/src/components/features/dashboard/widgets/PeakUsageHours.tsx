@@ -298,7 +298,10 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
         </div>
         <div className="hidden sm:flex items-center gap-4">
           <span className="text-themed-secondary tabular-nums">
-            {t('widgets.peakUsageHours.totalDownloads', { count: totalDownloads.toLocaleString() })}
+            {t('widgets.peakUsageHours.totalDownloads', {
+              count: totalDownloads,
+              formattedCount: totalDownloads.toLocaleString()
+            })}
           </span>
           <span className="text-themed-secondary tabular-nums">
             {t('widgets.peakUsageHours.totalData', { size: formatBytes(totalBytesServed) })}

@@ -52,7 +52,10 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({ target, onClose, 
           <div>
             <p className="text-xs font-medium mb-2">{t('modals.cacheRemoval.thisWill')}</p>
             <ul className="list-disc list-inside text-xs space-y-1 ml-2">
-              <li>{t('modals.cacheRemoval.actions.deleteFiles', { count: filesCount.toLocaleString() })}</li>
+              <li>{t('modals.cacheRemoval.actions.deleteFiles', {
+                count: filesCount,
+                formattedCount: filesCount.toLocaleString()
+              })}</li>
               <li>{t('modals.cacheRemoval.actions.freeSpace', { size: formatBytes(totalSize) })}</li>
               {isGame && (
                 <li>

@@ -1,6 +1,6 @@
 # LANCache Manager
 
-A web interface for monitoring and managing your [LANCache](https://lancache.net/). Track downloads in real-time, identify which games are being cached, measure bandwidth savings, and prefill your cache before LAN parties.
+LANCache Manager is a simple web UI for monitoring and managing your [LANCache](https://lancache.net/). You can watch downloads in real time, see which games are cached, measure bandwidth savings, and prefill the cache before LAN parties.
 
 -----
 
@@ -13,7 +13,7 @@ A web interface for monitoring and managing your [LANCache](https://lancache.net
 > docker pull ghcr.io/regix1/lancache-manager:latest
 > ```
 >
-> GitHub's package page shows `:dev` in the installation command because dev builds are pushed more frequently. The `:dev` tag is unstable and intended for testing only.
+> GitHub's package page shows `:dev` because dev builds are published more often. The `:dev` tag is for testing only and can be unstable.
 
 -----
 
@@ -90,27 +90,27 @@ A web interface for monitoring and managing your [LANCache](https://lancache.net
 ## Features
 
 ### Dashboard
-- **Draggable stat cards** - Reorder or hide cards to customize your view
-- **Time range filtering** - View stats for live, 1h, 24h, 7 days, 30 days, or custom ranges
-- **Service breakdown** - See bandwidth usage per platform (Steam, Epic, Battle.net, etc.)
-- **Recent downloads** - Quick view of what's been cached
-- **Top clients** - Identify your heaviest users
+- **Draggable stat cards** - Move or hide cards to match your layout
+- **Time range filtering** - Live, 1h, 24h, 7 days, 30 days, or custom
+- **Service breakdown** - Bandwidth usage per platform (Steam, Epic, Battle.net, and more)
+- **Recent downloads** - A quick view of what is being cached
+- **Top clients** - Find your heaviest users
 
 ### Downloads
 - **Three view modes** - Normal (cards), Compact (list), and Retro (terminal style)
-- **Flexible sorting** - By date, size, cache efficiency, session count, or name
-- **Powerful filtering** - By service, client, or hide small/unknown downloads
+- **Flexible sorting** - Date, size, cache efficiency, session count, or name
+- **Powerful filtering** - Filter by service, client, or hide small and unknown downloads
 - **Data export** - JSON or CSV
 
 ### Clients
-- **Device tracking** - See all devices that have used your cache
-- **Client grouping** - Organize clients with custom names
-- **Bandwidth stats** - Track usage per client
+- **Device tracking** - See every device that has used the cache
+- **Client grouping** - Add friendly names to keep things organized
+- **Bandwidth stats** - Usage breakdown per client
 
 ### Users
 - **Session management** - View active authenticated and guest sessions
-- **Guest access** - Configurable read-only access duration
-- **Access control** - Revoke sessions as needed
+- **Guest access** - Configurable read only access duration
+- **Access control** - Revoke sessions when needed
 
 ### Events
 - **Calendar view** - Visualize download activity over time
@@ -125,8 +125,8 @@ A web interface for monitoring and managing your [LANCache](https://lancache.net
 
 ### Management
 - **Cache operations** - Clear cache by service or remove specific games
-- **Log processing** - Reprocess logs, handle corruption
-- **Game detection** - See what games are in your cache with actual sizes
+- **Log processing** - Reprocess logs and handle corruption
+- **Game detection** - See what games are in your cache with accurate sizes
 - **Depot mappings** - Download 290,000+ game mappings from GitHub
 - **Theme editor** - Create and import custom themes
 - **Prometheus metrics** - Export data to Grafana
@@ -155,13 +155,13 @@ docker run -d \
 docker logs lancache-manager | grep "API Key"
 ```
 
-The key is also saved to `/data/api_key.txt`.
+The key is also saved at `/data/api_key.txt`.
 
 ### First Steps
 
 1. Open `http://localhost:8080`
-2. Navigate to Management and enter your API key
-3. Click **Process Logs** to analyze your existing cache data
+2. Go to Management and enter your API key
+3. Click **Process Logs** to analyze existing cache data
 
 -----
 
@@ -181,68 +181,180 @@ services:
     ports:
       - "8080:80"
     volumes:
+      # Required: Data directory for database, API key, themes, and cached images
       - ./data:/data
+
+      # Required: LANCache log directory
+      # Add :ro for read-only (recommended for monitoring-only setups)
       - /mnt/lancache/logs:/logs:ro
+
+      # Required: LANCache cache directory
+      # Add :ro for read-only monitoring
+      # Remove :ro to enable cache clearing, corruption removal, and game removal
       - /mnt/lancache/cache:/cache:ro
+
+      # Optional: Docker socket for nginx log rotation and Steam Prefill
+      # Required for: signaling nginx to reopen logs, spawning prefill containers
+      # Remove :ro if using Steam Prefill (needs read-write for container management)
       - /var/run/docker.sock:/var/run/docker.sock
 
     environment:
-      #===========================================================
+      #=========================================================================
       # REQUIRED - You must configure these for your environment
-      #===========================================================
+      #=========================================================================
 
-      # User/Group ID - match your LANCache filesystem permissions
+      # User ID the application runs as (match your filesystem permissions)
+      # Common values: 33 (www-data on Debian/Ubuntu), 1000 (default user)
       - PUID=33
+
+      # Group ID the application runs as
       - PGID=33
 
-      # Your timezone
+      # Timezone for log timestamps and display
+      # See: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
       - TZ=America/Chicago
 
-      # Paths to your LANCache log file and cache directory
+      # Path to LANCache access log file (inside the container)
       - LanCache__LogPath=/logs/access.log
+
+      # Path to LANCache cache directory (inside the container)
       - LanCache__CachePath=/cache
 
-      #===========================================================
-      # OPTIONAL - Defaults work for most users (auto-detected)
-      #===========================================================
+      #=========================================================================
+      # OPTIONAL - Defaults work for most users (auto-detected or sensible defaults)
+      #=========================================================================
 
-      # Internal port binding (do not change)
+      # Internal port binding (do not change unless you know what you're doing)
       - ASPNETCORE_URLS=http://+:80
 
-      # Security (all have sensible defaults)
+      # Auto-detect datasources by scanning for matching subdirectories
+      # Scans /cache and /logs for folders that exist in both locations
+      # Example: /cache/steam + /logs/steam -> creates "Steam" datasource
+      # - LanCache__AutoDiscoverDatasources=true
+
+      #---------------------------------------------------------------------------
+      # Security Settings
+      #---------------------------------------------------------------------------
+
+      # Master switch for authentication
+      # true = require API key for admin features (recommended)
+      # false = disable ALL authentication (development only)
       # - Security__EnableAuthentication=true
+
+      # Number of devices that can share the same API key simultaneously
       # - Security__MaxAdminDevices=3
+
+      # Default guest session duration in hours (configurable in UI after first run)
       # - Security__GuestSessionDurationHours=6
+
+      # Require API key for Prometheus /metrics endpoint
+      # true = Prometheus must use Bearer token authentication
+      # false = /metrics endpoint is publicly accessible
       # - Security__RequireAuthForMetrics=false
+
+      # Require authentication to access Swagger API documentation
       # - Security__ProtectSwagger=true
 
-      # Nginx log rotation (auto-detects container name)
+      # Comma-separated list of allowed CORS origins (empty = allow all)
+      # Example: http://localhost:3000,https://mysite.com
+      # - Security__AllowedOrigins=
+
+      #---------------------------------------------------------------------------
+      # Nginx Log Rotation (auto-detects LANCache container)
+      #---------------------------------------------------------------------------
+
+      # Automatically signal nginx to reopen logs after manipulation
+      # Prevents LANCache monolithic container from losing log file handle
+      # Requires docker.sock volume mount
       # - NginxLogRotation__Enabled=true
+
+      # Name of the LANCache container (leave empty for auto-detection)
+      # Auto-detection finds containers with "lancache" in the name
       # - NginxLogRotation__ContainerName=
+
+      # How often to check for log rotation needs (in hours)
       # - NginxLogRotation__ScheduleHours=24
 
-      # Memory management (leave disabled unless needed)
+      #---------------------------------------------------------------------------
+      # Optimization Settings
+      #---------------------------------------------------------------------------
+
+      # Show memory management controls in Management page
+      # Enable for low-memory systems or if memory usage climbs over time
+      # Most users should leave this disabled
       # - Optimizations__EnableGarbageCollectionManagement=false
 
-      # Cache clearing mode
+      #---------------------------------------------------------------------------
+      # Cache Clearing
+      #---------------------------------------------------------------------------
+
+      # Default mode for cache clearing operations
+      # "preserve" = keep directory structure, only delete files (safer)
+      # "full" = delete everything including directories (faster, more thorough)
+      # Can be changed in Management UI during runtime
       # - CacheClear__DeleteMode=preserve
 
-      # Steam Prefill (all auto-detected)
-      # - Prefill__DockerImage=ghcr.io/regix1/steam-prefill-daemon:latest
-      # - Prefill__SessionTimeoutMinutes=120
-      # - Prefill__DaemonBasePath=/data/prefill-sessions
-      # - Prefill__HostDataPath=
+      #---------------------------------------------------------------------------
+      # Steam Prefill (auto-detects host paths from container mounts)
+      # Pre-download games to your cache before LAN parties
+      # Powered by: https://github.com/tpill90/steam-lancache-prefill
+      #---------------------------------------------------------------------------
 
-      # Multiple datasources (auto-discovery available)
-      # - LanCache__AutoDiscoverDatasources=true
+      # Docker image for per-user prefill containers
+      # - Prefill__DockerImage=ghcr.io/regix1/steam-prefill-daemon:latest
+
+      # Session timeout in minutes (inactive sessions get cleaned up)
+      # - Prefill__SessionTimeoutMinutes=120
+
+      # Base path for daemon session data (commands/responses)
+      # Must be inside /data for Docker sibling container access
+      # - Prefill__DaemonBasePath=/data/prefill-sessions
+
+      # Host path that maps to /data in this container
+      # Auto-detected from container mounts. Only set if auto-detection fails.
+      # Example: If docker-compose.yml is at /srv/lancache/docker-compose.yml
+      # and you have ./data:/data, set this to /srv/lancache/data
+      # - Prefill__HostDataPath=/srv/lancache/data
+
+      # Network configuration for prefill containers (AUTO-DETECTED)
+      # The app auto-detects your lancache-dns setup:
+      #   - If lancache-dns uses host networking -> prefill uses host networking
+      #   - If lancache-dns uses bridge -> prefill uses its IP for DNS
+      # Only set these if auto-detection fails or you have a custom setup.
+
+      # Network mode for prefill containers
+      # Options: "host", "bridge", or a custom Docker network name
+      # - Prefill__NetworkMode=host
+
+      # Explicit lancache-dns IP (only needed if auto-detection fails)
+      # Find with: docker inspect lancache-dns | grep IPAddress
+      # - Prefill__LancacheDnsIp=192.168.1.10
+
+      #=========================================================================
+      # ADVANCED - Multiple Datasources (Optional)
+      # Configure multiple LANCache instances or outsourced services
+      # When DataSources are configured, LogPath/CachePath above are ignored
+      #=========================================================================
+
+      # Example: Main LANCache + outsourced Steam on separate drive
+      #
       # - LanCache__DataSources__0__Name=Default
       # - LanCache__DataSources__0__CachePath=/cache
       # - LanCache__DataSources__0__LogPath=/logs
       # - LanCache__DataSources__0__Enabled=true
+      #
+      # - LanCache__DataSources__1__Name=Steam
+      # - LanCache__DataSources__1__CachePath=/steam-cache
+      # - LanCache__DataSources__1__LogPath=/steam-logs
+      # - LanCache__DataSources__1__Enabled=true
+      #
+      # With additional volume mounts:
+      # - /mnt/steam-drive/cache:/steam-cache:ro
+      # - /mnt/steam-drive/logs:/steam-logs:ro
 ```
 
 > [!NOTE]
-> Remove `:ro` from the cache volume to enable cache clearing and game removal features. The Docker socket is required for nginx log rotation and Steam Prefill functionality.
+> Remove `:ro` from the cache volume if you want cache clearing and game removal. The Docker socket is optional, but it is required for nginx log rotation and Steam Prefill. If you use Steam Prefill, the socket must be mounted read-write.
 
 -----
 
@@ -255,8 +367,8 @@ services:
 |--------|---------|-------|
 | `/data` | Database, API key, themes, cached images | Required |
 | `/logs` | LANCache access logs | Add `:ro` for read-only |
-| `/cache` | LANCache cached files | Add `:ro` for monitoring-only |
-| `/var/run/docker.sock` | Docker API access | Required for nginx rotation and Steam Prefill |
+| `/cache` | LANCache cached files | Add `:ro` for monitoring only |
+| `/var/run/docker.sock` | Docker API access | Optional. Required for nginx rotation and Steam Prefill |
 
 ### User/Group Settings
 
@@ -283,20 +395,21 @@ services:
 | `Security__GuestSessionDurationHours` | 6 | Default guest session length (configurable in UI). |
 | `Security__RequireAuthForMetrics` | false | Require API key for `/metrics` endpoint. |
 | `Security__ProtectSwagger` | true | Require auth for Swagger API docs in production. |
+| `Security__AllowedOrigins` | (empty) | Comma-separated CORS allow list. Empty allows all. |
 
 #### Access Levels
 
-The API uses two levels of endpoint protection:
+The API has two protection levels:
 
 | Level | Description | Examples |
 |-------|-------------|----------|
 | **Admin Only** | Requires API key authentication | Cache clearing, log processing, settings changes |
-| **Guest Session** | Requires admin auth OR valid guest session | Viewing downloads, stats, events, client data |
+| **Guest Session** | Requires admin auth or a valid guest session | Viewing downloads, stats, events, client data |
 
-**Guest sessions** allow read-only access without sharing your API key. Guests must have a valid session (created by an admin) to view data. No endpoints are publicly accessible without authentication.
+**Guest sessions** allow read-only access without sharing your API key. Guests must have a valid session created by an admin. No endpoints are public without authentication.
 
 To grant guest access:
-1. Navigate to **Users** tab
+1. Go to the **Users** tab
 2. Click **Create Guest Link**
 3. Share the link with your guests
 
@@ -339,22 +452,22 @@ Guests can view dashboards, downloads, and events but cannot modify settings or 
 ## Tabs Overview
 
 ### Dashboard
-Your home base for cache statistics. View overall performance, recent activity, and service breakdowns. Stat cards are draggable—arrange them however you prefer.
+Your home base for cache statistics. See overall performance, recent activity, and service breakdowns. Stat cards are draggable so you can arrange them your way.
 
 ### Downloads
-Browse everything that's been cached. Choose between Normal view (cards with game art), Compact view (dense list for scanning), or Retro view (terminal aesthetic). Filter and sort to find what you're looking for.
+Browse everything that has been cached. Choose Normal view (cards with game art), Compact view (dense list for scanning), or Retro view (terminal look). Filter and sort to find what you want.
 
 ### Clients
-Track every device that has downloaded through your cache. Group clients together with friendly names to identify machines at your LAN party.
+Track every device that has downloaded through your cache. Group clients with friendly names so it is easy to identify machines at a LAN party.
 
 ### Users
-Manage active sessions. See who's connected, create guest access links, configure session duration, and revoke sessions when needed. Guest sessions provide read-only access to dashboards, downloads, and events without sharing your API key.
+Manage active sessions, create guest access links, configure session duration, and revoke sessions when needed. Guest sessions provide read-only access to dashboards, downloads, and events without sharing your API key.
 
 ### Events
-A calendar showing download activity over time. Create custom events to mark LAN parties, then review what got downloaded during each one.
+A calendar view of download activity over time. Create custom events for LAN parties and review what was downloaded during each one.
 
 ### Prefill
-Pre-download games to your cache before people arrive. Log in with Steam, select games from your library, and let them download overnight.
+Pre-download games to your cache before people arrive. Log in with Steam, pick games from your library, and let them run overnight.
 
 ### Management
 The admin panel (requires authentication). Process logs, clear cache, download depot mappings, configure Steam API access, manage themes, and handle database operations.
@@ -364,13 +477,13 @@ The admin panel (requires authentication). Process logs, clear cache, download d
 <a id="steam-prefill"></a>
 ## Steam Prefill
 
-The Prefill tab lets you pre-download games to your cache before your LAN party starts. This feature is powered by [steam-lancache-prefill](https://github.com/tpill90/steam-lancache-prefill) by [@tpill90](https://github.com/tpill90).
+The Prefill tab helps you download games to your cache before your LAN party starts. It is powered by [steam-lancache-prefill](https://github.com/tpill90/steam-lancache-prefill) by [@tpill90](https://github.com/tpill90).
 
 ### Requirements
 
-- Docker socket mounted (without `:ro`)
+- Docker socket mounted without `:ro`
 - Authenticated as admin
-- Lancache-dns container running (or manual DNS configuration)
+- Lancache-dns container running, or manual DNS configuration
 
 ### Network Configuration
 
@@ -379,11 +492,11 @@ For prefill to work, the prefill container needs:
 2. **DNS resolution** - Steam CDN domains should resolve to your cache server
 
 The app **auto-detects** network settings in most cases:
-- If your lancache-dns uses `network_mode: host`, prefill containers will also use host networking
-- Otherwise, it uses the lancache-dns container's IP address for DNS resolution
+- If your lancache-dns uses `network_mode: host`, prefill containers also use host networking
+- Otherwise, it uses the lancache-dns container IP address for DNS resolution
 
 **Network Diagnostics:**
-When a prefill session starts, the app automatically tests the container's network configuration and logs the results. Check your container logs for output like:
+When a prefill session starts, the app tests the container network and logs the results. Check your container logs for output like:
 ```
 ═══════════════════════════════════════════════════════════════════════
   PREFILL CONTAINER NETWORK DIAGNOSTICS - prefill-daemon-abc123
@@ -404,16 +517,16 @@ environment:
   # Option 2: Use host networking (for host-networked lancache-dns)
   - Prefill__NetworkMode=host
 
-  # Option 3: Explicit DNS IP (when lancache-dns IP isn't auto-detected)
+  # Option 3: Explicit DNS IP (when lancache-dns IP is not auto-detected)
   - Prefill__LancacheDnsIp=192.168.1.10
 ```
 
 > [!TIP]
-> If prefill containers have no internet access, try setting `Prefill__NetworkMode=bridge`. This is a common fix when Docker's default network isolation prevents outbound connections.
+> If prefill containers have no internet access, try `Prefill__NetworkMode=bridge`. This is a common fix when Docker's default network isolation blocks outbound connections.
 
 ### How It Works
 
-1. Navigate to the Prefill tab
+1. Go to the Prefill tab
 2. Log in with your Steam account (Steam Guard supported)
 3. Select games from your library
 4. Start the prefill
@@ -422,7 +535,7 @@ Downloads run in a separate container with real-time progress updates. When your
 
 ### Importing App IDs
 
-If you're migrating from [steam-lancache-prefill](https://github.com/tpill90/steam-lancache-prefill) or have a list of Steam App IDs you want to prefill, you can import them directly:
+If you are migrating from [steam-lancache-prefill](https://github.com/tpill90/steam-lancache-prefill) or you already have a list of Steam App IDs, you can import them directly:
 
 1. Click **Select Apps** to open the game selection modal
 2. Click **Import App IDs** to expand the import section
@@ -432,7 +545,7 @@ If you're migrating from [steam-lancache-prefill](https://github.com/tpill90/ste
    - One per line
 4. Click **Import**
 
-The import will show you how many games were added, how many were already selected, and how many IDs aren't in your Steam library (these will be skipped during prefill).
+The import tells you how many games were added, how many were already selected, and how many IDs are not in your Steam library (these are skipped during prefill).
 
 **Migrating from steam-lancache-prefill:** Copy the contents of your `selectedAppsToPrefill.json` file and paste it directly into the import field.
 
@@ -443,10 +556,10 @@ The import will show you how many games were added, how many were already select
 
 ### Theme Editor
 
-Navigate to **Management > Preferences > Theme Management** to:
+Go to **Management > Preferences > Theme Management** to:
 - Create themes from scratch with live preview
 - Browse and install community themes
-- Import/export themes as TOML files
+- Import and export themes as TOML files
 
 ### Theme Format
 
@@ -521,23 +634,23 @@ lancache_cache_size_bytes / 1024 / 1024 / 1024
 <a id="multiple-datasources"></a>
 ## Multiple Datasources
 
-Most users run a single LANCache instance and don't need this section. However, if you have outsourced specific services to separate cache directories or run multiple LANCache instances, you can configure multiple datasources to monitor them all from one dashboard.
+Most users run a single LANCache instance and never touch this. If you have outsourced specific services to separate cache directories or you run multiple LANCache instances, you can configure multiple datasources and view them together in one dashboard.
 
 ### When You Need This
 
-- **Outsourced services** - You've configured LANCache to store Steam on a separate drive from other services
-- **Multiple LANCache instances** - You run separate cache servers for different purposes
+- **Outsourced services** - LANCache stores Steam on a separate drive from other services
+- **Multiple LANCache instances** - Separate cache servers for different purposes
 - **Segmented storage** - Different services on different drives or partitions
 
 ### How It Works
 
-Each datasource represents a log/cache directory pair. The app processes logs and tracks cache usage separately for each, then combines the data in the dashboard and downloads views.
+Each datasource represents a log and cache directory pair. The app processes logs and tracks cache usage separately for each one, then combines the results in the dashboard and downloads views.
 
 -----
 
 ### Auto-Discovery (Recommended)
 
-The simplest approach—let the app scan for matching subdirectories:
+The easiest approach is to let the app scan for matching subdirectories:
 
 ```yaml
 environment:
@@ -548,8 +661,8 @@ environment:
 
 **What it detects:**
 
-1. **Root-level datasource** - If `/logs/access.log` exists and `/cache` contains LANCache hash directories (`00/`, `01/`, etc.), creates a "Default" datasource
-2. **Subdirectory datasources** - For each folder that exists in both `/cache` and `/logs`, creates a named datasource (e.g., `/cache/steam` + `/logs/steam` → "Steam")
+1. **Root-level datasource** - If `/logs/access.log` exists and `/cache` contains LANCache hash directories (`00/`, `01/`, and so on), it creates a "Default" datasource
+2. **Subdirectory datasources** - For each folder that exists in both `/cache` and `/logs`, it creates a named datasource (e.g., `/cache/steam` + `/logs/steam` -> "Steam")
 
 **Example directory structure:**
 
@@ -613,11 +726,11 @@ volumes:
 <a id="nginx-reverse-proxy"></a>
 ## Nginx Reverse Proxy
 
-LANCache Manager works well behind Nginx. HTTPS is recommended (and required for guest session cookies to be sent on cross-origin image requests).
+LANCache Manager works well behind Nginx. HTTPS is recommended and required for guest session cookies on cross-origin image requests.
 
 ### Single origin (recommended)
 
-Serve both the UI and API from the same origin. This keeps cookies first-party and avoids cross-origin issues.
+Serve the UI and API from the same origin. This keeps cookies first-party and avoids cross-origin issues.
 
 ```nginx
 server {
@@ -654,7 +767,7 @@ server {
 
 ### Separate API origin (only if required)
 
-If you split UI and API across hosts, you must use HTTPS and allow credentials. In that case:
+If you split UI and API across hosts, use HTTPS and allow credentials. In that case:
 
 - Set `VITE_API_URL=https://api.lancache.example.com` when building the Web UI.
 - Keep `SameSite=None; Secure` cookies (configured by the app).
@@ -700,7 +813,7 @@ server {
 
 ### Games Not Identified
 
-1. Download latest mappings from **Management > Depot Mappings**
+1. Download the latest mappings from **Management > Depot Mappings**
 2. Add custom mappings for private depots if needed
 3. Click **Reprocess All Logs** after adding mappings
 
@@ -716,21 +829,21 @@ To generate a new key, stop the container, delete `./data/api_key.txt`, and rest
 
 ### Permission Issues
 
-Verify PUID/PGID match your file ownership:
+Verify PUID and PGID match your file ownership:
 ```bash
 ls -n /path/to/cache
 ```
 
 ### Prefill Not Working
 
-1. Ensure Docker socket is mounted without `:ro`
-2. Confirm you're authenticated as admin
+1. Ensure the Docker socket is mounted without `:ro`
+2. Confirm you are authenticated as admin
 3. Check container logs for network diagnostics output (look for `═══ PREFILL CONTAINER NETWORK DIAGNOSTICS ═══`)
-4. **Container has no internet access:** The prefill container can't reach Steam. Common fixes:
+4. **Container has no internet access:** The prefill container cannot reach Steam. Common fixes:
    - Set `Prefill__NetworkMode=bridge` in your docker-compose.yml (recommended for most setups)
    - Ensure your Docker network has outbound internet access
    - Check firewall rules for outbound connections
-5. **HTTP 400 errors during download:** The prefill container can't resolve Steam CDN domains to your cache. Either:
+5. **HTTP 400 errors during download:** The prefill container cannot resolve Steam CDN domains to your cache. Try one of the following:
    - Set `Prefill__NetworkMode=host` if your lancache-dns uses host networking
    - Set `Prefill__LancacheDnsIp` to your lancache-dns IP address
    - The app auto-detects this if your lancache-dns container is running
@@ -801,7 +914,7 @@ docker buildx build \
 <a id="contributing-translations"></a>
 ## Contributing Translations
 
-LANCache Manager supports internationalization (i18n) and welcomes community translations! The app is fully prepared for localization—all UI strings are externalized and ready for translation.
+LANCache Manager supports internationalization (i18n) and welcomes community translations. The app is ready for localization and all UI strings are already externalized.
 
 ### How to Contribute
 
