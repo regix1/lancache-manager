@@ -32,6 +32,7 @@ A web interface for monitoring and managing your [LANCache](https://lancache.net
 - [Nginx Reverse Proxy](#nginx-reverse-proxy)
 - [Troubleshooting](#troubleshooting)
 - [Building from Source](#building-from-source)
+- [Contributing Translations](#contributing-translations)
 - [Need Help?](#need-help)
 
 -----
@@ -794,6 +795,64 @@ docker buildx build \
   -t ghcr.io/regix1/lancache-manager:latest \
   --push .
 ```
+
+-----
+
+<a id="contributing-translations"></a>
+## Contributing Translations
+
+LANCache Manager supports internationalization (i18n) and welcomes community translations! The app is fully prepared for localization—all UI strings are externalized and ready for translation.
+
+### How to Contribute
+
+1. **Fork the repository** on GitHub
+2. Navigate to `Web/src/i18n/locales/`
+3. Copy `en.json` to a new file named with your language code (e.g., `de.json`, `fr.json`, `es.json`, `pt-BR.json`)
+4. Translate all the string values (keep the keys unchanged)
+5. Submit a **Pull Request** with your translation
+
+### Translation File Structure
+
+```
+Web/src/i18n/locales/
+├── en.json          ← English (reference)
+├── de.json          ← German (your contribution)
+├── fr.json          ← French (your contribution)
+└── ...
+```
+
+### Guidelines
+
+- **Keep JSON keys unchanged** - Only translate the string values
+- **Preserve placeholders** - Keep `{{variable}}` placeholders intact (e.g., `{{count}}`, `{{name}}`)
+- **Maintain formatting** - Preserve any HTML tags like `<strong>` if present
+- **Test your translation** - Run the app locally to verify your translations display correctly
+
+### Example
+
+```json
+// en.json
+{
+  "dashboard": {
+    "title": "Dashboard",
+    "recentDownloads": "Recent Downloads",
+    "totalCache": "Total Cache: {{size}}"
+  }
+}
+
+// de.json
+{
+  "dashboard": {
+    "title": "Übersicht",
+    "recentDownloads": "Letzte Downloads",
+    "totalCache": "Gesamter Cache: {{size}}"
+  }
+}
+```
+
+### Need Help?
+
+If you have questions about contributing translations or need clarification on any strings, feel free to [open an issue](https://github.com/regix1/lancache-manager/issues) or reach out on the [LanCache.NET Discord](https://discord.com/invite/BKnBS4u).
 
 -----
 
