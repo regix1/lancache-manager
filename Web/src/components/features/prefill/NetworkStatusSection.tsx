@@ -139,18 +139,18 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
           {/* IPv6 Connectivity */}
           {diagnostics.internetConnectivityIpv6 !== undefined && (
             <div className="flex items-center gap-2">
-              {diagnostics.internetConnectivityIpv6 === true ? (
+              {diagnostics.internetConnectivityIpv6 === false ? (
                 <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[var(--theme-success)]" />
-              ) : diagnostics.internetConnectivityIpv6 === false ? (
+              ) : diagnostics.internetConnectivityIpv6 === true ? (
                 <XCircle className="h-4 w-4 flex-shrink-0 text-[var(--theme-error)]" />
               ) : (
                 <Info className="h-4 w-4 flex-shrink-0 text-[var(--theme-info)]" />
               )}
               <Globe className="h-4 w-4 text-themed-muted flex-shrink-0" />
               <span className="text-sm text-themed-primary">{t('prefill.network.ipv6Connectivity')}</span>
-              {diagnostics.internetConnectivityIpv6 === true ? (
+              {diagnostics.internetConnectivityIpv6 === false ? (
                 <span className="text-xs text-themed-muted ml-auto">{t('prefill.network.ok')}</span>
-              ) : diagnostics.internetConnectivityIpv6 === false ? (
+              ) : diagnostics.internetConnectivityIpv6 === true ? (
                 <span className="text-xs ml-auto text-[var(--theme-error)]">
                   {t('prefill.network.failed')}
                 </span>
@@ -162,7 +162,7 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
             </div>
           )}
 
-          {diagnostics.internetConnectivityIpv6 === false && (
+          {diagnostics.internetConnectivityIpv6 === true && (
             <div className="ml-6 text-xs p-2 rounded bg-[var(--theme-info-bg)] text-[var(--theme-info-text)]">
               {t('prefill.network.ipv6UnsupportedHint')}
             </div>
