@@ -2717,10 +2717,23 @@
       }
     },
     "calendar": {
-      "settings": "Calendar Settings",
-      "resetToDefaults": "Reset to defaults",
+      "today": "Today",
       "weekNumber": "Week number",
       "weekAbbrev": "Wk",
+      "months": {
+        "january": "January",
+        "february": "February",
+        "march": "March",
+        "april": "April",
+        "may": "May",
+        "june": "June",
+        "july": "July",
+        "august": "August",
+        "september": "September",
+        "october": "October",
+        "november": "November",
+        "december": "December"
+      },
       "weekDays": {
         "sun": "Sun",
         "mon": "Mon",
@@ -2729,6 +2742,56 @@
         "thu": "Thu",
         "fri": "Fri",
         "sat": "Sat"
+      },
+      "eventCount": "{{count}} event",
+      "eventCount_plural": "{{count}} events",
+      "eventCountTooltip": "{{count}} event",
+      "eventCountTooltip_plural": "{{count}} events",
+      "eventEnded": "{{name}} (ended)",
+      "emptyMonth": "No events in {{month}}",
+      "emptyMonthHint": "Click a day to create an event.",
+      "legend": {
+        "create": "Click a day to create an event",
+        "edit": "Click an event to edit"
+      },
+      "settings": {
+        "title": "Calendar Settings",
+        "resetToDefaults": "Reset settings to defaults",
+        "reset": "Reset",
+        "eventStyle": {
+          "title": "Event style",
+          "description": "Choose how event bars look on the calendar",
+          "soft": "Soft",
+          "solid": "Solid"
+        },
+        "eventLayout": {
+          "title": "Event layout",
+          "description": "Choose how multi-day events display",
+          "bars": "Bars",
+          "daily": "Daily"
+        },
+        "weekStart": {
+          "title": "Week starts on",
+          "sunday": "Sunday",
+          "monday": "Monday"
+        },
+        "weekNumbers": {
+          "title": "Show week numbers",
+          "description": "Display ISO week numbers on the left"
+        },
+        "adjacentMonths": {
+          "title": "Show adjacent months",
+          "description": "Display days from the previous and next months"
+        },
+        "hideEnded": {
+          "title": "Hide ended events",
+          "description": "Exclude past events from the calendar view"
+        },
+        "compactView": {
+          "title": "Compact view",
+          "description": "Reduce event height to show more rows"
+        },
+        "autoSave": "Changes save automatically"
       }
     },
     "ended": "(Ended)",
