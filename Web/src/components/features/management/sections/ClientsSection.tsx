@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardHeader, CardTitle, CardContent } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -29,6 +30,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
   onError,
   onSuccess
 }) => {
+  const { t } = useTranslation();
   const {
     clientGroups,
     loading,
@@ -82,7 +84,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
       setExcludedIps(response.ips);
       setSavedExcludedIps(response.ips);
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Failed to load excluded IPs');
+      onError(err instanceof Error ? err.message : t('management.sections.clients.errors.failedToLoadExcluded'));
     } finally {
       setLoadingExcluded(false);
     }
@@ -164,10 +166,10 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
       const response = await ApiService.updateStatsExclusions(excludedIps);
       setExcludedIps(response.ips);
       setSavedExcludedIps(response.ips);
-      onSuccess('Excluded IPs updated');
+      onSuccess(t('management.sections.clients.excludedIpsUpdated'));
       await refreshStats(true);
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Failed to update excluded IPs');
+      onError(err instanceof Error ? err.message : t('management.sections.clients.errors.failedToUpdateExcluded'));
     } finally {
       setSavingExcluded(false);
     }
@@ -241,10 +243,10 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
     setDeletingGroupId(deleteConfirmGroup.id);
     try {
       await deleteClientGroup(deleteConfirmGroup.id);
-      onSuccess(`Deleted nickname "${deleteConfirmGroup.nickname}"`);
+      onSuccess(t('management.sections.clients.deletedNickname', { nickname: deleteConfirmGroup.nickname }));
       setDeleteConfirmGroup(null);
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Failed to delete nickname');
+      onError(err instanceof Error ? err.message : t('modals.clientGroup.errors.failedToDelete'));
     } finally {
       setDeletingGroupId(null);
     }
@@ -254,9 +256,9 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
     setRemovingMember({ groupId, ip });
     try {
       await removeMember(groupId, ip);
-      onSuccess(`Removed ${ip} from nickname "${nickname}"`);
+      onSuccess(t('management.sections.clients.removedIpFromNickname', { ip, nickname }));
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Failed to remove IP');
+      onError(err instanceof Error ? err.message : t('modals.clientGroup.errors.failedToRemoveIp'));
     } finally {
       setRemovingMember(null);
     }
@@ -283,10 +285,10 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold text-themed-primary mb-1">
-            Client Nicknames
+            {t('management.sections.clients.title')}
           </h2>
           <p className="text-themed-secondary text-sm">
-            Assign friendly names to client IPs for easier identification
+            {t('management.sections.clients.subtitle')}
           </p>
         </div>
         {isAuthenticated && (
@@ -295,7 +297,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
             className="flex items-center gap-2"
           >
             <Plus className="w-4 h-4" />
-            Add Nickname
+            {t('management.sections.clients.addNickname')}
           </Button>
         )}
       </div>
@@ -305,7 +307,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
         <div className="flex items-center gap-2 mb-4">
           <div className="w-1 h-5 rounded-full bg-[var(--theme-primary)]" />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            Nicknames ({clientGroups.length})
+            {t('management.sections.clients.nicknames', { count: clientGroups.length })}
           </h3>
         </div>
 
@@ -313,16 +315,16 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
           <Card>
             <CardContent className="py-8 flex items-center justify-center">
               <Loader2 className="w-6 h-6 animate-spin text-themed-muted" />
-              <span className="ml-2 text-themed-muted">Loading nicknames...</span>
+              <span className="ml-2 text-themed-muted">{t('management.sections.clients.loadingNicknames')}</span>
             </CardContent>
           </Card>
         ) : clientGroups.length === 0 ? (
           <Card>
             <CardContent className="py-8 text-center text-themed-muted">
               <User className="w-12 h-12 mx-auto mb-3 opacity-50" />
-              <p className="mb-2">No nicknames assigned yet</p>
+              <p className="mb-2">{t('management.sections.clients.noNicknamesYet')}</p>
               <p className="text-sm">
-                Add a nickname to give a friendly name to client IPs
+                {t('management.sections.clients.noNicknamesDesc')}
               </p>
             </CardContent>
           </Card>
@@ -345,12 +347,12 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                         <div className="flex items-center gap-2">
                           <CardTitle className="text-base">{group.nickname}</CardTitle>
                           {isMultiIp && (
-                            <Tooltip content="This nickname is shared by multiple IPs">
+                            <Tooltip content={t('modals.clientGroup.multiIpWarning')}>
                               <span
                               className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs icon-bg-orange icon-orange"
                               >
                                 <AlertTriangle className="w-3 h-3" />
-                                {group.memberIps.length} IPs
+                                {group.memberIps.length} {t('management.sections.clients.ipsLabel')}
                               </span>
                             </Tooltip>
                           )}
@@ -366,7 +368,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                           variant="subtle"
                           size="sm"
                           onClick={() => handleEditGroup(group)}
-                          title="Edit nickname"
+                          title={t('common.edit')}
                         >
                           <Edit2 className="w-4 h-4" />
                         </Button>
@@ -376,7 +378,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                           color="red"
                           onClick={() => handleDeleteGroup(group)}
                           disabled={deletingGroupId === group.id}
-                          title="Delete nickname"
+                          title={t('common.delete')}
                         >
                           {deletingGroupId === group.id ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
@@ -403,7 +405,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                               }}
                               disabled={removingMember?.groupId === group.id && removingMember?.ip === ip}
                               className="ml-1 p-0.5 rounded text-themed-muted delete-hover"
-                              title="Remove IP"
+                              title={t('management.sections.clients.removeIp')}
                             >
                               {removingMember?.groupId === group.id && removingMember?.ip === ip ? (
                                 <Loader2 className="w-3 h-3 animate-spin" />
@@ -429,7 +431,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
           <div className="flex items-center gap-2 mb-4">
             <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-orange)]" />
             <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-              Without Nicknames {!loadingClients && `(${ungroupedClients.length})`}
+              {t('management.sections.clients.withoutNicknames')} {!loadingClients && `(${ungroupedClients.length})`}
             </h3>
           </div>
 
@@ -438,16 +440,16 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
               {loadingClients ? (
                 <div className="flex items-center justify-center py-4">
                   <Loader2 className="w-5 h-5 animate-spin text-themed-muted" />
-                  <span className="ml-2 text-themed-muted">Loading clients...</span>
+                  <span className="ml-2 text-themed-muted">{t('management.sections.clients.loadingClients')}</span>
                 </div>
               ) : (
                 <>
                   <p className="text-sm text-themed-muted mb-3">
-                    These client IPs don't have nicknames assigned. Click "Add Nickname" above to give them friendly names.
+                    {t('management.sections.clients.withoutNicknamesDesc')}
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {paginatedUngroupedClients.map(ip => (
-                      <Tooltip key={ip} content={`Click "Add Nickname" to name this IP`}>
+                      <Tooltip key={ip} content={t('management.sections.clients.clickAddNicknameTooltip')}>
                         <div className="px-2 py-1 rounded text-sm font-mono cursor-help bg-themed-tertiary text-themed-muted">
                           {ip}
                         </div>
@@ -463,7 +465,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                   totalItems={ungroupedClients.length}
                   itemsPerPage={UNGROUPED_IPS_PER_PAGE}
                   onPageChange={setUngroupedPage}
-                  itemLabel="IPs"
+                  itemLabel={t('management.sections.clients.ipsLabel')}
                   showCard={false}
                   compact
                   className="mt-3"
@@ -479,33 +481,32 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
         <div className="flex items-center gap-2 mb-4">
           <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-red)]" />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            Exclude From Stats
+            {t('management.sections.clients.excludeFromStats')}
           </h3>
         </div>
 
         <Card>
           <CardContent className="py-5 space-y-4">
             <div className="text-sm text-themed-secondary">
-              Excluded IPs are ignored in dashboard metrics, top clients, service stats,
-              hourly activity, cache growth, and sparklines.
+              {t('management.sections.clients.excludedIpsDesc')}
             </div>
 
             {!isAuthenticated ? (
               <Alert color="yellow">
-                <span className="text-sm">Authenticate to manage excluded IPs.</span>
+                <span className="text-sm">{t('management.sections.clients.authenticateToManage')}</span>
               </Alert>
             ) : (
               <>
                 <div className="space-y-3">
                   <div className="text-xs text-themed-muted uppercase tracking-wide font-semibold">
-                    Pick From Known Clients
+                    {t('management.sections.clients.pickFromKnownClients')}
                   </div>
                   <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                     <MultiSelectDropdown
                       options={knownClientOptions}
                       values={selectedKnownIps}
                       onChange={setSelectedKnownIps}
-                      placeholder="Select clients"
+                      placeholder={t('management.sections.clients.selectClients')}
                       minSelections={0}
                       disabled={loadingExcluded || savingExcluded || knownClientOptions.length === 0}
                       className="w-full"
@@ -517,12 +518,12 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                       className="sm:w-40"
                       disabled={selectedKnownIps.length === 0 || loadingExcluded || savingExcluded}
                     >
-                      Add Selected
+                      {t('management.sections.clients.addSelected')}
                     </Button>
                   </div>
                   {knownClientOptions.length === 0 && (
                     <div className="text-sm text-themed-muted">
-                      All known clients are already excluded.
+                      {t('management.sections.clients.allKnownExcluded')}
                     </div>
                   )}
                 </div>
@@ -534,7 +535,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                     type="text"
                     value={excludeInput}
                     onChange={(e) => setExcludeInput(e.target.value)}
-                    placeholder="Add IPs (comma or space separated)"
+                    placeholder={t('management.sections.clients.addIpsPlaceholder')}
                     className="w-full px-3 py-2 rounded-lg transition-colors
                              bg-themed-secondary text-themed-primary
                              border border-themed-secondary focus:border-themed-focus
@@ -548,18 +549,18 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                     className="sm:w-32"
                     disabled={loadingExcluded || savingExcluded || excludeInput.trim().length === 0 || invalidInputIps.length > 0}
                   >
-                    Add
+                    {t('management.sections.clients.add')}
                   </Button>
                 </div>
                 {excludeInput.trim().length > 0 && (
                   <div className="text-xs text-themed-muted">
-                    Supports IPv4 and IPv6. Separate multiple IPs with commas or spaces.
+                    {t('management.sections.clients.supportsIpv4Ipv6')}
                   </div>
                 )}
                 {invalidInputIps.length > 0 && (
                   <Alert color="yellow">
                     <span className="text-sm">
-                      Invalid IPs: {invalidInputIps.join(', ')}
+                      {t('management.sections.clients.invalidIps', { ips: invalidInputIps.join(', ') })}
                     </span>
                   </Alert>
                 )}
@@ -567,11 +568,11 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                 {loadingExcluded ? (
                   <div className="flex items-center gap-2 text-themed-muted text-sm">
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Loading excluded IPs...
+                    {t('management.sections.clients.loadingExcludedIps')}
                   </div>
                 ) : excludedIps.length === 0 ? (
                   <div className="text-sm text-themed-muted">
-                    No excluded IPs configured.
+                    {t('management.sections.clients.noExcludedIps')}
                   </div>
                 ) : (
                   <div className="flex flex-wrap gap-2">
@@ -587,7 +588,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                           className="p-0.5 rounded text-themed-muted delete-hover"
                           onClick={() => handleRemoveExcluded(ip)}
                           disabled={savingExcluded}
-                          title="Remove IP"
+                          title={t('management.sections.clients.removeIp')}
                         >
                           <X className="w-3 h-3" />
                         </button>
@@ -604,7 +605,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                     loading={savingExcluded}
                     className="sm:w-40"
                   >
-                    Save Changes
+                    {t('management.sections.clients.saveChanges')}
                   </Button>
                 </div>
               </>
@@ -634,17 +635,17 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
         title={
           <div className="flex items-center gap-3">
             <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>Delete Nickname</span>
+            <span>{t('management.sections.clients.deleteNickname')}</span>
           </div>
         }
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            Delete nickname <strong>{deleteConfirmGroup?.nickname}</strong>? The associated IPs will no longer have a nickname.
+            {t('management.sections.clients.deleteNicknameConfirm', { nickname: deleteConfirmGroup?.nickname })}
           </p>
 
           <Alert color="yellow">
-            <p className="text-sm">This action cannot be undone.</p>
+            <p className="text-sm">{t('management.sections.clients.deleteNicknameWarning')}</p>
           </Alert>
 
           <div className="flex justify-end gap-3 pt-2">
@@ -653,7 +654,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
               onClick={() => setDeleteConfirmGroup(null)}
               disabled={deletingGroupId !== null}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="filled"
@@ -661,7 +662,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
               onClick={confirmDeleteGroup}
               loading={deletingGroupId !== null}
             >
-              Delete
+              {t('management.sections.clients.delete')}
             </Button>
           </div>
         </div>

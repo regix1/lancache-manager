@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, memo } from 'react';
 import { Clock, Loader2, TrendingUp, Zap, Calendar } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { formatBytes } from '@utils/formatters';
 import { type HourlyActivityResponse, type HourlyActivityItem } from '../../../../types';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -28,6 +29,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
   glassmorphism = true,
   staggerIndex,
 }) => {
+  const { t } = useTranslation();
   const { timeRange, getTimeRangeParams, selectedEventIds } = useTimeFilter();
   const { mockMode } = useMockMode();
   const [data, setData] = useState<HourlyActivityResponse | null>(null);
@@ -139,10 +141,10 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
 
   // Determine time-of-day category for the peak hour
   const getTimeOfDayLabel = (hour: number): string => {
-    if (hour >= 5 && hour < 12) return 'Morning';
-    if (hour >= 12 && hour < 17) return 'Afternoon';
-    if (hour >= 17 && hour < 21) return 'Evening';
-    return 'Night';
+    if (hour >= 5 && hour < 12) return t('widgets.peakUsageHours.morning');
+    if (hour >= 12 && hour < 17) return t('widgets.peakUsageHours.afternoon');
+    if (hour >= 17 && hour < 21) return t('widgets.peakUsageHours.evening');
+    return t('widgets.peakUsageHours.night');
   };
 
   const peakTimeOfDay = getTimeOfDayLabel(peakHour);
@@ -200,7 +202,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
         <div className="flex items-center gap-2 mb-3">
           <Clock className="w-5 h-5 text-themed-muted" />
           <h3 className="text-sm font-semibold text-themed-primary">
-            Peak Usage Hours
+            {t('widgets.peakUsageHours.title')}
           </h3>
         </div>
         <div className="flex items-center justify-center h-32">
@@ -217,11 +219,11 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
         <div className="flex items-center gap-2 mb-3">
           <Clock className="w-5 h-5 text-themed-muted" />
           <h3 className="text-sm font-semibold text-themed-primary">
-            Peak Usage Hours
+            {t('widgets.peakUsageHours.title')}
           </h3>
         </div>
         <p className="text-sm text-themed-muted">
-          {error || 'No download data available yet'}
+          {error || t('widgets.peakUsageHours.noDataAvailable')}
         </p>
       </div>
     );
@@ -238,38 +240,38 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
         <div className="flex items-center gap-2">
           <Clock className="w-5 h-5 flex-shrink-0 text-themed-accent" />
           <h3 className="text-sm font-semibold text-themed-primary">
-            Peak Usage Hours
+            {t('widgets.peakUsageHours.title')}
           </h3>
           <HelpPopover width={320}>
             <div className="space-y-2">
               <div className="text-[11px] pb-2 border-b border-themed-primary text-themed-secondary">
-                Shows when downloads usually happen across the day based on your history.
+                {t('widgets.peakUsageHours.description')}
               </div>
-              <HelpDefinition term="Data Period">
+              <HelpDefinition term={t('widgets.peakUsageHours.dataPeriod.term')}>
                 {isMultiDayPeriod
-                  ? `Based on ${daysInPeriod} days of data. Values are averaged per day to show typical patterns.`
-                  : 'Based on the selected time range.'}
+                  ? t('widgets.peakUsageHours.dataPeriod.multiDay', { days: daysInPeriod })
+                  : t('widgets.peakUsageHours.dataPeriod.singleDay')}
               </HelpDefinition>
-              <HelpDefinition term="Peak Hour" termColor="orange">
+              <HelpDefinition term={t('widgets.peakUsageHours.peakHour.term')} termColor="orange">
                 {isMultiDayPeriod
-                  ? 'The hour that averages the most download activity across all days.'
-                  : 'The hour with the most downloads in the selected period.'}
+                  ? t('widgets.peakUsageHours.peakHour.multiDay')
+                  : t('widgets.peakUsageHours.peakHour.singleDay')}
               </HelpDefinition>
               {isTodayInRange && (
-                <HelpDefinition term="Current Hour" termColor="blue">
+                <HelpDefinition term={t('widgets.peakUsageHours.currentHour.term')} termColor="blue">
                   {isMultiDayPeriod
-                    ? 'Shows the typical activity for the current hour (historical average).'
-                    : 'Activity during the current hour.'}
+                    ? t('widgets.peakUsageHours.currentHour.multiDay')
+                    : t('widgets.peakUsageHours.currentHour.singleDay')}
                 </HelpDefinition>
               )}
               <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
-                <strong>Heatmap:</strong> Each block is an hour (12AM-11PM). Brighter colors mean more activity.
+                {t('widgets.peakUsageHours.heatmapNote')}
               </div>
             </div>
           </HelpPopover>
         </div>
         <div className="flex items-center gap-2 text-xs text-themed-muted">
-          <span className="hidden sm:inline">Most active:</span>
+          <span className="hidden sm:inline">{t('widgets.peakUsageHours.mostActive')}</span>
           <span className="font-medium text-themed-warning">{peakTimeOfDay}</span>
         </div>
       </div>
@@ -283,11 +285,11 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
             <Calendar className="w-3.5 h-3.5 hidden sm:block text-themed-muted" />
           )}
           <span className="text-themed-muted">
-            {isMultiDayPeriod ? `${daysInPeriod} days` : 'Selected Period'}
+            {isMultiDayPeriod ? t('widgets.peakUsageHours.days', { count: daysInPeriod }) : t('widgets.peakUsageHours.selectedPeriod')}
           </span>
           <span className="sm:hidden text-themed-secondary">•</span>
           <span className="sm:hidden text-themed-secondary tabular-nums">
-            {totalDownloads.toLocaleString()} downloads
+            {totalDownloads.toLocaleString()} {t('widgets.peakUsageHours.downloads')}
           </span>
           <span className="sm:hidden text-themed-secondary">•</span>
           <span className="sm:hidden text-themed-secondary tabular-nums">
@@ -296,10 +298,10 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
         </div>
         <div className="hidden sm:flex items-center gap-4">
           <span className="text-themed-secondary tabular-nums">
-            {totalDownloads.toLocaleString()} total downloads
+            {t('widgets.peakUsageHours.totalDownloads', { count: totalDownloads.toLocaleString() })}
           </span>
           <span className="text-themed-secondary tabular-nums">
-            {formatBytes(totalBytesServed)} total
+            {t('widgets.peakUsageHours.totalData', { size: formatBytes(totalBytesServed) })}
           </span>
         </div>
       </div>
@@ -317,7 +319,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
             <div className="flex items-center gap-2">
               <TrendingUp className="w-4 h-4 flex-shrink-0 text-themed-warning" />
               <span className="text-xs font-medium text-themed-warning">
-                Busiest Hour
+                {t('widgets.peakUsageHours.busiestHour')}
               </span>
             </div>
             {isMultiDayPeriod && (
@@ -325,7 +327,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
                 className="text-[10px] px-1.5 py-0.5 rounded text-themed-warning"
                 style={{ backgroundColor: 'color-mix(in srgb, var(--theme-warning) 15%, transparent)' }}
               >
-                daily avg
+                {t('widgets.peakUsageHours.dailyAvg')}
               </span>
             )}
           </div>
@@ -335,12 +337,12 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
             </div>
             <div className="text-[11px] leading-tight text-themed-muted tabular-nums">
               {isMultiDayPeriod
-                ? `${(peakHourData?.avgDownloads ?? 0).toFixed(1)}/day`
-                : `${(peakHourData?.downloads ?? 0).toLocaleString()} downloads`}
+                ? `${(peakHourData?.avgDownloads ?? 0).toFixed(1)}${t('widgets.peakUsageHours.perDay')}`
+                : `${(peakHourData?.downloads ?? 0).toLocaleString()} ${t('widgets.peakUsageHours.downloads')}`}
             </div>
             <div className="text-[11px] leading-tight text-themed-muted tabular-nums">
               {isMultiDayPeriod
-                ? `${formatBytes(peakHourData?.avgBytesServed ?? 0)}/day`
+                ? `${formatBytes(peakHourData?.avgBytesServed ?? 0)}${t('widgets.peakUsageHours.perDay')}`
                 : formatBytes(peakHourData?.bytesServed ?? 0)}
             </div>
           </div>
@@ -358,7 +360,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
               <div className="flex items-center gap-2">
                 <Zap className="w-4 h-4 flex-shrink-0 text-themed-accent" />
                 <span className="text-xs font-medium text-themed-accent">
-                  {currentHour === peakHour ? 'Now (Peak Hour)' : `Typical for ${formatHour(currentHour, true)}`}
+                  {currentHour === peakHour ? t('widgets.peakUsageHours.nowPeakHour') : t('widgets.peakUsageHours.typicalFor', { hour: formatHour(currentHour, true) })}
                 </span>
               </div>
               {/* Show % of peak for context - only when not the peak hour */}
@@ -367,9 +369,11 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
                   className="text-[10px] px-1.5 py-0.5 rounded text-themed-accent"
                   style={{ backgroundColor: 'color-mix(in srgb, var(--theme-primary) 15%, transparent)' }}
                 >
-                  {isMultiDayPeriod
-                    ? `${Math.round(((currentHourData?.avgDownloads ?? 0) / peakHourData.avgDownloads) * 100)}% of peak`
-                    : `${Math.round(((currentHourData?.downloads ?? 0) / peakHourData.downloads) * 100)}% of peak`}
+                  {t('widgets.peakUsageHours.ofPeak', {
+                    percent: isMultiDayPeriod
+                      ? Math.round(((currentHourData?.avgDownloads ?? 0) / peakHourData.avgDownloads) * 100)
+                      : Math.round(((currentHourData?.downloads ?? 0) / peakHourData.downloads) * 100)
+                  })}
                 </span>
               )}
               {isMultiDayPeriod && currentHour === peakHour && (
@@ -377,7 +381,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
                   className="text-[10px] px-1.5 py-0.5 rounded text-themed-accent"
                   style={{ backgroundColor: 'color-mix(in srgb, var(--theme-primary) 15%, transparent)' }}
                 >
-                  daily avg
+                  {t('widgets.peakUsageHours.dailyAvg')}
                 </span>
               )}
             </div>
@@ -387,12 +391,12 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
               </div>
               <div className="text-[11px] leading-tight text-themed-muted tabular-nums">
                 {isMultiDayPeriod
-                  ? `${(currentHourData?.avgDownloads ?? 0).toFixed(1)}/day`
-                  : `${(currentHourData?.downloads ?? 0).toLocaleString()} downloads`}
+                  ? `${(currentHourData?.avgDownloads ?? 0).toFixed(1)}${t('widgets.peakUsageHours.perDay')}`
+                  : `${(currentHourData?.downloads ?? 0).toLocaleString()} ${t('widgets.peakUsageHours.downloads')}`}
               </div>
               <div className="text-[11px] leading-tight text-themed-muted tabular-nums">
                 {isMultiDayPeriod
-                  ? `${formatBytes(currentHourData?.avgBytesServed ?? 0)}/day`
+                  ? `${formatBytes(currentHourData?.avgBytesServed ?? 0)}${t('widgets.peakUsageHours.perDay')}`
                   : formatBytes(currentHourData?.bytesServed ?? 0)}
               </div>
             </div>
@@ -478,7 +482,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
                   boxShadow: '0 0 0 1px var(--theme-card-bg), 0 0 0 2px var(--theme-primary)'
                 }}
               />
-              <span>Current Hour</span>
+              <span>{t('widgets.peakUsageHours.currentHourLabel')}</span>
             </div>
           )}
           <div className="flex items-center gap-1.5">
@@ -489,13 +493,13 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
                 boxShadow: '0 0 0 1px var(--theme-card-bg), 0 0 0 2px var(--theme-warning)'
               }}
             />
-            <span>Busiest Hour</span>
+            <span>{t('widgets.peakUsageHours.busiestHourLabel')}</span>
           </div>
         </div>
 
         {/* Intensity scale */}
         <div className="flex items-center gap-1 text-xs text-themed-muted">
-          <span>Less</span>
+          <span>{t('widgets.peakUsageHours.less')}</span>
           <div className="flex gap-0.5">
             <div className="w-2.5 h-2.5 rounded-sm bg-themed-tertiary" />
             <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: 'color-mix(in srgb, var(--theme-chart-1) 30%, var(--theme-bg-tertiary))' }} />
@@ -503,7 +507,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
             <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: 'color-mix(in srgb, var(--theme-chart-1) 75%, var(--theme-bg-tertiary))' }} />
             <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: 'var(--theme-chart-1)' }} />
           </div>
-          <span>More</span>
+          <span>{t('widgets.peakUsageHours.more')}</span>
         </div>
       </div>
     </div>

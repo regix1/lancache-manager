@@ -10,6 +10,7 @@ import {
   ShoppingCart,
   Database
 } from 'lucide-react';
+import i18n from '../../../i18n';
 import type { DropdownOption } from '@components/ui/EnhancedDropdown';
 import type { MultiSelectOption } from '@components/ui/MultiSelectDropdown';
 import type { NetworkDiagnostics } from '@services/api.service';
@@ -81,8 +82,8 @@ export interface PrefillProgress {
 export const SELECTION_COMMANDS: CommandButton[] = [
   {
     id: 'select-apps',
-    label: 'Select Apps',
-    description: 'Choose games to prefill',
+    label: '',
+    description: '',
     icon: <List className="h-4 w-4" />,
     variant: 'filled',
     color: 'blue'
@@ -92,37 +93,37 @@ export const SELECTION_COMMANDS: CommandButton[] = [
 export const PREFILL_COMMANDS: CommandButton[] = [
   {
     id: 'prefill',
-    label: 'Prefill Selected',
-    description: 'Download selected games',
+    label: '',
+    description: '',
     icon: <Download className="h-4 w-4" />,
     variant: 'filled',
     color: 'green'
   },
   {
     id: 'prefill-all',
-    label: 'Prefill All',
-    description: 'All owned games',
+    label: '',
+    description: '',
     icon: <Gamepad2 className="h-4 w-4" />,
     variant: 'outline'
   },
   {
     id: 'prefill-recent',
-    label: 'Recent Played',
-    description: 'Last 2 weeks',
+    label: '',
+    description: '',
     icon: <Clock className="h-4 w-4" />,
     variant: 'outline'
   },
   {
     id: 'prefill-recent-purchased',
-    label: 'Recent Bought',
-    description: 'Last 2 weeks',
+    label: '',
+    description: '',
     icon: <ShoppingCart className="h-4 w-4" />,
     variant: 'outline'
   },
   {
     id: 'prefill-top',
-    label: 'Top 50',
-    description: 'Popular games',
+    label: '',
+    description: '',
     icon: <TrendingUp className="h-4 w-4" />,
     variant: 'outline'
   }
@@ -131,23 +132,23 @@ export const PREFILL_COMMANDS: CommandButton[] = [
 export const UTILITY_COMMANDS: CommandButton[] = [
   {
     id: 'prefill-force',
-    label: 'Force Download',
-    description: 'Re-download all',
+    label: '',
+    description: '',
     icon: <RefreshCw className="h-4 w-4" />,
     variant: 'outline'
   },
   {
     id: 'clear-temp',
-    label: 'Clear Temp',
-    description: 'Free disk space',
+    label: '',
+    description: '',
     icon: <Trash2 className="h-4 w-4" />,
     variant: 'outline',
     color: 'red'
   },
   {
     id: 'clear-cache-data',
-    label: 'Clear Database',
-    description: 'Remove cache records',
+    label: '',
+    description: '',
     icon: <Database className="h-4 w-4" />,
     variant: 'outline',
     color: 'red',
@@ -157,49 +158,51 @@ export const UTILITY_COMMANDS: CommandButton[] = [
 
 // Operating system options for prefill (multi-select)
 export const OS_OPTIONS: MultiSelectOption[] = [
-  { value: 'windows', label: 'Windows', description: 'Windows game depots' },
-  { value: 'linux', label: 'Linux', description: 'Native Linux depots' },
-  { value: 'macos', label: 'macOS', description: 'macOS depots' }
+  { value: 'windows', label: '', description: '' },
+  { value: 'linux', label: '', description: '' },
+  { value: 'macos', label: '', description: '' }
 ];
 
 // Max concurrency/thread options
 export const THREAD_OPTIONS: DropdownOption[] = [
-  { value: 'default', label: 'Auto', description: 'Let daemon decide (recommended)' },
-  { value: '1', label: '1 Thread', description: 'Minimal bandwidth usage' },
-  { value: '2', label: '2 Threads', description: 'Low bandwidth usage' },
-  { value: '4', label: '4 Threads', description: 'Moderate bandwidth' },
-  { value: '8', label: '8 Threads', description: 'High bandwidth' },
-  { value: '16', label: '16 Threads', description: 'Very high bandwidth' },
-  { value: '32', label: '32 Threads', description: 'Maximum performance' }
+  { value: 'default', label: '', description: '' },
+  { value: '1', label: '', description: '' },
+  { value: '2', label: '', description: '' },
+  { value: '4', label: '', description: '' },
+  { value: '8', label: '', description: '' },
+  { value: '16', label: '', description: '' },
+  { value: '32', label: '', description: '' }
 ];
 
 // Utility functions
 export function formatTimeRemaining(seconds: number): string {
-  if (seconds <= 0) return 'Expiring...';
+  const t = i18n.t.bind(i18n);
+  if (seconds <= 0) return t('prefill.timeRemaining.expiring');
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   const secs = seconds % 60;
   if (hours > 0) {
-    return `${hours}h ${minutes}m`;
+    return t('prefill.timeRemaining.hoursMinutes', { hours, minutes });
   }
   if (minutes > 0) {
-    return `${minutes}m ${secs}s`;
+    return t('prefill.timeRemaining.minutesSeconds', { minutes, seconds: secs });
   }
-  return `${secs}s`;
+  return t('prefill.timeRemaining.seconds', { seconds: secs });
 }
 
 export function formatDuration(seconds: number): string {
-  if (seconds <= 0) return '0s';
+  const t = i18n.t.bind(i18n);
+  if (seconds <= 0) return t('prefill.duration.zero');
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   const secs = seconds % 60;
   if (hours > 0) {
-    return `${hours}h ${minutes}m ${secs}s`;
+    return t('prefill.duration.hoursMinutesSeconds', { hours, minutes, seconds: secs });
   }
   if (minutes > 0) {
-    return `${minutes}m ${secs}s`;
+    return t('prefill.duration.minutesSeconds', { minutes, seconds: secs });
   }
-  return `${secs}s`;
+  return t('prefill.duration.seconds', { seconds: secs });
 }
 
 export function formatBytes(bytes: number): string {

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Tooltip } from './Tooltip';
 import { useClientGroups } from '@contexts/ClientGroupContext';
 
@@ -18,6 +19,7 @@ export const ClientIpDisplay: React.FC<ClientIpDisplayProps> = ({
   className = '',
   showTooltip = true
 }) => {
+  const { t } = useTranslation();
   const { getGroupForIp } = useClientGroups();
   const group = getGroupForIp(clientIp);
 
@@ -29,7 +31,7 @@ export const ClientIpDisplay: React.FC<ClientIpDisplayProps> = ({
   }
 
   return (
-    <Tooltip content={`IP: ${clientIp}`}>
+    <Tooltip content={t('ui.clientIp.ipLabel', { ip: clientIp })}>
       <span className={`cursor-help border-b border-dashed border-themed-muted ${className}`}>
         {displayName}
       </span>

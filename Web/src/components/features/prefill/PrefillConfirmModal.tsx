@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { Modal } from '../../ui/Modal';
 import { Button } from '../../ui/Button';
 import { AlertCircle, Loader2 } from 'lucide-react';
@@ -34,6 +35,8 @@ export function PrefillConfirmModal({
   onCancel,
   getConfirmationMessage
 }: PrefillConfirmModalProps) {
+  const { t } = useTranslation();
+
   if (!pendingCommand) return null;
 
   const { title, message } = getConfirmationMessage(pendingCommand);
@@ -61,14 +64,14 @@ export function PrefillConfirmModal({
             {estimatedSize.loading ? (
               <div className="flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin text-[var(--theme-primary)]" />
-                <span className="text-sm text-themed-muted">Calculating download size...</span>
+                <span className="text-sm text-themed-muted">{t('prefill.confirm.calculatingSize')}</span>
               </div>
             ) : estimatedSize.error ? (
               <span className="text-sm text-themed-muted">{estimatedSize.error}</span>
             ) : (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-themed-muted">Total estimated download:</span>
+                  <span className="text-sm text-themed-muted">{t('prefill.confirm.totalEstimated')}</span>
                   <span className="text-sm font-semibold text-[var(--theme-primary)]">
                     {formatBytes(estimatedSize.bytes)}
                   </span>
@@ -76,7 +79,7 @@ export function PrefillConfirmModal({
                 {estimatedSize.apps && estimatedSize.apps.length > 0 && (
                   <div className="pt-2 border-t border-[var(--theme-border-primary)]">
                     <div className="text-xs text-themed-muted mb-1">
-                      Breakdown ({estimatedSize.apps.length} games):
+                      {t('prefill.confirm.breakdown', { count: estimatedSize.apps.length })}:
                     </div>
                     <div className="space-y-1 max-h-32 overflow-y-auto">
                       {estimatedSize.apps.map((app) => (
@@ -103,7 +106,7 @@ export function PrefillConfirmModal({
                             title={app.unavailableReason}
                           >
                             {app.isUnsupportedOs
-                              ? app.unavailableReason || 'Unsupported OS'
+                              ? app.unavailableReason || t('prefill.confirm.unsupportedOs')
                               : formatBytes(app.downloadSize)}
                           </span>
                         </div>
@@ -118,7 +121,7 @@ export function PrefillConfirmModal({
 
         <div className="flex justify-end gap-3 pt-2">
           <Button variant="outline" onClick={onCancel}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button
             variant="filled"
@@ -126,7 +129,7 @@ export function PrefillConfirmModal({
             onClick={onConfirm}
             disabled={pendingCommand === 'prefill' && estimatedSize.loading}
           >
-            {pendingCommand === 'prefill' ? 'Start Download' : 'Yes, Continue'}
+            {pendingCommand === 'prefill' ? t('prefill.confirm.startDownload') : t('prefill.confirm.yesContinue')}
           </Button>
         </div>
       </div>

@@ -1,5 +1,6 @@
 import React from 'react';
 import { FolderOpen, ChevronDown } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface DatasourceListItemProps {
   name: string;
@@ -22,6 +23,8 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
   statusIcons,
   children
 }) => {
+  const { t } = useTranslation();
+  
   return (
     <div
       className={`group rounded-lg overflow-hidden transition-all duration-300 border ${
@@ -69,7 +72,7 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
             {/* Disabled Badge */}
             {!enabled && (
               <span className="px-2 py-0.5 text-xs rounded font-medium bg-themed-tertiary text-themed-muted">
-                Disabled
+                {t('ui.datasource.disabled')}
               </span>
             )}
           </div>

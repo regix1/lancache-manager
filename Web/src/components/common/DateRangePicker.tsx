@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronLeft, ChevronRight, Calendar, ChevronDown } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
@@ -20,6 +21,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   onEndDateChange,
   onClose
 }) => {
+  const { t } = useTranslation();
   const { events } = useEvents();
 
   const [currentMonth, setCurrentMonth] = useState(() => {
@@ -205,10 +207,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   const endYear = currentYear + 2;
   const yearOptions = Array.from({ length: endYear - startYear + 1 }, (_, i) => startYear + i);
 
-  const monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
-  ];
+  const monthNames = t('common.dateRangePicker.months', { returnObjects: true }) as string[];
 
   const isDateInRange = (day: number): boolean => {
     const checkDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
@@ -275,7 +274,10 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
 
   const daysInMonth = getDaysInMonth(currentMonth);
   const firstDayOfMonth = getFirstDayOfMonth(currentMonth);
-  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const weekDays = t('common.dateRangePicker.weekDays', { returnObjects: true }) as string[];
+  const selectedDays = startDate && endDate
+    ? Math.abs(Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))) + 1
+    : 0;
 
   return (
     <Modal
@@ -284,7 +286,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
       title={
         <div className="flex items-center gap-2">
           <Calendar className="w-5 h-5 text-[var(--theme-primary)]" />
-          <span>Select Date Range</span>
+          <span>{t('common.dateRangePicker.title')}</span>
         </div>
       }
       size="md"
@@ -458,30 +460,30 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
         <div className="mt-4 pt-4 border-t border-[var(--theme-border-primary)]">
           <div className="flex justify-between text-sm">
             <div>
-              <span className="text-[var(--theme-text-secondary)]">Start: </span>
+              <span className="text-[var(--theme-text-secondary)]">{t('common.dateRangePicker.startLabel')}</span>
               <span className="text-[var(--theme-text-primary)] font-medium">
-                {startDate ? startDate.toLocaleDateString() : 'Not selected'}
+                {startDate ? startDate.toLocaleDateString() : t('common.dateRangePicker.notSelected')}
               </span>
             </div>
             <div>
-              <span className="text-[var(--theme-text-secondary)]">End: </span>
+              <span className="text-[var(--theme-text-secondary)]">{t('common.dateRangePicker.endLabel')}</span>
               <span className="text-[var(--theme-text-primary)] font-medium">
-                {endDate ? endDate.toLocaleDateString() : 'Not selected'}
+                {endDate ? endDate.toLocaleDateString() : t('common.dateRangePicker.notSelected')}
               </span>
             </div>
           </div>
           <div className="mt-2 text-xs text-[var(--theme-text-secondary)] text-center">
             {!startDate
-              ? 'Click to select start date'
+              ? t('common.dateRangePicker.selectStartDate')
               : !endDate
-                ? 'Click to select end date'
-                : `${Math.abs(Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))) + 1} day(s) selected`}
+                ? t('common.dateRangePicker.selectEndDate')
+                : t('common.dateRangePicker.daysSelected', { count: selectedDays })}
           </div>
         </div>
 
         {/* Quick Presets */}
         <div className="mt-4 pt-4 border-t border-[var(--theme-border-primary)]">
-          <div className="text-xs text-[var(--theme-text-secondary)] mb-2">Quick Select:</div>
+          <div className="text-xs text-[var(--theme-text-secondary)] mb-2">{t('common.dateRangePicker.quickSelect')}</div>
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => {
@@ -492,7 +494,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
               }}
               className="px-3 py-1.5 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg hover:bg-[var(--theme-bg-primary)] transition-colors border border-[var(--theme-border-primary)]"
             >
-              Today
+              {t('common.dateRangePicker.today')}
             </button>
             <button
               onClick={() => {
@@ -505,7 +507,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
               }}
               className="px-3 py-1.5 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg hover:bg-[var(--theme-bg-primary)] transition-colors border border-[var(--theme-border-primary)]"
             >
-              Last 7 Days
+              {t('common.dateRangePicker.last7Days')}
             </button>
             <button
               onClick={() => {
@@ -518,7 +520,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
               }}
               className="px-3 py-1.5 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg hover:bg-[var(--theme-bg-primary)] transition-colors border border-[var(--theme-border-primary)]"
             >
-              Last 30 Days
+              {t('common.dateRangePicker.last30Days')}
             </button>
             <button
               onClick={() => {
@@ -532,7 +534,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
               }}
               className="px-3 py-1.5 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg hover:bg-[var(--theme-bg-primary)] transition-colors border border-[var(--theme-border-primary)]"
             >
-              This Month
+              {t('common.dateRangePicker.thisMonth')}
             </button>
             <button
               onClick={() => {
@@ -546,7 +548,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
               }}
               className="px-3 py-1.5 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg hover:bg-[var(--theme-bg-primary)] transition-colors border border-[var(--theme-border-primary)]"
             >
-              Last Month
+              {t('common.dateRangePicker.lastMonth')}
             </button>
             <button
               onClick={() => {
@@ -560,7 +562,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
               }}
               className="px-3 py-1.5 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg hover:bg-[var(--theme-bg-primary)] transition-colors border border-[var(--theme-border-primary)]"
             >
-              This Year
+              {t('common.dateRangePicker.thisYear')}
             </button>
           </div>
         </div>
@@ -568,7 +570,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
         {/* Event Presets - Only show if there are events */}
         {sortedEvents.length > 0 && (
           <div className="mt-4 pt-4 border-t border-[var(--theme-border-primary)]">
-            <div className="text-xs text-[var(--theme-text-secondary)] mb-2">Event Date Ranges:</div>
+            <div className="text-xs text-[var(--theme-text-secondary)] mb-2">{t('common.dateRangePicker.eventDateRanges')}</div>
             <div className="flex flex-wrap gap-2">
               {sortedEvents.slice(0, 6).map((event) => {
                 const status = getEventStatus(event.startTimeUtc, event.endTimeUtc);
@@ -594,7 +596,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
                           color: 'var(--theme-success)'
                         }}
                       >
-                        Live
+                        {t('common.dateRangePicker.liveBadge')}
                       </span>
                     )}
                   </button>
@@ -602,7 +604,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
               })}
             </div>
             <div className="mt-1 text-[10px] text-[var(--theme-text-muted)]">
-              Click an event to use its date range
+              {t('common.dateRangePicker.eventRangeHint')}
             </div>
           </div>
         )}
@@ -621,14 +623,14 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
             }}
             className="flex-1 px-3 py-2 text-sm bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded-lg hover:bg-[var(--theme-bg-primary)] transition-colors border border-[var(--theme-border-primary)]"
           >
-            Clear
+            {t('common.clear')}
           </button>
           <button
             onClick={onClose}
             className="flex-1 px-3 py-2 text-sm bg-[var(--theme-primary)] text-[var(--theme-button-text)] rounded-lg hover:bg-[var(--theme-primary)]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={!startDate || !endDate}
           >
-            Apply
+            {t('common.apply')}
           </button>
         </div>
       </div>

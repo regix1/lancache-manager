@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   AlertTriangle,
   Loader2,
@@ -41,6 +42,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   onError,
   onReloadRef
 }) => {
+  const { t } = useTranslation();
   const { notifications, addNotification } = useNotifications();
   const signalR = useSignalR();
 
@@ -105,14 +107,14 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
             addNotification({
               type: 'generic',
               status: 'completed',
-              message: `Loaded previous results: ${totalCorrupted.toLocaleString()} corrupted chunk${totalCorrupted !== 1 ? 's' : ''} across ${serviceCount} service${serviceCount !== 1 ? 's' : ''}`,
+              message: t('management.corruption.notifications.loadedResults', { chunks: totalCorrupted.toLocaleString(), services: serviceCount }),
               details: { notificationType: 'info' }
             });
           } else if (showNotification) {
             addNotification({
               type: 'generic',
               status: 'completed',
-              message: 'No corrupted chunks found in previous scan',
+              message: t('management.corruption.notifications.noCorruptedInPrevious'),
               details: { notificationType: 'success' }
             });
           }
@@ -127,7 +129,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
           addNotification({
             type: 'generic',
             status: 'completed',
-            message: 'No previous corruption scan results found',
+            message: t('management.corruption.notifications.noPreviousResults'),
             details: { notificationType: 'info' }
           });
         }
@@ -136,12 +138,12 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
     } catch (err: unknown) {
       console.error('Failed to load cached corruption data:', err);
       setLoadError(
-        (err instanceof Error ? err.message : String(err)) || 'Failed to load cached data'
+        (err instanceof Error ? err.message : String(err)) || t('management.corruption.errors.loadCachedData')
       );
     } finally {
       setIsLoading(false);
     }
-  }, [addNotification]);
+  }, [addNotification, t]);
 
   // Start a background scan
   const startScan = useCallback(async () => {
@@ -160,11 +162,11 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
     } catch (err: unknown) {
       console.error('Failed to start corruption scan:', err);
       setLoadError(
-        (err instanceof Error ? err.message : String(err)) || 'Failed to start corruption scan'
+        (err instanceof Error ? err.message : String(err)) || t('management.corruption.errors.startScan')
       );
       setIsStartingScan(false);
     }
-  }, [isScanning, mockMode]);
+  }, [isScanning, mockMode, t]);
 
   // Listen for corruption detection completion via notifications
   useEffect(() => {
@@ -201,7 +203,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
         console.error('[CorruptionManager] Corruption detection failed');
         setIsStartingScan(false);
         const failedNotif = corruptionDetectionFailedNotifs[0];
-        setLoadError(failedNotif.error || 'Corruption scan failed');
+        setLoadError(failedNotif.error || t('management.corruption.scanFailed'));
       }
     }
   }, [notifications, isStartingScan]);
@@ -215,7 +217,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
         // Start a new scan after removal to refresh data
         await startScan();
       } else {
-        onError?.(result.error || 'Corruption removal failed');
+        onError?.(result.error || t('management.corruption.removalFailed'));
       }
     };
 
@@ -258,7 +260,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
 
   const handleRemoveCorruption = (service: string) => {
     if (authMode !== 'authenticated') {
-      onError?.('Full authentication required for management operations');
+      onError?.(t('common.fullAuthRequired'));
       return;
     }
     setPendingCorruptionRemoval(service);
@@ -277,7 +279,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
       console.error('Removal failed:', err);
       onError?.(
         (err instanceof Error ? err.message : String(err)) ||
-          `Failed to remove corrupted chunks for ${service}`
+          t('management.corruption.errors.removeCorrupted', { service })
       );
     } finally {
       setStartingCorruptionRemoval(null);
@@ -300,7 +302,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
       } catch (err: unknown) {
         onError?.(
           (err instanceof Error ? err.message : String(err)) ||
-            `Failed to load corruption details for ${service}`
+            t('management.corruption.errors.loadDetails', { service })
         );
         setExpandedCorruptionService(null);
       } finally {
@@ -318,21 +320,20 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   // Help content
   const helpContent = (
     <HelpPopover position="left" width={320}>
-      <HelpSection title="What This Does">
-        Finds cache chunks with 3+ repeated MISS requests, which usually means
-        the cached file is corrupted and must be re-downloaded.
+      <HelpSection title={t('management.corruption.help.whatThisDoes.title')}>
+        {t('management.corruption.help.whatThisDoes.description')}
       </HelpSection>
 
-      <HelpSection title="What Removal Deletes" variant="subtle">
+      <HelpSection title={t('management.corruption.help.whatRemovalDeletes.title')} variant="subtle">
         <ul className="list-disc list-inside text-sm space-y-1">
-          <li><strong>Cache files</strong> - corrupted chunks on disk</li>
-          <li><strong>Log entries</strong> - related access.log entries</li>
-          <li><strong>Database records</strong> - download sessions marked as corrupt</li>
+          <li><strong>{t('management.corruption.help.whatRemovalDeletes.cacheFilesLabel')}</strong> - {t('management.corruption.help.whatRemovalDeletes.cacheFiles')}</li>
+          <li><strong>{t('management.corruption.help.whatRemovalDeletes.logEntriesLabel')}</strong> - {t('management.corruption.help.whatRemovalDeletes.logEntries')}</li>
+          <li><strong>{t('management.corruption.help.whatRemovalDeletes.databaseRecordsLabel')}</strong> - {t('management.corruption.help.whatRemovalDeletes.databaseRecords')}</li>
         </ul>
       </HelpSection>
 
       <HelpNote type="warning">
-        Removal affects both cache and logs, so write access to both is required.
+        {t('management.corruption.help.warning')}
       </HelpNote>
     </HelpPopover>
   );
@@ -340,17 +341,17 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   // Action buttons for header
   const headerActions = (
     <div className="flex items-center gap-2">
-      <Tooltip content="Load previous scan results from database" position="top">
+      <Tooltip content={t('management.corruption.loadPreviousResults')} position="top">
         <Button
           onClick={() => loadCachedData(true)}
           disabled={isLoading || isScanning || !!removingCorruption}
           variant="subtle"
           size="sm"
         >
-          {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Load'}
+          {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : t('common.load')}
         </Button>
       </Tooltip>
-      <Tooltip content="Scan for corrupted cache chunks" position="top">
+      <Tooltip content={t('management.corruption.scanForCorrupted')} position="top">
         <Button
           onClick={() => startScan()}
           disabled={isLoading || isScanning || !!removingCorruption}
@@ -358,7 +359,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
           color="blue"
           size="sm"
         >
-          {isScanning ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Scan'}
+          {isScanning ? <Loader2 className="w-4 h-4 animate-spin" /> : t('common.scan')}
         </Button>
       </Tooltip>
     </div>
@@ -370,8 +371,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
         <ManagerCardHeader
           icon={AlertTriangle}
           iconColor="yellow"
-          title="Corruption Detection"
-          subtitle="Find and fix corrupted cache files"
+          title={t('management.corruption.title')}
+          subtitle={t('management.corruption.subtitle')}
           helpContent={helpContent}
           permissions={{
             logsReadOnly,
@@ -386,7 +387,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
           <Alert color="blue" className="mb-4">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium">
-                Results from previous scan
+                {t('common.resultsFromPreviousScan')}
               </span>
               <span className="text-xs text-themed-muted">
                 {formattedLastDetection}
@@ -397,7 +398,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
 
         {/* Scanning Status */}
         {isScanning && (
-          <ScanningState message="Scanning logs for corrupted chunks... This may take several minutes for large log files." />
+          <ScanningState message={t('management.corruption.scanningMessage')} />
         )}
 
         {/* Read-Only Warning */}
@@ -406,15 +407,15 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
             <div>
               <p className="font-medium">
                 {logsReadOnly && cacheReadOnly
-                  ? 'Logs and cache directories are read-only'
+                  ? t('management.corruption.alerts.logsAndCacheReadOnly')
                   : logsReadOnly
-                    ? 'Logs directory is read-only'
-                    : 'Cache directory is read-only'}
+                    ? t('management.corruption.alerts.logsReadOnly')
+                    : t('management.corruption.alerts.cacheReadOnly')}
               </p>
               <p className="text-sm mt-1">
-                Corruption removal requires write access to both logs and cache. Remove{' '}
-                <code className="bg-themed-tertiary px-1 rounded">:ro</code> from your docker-compose
-                volume mounts.
+                {t('management.corruption.alerts.requiresWriteAccess')}{' '}
+                <code className="bg-themed-tertiary px-1 rounded">:ro</code>{' '}
+                {t('management.corruption.alerts.fromVolumeMounts')}
               </p>
             </div>
           </Alert>
@@ -424,11 +425,11 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
         {!dockerSocketAvailable && !isReadOnly && (
           <Alert color="orange" className="mb-6">
             <div className="min-w-0">
-              <p className="font-medium">Docker socket not available</p>
+              <p className="font-medium">{t('management.corruption.alerts.dockerSocketUnavailable')}</p>
               <p className="text-sm mt-1">
-                Corruption removal requires signaling nginx to reopen logs afterward.
+                {t('management.corruption.alerts.requiresNginxSignal')}
               </p>
-              <p className="text-sm mt-2">Add to your docker-compose.yml volumes:</p>
+              <p className="text-sm mt-2">{t('management.logRemoval.alerts.dockerSocket.addVolumes')}</p>
               <code className="block bg-themed-tertiary px-2 py-1 rounded text-xs mt-1 break-all">
                 - /var/run/docker.sock:/var/run/docker.sock:ro
               </code>
@@ -438,13 +439,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
 
         {/* Content */}
         {isReadOnly || !dockerSocketAvailable ? (
-          <ReadOnlyBadge message={isReadOnly ? 'Read-only' : 'Docker socket required'} />
+          <ReadOnlyBadge message={isReadOnly ? t('management.corruption.readOnly') : t('management.corruption.dockerSocketRequired')} />
         ) : (
           <>
             {loadError && (
               <Alert color="red" className="mb-4">
                 <div>
-                  <p className="text-sm font-medium mb-1">Failed to detect corrupted chunks</p>
+                  <p className="text-sm font-medium mb-1">{t('management.corruption.errors.detectFailed')}</p>
                   <p className="text-xs opacity-75">{loadError}</p>
                   <Button
                     variant="default"
@@ -452,14 +453,14 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
                     onClick={() => startScan()}
                     className="mt-2"
                   >
-                    Try Again
+                    {t('management.corruption.tryAgain')}
                   </Button>
                 </div>
               </Alert>
             )}
 
             {isLoading && !isScanning ? (
-              <LoadingState message="Loading cached data..." />
+              <LoadingState message={t('management.corruption.loadingCachedData')} />
             ) : !loadError && hasCachedResults && corruptionList.length > 0 ? (
               <div className="space-y-3">
                 {corruptionList.map(([service, count]) => (
@@ -488,12 +489,12 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
                               {service}
                             </span>
                             <span className="text-xs text-themed-muted">
-                              ({count.toLocaleString()} corrupted chunk{count !== 1 ? 's' : ''})
+                              ({t('management.corruption.corruptedChunks', { count })})
                             </span>
                           </div>
                         </div>
                       </div>
-                      <Tooltip content="Delete cache files and remove log entries for corrupted chunks">
+                      <Tooltip content={t('management.corruption.deleteCorrupted')}>
                         <Button
                           onClick={() => handleRemoveCorruption(service)}
                           disabled={
@@ -515,8 +516,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
                           className="w-full sm:w-auto flex-shrink-0"
                         >
                           {removingCorruption !== service && startingCorruptionRemoval !== service
-                            ? 'Remove All'
-                            : 'Removing...'}
+                            ? t('management.corruption.removeAll')
+                            : t('management.corruption.removing')}
                         </Button>
                       </Tooltip>
                     </div>
@@ -528,7 +529,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
                           <div className="flex items-center justify-center py-4 gap-2">
                             <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
                             <span className="text-sm text-themed-secondary">
-                              Loading corruption details...
+                              {t('management.corruption.loadingDetails')}
                             </span>
                           </div>
                         ) : corruptionDetails[service] && corruptionDetails[service].length > 0 ? (
@@ -550,7 +551,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
                                     </div>
                                     <div className="flex items-center gap-3 text-xs text-themed-muted">
                                       <span>
-                                        Miss count:{' '}
+                                        {t('management.corruption.missCount')}{' '}
                                         <strong className="text-themed-error">
                                           {chunk.miss_count || 0}
                                         </strong>
@@ -558,7 +559,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
                                       {chunk.cache_file_path && (
                                         <Tooltip content={chunk.cache_file_path}>
                                           <span className="truncate">
-                                            Cache:{' '}
+                                            {t('management.corruption.cache')}{' '}
                                             <code className="text-xs">
                                               {chunk.cache_file_path.split('/').pop() ||
                                                 chunk.cache_file_path.split('\\').pop()}
@@ -574,7 +575,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
                           </div>
                         ) : (
                           <div className="text-center py-4 text-themed-muted text-sm">
-                            No details available
+                            {t('management.corruption.noDetailsAvailable')}
                           </div>
                         )}
                       </div>
@@ -585,14 +586,14 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
             ) : !loadError && hasCachedResults && corruptionList.length === 0 ? (
               <EmptyState
                 icon={AlertTriangle}
-                title="No corrupted chunks detected"
-                subtitle="Cache appears healthy - all chunks are being served successfully"
+                title={t('management.corruption.emptyStates.noCorrupted.title')}
+                subtitle={t('management.corruption.emptyStates.noCorrupted.subtitle')}
               />
             ) : !loadError && !hasCachedResults && !isScanning && !isLoading ? (
               <EmptyState
                 icon={AlertTriangle}
-                title="No cached data available"
-                subtitle="Click the Scan button to detect corrupted cache chunks"
+                title={t('management.corruption.emptyStates.noCachedData.title')}
+                subtitle={t('management.corruption.emptyStates.noCachedData.subtitle')}
               />
             ) : null}
           </>
@@ -606,36 +607,35 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
         title={
           <div className="flex items-center space-x-3">
             <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>Remove Corrupted Chunks</span>
+            <span>{t('management.corruption.modal.title')}</span>
           </div>
         }
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            Remove all corrupted cache chunks for <strong>{pendingCorruptionRemoval}</strong>?
+            {t('management.corruption.modal.confirmRemove', { service: pendingCorruptionRemoval })}
           </p>
 
           <Alert color="red">
             <div>
-              <p className="text-sm font-medium mb-2">This will DELETE:</p>
+              <p className="text-sm font-medium mb-2">{t('management.corruption.modal.willDelete')}</p>
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li><strong>Cache files</strong> from disk for corrupted chunks</li>
-                <li><strong>Log entries</strong> from access.log for these chunks</li>
-                <li><strong>Database records</strong> for download sessions with corruption</li>
+                <li><strong>{t('management.corruption.modal.cacheFilesLabel')}</strong> {t('management.corruption.modal.cacheFilesDesc')}</li>
+                <li><strong>{t('management.corruption.modal.logEntriesLabel')}</strong> {t('management.corruption.modal.logEntriesDesc')}</li>
+                <li><strong>{t('management.corruption.modal.databaseRecordsLabel')}</strong> {t('management.corruption.modal.databaseRecordsDesc')}</li>
               </ul>
             </div>
           </Alert>
 
           <Alert color="yellow">
             <div>
-              <p className="text-sm font-medium mb-2">Important:</p>
+              <p className="text-sm font-medium mb-2">{t('management.cache.alerts.important')}</p>
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>This action cannot be undone</li>
-                <li>May take several minutes for large cache directories</li>
-                <li>Valid {pendingCorruptionRemoval} cache files will remain intact</li>
+                <li>{t('management.corruption.modal.cannotBeUndone')}</li>
+                <li>{t('management.corruption.modal.mayTakeSeveralMinutes')}</li>
+                <li>{t('management.corruption.modal.validFilesRemain', { service: pendingCorruptionRemoval })}</li>
                 <li>
-                  Removes approximately {corruptionSummary[pendingCorruptionRemoval || ''] || 0}{' '}
-                  corrupted chunks
+                  {t('management.corruption.modal.removesApproximately', { count: corruptionSummary[pendingCorruptionRemoval || ''] || 0 })}
                 </li>
               </ul>
             </div>
@@ -643,10 +643,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
 
           <div className="flex justify-end space-x-3 pt-2">
             <Button variant="default" onClick={() => setPendingCorruptionRemoval(null)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button variant="filled" color="red" onClick={confirmRemoveCorruption}>
-              Delete Cache & Logs
+              {t('management.corruption.modal.deleteCacheAndLogs')}
             </Button>
           </div>
         </div>

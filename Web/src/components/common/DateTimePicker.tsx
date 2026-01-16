@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronLeft, ChevronRight, Calendar, ChevronDown, Clock } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
@@ -18,10 +19,12 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
   value,
   onChange,
   onClose,
-  title = 'Select Date & Time',
+  title,
   minDate
 }) => {
+  const { t } = useTranslation();
   const { use24HourFormat, useLocalTimezone } = useTimezone();
+  const resolvedTitle = title || t('common.dateTimePicker.title');
 
   const [currentMonth, setCurrentMonth] = useState(() => {
     return value ? new Date(value.getFullYear(), value.getMonth(), 1) : new Date();
@@ -160,12 +163,11 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
   const endYear = currentYear + 5;
   const yearOptions = Array.from({ length: endYear - startYear + 1 }, (_, i) => startYear + i);
 
-  const monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
-  ];
+  const monthNames = t('common.dateTimePicker.months', { returnObjects: true }) as string[];
 
-  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const weekDays = t('common.dateTimePicker.weekDays', { returnObjects: true }) as string[];
+  const amLabel = t('common.dateTimePicker.am');
+  const pmLabel = t('common.dateTimePicker.pm');
 
   const isSelectedDate = (day: number): boolean => {
     if (!selectedDate) return false;
@@ -234,7 +236,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
 
   const formatTime = (): string => {
     const h = use24HourFormat ? hours : displayHour;
-    const suffix = use24HourFormat ? '' : ` ${amPm}`;
+    const suffix = use24HourFormat ? '' : ` ${amPm === 'AM' ? amLabel : pmLabel}`;
     return `${h.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}${suffix}`;
   };
 
@@ -245,7 +247,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
       title={
         <div className="flex items-center gap-2">
           <Calendar className="w-5 h-5 text-[var(--theme-primary)]" />
-          <span>{title}</span>
+          <span>{resolvedTitle}</span>
         </div>
       }
       size="md"
@@ -411,7 +413,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
         <div className="mt-4 pt-4 border-t border-[var(--theme-border-primary)]">
           <div className="flex items-center justify-center gap-2">
             <Clock className="w-4 h-4 text-[var(--theme-text-secondary)]" />
-            <span className="text-sm text-[var(--theme-text-secondary)]">Time:</span>
+            <span className="text-sm text-[var(--theme-text-secondary)]">{t('common.dateTimePicker.timeLabel')}</span>
 
             {/* Hour Dropdown */}
             <div className="relative">
@@ -528,7 +530,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
                       : 'bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-primary)]'
                   }`}
                 >
-                  AM
+                  {amLabel}
                 </button>
                 <button
                   onClick={() => handleAmPmChange('PM')}
@@ -538,7 +540,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
                       : 'bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-primary)]'
                   }`}
                 >
-                  PM
+                  {pmLabel}
                 </button>
               </div>
             )}
@@ -548,11 +550,11 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
         {/* Selected Value Display */}
         <div className="mt-4 pt-4 border-t border-[var(--theme-border-primary)]">
           <div className="text-center">
-            <span className="text-sm text-[var(--theme-text-secondary)]">Selected: </span>
+            <span className="text-sm text-[var(--theme-text-secondary)]">{t('common.dateTimePicker.selectedLabel')}</span>
             <span className="text-[var(--theme-text-primary)] font-medium">
               {selectedDate
                 ? `${selectedDate.toLocaleDateString(undefined, { timeZone: getEffectiveTimezone(useLocalTimezone) })} ${formatTime()}`
-                : 'None'}
+                : t('common.dateTimePicker.none')}
             </span>
           </div>
         </div>
@@ -573,7 +575,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
             }}
             fullWidth
           >
-            Now
+            {t('common.dateTimePicker.now')}
           </Button>
           <Button
             variant="filled"
@@ -583,7 +585,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
             disabled={!selectedDate}
             fullWidth
           >
-            Apply
+            {t('common.apply')}
           </Button>
         </div>
       </div>

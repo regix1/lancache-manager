@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import TimeFilter from '../common/TimeFilter';
 import RefreshRateSelector from '../common/RefreshRateSelector';
 import TimezoneSelector from '../common/TimezoneSelector';
+import LanguageSelector from '../common/LanguageSelector';
 import { Tooltip } from '@components/ui/Tooltip';
 import LancacheIcon from '../ui/LancacheIcon';
 import { useMockMode } from '@contexts/MockModeContext';
@@ -15,10 +17,11 @@ interface HeaderProps {
 }
 
 const Header: React.FC<HeaderProps> = ({
-  title = 'LANCache Manager',
-  subtitle = 'High-performance cache monitoring & management',
+  title,
+  subtitle,
   connectionStatus = 'connected'
 }) => {
+  const { t } = useTranslation();
   const { mockMode } = useMockMode();
   const { authMode } = useAuth();
   const [isGuestMode, setIsGuestMode] = useState(false);
@@ -35,6 +38,9 @@ const Header: React.FC<HeaderProps> = ({
       setDeviceId(authService.getGuestSessionId() || '');
     }
   }, [authMode]);
+
+  const resolvedTitle = title ?? t('app.title');
+  const resolvedSubtitle = subtitle ?? t('app.subtitle');
 
   return (
     <>
@@ -83,34 +89,34 @@ const Header: React.FC<HeaderProps> = ({
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <h1 className="text-lg sm:text-xl font-bold text-themed-primary truncate">
-                    {title}
+                    {resolvedTitle}
                   </h1>
                   {connectionStatus === 'connected' && (
-                    <Tooltip content="API Status: Connected - All backend services are responding normally">
+                    <Tooltip content={t('status.connectedTooltip')}>
                       <div className="flex items-center">
                         <div className="w-2 h-2 rounded-full flex-shrink-0 bg-[var(--theme-success)]"></div>
                       </div>
                     </Tooltip>
                   )}
                   {connectionStatus === 'disconnected' && (
-                    <Tooltip content="API Status: Disconnected - Unable to connect to backend services">
+                    <Tooltip content={t('status.disconnectedTooltip')}>
                       <div className="flex items-center gap-1 text-themed-error">
                         <div className="w-2 h-2 rounded-full flex-shrink-0 bg-[var(--theme-error)]"></div>
-                        <span className="text-xs">Disconnected</span>
+                        <span className="text-xs">{t('status.disconnectedLabel')}</span>
                       </div>
                     </Tooltip>
                   )}
                   {connectionStatus === 'reconnecting' && (
-                    <Tooltip content="API Status: Reconnecting - Attempting to restore connection to backend services">
+                    <Tooltip content={t('status.reconnectingTooltip')}>
                       <div className="flex items-center gap-1 text-themed-warning">
                         <div className="w-2 h-2 rounded-full animate-pulse flex-shrink-0 bg-[var(--theme-warning)]"></div>
-                        <span className="text-xs">Reconnecting</span>
+                        <span className="text-xs">{t('status.reconnectingLabel')}</span>
                       </div>
                     </Tooltip>
                   )}
                 </div>
                 <div className="flex items-center gap-2 text-xs sm:text-sm text-themed-muted">
-                  <span className="truncate">{subtitle}</span>
+                  <span className="truncate">{resolvedSubtitle}</span>
                   {isGuestMode && (
                     <div
                       className="px-2 py-0.5 rounded text-xs font-medium flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-1.5"
@@ -124,7 +130,9 @@ const Header: React.FC<HeaderProps> = ({
                           : '1px solid var(--theme-warning)'
                       }}
                     >
-                      <span className="whitespace-nowrap">{isRevoked ? 'Revoked' : 'Guest Mode'}</span>
+                      <span className="whitespace-nowrap">
+                        {isRevoked ? t('guest.revoked') : t('guest.guestMode')}
+                      </span>
                       {!isRevoked && (
                         <>
                           <span className="hidden sm:inline opacity-50 text-[0.9em]">•</span>
@@ -140,6 +148,7 @@ const Header: React.FC<HeaderProps> = ({
             </div>
 
             <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+              <LanguageSelector />
               <TimezoneSelector />
               <RefreshRateSelector disabled={mockMode} />
               <TimeFilter disabled={mockMode} />
@@ -181,7 +190,8 @@ const Header: React.FC<HeaderProps> = ({
               </div>
 
               {/* Right: Controls in a row - constrained width to prevent overflow */}
-              <div className="flex items-center gap-1 flex-1 justify-end min-w-0">
+              <div className="flex items-center gap-0.5 xs:gap-1 flex-1 justify-end min-w-0 [&_.ed-trigger]:text-xs [&_.ed-trigger]:py-1.5 [&_.ed-trigger]:px-2">
+                <LanguageSelector />
                 <TimezoneSelector />
                 <RefreshRateSelector disabled={mockMode} />
                 <TimeFilter disabled={mockMode} />
@@ -203,7 +213,9 @@ const Header: React.FC<HeaderProps> = ({
                       : '1px solid var(--theme-warning)'
                   }}
                 >
-                  <span className="whitespace-nowrap">{isRevoked ? 'Revoked' : 'Guest'}</span>
+                  <span className="whitespace-nowrap">
+                    {isRevoked ? t('guest.revoked') : t('guest.guest')}
+                  </span>
                   {!isRevoked && (
                     <>
                       <span className="opacity-50">•</span>

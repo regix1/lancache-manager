@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { CheckCircle2, XCircle, AlertTriangle, Wifi, Globe, Server, Info, ChevronDown } from 'lucide-react';
 import { Card } from '../../ui/Card';
 import type { NetworkDiagnostics } from '@services/api.service';
@@ -8,6 +9,7 @@ interface NetworkStatusSectionProps {
 }
 
 export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps) {
+  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
 
   if (!diagnostics) {
@@ -53,13 +55,13 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
             <Wifi className="h-5 w-5" style={{ color: statusColor }} />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="font-medium text-themed-primary">Container Network Status</p>
+            <p className="font-medium text-themed-primary">{t('prefill.network.title')}</p>
             <p className="text-sm text-themed-muted">
               {hasRealIssue
-                ? 'Some issues detected'
+                ? t('prefill.network.issuesDetected')
                 : showInfoState
-                  ? 'Host networking mode'
-                  : 'All checks passed'}
+                  ? t('prefill.network.hostNetworking')
+                  : t('prefill.network.allChecksPassed')}
             </p>
           </div>
           <ChevronDown
@@ -80,12 +82,12 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
               <XCircle className="h-4 w-4 flex-shrink-0 text-[var(--theme-error)]" />
             )}
             <Globe className="h-4 w-4 text-themed-muted flex-shrink-0" />
-            <span className="text-sm text-themed-primary">Internet connectivity</span>
+            <span className="text-sm text-themed-primary">{t('prefill.network.internetConnectivity')}</span>
             {diagnostics.internetConnectivity ? (
-              <span className="text-xs text-themed-muted ml-auto">OK</span>
+              <span className="text-xs text-themed-muted ml-auto">{t('prefill.network.ok')}</span>
             ) : (
               <span className="text-xs ml-auto text-[var(--theme-error)]">
-                Failed
+                {t('prefill.network.failed')}
               </span>
             )}
           </div>
@@ -95,7 +97,7 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
             <div className="ml-6 text-xs p-2 rounded bg-[var(--theme-error-bg)] text-[var(--theme-error-text)]">
               {diagnostics.internetConnectivityError}
               <div className="mt-1 text-themed-muted">
-                Try setting <code className="px-1 py-0.5 rounded bg-themed-tertiary">Prefill__NetworkMode=bridge</code> in your docker-compose.yml
+                {t('prefill.network.trySetting')} <code className="px-1 py-0.5 rounded bg-themed-tertiary">Prefill__NetworkMode=bridge</code> {t('prefill.network.inDockerCompose')}
               </div>
             </div>
           )}
@@ -133,7 +135,7 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
                   </span>
                 ) : (
                   <span className="text-xs ml-auto text-[var(--theme-error)]">
-                    Not resolved
+                    {t('prefill.network.notResolved')}
                   </span>
                 )}
               </div>
@@ -149,14 +151,11 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
                 >
                   {diagnostics.useHostNetworking ? (
                     <>
-                      Public DNS is expected with host networking. Steam-prefill will detect
-                      lancache automatically via localhost. If your cache size grows during
-                      downloads, everything is working correctly.
+                      {t('prefill.network.publicDnsExpected')}
                     </>
                   ) : (
                     <>
-                      Public IP detected - lancache-dns may not be configured.
-                      Prefill may download from internet instead of populating cache.
+                      {t('prefill.network.publicIpDetected')}
                     </>
                   )}
                 </div>

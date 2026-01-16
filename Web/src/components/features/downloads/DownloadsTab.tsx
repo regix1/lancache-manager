@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Database,
   Settings,
@@ -211,6 +212,7 @@ const convertDownloadsToCSV = (downloads: Download[]): string => {
 
 // Main Downloads Tab Component
 const DownloadsTab: React.FC = () => {
+  const { t } = useTranslation();
   const { latestDownloads = [], loading } = useDownloads();
   const { timeRange, selectedEventIds } = useTimeFilter();
   const { getGroupForIp } = useClientGroups();
@@ -435,7 +437,7 @@ const DownloadsTab: React.FC = () => {
 
   const serviceOptions = useMemo(() => {
     const baseOptions = [
-      { value: 'all', label: 'All Services' },
+      { value: 'all', label: t('downloads.tab.filters.allServices') },
       ...filteredAvailableServices.map((service) => ({
         value: service,
         label: service.charAt(0).toUpperCase() + service.slice(1)
@@ -448,7 +450,7 @@ const DownloadsTab: React.FC = () => {
     );
     if (hiddenServices.length > 0) {
       baseOptions.push(
-        { value: 'divider', label: 'Small Files Only' },
+        { value: 'divider', label: t('downloads.tab.filters.smallFilesOnly') },
         ...hiddenServices.map((service) => ({
           value: service,
           label: `${service.charAt(0).toUpperCase() + service.slice(1)}`
@@ -457,7 +459,7 @@ const DownloadsTab: React.FC = () => {
     }
 
     return baseOptions;
-  }, [filteredAvailableServices, availableServices, latestDownloads]);
+  }, [filteredAvailableServices, availableServices, latestDownloads, t]);
 
   const { clientGroups } = useClientGroups();
 
@@ -481,7 +483,7 @@ const DownloadsTab: React.FC = () => {
     });
 
     const options: { value: string; label: string; description?: string }[] = [
-      { value: 'all', label: 'All Clients' }
+      { value: 'all', label: t('downloads.tab.filters.allClients') }
     ];
 
     // Add grouped clients - show once per group with IPs in description
@@ -512,9 +514,9 @@ const DownloadsTab: React.FC = () => {
       { value: '50', label: '50' },
       { value: '100', label: '100' },
       { value: '200', label: '200' },
-      { value: 'unlimited', label: 'All' }
+      { value: 'unlimited', label: t('downloads.tab.filters.allItems') }
     ],
-    []
+    [t]
   );
 
   const filteredDownloads = useMemo(() => {
@@ -1123,7 +1125,7 @@ const DownloadsTab: React.FC = () => {
       <div className="space-y-4 animate-fade-in">
         <DownloadsHeader activeTab={activeTab} onTabChange={setActiveTab} />
         <Alert color="blue" icon={<Database className="w-5 h-5" />}>
-          No downloads recorded yet. Downloads will appear here as clients request content.
+          {t('downloads.tab.emptyRecorded')}
         </Alert>
       </div>
     );
@@ -1149,8 +1151,8 @@ const DownloadsTab: React.FC = () => {
         <div className="flex flex-col gap-3">
           {/* Mobile view controls at top */}
           <div className="flex sm:hidden items-center justify-between">
-            <span className="text-sm font-medium text-themed-primary">Downloads</span>
-            <Tooltip content="Settings" position="bottom">
+            <span className="text-sm font-medium text-themed-primary">{t('downloads.tab.title')}</span>
+            <Tooltip content={t('downloads.tab.tooltips.settings')} position="bottom">
               <Button
                 variant="subtle"
                 size="sm"
@@ -1172,7 +1174,7 @@ const DownloadsTab: React.FC = () => {
               type="text"
               value={settings.searchQuery}
               onChange={(e) => setSettings({ ...settings, searchQuery: e.target.value })}
-              placeholder="Search games, clients, depots..."
+              placeholder={t('downloads.tab.searchPlaceholder')}
               className="w-full pl-9 pr-8 py-2 text-sm rounded-lg border border-[var(--theme-border-primary)] bg-[var(--theme-bg-primary)] text-[var(--theme-text-primary)] placeholder:text-[var(--theme-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--theme-primary)]/50 focus:border-[var(--theme-primary)] transition-all"
             />
             {settings.searchQuery && (
@@ -1220,32 +1222,32 @@ const DownloadsTab: React.FC = () => {
                     itemsPerPage: value === 'unlimited' ? 'unlimited' : parseInt(value)
                   })
                 }
-                prefix="Show:"
+                prefix={t('downloads.tab.filters.showPrefix')}
                 className="flex-1 min-w-0"
               />
               <EnhancedDropdown
                 options={[
-                  { value: 'latest', label: 'Newest' },
-                  { value: 'oldest', label: 'Oldest' },
-                  { value: 'largest', label: 'Largest' },
-                  { value: 'smallest', label: 'Smallest' },
-                  { value: 'efficiency', label: 'Best Cache' },
-                  { value: 'efficiency-low', label: 'Worst Cache' },
-                  { value: 'sessions', label: 'Sessions' },
-                  { value: 'alphabetical', label: 'A-Z' },
-                  { value: 'service', label: 'Service' }
+                  { value: 'latest', label: t('downloads.tab.sort.latest') },
+                  { value: 'oldest', label: t('downloads.tab.sort.oldest') },
+                  { value: 'largest', label: t('downloads.tab.sort.largest') },
+                  { value: 'smallest', label: t('downloads.tab.sort.smallest') },
+                  { value: 'efficiency', label: t('downloads.tab.sort.bestCache') },
+                  { value: 'efficiency-low', label: t('downloads.tab.sort.worstCache') },
+                  { value: 'sessions', label: t('downloads.tab.sort.sessions') },
+                  { value: 'alphabetical', label: t('downloads.tab.sort.alphabetical') },
+                  { value: 'service', label: t('downloads.tab.sort.service') }
                 ]}
                 value={settings.sortOrder}
                 onChange={(value) => setSettings({ ...settings, sortOrder: value as SortOrder })}
-                prefix="Sort:"
+                prefix={t('downloads.tab.sort.prefix')}
                 className="flex-1 min-w-0"
               />
               {/* View mode toggle inline with dropdowns */}
               <SegmentedControl
                 options={[
-                  { value: 'compact', icon: <List />, tooltip: 'Compact' },
-                  { value: 'normal', icon: <Grid3x3 />, tooltip: 'Normal' },
-                  { value: 'retro', icon: <Table />, tooltip: 'Retro' }
+                  { value: 'compact', icon: <List />, tooltip: t('downloads.tab.view.compact') },
+                  { value: 'normal', icon: <Grid3x3 />, tooltip: t('downloads.tab.view.normal') },
+                  { value: 'retro', icon: <Table />, tooltip: t('downloads.tab.view.retro') }
                 ]}
                 value={settings.viewMode}
                 onChange={(value) => setSettings({ ...settings, viewMode: value as ViewMode })}
@@ -1283,25 +1285,25 @@ const DownloadsTab: React.FC = () => {
                     itemsPerPage: value === 'unlimited' ? 'unlimited' : parseInt(value)
                   })
                 }
-                prefix="Show:"
+                prefix={t('downloads.tab.filters.showPrefix')}
                 className="w-28"
               />
 
               <EnhancedDropdown
                 options={[
-                  { value: 'latest', label: 'Newest' },
-                  { value: 'oldest', label: 'Oldest' },
-                  { value: 'largest', label: 'Largest' },
-                  { value: 'smallest', label: 'Smallest' },
-                  { value: 'efficiency', label: 'Best Cache' },
-                  { value: 'efficiency-low', label: 'Worst Cache' },
-                  { value: 'sessions', label: 'Sessions' },
-                  { value: 'alphabetical', label: 'A-Z' },
-                  { value: 'service', label: 'Service' }
+                  { value: 'latest', label: t('downloads.tab.sort.latest') },
+                  { value: 'oldest', label: t('downloads.tab.sort.oldest') },
+                  { value: 'largest', label: t('downloads.tab.sort.largest') },
+                  { value: 'smallest', label: t('downloads.tab.sort.smallest') },
+                  { value: 'efficiency', label: t('downloads.tab.sort.bestCache') },
+                  { value: 'efficiency-low', label: t('downloads.tab.sort.worstCache') },
+                  { value: 'sessions', label: t('downloads.tab.sort.sessions') },
+                  { value: 'alphabetical', label: t('downloads.tab.sort.alphabetical') },
+                  { value: 'service', label: t('downloads.tab.sort.service') }
                 ]}
                 value={settings.sortOrder}
                 onChange={(value) => setSettings({ ...settings, sortOrder: value as SortOrder })}
-                prefix="Sort:"
+                prefix={t('downloads.tab.sort.prefix')}
                 className="w-28 md:w-32 lg:w-36"
               />
             </div>
@@ -1311,9 +1313,9 @@ const DownloadsTab: React.FC = () => {
               {/* View Mode Toggle */}
               <SegmentedControl
                 options={[
-                  { value: 'compact', label: 'Compact', icon: <List /> },
-                  { value: 'normal', label: 'Normal', icon: <Grid3x3 /> },
-                  { value: 'retro', label: 'Retro', icon: <Table /> }
+                  { value: 'compact', label: t('downloads.tab.view.compact'), icon: <List /> },
+                  { value: 'normal', label: t('downloads.tab.view.normal'), icon: <Grid3x3 /> },
+                  { value: 'retro', label: t('downloads.tab.view.retro'), icon: <Table /> }
                 ]}
                 value={settings.viewMode}
                 onChange={(value) => setSettings({ ...settings, viewMode: value as ViewMode })}
@@ -1327,7 +1329,7 @@ const DownloadsTab: React.FC = () => {
                 onClose={() => setShowExportOptions(false)}
                 width="w-48"
                 trigger={
-                  <Tooltip content="Export Data" position="bottom">
+                  <Tooltip content={t('downloads.tab.tooltips.export')} position="bottom">
                     <Button
                       variant="subtle"
                       size="sm"
@@ -1346,7 +1348,7 @@ const DownloadsTab: React.FC = () => {
                     setShowExportOptions(false);
                   }}
                 >
-                  Export JSON
+                  {t('downloads.tab.export.json')}
                 </ActionMenuItem>
                 <ActionMenuItem
                   onClick={() => {
@@ -1354,12 +1356,12 @@ const DownloadsTab: React.FC = () => {
                     setShowExportOptions(false);
                   }}
                 >
-                  Export CSV
+                  {t('downloads.tab.export.csv')}
                 </ActionMenuItem>
               </ActionMenu>
 
               {settings.viewMode === 'retro' && (
-                <Tooltip content="Fit columns to page" position="bottom">
+                <Tooltip content={t('downloads.tab.tooltips.fitColumns')} position="bottom">
                   <Button
                     variant="subtle"
                     size="sm"
@@ -1370,7 +1372,7 @@ const DownloadsTab: React.FC = () => {
                 </Tooltip>
               )}
 
-              <Tooltip content="Settings" position="bottom">
+              <Tooltip content={t('downloads.tab.tooltips.settings')} position="bottom">
                 <Button
                   variant="subtle"
                   size="sm"
@@ -1394,18 +1396,18 @@ const DownloadsTab: React.FC = () => {
                 {/* Quick Presets - Mobile-friendly segmented control */}
                 <div>
                   <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
-                    Quick Presets
+                    {t('downloads.tab.presets.title')}
                   </div>
                   {(() => {
                     const activePreset = detectActivePreset(settings);
                     return (
                       <SegmentedControl
                         options={[
-                          { value: 'pretty', label: 'Pretty' },
-                          { value: 'minimal', label: 'Minimal' },
-                          { value: 'showAll', label: 'Show All' },
-                          { value: 'default', label: 'Default' },
-                          { value: 'custom', label: 'Custom', disabled: true }
+                          { value: 'pretty', label: t('downloads.tab.presets.pretty') },
+                          { value: 'minimal', label: t('downloads.tab.presets.minimal') },
+                          { value: 'showAll', label: t('downloads.tab.presets.showAll') },
+                          { value: 'default', label: t('downloads.tab.presets.default') },
+                          { value: 'custom', label: t('downloads.tab.presets.custom'), disabled: true }
                         ]}
                         value={activePreset}
                         onChange={(value) => {
@@ -1427,66 +1429,66 @@ const DownloadsTab: React.FC = () => {
                   {/* Filters Column */}
                   <div className="space-y-1">
                     <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
-                      Filters
+                      {t('downloads.tab.sections.filters')}
                     </div>
                     <Checkbox
                       checked={settings.showZeroBytes}
                       onChange={(e) => setSettings({ ...settings, showZeroBytes: e.target.checked })}
-                      label="Show metadata (0 bytes)"
+                      label={t('downloads.tab.filters.showMetadata')}
                     />
                     <Checkbox
                       checked={settings.showSmallFiles}
                       onChange={(e) => setSettings({ ...settings, showSmallFiles: e.target.checked })}
-                      label="Show small files"
+                      label={t('downloads.tab.filters.showSmallFiles')}
                     />
                     <Checkbox
                       checked={settings.hideLocalhost}
                       onChange={(e) => setSettings({ ...settings, hideLocalhost: e.target.checked })}
-                      label="Hide localhost"
+                      label={t('downloads.tab.filters.hideLocalhost')}
                     />
                     <Checkbox
                       checked={settings.hideUnknownGames}
                       onChange={(e) => setSettings({ ...settings, hideUnknownGames: e.target.checked })}
-                      label="Hide unknown games"
+                      label={t('downloads.tab.filters.hideUnknownGames')}
                     />
                   </div>
 
                   {/* Display Column */}
                   <div className="space-y-1">
                     <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
-                      Display
+                      {t('downloads.tab.sections.display')}
                     </div>
                     <Checkbox
                       checked={settings.aestheticMode}
                       onChange={(e) => setSettings({ ...settings, aestheticMode: e.target.checked })}
-                      label="Minimal mode"
+                      label={t('downloads.tab.display.minimalMode')}
                     />
                     <Checkbox
                       checked={settings.fullHeightBanners}
                       onChange={(e) => setSettings({ ...settings, fullHeightBanners: e.target.checked })}
-                      label="Full-height banners"
+                      label={t('downloads.tab.display.fullHeightBanners')}
                     />
                   </div>
 
                   {/* Behavior Column */}
                   <div className="space-y-1">
                     <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
-                      Behavior
+                      {t('downloads.tab.sections.behavior')}
                     </div>
                     <Checkbox
                       checked={settings.groupUnknownGames}
                       onChange={(e) => setSettings({ ...settings, groupUnknownGames: e.target.checked })}
-                      label="Group unknown games"
+                      label={t('downloads.tab.behavior.groupUnknown')}
                     />
                     <Checkbox
                       checked={settings.groupByFrequency}
                       onChange={(e) => setSettings({ ...settings, groupByFrequency: e.target.checked })}
-                      label="Group by frequency"
+                      label={t('downloads.tab.behavior.groupByFrequency')}
                     />
                     <Checkbox
                       checked={settings.enableScrollIntoView}
                       onChange={(e) => setSettings({ ...settings, enableScrollIntoView: e.target.checked })}
-                      label="Scroll on expand"
+                      label={t('downloads.tab.behavior.scrollOnExpand')}
                     />
                   </div>
                 </div>
@@ -1503,39 +1505,55 @@ const DownloadsTab: React.FC = () => {
             <span className="whitespace-nowrap">
               {settings.itemsPerPage !== 'unlimited' && (
                 <span className="font-medium">
-                  Page {currentPage} of {settings.viewMode === 'retro' ? retroTotalPages : totalPages}
+                  {t('downloads.tab.pagination.pageOf', {
+                    page: currentPage,
+                    total: settings.viewMode === 'retro' ? retroTotalPages : totalPages
+                  })}
                 </span>
               )}
             </span>
             <span className="flex flex-wrap items-center gap-1">
               {settings.itemsPerPage !== 'unlimited' && <span className="hidden sm:inline">-</span>}
               <span>
-                Showing {settings.viewMode === 'retro'
-                  ? `${Math.min(
-                      settings.itemsPerPage === 'unlimited' ? retroTotalItems : (settings.itemsPerPage as number),
-                      retroTotalItems - (currentPage - 1) * (settings.itemsPerPage === 'unlimited' ? retroTotalItems : (settings.itemsPerPage as number))
-                    )} of ${retroTotalItems} depot groups`
-                  : `${itemsToDisplay.length} of ${allItemsSorted.length} groups`
+                {settings.viewMode === 'retro'
+                  ? t('downloads.tab.pagination.showingDepotGroups', {
+                      count: Math.min(
+                        settings.itemsPerPage === 'unlimited' ? retroTotalItems : (settings.itemsPerPage as number),
+                        retroTotalItems - (currentPage - 1) * (settings.itemsPerPage === 'unlimited' ? retroTotalItems : (settings.itemsPerPage as number))
+                      ),
+                      total: retroTotalItems
+                    })
+                  : t('downloads.tab.pagination.showingGroups', {
+                      count: itemsToDisplay.length,
+                      total: allItemsSorted.length
+                    })
                 }
               </span>
               <span className="whitespace-nowrap">
-                ({filteredDownloads.length}{' '}
-                {filteredDownloads.length === 1 ? 'download' : 'downloads'}
-                {filteredDownloads.length !== latestDownloads.length &&
-                  ` of ${latestDownloads.length} total`}
-                )
+                {filteredDownloads.length !== latestDownloads.length
+                  ? t('downloads.tab.pagination.downloadCountTotal', {
+                      count: filteredDownloads.length,
+                      total: latestDownloads.length
+                    })
+                  : t('downloads.tab.pagination.downloadCount', { count: filteredDownloads.length })}
               </span>
             </span>
             {(settings.selectedService !== 'all' || settings.selectedClient !== 'all' || settings.searchQuery) && (
               <span className="flex flex-wrap gap-1 text-xs sm:text-sm">
                 {settings.searchQuery && (
-                  <span className="whitespace-nowrap">• Search: "{settings.searchQuery}"</span>
+                  <span className="whitespace-nowrap">
+                    {t('downloads.tab.filters.active.search', { query: settings.searchQuery })}
+                  </span>
                 )}
                 {settings.selectedService !== 'all' && (
-                  <span className="whitespace-nowrap">• Service: {settings.selectedService}</span>
+                  <span className="whitespace-nowrap">
+                    {t('downloads.tab.filters.active.service', { service: settings.selectedService })}
+                  </span>
                 )}
                 {settings.selectedClient !== 'all' && (
-                  <span className="whitespace-nowrap">• Client: {settings.selectedClient}</span>
+                  <span className="whitespace-nowrap">
+                    {t('downloads.tab.filters.active.client', { client: settings.selectedClient })}
+                  </span>
                 )}
               </span>
             )}
@@ -1549,7 +1567,7 @@ const DownloadsTab: React.FC = () => {
               }
               className="self-start sm:self-auto"
             >
-              Clear Filters
+              {t('downloads.tab.filters.clear')}
             </Button>
           )}
         </div>
@@ -1559,11 +1577,9 @@ const DownloadsTab: React.FC = () => {
       {filteredDownloads.length === 0 && timeRange !== 'live' && (
         <Alert color="yellow">
           <div className="flex flex-col gap-2">
-            <div className="font-medium">No downloads found in selected time range</div>
+            <div className="font-medium">{t('downloads.tab.emptyRange.title')}</div>
             <div className="text-sm opacity-90">
-              The dashboard shows <strong>active downloads</strong> (currently in progress), while
-              this list shows downloads that <strong>started</strong> within the selected time
-              period. Try switching to "Live" to see all downloads, or adjust your time range.
+              {t('downloads.tab.emptyRange.description')}
             </div>
           </div>
         </Alert>
@@ -1579,7 +1595,7 @@ const DownloadsTab: React.FC = () => {
             >
               <Loader2 className="w-6 h-6 animate-spin text-[var(--theme-primary)]" />
               <span className="text-sm font-medium text-[var(--theme-text-primary)]">
-                Updating...
+                {t('downloads.tab.updating')}
               </span>
             </div>
           </div>

@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { Card } from '../../ui/Card';
 import { Button } from '../../ui/Button';
 import { Download, XCircle } from 'lucide-react';
@@ -22,22 +23,24 @@ interface PrefillProgressCardProps {
 }
 
 export function PrefillProgressCard({ progress, onCancel }: PrefillProgressCardProps) {
+  const { t } = useTranslation();
+
   const getStateLabel = () => {
     switch (progress.state) {
       case 'loading-metadata':
-        return 'Loading Game Data';
+        return t('prefill.progress.loadingGameData');
       case 'metadata-loaded':
-        return 'Preparing Download';
+        return t('prefill.progress.preparingDownload');
       case 'starting':
-        return 'Starting';
+        return t('prefill.progress.starting');
       case 'preparing':
-        return 'Preparing';
+        return t('prefill.progress.preparing');
       case 'app_completed':
-        return 'Loading Next Game';
+        return t('prefill.progress.loadingNextGame');
       case 'already_cached':
-        return 'Already Cached';
+        return t('prefill.progress.alreadyCached');
       default:
-        return 'Downloading';
+        return t('prefill.progress.downloading');
     }
   };
 
@@ -58,9 +61,9 @@ export function PrefillProgressCard({ progress, onCancel }: PrefillProgressCardP
               <p className="font-medium text-themed-primary">{getStateLabel()}</p>
               {showAppInfo && (
                 <p className="text-sm text-themed-muted truncate max-w-[300px]">
-                  {progress.currentAppName || `App ${progress.currentAppId}`}
-                  {progress.state === 'app_completed' && ' - Complete'}
-                  {progress.state === 'already_cached' && ' - Up to Date'}
+                  {progress.currentAppName || t('prefill.progress.appId', { id: progress.currentAppId })}
+                  {progress.state === 'app_completed' && ` - ${t('prefill.progress.complete')}`}
+                  {progress.state === 'already_cached' && ` - ${t('prefill.progress.upToDate')}`}
                 </p>
               )}
             </div>
@@ -73,13 +76,13 @@ export function PrefillProgressCard({ progress, onCancel }: PrefillProgressCardP
                   {formatSpeed(progress.bytesPerSecond)}
                 </p>
                 <p className="text-xs text-themed-muted">
-                  {formatTimeRemaining(Math.floor(progress.elapsedSeconds))} elapsed
+                  {formatTimeRemaining(Math.floor(progress.elapsedSeconds))} {t('prefill.progress.elapsed')}
                 </p>
               </div>
             )}
             <Button variant="outline" size="sm" onClick={onCancel}>
               <XCircle className="h-4 w-4" />
-              Cancel
+              {t('common.cancel')}
             </Button>
           </div>
         </div>
@@ -115,16 +118,16 @@ export function PrefillProgressCard({ progress, onCancel }: PrefillProgressCardP
             </div>
           ) : progress.state === 'already_cached' ? (
             <div className="flex items-center justify-between text-xs text-themed-muted">
-              <span className="text-[var(--theme-info)]">Game is already up to date in cache</span>
+              <span className="text-[var(--theme-info)]">{t('prefill.progress.gameUpToDate')}</span>
               <span className="font-medium text-[var(--theme-info)]">
                 {progress.percentComplete.toFixed(0)}%
               </span>
             </div>
           ) : progress.state === 'app_completed' ? (
-            <p className="text-sm text-themed-muted text-center">Loading next game...</p>
+            <p className="text-sm text-themed-muted text-center">{t('prefill.progress.loadingNextGame')}...</p>
           ) : (
             <p className="text-sm text-themed-muted text-center">
-              {progress.message || 'Preparing prefill operation...'}
+              {progress.message || t('prefill.progress.preparingOperation')}
             </p>
           )}
         </div>

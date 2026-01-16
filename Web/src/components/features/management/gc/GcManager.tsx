@@ -1,5 +1,6 @@
 import React, { useState, use } from 'react';
 import { Cpu, Save, Play, Loader2, Gauge, HardDrive } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
@@ -24,29 +25,6 @@ interface GcTriggerResult {
 interface GcManagerProps {
   isAuthenticated: boolean;
 }
-
-const aggressivenessOptions: DropdownOption[] = [
-  { value: 'disabled', label: 'Disabled', description: 'Memory cleaned by .NET runtime only' },
-  { value: 'onpageload', label: 'On Page Load', description: 'Recommended for most users' },
-  { value: 'every60minutes', label: 'Every 60 Minutes', description: 'Minimal performance impact' },
-  { value: 'every60seconds', label: 'Every 60 Seconds', description: 'Low frequency cleanup' },
-  { value: 'every30seconds', label: 'Every 30 Seconds', description: 'Balanced management' },
-  { value: 'every10seconds', label: 'Every 10 Seconds', description: 'Frequent cleanup' },
-  { value: 'every5seconds', label: 'Every 5 Seconds', description: 'Aggressive cleanup' },
-  { value: 'every1second', label: 'Every 1 Second', description: 'Very aggressive' }
-];
-
-const memoryThresholdOptions: DropdownOption[] = [
-  { value: '2048', label: '2 GB' },
-  { value: '3072', label: '3 GB' },
-  { value: '4096', label: '4 GB' },
-  { value: '5120', label: '5 GB' },
-  { value: '6144', label: '6 GB' },
-  { value: '8192', label: '8 GB' },
-  { value: '10240', label: '10 GB' },
-  { value: '12288', label: '12 GB' },
-  { value: '16384', label: '16 GB' }
-];
 
 // Fetch GC settings
 const fetchGcSettings = async (): Promise<GcSettings> => {
@@ -125,7 +103,31 @@ const SettingRow: React.FC<SettingRowProps> = ({ label, description, children })
 );
 
 const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
+  const { t } = useTranslation();
   const initialSettings = use(getSettingsPromise());
+
+  const aggressivenessOptions: DropdownOption[] = [
+    { value: 'disabled', label: t('management.gc.aggressiveness.disabled'), description: t('management.gc.aggressiveness.disabledDesc') },
+    { value: 'onpageload', label: t('management.gc.aggressiveness.onPageLoad'), description: t('management.gc.aggressiveness.onPageLoadDesc') },
+    { value: 'every60minutes', label: t('management.gc.aggressiveness.every60min'), description: t('management.gc.aggressiveness.every60minDesc') },
+    { value: 'every60seconds', label: t('management.gc.aggressiveness.every60sec'), description: t('management.gc.aggressiveness.every60secDesc') },
+    { value: 'every30seconds', label: t('management.gc.aggressiveness.every30sec'), description: t('management.gc.aggressiveness.every30secDesc') },
+    { value: 'every10seconds', label: t('management.gc.aggressiveness.every10sec'), description: t('management.gc.aggressiveness.every10secDesc') },
+    { value: 'every5seconds', label: t('management.gc.aggressiveness.every5sec'), description: t('management.gc.aggressiveness.every5secDesc') },
+    { value: 'every1second', label: t('management.gc.aggressiveness.every1sec'), description: t('management.gc.aggressiveness.every1secDesc') }
+  ];
+
+  const memoryThresholdOptions: DropdownOption[] = [
+    { value: '2048', label: '2 GB' },
+    { value: '3072', label: '3 GB' },
+    { value: '4096', label: '4 GB' },
+    { value: '5120', label: '5 GB' },
+    { value: '6144', label: '6 GB' },
+    { value: '8192', label: '8 GB' },
+    { value: '10240', label: '10 GB' },
+    { value: '12288', label: '12 GB' },
+    { value: '16384', label: '16 GB' }
+  ];
 
   const [settings, setSettings] = useState<GcSettings>(initialSettings);
   const [saving, setSaving] = useState(false);
@@ -154,14 +156,14 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
       if (response.ok) {
         const data = await response.json();
         setSettings(data);
-        showToast('success', 'GC settings saved successfully');
+        showToast('success', t('management.gc.saveSuccess'));
         setHasChanges(false);
       } else {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to save GC settings');
+        throw new Error(errorData.error || t('management.gc.saveFailed'));
       }
     } catch (err) {
-      showToast('error', err instanceof Error ? err.message : 'Failed to save GC settings');
+      showToast('error', err instanceof Error ? err.message : t('management.gc.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -192,10 +194,10 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
         setTimeout(() => setTriggerResult(null), 10000);
       } else {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to trigger garbage collection');
+        throw new Error(errorData.error || t('management.gc.triggerFailed'));
       }
     } catch (err) {
-      showToast('error', err instanceof Error ? err.message : 'Failed to trigger garbage collection');
+      showToast('error', err instanceof Error ? err.message : t('management.gc.triggerFailed'));
     } finally {
       setTriggering(false);
     }
@@ -210,16 +212,16 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
             <p className="font-medium">{triggerResult.message}</p>
             {!triggerResult.skipped && triggerResult.beforeMB !== undefined && (
               <div className="mt-1 flex gap-4 text-xs text-themed-muted">
-                <span>Before: {triggerResult.beforeMB} MB</span>
-                <span>After: {triggerResult.afterMB} MB</span>
+                <span>{t('management.gc.before')}: {triggerResult.beforeMB} MB</span>
+                <span>{t('management.gc.after')}: {triggerResult.afterMB} MB</span>
                 <span className="font-medium text-themed-primary">
-                  Freed: {triggerResult.freedMB} MB
+                  {t('management.gc.freed')}: {triggerResult.freedMB} MB
                 </span>
               </div>
             )}
             {triggerResult.skipped && triggerResult.remainingSeconds !== undefined && (
               <p className="mt-1 text-xs">
-                Cooldown: {Math.ceil(triggerResult.remainingSeconds)}s remaining
+                {t('management.gc.cooldown')}: {Math.ceil(triggerResult.remainingSeconds)}s {t('management.gc.remaining')}
               </p>
             )}
           </div>
@@ -230,12 +232,12 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
         {/* Collection Frequency */}
         <SettingSection
           icon={Gauge}
-          title="Collection Frequency"
+          title={t('management.gc.collectionFrequency')}
           iconColorVar="--theme-icon-green"
         >
           <SettingRow
-            label="Aggressiveness"
-            description="How often the system checks and cleans memory"
+            label={t('management.gc.aggressivenessLabel')}
+            description={t('management.gc.aggressivenessDesc')}
           >
             <EnhancedDropdown
               options={aggressivenessOptions}
@@ -250,12 +252,12 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
         {/* Memory Settings */}
         <SettingSection
           icon={HardDrive}
-          title="Memory Settings"
+          title={t('management.gc.memorySettings')}
           iconColorVar="--theme-icon-blue"
         >
           <SettingRow
-            label="Threshold"
-            description="Memory limit that triggers cleanup when exceeded"
+            label={t('management.gc.thresholdLabel')}
+            description={t('management.gc.thresholdDesc')}
           >
             <EnhancedDropdown
               options={memoryThresholdOptions}
@@ -274,7 +276,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
           <div className="w-6 h-6 rounded flex items-center justify-center icon-bg-orange">
             <Cpu className="w-3.5 h-3.5 icon-orange" />
           </div>
-          <h4 className="text-sm font-semibold text-themed-secondary">Actions</h4>
+          <h4 className="text-sm font-semibold text-themed-secondary">{t('management.gc.actions')}</h4>
         </div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           <Button
@@ -286,7 +288,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
             leftSection={saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             className="flex-1"
           >
-            {saving ? 'Saving...' : 'Save Settings'}
+            {saving ? t('management.gc.saving') : t('management.gc.saveSettings')}
           </Button>
           <Button
             onClick={triggerGarbageCollection}
@@ -295,13 +297,13 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
             size="sm"
             leftSection={triggering ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
             className="flex-1 sm:flex-none"
-            title="Manually run garbage collection once (5s cooldown)"
+            title={t('management.gc.runGcTooltip')}
           >
-            {triggering ? 'Running...' : 'Run GC Now'}
+            {triggering ? t('management.gc.running') : t('management.gc.runGcNow')}
           </Button>
         </div>
         <p className="text-xs mt-3 text-themed-muted">
-          Changes take effect immediately — no restart required.
+          {t('management.gc.noRestartRequired')}
         </p>
       </div>
     </div>

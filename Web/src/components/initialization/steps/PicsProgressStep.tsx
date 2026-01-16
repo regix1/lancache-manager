@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Database, CheckCircle, Loader2 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { usePicsProgress } from '@contexts/PicsProgressContext';
@@ -15,6 +16,7 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
   onProcessingStateChange,
   onCancel
 }) => {
+  const { t } = useTranslation();
   const { progress } = usePicsProgress();
   const [isComplete, setIsComplete] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
@@ -46,11 +48,11 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
   };
 
   const getStatusMessage = () => {
-    if (!progress) return 'Initializing...';
+    if (!progress) return t('initialization.picsProgress.initializing');
     if (progress.status === 'Idle' && progress.isProcessing) {
-      return 'Connecting to Steam...';
+      return t('initialization.picsProgress.connecting');
     }
-    return progress.status || 'Processing...';
+    return progress.status || t('initialization.picsProgress.processing');
   };
 
   useEffect(() => {
@@ -87,12 +89,12 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
           )}
         </div>
         <h3 className="text-xl font-semibold text-themed-primary mb-1">
-          {isComplete ? 'PICS Data Ready!' : 'Building Steam Depot Mappings'}
+          {isComplete ? t('initialization.picsProgress.complete') : t('initialization.picsProgress.building')}
         </h3>
         <p className="text-sm text-themed-secondary max-w-md">
           {isComplete
-            ? 'Depot mappings successfully created'
-            : 'Fetching and processing depot information from Steam...'}
+            ? t('initialization.picsProgress.completeDesc')
+            : t('initialization.picsProgress.buildingDesc')}
         </p>
       </div>
 
@@ -101,8 +103,8 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
         <div className="p-4 rounded-lg text-center bg-themed-success">
           <p className="text-sm font-medium text-themed-success">
             {progress?.depotMappingsFound
-              ? `${progress.depotMappingsFound.toLocaleString()} depot mappings ready`
-              : 'Depot mappings are ready'}
+              ? t('initialization.picsProgress.mappingsReady', { count: progress.depotMappingsFound })
+              : t('initialization.picsProgress.mappingsReadyGeneric')}
           </p>
         </div>
       ) : (
@@ -114,12 +116,12 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
             </p>
             {!isInitializing() && progress?.processedBatches !== undefined && progress?.totalBatches !== undefined && progress.totalBatches > 0 && (
               <p className="text-sm text-themed-secondary">
-                {progress.processedBatches.toLocaleString()} / {progress.totalBatches.toLocaleString()} batches
+                {t('initialization.picsProgress.batches', { processed: progress.processedBatches, total: progress.totalBatches })}
               </p>
             )}
             {!isInitializing() && progress?.depotMappingsFound !== undefined && progress.depotMappingsFound > 0 && (
               <p className="text-xs text-themed-muted mt-1">
-                {progress.depotMappingsFound.toLocaleString()} depot mappings found
+                {t('initialization.picsProgress.mappingsFound', { count: progress.depotMappingsFound })}
               </p>
             )}
           </div>
@@ -134,13 +136,13 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
             </div>
             <p className="text-sm text-themed-secondary text-center mt-2">
               {Math.round(progressPercent)}%
-              {isInitializing() && ' - Preparing...'}
+              {isInitializing() && ` - ${t('initialization.picsProgress.preparing')}`}
             </p>
           </div>
 
           {/* Info */}
           <p className="text-xs text-themed-muted text-center">
-            This typically takes 1-5 minutes depending on your connection.
+            {t('initialization.picsProgress.timeEstimate')}
           </p>
         </div>
       )}
@@ -149,7 +151,7 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
       <div className="pt-2">
         {isComplete ? (
           <Button variant="filled" color="green" onClick={onComplete} fullWidth>
-            Continue
+            {t('initialization.picsProgress.continue')}
           </Button>
         ) : onCancel ? (
           <Button
@@ -160,7 +162,7 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
             fullWidth
           >
             {isCancelling && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-            {isCancelling ? 'Cancelling...' : 'Cancel and Use GitHub Instead'}
+            {isCancelling ? t('initialization.picsProgress.cancelling') : t('initialization.picsProgress.cancelUseGithub')}
           </Button>
         ) : null}
       </div>

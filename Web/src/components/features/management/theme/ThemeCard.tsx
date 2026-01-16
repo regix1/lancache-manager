@@ -12,6 +12,7 @@ import {
   Trash2,
   Globe
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { type Theme } from './types';
 import {
   ActionMenu,
@@ -54,14 +55,15 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
   onDelete,
   onMenuToggle
 }) => {
+  const { t } = useTranslation();
   const isMenuOpen = themeActionMenu === currentMenuId;
 
   const colorPreview = [
-    { label: 'Primary', color: theme.colors.primaryColor },
-    { label: 'Secondary', color: theme.colors.secondaryColor },
-    { label: 'Accent', color: theme.colors.accentColor },
-    { label: 'Background', color: theme.colors.bgPrimary },
-    { label: 'Text', color: theme.colors.textPrimary }
+    { label: t('management.themes.colorLabels.primary'), color: theme.colors.primaryColor },
+    { label: t('management.themes.colorLabels.secondary'), color: theme.colors.secondaryColor },
+    { label: t('management.themes.colorLabels.accent'), color: theme.colors.accentColor },
+    { label: t('management.themes.colorLabels.background'), color: theme.colors.bgPrimary },
+    { label: t('management.themes.colorLabels.text'), color: theme.colors.textPrimary }
   ].filter((item) => Boolean(item.color)) as Array<{ label: string; color: string }>;
 
   return (
@@ -81,7 +83,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
             isActive ? 'bg-primary' : 'bg-warning'
           }`}
         >
-          {isActive ? 'Active' : 'Preview'}
+          {isActive ? t('management.themes.activeBadge') : t('management.themes.previewBadge')}
         </div>
       )}
 
@@ -107,24 +109,24 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
             {theme.meta.isCommunityTheme && (
               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs rounded bg-themed-info text-info">
                 <Globe className="w-2.5 h-2.5" />
-                Community
+                {t('management.themes.communityBadge')}
               </span>
             )}
             {theme.meta.basedOn && (
               <span className="px-1.5 py-0.5 text-xs rounded bg-themed-accent-subtle text-themed-accent">
-                Custom
+                {t('management.themes.customBadge')}
               </span>
             )}
           </div>
 
           {theme.meta.basedOn && (
-            <p className="text-xs text-themed-muted mb-1">Based on: {theme.meta.basedOn}</p>
+            <p className="text-xs text-themed-muted mb-1">{t('management.themes.basedOn')} {theme.meta.basedOn}</p>
           )}
           {theme.meta.description && (
             <p className="text-xs text-themed-muted line-clamp-2 mb-1">{theme.meta.description}</p>
           )}
           <div className="flex items-center gap-2 text-xs text-themed-muted">
-            {theme.meta.author && <span>by {theme.meta.author}</span>}
+            {theme.meta.author && <span>{t('management.themes.by')} {theme.meta.author}</span>}
             {theme.meta.version && (
               <span className="px-1.5 py-0.5 rounded bg-themed-tertiary">
                 v{theme.meta.version}
@@ -156,7 +158,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
               }}
               icon={<Check className="w-3.5 h-3.5" />}
             >
-              Apply Theme
+              {t('management.themes.actions.applyTheme')}
             </ActionMenuItem>
           )}
           {!isGuest && (
@@ -169,7 +171,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
                 isPreviewing ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />
               }
             >
-              {isPreviewing ? 'Stop Preview' : 'Preview'}
+              {isPreviewing ? t('management.themes.actions.stopPreview') : t('management.themes.actions.preview')}
             </ActionMenuItem>
           )}
           {!isSystem && isAuthenticated && (
@@ -180,7 +182,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
               }}
               icon={<Edit className="w-3.5 h-3.5" />}
             >
-              Edit Theme
+              {t('management.themes.actions.editTheme')}
             </ActionMenuItem>
           )}
           <ActionMenuItem
@@ -190,7 +192,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
             }}
             icon={<Download className="w-3.5 h-3.5" />}
           >
-            Export
+            {t('management.themes.actions.export')}
           </ActionMenuItem>
           {!isSystem && isAuthenticated && (
             <>
@@ -202,7 +204,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
                 }}
                 icon={<Trash2 className="w-3.5 h-3.5" />}
               >
-                Delete
+                {t('management.themes.actions.delete')}
               </ActionMenuDangerItem>
             </>
           )}

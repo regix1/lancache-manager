@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { LayoutDashboard, Download, Laptop, Settings, Menu, Users, Key, ChevronDown, CalendarDays, Terminal } from 'lucide-react';
 import type { AuthMode } from '@services/auth.service';
 
@@ -12,6 +13,7 @@ interface NavigationProps {
 
 const Navigation: React.FC<NavigationProps> = React.memo(
   ({ activeTab, setActiveTab, authMode = 'unauthenticated', prefillEnabled = false, isBanned = false }) => {
+    const { t } = useTranslation();
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [menuHeight, setMenuHeight] = useState(0);
     const menuContentRef = useRef<HTMLDivElement>(null);
@@ -24,14 +26,14 @@ const Navigation: React.FC<NavigationProps> = React.memo(
     }, [authMode, mobileMenuOpen]); // Recalculate when tabs change or menu opens
 
     const allTabs = [
-      { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, requiresAuth: false, guestOnly: false, guestOrder: 1, authOrder: 1 },
-      { id: 'downloads', label: 'Downloads', icon: Download, requiresAuth: false, guestOnly: false, guestOrder: 2, authOrder: 2 },
-      { id: 'clients', label: 'Clients', icon: Laptop, requiresAuth: false, guestOnly: false, guestOrder: 3, authOrder: 3 },
-      { id: 'prefill', label: 'Prefill', icon: Terminal, requiresAuth: false, guestOnly: false, requiresPrefill: true, guestOrder: 4, authOrder: 7 },
-      { id: 'authenticate', label: 'Authenticate', icon: Key, requiresAuth: false, guestOnly: true, guestOrder: 5, authOrder: 0 },
-      { id: 'users', label: 'Users', icon: Users, requiresAuth: true, guestOnly: false, guestOrder: 0, authOrder: 4 },
-      { id: 'events', label: 'Events', icon: CalendarDays, requiresAuth: true, guestOnly: false, guestOrder: 0, authOrder: 5 },
-      { id: 'management', label: 'Management', icon: Settings, requiresAuth: true, guestOnly: false, guestOrder: 0, authOrder: 8 }
+      { id: 'dashboard', label: t('nav.dashboard'), icon: LayoutDashboard, requiresAuth: false, guestOnly: false, guestOrder: 1, authOrder: 1 },
+      { id: 'downloads', label: t('nav.downloads'), icon: Download, requiresAuth: false, guestOnly: false, guestOrder: 2, authOrder: 2 },
+      { id: 'clients', label: t('nav.clients'), icon: Laptop, requiresAuth: false, guestOnly: false, guestOrder: 3, authOrder: 3 },
+      { id: 'prefill', label: t('nav.prefill'), icon: Terminal, requiresAuth: false, guestOnly: false, requiresPrefill: true, guestOrder: 4, authOrder: 7 },
+      { id: 'authenticate', label: t('nav.authenticate'), icon: Key, requiresAuth: false, guestOnly: true, guestOrder: 5, authOrder: 0 },
+      { id: 'users', label: t('nav.users'), icon: Users, requiresAuth: true, guestOnly: false, guestOrder: 0, authOrder: 4 },
+      { id: 'events', label: t('nav.events'), icon: CalendarDays, requiresAuth: true, guestOnly: false, guestOrder: 0, authOrder: 5 },
+      { id: 'management', label: t('nav.management'), icon: Settings, requiresAuth: true, guestOnly: false, guestOrder: 0, authOrder: 8 }
     ];
 
     // Filter and sort tabs based on authentication and prefill permission
@@ -57,7 +59,7 @@ const Navigation: React.FC<NavigationProps> = React.memo(
       // Sort by appropriate order based on auth mode
       const orderKey = authMode === 'authenticated' ? 'authOrder' : 'guestOrder';
       return filtered.sort((a, b) => a[orderKey] - b[orderKey]);
-    }, [authMode, prefillEnabled, isBanned]);
+    }, [authMode, prefillEnabled, isBanned, t]);
 
     const TabButton: React.FC<{
       tab: (typeof tabs)[0];
@@ -123,7 +125,7 @@ const Navigation: React.FC<NavigationProps> = React.memo(
             <div className="flex items-center justify-between h-12">
               <div className="flex items-center space-x-2">
                 <span className="font-medium text-themed-primary">
-                  {tabs.find((t) => t.id === activeTab)?.label || 'Dashboard'}
+                  {tabs.find((t) => t.id === activeTab)?.label || t('nav.dashboard')}
                 </span>
               </div>
               <button

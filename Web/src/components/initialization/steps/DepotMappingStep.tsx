@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Map, Loader2, CheckCircle, Home } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import ApiService from '@services/api.service';
 import { FullScanRequiredModal } from '@components/modals/setup/FullScanRequiredModal';
@@ -12,6 +13,7 @@ interface DepotMappingStepProps {
 }
 
 export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, onSkip }) => {
+  const { t } = useTranslation();
   const { progress: picsProgress } = usePicsProgress();
   const { status: steamApiStatus } = useSteamWebApiStatus();
   const [mapping, setMapping] = useState(false);
@@ -51,7 +53,7 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
           }, 1000);
         } catch (err: unknown) {
           console.error('[DepotMapping] Error applying mappings:', err);
-          setError((err instanceof Error ? err.message : String(err)) || 'Failed to apply depot mappings');
+          setError((err instanceof Error ? err.message : String(err)) || t('initialization.depotMapping.failedToApply'));
           setMapping(false);
           setApplyingMappings(false);
           setPhase(null);
@@ -85,7 +87,7 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
       }
     } catch (err: unknown) {
       console.error('[DepotMapping] Error:', err);
-      setError((err instanceof Error ? err.message : String(err)) || 'Failed to start depot scan');
+      setError((err instanceof Error ? err.message : String(err)) || t('initialization.depotMapping.failedToStart'));
       setMapping(false);
       setPhase(null);
     }
@@ -103,7 +105,7 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
       }, 2000);
     } catch (err: unknown) {
       console.error('[DepotMapping] Error downloading from GitHub:', err);
-      setError((err instanceof Error ? err.message : String(err)) || 'Failed to download from GitHub');
+      setError((err instanceof Error ? err.message : String(err)) || t('initialization.depotMapping.failedToDownload'));
       setMapping(false);
     }
   };
@@ -138,12 +140,12 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
           )}
         </div>
         <h3 className="text-xl font-semibold text-themed-primary mb-1">
-          {complete ? 'Setup Complete!' : 'Map Game Depots'}
+          {complete ? t('initialization.depotMapping.titleComplete') : t('initialization.depotMapping.title')}
         </h3>
         <p className="text-sm text-themed-secondary max-w-md">
           {complete
-            ? 'All downloads have been mapped to games'
-            : 'Map depot IDs to game names for your downloads'}
+            ? t('initialization.depotMapping.subtitleComplete')
+            : t('initialization.depotMapping.subtitle')}
         </p>
       </div>
 
@@ -151,10 +153,10 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
       {!mapping && !complete && (
         <div className="p-4 rounded-lg bg-themed-tertiary">
           <p className="text-sm text-themed-secondary mb-2">
-            This step runs an incremental PICS scan to update depot mappings, then applies them to your downloads.
+            {t('initialization.depotMapping.description')}
           </p>
           <p className="text-sm text-themed-muted">
-            You can skip this and map depots later from the Management tab.
+            {t('initialization.depotMapping.canSkip')}
           </p>
         </div>
       )}
@@ -165,19 +167,19 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
           {phase === 'scanning' ? (
             <>
               <p className="text-base font-medium text-themed-primary mb-1">
-                {statusMessage || 'Scanning Steam for depot mappings...'}
+                {statusMessage || t('initialization.depotMapping.scanning')}
               </p>
-              <p className="text-sm text-themed-secondary">{progress.toFixed(0)}% complete</p>
+              <p className="text-sm text-themed-secondary">{t('initialization.depotMapping.percentComplete', { percent: progress.toFixed(0) })}</p>
             </>
           ) : phase === 'applying' ? (
             <>
               <p className="text-base font-medium text-themed-primary mb-1">
-                Applying depot mappings...
+                {t('initialization.depotMapping.applyingMappings')}
               </p>
-              <p className="text-sm text-themed-secondary">This may take a moment</p>
+              <p className="text-sm text-themed-secondary">{t('initialization.depotMapping.applyingNote')}</p>
             </>
           ) : (
-            <p className="text-base font-medium text-themed-primary">Processing...</p>
+            <p className="text-base font-medium text-themed-primary">{t('initialization.depotMapping.processing')}</p>
           )}
         </div>
       )}
@@ -187,28 +189,28 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
         <div className="space-y-4">
           <div className="p-4 rounded-lg bg-themed-success">
             <p className="text-sm text-center text-themed-success">
-              Setup complete! Your Lancache Manager is ready to use.
+              {t('initialization.depotMapping.setupComplete')}
             </p>
           </div>
 
           <div className="p-4 rounded-lg bg-themed-tertiary">
-            <h4 className="text-sm font-semibold text-themed-primary mb-3 text-center">What's Next?</h4>
+            <h4 className="text-sm font-semibold text-themed-primary mb-3 text-center">{t('initialization.depotMapping.whatsNext')}</h4>
             <ul className="text-sm text-themed-secondary space-y-2">
               <li className="flex items-start gap-2">
                 <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5 icon-success" />
-                <span>PICS depot mappings updated</span>
+                <span>{t('initialization.depotMapping.picsUpdated')}</span>
               </li>
               <li className="flex items-start gap-2">
                 <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5 icon-success" />
-                <span>Cache logs processed</span>
+                <span>{t('initialization.depotMapping.logsProcessed')}</span>
               </li>
               <li className="flex items-start gap-2">
                 <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5 icon-success" />
-                <span>Downloads mapped to games</span>
+                <span>{t('initialization.depotMapping.downloadsMapped')}</span>
               </li>
               <li className="flex items-start gap-2">
                 <Home className="w-4 h-4 flex-shrink-0 mt-0.5 icon-primary" />
-                <span>View your dashboard for cache statistics</span>
+                <span>{t('initialization.depotMapping.viewDashboard')}</span>
               </li>
             </ul>
           </div>
@@ -227,17 +229,17 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
         {!mapping && !complete && (
           <div className="flex gap-3">
             <Button variant="filled" color="blue" onClick={startDepotMapping} className="flex-1">
-              Scan & Map Depots
+              {t('initialization.depotMapping.scanAndMap')}
             </Button>
             <Button variant="default" onClick={handleSkip} className="flex-1">
-              Skip for Now
+              {t('initialization.depotMapping.skipForNow')}
             </Button>
           </div>
         )}
 
         {complete && (
           <Button variant="filled" color="green" size="lg" onClick={onComplete} fullWidth>
-            Go to Dashboard
+            {t('initialization.depotMapping.goToDashboard')}
           </Button>
         )}
       </div>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { FileText, Loader2, CheckCircle, FolderOpen, ChevronDown, ChevronUp, PlayCircle, XCircle } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
 import { useSignalR } from '@contexts/SignalRContext';
@@ -32,6 +33,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
   onSkip,
   onProcessingStateChange
 }) => {
+  const { t } = useTranslation();
   const signalR = useSignalR();
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState<ProcessingProgress | null>(null);
@@ -170,7 +172,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       await ApiService.resetLogPosition('top');
       await ApiService.processAllLogs();
     } catch (err: unknown) {
-      setError((err instanceof Error ? err.message : String(err)) || 'Failed to start log processing');
+      setError((err instanceof Error ? err.message : String(err)) || t('initialization.logProcessing.failedToProcess'));
       setProcessing(false);
     } finally {
       setActionLoading(null);
@@ -191,7 +193,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       await ApiService.resetDatasourceLogPosition(datasourceName, 'top');
       await ApiService.processDatasourceLogs(datasourceName);
     } catch (err: unknown) {
-      setError((err instanceof Error ? err.message : String(err)) || 'Failed to start processing');
+      setError((err instanceof Error ? err.message : String(err)) || t('initialization.logProcessing.failedToProcessDatasource'));
       setProcessing(false);
     } finally {
       setActionLoading(null);
@@ -217,7 +219,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
     return (
       <div className="flex flex-col items-center justify-center py-8">
         <Loader2 className="w-8 h-8 animate-spin text-themed-muted mb-3" />
-        <p className="text-themed-muted">Loading datasources...</p>
+        <p className="text-themed-muted">{t('initialization.logProcessing.loadingDatasources')}</p>
       </div>
     );
   }
@@ -244,14 +246,14 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
           )}
         </div>
         <h3 className="text-xl font-semibold text-themed-primary mb-1">
-          {complete ? 'Log Processing Complete!' : 'Process Cache Logs'}
+          {complete ? t('initialization.logProcessing.titleComplete') : t('initialization.logProcessing.title')}
         </h3>
         <p className="text-sm text-themed-secondary max-w-md">
           {complete
-            ? 'All cache logs have been processed'
+            ? t('initialization.logProcessing.subtitleComplete')
             : hasMultiple
-              ? `${datasources.length} datasources configured. Import all historical data to identify downloads.`
-              : 'Identify downloads and games from your cache history'}
+              ? t('initialization.logProcessing.subtitleMultiple', { count: datasources.length })
+              : t('initialization.logProcessing.subtitle')}
         </p>
       </div>
 
@@ -266,32 +268,32 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
               />
             </div>
             <p className="text-sm text-themed-secondary text-center mt-2">
-              {progressPercent.toFixed(1)}% complete
+              {t('initialization.logProcessing.percentComplete', { percent: progressPercent.toFixed(1) })}
             </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3 p-4 rounded-lg bg-themed-tertiary">
             <div>
-              <p className="text-xs text-themed-muted">Status</p>
-              <p className="text-sm font-medium text-themed-primary">{progress.status || 'Processing...'}</p>
+              <p className="text-xs text-themed-muted">{t('initialization.logProcessing.status')}</p>
+              <p className="text-sm font-medium text-themed-primary">{progress.status || t('initialization.logProcessing.processing')}</p>
             </div>
             {progress.linesProcessed !== undefined && (
               <div>
-                <p className="text-xs text-themed-muted">Lines</p>
+                <p className="text-xs text-themed-muted">{t('initialization.logProcessing.lines')}</p>
                 <p className="text-sm font-medium text-themed-primary">{progress.linesProcessed.toLocaleString()}</p>
               </div>
             )}
             {progress.entriesProcessed !== undefined && (
               <div>
-                <p className="text-xs text-themed-muted">Entries</p>
+                <p className="text-xs text-themed-muted">{t('initialization.logProcessing.entries')}</p>
                 <p className="text-sm font-medium text-themed-primary">{progress.entriesProcessed.toLocaleString()}</p>
               </div>
             )}
             {progress.mbProcessed !== undefined && progress.mbTotal !== undefined && (
               <div>
-                <p className="text-xs text-themed-muted">Data</p>
+                <p className="text-xs text-themed-muted">{t('initialization.logProcessing.data')}</p>
                 <p className="text-sm font-medium text-themed-primary">
-                  {progress.mbProcessed.toFixed(1)} / {progress.mbTotal.toFixed(1)} MB
+                  {t('initialization.logProcessing.dataMbProgress', { processed: progress.mbProcessed.toFixed(1), total: progress.mbTotal.toFixed(1) })}
                 </p>
               </div>
             )}
@@ -305,11 +307,10 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
           {/* Info text */}
           <div className="p-4 rounded-lg bg-themed-tertiary">
             <p className="text-sm text-themed-secondary mb-2">
-              Processing imports all log entries from the beginning to identify downloads and games.
-              This can take several minutes depending on log size.
+              {t('initialization.logProcessing.description')}
             </p>
             <p className="text-sm text-themed-muted">
-              You can skip this and process logs later from the Management tab.
+              {t('initialization.logProcessing.canSkip')}
             </p>
           </div>
 
@@ -323,7 +324,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
             loading={actionLoading === 'all'}
             fullWidth
           >
-            Process All Logs
+            {t('initialization.logProcessing.processAllLogs')}
           </Button>
 
           {/* Datasource list */}
@@ -350,13 +351,13 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
                         <span className="font-semibold text-themed-primary">{ds.name}</span>
                         {!ds.enabled && (
                           <span className="px-2 py-0.5 text-xs rounded font-medium bg-themed-tertiary text-themed-muted">
-                            Disabled
+                            {t('initialization.logProcessing.disabled')}
                           </span>
                         )}
                       </div>
                       <div className="flex items-center gap-3">
                         <div className="flex items-center gap-2">
-                          <Tooltip content={ds.cacheWritable ? 'Cache is writable' : 'Cache is read-only'} position="top">
+                          <Tooltip content={ds.cacheWritable ? t('initialization.logProcessing.cacheWritable') : t('initialization.logProcessing.cacheReadOnly')} position="top">
                             <span className="flex items-center gap-1 text-xs">
                               {ds.cacheWritable ? (
                                 <CheckCircle className="w-3.5 h-3.5 text-themed-success" />
@@ -365,7 +366,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
                               )}
                             </span>
                           </Tooltip>
-                          <Tooltip content={ds.logsWritable ? 'Logs are writable' : 'Logs are read-only'} position="top">
+                          <Tooltip content={ds.logsWritable ? t('initialization.logProcessing.logsWritable') : t('initialization.logProcessing.logsReadOnly')} position="top">
                             <span className="flex items-center gap-1 text-xs">
                               {ds.logsWritable ? (
                                 <CheckCircle className="w-3.5 h-3.5 text-themed-success" />
@@ -390,14 +391,14 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
                       <div className="py-2 space-y-1">
                         <div className="flex items-center gap-2 text-xs">
                           <FolderOpen className="w-3.5 h-3.5 text-themed-muted flex-shrink-0" />
-                          <span className="text-themed-muted">Cache:</span>
+                          <span className="text-themed-muted">{t('initialization.logProcessing.cache')}</span>
                           <code className="bg-themed-tertiary px-1.5 py-0.5 rounded text-themed-secondary truncate">
                             {ds.cachePath}
                           </code>
                         </div>
                         <div className="flex items-center gap-2 text-xs">
                           <FileText className="w-3.5 h-3.5 text-themed-muted flex-shrink-0" />
-                          <span className="text-themed-muted">Logs:</span>
+                          <span className="text-themed-muted">{t('initialization.logProcessing.logs')}</span>
                           <code className="bg-themed-tertiary px-1.5 py-0.5 rounded text-themed-secondary truncate">
                             {ds.logsPath}
                           </code>
@@ -419,7 +420,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
                           loading={actionLoading === ds.name}
                           fullWidth
                         >
-                          Process This Datasource
+                          {t('initialization.logProcessing.processThisDatasource')}
                         </Button>
                       </div>
                     </div>
@@ -435,7 +436,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       {complete && (
         <div className="p-4 rounded-lg text-center bg-themed-success">
           <p className="text-sm text-themed-success">
-            Log processing complete! Click Continue to proceed.
+            {t('initialization.logProcessing.complete')}
           </p>
         </div>
       )}
@@ -451,13 +452,13 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       <div className="pt-2">
         {!processing && !complete && (
           <Button variant="default" onClick={onSkip} fullWidth>
-            Skip for Now
+            {t('initialization.logProcessing.skipForNow')}
           </Button>
         )}
 
         {complete && (
           <Button variant="filled" color="green" onClick={onComplete} fullWidth>
-            Continue
+            {t('initialization.logProcessing.continue')}
           </Button>
         )}
       </div>

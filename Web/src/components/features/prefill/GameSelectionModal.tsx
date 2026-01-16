@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, ChangeEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Modal } from '../../ui/Modal';
 import { Button } from '../../ui/Button';
 import { CustomScrollbar } from '../../ui/CustomScrollbar';
@@ -28,6 +29,7 @@ export function GameSelectionModal({
   isLoading = false,
   cachedAppIds = []
 }: GameSelectionModalProps) {
+  const { t } = useTranslation();
   const [search, setSearch] = useState('');
   const [localSelected, setLocalSelected] = useState<Set<number>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
@@ -190,7 +192,7 @@ export function GameSelectionModal({
     <Modal
       opened={opened}
       onClose={onClose}
-      title="Select Games to Prefill"
+      title={t('prefill.gameSelection.title')}
       size="lg"
     >
       <div className="flex flex-col h-[60vh]">
@@ -202,13 +204,13 @@ export function GameSelectionModal({
             onClick={() => setShowImport(!showImport)}
           >
             <Import className="h-4 w-4" />
-            Import App IDs
+            {t('prefill.gameSelection.importAppIds')}
           </Button>
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--theme-text-muted)]" />
             <input
               type="text"
-              placeholder="Search games..."
+              placeholder={t('prefill.placeholders.searchGames')}
               value={search}
               onChange={(e: ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
               className="w-full pl-9 pr-3 py-2 text-sm rounded-lg smooth-transition bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-primary)] outline-none focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-primary)]/20"
@@ -219,17 +221,17 @@ export function GameSelectionModal({
               variant={hideCached ? 'filled' : 'outline'}
               size="sm"
               onClick={() => setHideCached(!hideCached)}
-              title={hideCached ? 'Show cached games' : 'Hide cached games'}
+              title={hideCached ? t('prefill.gameSelection.showCachedTitle') : t('prefill.gameSelection.hideCachedTitle')}
             >
               {hideCached ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-              {hideCached ? 'Show Cached' : 'Hide Cached'}
+              {hideCached ? t('prefill.gameSelection.showCached') : t('prefill.gameSelection.hideCached')}
             </Button>
           )}
           <Button variant="outline" size="sm" onClick={selectAll}>
-            Select All
+            {t('common.selectAll')}
           </Button>
           <Button variant="outline" size="sm" onClick={selectNone}>
-            Clear
+            {t('common.clear')}
           </Button>
         </div>
 
@@ -237,7 +239,7 @@ export function GameSelectionModal({
         {showImport && (
           <div className="mb-3 p-3 rounded-lg bg-[var(--theme-bg-tertiary)] border border-dashed border-[var(--theme-primary)]">
             <p className="text-xs mb-2 text-[var(--theme-text-muted)]">
-              Paste Steam App IDs from SteamPrefill or any comma-separated list
+              {t('prefill.gameSelection.importHelp')}
             </p>
             <textarea
               value={importText}
@@ -245,7 +247,7 @@ export function GameSelectionModal({
                 setImportText(e.target.value);
                 setImportResult(null);
               }}
-              placeholder="730, 570, 440 or [730, 570, 440] or paste selectedAppsToPrefill.json contents"
+              placeholder={t('prefill.placeholders.bulkInput')}
               className="w-full px-3 py-2 text-sm rounded-lg resize-none smooth-transition bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-primary)] outline-none min-h-[70px] focus:border-[var(--theme-primary)]"
             />
             <div className="flex items-center gap-2 mt-2">
@@ -256,7 +258,7 @@ export function GameSelectionModal({
                 disabled={!importText.trim()}
               >
                 <Import className="h-3.5 w-3.5" />
-                Import
+                {t('prefill.gameSelection.import')}
               </Button>
               <Button 
                 variant="outline" 
@@ -267,29 +269,29 @@ export function GameSelectionModal({
                   setImportResult(null);
                 }}
               >
-                Cancel
+                {t('common.cancel')}
               </Button>
               {importResult && (
                 <span className="text-xs ml-auto text-[var(--theme-text-muted)]">
                   {importResult.added > 0 && (
                     <span className="text-[var(--theme-success)]">
-                      +{importResult.added} added
+                      {t('prefill.gameSelection.importAdded', { count: importResult.added })}
                     </span>
                   )}
                   {importResult.alreadySelected > 0 && (
                     <span>
                       {importResult.added > 0 ? ', ' : ''}
-                      {importResult.alreadySelected} already selected
+                      {t('prefill.gameSelection.importAlreadySelected', { count: importResult.alreadySelected })}
                     </span>
                   )}
                   {importResult.notInLibrary.length > 0 && (
                     <span className="text-[var(--theme-warning)]">
                       {(importResult.added > 0 || importResult.alreadySelected > 0) ? ', ' : ''}
-                      {importResult.notInLibrary.length} not in library
+                      {t('prefill.gameSelection.importNotInLibrary', { count: importResult.notInLibrary.length })}
                     </span>
                   )}
                   {importResult.added === 0 && importResult.alreadySelected === 0 && importResult.notInLibrary.length === 0 && (
-                    <span className="text-[var(--theme-error)]">No valid App IDs found</span>
+                    <span className="text-[var(--theme-error)]">{t('prefill.gameSelection.noValidAppIds')}</span>
                   )}
                 </span>
               )}
@@ -300,16 +302,16 @@ export function GameSelectionModal({
         {/* Selection count */}
         <div className="text-sm mb-2 text-[var(--theme-text-muted)]">
           <span className="text-[var(--theme-primary)] font-semibold">{localSelected.size}</span>
-          {' '}of {games.length} games selected
+          {' '}{t('prefill.gameSelection.ofGamesSelected', { total: games.length, count: games.length })}
           {cachedCount > 0 && (
             <span className="ml-2">
               <Database className="inline h-3.5 w-3.5 mr-1 text-[var(--theme-success)]" />
-              <span className="text-[var(--theme-success)]">{cachedCount} cached</span>
+              <span className="text-[var(--theme-success)]">{t('prefill.gameSelection.cached', { count: cachedCount })}</span>
             </span>
           )}
           {(search || hideCached) && (
             <span className="text-[var(--theme-text-muted)]">
-              {' '}(showing {filteredGames.length}{search ? ` matching "${search}"` : ''}{hideCached ? ', hiding cached' : ''})
+              {' '}({t('prefill.gameSelection.showing', { count: filteredGames.length })}{search ? ` ${t('prefill.gameSelection.matching', { query: search })}` : ''}{hideCached ? `, ${t('prefill.gameSelection.hidingCached')}` : ''})
             </span>
           )}
         </div>
@@ -325,9 +327,9 @@ export function GameSelectionModal({
               <div className="w-16 h-16 rounded-xl flex items-center justify-center mb-3 bg-[var(--theme-bg-secondary)]">
                 <Gamepad2 className="h-8 w-8 opacity-50" />
               </div>
-              <p className="font-medium">No games found</p>
+              <p className="font-medium">{t('prefill.gameSelection.noGamesFound')}</p>
               {search && (
-                <p className="text-sm mt-1 opacity-70">Try a different search term</p>
+                <p className="text-sm mt-1 opacity-70">{t('prefill.gameSelection.tryDifferentSearch')}</p>
               )}
             </div>
           ) : (
@@ -340,7 +342,7 @@ export function GameSelectionModal({
                   <div
                     className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0 bg-[color-mix(in_srgb,var(--theme-primary)_15%,var(--theme-bg-tertiary))] text-[var(--theme-primary)] border-b border-[var(--theme-border-secondary)]"
                   >
-                    Selected ({localSelected.size})
+                    {t('prefill.gameSelection.selected', { count: localSelected.size })}
                   </div>
                   <CustomScrollbar maxHeight="100%" className="flex-1 min-h-0" paddingMode="compact">
                     <div>
@@ -360,11 +362,11 @@ export function GameSelectionModal({
                                 {game.name}
                               </div>
                               <div className="text-xs text-[var(--theme-text-muted)] flex items-center gap-2">
-                                <span>App ID: {game.appId}</span>
+                                <span>{t('prefill.gameSelection.appId', { id: game.appId })}</span>
                                 {isCached && (
                                   <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[var(--theme-success)]/15 text-[var(--theme-success)]">
                                     <Database className="h-2.5 w-2.5" />
-                                    Cached
+                                    {t('prefill.gameSelection.cachedBadge')}
                                   </span>
                                 )}
                               </div>
@@ -381,7 +383,7 @@ export function GameSelectionModal({
               {sortedGames.some(g => !localSelected.has(g.appId)) && (
                 <div className="flex-1 min-h-0 flex flex-col">
                   <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-muted)] border-b border-[var(--theme-border-secondary)]">
-                    Available Games ({sortedGames.filter(g => !localSelected.has(g.appId)).length})
+                    {t('prefill.gameSelection.availableGames', { count: sortedGames.filter(g => !localSelected.has(g.appId)).length })}
                   </div>
                   <CustomScrollbar maxHeight="100%" className="flex-1 min-h-0" paddingMode="compact">
                     <div>
@@ -399,11 +401,11 @@ export function GameSelectionModal({
                                 {game.name}
                               </div>
                               <div className="text-xs text-[var(--theme-text-muted)] flex items-center gap-2">
-                                <span>App ID: {game.appId}</span>
+                                <span>{t('prefill.gameSelection.appId', { id: game.appId })}</span>
                                 {isCached && (
                                   <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[var(--theme-success)]/15 text-[var(--theme-success)]">
                                     <Database className="h-2.5 w-2.5" />
-                                    Cached
+                                    {t('prefill.gameSelection.cachedBadge')}
                                   </span>
                                 )}
                               </div>
@@ -422,7 +424,7 @@ export function GameSelectionModal({
         {/* Actions */}
         <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-[var(--theme-border-secondary)]">
           <Button variant="outline" onClick={onClose}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button variant="filled" onClick={handleSave} disabled={isSaving}>
             {isSaving ? (
@@ -430,7 +432,7 @@ export function GameSelectionModal({
             ) : (
               <Check className="h-4 w-4" />
             )}
-            Save Selection ({localSelected.size})
+            {t('prefill.gameSelection.saveSelection', { count: localSelected.size })}
           </Button>
         </div>
       </div>

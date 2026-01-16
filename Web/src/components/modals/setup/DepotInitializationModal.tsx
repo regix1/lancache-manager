@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Rocket, ArrowLeft } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import authService from '@services/auth.service';
 import ApiService from '@services/api.service';
 import { storage } from '@utils/storage';
@@ -46,22 +47,23 @@ type InitStep =
   | 'log-processing'
   | 'depot-mapping';
 
-const STEP_INFO: Record<InitStep, { number: number; title: string; total: number }> = {
-  'api-key': { number: 1, title: 'Authentication', total: 9 },
-  'import-historical-data': { number: 2, title: 'Import Historical Data', total: 9 },
-  'data-source-choice': { number: 3, title: 'Data Source Selection', total: 9 },
-  'steam-api-key': { number: 4, title: 'Steam API Key', total: 9 },
-  'steam-auth': { number: 5, title: 'Steam PICS Authentication', total: 9 },
-  'depot-init': { number: 6, title: 'Depot Initialization', total: 9 },
-  'pics-progress': { number: 7, title: 'PICS Data Progress', total: 9 },
-  'log-processing': { number: 8, title: 'Log Processing', total: 9 },
-  'depot-mapping': { number: 9, title: 'Depot Mapping', total: 9 }
-};
+const getStepInfo = (t: (key: string) => string): Record<InitStep, { number: number; title: string; total: number }> => ({
+  'api-key': { number: 1, title: t('initialization.modal.stepTitles.authentication'), total: 9 },
+  'import-historical-data': { number: 2, title: t('initialization.modal.stepTitles.importHistoricalData'), total: 9 },
+  'data-source-choice': { number: 3, title: t('initialization.modal.stepTitles.dataSourceSelection'), total: 9 },
+  'steam-api-key': { number: 4, title: t('initialization.modal.stepTitles.steamApiKey'), total: 9 },
+  'steam-auth': { number: 5, title: t('initialization.modal.stepTitles.steamPicsAuthentication'), total: 9 },
+  'depot-init': { number: 6, title: t('initialization.modal.stepTitles.depotInitialization'), total: 9 },
+  'pics-progress': { number: 7, title: t('initialization.modal.stepTitles.picsDataProgress'), total: 9 },
+  'log-processing': { number: 8, title: t('initialization.modal.stepTitles.logProcessing'), total: 9 },
+  'depot-mapping': { number: 9, title: t('initialization.modal.stepTitles.depotMapping'), total: 9 }
+});
 
 const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   onInitialized,
   onAuthChanged
 }) => {
+  const { t } = useTranslation();
   const [currentStep, setCurrentStep] = useState<InitStep>(() => {
     const stored = storage.getItem('initializationCurrentStep');
     return (stored as InitStep) || 'api-key';
@@ -242,13 +244,13 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
           await checkPicsDataStatus();
           setCurrentStep('import-historical-data');
         } else {
-          setAuthError('Authentication succeeded but verification failed');
+          setAuthError(t('modals.auth.errors.verificationFailed'));
         }
       } else {
         setAuthError(result.message);
       }
     } catch (error: unknown) {
-      setAuthError((error instanceof Error ? error.message : String(error)) || 'Authentication failed');
+      setAuthError((error instanceof Error ? error.message : String(error)) || t('modals.auth.errors.authenticationFailed'));
     } finally {
       setAuthenticating(false);
     }
@@ -257,7 +259,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   const handleStartGuestMode = async () => {
     const hasData = await checkDataAvailability();
     if (!hasData) {
-      setAuthError('Guest mode is not available. No data has been loaded yet.');
+      setAuthError(t('modals.auth.errors.guestModeNoData'));
       return;
     }
 
@@ -465,7 +467,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     }
   };
 
-  const stepInfo = STEP_INFO[currentStep];
+  const stepInfo = getStepInfo(t)[currentStep];
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-themed-primary">
@@ -492,14 +494,14 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
                     ? 'text-themed-muted cursor-not-allowed opacity-50'
                     : 'text-themed-secondary cursor-pointer'
                 }`}
-                title={backButtonDisabled ? 'Cannot go back during operation' : 'Go back'}
+                title={backButtonDisabled ? t('initialization.modal.cannotGoBack') : t('initialization.modal.goBack')}
               >
                 <ArrowLeft className="w-5 h-5" />
               </button>
             )}
             <div className="flex items-center gap-2">
               <Rocket className="w-5 h-5 text-primary" />
-              <span className="font-semibold text-themed-primary">Setup Wizard</span>
+              <span className="font-semibold text-themed-primary">{t('initialization.modal.setupWizard')}</span>
             </div>
           </div>
           <div className="text-xs font-medium px-2.5 py-1 rounded-full bg-themed-tertiary text-themed-secondary">

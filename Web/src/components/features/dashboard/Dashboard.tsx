@@ -18,6 +18,7 @@ import {
   Move,
   Check
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useStats } from '@contexts/StatsContext';
 import { useDownloads } from '@contexts/DownloadsContext';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
@@ -65,104 +66,107 @@ const DEFAULT_CARD_ORDER: string[] = [
   'cacheHitRatio'
 ];
 
-const StatTooltips: Record<string, React.ReactNode> = {
+const getStatTooltips = (t: (key: string) => string): Record<string, React.ReactNode> => ({
   totalCache: (
     <div className="space-y-1.5">
-      <HelpDefinition term="What it shows" termColor="blue">
-        Total cache capacity configured for this instance, based on your cache drive size.
+      <HelpDefinition term={t('dashboard.statCards.totalCache.term')} termColor="blue">
+        {t('dashboard.statCards.totalCache.description')}
       </HelpDefinition>
     </div>
   ),
   usedSpace: (
     <div className="space-y-1.5">
-      <HelpDefinition term="What it shows" termColor="blue">
-        Live is current size; Historical is the hourly average from snapshots.
+      <HelpDefinition term={t('dashboard.statCards.usedSpace.term')} termColor="blue">
+        {t('dashboard.statCards.usedSpace.description')}
       </HelpDefinition>
     </div>
   ),
   bandwidthSaved: (
     <div className="space-y-1.5">
-      <HelpDefinition term="Saved" termColor="green">
-        Data served from cache instead of the internet. Higher values mean better caching efficiency.
+      <HelpDefinition term={t('dashboard.statCards.bandwidthSaved.term')} termColor="green">
+        {t('dashboard.statCards.bandwidthSaved.description')}
       </HelpDefinition>
     </div>
   ),
   addedToCache: (
     <div className="space-y-1.5">
-      <HelpDefinition term="New Data" termColor="purple">
-        Content downloaded and stored in the cache, available for future requests.
+      <HelpDefinition term={t('dashboard.statCards.addedToCache.term')} termColor="purple">
+        {t('dashboard.statCards.addedToCache.description')}
       </HelpDefinition>
     </div>
   ),
   totalServed: (
     <div className="space-y-1.5">
-      <HelpDefinition term="Served" termColor="blue">
-        Total data delivered to all clients, including cache hits and new downloads.
+      <HelpDefinition term={t('dashboard.statCards.totalServed.term')} termColor="blue">
+        {t('dashboard.statCards.totalServed.description')}
       </HelpDefinition>
     </div>
   ),
   activeDownloads: (
     <div className="space-y-1.5">
-      <HelpDefinition term="Active" termColor="orange">
-        Downloads currently in progress (Live only); hidden in historical views.
+      <HelpDefinition term={t('dashboard.statCards.activeDownloads.term')} termColor="orange">
+        {t('dashboard.statCards.activeDownloads.description')}
       </HelpDefinition>
     </div>
   ),
   activeClients: (
     <div className="space-y-1.5">
-      <HelpDefinition term="Active" termColor="orange">
-        Clients currently downloading (Live only); hidden in historical views.
+      <HelpDefinition term={t('dashboard.statCards.activeClients.term')} termColor="orange">
+        {t('dashboard.statCards.activeClients.description')}
       </HelpDefinition>
     </div>
   ),
   cacheHitRatio: (
     <div className="space-y-1.5">
-      <HelpDefinition term="Hit Ratio" termColor="green">
-        Percent of data served from cache; higher ratios mean better efficiency.
+      <HelpDefinition term={t('dashboard.statCards.cacheHitRatio.term')} termColor="green">
+        {t('dashboard.statCards.cacheHitRatio.description')}
       </HelpDefinition>
     </div>
   )
-};
+});
 
 // Trend help content for cards with sparklines
-const TrendHelpContent: Record<string, React.ReactNode> = {
+const getTrendHelpContent = (t: (key: string) => string): Record<string, React.ReactNode> => ({
   bandwidthSaved: (
     <div className="space-y-1.5">
-      <HelpDefinition term="Trend" termColor="green">
-        ↑ means more saved recently; ↓ means less saved recently, compared to earlier in the selected time range.
+      <HelpDefinition term={t('dashboard.trends.bandwidthSaved.term')} termColor="green">
+        {t('dashboard.trends.bandwidthSaved.description')}
       </HelpDefinition>
     </div>
   ),
   addedToCache: (
     <div className="space-y-1.5">
-      <HelpDefinition term="Trend" termColor="green">
-        ↑ means more cached recently; ↓ means less cached recently, compared to earlier in the selected time range.
+      <HelpDefinition term={t('dashboard.trends.addedToCache.term')} termColor="green">
+        {t('dashboard.trends.addedToCache.description')}
       </HelpDefinition>
     </div>
   ),
   totalServed: (
     <div className="space-y-1.5">
-      <HelpDefinition term="Trend" termColor="green">
-        ↑ means more served recently; ↓ means less served recently, compared to earlier in the selected time range.
+      <HelpDefinition term={t('dashboard.trends.totalServed.term')} termColor="green">
+        {t('dashboard.trends.totalServed.description')}
       </HelpDefinition>
     </div>
   ),
   cacheHitRatio: (
     <div className="space-y-1.5">
-      <HelpDefinition term="Trend" termColor="green">
-        ↑ improving; ↓ declining. Shows change in percentage points.
+      <HelpDefinition term={t('dashboard.trends.cacheHitRatio.term')} termColor="green">
+        {t('dashboard.trends.cacheHitRatio.description')}
       </HelpDefinition>
     </div>
   ),
-};
+});
 
 const Dashboard: React.FC = () => {
+  const { t } = useTranslation();
   const { cacheInfo, clientStats, serviceStats, dashboardStats, loading } = useStats();
   const { latestDownloads } = useDownloads();
   const { timeRange, getTimeRangeParams, customStartDate, customEndDate, selectedEventIds } = useTimeFilter();
   const { selectedEvent } = useEvents();
   const signalR = useSignalR();
   const { getRefreshInterval } = useRefreshRate();
+  const statTooltips = useMemo(() => getStatTooltips(t), [t]);
+  const trendHelpContent = useMemo(() => getTrendHelpContent(t), [t]);
 
   // Track if initial card animations have completed - prevents re-animation on reorder
   const initialAnimationCompleteRef = useRef(false);
@@ -427,25 +431,25 @@ const Dashboard: React.FC = () => {
   const getTimeRangeLabel = useCallback(() => {
     switch (timeRange) {
       case '1h':
-        return 'Last hour';
+        return t('dashboard.timeRanges.1h');
       case '6h':
-        return 'Last 6 hours';
+        return t('dashboard.timeRanges.6h');
       case '12h':
-        return 'Last 12 hours';
+        return t('dashboard.timeRanges.12h');
       case '24h':
-        return 'Last 24 hours';
+        return t('dashboard.timeRanges.24h');
       case '7d':
-        return 'Last 7 days';
+        return t('dashboard.timeRanges.7d');
       case '30d':
-        return 'Last 30 days';
+        return t('dashboard.timeRanges.30d');
       case 'live':
-        return 'Live data';
+        return t('dashboard.timeRanges.live');
       case 'custom':
-        return 'Custom range';
+        return t('dashboard.timeRanges.custom');
       default:
-        return 'Last 24 hours';
+        return t('dashboard.timeRanges.24h');
     }
-  }, [timeRange, selectedEvent]);
+  }, [timeRange, selectedEvent, t]);
 
   const [cardVisibility, setCardVisibility] = useState<CardVisibility>(() => {
     const saved = storage.getItem(STORAGE_KEYS.DASHBOARD_CARD_VISIBILITY);
@@ -532,96 +536,97 @@ const Dashboard: React.FC = () => {
     () => ({
       totalCache: {
         key: 'totalCache',
-        title: 'Total Cache',
+        title: t('dashboard.cards.totalCache'),
         value: cacheInfo ? formatBytes(cacheInfo.totalCacheSize) : '0 B',
-        subtitle: 'Drive capacity',
+        subtitle: t('dashboard.cards.driveCapacity'),
         icon: Database,
         color: 'blue' as const,
         visible: cardVisibility.totalCache,
-        tooltip: StatTooltips.totalCache
+        tooltip: statTooltips.totalCache
       },
       usedSpace: {
         key: 'usedSpace',
-        title: isHistoricalView && cacheSnapshot?.hasData ? 'Used Space (end)' : 'Used Space',
+        title: isHistoricalView && cacheSnapshot?.hasData ? t('dashboard.cards.usedSpaceEnd') : t('dashboard.cards.usedSpace'),
         value: isHistoricalView
-          ? (cacheSnapshot?.hasData ? formatBytes(cacheSnapshot.endUsedSize) : 'No data')
+          ? (cacheSnapshot?.hasData ? formatBytes(cacheSnapshot.endUsedSize) : t('common.noDataAvailable'))
           : (cacheInfo ? formatBytes(cacheInfo.usedCacheSize) : '0 B'),
         subtitle: isHistoricalView
           ? (cacheSnapshot?.hasData
-            ? `started at ${formatBytes(cacheSnapshot.startUsedSize)} • ${cacheSnapshot.snapshotCount} snapshot${cacheSnapshot.snapshotCount !== 1 ? 's' : ''}`
-            : 'No snapshots yet')
+            ? t('dashboard.cards.startedAt', { size: formatBytes(cacheSnapshot.startUsedSize) }) + ' • ' + t('dashboard.cards.snapshots', { count: cacheSnapshot.snapshotCount })
+            : t('dashboard.cards.noSnapshotsYet'))
           : (cacheInfo ? formatPercent(cacheInfo.usagePercent) : '0%'),
         icon: HardDrive,
         color: 'green' as const,
         visible: cardVisibility.usedSpace,
-        tooltip: StatTooltips.usedSpace
+        tooltip: statTooltips.usedSpace
       },
       bandwidthSaved: {
         key: 'bandwidthSaved',
-        title: 'Bandwidth Saved',
+        title: t('dashboard.cards.bandwidthSaved'),
         value: formatBytes(stats.bandwidthSaved),
         subtitle: getTimeRangeLabel().toLowerCase(),
         icon: TrendingUp,
         color: 'emerald' as const,
         visible: cardVisibility.bandwidthSaved,
-        tooltip: StatTooltips.bandwidthSaved
+        tooltip: statTooltips.bandwidthSaved
       },
       addedToCache: {
         key: 'addedToCache',
-        title: 'Added to Cache',
+        title: t('dashboard.cards.addedToCache'),
         value: formatBytes(stats.addedToCache),
         subtitle: getTimeRangeLabel().toLowerCase(),
         icon: Zap,
         color: 'purple' as const,
         visible: cardVisibility.addedToCache,
-        tooltip: StatTooltips.addedToCache
+        tooltip: statTooltips.addedToCache
       },
       totalServed: {
         key: 'totalServed',
-        title: 'Total Served',
+        title: t('dashboard.cards.totalServed'),
         value: formatBytes(stats.totalServed),
         subtitle: getTimeRangeLabel().toLowerCase(),
         icon: Server,
         color: 'indigo' as const,
         visible: cardVisibility.totalServed,
-        tooltip: StatTooltips.totalServed
+        tooltip: statTooltips.totalServed
       },
       activeDownloads: {
         key: 'activeDownloads',
-        title: 'Active Downloads',
-        value: isHistoricalView ? 'Disabled' : stats.totalActiveDownloads,
+        title: t('dashboard.cards.activeDownloads'),
+        value: isHistoricalView ? t('dashboard.cards.disabled') : stats.totalActiveDownloads,
         subtitle: isHistoricalView
-          ? 'Live data only'
-          : `${dashboardStats?.period?.downloads || filteredLatestDownloads.length} in period`,
+          ? t('dashboard.cards.liveDataOnly')
+          : `${dashboardStats?.period?.downloads || filteredLatestDownloads.length} ${t('dashboard.cards.inPeriod')}`,
         icon: Download,
         color: 'orange' as const,
         visible: cardVisibility.activeDownloads,
-        tooltip: StatTooltips.activeDownloads
+        tooltip: statTooltips.activeDownloads
       },
       activeClients: {
         key: 'activeClients',
-        title: 'Active Clients',
-        value: isHistoricalView ? 'Disabled' : stats.activeClients,
+        title: t('dashboard.cards.activeClients'),
+        value: isHistoricalView ? t('dashboard.cards.disabled') : stats.activeClients,
         subtitle: isHistoricalView
-          ? 'Live data only'
-          : `${stats.uniqueClients} unique in period`,
+          ? t('dashboard.cards.liveDataOnly')
+          : `${stats.uniqueClients} ${t('dashboard.cards.uniqueInPeriod')}`,
         icon: Users,
         color: 'yellow' as const,
         visible: cardVisibility.activeClients,
-        tooltip: StatTooltips.activeClients
+        tooltip: statTooltips.activeClients
       },
       cacheHitRatio: {
         key: 'cacheHitRatio',
-        title: 'Cache Hit Ratio',
+        title: t('dashboard.cards.cacheHitRatio'),
         value: formatPercent(stats.cacheHitRatio * 100),
         subtitle: getTimeRangeLabel().toLowerCase(),
         icon: Activity,
         color: 'cyan' as const,
         visible: cardVisibility.cacheHitRatio,
-        tooltip: StatTooltips.cacheHitRatio
+        tooltip: statTooltips.cacheHitRatio
       }
     }),
     [
+      t,
       cacheInfo,
       cacheSnapshot,
       cardVisibility,
@@ -674,7 +679,7 @@ const Dashboard: React.FC = () => {
       {/* Dashboard Header */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
         <h2 className="text-2xl font-bold text-themed-primary tracking-tight hidden md:block">
-          Dashboard
+          {t('dashboard.title')}
         </h2>
         <div className="flex flex-row items-center gap-2">
           {/* Mobile Edit Mode Toggle */}
@@ -685,16 +690,16 @@ const Dashboard: React.FC = () => {
                 className="edit-mode-done flex items-center gap-2 px-4 py-2 text-sm rounded-lg"
               >
                 <Check className="w-4 h-4" />
-                <span>Done</span>
+                <span>{t('dashboard.done')}</span>
               </button>
             ) : (
-              <Tooltip content="Rearrange cards" strategy="overlay">
+              <Tooltip content={t('tooltips.rearrangeCards')} strategy="overlay">
                 <button
                   onClick={toggleEditMode}
                   className="edit-mode-toggle flex items-center gap-2 px-3 py-2 text-sm rounded-lg border text-themed-secondary bg-themed-secondary border-themed-primary"
                 >
                   <Move className="w-4 h-4" />
-                  <span>Edit</span>
+                  <span>{t('dashboard.edit')}</span>
                 </button>
               </Tooltip>
             )}
@@ -703,13 +708,13 @@ const Dashboard: React.FC = () => {
           {/* Hidden Cards Button - only shows when cards are hidden */}
           {hiddenCardsCount > 0 && (
             <div className="relative" ref={dropdownRef}>
-              <Tooltip content={`${hiddenCardsCount} hidden card${hiddenCardsCount !== 1 ? 's' : ''} - click to restore`} strategy="overlay">
+              <Tooltip content={t('dashboard.hiddenCardsTooltip', { count: hiddenCardsCount })} strategy="overlay">
                 <button
                   onClick={() => setDropdownOpen(!dropdownOpen)}
                   className="hover-btn-trigger flex items-center gap-2 px-3 py-2 text-sm rounded-lg border text-themed-secondary bg-themed-secondary border-themed-primary"
                 >
                   <EyeOff className="w-4 h-4" />
-                  <span className="hidden sm:inline">{hiddenCardsCount} Hidden</span>
+                  <span className="hidden sm:inline">{t('dashboard.hiddenCount', { count: hiddenCardsCount })} {t('dashboard.hidden')}</span>
                   <span className="sm:hidden">{hiddenCardsCount}</span>
                   <ChevronDown
                     className={`w-3 h-3 transition-transform duration-200 ${dropdownOpen ? 'rotate-180' : ''}`}
@@ -731,7 +736,7 @@ const Dashboard: React.FC = () => {
                           type="text"
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
-                          placeholder="Search hidden cards..."
+                          placeholder={t('dashboard.searchHiddenCards')}
                           className="w-full pl-10 pr-3 py-2 rounded-lg text-sm bg-themed-tertiary text-themed-primary border border-themed-primary"
                           autoFocus
                         />
@@ -750,7 +755,7 @@ const Dashboard: React.FC = () => {
                       className="hover-btn w-full px-3 py-2 text-sm rounded-lg text-left flex items-center gap-2 text-themed-accent"
                     >
                       <Eye className="w-4 h-4" />
-                      Show all cards
+                      {t('dashboard.showAllCards')}
                     </button>
                   </div>
 
@@ -788,7 +793,7 @@ const Dashboard: React.FC = () => {
                       })
                     ) : (
                       <div className="px-3 py-4 text-center text-themed-muted text-sm">
-                        No cards match "{searchQuery}"
+                        {t('dashboard.noCardsMatch', { query: searchQuery })}
                       </div>
                     )}
                   </div>
@@ -798,13 +803,13 @@ const Dashboard: React.FC = () => {
           )}
 
           {/* Reset Layout Button */}
-          <Tooltip content="Reset card layout to default order" strategy="overlay">
+          <Tooltip content={t('tooltips.resetCardLayout')} strategy="overlay">
             <button
               onClick={resetCardOrder}
               className="hover-btn-trigger flex items-center gap-2 px-3 py-2 text-sm transition-colors rounded-lg border text-themed-secondary bg-themed-secondary border-themed-primary hover:bg-themed-hover hover:text-themed-primary"
             >
               <LayoutGrid className="w-4 h-4" />
-              <span className="hidden sm:inline">Reset Layout</span>
+              <span className="hidden sm:inline">{t('dashboard.resetLayout')}</span>
             </button>
           </Tooltip>
         </div>
@@ -824,12 +829,12 @@ const Dashboard: React.FC = () => {
               {draggedCard ? (
                 <>
                   <span className="text-base">👆</span>
-                  <span>Tap another card to swap, or tap the same card to cancel</span>
+                  <span>{t('dashboard.editModeInstructions.dragging')}</span>
                 </>
               ) : (
                 <>
                   <span className="text-base">✨</span>
-                  <span>Tap any card to select it, then tap another to swap positions</span>
+                  <span>{t('dashboard.editModeInstructions.initial')}</span>
                 </>
               )}
             </div>
@@ -843,14 +848,12 @@ const Dashboard: React.FC = () => {
           <div className="flex items-center justify-between py-3 px-4 rounded-lg bg-themed-secondary text-themed-muted text-sm">
             <div className="flex items-center gap-2">
               <span>💡</span>
-              <span>
-                Use the <strong>Edit</strong> button to rearrange your dashboard cards
-              </span>
+              <span dangerouslySetInnerHTML={{ __html: t('dashboard.dragHint') }} />
             </div>
             <button
               onClick={hideDragHint}
               className="ml-2 p-1 rounded hover:bg-themed-hover transition-colors flex-shrink-0 text-themed-muted"
-              title="Hide this hint"
+              title={t('dashboard.hideThisHint')}
             >
               <X className="w-4 h-4" />
             </button>
@@ -908,7 +911,7 @@ const Dashboard: React.FC = () => {
               {/* Desktop drag handle - smaller, hover-triggered */}
               {
                 <Tooltip
-                  content="Drag to reorder"
+                  content={t('tooltips.dragToReorder')}
                   strategy="overlay"
                   className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-all hidden md:block z-[5]"
                 >
@@ -987,12 +990,12 @@ const Dashboard: React.FC = () => {
                   card.key === 'addedToCache' ? sparklineData?.addedToCache?.percentChange :
                   undefined
                 }
-                trendHelp={TrendHelpContent[card.key]}
+                trendHelp={trendHelpContent[card.key]}
                 staggerIndex={initialAnimationComplete ? undefined : visualIndex}
               />
 
               <Tooltip
-                content="Hide this card"
+                content={t('tooltips.hideThisCard')}
                 strategy="overlay"
                 className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
               >
@@ -1006,7 +1009,7 @@ const Dashboard: React.FC = () => {
 
               {/* Disabled overlay with tooltip for active cards in historical view */}
               {isCardDisabled && (
-                <Tooltip content="Live data only - switch to Live mode to see real-time stats" strategy="overlay">
+                <Tooltip content={t('tooltips.liveDataOnly')} strategy="overlay">
                   <div
                     className="absolute inset-0 z-10 cursor-not-allowed rounded-lg"
                     style={{ background: 'transparent' }}

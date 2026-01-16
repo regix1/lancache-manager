@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Plug,
   HardDrive,
@@ -21,63 +22,11 @@ export type ManagementSection =
 
 interface TabConfig {
   id: ManagementSection;
-  label: string;
-  shortLabel: string;
+  labelKey: string;
+  shortLabelKey: string;
   icon: LucideIcon;
-  description: string;
+  descriptionKey: string;
 }
-
-const tabs: TabConfig[] = [
-  {
-    id: 'settings',
-    label: 'Settings',
-    shortLabel: 'Settings',
-    icon: Settings,
-    description: 'Display & behavior preferences'
-  },
-  {
-    id: 'integrations',
-    label: 'Integrations',
-    shortLabel: 'Integrate',
-    icon: Plug,
-    description: 'Steam, Grafana & external services'
-  },
-  {
-    id: 'storage',
-    label: 'Logs & Cache',
-    shortLabel: 'Logs & Cache',
-    icon: HardDrive,
-    description: 'Cache, logs & game detection'
-  },
-  {
-    id: 'data',
-    label: 'Data',
-    shortLabel: 'Data',
-    icon: FolderCog,
-    description: 'Depot mappings & database'
-  },
-  {
-    id: 'preferences',
-    label: 'Theme',
-    shortLabel: 'Theme',
-    icon: Palette,
-    description: 'Themes & customization'
-  },
-  {
-    id: 'clients',
-    label: 'Clients',
-    shortLabel: 'Clients',
-    icon: Users,
-    description: 'Assign nicknames to client IPs'
-  },
-  {
-    id: 'prefill-sessions',
-    label: 'Prefill Sessions',
-    shortLabel: 'Prefill',
-    icon: Container,
-    description: 'Manage Steam Prefill daemon sessions'
-  }
-];
 
 interface ManagementNavProps {
   activeSection: ManagementSection;
@@ -90,13 +39,66 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
   onSectionChange,
   isAuthenticated
 }) => {
+  const { t } = useTranslation();
+
+  const tabs: TabConfig[] = [
+    {
+      id: 'settings',
+      labelKey: 'management.nav.settings',
+      shortLabelKey: 'management.nav.settingsShort',
+      icon: Settings,
+      descriptionKey: 'management.nav.settingsDesc'
+    },
+    {
+      id: 'integrations',
+      labelKey: 'management.nav.integrations',
+      shortLabelKey: 'management.nav.integrationsShort',
+      icon: Plug,
+      descriptionKey: 'management.nav.integrationsDesc'
+    },
+    {
+      id: 'storage',
+      labelKey: 'management.nav.storage',
+      shortLabelKey: 'management.nav.storageShort',
+      icon: HardDrive,
+      descriptionKey: 'management.nav.storageDesc'
+    },
+    {
+      id: 'data',
+      labelKey: 'management.nav.data',
+      shortLabelKey: 'management.nav.dataShort',
+      icon: FolderCog,
+      descriptionKey: 'management.nav.dataDesc'
+    },
+    {
+      id: 'preferences',
+      labelKey: 'management.nav.preferences',
+      shortLabelKey: 'management.nav.preferencesShort',
+      icon: Palette,
+      descriptionKey: 'management.nav.preferencesDesc'
+    },
+    {
+      id: 'clients',
+      labelKey: 'management.nav.clients',
+      shortLabelKey: 'management.nav.clientsShort',
+      icon: Users,
+      descriptionKey: 'management.nav.clientsDesc'
+    },
+    {
+      id: 'prefill-sessions',
+      labelKey: 'management.nav.prefillSessions',
+      shortLabelKey: 'management.nav.prefillSessionsShort',
+      icon: Container,
+      descriptionKey: 'management.nav.prefillSessionsDesc'
+    }
+  ];
   return (
     <div className="management-nav-container mb-6">
       {/* Desktop Navigation */}
       <nav
         className="hidden md:block"
         role="tablist"
-        aria-label="Management sections"
+        aria-label={t('aria.managementSections')}
       >
         <div className="rounded-lg border bg-themed-secondary border-themed-primary">
           <div className="flex">
@@ -153,7 +155,7 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
                         : 'inherit'
                     }}
                   />
-                  <span className="whitespace-nowrap">{tab.label}</span>
+                  <span className="whitespace-nowrap">{t(tab.labelKey)}</span>
 
                   {/* Active indicator bar */}
                   {isActive && (
@@ -170,7 +172,7 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
       <nav
         className="md:hidden"
         role="tablist"
-        aria-label="Management sections"
+        aria-label={t('aria.managementSections')}
       >
         {/* Active section header */}
         <div className="flex items-center gap-3 px-4 py-3 rounded-t-lg border border-b-0 bg-themed-secondary border-themed-primary">
@@ -182,10 +184,10 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
                 <Icon className="w-5 h-5 text-themed-nav-tab-active" />
                 <div className="flex-1">
                   <div className="font-semibold text-themed-primary">
-                    {activeTab?.label}
+                    {activeTab ? t(activeTab.labelKey) : ''}
                   </div>
                   <div className="text-xs text-themed-muted">
-                    {activeTab?.description}
+                    {activeTab ? t(activeTab.descriptionKey) : ''}
                   </div>
                 </div>
               </>
@@ -234,7 +236,7 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
                 }}
               >
                 <Icon className="w-3.5 h-3.5" />
-                <span className="whitespace-nowrap">{tab.shortLabel}</span>
+                <span className="whitespace-nowrap">{t(tab.shortLabelKey)}</span>
               </button>
             );
           })}

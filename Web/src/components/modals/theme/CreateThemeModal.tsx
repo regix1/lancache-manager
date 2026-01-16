@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Save
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Modal } from '../../ui/Modal';
 import { Button } from '../../ui/Button';
 import { Checkbox } from '../../ui/Checkbox';
@@ -54,7 +55,27 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
   copyColor,
   loading
 }) => {
+  const { t } = useTranslation();
   const [createSearchQuery, setCreateSearchQuery] = useState('');
+  const getGroupTitle = (group: ColorGroup) =>
+    t(`modals.theme.groups.${group.name}.title`);
+  const getGroupDescription = (group: ColorGroup) =>
+    t(`modals.theme.groups.${group.name}.description`);
+  const getColorLabel = (color: ColorGroup['colors'][number]) =>
+    t(`modals.theme.colors.${color.key}.label`);
+  const getColorDescription = (color: ColorGroup['colors'][number]) =>
+    t(`modals.theme.colors.${color.key}.description`);
+  const getColorAffects = (color: ColorGroup['colors'][number]) => {
+    const translatedAffects = t(`modals.theme.colors.${color.key}.affects`, { returnObjects: true });
+    if (Array.isArray(translatedAffects)) {
+      return translatedAffects as string[];
+    }
+    return color.affects;
+  };
+  const getPageLabel = (page: typeof pageDefinitions[number]) =>
+    t(`modals.theme.pages.${page.name}.label`);
+  const getPageDescription = (page: typeof pageDefinitions[number]) =>
+    t(`modals.theme.pages.${page.name}.description`);
 
   const handleColorCommit = (key: string, previousColor: string) => {
     // Save the previous color to history when user finishes editing
@@ -284,16 +305,16 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
       .map((group) => {
         const filteredColors = group.colors.filter(
           (color) =>
-            color.label.toLowerCase().includes(searchLower) ||
-            color.description.toLowerCase().includes(searchLower) ||
-            color.affects.some((affect) => affect.toLowerCase().includes(searchLower)) ||
+            getColorLabel(color).toLowerCase().includes(searchLower) ||
+            getColorDescription(color).toLowerCase().includes(searchLower) ||
+            getColorAffects(color).some((affect) => affect.toLowerCase().includes(searchLower)) ||
             color.key.toLowerCase().includes(searchLower)
         );
 
         // If group name matches, show all colors in that group
         if (
-          group.name.toLowerCase().includes(searchLower) ||
-          group.description.toLowerCase().includes(searchLower)
+          getGroupTitle(group).toLowerCase().includes(searchLower) ||
+          getGroupDescription(group).toLowerCase().includes(searchLower)
         ) {
           return group;
         }
@@ -341,47 +362,47 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
   };
 
   return (
-    <Modal opened={opened} onClose={handleClose} title="Create Custom Theme" size="xl">
+    <Modal opened={opened} onClose={handleClose} title={t('modals.theme.create.title')} size="xl">
       <div className="space-y-6">
         {/* Theme Metadata */}
         <div className="space-y-4">
           <h4 className="text-sm font-semibold flex items-center gap-2 text-themed-primary">
             <Info className="w-4 h-4" />
-            Theme Information
+            {t('modals.theme.form.themeInfo')}
           </h4>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1 text-themed-secondary">
-                Theme Name *
+                {t('modals.theme.form.themeName')}
               </label>
               <input
                 type="text"
                 value={newTheme.name}
                 onChange={(e) => setNewTheme({ ...newTheme, name: e.target.value })}
-                placeholder="My Custom Theme"
+                placeholder={t('modals.theme.placeholders.themeName')}
                 className="w-full px-3 py-2 focus:outline-none themed-input"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1 text-themed-secondary">Author</label>
+              <label className="block text-sm font-medium mb-1 text-themed-secondary">{t('modals.theme.form.author')}</label>
               <input
                 type="text"
                 value={newTheme.author}
                 onChange={(e) => setNewTheme({ ...newTheme, author: e.target.value })}
-                placeholder="Your Name"
+                placeholder={t('modals.theme.placeholders.author')}
                 className="w-full px-3 py-2 focus:outline-none themed-input"
               />
             </div>
           </div>
           <div>
             <label className="block text-sm font-medium mb-1 text-themed-secondary">
-              Description
+              {t('modals.theme.form.description')}
             </label>
             <input
               type="text"
               value={newTheme.description}
               onChange={(e) => setNewTheme({ ...newTheme, description: e.target.value })}
-              placeholder="A beautiful custom theme"
+              placeholder={t('modals.theme.placeholders.description')}
               className="w-full px-3 py-2 rounded focus:outline-none themed-input"
             />
           </div>
@@ -391,21 +412,21 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
                 checked={newTheme.isDark}
                 onChange={(e) => loadPresetColors(e.target.checked ? 'dark' : 'light')}
                 variant="rounded"
-                label="Dark Theme"
+                label={t('modals.theme.form.darkTheme')}
               />
               <button
                 onClick={() => loadPresetColors('dark')}
                 className="px-3 py-1 text-xs rounded-lg flex items-center gap-1 bg-themed-tertiary text-themed-secondary"
               >
                 <Moon className="w-3 h-3" />
-                Load Dark Preset
+                {t('modals.theme.form.loadDarkPreset')}
               </button>
               <button
                 onClick={() => loadPresetColors('light')}
                 className="px-3 py-1 text-xs rounded-lg flex items-center gap-1 bg-themed-tertiary text-themed-secondary"
               >
                 <Sun className="w-3 h-3" />
-                Load Light Preset
+                {t('modals.theme.form.loadLightPreset')}
               </button>
             </div>
           </div>
@@ -422,7 +443,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
             }`}
           >
             <Layers className="w-4 h-4 inline-block mr-2" />
-            By Category
+            {t('modals.theme.organization.byCategory')}
           </button>
           <button
             onClick={() => setOrganizationMode('page')}
@@ -433,7 +454,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
             }`}
           >
             <Layout className="w-4 h-4 inline-block mr-2" />
-            By Page
+            {t('modals.theme.organization.byPage')}
           </button>
         </div>
 
@@ -443,7 +464,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
             organizationMode === 'page' ? 'max-h-40 opacity-100 mt-4' : 'max-h-0 opacity-0'
           }`}
         >
-          <label className="block text-sm font-medium text-themed-primary mb-2">Select Page</label>
+          <label className="block text-sm font-medium text-themed-primary mb-2">{t('modals.theme.organization.selectPage')}</label>
           <div className="grid grid-cols-3 gap-2">
             {pageDefinitions.map((page) => {
               const Icon = page.icon;
@@ -456,10 +477,10 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
                       ? 'bg-primary text-themed-button'
                       : 'bg-themed-tertiary text-themed-secondary hover:bg-themed-hover'
                   }`}
-                  title={page.description}
+                  title={getPageDescription(page)}
                 >
                   <Icon className="w-4 h-4" />
-                  {page.label}
+                  {getPageLabel(page)}
                 </button>
               );
             })}
@@ -473,7 +494,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
             type="text"
             value={createSearchQuery}
             onChange={(e) => setCreateSearchQuery(e.target.value)}
-            placeholder="Search colors... (e.g., 'alert', 'header', 'button', 'background')"
+            placeholder={t('modals.theme.placeholders.searchColors')}
             className="w-full pl-10 pr-10 py-2 themed-input"
           />
           {createSearchQuery && (
@@ -508,9 +529,9 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
                     <Icon className="w-4 h-4 text-themed-accent" />
                     <div className="text-left">
                       <h5 className="text-sm font-semibold capitalize text-themed-primary">
-                        {group.name.replace(/([A-Z])/g, ' $1').trim()}
+                        {getGroupTitle(group)}
                       </h5>
-                      <p className="text-xs text-themed-muted">{group.description}</p>
+                      <p className="text-xs text-themed-muted">{getGroupDescription(group)}</p>
                     </div>
                   </div>
                   {isExpanded ? (
@@ -525,9 +546,9 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
                     {group.colors.map((color) => (
                       <ImprovedColorPicker
                         key={color.key}
-                        label={color.label}
-                        description={color.description}
-                        affects={color.affects}
+                        label={getColorLabel(color)}
+                        description={getColorDescription(color)}
+                        affects={getColorAffects(color)}
                         value={(newTheme[color.key] as string) || ''}
                         onChange={(value) => handleColorChange(color.key, value)}
                         onColorCommit={(previousColor) =>
@@ -550,12 +571,12 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
         {/* Custom CSS */}
         <div>
           <label className="block text-sm font-medium mb-1 text-themed-secondary">
-            Custom CSS (Optional)
+            {t('modals.theme.form.customCss')}
           </label>
           <textarea
             value={newTheme.customCSS}
             onChange={(e) => setNewTheme({ ...newTheme, customCSS: e.target.value })}
-            placeholder="/* Add any custom CSS here */"
+            placeholder={t('modals.theme.placeholders.customCss')}
             rows={4}
             className="w-full px-3 py-2 rounded font-mono text-xs focus:outline-none themed-input"
           />
@@ -564,7 +585,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
         {/* Actions */}
         <div className="flex justify-end space-x-3 pt-4 border-t border-themed-primary">
           <Button variant="default" onClick={handleClose}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button
             variant="filled"
@@ -573,7 +594,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
             disabled={!newTheme.name || !isAuthenticated || loading}
             className="themed-button-primary"
           >
-            Create Theme
+            {t('modals.theme.create.saveButton')}
           </Button>
         </div>
       </div>

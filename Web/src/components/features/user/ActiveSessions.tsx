@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Users,
   User,
@@ -59,33 +60,6 @@ interface ActiveSessionsProps {
   onSessionsChange: () => void;
 }
 
-const timeFormatOptions = [
-  {
-    value: 'server-24h',
-    label: 'Server (24h)',
-    description: 'Server timezone, 24-hour format',
-    icon: Globe
-  },
-  {
-    value: 'server-12h',
-    label: 'Server (12h)',
-    description: 'Server timezone, 12-hour format',
-    icon: Globe
-  },
-  {
-    value: 'local-24h',
-    label: 'Local (24h)',
-    description: 'Local timezone, 24-hour format',
-    icon: MapPin
-  },
-  {
-    value: 'local-12h',
-    label: 'Local (12h)',
-    description: 'Local timezone, 12-hour format',
-    icon: MapPin
-  }
-];
-
 // Helper to format timestamp with timezone awareness
 const FormattedTimestamp: React.FC<{ timestamp: string }> = ({ timestamp }) => {
   const formattedTime = useFormattedDateTime(timestamp);
@@ -106,9 +80,40 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   setLoading,
   onSessionsChange
 }) => {
+  const { t } = useTranslation();
   const { refreshAuth } = useAuth();
   const { on, off } = useSignalR();
   const { prefs: defaultGuestPrefs } = useDefaultGuestPreferences();
+  const timeFormatOptions = [
+    {
+      value: 'server-24h',
+      label: t('user.guest.timeFormats.server24h.label'),
+      description: t('user.guest.timeFormats.server24h.description'),
+      icon: Globe
+    },
+    {
+      value: 'server-12h',
+      label: t('user.guest.timeFormats.server12h.label'),
+      description: t('user.guest.timeFormats.server12h.description'),
+      icon: Globe
+    },
+    {
+      value: 'local-24h',
+      label: t('user.guest.timeFormats.local24h.label'),
+      description: t('user.guest.timeFormats.local24h.description'),
+      icon: MapPin
+    },
+    {
+      value: 'local-12h',
+      label: t('user.guest.timeFormats.local12h.label'),
+      description: t('user.guest.timeFormats.local12h.description'),
+      icon: MapPin
+    }
+  ];
+  const translatedRefreshRateOptions = refreshRateOptions.map((option) => ({
+    ...option,
+    label: t(`user.guest.refreshRates.${option.value}`)
+  }));
   const [revokingSession, setRevokingSession] = useState<string | null>(null);
   const [expandedSessions, setExpandedSessions] = useState<Set<string>>(new Set());
   const { isActive: isLocallyActive } = useActivityTracker();
@@ -208,10 +213,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           setCurrentPage(data.pagination?.page || 1);
         } else {
           const errorData = await response.json();
-          showToast('error', errorData.error || 'Failed to load sessions');
+          showToast('error', errorData.error || t('activeSessions.errors.loadSessions'));
         }
       } catch (err: unknown) {
-        showToast('error', getErrorMessage(err) || 'Failed to load sessions');
+        showToast('error', getErrorMessage(err) || t('activeSessions.errors.loadSessions'));
       } finally {
         if (showLoading) {
           setLoading(false);
@@ -309,7 +314,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       if (response.ok) {
         if (isOwnSession) {
           setPendingRevokeSession(null);
-          showToast('info', 'You revoked your own session. Logging out...');
+          showToast('info', t('activeSessions.info.revokedOwnSession'));
 
           setTimeout(async () => {
             authService.clearAuth();
@@ -323,10 +328,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         onSessionsChange();
       } else {
         const errorData = await response.json();
-        showToast('error', errorData.message || errorData.error || 'Failed to revoke session');
+        showToast('error', errorData.message || errorData.error || t('activeSessions.errors.revokeSession'));
       }
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || 'Failed to revoke session');
+      showToast('error', getErrorMessage(err) || t('activeSessions.errors.revokeSession'));
     } finally {
       setRevokingSession(null);
     }
@@ -357,7 +362,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       if (response.ok) {
         if (isOwnSession) {
           setPendingDeleteSession(null);
-          showToast('info', 'You deleted your own session. Logging out...');
+          showToast('info', t('activeSessions.info.deletedOwnSession'));
 
           setTimeout(async () => {
             authService.clearAuth();
@@ -371,10 +376,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         onSessionsChange();
       } else {
         const errorData = await response.json();
-        showToast('error', errorData.message || errorData.error || 'Failed to delete session');
+        showToast('error', errorData.message || errorData.error || t('activeSessions.errors.deleteSession'));
       }
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || 'Failed to delete session');
+      showToast('error', getErrorMessage(err) || t('activeSessions.errors.deleteSession'));
     } finally {
       setDeletingSession(null);
     }
@@ -424,7 +429,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         });
       }
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || 'Failed to load user preferences');
+      showToast('error', getErrorMessage(err) || t('activeSessions.errors.loadPreferences'));
       setEditingSession(null);
     } finally {
       setLoadingPreferences(false);
@@ -513,10 +518,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         setEditingPreferences(null);
       } else {
         const errorData = await response.json();
-        showToast('error', errorData.error || 'Failed to save preferences');
+        showToast('error', errorData.error || t('activeSessions.errors.savePreferences'));
       }
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || 'Failed to save preferences');
+      showToast('error', getErrorMessage(err) || t('activeSessions.errors.savePreferences'));
     } finally {
       setSavingPreferences(false);
     }
@@ -527,7 +532,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     const expiry = new Date(expiresAt);
     const diff = expiry.getTime() - now.getTime();
 
-    if (diff <= 0) return 'Expired';
+    if (diff <= 0) return t('activeSessions.prefill.status.expired');
 
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
@@ -581,10 +586,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         showToast('success', data.message);
       } else {
         const errorData = await response.json();
-        showToast('error', errorData.error || 'Failed to update prefill permission');
+        showToast('error', errorData.error || t('activeSessions.errors.updatePrefill'));
       }
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || 'Failed to update prefill permission');
+      showToast('error', getErrorMessage(err) || t('activeSessions.errors.updatePrefill'));
     } finally {
       setUpdatingPrefill(false);
     }
@@ -625,8 +630,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
     const themeName = prefs?.selectedTheme
       ? availableThemes.find((t) => t.id === prefs.selectedTheme)?.name || prefs.selectedTheme
-      : 'Default';
-    const timezoneLabel = prefs?.useLocalTimezone ? 'Local' : 'Server';
+      : t('activeSessions.preferencesModal.defaultThemeShort');
+    const timezoneLabel = prefs?.useLocalTimezone
+      ? t('activeSessions.labels.local')
+      : t('activeSessions.labels.server');
 
     return (
       <div key={session.id} className={`session-card ${isDimmed ? 'dimmed' : ''}`}>
@@ -655,19 +662,21 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
                   <h3 className="font-semibold truncate text-sm text-themed-primary">
-                    {session.deviceName || 'Unknown Device'}
+                    {session.deviceName || t('activeSessions.unknownDevice')}
                   </h3>
                   <span
                     className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium flex-shrink-0 ${
                       session.type === 'authenticated' ? 'session-badge-user' : 'session-badge-guest'
                     }`}
                   >
-                    {session.type === 'authenticated' ? 'USER' : 'GUEST'}
+                    {session.type === 'authenticated'
+                      ? t('activeSessions.labels.userBadge')
+                      : t('activeSessions.labels.guestBadge')}
                   </span>
                 </div>
                 <p className="text-xs truncate text-themed-muted">
                   {[session.browser, session.operatingSystem].filter(Boolean).join(' · ') ||
-                    'Unknown device'}
+                    t('activeSessions.unknownDeviceLower')}
                 </p>
                 <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                   {session.type === 'guest' && !session.isRevoked && !session.isExpired && (
@@ -677,18 +686,20 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   )}
                   {session.isRevoked && (
                     <span className="px-1.5 py-0.5 text-[10px] rounded font-medium status-badge-error">
-                      Revoked
+                      {t('activeSessions.status.revoked')}
                     </span>
                   )}
                   {session.isExpired && !session.isRevoked && (
                     <span className="px-1.5 py-0.5 text-[10px] rounded font-medium status-badge-warning">
-                      Expired
+                      {t('activeSessions.prefill.status.expired')}
                     </span>
                   )}
                   {!session.isRevoked && !session.isExpired && prefs && (
                     <>
                       <span className="pref-badge text-[10px]">{themeName}</span>
-                      <span className="pref-badge text-[10px]">{timezoneLabel} TZ</span>
+                      <span className="pref-badge text-[10px]">
+                        {t('activeSessions.labels.timezone', { zone: timezoneLabel })}
+                      </span>
                     </>
                   )}
                 </div>
@@ -722,14 +733,16 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap mb-2">
                     <h3 className="font-semibold truncate text-themed-primary">
-                      {session.deviceName || 'Unknown Device'}
+                      {session.deviceName || t('activeSessions.unknownDevice')}
                     </h3>
                     <span
                       className={`px-2 py-0.5 text-xs rounded-full font-medium ${
                         session.type === 'authenticated' ? 'session-badge-user' : 'session-badge-guest'
                       }`}
                     >
-                      {session.type === 'authenticated' ? 'USER' : 'GUEST'}
+                      {session.type === 'authenticated'
+                        ? t('activeSessions.labels.userBadge')
+                        : t('activeSessions.labels.guestBadge')}
                     </span>
                     {session.type === 'guest' && !session.isRevoked && !session.isExpired && (
                       <span className="px-2 py-0.5 text-xs rounded-full font-medium status-badge-warning">
@@ -738,18 +751,20 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     )}
                     {session.isRevoked && (
                       <span className="px-2 py-0.5 text-xs rounded-full font-medium status-badge-error">
-                        Revoked
+                        {t('activeSessions.status.revoked')}
                       </span>
                     )}
                     {session.isExpired && !session.isRevoked && (
                       <span className="px-2 py-0.5 text-xs rounded-full font-medium status-badge-warning">
-                        Expired
+                        {t('activeSessions.prefill.status.expired')}
                       </span>
                     )}
                     {!session.isRevoked && !session.isExpired && prefs && (
                       <>
                         <span className="pref-badge">{themeName}</span>
-                        <span className="pref-badge">{timezoneLabel} TZ</span>
+                        <span className="pref-badge">
+                          {t('activeSessions.labels.timezone', { zone: timezoneLabel })}
+                        </span>
                       </>
                     )}
                   </div>
@@ -779,14 +794,14 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     <div className="flex items-center gap-2 text-themed-secondary">
                       <Clock className="w-4 h-4 flex-shrink-0" />
                       <span className="truncate">
-                        Created: <FormattedTimestamp timestamp={session.createdAt} />
+                        {t('activeSessions.labels.created')} <FormattedTimestamp timestamp={session.createdAt} />
                       </span>
                     </div>
                     {session.lastSeenAt && (
                       <div className="flex items-center gap-2 text-themed-secondary">
                         <Clock className="w-4 h-4 flex-shrink-0" />
                         <span className="truncate">
-                          Last seen: <FormattedTimestamp timestamp={session.lastSeenAt} />
+                          {t('activeSessions.labels.lastSeen')} <FormattedTimestamp timestamp={session.lastSeenAt} />
                         </span>
                       </div>
                     )}
@@ -794,7 +809,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                       <div className="flex items-center gap-2 text-themed-error">
                         <Clock className="w-4 h-4 flex-shrink-0" />
                         <span className="truncate">
-                          Revoked: <FormattedTimestamp timestamp={session.revokedAt} />
+                          {t('activeSessions.labels.revokedAt')} <FormattedTimestamp timestamp={session.revokedAt} />
                         </span>
                       </div>
                     )}
@@ -802,7 +817,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                       <div className="flex items-center gap-2 text-themed-secondary">
                         <User className="w-4 h-4 flex-shrink-0" />
                         <span className="truncate">
-                          Revoked by:{' '}
+                          {t('activeSessions.labels.revokedBy')}{' '}
                           <ClientIpDisplay clientIp={cleanIpAddress(session.revokedBy)} />
                         </span>
                       </div>
@@ -810,7 +825,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   </div>
 
                   <div className="text-xs font-mono truncate mt-2 pt-2 border-t text-themed-muted border-themed-secondary">
-                    Device ID: {session.deviceId || session.id}
+                    {t('activeSessions.labels.deviceIdWithValue', { id: session.deviceId || session.id })}
                   </div>
                 </div>
               </div>
@@ -824,7 +839,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   leftSection={<Edit className="w-4 h-4" />}
                   onClick={() => handleEditSession(session)}
                 >
-                  Edit
+                  {t('actions.edit')}
                 </Button>
                 {session.type === 'guest' && !session.isRevoked && !session.isExpired && (
                   <Button
@@ -834,7 +849,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     onClick={() => handleRevokeSession(session)}
                     disabled={revokingSession === session.id}
                   >
-                    {revokingSession === session.id ? 'Revoking...' : 'Revoke'}
+                  {revokingSession === session.id
+                    ? t('activeSessions.actions.revoking')
+                    : t('activeSessions.actions.revoke')}
                   </Button>
                 )}
                 <Button
@@ -853,7 +870,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                       : undefined
                   }
                 >
-                  {deletingSession === session.id ? 'Deleting...' : 'Delete'}
+                  {deletingSession === session.id
+                    ? t('activeSessions.actions.deleting')
+                    : t('activeSessions.actions.delete')}
                 </Button>
               </div>
             </div>
@@ -872,7 +891,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 <div>
                   <div className="flex items-center gap-1.5 text-[10px] mb-0.5 text-themed-muted">
                     <Network className="w-3 h-3" />
-                    <span>IP Address</span>
+                    <span>{t('activeSessions.labels.ipAddress')}</span>
                   </div>
                   <div className="text-sm font-medium pl-[18px] text-themed-primary">
                     <ClientIpDisplay clientIp={cleanIpAddress(session.ipAddress)} />
@@ -883,7 +902,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 <div>
                   <div className="flex items-center gap-1.5 text-[10px] mb-0.5 text-themed-muted">
                     <Monitor className="w-3 h-3" />
-                    <span>Operating System</span>
+                    <span>{t('activeSessions.labels.operatingSystem')}</span>
                   </div>
                   <div className="text-sm font-medium pl-[18px] text-themed-primary">
                     {session.operatingSystem}
@@ -894,7 +913,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 <div>
                   <div className="flex items-center gap-1.5 text-[10px] mb-0.5 text-themed-muted">
                     <Globe className="w-3 h-3" />
-                    <span>Browser</span>
+                    <span>{t('activeSessions.labels.browser')}</span>
                   </div>
                   <div className="text-sm font-medium pl-[18px] text-themed-primary">
                     {session.browser}
@@ -904,7 +923,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               <div>
                 <div className="flex items-center gap-1.5 text-[10px] mb-0.5 text-themed-muted">
                   <Clock className="w-3 h-3" />
-                  <span>Created</span>
+                  <span>{t('activeSessions.labels.createdShort')}</span>
                 </div>
                 <div className="text-sm font-medium pl-[18px] text-themed-primary">
                   <FormattedTimestamp timestamp={session.createdAt} />
@@ -914,7 +933,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 <div>
                   <div className="flex items-center gap-1.5 text-[10px] mb-0.5 text-themed-muted">
                     <Clock className="w-3 h-3" />
-                    <span>Last Seen</span>
+                  <span>{t('activeSessions.labels.lastSeenShort')}</span>
                   </div>
                   <div className="text-sm font-medium pl-[18px] text-themed-primary">
                     <FormattedTimestamp timestamp={session.lastSeenAt} />
@@ -925,7 +944,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 <div>
                   <div className="flex items-center gap-1.5 text-[10px] mb-0.5 text-themed-error">
                     <Clock className="w-3 h-3" />
-                    <span>Revoked</span>
+                    <span>{t('activeSessions.labels.revokedShort')}</span>
                   </div>
                   <div className="text-sm font-medium pl-[18px] text-themed-error">
                     <FormattedTimestamp timestamp={session.revokedAt} />
@@ -936,7 +955,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 <div>
                   <div className="flex items-center gap-1.5 text-[10px] mb-0.5 text-themed-muted">
                     <User className="w-3 h-3" />
-                    <span>Revoked By</span>
+                    <span>{t('activeSessions.labels.revokedByShort')}</span>
                   </div>
                   <div className="text-sm font-medium pl-[18px] text-themed-primary">
                     <ClientIpDisplay clientIp={cleanIpAddress(session.revokedBy)} />
@@ -945,7 +964,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               )}
               <div>
                 <div className="flex items-center gap-1.5 text-[10px] mb-0.5 text-themed-muted">
-                  <span>Device ID</span>
+          <span>{t('activeSessions.labels.deviceId')}</span>
                 </div>
                 <div className="text-xs font-mono break-all text-themed-secondary">
                   {session.deviceId || session.id}
@@ -966,7 +985,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 }}
                 fullWidth
               >
-                Edit Preferences
+                {t('activeSessions.actions.editPreferences')}
               </Button>
               {session.type === 'guest' && !session.isRevoked && !session.isExpired && (
                 <Button
@@ -980,7 +999,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   disabled={revokingSession === session.id}
                   fullWidth
                 >
-                  {revokingSession === session.id ? 'Revoking...' : 'Revoke Session'}
+                  {revokingSession === session.id
+                    ? t('activeSessions.actions.revoking')
+                    : t('activeSessions.actions.revokeSession')}
                 </Button>
               )}
               <Button
@@ -995,7 +1016,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 disabled={deletingSession === session.id}
                 fullWidth
               >
-                {deletingSession === session.id ? 'Deleting...' : 'Delete Session'}
+                {deletingSession === session.id
+                  ? t('activeSessions.actions.deleting')
+                  : t('activeSessions.actions.deleteSession')}
               </Button>
             </div>
           </div>
@@ -1011,37 +1034,39 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <h2 className="text-lg font-semibold text-themed-primary">
-                Active Sessions
+                {t('activeSessions.title')}
               </h2>
               <HelpPopover
                 width={300}
                 sections={[
                   {
-                    title: 'Session Types',
+                    title: t('activeSessions.help.sessionTypes.title'),
                     items: [
                       {
-                        label: 'Authenticated',
-                        description: 'Full access with no automatic expiration',
+                        label: t('activeSessions.help.sessionTypes.authenticated.label'),
+                        description: t('activeSessions.help.sessionTypes.authenticated.description'),
                         color: 'var(--theme-user-session)'
                       },
                       {
-                        label: 'Guest',
-                        description: `Read-only for ${guestDurationHours} hours`,
+                        label: t('activeSessions.help.sessionTypes.guest.label'),
+                        description: t('activeSessions.help.sessionTypes.guest.description', {
+                          hours: guestDurationHours
+                        }),
                         color: 'var(--theme-guest-session)'
                       }
                     ]
                   },
                   {
-                    title: 'Actions',
+                    title: t('activeSessions.help.actions.title'),
                     items: [
                       {
-                        label: 'Revoke',
-                        description: 'End a guest session immediately',
+                        label: t('activeSessions.help.actions.revoke.label'),
+                        description: t('activeSessions.help.actions.revoke.description'),
                         color: 'var(--theme-warning)'
                       },
                       {
-                        label: 'Delete',
-                        description: 'Remove the device from history',
+                        label: t('activeSessions.help.actions.delete.label'),
+                        description: t('activeSessions.help.actions.delete.description'),
                         color: 'var(--theme-error)'
                       }
                     ]
@@ -1052,8 +1077,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
             <ToggleSwitch
               options={[
-                { value: 'unlocked', label: 'Unlocked', icon: <Unlock />, activeColor: 'success' },
-                { value: 'locked', label: 'Locked', icon: <Lock />, activeColor: 'error' }
+                { value: 'unlocked', label: t('activeSessions.toggle.unlocked'), icon: <Unlock />, activeColor: 'success' },
+                { value: 'locked', label: t('activeSessions.toggle.locked'), icon: <Lock />, activeColor: 'error' }
               ]}
               value={guestModeLocked ? 'locked' : 'unlocked'}
               onChange={onToggleGuestLock}
@@ -1061,8 +1086,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               loading={updatingGuestLock}
               title={
                 guestModeLocked
-                  ? 'Guest mode is locked - new guests cannot log in'
-                  : 'Guest mode is unlocked - guests can log in'
+                  ? t('activeSessions.toggle.lockedTitle')
+                  : t('activeSessions.toggle.unlockedTitle')
               }
             />
           </div>
@@ -1072,7 +1097,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             <div className="text-center py-12">
               <Loader2 className="w-8 h-8 animate-spin mx-auto text-themed-accent" />
               <p className="text-sm mt-3 text-themed-muted">
-                Loading sessions...
+                {t('activeSessions.loading')}
               </p>
             </div>
           )}
@@ -1083,10 +1108,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 <Users className="w-8 h-8 text-themed-muted" />
               </div>
               <p className="font-medium text-themed-secondary">
-                No active sessions
+                {t('activeSessions.empty.title')}
               </p>
               <p className="text-sm mt-1 text-themed-muted">
-                Sessions will appear here when users connect
+                {t('activeSessions.empty.subtitle')}
               </p>
             </div>
           )}
@@ -1108,7 +1133,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 setCurrentPage(newPage);
                 loadSessions(true, newPage);
               }}
-              itemLabel="sessions"
+              itemLabel={t('activeSessions.paginationLabel')}
               showCard={false}
             />
           </div>
@@ -1126,35 +1151,38 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         title={
           <div className="flex items-center space-x-3">
             <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>Revoke Device</span>
+            <span>{t('activeSessions.revokeModal.title')}</span>
           </div>
         }
         size="md"
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            Are you sure you want to revoke this{' '}
-            {pendingRevokeSession?.type === 'authenticated' ? 'authenticated user' : 'guest'}?
+            {t('activeSessions.revokeModal.message', {
+              type: pendingRevokeSession?.type === 'authenticated'
+                ? t('activeSessions.sessionTypes.authenticatedUser')
+                : t('activeSessions.sessionTypes.guestUser')
+            })}
           </p>
 
           {pendingRevokeSession && (
             <div className="p-3 rounded-lg bg-themed-tertiary space-y-1">
               <p className="text-sm text-themed-primary font-medium">
-                {pendingRevokeSession.deviceName || 'Unknown Device'}
+                {pendingRevokeSession.deviceName || t('activeSessions.unknownDevice')}
               </p>
               <p className="text-xs text-themed-muted font-mono">
-                Device ID: {pendingRevokeSession.id}
+                {t('activeSessions.labels.deviceIdWithValue', { id: pendingRevokeSession.id })}
               </p>
             </div>
           )}
 
           <Alert color="yellow">
             <div>
-              <p className="text-sm font-medium mb-2">What happens when you revoke:</p>
+              <p className="text-sm font-medium mb-2">{t('activeSessions.revokeModal.noteTitle')}</p>
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>The device is marked as revoked but not deleted</li>
-                <li>The user will be logged out immediately</li>
-                <li>The device record remains in history</li>
+                <li>{t('activeSessions.revokeModal.points.marked')}</li>
+                <li>{t('activeSessions.revokeModal.points.logout')}</li>
+                <li>{t('activeSessions.revokeModal.points.history')}</li>
               </ul>
             </div>
           </Alert>
@@ -1165,7 +1193,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               onClick={() => setPendingRevokeSession(null)}
               disabled={!!revokingSession}
             >
-              Cancel
+              {t('actions.cancel')}
             </Button>
             <Button
               variant="filled"
@@ -1173,7 +1201,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               onClick={confirmRevokeSession}
               loading={!!revokingSession}
             >
-              Revoke Device
+              {t('activeSessions.revokeModal.confirm')}
             </Button>
           </div>
         </div>
@@ -1190,38 +1218,38 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         title={
           <div className="flex items-center space-x-3">
             <Trash2 className="w-6 h-6 text-themed-error" />
-            <span>Delete Device</span>
+            <span>{t('activeSessions.deleteModal.title')}</span>
           </div>
         }
         size="md"
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            Are you sure you want to permanently delete this{' '}
-            {pendingDeleteSession?.type === 'authenticated'
-              ? 'authenticated device'
-              : 'guest device'}
-            ?
+            {t('activeSessions.deleteModal.message', {
+              type: pendingDeleteSession?.type === 'authenticated'
+                ? t('activeSessions.sessionTypes.authenticatedDevice')
+                : t('activeSessions.sessionTypes.guestDevice')
+            })}
           </p>
 
           {pendingDeleteSession && (
             <div className="p-3 rounded-lg bg-themed-tertiary space-y-1">
               <p className="text-sm text-themed-primary font-medium">
-                {pendingDeleteSession.deviceName || 'Unknown Device'}
+                {pendingDeleteSession.deviceName || t('activeSessions.unknownDevice')}
               </p>
               <p className="text-xs text-themed-muted font-mono">
-                Device ID: {pendingDeleteSession.id}
+                {t('activeSessions.labels.deviceIdWithValue', { id: pendingDeleteSession.id })}
               </p>
             </div>
           )}
 
           <Alert color="red">
             <div>
-              <p className="text-sm font-medium mb-2">Warning:</p>
+              <p className="text-sm font-medium mb-2">{t('activeSessions.deleteModal.noteTitle')}</p>
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>This action cannot be undone</li>
-                <li>The device will be permanently removed from history</li>
-                <li>The user will be logged out immediately</li>
+                <li>{t('activeSessions.deleteModal.points.noUndo')}</li>
+                <li>{t('activeSessions.deleteModal.points.removed')}</li>
+                <li>{t('activeSessions.deleteModal.points.logout')}</li>
               </ul>
             </div>
           </Alert>
@@ -1232,7 +1260,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               onClick={() => setPendingDeleteSession(null)}
               disabled={!!deletingSession}
             >
-              Cancel
+              {t('actions.cancel')}
             </Button>
             <Button
               variant="filled"
@@ -1241,7 +1269,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               onClick={confirmDeleteSession}
               loading={!!deletingSession}
             >
-              Delete Permanently
+              {t('activeSessions.deleteModal.confirm')}
             </Button>
           </div>
         </div>
@@ -1259,7 +1287,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         title={
           <div className="flex items-center space-x-3">
             <Edit className="w-6 h-6 text-themed-accent" />
-            <span>Edit User Preferences</span>
+            <span>{t('activeSessions.preferencesModal.title')}</span>
           </div>
         }
         size="lg"
@@ -1268,12 +1296,16 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           {editingSession && (
             <div className="p-3 rounded-lg bg-themed-tertiary space-y-1">
               <p className="text-sm text-themed-primary font-medium">
-                {editingSession.deviceName || 'Unknown Device'}
+                {editingSession.deviceName || t('activeSessions.unknownDevice')}
               </p>
               <p className="text-xs text-themed-muted">
-                {editingSession.type === 'authenticated' ? 'Authenticated User' : 'Guest User'}
+                {editingSession.type === 'authenticated'
+                  ? t('activeSessions.sessionTypes.authenticatedUser')
+                  : t('activeSessions.sessionTypes.guestUser')}
               </p>
-              <p className="text-xs text-themed-muted font-mono">Device ID: {editingSession.id}</p>
+              <p className="text-xs text-themed-muted font-mono">
+                {t('activeSessions.labels.deviceIdWithValue', { id: editingSession.id })}
+              </p>
             </div>
           )}
 
@@ -1281,7 +1313,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             <div className="text-center py-8">
               <Loader2 className="w-8 h-8 animate-spin mx-auto text-themed-muted" />
               <p className="text-sm mt-2 text-themed-secondary">
-                Loading preferences...
+                {t('activeSessions.preferencesModal.loading')}
               </p>
             </div>
           )}
@@ -1292,7 +1324,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-sm font-medium text-themed-primary">
-                    Selected Theme
+                    {t('activeSessions.preferencesModal.selectedTheme')}
                   </label>
                   {editingPreferences.selectedTheme ? (
                     <button
@@ -1305,11 +1337,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                       }
                       className="text-xs px-2 py-0.5 rounded transition-colors text-themed-accent bg-themed-tertiary hover:bg-themed-secondary"
                     >
-                      Use Default
+                      {t('actions.useDefault')}
                     </button>
                   ) : (
                     <span className="text-xs px-2 py-0.5 rounded text-themed-muted bg-themed-tertiary">
-                      Using Default
+                      {t('actions.usingDefault')}
                     </span>
                   )}
                 </div>
@@ -1329,8 +1361,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 />
                 <p className="text-xs text-themed-muted mt-1">
                   {editingPreferences.selectedTheme
-                    ? 'Custom theme for this user'
-                    : `Default: ${availableThemes.find((t) => t.id === defaultGuestTheme)?.name || defaultGuestTheme}`}
+                    ? t('activeSessions.preferencesModal.customTheme')
+                    : t('activeSessions.preferencesModal.defaultTheme', {
+                        theme: availableThemes.find((t) => t.id === defaultGuestTheme)?.name || defaultGuestTheme
+                      })}
                 </p>
               </div>
 
@@ -1339,7 +1373,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-sm font-medium text-themed-primary">
-                      Refresh Rate
+                      {t('activeSessions.preferencesModal.refreshRate')}
                     </label>
                     {editingPreferences.refreshRate ? (
                       <button
@@ -1352,16 +1386,16 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                         }
                         className="text-xs px-2 py-0.5 rounded transition-colors text-themed-accent bg-themed-tertiary hover:bg-themed-secondary"
                       >
-                        Use Default
+                        {t('actions.useDefault')}
                       </button>
                     ) : (
                       <span className="text-xs px-2 py-0.5 rounded text-themed-muted bg-themed-tertiary">
-                        Using Default
+                        {t('actions.usingDefault')}
                       </span>
                     )}
                   </div>
                   <EnhancedDropdown
-                    options={refreshRateOptions}
+                    options={translatedRefreshRateOptions}
                     value={editingPreferences.refreshRate || defaultGuestRefreshRate}
                     onChange={(value) =>
                       setEditingPreferences({
@@ -1373,8 +1407,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   />
                   <p className="text-xs text-themed-muted mt-1">
                     {editingPreferences.refreshRate
-                      ? 'Custom refresh rate for this user'
-                      : `Default: ${refreshRateOptions.find((o) => o.value === defaultGuestRefreshRate)?.label || defaultGuestRefreshRate}`}
+                      ? t('activeSessions.preferencesModal.customRefreshRate')
+                      : t('activeSessions.preferencesModal.defaultRefreshRate', {
+                          rate: translatedRefreshRateOptions.find((o) => o.value === defaultGuestRefreshRate)?.label || defaultGuestRefreshRate
+                        })}
                   </p>
                 </div>
               )}
@@ -1384,31 +1420,35 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 <div className="p-4 rounded-lg bg-themed-tertiary border border-themed-secondary">
                   <div className="flex items-center gap-2 mb-3">
                     <Download className="w-4 h-4 text-themed-accent" />
-                    <h4 className="text-sm font-medium text-themed-primary">Prefill Access</h4>
+                    <h4 className="text-sm font-medium text-themed-primary">
+                      {t('activeSessions.prefill.title')}
+                    </h4>
                   </div>
                   <p className="text-xs text-themed-muted mb-3">
-                    Grant this guest access to the Prefill tab. Access is time-limited and will expire automatically.
+                    {t('activeSessions.prefill.subtitle')}
                   </p>
                   <div className="flex items-center justify-between">
                     <div>
                       {editingSession.prefillEnabled && !editingSession.isPrefillExpired ? (
                         <div className="flex items-center gap-2">
                           <span className="px-2 py-1 text-xs rounded-full font-medium status-badge-success">
-                            Enabled
+                            {t('activeSessions.prefill.status.enabled')}
                           </span>
                           {editingSession.prefillExpiresAt && (
                             <span className="text-xs text-themed-muted">
-                              Expires: {formatTimeRemaining(editingSession.prefillExpiresAt)}
+                              {t('activeSessions.prefill.status.expires', {
+                                time: formatTimeRemaining(editingSession.prefillExpiresAt)
+                              })}
                             </span>
                           )}
                         </div>
                       ) : editingSession.isPrefillExpired ? (
                         <span className="px-2 py-1 text-xs rounded-full font-medium status-badge-warning">
-                          Expired
+                          {t('activeSessions.prefill.status.expired')}
                         </span>
                       ) : (
                         <span className="px-2 py-1 text-xs rounded-full font-medium bg-themed-secondary text-themed-muted">
-                          Disabled
+                          {t('activeSessions.prefill.status.disabled')}
                         </span>
                       )}
                     </div>
@@ -1422,7 +1462,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                       )}
                       loading={updatingPrefill}
                     >
-                      {editingSession.prefillEnabled && !editingSession.isPrefillExpired ? 'Revoke Access' : 'Grant Access'}
+                      {editingSession.prefillEnabled && !editingSession.isPrefillExpired
+                        ? t('activeSessions.prefill.actions.revoke')
+                        : t('activeSessions.prefill.actions.grant')}
                     </Button>
                   </div>
                 </div>
@@ -1430,7 +1472,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
               {/* UI Preferences */}
               <div className="space-y-3">
-                <h4 className="text-sm font-medium text-themed-primary">UI Preferences</h4>
+                <h4 className="text-sm font-medium text-themed-primary">
+                  {t('activeSessions.preferencesModal.uiTitle')}
+                </h4>
 
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input
@@ -1444,7 +1488,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     }
                     className="w-4 h-4 rounded accent-themed"
                   />
-                  <span className="text-sm text-themed-secondary">Sharp Corners</span>
+                  <span className="text-sm text-themed-secondary">
+                    {t('user.guest.preferences.sharpCorners.label')}
+                  </span>
                 </label>
 
                 <label className="flex items-center gap-3 cursor-pointer">
@@ -1459,7 +1505,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     }
                     className="w-4 h-4 rounded accent-themed"
                   />
-                  <span className="text-sm text-themed-secondary">Tooltips</span>
+                  <span className="text-sm text-themed-secondary">
+                    {t('activeSessions.preferencesModal.tooltips')}
+                  </span>
                 </label>
 
                 {editingSession && editingSession.type === 'authenticated' && (
@@ -1477,9 +1525,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                         className="w-4 h-4 rounded accent-themed"
                       />
                       <div className="flex flex-col">
-                        <span className="text-sm text-themed-secondary">Sticky Notifications</span>
+                        <span className="text-sm text-themed-secondary">
+                          {t('activeSessions.preferencesModal.stickyNotifications.title')}
+                        </span>
                         <span className="text-xs text-themed-muted">
-                          Keep notification bar fixed at top when scrolling
+                          {t('activeSessions.preferencesModal.stickyNotifications.description')}
                         </span>
                       </div>
                     </label>
@@ -1497,9 +1547,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                         className="w-4 h-4 rounded accent-themed"
                       />
                       <div className="flex flex-col">
-                        <span className="text-sm text-themed-secondary">Static Notifications</span>
+                        <span className="text-sm text-themed-secondary">
+                          {t('activeSessions.preferencesModal.staticNotifications.title')}
+                        </span>
                         <span className="text-xs text-themed-muted">
-                          Require manual dismissal - won&apos;t auto-clear
+                          {t('activeSessions.preferencesModal.staticNotifications.description')}
                         </span>
                       </div>
                     </label>
@@ -1519,9 +1571,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     className="w-4 h-4 rounded accent-themed"
                   />
                   <div className="flex flex-col">
-                    <span className="text-sm text-themed-secondary">Datasource Labels</span>
+                    <span className="text-sm text-themed-secondary">
+                      {t('user.guest.preferences.datasourceLabels.label')}
+                    </span>
                     <span className="text-xs text-themed-muted">
-                      Show datasource indicators on downloads (multi-datasource mode)
+                      {t('activeSessions.preferencesModal.datasourceLabels')}
                     </span>
                   </div>
                 </label>
@@ -1529,13 +1583,15 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
               {/* Date & Time Preferences */}
               <div className="space-y-3">
-                <h4 className="text-sm font-medium text-themed-primary">Date & Time</h4>
+                <h4 className="text-sm font-medium text-themed-primary">
+                  {t('user.guest.sections.dateTime')}
+                </h4>
 
                 {/* Allowed Time Formats Multi-Select */}
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-sm text-themed-secondary">
-                      Allowed Time Formats
+                      {t('user.guest.timeFormats.title')}
                     </label>
                     {editingPreferences.allowedTimeFormats ? (
                       <button
@@ -1548,11 +1604,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                         }
                         className="text-xs px-2 py-0.5 rounded transition-colors text-themed-accent bg-themed-tertiary hover:bg-themed-secondary"
                       >
-                        Use Default
+                        {t('actions.useDefault')}
                       </button>
                     ) : (
                       <span className="text-xs px-2 py-0.5 rounded text-themed-muted bg-themed-tertiary">
-                        Using Default
+                        {t('actions.usingDefault')}
                       </span>
                     )}
                   </div>
@@ -1574,20 +1630,20 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                         allowedTimeFormats: formats
                       })
                     }
-                    placeholder="Select allowed formats"
+                    placeholder={t('user.guest.timeFormats.placeholder')}
                     minSelections={1}
                     dropdownWidth="w-80"
                   />
                   <p className="text-xs text-themed-muted mt-1">
                     {editingPreferences.allowedTimeFormats
-                      ? 'Custom formats for this user'
-                      : `Using default (${
-                          defaultGuestPrefs.allowedTimeFormats?.length === 4
-                            ? 'All formats'
+                      ? t('activeSessions.preferencesModal.customFormats')
+                      : t('activeSessions.preferencesModal.defaultFormats', {
+                          formats: defaultGuestPrefs.allowedTimeFormats?.length === 4
+                            ? t('activeSessions.preferencesModal.allFormats')
                             : defaultGuestPrefs.allowedTimeFormats
                                 ?.map((f) => timeFormatOptions.find((o) => o.value === f)?.label)
-                                .join(', ') || 'All formats'
-                        })`}
+                                .join(', ') || t('activeSessions.preferencesModal.allFormats')
+                        })}
                   </p>
                 </div>
 
@@ -1604,9 +1660,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     className="w-4 h-4 rounded accent-themed"
                   />
                   <div className="flex flex-col">
-                    <span className="text-sm text-themed-secondary">Always Show Year</span>
+                    <span className="text-sm text-themed-secondary">
+                      {t('user.guest.preferences.showYear.label')}
+                    </span>
                     <span className="text-xs text-themed-muted">
-                      Include year in dates even for the current year
+                      {t('user.guest.preferences.showYear.description')}
                     </span>
                   </div>
                 </label>
@@ -1625,7 +1683,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               }}
               disabled={savingPreferences}
             >
-              Cancel
+              {t('actions.cancel')}
             </Button>
             <Button
               variant="filled"
@@ -1634,7 +1692,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               loading={savingPreferences}
               disabled={loadingPreferences}
             >
-              Save Preferences
+              {t('activeSessions.preferencesModal.save')}
             </Button>
           </div>
         </div>

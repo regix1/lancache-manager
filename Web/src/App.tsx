@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { NotificationsProvider } from '@contexts/NotificationsContext';
 import { CacheSizeProvider } from '@contexts/CacheSizeContext';
 import { StatsProvider, useStats } from '@contexts/StatsContext';
@@ -69,6 +70,7 @@ const PicsProgressProviderWithMockMode: React.FC<{ children: React.ReactNode }> 
 };
 
 const AppContent: React.FC = () => {
+  const { t } = useTranslation();
   // Check if we're on a special route like /memory
   const isMemoryRoute = window.location.pathname === '/memory';
 
@@ -590,12 +592,14 @@ const AppContent: React.FC = () => {
                   </svg>
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold mb-2 icon-error">Access Denied</h2>
+                  <h2 className="text-xl font-bold mb-2 icon-error">
+                    {t('app.prefill.accessDenied.title')}
+                  </h2>
                   <p className="text-themed-secondary">
-                    Your account has been banned from using the Prefill feature.
+                    {t('app.prefill.accessDenied.description')}
                   </p>
                   <p className="text-sm mt-2 text-themed-muted">
-                    Please contact an administrator if you believe this is a mistake.
+                    {t('app.prefill.accessDenied.help')}
                   </p>
                 </div>
               </div>
@@ -622,10 +626,10 @@ const AppContent: React.FC = () => {
           fullScreen={false}
           message={
             checkingAuth
-              ? 'Checking authentication...'
+              ? t('app.loading.checkingAuth')
               : checkingSetupStatus
-                ? 'Checking setup status...'
-                : 'Checking depot status...'
+                ? t('app.loading.checkingSetup')
+                : t('app.loading.checkingDepot')
           }
         />
       </div>
@@ -639,8 +643,8 @@ const AppContent: React.FC = () => {
         <AuthenticationModal
           onAuthComplete={handleApiKeyRegenerationCompleted}
           onAuthChanged={handleAuthChanged}
-          title="API Key Regenerated"
-          subtitle="Please enter your new API key"
+          title={t('app.auth.apiKeyRegenerated.title')}
+          subtitle={t('app.auth.apiKeyRegenerated.subtitle')}
           allowGuestMode={false}
         />
       </>
@@ -656,8 +660,8 @@ const AppContent: React.FC = () => {
       <AuthenticationModal
         onAuthComplete={handleApiKeyRegenerationCompleted}
         onAuthChanged={handleAuthChanged}
-        title="Session Expired"
-        subtitle="Your guest session has expired. Please authenticate to continue."
+        title={t('app.auth.sessionExpired.title')}
+        subtitle={t('app.auth.sessionExpired.subtitle')}
         allowGuestMode={true}
       />
     );
@@ -700,8 +704,8 @@ const AppContent: React.FC = () => {
       <AuthenticationModal
         onAuthComplete={handleDepotInitialized}
         onAuthChanged={handleAuthChanged}
-        title="Authentication Required"
-        subtitle="Please enter your API key to continue"
+        title={t('app.auth.authenticationRequired.title')}
+        subtitle={t('app.auth.authenticationRequired.subtitle')}
         allowGuestMode={true}
       />
     );
@@ -743,7 +747,7 @@ const AppContent: React.FC = () => {
           onDownloadFromGitHub={handleDownloadFromGitHub}
           showDownloadOption={true}
           hasSteamApiKey={steamApiStatus?.hasApiKey ?? false}
-          title="Full Scan Required"
+          title={t('app.fullScanRequired.title')}
           changeGap={fullScanModalChangeGap}
           estimatedApps={270000}
         />

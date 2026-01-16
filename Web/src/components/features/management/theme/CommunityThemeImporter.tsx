@@ -11,6 +11,7 @@ import {
   Loader2,
   RefreshCw
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
 import themeService from '@services/theme.service';
@@ -68,6 +69,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
   installedThemes = [],
   autoCheckUpdates = true
 }) => {
+  const { t } = useTranslation();
   const [communityThemes, setCommunityThemes] = useState<CommunityTheme[]>([]);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState<string | null>(null);
@@ -159,7 +161,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
         await checkAndUpdateThemes(themes);
       }
     } catch (err: unknown) {
-      showToast('error', (err instanceof Error ? err.message : String(err)) || 'Failed to load community themes');
+      showToast('error', (err instanceof Error ? err.message : String(err)) || t('management.themes.errors.failedToLoadCommunity'));
       console.error('Error loading community themes:', err);
     } finally {
       setLoading(false);
@@ -174,7 +176,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
     }
 
     if (!isAuthenticated) {
-      showToast('error', 'Authentication required to import themes');
+      showToast('error', t('management.themes.community.authRequired'));
       return;
     }
 
@@ -218,19 +220,19 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || 'Failed to import theme');
+        throw new Error(error.error || t('management.themes.errors.failedToImport'));
       }
 
       // Mark theme as imported
       setImportedThemes((prev) => new Set([...prev, theme.fileName]));
-      showToast('success', `Successfully imported "${theme.meta?.name || theme.name}"!`);
+      showToast('success', t('management.themes.community.importSuccess', { name: theme.meta?.name || theme.name }));
 
       // Call the callback to refresh the theme list
       if (onThemeImported) {
         onThemeImported();
       }
     } catch (err: unknown) {
-      showToast('error', (err instanceof Error ? err.message : String(err)) || 'Failed to import theme');
+      showToast('error', (err instanceof Error ? err.message : String(err)) || t('management.themes.community.importError'));
     } finally {
       setImporting(null);
       importingThemeRef.current = null;
@@ -280,7 +282,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       }
 
       if (successCount > 0) {
-        showToast('success', `Auto-updated ${successCount} theme${successCount !== 1 ? 's' : ''} to latest version!`);
+        showToast('success', t('management.themes.community.autoUpdateSuccess', { count: successCount }));
       }
     }
   };
@@ -325,7 +327,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || 'Failed to update theme');
+        throw new Error(error.error || t('management.themes.errors.failedToUpdate'));
       }
 
       console.log(
@@ -382,18 +384,18 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
             <Globe className="w-4 h-4 icon-purple" />
           </div>
           <div className="min-w-0">
-            <h4 className="text-sm font-semibold text-themed-primary">Community Themes</h4>
+            <h4 className="text-sm font-semibold text-themed-primary">{t('management.themes.community.title')}</h4>
             <p className="text-xs text-themed-muted">
-              {communityThemes.length} available
+              {communityThemes.length} {t('management.themes.community.available')}
               {installedThemes.filter(t => communityThemes.some(ct => ct.meta?.id === t.meta.id)).length > 0 && (
-                <span> · {installedThemes.filter(t => communityThemes.some(ct => ct.meta?.id === t.meta.id)).length} installed</span>
+                <span> · {installedThemes.filter(t => communityThemes.some(ct => ct.meta?.id === t.meta.id)).length} {t('management.themes.community.installed')}</span>
               )}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           {communityThemes.length > 0 && (
-            <Tooltip content={showImported ? 'Hide imported themes' : 'Show imported themes'} position="bottom">
+            <Tooltip content={showImported ? t('management.themes.community.hideImported') : t('management.themes.community.showImported')} position="bottom">
               <Button
                 variant="default"
                 size="xs"
@@ -403,7 +405,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
               </Button>
             </Tooltip>
           )}
-          <Tooltip content="Refresh" position="bottom">
+          <Tooltip content={t('management.themes.community.refresh')} position="bottom">
             <Button
               variant="default"
               size="xs"
@@ -424,7 +426,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
             className="text-xs text-themed-accent hover:text-themed-primary flex items-center gap-1 transition-colors px-2 py-1 rounded hover:bg-themed-hover"
           >
             <ExternalLink className="w-3 h-3" />
-            GitHub
+            {t('management.themes.community.github')}
           </a>
         </div>
       </div>
@@ -436,7 +438,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
           <div className="flex items-center gap-2 mb-4 p-3 rounded-lg bg-themed-info">
             <Loader2 className="w-4 h-4 animate-spin icon-info" />
             <span className="text-sm text-themed-info">
-              Auto-updating {updatingThemes.size} theme{updatingThemes.size !== 1 ? 's' : ''}...
+              {t('management.themes.community.autoUpdating', { count: updatingThemes.size })}...
             </span>
           </div>
         )}
@@ -445,7 +447,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
         {loading && communityThemes.length === 0 && (
           <div className="flex items-center justify-center py-8 text-themed-muted">
             <Loader2 className="w-5 h-5 animate-spin mr-2" />
-            <span className="text-sm">Loading community themes...</span>
+            <span className="text-sm">{t('management.themes.community.loading')}</span>
           </div>
         )}
 
@@ -453,7 +455,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
         {!loading && communityThemes.length === 0 && (
           <div className="text-center py-8 text-themed-muted">
             <Globe className="w-10 h-10 mx-auto mb-2 opacity-30" />
-            <p className="text-sm">No community themes available</p>
+            <p className="text-sm">{t('management.themes.community.noThemes')}</p>
           </div>
         )}
 
@@ -461,8 +463,8 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
         {allImported && (
           <div className="text-center py-8 text-themed-muted">
             <Check className="w-10 h-10 mx-auto mb-2 opacity-50 icon-green" />
-            <p className="text-sm font-medium mb-1">All themes imported!</p>
-            <p className="text-xs">Click the eye icon to view installed themes</p>
+            <p className="text-sm font-medium mb-1">{t('management.themes.community.allImported.title')}</p>
+            <p className="text-xs">{t('management.themes.community.allImported.description')}</p>
           </div>
         )}
 
@@ -556,12 +558,12 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
                     {isImported || isInstalled ? (
                       <>
                         <Check className="w-3 h-3 mr-1" />
-                        Installed
+                        {t('management.themes.community.installed')}
                       </>
                     ) : (
                       <>
                         <Download className="w-3 h-3 mr-1" />
-                        Import
+                        {t('management.themes.community.import')}
                       </>
                     )}
                   </Button>

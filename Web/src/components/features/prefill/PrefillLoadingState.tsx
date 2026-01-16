@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from '../../ui/Card';
 import { Loader2 } from 'lucide-react';
 
@@ -6,10 +7,12 @@ interface PrefillLoadingStateProps {
 }
 
 export function PrefillLoadingState({ status }: PrefillLoadingStateProps) {
+  const { t } = useTranslation();
+
   const title =
     status === 'creating'
-      ? 'Creating a new prefill session...'
-      : 'Looking for an active prefill session...';
+      ? t('prefill.loading.creatingSession')
+      : t('prefill.loading.lookingForSession');
 
   return (
     <div className="animate-fade-in">
@@ -23,7 +26,7 @@ export function PrefillLoadingState({ status }: PrefillLoadingStateProps) {
               <p className="text-lg font-medium text-themed-primary">
                 {title}
               </p>
-              <p className="text-sm text-themed-muted mt-1">This may take a moment</p>
+              <p className="text-sm text-themed-muted mt-1">{t('prefill.loading.mayTakeMoment')}</p>
             </div>
           </div>
         </CardContent>

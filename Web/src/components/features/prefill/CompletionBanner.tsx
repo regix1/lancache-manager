@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { Card } from '../../ui/Card';
 import { Button } from '../../ui/Button';
 import { CheckCircle2, X } from 'lucide-react';
@@ -14,6 +15,8 @@ interface CompletionBannerProps {
 }
 
 export function CompletionBanner({ completion, onDismiss }: CompletionBannerProps) {
+  const { t } = useTranslation();
+
   return (
     <Card
       padding="md"
@@ -25,13 +28,13 @@ export function CompletionBanner({ completion, onDismiss }: CompletionBannerProp
             <CheckCircle2 className="h-5 w-5 text-[var(--theme-success)]" />
           </div>
           <div>
-            <p className="font-medium text-themed-primary">Download Completed</p>
+            <p className="font-medium text-themed-primary">{t('prefill.completion.title')}</p>
             <p className="text-sm text-themed-muted">{completion.message}</p>
           </div>
         </div>
         <Button variant="outline" size="sm" onClick={onDismiss} className="flex-shrink-0">
           <X className="h-4 w-4" />
-          Dismiss
+          {t('common.dismiss')}
         </Button>
       </div>
     </Card>

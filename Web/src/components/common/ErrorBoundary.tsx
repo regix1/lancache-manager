@@ -1,9 +1,10 @@
 import React, { Component, type ReactNode } from 'react';
+import { withTranslation, type WithTranslation } from 'react-i18next';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 
-interface Props {
+interface Props extends WithTranslation {
   children: ReactNode;
 }
 
@@ -28,6 +29,7 @@ class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (this.state.hasError) {
+      const { t } = this.props;
       return (
         <div className="min-h-screen bg-themed-primary flex items-center justify-center p-4">
           <Card className="max-w-md w-full">
@@ -37,9 +39,11 @@ class ErrorBoundary extends Component<Props, State> {
               </div>
 
               <div className="space-y-2 w-full">
-                <h3 className="text-xl font-semibold text-themed-primary">Something went wrong</h3>
+                <h3 className="text-xl font-semibold text-themed-primary">
+                  {t('common.errorBoundary.title')}
+                </h3>
                 <p className="text-sm text-themed-secondary break-words overflow-wrap-anywhere px-2">
-                  {this.state.error?.message || 'An unexpected error occurred'}
+                  {this.state.error?.message || t('common.errorBoundary.unexpectedError')}
                 </p>
               </div>
 
@@ -50,7 +54,7 @@ class ErrorBoundary extends Component<Props, State> {
                 leftSection={<RefreshCw className="w-4 h-4" />}
                 fullWidth
               >
-                Reload Page
+                {t('common.errorBoundary.reload')}
               </Button>
             </div>
           </Card>
@@ -62,4 +66,4 @@ class ErrorBoundary extends Component<Props, State> {
   }
 }
 
-export default ErrorBoundary;
+export default withTranslation()(ErrorBoundary);

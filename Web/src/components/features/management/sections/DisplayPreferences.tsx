@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Brush, Bell, Database, Calendar } from 'lucide-react';
 import { Checkbox } from '@components/ui/Checkbox';
 import preferencesService from '@services/preferences.service';
@@ -65,6 +66,7 @@ const PreferenceSection: React.FC<PreferenceSectionProps> = ({
 );
 
 const DisplayPreferences: React.FC = () => {
+  const { t } = useTranslation();
 
   // Visual preferences
   const [sharpCorners, setSharpCorners] = useState(false);
@@ -184,19 +186,19 @@ const DisplayPreferences: React.FC = () => {
       {/* Visual Settings */}
       <PreferenceSection
         icon={Brush}
-        title="Visual"
+        title={t('management.sections.displayPreferences.visual')}
         iconBgVar="--theme-icon-purple"
         iconColorVar="--theme-icon-purple"
       >
         <PreferenceRow
-          label="Sharp Corners"
-          description="Use square corners instead of rounded"
+          label={t('management.sections.displayPreferences.sharpCorners')}
+          description={t('management.sections.displayPreferences.sharpCornersDesc')}
           checked={sharpCorners}
           onChange={handleSharpCornersChange}
         />
         <PreferenceRow
-          label="Disable Tooltips"
-          description="Hide tooltip hints throughout the UI"
+          label={t('management.sections.displayPreferences.disableTooltips')}
+          description={t('management.sections.displayPreferences.disableTooltipsDesc')}
           checked={disableTooltips}
           onChange={handleTooltipsChange}
         />
@@ -205,19 +207,19 @@ const DisplayPreferences: React.FC = () => {
       {/* Notification Settings */}
       <PreferenceSection
         icon={Bell}
-        title="Notifications"
+        title={t('management.sections.displayPreferences.notifications')}
         iconBgVar="--theme-icon-orange"
         iconColorVar="--theme-icon-orange"
       >
         <PreferenceRow
-          label="Disable Sticky Notifications"
-          description="Auto-dismiss all notifications"
+          label={t('management.sections.displayPreferences.disableStickyNotifications')}
+          description={t('management.sections.displayPreferences.disableStickyNotificationsDesc')}
           checked={disableStickyNotifications}
           onChange={handleStickyNotificationsChange}
         />
         <PreferenceRow
-          label="Keep Processing Visible"
-          description="Always show PICS download notifications"
+          label={t('management.sections.displayPreferences.keepProcessingVisible')}
+          description={t('management.sections.displayPreferences.keepProcessingVisibleDesc')}
           checked={picsAlwaysVisible}
           onChange={handlePicsVisibleChange}
         />
@@ -226,13 +228,13 @@ const DisplayPreferences: React.FC = () => {
       {/* Downloads Settings */}
       <PreferenceSection
         icon={Database}
-        title="Downloads"
+        title={t('management.sections.displayPreferences.downloads')}
         iconBgVar="--theme-icon-blue"
         iconColorVar="--theme-icon-blue"
       >
         <PreferenceRow
-          label="Show Datasource Labels"
-          description="Display datasource info when multiple sources"
+          label={t('management.sections.displayPreferences.showDatasourceLabels')}
+          description={t('management.sections.displayPreferences.showDatasourceLabelsDesc')}
           checked={showDatasourceLabels}
           onChange={handleDatasourceLabelsChange}
         />
@@ -241,13 +243,13 @@ const DisplayPreferences: React.FC = () => {
       {/* Date & Time Settings */}
       <PreferenceSection
         icon={Calendar}
-        title="Date & Time"
+        title={t('management.sections.displayPreferences.dateTime')}
         iconBgVar="--theme-icon-green"
         iconColorVar="--theme-icon-green"
       >
         <PreferenceRow
-          label="Always Show Year"
-          description="Include year in dates even for current year"
+          label={t('management.sections.displayPreferences.alwaysShowYear')}
+          description={t('management.sections.displayPreferences.alwaysShowYearDesc')}
           checked={alwaysShowYear}
           onChange={handleAlwaysShowYearChange}
         />

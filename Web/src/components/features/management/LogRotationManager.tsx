@@ -1,20 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { formatDateTime } from '@utils/formatters';
 import { RefreshCw, Clock, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { LoadingState } from '@components/ui/ManagerCard';
-
-const SCHEDULE_OPTIONS: DropdownOption[] = [
-  { value: '0', label: 'Disabled', description: 'No automatic rotation' },
-  { value: '1', label: 'Every hour', description: 'Rotate logs hourly' },
-  { value: '6', label: 'Every 6 hours', description: 'Rotate logs 4 times daily' },
-  { value: '12', label: 'Every 12 hours', description: 'Rotate logs twice daily' },
-  { value: '24', label: 'Daily', description: 'Rotate logs once per day' },
-  { value: '48', label: 'Every 2 days', description: 'Rotate logs every 48 hours' },
-  { value: '168', label: 'Weekly', description: 'Rotate logs once per week' }
-];
 
 interface LogRotationStatus {
   enabled: boolean;
@@ -36,6 +27,18 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
   onError,
   onSuccess
 }) => {
+  const { t } = useTranslation();
+
+  const SCHEDULE_OPTIONS: DropdownOption[] = [
+    { value: '0', label: t('management.logRotation.schedule.disabled'), description: t('management.logRotation.schedule.disabledDesc') },
+    { value: '1', label: t('management.logRotation.schedule.everyHour'), description: t('management.logRotation.schedule.everyHourDesc') },
+    { value: '6', label: t('management.logRotation.schedule.every6Hours'), description: t('management.logRotation.schedule.every6HoursDesc') },
+    { value: '12', label: t('management.logRotation.schedule.every12Hours'), description: t('management.logRotation.schedule.every12HoursDesc') },
+    { value: '24', label: t('management.logRotation.schedule.daily'), description: t('management.logRotation.schedule.dailyDesc') },
+    { value: '48', label: t('management.logRotation.schedule.every2Days'), description: t('management.logRotation.schedule.every2DaysDesc') },
+    { value: '168', label: t('management.logRotation.schedule.weekly'), description: t('management.logRotation.schedule.weeklyDesc') }
+  ];
+
   const [status, setStatus] = useState<LogRotationStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRotating, setIsRotating] = useState(false);
@@ -76,7 +79,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
           `Schedule updated to ${SCHEDULE_OPTIONS.find((o) => o.value === value)?.label || value}`
         );
       } else {
-        onError?.(data.message || 'Failed to update schedule');
+        onError?.(data.message || t('management.logRotation.failedToUpdateSchedule'));
       }
     } catch {
       onError?.('Failed to update schedule');
@@ -101,15 +104,15 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
       const data = await response.json();
 
       if (data.success) {
-        onSuccess?.('Log rotation completed successfully');
+        onSuccess?.(t('management.logRotation.rotationSuccess'));
       } else {
-        onError?.(data.message || 'Log rotation failed');
+        onError?.(data.message || t('management.logRotation.rotationFailed'));
       }
 
       // Refresh status
       await fetchStatus();
     } catch {
-      onError?.('Failed to trigger log rotation');
+      onError?.(t('management.logRotation.triggerFailed'));
     } finally {
       setIsRotating(false);
     }
@@ -122,13 +125,13 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
   };
 
   if (isLoading) {
-    return <LoadingState message="Loading log rotation status..." />;
+    return <LoadingState message={t('management.logRotation.loadingStatus')} />;
   }
 
   if (!status) {
     return (
       <Alert color="yellow">
-        <span className="text-sm">Unable to load log rotation status</span>
+        <span className="text-sm">{t('management.logRotation.unableToLoad')}</span>
       </Alert>
     );
   }
@@ -137,9 +140,9 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
     return (
       <Alert color="yellow">
         <div className="min-w-0">
-          <p className="font-medium">Log rotation is disabled</p>
+          <p className="font-medium">{t('management.logRotation.disabled')}</p>
           <p className="text-sm mt-1 mb-2">
-            Add the following environment variable to your docker-compose.yml:
+            {t('management.logRotation.addEnvVar')}
           </p>
           <pre className="px-3 py-2 rounded text-xs overflow-x-auto break-all whitespace-pre-wrap bg-themed-tertiary">
             - NginxLogRotation__Enabled=true
@@ -155,11 +158,11 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
       <div className="p-4 rounded-lg bg-themed-tertiary">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <p className="text-sm font-medium text-themed-primary">Rotation Schedule</p>
+            <p className="text-sm font-medium text-themed-primary">{t('management.logRotation.rotationSchedule')}</p>
             <p className="text-xs text-themed-muted mt-1">
               {status.scheduleHours > 0
-                ? 'Runs automatically at startup and on schedule'
-                : 'Enable scheduled rotation to run automatically'}
+                ? t('management.logRotation.runsAutomatically')
+                : t('management.logRotation.enableScheduled')}
             </p>
           </div>
           <div className="relative min-w-[180px]">
@@ -192,7 +195,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
             ) : (
               <Clock className="w-4 h-4 text-themed-muted" />
             )}
-            <span className="text-sm font-medium text-themed-primary">Last Rotation</span>
+            <span className="text-sm font-medium text-themed-primary">{t('management.logRotation.lastRotation')}</span>
           </div>
           {status.lastRotationTime ? (
             <>
@@ -206,7 +209,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
               )}
             </>
           ) : (
-            <p className="text-lg font-semibold text-themed-muted">Never</p>
+            <p className="text-lg font-semibold text-themed-muted">{t('management.logRotation.never')}</p>
           )}
         </div>
 
@@ -214,7 +217,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
         <div className="p-4 rounded-lg bg-themed-tertiary">
           <div className="flex items-center gap-2 mb-2">
             <Clock className="w-4 h-4 text-themed-muted" />
-            <span className="text-sm font-medium text-themed-primary">Next Rotation</span>
+            <span className="text-sm font-medium text-themed-primary">{t('management.logRotation.nextRotation')}</span>
           </div>
           {status.nextScheduledRotation && status.scheduleHours > 0 ? (
             <p className="text-lg font-semibold text-themed-primary">
@@ -222,7 +225,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
             </p>
           ) : (
             <p className="text-lg font-semibold text-themed-muted">
-              {status.scheduleHours === 0 ? 'Disabled' : 'Not scheduled'}
+              {status.scheduleHours === 0 ? t('management.logRotation.disabled') : t('management.logRotation.notScheduled')}
             </p>
           )}
         </div>
@@ -231,8 +234,8 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
       {/* Force Rotation Button */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
         <div>
-          <p className="text-sm text-themed-primary font-medium">Manual Rotation</p>
-          <p className="text-xs text-themed-muted">Signal nginx to reopen log files immediately</p>
+          <p className="text-sm text-themed-primary font-medium">{t('management.logRotation.manualRotation')}</p>
+          <p className="text-xs text-themed-muted">{t('management.logRotation.manualRotationDesc')}</p>
         </div>
         <Button
           onClick={handleForceRotation}
@@ -242,7 +245,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
           leftSection={!isRotating ? <RefreshCw className="w-4 h-4" /> : undefined}
           className="w-full sm:w-auto"
         >
-          {isRotating ? 'Rotating...' : 'Rotate Now'}
+          {isRotating ? t('management.logRotation.rotating') : t('management.logRotation.rotateNow')}
         </Button>
       </div>
     </div>

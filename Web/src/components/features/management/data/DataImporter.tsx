@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Database,
   AlertTriangle,
@@ -26,19 +27,6 @@ import ApiService from '@services/api.service';
 import FileBrowser from '../file-browser/FileBrowser';
 
 type ImportType = 'develancache' | 'lancache-manager';
-
-const importTypeOptions: DropdownOption[] = [
-  {
-    value: 'develancache',
-    label: 'DeveLanCacheUI_Backend',
-    description: 'Import from DeveLanCacheUI_Backend SQLite database'
-  },
-  {
-    value: 'lancache-manager',
-    label: 'LancacheManager',
-    description: 'Import from LancacheManager database backup'
-  }
-];
 
 interface DataImporterProps {
   isAuthenticated: boolean;
@@ -81,7 +69,21 @@ const DataImporter: React.FC<DataImporterProps> = ({
   onSuccess,
   onDataRefresh
 }) => {
+  const { t } = useTranslation();
   const [importType, setImportType] = useState<ImportType>('develancache');
+
+  const importTypeOptions: DropdownOption[] = [
+    {
+      value: 'develancache',
+      label: 'DeveLanCacheUI_Backend',
+      description: t('management.dataImporter.importTypes.deveLanCache.description')
+    },
+    {
+      value: 'lancache-manager',
+      label: 'LancacheManager',
+      description: t('management.dataImporter.importTypes.lancacheManager.description')
+    }
+  ];
   const [connectionString, setConnectionString] = useState('');
   const [batchSize, setBatchSize] = useState(1000);
   const [overwriteExisting, setOverwriteExisting] = useState(false);
@@ -140,7 +142,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
 
   const handleValidate = async () => {
     if (!connectionString.trim()) {
-      onError?.('Please enter a connection string');
+      onError?.(t('management.dataImporter.errors.enterConnectionString'));
       return;
     }
 
@@ -160,13 +162,13 @@ const DataImporter: React.FC<DataImporterProps> = ({
       setValidationResult(result);
 
       if (result.valid) {
-        onSuccess?.(`Connection validated! Found ${result.recordCount?.toLocaleString() ?? 0} records.`);
+        onSuccess?.(t('management.dataImporter.messages.connectionValidated', { count: result.recordCount?.toLocaleString() ?? 0 }));
       } else {
         onError?.(result.message);
       }
     } catch (error: unknown) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      onError?.('Failed to validate connection: ' + errorMsg);
+      onError?.(t('management.dataImporter.errors.validateFailed') + errorMsg);
       setValidationResult({
         valid: false,
         message: errorMsg
@@ -178,7 +180,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
 
   const handleImportClick = () => {
     if (!validationResult?.valid) {
-      onError?.('Please validate the connection first');
+      onError?.(t('management.dataImporter.errors.validateFirst'));
       return;
     }
     setShowConfirmModal(true);
@@ -207,14 +209,18 @@ const DataImporter: React.FC<DataImporterProps> = ({
       const result = await ApiService.handleResponse<ImportResult>(res);
       setImportResult(result);
       onSuccess?.(
-        `Import completed! ${result.imported} imported, ${result.skipped} skipped, ${result.errors} errors`
+        t('management.dataImporter.messages.importCompleted', {
+          imported: result.imported,
+          skipped: result.skipped,
+          errors: result.errors
+        })
       );
 
       if (onDataRefresh) {
         setTimeout(() => onDataRefresh(), 1000);
       }
     } catch (error: unknown) {
-      onError?.('Import failed: ' + (error instanceof Error ? error.message : String(error)));
+      onError?.(t('management.dataImporter.errors.importFailed') + (error instanceof Error ? error.message : String(error)));
     } finally {
       setImporting(false);
     }
@@ -224,14 +230,14 @@ const DataImporter: React.FC<DataImporterProps> = ({
     setConnectionString(path);
     setValidationResult(null);
     setImportResult(null);
-    onSuccess?.(`Selected database: ${path}`);
+    onSuccess?.(t('management.dataImporter.messages.selectedDatabase', { path }));
   };
 
   const handleAutoSelect = (item: FileSystemItem) => {
     setConnectionString(item.path);
     setValidationResult(null);
     setImportResult(null);
-    onSuccess?.(`Selected database: ${item.path}`);
+    onSuccess?.(t('management.dataImporter.messages.selectedDatabase', { path: item.path }));
   };
 
   const formatSize = (bytes: number): string => {
@@ -244,41 +250,40 @@ const DataImporter: React.FC<DataImporterProps> = ({
   // Help content
   const helpContent = (
     <HelpPopover position="left" width={340}>
-      <HelpSection title="Import Types">
+      <HelpSection title={t('management.dataImporter.help.importTypes.title')}>
         <div className="space-y-1.5">
-          <HelpDefinition term="DeveLanCacheUI_Backend" termColor="purple">
-            Database from the DeveLanCache monitoring system
+          <HelpDefinition term={t('management.dataImporter.help.importTypes.deveLanCache.term')} termColor="purple">
+            {t('management.dataImporter.help.importTypes.deveLanCache.description')}
           </HelpDefinition>
-          <HelpDefinition term="LancacheManager" termColor="blue">
-            LancacheManager database backup
+          <HelpDefinition term={t('management.dataImporter.help.importTypes.lancacheManager.term')} termColor="blue">
+            {t('management.dataImporter.help.importTypes.lancacheManager.description')}
           </HelpDefinition>
         </div>
       </HelpSection>
 
-      <HelpSection title="Input Methods">
+      <HelpSection title={t('management.dataImporter.help.inputMethods.title')}>
         <div className="space-y-1.5">
-          <HelpDefinition term="Browse" termColor="blue">
-            Choose a SQLite database file from disk
+          <HelpDefinition term={t('management.dataImporter.help.inputMethods.browse.term')} termColor="blue">
+            {t('management.dataImporter.help.inputMethods.browse.description')}
           </HelpDefinition>
-          <HelpDefinition term="Manual" termColor="green">
-            Paste the full file path
+          <HelpDefinition term={t('management.dataImporter.help.inputMethods.manual.term')} termColor="green">
+            {t('management.dataImporter.help.inputMethods.manual.description')}
           </HelpDefinition>
         </div>
       </HelpSection>
 
-      <HelpSection title="Compatibility" variant="subtle">
-        Pick the import type that matches your database.
-        If the database is outside the container, mount it as a Docker volume.
+      <HelpSection title={t('management.dataImporter.help.compatibility.title')} variant="subtle">
+        {t('management.dataImporter.help.compatibility.description')}
       </HelpSection>
 
       <HelpNote type="warning">
-        Stop the source application before importing to avoid database locks.
+        {t('management.dataImporter.help.warning')}
       </HelpNote>
     </HelpPopover>
   );
 
   // Get the selected import type label for display
-  const selectedImportTypeLabel = importTypeOptions.find(o => o.value === importType)?.label || 'Unknown';
+  const selectedImportTypeLabel = importTypeOptions.find(o => o.value === importType)?.label || t('management.dataImporter.importTypes.unknown');
 
   // Header actions - compatibility badge
   const headerActions = (
@@ -293,27 +298,27 @@ const DataImporter: React.FC<DataImporterProps> = ({
       <ManagerCardHeader
         icon={Upload}
         iconColor={importType === 'develancache' ? 'purple' : 'blue'}
-        title="Import Historical Data"
-        subtitle="Import from external SQLite databases"
+        title={t('management.dataImporter.title')}
+        subtitle={t('management.dataImporter.subtitle')}
         helpContent={helpContent}
         actions={headerActions}
       />
 
       {mockMode && (
         <Alert color="yellow" className="mb-4">
-          Mock mode is enabled - import functionality is disabled
+          {t('management.dataImporter.alerts.mockMode')}
         </Alert>
       )}
 
       <Alert color="blue" className="mb-4">
-        Most users can skip this feature. Only use if you have an existing database from a previous installation that you want to import.
+        {t('management.dataImporter.alerts.skipInfo')}
       </Alert>
 
       <div className="space-y-4">
         {/* Import Type Dropdown */}
         <div>
           <label className="block text-sm font-medium text-themed-primary mb-2">
-            Database Type
+            {t('management.dataImporter.databaseType')}
           </label>
           <EnhancedDropdown
             options={importTypeOptions}
@@ -338,7 +343,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
                 inputMode === 'auto' ? 'toggle-btn-active' : 'toggle-btn-inactive'
               }`}
             >
-              Auto
+              {t('management.dataImporter.modes.auto')}
             </button>
             <button
               onClick={() => setInputMode('browse')}
@@ -347,7 +352,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
                 inputMode === 'browse' ? 'toggle-btn-active' : 'toggle-btn-inactive'
               }`}
             >
-              Browse
+              {t('management.dataImporter.modes.browse')}
             </button>
             <button
               onClick={() => setInputMode('manual')}
@@ -356,7 +361,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
                 inputMode === 'manual' ? 'toggle-btn-active' : 'toggle-btn-inactive'
               }`}
             >
-              Manual
+              {t('management.dataImporter.modes.manual')}
             </button>
           </div>
           <div className="flex-1 h-[2px] rounded-full divider-dashed" />
@@ -367,7 +372,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <p className="text-sm text-themed-secondary">
-                {autoSearching ? 'Searching for databases...' : `Found ${foundDatabases.length} database(s)`}
+                {autoSearching ? t('management.dataImporter.auto.searching') : t('management.dataImporter.auto.found', { count: foundDatabases.length })}
               </p>
               <Button
                 onClick={searchForDatabases}
@@ -384,7 +389,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
             </div>
 
             {autoSearching ? (
-              <LoadingState message="Searching for databases..." />
+              <LoadingState message={t('management.dataImporter.auto.searching')} />
             ) : foundDatabases.length > 0 ? (
               <div className="rounded-lg border overflow-hidden border-themed-secondary">
                 <div className="max-h-[200px] overflow-y-auto custom-scrollbar">
@@ -414,8 +419,8 @@ const DataImporter: React.FC<DataImporterProps> = ({
             ) : (
               <EmptyState
                 icon={Search}
-                title="No database files found"
-                subtitle="Try using Browse or Manual mode"
+                title={t('management.dataImporter.emptyState.title')}
+                subtitle={t('management.dataImporter.emptyState.subtitle')}
               />
             )}
           </div>
@@ -434,7 +439,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
         {inputMode === 'manual' && (
           <div>
             <label className="block text-sm font-medium text-themed-primary mb-2">
-              Database File Path
+              {t('management.dataImporter.manual.label')}
             </label>
             <input
               type="text"
@@ -444,7 +449,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
                 setValidationResult(null);
                 setImportResult(null);
               }}
-              placeholder="/mnt/import/lancache.db"
+              placeholder={t('management.dataImporter.placeholders.manualPath')}
               className="w-full px-3 py-2 rounded-lg transition-colors
                        bg-themed-secondary text-themed-primary
                        border border-themed-secondary focus:border-themed-focus
@@ -452,7 +457,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
               disabled={mockMode || !isAuthenticated}
             />
             <p className="text-xs text-themed-muted mt-1">
-              Example: <code className="bg-themed-tertiary px-1 py-0.5 rounded">/path/to/database.db</code>
+              {t('management.dataImporter.manual.example')} <code className="bg-themed-tertiary px-1 py-0.5 rounded">/path/to/database.db</code>
             </p>
           </div>
         )}
@@ -462,9 +467,9 @@ const DataImporter: React.FC<DataImporterProps> = ({
           <div className="flex items-center gap-3 p-3 rounded-lg bg-themed-success border border-success">
             <CheckCircle2 className="w-5 h-5 flex-shrink-0 icon-success" />
             <div>
-              <p className="font-medium text-themed-success">Connection Valid</p>
+              <p className="font-medium text-themed-success">{t('management.dataImporter.validation.valid')}</p>
               <p className="text-sm text-themed-secondary">
-                Found {validationResult.recordCount?.toLocaleString()} records ready to import
+                {t('management.dataImporter.validation.foundRecords', { count: validationResult.recordCount?.toLocaleString() })}
               </p>
             </div>
           </div>
@@ -474,16 +479,16 @@ const DataImporter: React.FC<DataImporterProps> = ({
         {validationResult && !validationResult.valid && (
           <Alert color="red">
             <div>
-              <p className="font-medium">Validation Failed</p>
+              <p className="font-medium">{t('management.dataImporter.validation.failed')}</p>
               <p className="text-sm mt-1">{validationResult.message}</p>
               {validationResult.message.includes('DownloadEvents') && (
                 <p className="text-xs mt-2 opacity-80">
-                  Make sure to select a DeveLanCacheUI_Backend database for this import type.
+                  {t('management.dataImporter.validation.hintDeveLanCache')}
                 </p>
               )}
               {validationResult.message.includes('Downloads') && (
                 <p className="text-xs mt-2 opacity-80">
-                  Make sure to select a LancacheManager database for this import type.
+                  {t('management.dataImporter.validation.hintLancacheManager')}
                 </p>
               )}
             </div>
@@ -494,7 +499,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
         <div className="p-4 bg-themed-tertiary/30 rounded-lg space-y-4">
           <div>
             <label className="block text-sm font-medium text-themed-primary mb-2">
-              Batch Size
+              {t('management.dataImporter.options.batchSize')}
             </label>
             <div className="number-input-wrapper">
               <input
@@ -515,7 +520,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
                   className="spinner-btn up"
                   onClick={() => setBatchSize(Math.min(10000, batchSize + 100))}
                   disabled={mockMode || !isAuthenticated}
-                  aria-label="Increase batch size"
+                  aria-label={t('management.dataImporter.aria.increaseBatchSize')}
                 >
                   <ChevronUp />
                 </button>
@@ -524,14 +529,14 @@ const DataImporter: React.FC<DataImporterProps> = ({
                   className="spinner-btn down"
                   onClick={() => setBatchSize(Math.max(100, batchSize - 100))}
                   disabled={mockMode || !isAuthenticated}
-                  aria-label="Decrease batch size"
+                  aria-label={t('management.dataImporter.aria.decreaseBatchSize')}
                 >
                   <ChevronDown />
                 </button>
               </div>
             </div>
             <p className="text-xs text-themed-muted mt-1">
-              Number of records to process at once (100-10000)
+              {t('management.dataImporter.options.batchSizeHint')}
             </p>
           </div>
 
@@ -539,11 +544,11 @@ const DataImporter: React.FC<DataImporterProps> = ({
             <Checkbox
               checked={overwriteExisting}
               onChange={(e) => setOverwriteExisting(e.target.checked)}
-              label="Update existing records (merge mode)"
+              label={t('management.dataImporter.options.overwriteExisting')}
               disabled={mockMode || !isAuthenticated}
             />
             <p className="text-xs text-themed-muted mt-1 ml-6">
-              {overwriteExisting ? 'Sync mode: update existing + add new' : 'Append only: skip duplicates'}
+              {overwriteExisting ? t('management.dataImporter.options.syncMode') : t('management.dataImporter.options.appendMode')}
             </p>
           </div>
         </div>
@@ -552,7 +557,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
         {importing && (
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-themed-secondary">Importing...</span>
+              <span className="text-themed-secondary">{t('management.dataImporter.progress.importing')}</span>
               <span className="text-themed-muted">{Math.round(importProgress)}%</span>
             </div>
             <div className="h-2 rounded-full overflow-hidden bg-themed-tertiary">
@@ -578,23 +583,23 @@ const DataImporter: React.FC<DataImporterProps> = ({
             </p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-3">
               <div>
-                <span className="text-themed-muted">Total:</span>{' '}
+                <span className="text-themed-muted">{t('management.dataImporter.result.total')}:</span>{' '}
                 <span className="font-medium text-themed-primary">{importResult.totalRecords.toLocaleString()}</span>
               </div>
               <div>
-                <span className="text-themed-muted">Imported:</span>{' '}
+                <span className="text-themed-muted">{t('management.dataImporter.result.imported')}:</span>{' '}
                 <span className="font-medium text-themed-success">
                   {importResult.imported.toLocaleString()}
                 </span>
               </div>
               <div>
-                <span className="text-themed-muted">Skipped:</span>{' '}
+                <span className="text-themed-muted">{t('management.dataImporter.result.skipped')}:</span>{' '}
                 <span className="font-medium text-themed-warning">
                   {importResult.skipped.toLocaleString()}
                 </span>
               </div>
               <div>
-                <span className="text-themed-muted">Errors:</span>{' '}
+                <span className="text-themed-muted">{t('management.dataImporter.result.errors')}:</span>{' '}
                 <span className="font-medium text-themed-error">
                   {importResult.errors.toLocaleString()}
                 </span>
@@ -604,7 +609,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
               <div
                 className={`pt-3 border-t ${importResult.errors > 0 ? 'border-warning' : 'border-success'}`}
               >
-                <p className="text-xs text-themed-muted mb-1">Database backup created:</p>
+                <p className="text-xs text-themed-muted mb-1">{t('management.dataImporter.result.backupCreated')}:</p>
                 <p className="text-xs font-mono text-themed-secondary bg-themed-tertiary px-2 py-1 rounded break-all">
                   {importResult.backupPath}
                 </p>
@@ -622,7 +627,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
             variant="default"
             fullWidth
           >
-            {validating ? 'Validating...' : validationResult?.valid ? 'Re-validate' : 'Validate Connection'}
+            {validating ? t('management.dataImporter.buttons.validating') : validationResult?.valid ? t('management.dataImporter.buttons.revalidate') : t('management.dataImporter.buttons.validate')}
           </Button>
 
           <Button
@@ -641,17 +646,17 @@ const DataImporter: React.FC<DataImporterProps> = ({
             {importing ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Importing...
+                {t('management.dataImporter.buttons.importing')}
               </>
             ) : (
-              `Import ${validationResult?.recordCount?.toLocaleString() || ''} Records`
+              t('management.dataImporter.buttons.importRecords', { count: validationResult?.recordCount?.toLocaleString() || '' })
             )}
           </Button>
         </div>
 
         {!isAuthenticated && (
           <Alert color="yellow">
-            Authentication required to import data
+            {t('management.dataImporter.alerts.authRequired')}
           </Alert>
         )}
       </div>
@@ -660,7 +665,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
       <Modal
         opened={showConfirmModal}
         onClose={() => setShowConfirmModal(false)}
-        title="Confirm Import"
+        title={t('management.dataImporter.confirmImport')}
         size="md"
       >
         <div className="space-y-4">
@@ -668,28 +673,28 @@ const DataImporter: React.FC<DataImporterProps> = ({
             <AlertTriangle className="w-5 h-5 icon-yellow flex-shrink-0 mt-0.5" />
             <div className="flex-1">
               <p className="text-themed-primary font-medium mb-2">
-                Import {validationResult?.recordCount?.toLocaleString()} records from external database?
+                {t('management.dataImporter.confirm.importQuestion', { count: validationResult?.recordCount?.toLocaleString() })}
               </p>
               <div className="text-sm text-themed-muted space-y-1">
                 {overwriteExisting ? (
                   <>
-                    <p className="font-medium text-themed-warning">Merge/Sync Mode:</p>
+                    <p className="font-medium text-themed-warning">{t('management.dataImporter.confirm.mergeMode')}:</p>
                     <ul className="list-disc list-inside space-y-0.5 ml-2">
-                      <li>New records will be added</li>
-                      <li>Existing records will be updated with new data</li>
+                      <li>{t('management.dataImporter.confirm.newRecordsAdded')}</li>
+                      <li>{t('management.dataImporter.confirm.existingUpdated')}</li>
                     </ul>
                   </>
                 ) : (
                   <>
-                    <p className="font-medium text-themed-success">Append-Only Mode:</p>
+                    <p className="font-medium text-themed-success">{t('management.dataImporter.confirm.appendMode')}:</p>
                     <ul className="list-disc list-inside space-y-0.5 ml-2">
-                      <li>New records will be added</li>
-                      <li>Existing records will be skipped (no changes)</li>
+                      <li>{t('management.dataImporter.confirm.newRecordsAdded')}</li>
+                      <li>{t('management.dataImporter.confirm.existingSkipped')}</li>
                     </ul>
                   </>
                 )}
                 <p className="text-xs mt-2 italic">
-                  Duplicates detected by: Client IP + Start Time (UTC)
+                  {t('management.dataImporter.confirm.duplicateDetection')}
                 </p>
               </div>
             </div>
@@ -700,14 +705,14 @@ const DataImporter: React.FC<DataImporterProps> = ({
               onClick={() => setShowConfirmModal(false)}
               variant="outline"
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               onClick={handleConfirmImport}
               variant="filled"
               color="green"
             >
-              Import
+              {t('management.dataImporter.buttons.import')}
             </Button>
           </div>
         </div>

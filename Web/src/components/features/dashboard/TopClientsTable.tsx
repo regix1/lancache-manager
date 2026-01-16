@@ -1,4 +1,5 @@
 import React, { useMemo, memo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { CacheInfoTooltip, Tooltip } from '@components/ui/Tooltip';
@@ -34,12 +35,13 @@ interface TopClientRowProps {
 }
 
 const TopClientRow: React.FC<TopClientRowProps> = ({ client }) => {
+  const { t } = useTranslation();
   const formattedLastActivity = useFormattedDateTime(client.lastActivityUtc);
   const displayLabel = client.displayName || client.clientIp;
   const ipTooltip = client.isGrouped && client.groupMemberIps
-    ? `IPs: ${client.groupMemberIps.join(', ')}`
+    ? t('dashboard.topClients.ipsTooltip', { ips: client.groupMemberIps.join(', ') })
     : client.displayName
-    ? `IP: ${client.clientIp}`
+    ? t('dashboard.topClients.ipTooltip', { ip: client.clientIp })
     : undefined;
 
   return (
@@ -92,6 +94,7 @@ const TopClientRow: React.FC<TopClientRowProps> = ({ client }) => {
 
 const TopClientsTable: React.FC<TopClientsTableProps> = memo(
   ({ clientStats = [], timeRange = 'live', customStartDate, customEndDate, glassmorphism = false }) => {
+    const { t } = useTranslation();
     const { useLocalTimezone } = useTimezone();
     const [sortBy, setSortBy] = useState<SortOption>('total');
     const timeRangeLabel = useMemo(() => {
@@ -102,20 +105,9 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
         return `${start} - ${end}`;
       }
 
-      const labels: Record<string, string> = {
-        '15m': 'Last 15 Minutes',
-        '30m': 'Last 30 Minutes',
-        '1h': 'Last Hour',
-        '6h': 'Last 6 Hours',
-        '12h': 'Last 12 Hours',
-        '24h': 'Last 24 Hours',
-        '7d': 'Last 7 Days',
-        '30d': 'Last 30 Days',
-        '90d': 'Last 90 Days',
-        live: 'Live Data'
-      };
-      return labels[timeRange] || 'Live Data';
-    }, [timeRange, customStartDate, customEndDate, useLocalTimezone]);
+      const key = `dashboard.topClients.timeRanges.${timeRange}` as const;
+      return t(key);
+    }, [timeRange, customStartDate, customEndDate, useLocalTimezone, t]);
 
     const sortedClients = useMemo(() => {
       const sorted = [...clientStats];
@@ -144,16 +136,16 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
       <Card glassmorphism={glassmorphism}>
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <h3 className="text-lg font-semibold text-themed-primary flex items-center gap-2">
-            Top Clients
+            {t('dashboard.topClients.title')}
             <CacheInfoTooltip />
           </h3>
           <div className="flex items-center gap-2">
             <EnhancedDropdown
               options={[
-                { value: 'total', label: 'Total Downloaded' },
-                { value: 'hits', label: 'Cache Hits' },
-                { value: 'misses', label: 'Cache Misses' },
-                { value: 'hitRate', label: 'Hit Rate' }
+                { value: 'total', label: t('dashboard.topClients.sort.total') },
+                { value: 'hits', label: t('dashboard.topClients.sort.hits') },
+                { value: 'misses', label: t('dashboard.topClients.sort.misses') },
+                { value: 'hitRate', label: t('dashboard.topClients.sort.hitRate') }
               ]}
               value={sortBy}
               onChange={(value) => setSortBy(value as SortOption)}
@@ -168,12 +160,12 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
             <table className="w-full">
               <thead>
                 <tr className="text-left text-xs text-themed-muted uppercase tracking-wider">
-                  <th className="pb-3">Client</th>
-                  <th className="pb-3 hidden sm:table-cell">Total</th>
-                  <th className="pb-3 hidden md:table-cell">Hits</th>
-                  <th className="pb-3 hidden md:table-cell">Misses</th>
-                  <th className="pb-3">Hit Rate</th>
-                  <th className="pb-3 hidden lg:table-cell">Last Seen</th>
+                  <th className="pb-3">{t('dashboard.topClients.columns.client')}</th>
+                  <th className="pb-3 hidden sm:table-cell">{t('dashboard.topClients.columns.total')}</th>
+                  <th className="pb-3 hidden md:table-cell">{t('dashboard.topClients.columns.hits')}</th>
+                  <th className="pb-3 hidden md:table-cell">{t('dashboard.topClients.columns.misses')}</th>
+                  <th className="pb-3">{t('dashboard.topClients.columns.hitRate')}</th>
+                  <th className="pb-3 hidden lg:table-cell">{t('dashboard.topClients.columns.lastSeen')}</th>
                 </tr>
               </thead>
               <tbody className="text-sm">
@@ -185,7 +177,7 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
           </div>
         ) : (
           <div className="flex items-center justify-center h-32 text-themed-muted">
-            No client data available for selected time range
+            {t('dashboard.topClients.noData')}
           </div>
         )}
       </Card>

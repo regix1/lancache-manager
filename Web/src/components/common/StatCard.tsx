@@ -1,5 +1,6 @@
 // StatCard.tsx - Enhanced component with glassmorphism, sparklines, and animations
 import React, { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { type LucideIcon, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { HelpPopover } from '@components/ui/HelpPopover';
 import Sparkline from '@components/features/dashboard/components/Sparkline';
@@ -60,6 +61,7 @@ const StatCard: React.FC<StatCardProps> = ({
   glassmorphism = false,
   staggerIndex,
 }) => {
+  const { t } = useTranslation();
   // Map color names to CSS variables
   const getIconBackground = (color: string): string => {
     const colorMap: Record<string, string> = {
@@ -190,7 +192,7 @@ const StatCard: React.FC<StatCardProps> = ({
             height={32}
             showArea={true}
             animated={true}
-            ariaLabel={`${title} trend over the last ${sparklineData.length} data points`}
+            ariaLabel={t('common.statCard.sparklineAria', { title, count: sparklineData.length })}
           />
         ) : (
           /* Empty spacer to maintain consistent card height when no sparkline */

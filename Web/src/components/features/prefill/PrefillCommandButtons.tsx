@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { Card } from '../../ui/Card';
 import { Button } from '../../ui/Button';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
@@ -38,6 +39,8 @@ export function PrefillCommandButtons({
   onSelectedOSChange,
   onMaxConcurrencyChange
 }: PrefillCommandButtonsProps) {
+  const { t } = useTranslation();
+
   const renderCommandButton = (cmd: CommandButton) => {
     // Special handling for "Prefill Selected" - disable if no games selected
     const isPrefillSelected = cmd.id === 'prefill';
@@ -50,15 +53,15 @@ export function PrefillCommandButtons({
     // Dynamic label for prefill selected
     const label =
       isPrefillSelected && selectedAppIds.length > 0
-        ? `Prefill Selected (${selectedAppIds.length})`
-        : cmd.label;
+        ? t('prefill.commands.prefillSelectedCount', { count: selectedAppIds.length })
+        : t(`prefill.commands.${cmd.id}.label`);
 
     // Dynamic description for prefill selected
     const description = isPrefillSelected
       ? noGamesSelected
-        ? 'Select games first'
-        : `${selectedAppIds.length} game${selectedAppIds.length !== 1 ? 's' : ''} ready`
-      : cmd.description;
+        ? t('prefill.commands.selectGamesFirst')
+        : t('prefill.commands.gamesReady', { count: selectedAppIds.length })
+      : t(`prefill.commands.${cmd.id}.description`);
 
     return (
       <Button
@@ -96,7 +99,7 @@ export function PrefillCommandButtons({
         <div>
           <h3 className="text-xs font-semibold uppercase tracking-wider text-themed-muted mb-3 flex items-center gap-2">
             <List className="h-3.5 w-3.5" />
-            Game Selection
+            {t('prefill.sections.gameSelection')}
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {SELECTION_COMMANDS.map(renderCommandButton)}
@@ -107,32 +110,40 @@ export function PrefillCommandButtons({
         <div>
           <h3 className="text-xs font-semibold uppercase tracking-wider text-themed-muted mb-3 flex items-center gap-2">
             <Settings className="h-3.5 w-3.5" />
-            Download Settings
+            {t('prefill.sections.downloadSettings')}
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* OS Selection */}
             <div>
               <label className="text-sm font-medium text-themed-secondary mb-1.5 flex items-center gap-2">
                 <Monitor className="h-3.5 w-3.5" />
-                Target Platforms
+                {t('prefill.settings.targetPlatforms')}
               </label>
               <MultiSelectDropdown
-                options={OS_OPTIONS}
+                options={OS_OPTIONS.map(opt => ({
+                  ...opt,
+                  label: t(`prefill.settings.os.${opt.value}.label`),
+                  description: t(`prefill.settings.os.${opt.value}.description`)
+                }))}
                 values={selectedOS}
                 onChange={onSelectedOSChange}
                 disabled={isExecuting || !isLoggedIn}
                 minSelections={1}
-                placeholder="Select platforms"
+                placeholder={t('prefill.placeholders.selectPlatforms')}
               />
             </div>
             {/* Thread/Concurrency Selection */}
             <div>
               <label className="text-sm font-medium text-themed-secondary mb-1.5 flex items-center gap-2">
                 <Cpu className="h-3.5 w-3.5" />
-                Download Threads
+                {t('prefill.settings.downloadThreads')}
               </label>
               <EnhancedDropdown
-                options={THREAD_OPTIONS}
+                options={THREAD_OPTIONS.map(opt => ({
+                  ...opt,
+                  label: t(`prefill.settings.threads.${opt.value}.label`),
+                  description: t(`prefill.settings.threads.${opt.value}.description`)
+                }))}
                 value={maxConcurrency}
                 onChange={onMaxConcurrencyChange}
                 disabled={isExecuting || !isLoggedIn}
@@ -145,7 +156,7 @@ export function PrefillCommandButtons({
         <div>
           <h3 className="text-xs font-semibold uppercase tracking-wider text-themed-muted mb-3 flex items-center gap-2">
             <Download className="h-3.5 w-3.5" />
-            Prefill Options
+            {t('prefill.sections.prefillOptions')}
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
             {PREFILL_COMMANDS.map(renderCommandButton)}
@@ -156,7 +167,7 @@ export function PrefillCommandButtons({
         <div>
           <h3 className="text-xs font-semibold uppercase tracking-wider text-themed-muted mb-3 flex items-center gap-2">
             <Zap className="h-3.5 w-3.5" />
-            Utilities
+            {t('prefill.sections.utilities')}
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {UTILITY_COMMANDS.filter((cmd) => !cmd.authOnly || isUserAuthenticated).map(
@@ -171,12 +182,10 @@ export function PrefillCommandButtons({
             <Shield className="h-5 w-5 flex-shrink-0 mt-0.5 text-[var(--theme-warning)]" />
             <div>
               <p className="font-medium text-sm text-[var(--theme-warning-text)]">
-                Login Required to Use Commands
+                {t('prefill.loginNotice.title')}
               </p>
               <p className="text-sm text-themed-muted mt-1">
-                All prefill commands require Steam authentication. Click "Login to Steam" above to
-                enable commands. Your credentials are sent directly to the container and never stored
-                by this application.
+                {t('prefill.loginNotice.message')}
               </p>
             </div>
           </div>

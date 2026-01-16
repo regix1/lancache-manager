@@ -4,6 +4,7 @@ import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { type SteamLoginFlowState, type SteamAuthActions } from '@hooks/useSteamAuthentication';
 import { useSignalR } from '@contexts/SignalRContext';
+import { useTranslation } from 'react-i18next';
 
 interface SteamAuthModalProps {
   opened: boolean;
@@ -24,6 +25,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
   isPrefillMode = false,
   onCancelLogin
 }) => {
+  const { t } = useTranslation();
   const { on, off } = useSignalR();
   const {
     loading,
@@ -141,7 +143,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
       title={
         <div className="flex items-center gap-3">
           <Key className="w-5 h-5 text-steam" />
-          <span>Steam Account Login</span>
+          <span>{t('modals.steamAuth.title')}</span>
         </div>
       }
       size="md"
@@ -164,19 +166,19 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                   <Smartphone className="w-8 h-8 text-info" />
                 </div>
                 <h3 className="text-lg font-semibold text-themed-primary mb-2">
-                  Waiting for Confirmation
+                  {t('modals.steamAuth.mobileConfirmation.title')}
                 </h3>
                 <p className="text-sm text-themed-secondary max-w-xs">
-                  Open your Steam Mobile App and tap <strong>Approve</strong> to complete login.
+                  {t('modals.steamAuth.mobileConfirmation.description')}
                 </p>
                 <div className="flex items-center gap-2 mt-4 text-themed-muted">
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span className="text-sm">Waiting for response...</span>
+                  <span className="text-sm">{t('modals.steamAuth.mobileConfirmation.waiting')}</span>
                 </div>
                 <p className="text-xs text-themed-muted mt-2 max-w-xs">
                   {isPrefillMode
-                    ? 'If approval times out, you may need to click "End Session" and try again.'
-                    : 'Steam sessions expire after ~2 minutes. If it times out, you\'ll be prompted to enter a 2FA code instead.'}
+                    ? t('modals.steamAuth.mobileConfirmation.timeoutPrefill')
+                    : t('modals.steamAuth.mobileConfirmation.timeoutNormal')}
                 </p>
               </div>
 
@@ -186,14 +188,14 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                     onClick={handleCancelDeviceConfirmation}
                     className="w-full text-center text-sm text-themed-accent hover:underline"
                   >
-                    Cancel and try again later
+                    {t('modals.steamAuth.actions.cancelAndTryLater')}
                   </button>
                 ) : (
                   <button
                     onClick={handleSwitchToManualCode}
                     className="w-full text-center text-sm text-themed-accent hover:underline"
                   >
-                    Enter 2FA code manually instead
+                    {t('modals.steamAuth.actions.enterCodeManually')}
                   </button>
                 )}
               </div>
@@ -205,13 +207,13 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-themed-secondary mb-1.5">
-                  Username
+                  {t('modals.steamAuth.labels.username')}
                 </label>
                 <input
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Steam username"
+                  placeholder={t('modals.steamAuth.placeholders.username')}
                   className="w-full px-3 py-2.5 themed-input"
                   disabled={loading}
                   autoComplete="username"
@@ -220,14 +222,14 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
 
               <div>
                 <label className="block text-sm font-medium text-themed-secondary mb-1.5">
-                  Password
+                  {t('modals.steamAuth.labels.password')}
                 </label>
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
-                  placeholder="Password"
+                  placeholder={t('modals.steamAuth.placeholders.password')}
                   className="w-full px-3 py-2.5 themed-input"
                   disabled={loading}
                   autoComplete="current-password"
@@ -238,8 +240,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
               <div className="flex items-start gap-3 p-3 rounded-lg mt-4 bg-themed-tertiary">
                 <Shield className="w-4 h-4 mt-0.5 flex-shrink-0 text-success" />
                 <p className="text-xs text-themed-muted leading-relaxed">
-                  Your password is used once for authentication and never stored.
-                  Only secure refresh tokens are saved locally.
+                  {t('modals.steamAuth.security.description')}
                 </p>
               </div>
             </div>
@@ -253,10 +254,10 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                   <Mail className="w-7 h-7 text-info" />
                 </div>
                 <h3 className="text-base font-semibold text-themed-primary mb-1">
-                  Email Verification
+                  {t('modals.steamAuth.emailVerification.title')}
                 </h3>
                 <p className="text-sm text-themed-secondary">
-                  Enter the code sent to your email
+                  {t('modals.steamAuth.emailVerification.description')}
                 </p>
               </div>
 
@@ -266,7 +267,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                   value={emailCode}
                   onChange={(e) => setEmailCode(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
-                  placeholder="XXXXX"
+                  placeholder={t('modals.steamAuth.placeholders.guardCode')}
                   className="w-full px-3 py-3 themed-input text-center text-xl tracking-[0.5em] font-mono uppercase"
                   disabled={loading}
                   autoFocus
@@ -284,12 +285,12 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                   <Lock className="w-7 h-7 text-warning" />
                 </div>
                 <h3 className="text-base font-semibold text-themed-primary mb-1">
-                  Two-Factor Authentication
+                  {t('modals.steamAuth.twoFactor.title')}
                 </h3>
                 <p className="text-sm text-themed-secondary">
                   {useManualCode
-                    ? 'Enter your authenticator code'
-                    : 'Enter code or approve on mobile app'}
+                    ? t('modals.steamAuth.twoFactor.descriptionManual')
+                    : t('modals.steamAuth.twoFactor.descriptionAuto')}
                 </p>
               </div>
 
@@ -299,7 +300,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                   value={twoFactorCode}
                   onChange={(e) => setTwoFactorCode(e.target.value.toUpperCase())}
                   onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
-                  placeholder="XXXXX"
+                  placeholder={t('modals.steamAuth.placeholders.guardCode')}
                   className="w-full px-3 py-3 themed-input text-center text-xl tracking-[0.5em] font-mono uppercase"
                   disabled={loading}
                   autoFocus
@@ -309,7 +310,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
 
               {!useManualCode && (
                 <p className="text-xs text-themed-muted text-center">
-                  Leave empty and click confirm to use mobile app approval
+                  {t('modals.steamAuth.twoFactor.leaveEmptyHint')}
                 </p>
               )}
             </div>
@@ -325,7 +326,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
             disabled={(loading || isSubmitting) && !waitingForMobileConfirmation}
             className="flex-1"
           >
-            Cancel
+            {t('common.cancel')}
           </Button>
           {!waitingForMobileConfirmation && (
             <Button
@@ -342,12 +343,12 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
             >
               {(loading || isSubmitting) && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
               {loading || isSubmitting
-                ? 'Authenticating...'
+                ? t('modals.steamAuth.actions.authenticating')
                 : needsEmailCode
-                  ? 'Verify'
+                  ? t('modals.steamAuth.actions.verify')
                   : needsTwoFactor
-                    ? 'Confirm'
-                    : 'Login'}
+                    ? t('modals.steamAuth.actions.confirm')
+                    : t('modals.steamAuth.actions.login')}
             </Button>
           )}
         </div>

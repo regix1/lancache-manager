@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Zap, Clock, HardDrive, Users, TrendingUp } from 'lucide-react';
 import { useDownloads } from '@contexts/DownloadsContext';
 import { useSignalR } from '@contexts/SignalRContext';
@@ -33,6 +34,7 @@ interface DownloadsHeaderProps {
 }
 
 const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChange }) => {
+  const { t } = useTranslation();
   const { latestDownloads } = useDownloads();
   const signalR = useSignalR();
   const { getRefreshInterval } = useRefreshRate();
@@ -452,16 +454,16 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
           <div className="speed-content">
             {isHistoricalView ? (
               <>
-                <span className="speed-label">Historical View</span>
+                <span className="speed-label">{t('downloads.header.historical.title')}</span>
                 <div className="stats-row">
-                  <span className="stat-chip">Viewing past data</span>
-                  <span className="stat-chip">Live stats unavailable</span>
+                  <span className="stat-chip">{t('downloads.header.historical.viewing')}</span>
+                  <span className="stat-chip">{t('downloads.header.historical.unavailable')}</span>
                 </div>
               </>
             ) : (
               <>
                 <span className="speed-label">
-                  {isActive ? 'Transfer Speed' : 'Idle'}
+                  {isActive ? t('downloads.header.transferSpeed') : t('downloads.header.idle')}
                 </span>
                 <div className="speed-value">
                   <span className={`speed-number ${isActive ? 'active' : ''}`}>
@@ -473,17 +475,17 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
                   {activeGamesCount > 0 && (
                     <span className="stat-chip highlight">
                       <HardDrive />
-                      {activeGamesCount} {activeGamesCount === 1 ? 'game' : 'games'}
+                      {t('downloads.header.activeGames', { count: activeGamesCount })}
                     </span>
                   )}
                   {activeClientsCount > 0 && (
                     <span className="stat-chip">
                       <Users />
-                      {activeClientsCount} {activeClientsCount === 1 ? 'client' : 'clients'}
+                      {t('downloads.header.activeClients', { count: activeClientsCount })}
                     </span>
                   )}
                   {!isActive && (
-                    <span className="stat-chip">No active downloads</span>
+                    <span className="stat-chip">{t('downloads.header.noActive')}</span>
                   )}
                 </div>
               </>
@@ -495,13 +497,13 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
         <div className="right-section">
           <div className="tab-container">
             {isHistoricalView ? (
-              <Tooltip content="Active downloads only available in Live mode">
+              <Tooltip content={t('downloads.header.activeTooltip')}>
                 <button
                   className={`tab-button disabled`}
                   onClick={(e) => e.preventDefault()}
                 >
                   <Zap />
-                  Active
+                  {t('downloads.header.activeTab')}
                   <span className="tab-badge">—</span>
                 </button>
               </Tooltip>
@@ -511,7 +513,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
                 onClick={() => onTabChange('active')}
               >
                 <Zap />
-                Active
+                {t('downloads.header.activeTab')}
                 <span className={`tab-badge ${activeGamesCount > 0 && activeTab !== 'active' ? 'has-active' : ''}`}>
                   {activeGamesCount}
                 </span>
@@ -522,15 +524,17 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
               onClick={() => onTabChange('recent')}
             >
               <Clock />
-              Recent
+              {t('downloads.header.recentTab')}
               <span className="tab-badge">{latestDownloads.length}</span>
             </button>
           </div>
 
           <div className={`today-stat ${isHistoricalView ? 'disabled' : ''}`}>
             <HardDrive />
-            <span className="today-label">Today:</span>
-            <span className="today-value">{isHistoricalView ? 'Disabled' : formatBytes(todayTotal)}</span>
+            <span className="today-label">{t('downloads.header.todayLabel')}</span>
+            <span className="today-value">
+              {isHistoricalView ? t('downloads.header.disabled') : formatBytes(todayTotal)}
+            </span>
             {isActive && !isHistoricalView && <div className="active-dot" />}
           </div>
         </div>

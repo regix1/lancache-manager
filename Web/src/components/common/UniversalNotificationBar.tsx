@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   CheckCircle,
   AlertCircle,
@@ -31,6 +32,7 @@ const UnifiedNotificationItem = ({
   onCancel?: () => void;
   isAnimatingOut?: boolean;
 }) => {
+  const { t } = useTranslation();
   const { status: webApiStatus } = useSteamWebApiStatus();
 
   // Simplified color palette:
@@ -95,12 +97,16 @@ const UnifiedNotificationItem = ({
   };
 
   const formatBytes = (bytes: number): string => {
-    if (bytes === 0) return '0 B';
+    const units = t('common.bytes.units', { returnObjects: true }) as string[];
+    if (bytes === 0) return t('common.bytes.zero', { unit: units[0] });
     const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+    const unit = units[i] || units[0];
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${unit}`;
   };
+
+  const filesDeletedCount = notification.details?.filesDeleted ?? 0;
+  const filesDeletedFormatted = filesDeletedCount.toLocaleString();
 
   return (
     <div
@@ -133,12 +139,12 @@ const UnifiedNotificationItem = ({
                   {notification.details.isLoggedOn ? (
                     <>
                       <User className="w-3 h-3" />
-                      <span>Steam Authenticated</span>
+                      <span>{t('common.notifications.steamAuthenticated')}</span>
                     </>
                   ) : (
                     <>
                       <UserX className="w-3 h-3" />
-                      <span>Steam Anonymous</span>
+                      <span>{t('common.notifications.steamAnonymous')}</span>
                     </>
                   )}
                 </span>
@@ -148,7 +154,7 @@ const UnifiedNotificationItem = ({
                     className="flex items-center gap-1 text-xs px-2 py-0.5 rounded flex-shrink-0 bg-[var(--theme-info-bg)] text-[var(--theme-info-text)]"
                   >
                     <Key className="w-3 h-3" />
-                    <span>Web API Key</span>
+                    <span>{t('common.notifications.webApiKey')}</span>
                   </span>
                 )}
               </div>
@@ -170,7 +176,10 @@ const UnifiedNotificationItem = ({
         {notification.type === 'cache_clearing' &&
           notification.details?.filesDeleted !== undefined && (
             <div className="text-xs text-themed-muted mt-0.5">
-              {notification.details.filesDeleted.toLocaleString()} files deleted
+              {t('common.notifications.filesDeleted', {
+                count: filesDeletedCount,
+                formattedCount: filesDeletedFormatted
+              })}
             </div>
           )}
 
@@ -178,7 +187,10 @@ const UnifiedNotificationItem = ({
         {notification.type === 'service_removal' &&
          notification.status === 'completed' && (
           <div className="text-xs text-themed-muted mt-0.5">
-            {notification.details?.filesDeleted?.toLocaleString() || 0} cache files deleted
+            {t('common.notifications.cacheFilesDeleted', {
+              count: filesDeletedCount,
+              formattedCount: filesDeletedFormatted
+            })}
             {notification.details?.bytesFreed !== undefined &&
               ` • ${formatBytes(notification.details.bytesFreed)}`}
           </div>
@@ -188,17 +200,23 @@ const UnifiedNotificationItem = ({
         {notification.type === 'corruption_removal' &&
          notification.status === 'completed' && (
           <div className="text-xs text-themed-muted mt-0.5">
-            Corrupted chunks successfully removed
+            {t('common.notifications.corruptedChunksRemoved')}
           </div>
         )}
 
         {notification.type === 'game_removal' && notification.status === 'completed' && (
           <div className="text-xs text-themed-muted mt-0.5">
-            {notification.details?.filesDeleted?.toLocaleString() || 0} cache files deleted
+            {t('common.notifications.cacheFilesDeleted', {
+              count: filesDeletedCount,
+              formattedCount: filesDeletedFormatted
+            })}
             {notification.details?.logEntriesRemoved !== undefined &&
               notification.details.logEntriesRemoved > 0 &&
-              ` • ${notification.details.logEntriesRemoved.toLocaleString()} log entries removed`}
-            {` • ${formatBytes(notification.details?.bytesFreed || 0)} freed`}
+              ` • ${t('common.notifications.logEntriesRemoved', {
+                count: notification.details.logEntriesRemoved,
+                formattedCount: notification.details.logEntriesRemoved.toLocaleString()
+              })}`}
+            {` • ${t('common.notifications.freed', { value: formatBytes(notification.details?.bytesFreed || 0) })}`}
           </div>
         )}
 
@@ -221,11 +239,13 @@ const UnifiedNotificationItem = ({
               </div>
               <div className="flex justify-between items-center mt-1">
                 <span className="text-xs text-themed-muted">
-                  {notification.progress.toFixed(1)}% complete
+                  {t('common.notifications.progressComplete', {
+                    value: notification.progress.toFixed(1)
+                  })}
                 </span>
                 {notification.details?.estimatedTime && (
                   <span className="text-xs text-themed-muted">
-                    {notification.details.estimatedTime} remaining
+                    {t('common.notifications.remaining', { value: notification.details.estimatedTime })}
                   </span>
                 )}
               </div>
@@ -250,18 +270,20 @@ const UnifiedNotificationItem = ({
             notification.details?.cancelling ? (
               <div className="flex items-center gap-1.5 px-2 py-1 rounded text-xs bg-[var(--theme-error-bg)] text-[var(--theme-error)]">
                 <Loader2 className="w-3 h-3 animate-spin" />
-                <span>Cancelling...</span>
+                <span>{t('common.notifications.cancelling')}</span>
               </div>
             ) : (
               <Tooltip content={
-                notification.type === 'cache_clearing' ? 'Cancel cache clearing' :
-                notification.type === 'log_removal' ? 'Cancel log removal' :
-                'Cancel depot mapping'
+                notification.type === 'cache_clearing'
+                  ? t('common.notifications.cancelCacheClearing')
+                  : notification.type === 'log_removal'
+                    ? t('common.notifications.cancelLogRemoval')
+                    : t('common.notifications.cancelDepotMapping')
               } position="left">
                 <button
                   onClick={onCancel}
                   className="p-1 rounded hover:bg-themed-hover transition-colors"
-                  aria-label="Cancel operation"
+                  aria-label={t('common.notifications.cancelOperationAria')}
                 >
                   <X className="w-4 h-4 text-themed-secondary" />
                 </button>
@@ -272,7 +294,7 @@ const UnifiedNotificationItem = ({
           <button
             onClick={onDismiss}
             className="p-1 rounded hover:bg-themed-hover transition-colors"
-            aria-label="Dismiss"
+            aria-label={t('common.dismiss')}
           >
             <X className="w-4 h-4 text-themed-secondary" />
           </button>

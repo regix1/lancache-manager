@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useStats } from '@contexts/StatsContext';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
@@ -28,12 +29,13 @@ interface ClientRowProps {
 }
 
 const ClientRow: React.FC<ClientRowProps> = ({ client }) => {
+  const { t } = useTranslation();
   const formattedLastActivity = useFormattedDateTime(client.lastActivityUtc);
   const displayLabel = client.displayName || client.clientIp;
   const ipTooltip = client.isGrouped && client.groupMemberIps
-    ? `IPs: ${client.groupMemberIps.join(', ')}`
+    ? t('clients.tooltips.groupIps', { ips: client.groupMemberIps.join(', ') })
     : client.displayName
-    ? `IP: ${client.clientIp}`
+    ? t('clients.tooltips.singleIp', { ip: client.clientIp })
     : undefined;
 
   return (
@@ -54,7 +56,7 @@ const ClientRow: React.FC<ClientRowProps> = ({ client }) => {
           )}
           {client.isGrouped && client.groupMemberIps && client.groupMemberIps.length > 1 && (
             <span className="text-xs text-themed-muted">
-              ({client.groupMemberIps.length} IPs)
+              {t('clients.groupCount', { count: client.groupMemberIps.length })}
             </span>
           )}
         </div>
@@ -93,12 +95,13 @@ const ClientRow: React.FC<ClientRowProps> = ({ client }) => {
 
 // Mobile card layout for each client
 const ClientCard: React.FC<ClientRowProps> = ({ client }) => {
+  const { t } = useTranslation();
   const formattedLastActivity = useFormattedDateTime(client.lastActivityUtc);
   const displayLabel = client.displayName || client.clientIp;
   const ipTooltip = client.isGrouped && client.groupMemberIps
-    ? `IPs: ${client.groupMemberIps.join(', ')}`
+    ? t('clients.tooltips.groupIps', { ips: client.groupMemberIps.join(', ') })
     : client.displayName
-    ? `IP: ${client.clientIp}`
+    ? t('clients.tooltips.singleIp', { ip: client.clientIp })
     : undefined;
 
   return (
@@ -120,7 +123,7 @@ const ClientCard: React.FC<ClientRowProps> = ({ client }) => {
           )}
           {client.isGrouped && client.groupMemberIps && client.groupMemberIps.length > 1 && (
             <span className="text-xs text-themed-muted">
-              ({client.groupMemberIps.length} IPs)
+              {t('clients.groupCount', { count: client.groupMemberIps.length })}
             </span>
           )}
         </div>
@@ -140,50 +143,52 @@ const ClientCard: React.FC<ClientRowProps> = ({ client }) => {
       {/* Stats Grid */}
       <div className="grid grid-cols-2 gap-2 text-sm">
         <div>
-          <span className="text-themed-muted text-xs">Total Data</span>
+          <span className="text-themed-muted text-xs">{t('clients.labels.totalData')}</span>
           <p className="text-themed-secondary">{formatBytes(client.totalBytes)}</p>
         </div>
         <div>
-          <span className="text-themed-muted text-xs">Downloads</span>
+          <span className="text-themed-muted text-xs">{t('clients.labels.downloads')}</span>
           <p className="text-themed-secondary">{client.totalDownloads}</p>
         </div>
         <div>
-          <span className="text-themed-muted text-xs">Cache Hits</span>
+          <span className="text-themed-muted text-xs">{t('clients.labels.cacheHits')}</span>
           <p className="cache-hit">{formatBytes(client.totalCacheHitBytes)}</p>
         </div>
         <div>
-          <span className="text-themed-muted text-xs">Cache Misses</span>
+          <span className="text-themed-muted text-xs">{t('clients.labels.cacheMisses')}</span>
           <p className="cache-miss">{formatBytes(client.totalCacheMissBytes)}</p>
         </div>
       </div>
 
       {/* Footer: Last Activity */}
       <div className="mt-3 pt-2 border-t border-themed-primary">
-        <span className="text-themed-muted text-xs">Last Activity: {formattedLastActivity}</span>
+        <span className="text-themed-muted text-xs">
+          {t('clients.labels.lastActivity', { time: formattedLastActivity })}
+        </span>
       </div>
     </div>
   );
 };
 
-const sortOptions = [
-  { value: 'totalData', label: 'Total Data' },
-  { value: 'downloads', label: 'Total Downloads' },
-  { value: 'hits', label: 'Cache Hits' },
-  { value: 'misses', label: 'Cache Misses' },
-  { value: 'hitRate', label: 'Hit Rate' },
-  { value: 'lastActivity', label: 'Last Activity' },
-  { value: 'ip', label: 'Client Name' }
-];
-
-const directionOptions = [
-  { value: 'desc', label: 'Descending' },
-  { value: 'asc', label: 'Ascending' }
-];
-
 const ClientsTab: React.FC = () => {
+  const { t } = useTranslation();
   const { clientStats } = useStats();
   const [sortBy, setSortBy] = useState<SortOption>('totalData');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const sortOptions = [
+    { value: 'totalData', label: t('clients.sort.totalData') },
+    { value: 'downloads', label: t('clients.sort.totalDownloads') },
+    { value: 'hits', label: t('clients.sort.cacheHits') },
+    { value: 'misses', label: t('clients.sort.cacheMisses') },
+    { value: 'hitRate', label: t('clients.sort.hitRate') },
+    { value: 'lastActivity', label: t('clients.sort.lastActivity') },
+    { value: 'ip', label: t('clients.sort.clientName') }
+  ];
+
+  const directionOptions = [
+    { value: 'desc', label: t('clients.sort.descending') },
+    { value: 'asc', label: t('clients.sort.ascending') }
+  ];
 
   const sortedClients = useMemo(() => {
     const sorted = [...clientStats];
@@ -219,13 +224,13 @@ const ClientsTab: React.FC = () => {
   return (
     <div className="space-y-6">
       <h2 className="text-xl sm:text-2xl font-bold text-themed-primary tracking-tight hidden md:block">
-        Clients
+        {t('clients.title')}
       </h2>
 
       <Card>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
           <h3 className="text-lg font-semibold flex items-center gap-2 text-themed-primary">
-            Client Statistics
+            {t('clients.subtitle')}
             <CacheInfoTooltip />
           </h3>
           <div className="flex items-center gap-2">
@@ -234,7 +239,7 @@ const ClientsTab: React.FC = () => {
               options={sortOptions}
               value={sortBy}
               onChange={(value) => setSortBy(value as SortOption)}
-              prefix="Sort:"
+              prefix={t('clients.sort.prefix')}
               className="w-40 sm:w-44"
               cleanStyle
             />
@@ -255,7 +260,7 @@ const ClientsTab: React.FC = () => {
               <ClientCard key={idx} client={client} />
             ))
           ) : (
-            <p className="py-8 text-center text-themed-muted">No client data available</p>
+            <p className="py-8 text-center text-themed-muted">{t('clients.empty')}</p>
           )}
         </div>
 
@@ -265,12 +270,13 @@ const ClientsTab: React.FC = () => {
             <thead>
               <tr className="text-left text-xs text-themed-muted uppercase tracking-wider">
                 <th className="pb-3">Client</th>
-                <th className="pb-3">Total Downloads</th>
-                <th className="pb-3">Total Data</th>
-                <th className="pb-3">Cache Hits</th>
-                <th className="pb-3">Cache Misses</th>
-                <th className="pb-3">Hit Rate</th>
-                <th className="pb-3 hidden lg:table-cell">Last Activity</th>
+                <th className="pb-3">{t('clients.table.client')}</th>
+                <th className="pb-3">{t('clients.table.totalDownloads')}</th>
+                <th className="pb-3">{t('clients.table.totalData')}</th>
+                <th className="pb-3">{t('clients.table.cacheHits')}</th>
+                <th className="pb-3">{t('clients.table.cacheMisses')}</th>
+                <th className="pb-3">{t('clients.table.hitRate')}</th>
+                <th className="pb-3 hidden lg:table-cell">{t('clients.table.lastActivity')}</th>
               </tr>
             </thead>
             <tbody className="text-sm">
@@ -281,7 +287,7 @@ const ClientsTab: React.FC = () => {
               ) : (
                 <tr>
                   <td colSpan={7} className="py-8 text-center text-themed-muted">
-                    No client data available
+                    {t('clients.empty')}
                   </td>
                 </tr>
               )}

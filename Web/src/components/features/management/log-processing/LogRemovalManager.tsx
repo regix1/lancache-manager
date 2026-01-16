@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FileText, AlertTriangle, RefreshCw, Loader2, Trash2 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
@@ -40,7 +41,10 @@ const ServiceButton: React.FC<{
   isRemoving: boolean;
   isDisabled: boolean;
   onClick: () => void;
-}> = ({ service, count, isRemoving, isDisabled, onClick }) => {
+  clearLabel: string;
+  entriesLabel: string;
+  removingLabel: string;
+}> = ({ service, count, isRemoving, isDisabled, onClick, clearLabel, entriesLabel, removingLabel }) => {
   return (
     <Button
       onClick={onClick}
@@ -52,11 +56,11 @@ const ServiceButton: React.FC<{
     >
       {!isRemoving ? (
         <>
-          <span className="capitalize font-medium text-sm sm:text-base">Clear {service}</span>
-          <span className="text-xs text-themed-muted mt-1">({count.toLocaleString()} entries)</span>
+          <span className="capitalize font-medium text-sm sm:text-base">{clearLabel} {service}</span>
+          <span className="text-xs text-themed-muted mt-1">({count.toLocaleString()} {entriesLabel})</span>
         </>
       ) : (
-        <span className="capitalize font-medium text-sm sm:text-base">Removing...</span>
+        <span className="capitalize font-medium text-sm sm:text-base">{removingLabel}</span>
       )}
     </Button>
   );
@@ -75,6 +79,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
   onError,
   onReloadRef
 }) => {
+  const { t } = useTranslation();
   const { notifications } = useNotifications();
 
   // State
@@ -121,7 +126,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
       setHasInitiallyLoaded(true);
     } catch (err: unknown) {
       console.error('Failed to load log data:', err);
-      setLoadError((err instanceof Error ? err.message : String(err)) || 'Failed to load service data');
+      setLoadError((err instanceof Error ? err.message : String(err)) || t('management.logRemoval.errors.loadFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -144,7 +149,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
 
   const executeRemoveServiceLogs = async (datasourceName: string, serviceName: string) => {
     if (authMode !== 'authenticated') {
-      onError?.('Full authentication required for management operations');
+      onError?.(t('common.fullAuthRequired'));
       return;
     }
 
@@ -156,13 +161,13 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
       if (result && result.status === 'started') {
         // SignalR will handle progress
       } else {
-        onError?.(`Unexpected response when starting log removal for ${serviceName}`);
+        onError?.(t('management.logRemoval.errors.unexpectedResponse', { service: serviceName }));
       }
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       const errorMessage = errMsg?.includes('read-only')
-        ? 'Logs directory is read-only. Remove :ro from docker-compose volume mount.'
-        : errMsg || 'Action failed';
+        ? t('management.logRemoval.errors.readOnly')
+        : errMsg || t('management.logRemoval.errors.actionFailed');
       onError?.(errorMessage);
     } finally {
       setStartingServiceRemoval(null);
@@ -172,17 +177,17 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
   const handleRemoveServiceLogs = useCallback(
     (datasourceName: string, serviceName: string) => {
       if (authMode !== 'authenticated') {
-        onError?.('Full authentication required for management operations');
+        onError?.(t('common.fullAuthRequired'));
         return;
       }
       setPendingServiceRemoval({ datasource: datasourceName, service: serviceName });
     },
-    [authMode, onError]
+    [authMode, onError, t]
   );
 
   const executeDeleteLogFile = async (datasourceName: string) => {
     if (authMode !== 'authenticated') {
-      onError?.('Full authentication required for management operations');
+      onError?.(t('common.fullAuthRequired'));
       return;
     }
 
@@ -196,8 +201,8 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       const errorMessage = errMsg?.includes('read-only')
-        ? 'Logs directory is read-only. Remove :ro from docker-compose volume mount.'
-        : errMsg || 'Failed to delete log file';
+        ? t('management.logRemoval.errors.readOnly')
+        : errMsg || t('management.logRemoval.errors.deleteFailed');
       onError?.(errorMessage);
     } finally {
       setDeletingLogFile(null);
@@ -231,34 +236,33 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
   // Help content
   const helpContent = (
     <HelpPopover position="left" width={320}>
-      <HelpSection title="What This Does">
-        Removes access.log entries for a selected service to reduce log size
-        and speed up processing.
+      <HelpSection title={t('management.logRemoval.help.whatThisDoes.title')}>
+        {t('management.logRemoval.help.whatThisDoes.description')}
       </HelpSection>
 
-      <HelpSection title="What It Affects" variant="subtle">
+      <HelpSection title={t('management.logRemoval.help.whatItAffects.title')} variant="subtle">
         <ul className="list-disc list-inside text-sm space-y-1">
-          <li>Log files (entries removed)</li>
-          <li>Database records (related rows cleaned up)</li>
+          <li>{t('management.logRemoval.help.whatItAffects.logFiles')}</li>
+          <li>{t('management.logRemoval.help.whatItAffects.databaseRecords')}</li>
         </ul>
       </HelpSection>
 
       <HelpNote type="info">
-        Cache files stay on disk; only log data is removed.
+        {t('management.logRemoval.help.note')}
       </HelpNote>
     </HelpPopover>
   );
 
   // Header actions
   const headerActions = (
-    <Tooltip content="Refresh service counts" position="top">
+    <Tooltip content={t('management.logRemoval.refreshServiceCounts')} position="top">
       <Button
         onClick={() => loadData(true)}
         disabled={isLoading || !!activeLogRemoval}
         variant="subtle"
         size="sm"
       >
-        {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Refresh'}
+        {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : t('common.refresh')}
       </Button>
     </Tooltip>
   );
@@ -269,8 +273,8 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
         <ManagerCardHeader
           icon={FileText}
           iconColor="orange"
-          title="Log Removal"
-          subtitle="Remove service entries from log files"
+          title={t('management.logRemoval.title')}
+          subtitle={t('management.logRemoval.subtitle')}
           helpContent={helpContent}
           permissions={{
             logsReadOnly,
@@ -283,10 +287,9 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
         {logsReadOnly && (
           <Alert color="orange" className="mb-6">
             <div>
-              <p className="font-medium">Logs directory is read-only</p>
+              <p className="font-medium">{t('management.logRemoval.alerts.logsReadOnly.title')}</p>
               <p className="text-sm mt-1">
-                Remove <code className="bg-themed-tertiary px-1 rounded">:ro</code> from your
-                docker-compose volume mounts to enable log removal.
+                {t('management.logRemoval.alerts.logsReadOnly.description')}
               </p>
             </div>
           </Alert>
@@ -296,12 +299,12 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
         {!dockerSocketAvailable && !logsReadOnly && (
           <Alert color="orange" className="mb-6">
             <div className="min-w-0">
-              <p className="font-medium">Docker socket not available</p>
+              <p className="font-medium">{t('management.logRemoval.alerts.dockerSocket.title')}</p>
               <p className="text-sm mt-1">
-                Log removal requires signaling nginx to reopen logs afterward.
+                {t('management.logRemoval.alerts.dockerSocket.description')}
               </p>
               <p className="text-sm mt-2">
-                Add to your docker-compose.yml volumes:
+                {t('management.logRemoval.alerts.dockerSocket.addVolumes')}
               </p>
               <code className="block bg-themed-tertiary px-2 py-1 rounded text-xs mt-1 break-all">
                 - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -318,7 +321,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
             {loadError && (
               <Alert color="red" className="mb-4">
                 <div>
-                  <p className="text-sm font-medium mb-1">Failed to load service log counts</p>
+                  <p className="text-sm font-medium mb-1">{t('management.logRemoval.errors.loadFailed')}</p>
                   <p className="text-xs opacity-75">{loadError}</p>
                   <Button
                     variant="default"
@@ -327,7 +330,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
                     className="mt-2"
                     leftSection={<RefreshCw className="w-3 h-3" />}
                   >
-                    Try Again
+                    {t('management.logRemoval.buttons.tryAgain')}
                   </Button>
                 </div>
               </Alert>
@@ -335,8 +338,8 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
 
             {isLoading ? (
               <LoadingState
-                message="Scanning log files for services..."
-                submessage="This may take several minutes for large log files"
+                message={t('management.logRemoval.loading.scanning')}
+                submessage={t('management.logRemoval.loading.mayTakeMinutes')}
               />
             ) : !loadError && hasAnyLogEntries ? (
               <div className="space-y-3">
@@ -382,7 +385,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
                               loading={deletingLogFile === ds.datasource}
                               className="w-full sm:w-auto"
                             >
-                              Delete Log File
+                              {t('management.logRemoval.buttons.deleteLogFile')}
                             </Button>
                           </div>
 
@@ -405,6 +408,9 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
                                     checkingPermissions
                                   }
                                   onClick={() => handleRemoveServiceLogs(ds.datasource, service)}
+                                  clearLabel={t('management.logRemoval.buttons.clear')}
+                                  entriesLabel={t('management.logRemoval.labels.entries')}
+                                  removingLabel={t('management.logRemoval.labels.removing')}
                                 />
                               );
                             })}
@@ -424,9 +430,9 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
                                 }}
                               >
                                 {showMoreServices[ds.datasource] ? (
-                                  <>Show Less ({other.length} hidden)</>
+                                  <>{t('management.logRemoval.buttons.showLess', { count: other.length })}</>
                                 ) : (
-                                  <>Show More ({other.length} more)</>
+                                  <>{t('management.logRemoval.buttons.showMore', { count: other.length })}</>
                                 )}
                               </Button>
                             </div>
@@ -434,7 +440,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
                         </>
                       ) : (
                         <div className="text-center py-4 text-themed-muted text-sm">
-                          No services with log entries
+                          {t('management.logRemoval.noEntriesForDatasource')}
                         </div>
                       )}
                     </DatasourceListItem>
@@ -443,8 +449,8 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
               </div>
             ) : (
               <EmptyState
-                title="No services with log entries found"
-                subtitle="Services appear here when they have downloadable content in the logs"
+                title={t('management.logRemoval.emptyState.title')}
+                subtitle={t('management.logRemoval.emptyState.subtitle')}
               />
             )}
           </>
@@ -462,24 +468,25 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
         title={
           <div className="flex items-center space-x-3">
             <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>Remove Service Logs</span>
+            <span>{t('management.logRemoval.modal.removeServiceLogs')}</span>
           </div>
         }
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            Remove all <strong>{pendingServiceRemoval?.service}</strong> entries from{' '}
-            <strong>{pendingServiceRemoval?.datasource}</strong> logs? This will
-            reduce log size and improve performance.
+            {t('management.logRemoval.modal.removeQuestion', {
+              service: pendingServiceRemoval?.service,
+              datasource: pendingServiceRemoval?.datasource
+            })}
           </p>
 
           <Alert color="yellow">
             <div>
-              <p className="text-sm font-medium mb-2">Important:</p>
+              <p className="text-sm font-medium mb-2">{t('management.logRemoval.modal.important')}:</p>
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>This action cannot be undone</li>
-                <li>May take several minutes for large log files</li>
-                <li>Cached {pendingServiceRemoval?.service} game files will remain intact</li>
+                <li>{t('management.logRemoval.modal.cannotUndo')}</li>
+                <li>{t('management.logRemoval.modal.mayTakeMinutes')}</li>
+                <li>{t('management.logRemoval.modal.cachedFilesRemain', { service: pendingServiceRemoval?.service })}</li>
               </ul>
             </div>
           </Alert>
@@ -490,7 +497,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
               onClick={() => setPendingServiceRemoval(null)}
               disabled={!!startingServiceRemoval}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="filled"
@@ -500,7 +507,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
               }
               loading={!!startingServiceRemoval}
             >
-              Remove Logs
+              {t('management.logRemoval.buttons.removeLogs')}
             </Button>
           </div>
         </div>
@@ -517,25 +524,23 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
         title={
           <div className="flex items-center space-x-3">
             <Trash2 className="w-6 h-6 text-themed-error" />
-            <span>Delete Entire Log File</span>
+            <span>{t('management.logRemoval.modal.deleteEntireLogFile')}</span>
           </div>
         }
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            Delete the entire <strong>access.log</strong> file for{' '}
-            <strong>{pendingLogFileDeletion}</strong>? This will remove all download history
-            for this datasource.
+            {t('management.logRemoval.modal.deleteQuestion', { datasource: pendingLogFileDeletion })}
           </p>
 
           <Alert color="red">
             <div>
-              <p className="text-sm font-medium mb-2">Warning - Destructive Action:</p>
+              <p className="text-sm font-medium mb-2">{t('management.logRemoval.modal.warningDestructive')}:</p>
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>This will permanently delete all log entries</li>
-                <li>Download history and statistics will be lost</li>
-                <li>This action cannot be undone</li>
-                <li>Cached game files will remain intact</li>
+                <li>{t('management.logRemoval.modal.permanentlyDelete')}</li>
+                <li>{t('management.logRemoval.modal.historyLost')}</li>
+                <li>{t('management.logRemoval.modal.cannotUndo')}</li>
+                <li>{t('management.logRemoval.modal.cachedGamesRemain')}</li>
               </ul>
             </div>
           </Alert>
@@ -546,7 +551,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
               onClick={() => setPendingLogFileDeletion(null)}
               disabled={!!deletingLogFile}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="filled"
@@ -554,7 +559,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
               onClick={() => pendingLogFileDeletion && executeDeleteLogFile(pendingLogFileDeletion)}
               loading={!!deletingLogFile}
             >
-              Delete Log File
+              {t('management.logRemoval.buttons.deleteLogFile')}
             </Button>
           </div>
         </div>

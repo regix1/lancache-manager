@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { useStats } from '@contexts/StatsContext';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { Card } from '@components/ui/Card';
@@ -61,12 +62,13 @@ const ServiceRow: React.FC<ServiceRowProps> = ({ service }) => {
 };
 
 const ServicesTab: React.FC = () => {
+  const { t } = useTranslation();
   const { serviceStats } = useStats();
 
   return (
     <Card>
       <h2 className="text-lg sm:text-xl font-semibold mb-4 flex items-center gap-2 text-themed-primary">
-        Service Statistics
+        {t('services.title')}
         <CacheInfoTooltip />
       </h2>
 
@@ -74,13 +76,13 @@ const ServicesTab: React.FC = () => {
         <table className="w-full mobile-table">
           <thead>
             <tr className="text-left text-xs text-themed-muted uppercase tracking-wider border-b border-themed-secondary">
-              <th className="pb-3 min-w-[80px]">Service</th>
-              <th className="pb-3 hidden sm:table-cell">Total Downloads</th>
-              <th className="pb-3 min-w-[80px]">Total Data</th>
-              <th className="pb-3 hidden md:table-cell">Cache Hits</th>
-              <th className="pb-3 hidden md:table-cell">Cache Misses</th>
-              <th className="pb-3 min-w-[100px]">Hit Rate</th>
-              <th className="pb-3 hidden lg:table-cell">Last Activity</th>
+              <th className="pb-3 min-w-[80px]">{t('services.table.service')}</th>
+              <th className="pb-3 hidden sm:table-cell">{t('services.table.totalDownloads')}</th>
+              <th className="pb-3 min-w-[80px]">{t('services.table.totalData')}</th>
+              <th className="pb-3 hidden md:table-cell">{t('services.table.cacheHits')}</th>
+              <th className="pb-3 hidden md:table-cell">{t('services.table.cacheMisses')}</th>
+              <th className="pb-3 min-w-[100px]">{t('services.table.hitRate')}</th>
+              <th className="pb-3 hidden lg:table-cell">{t('services.table.lastActivity')}</th>
             </tr>
           </thead>
           <tbody className="text-sm">
@@ -91,7 +93,7 @@ const ServicesTab: React.FC = () => {
             ) : (
               <tr>
                 <td colSpan={7} className="py-8 text-center text-themed-muted">
-                  No service data available
+                  {t('services.empty')}
                 </td>
               </tr>
             )}

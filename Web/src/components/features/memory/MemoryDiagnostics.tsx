@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
 
 interface MemoryStats {
@@ -25,6 +26,7 @@ interface MemoryStats {
 }
 
 const MemoryDiagnostics: React.FC = () => {
+  const { t } = useTranslation();
   const [stats, setStats] = useState<MemoryStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +46,7 @@ const MemoryDiagnostics: React.FC = () => {
       setStats(data);
     } catch (err: unknown) {
       console.error('Failed to fetch memory stats:', err);
-      setError((err instanceof Error ? err.message : String(err)) || 'Failed to load memory statistics');
+      setError((err instanceof Error ? err.message : String(err)) || t('memory.failedToLoad'));
     } finally {
       setLoading(false);
     }
@@ -57,7 +59,7 @@ const MemoryDiagnostics: React.FC = () => {
   if (loading) {
     return (
       <div className="min-h-screen bg-themed-primary flex items-center justify-center">
-        <div className="text-themed-primary">Loading memory diagnostics...</div>
+        <div className="text-themed-primary">{t('memory.loading')}</div>
       </div>
     );
   }
@@ -65,7 +67,7 @@ const MemoryDiagnostics: React.FC = () => {
   if (error) {
     return (
       <div className="min-h-screen bg-themed-primary flex items-center justify-center">
-        <div className="text-themed-error">Error: {error}</div>
+        <div className="text-themed-error">{t('memory.error', { error })}</div>
       </div>
     );
   }
@@ -77,17 +79,17 @@ const MemoryDiagnostics: React.FC = () => {
   return (
     <div className="min-h-screen p-6 bg-themed-primary">
       <h1 className="text-3xl font-bold mb-6 pb-3 border-b-2 text-themed-primary border-themed">
-        Memory Diagnostics
+        {t('memory.title')}
       </h1>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {/* Total Memory */}
         <div className="rounded-lg p-6 border shadow-lg bg-themed-card border-themed">
           <h2 className="text-xl font-semibold mb-4 pb-2 border-b text-themed-primary border-themed">
-            Total Memory (RAM)
+            {t('memory.totalMemory')}
             {stats.totalSystemMemoryGB && (
               <div className="text-sm font-normal mt-1 text-themed-muted">
-                System Total:{' '}
+                {t('memory.systemTotal')}{' '}
                 <span className="text-themed-accent">
                   {stats.totalSystemMemoryGB.toFixed(2)} GB
                 </span>
@@ -97,7 +99,7 @@ const MemoryDiagnostics: React.FC = () => {
           <div className="space-y-4">
             <div className="py-2 border-b border-themed">
               <div className="flex justify-between items-center">
-                <span className="text-themed-muted">Working Set (Process RAM):</span>
+                <span className="text-themed-muted">{t('memory.workingSet')}</span>
                 <span className="font-bold">
                   <span className="text-themed-primary">
                     {stats.workingSetMB.toFixed(2)} MB
@@ -110,12 +112,12 @@ const MemoryDiagnostics: React.FC = () => {
                 </span>
               </div>
               <div className="text-xs mt-1 text-themed-muted opacity-80">
-                Physical RAM currently used by this process
+                {t('memory.workingSetDesc')}
               </div>
             </div>
             <div className="py-2 border-b border-themed">
               <div className="flex justify-between items-center">
-                <span className="text-themed-muted">Managed (.NET Heap):</span>
+                <span className="text-themed-muted">{t('memory.managed')}</span>
                 <span className="font-bold">
                   <span className="text-themed-primary">
                     {stats.managedMB.toFixed(2)} MB
@@ -128,12 +130,12 @@ const MemoryDiagnostics: React.FC = () => {
                 </span>
               </div>
               <div className="text-xs mt-1 text-themed-muted opacity-80">
-                Memory managed by .NET garbage collector
+                {t('memory.managedDesc')}
               </div>
             </div>
             <div className="py-2">
               <div className="flex justify-between items-center">
-                <span className="text-themed-muted">Unmanaged (Native):</span>
+                <span className="text-themed-muted">{t('memory.unmanaged')}</span>
                 <span className="font-bold">
                   <span className="text-themed-primary">
                     {stats.unmanagedMB.toFixed(2)} MB
@@ -146,7 +148,7 @@ const MemoryDiagnostics: React.FC = () => {
                 </span>
               </div>
               <div className="text-xs mt-1 text-themed-muted opacity-80">
-                Native memory used by system libraries and resources
+                {t('memory.unmanagedDesc')}
               </div>
             </div>
           </div>
@@ -155,12 +157,12 @@ const MemoryDiagnostics: React.FC = () => {
         {/* Managed Memory Details */}
         <div className="rounded-lg p-6 border shadow-lg bg-themed-card border-themed">
           <h2 className="text-xl font-semibold mb-4 pb-2 border-b text-themed-primary border-themed">
-            Managed Memory Details
+            {t('memory.managedDetails')}
           </h2>
           <div className="space-y-4">
             <div className="py-2 border-b border-themed">
               <div className="flex justify-between items-center">
-                <span className="text-themed-muted">Total Allocated:</span>
+                <span className="text-themed-muted">{t('memory.totalAllocated')}</span>
                 <span className="font-bold">
                   <span className="text-themed-primary">
                     {stats.totalAllocatedMB.toFixed(2)} MB
@@ -173,12 +175,12 @@ const MemoryDiagnostics: React.FC = () => {
                 </span>
               </div>
               <div className="text-xs mt-1 text-themed-muted opacity-80">
-                Total memory allocated by .NET runtime
+                {t('memory.totalAllocatedDesc')}
               </div>
             </div>
             <div className="py-2 border-b border-themed">
               <div className="flex justify-between items-center">
-                <span className="text-themed-muted">Heap Size:</span>
+                <span className="text-themed-muted">{t('memory.heapSize')}</span>
                 <span className="font-bold">
                   <span className="text-themed-primary">
                     {stats.heapSizeMB.toFixed(2)} MB
@@ -191,12 +193,12 @@ const MemoryDiagnostics: React.FC = () => {
                 </span>
               </div>
               <div className="text-xs mt-1 text-themed-muted opacity-80">
-                Current size of the managed heap
+                {t('memory.heapSizeDesc')}
               </div>
             </div>
             <div className="py-2">
               <div className="flex justify-between items-center">
-                <span className="text-themed-muted">Fragmented Memory:</span>
+                <span className="text-themed-muted">{t('memory.fragmented')}</span>
                 <span className="font-bold">
                   <span className="text-themed-primary">
                     {stats.fragmentedMB.toFixed(2)} MB
@@ -209,7 +211,7 @@ const MemoryDiagnostics: React.FC = () => {
                 </span>
               </div>
               <div className="text-xs mt-1 text-themed-muted opacity-80">
-                Wasted space due to memory fragmentation
+                {t('memory.fragmentedDesc')}
               </div>
             </div>
           </div>
@@ -218,35 +220,35 @@ const MemoryDiagnostics: React.FC = () => {
         {/* Process Statistics */}
         <div className="rounded-lg p-6 border shadow-lg bg-themed-card border-themed">
           <h2 className="text-xl font-semibold mb-4 pb-2 border-b text-themed-primary border-themed">
-            Process Statistics
+            {t('memory.processStats')}
           </h2>
           <div className="space-y-4">
             {/* Resource Usage */}
             <div>
               <div className="text-xs font-semibold mb-2 text-themed-secondary">
-                RESOURCE USAGE
+                {t('memory.resourceUsage')}
               </div>
               <div className="space-y-3">
                 <div className="py-2 border-b border-themed">
                   <div className="flex justify-between items-center">
-                    <span className="text-themed-muted">Active Threads:</span>
+                    <span className="text-themed-muted">{t('memory.activeThreads')}</span>
                     <span className="font-bold text-themed-primary">
                       {stats.threadCount}
                     </span>
                   </div>
                   <div className="text-xs mt-1 text-themed-muted opacity-80">
-                    Handling requests and background tasks
+                    {t('memory.activeThreadsDesc')}
                   </div>
                 </div>
                 <div className="py-2">
                   <div className="flex justify-between items-center">
-                    <span className="text-themed-muted">Open Handles:</span>
+                    <span className="text-themed-muted">{t('memory.openHandles')}</span>
                     <span className="font-bold text-themed-primary">
                       {stats.handleCount}
                     </span>
                   </div>
                   <div className="text-xs mt-1 text-themed-muted opacity-80">
-                    Database connections, file handles, etc.
+                    {t('memory.openHandlesDesc')}
                   </div>
                 </div>
               </div>
@@ -255,17 +257,17 @@ const MemoryDiagnostics: React.FC = () => {
             {/* Garbage Collection */}
             <div>
               <div className="text-xs font-semibold mb-2 text-themed-secondary">
-                GARBAGE COLLECTION
+                {t('memory.garbageCollection')}
               </div>
               <div className="py-2">
                 <div className="flex justify-between items-center">
-                  <span className="text-themed-muted">Collections (0 / 1 / 2):</span>
+                  <span className="text-themed-muted">{t('memory.collections')}</span>
                   <span className="font-bold text-themed-primary">
                     {stats.gen0Collections} / {stats.gen1Collections} / {stats.gen2Collections}
                   </span>
                 </div>
                 <div className="text-xs mt-1 text-themed-muted opacity-80">
-                  0: Short-lived, 1: Medium-lived, 2: Long-lived objects
+                  {t('memory.collectionsDesc')}
                 </div>
               </div>
             </div>
@@ -274,7 +276,7 @@ const MemoryDiagnostics: React.FC = () => {
       </div>
 
       <div className="mt-6 text-center text-sm text-themed-muted">
-        Auto-refreshing every 5 seconds | Last updated: {new Date(stats.timestamp).toLocaleString()}
+        {t('memory.autoRefresh', { timestamp: new Date(stats.timestamp).toLocaleString() })}
       </div>
     </div>
   );

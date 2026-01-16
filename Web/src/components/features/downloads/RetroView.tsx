@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo, useImperativeHandle, forwardRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useIsDesktop } from '@hooks/useMediaQuery';
 import { formatBytes, formatPercent, formatDateTime, formatSpeed, isFromDifferentYear } from '@utils/formatters';
 import { getDefaultColumnWidths, calculateColumnWidths, type ColumnWidths } from '@utils/textMeasurement';
@@ -261,6 +262,7 @@ const groupByDepot = (items: (DownloadType | DownloadGroup)[], sortOrder: SortOr
 
 // Circular Efficiency Gauge Component
 const EfficiencyGauge: React.FC<{ percent: number; size?: number }> = ({ percent, size = 56 }) => {
+  const { t } = useTranslation();
   const strokeWidth = 4;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -273,9 +275,9 @@ const EfficiencyGauge: React.FC<{ percent: number; size?: number }> = ({ percent
   };
 
   const getLabel = () => {
-    if (percent >= 90) return 'Excellent';
-    if (percent >= 50) return 'Partial';
-    return 'Miss';
+    if (percent >= 90) return t('downloads.tab.retro.gauge.excellent');
+    if (percent >= 50) return t('downloads.tab.retro.gauge.partial');
+    return t('downloads.tab.retro.gauge.miss');
   };
 
   return (
@@ -380,8 +382,11 @@ const CombinedProgressBar: React.FC<{
 };
 
 // Empty State Component
-const EmptyState: React.FC = () => (
-  <div className="flex flex-col items-center justify-center py-16 px-4">
+const EmptyState: React.FC = () => {
+  const { t } = useTranslation();
+
+  return (
+    <div className="flex flex-col items-center justify-center py-16 px-4">
     <div className="relative mb-6 animate-[float_3s_ease-in-out_infinite]">
       {/* Animated icon container */}
       <div className="w-20 h-20 rounded-2xl flex items-center justify-center bg-gradient-to-br from-[var(--theme-bg-tertiary)] to-[var(--theme-bg-secondary)] shadow-[0_8px_32px_rgba(0,0,0,0.2)]">
@@ -396,10 +401,10 @@ const EmptyState: React.FC = () => (
       </div>
     </div>
     <h3 className="text-lg font-semibold mb-2 text-[var(--theme-text-primary)]">
-      No Downloads Yet
+      {t('downloads.tab.retro.empty.title')}
     </h3>
     <p className="text-sm text-center max-w-xs text-[var(--theme-text-muted)]">
-      Download activity will appear here once your Lancache starts serving content.
+      {t('downloads.tab.retro.empty.description')}
     </p>
     {/* Decorative dots */}
     <div className="flex gap-1.5 mt-6">
@@ -413,8 +418,9 @@ const EmptyState: React.FC = () => (
         />
       ))}
     </div>
-  </div>
-);
+    </div>
+  );
+};
 
 // Column resize handle component
 const ResizeHandle: React.FC<{
@@ -452,6 +458,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
   showDatasourceLabels = true,
   hasMultipleDatasources = false
 }, ref) => {
+  const { t } = useTranslation();
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
 
   // Use JavaScript-based breakpoint detection for conditional rendering
@@ -608,7 +615,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
     if (isDatasourceShown) {
       measureSpan.style.font = '500 12px system-ui, -apple-system, sans-serif';
       grouped.forEach((data) => {
-        measureSpan.textContent = data.datasource || 'N/A';
+        measureSpan.textContent = data.datasource || t('downloads.tab.retro.notAvailable');
         measuredWidths.datasource = Math.max(measuredWidths.datasource, measureSpan.offsetWidth + 32);
       });
     }
@@ -616,7 +623,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
     // Depot column
     measureSpan.style.font = '400 14px ui-monospace, monospace';
     grouped.forEach((data) => {
-      measureSpan.textContent = data.depotId ? String(data.depotId) : 'N/A';
+      measureSpan.textContent = data.depotId ? String(data.depotId) : t('downloads.tab.retro.notAvailable');
       measuredWidths.depot = Math.max(measuredWidths.depot, measureSpan.offsetWidth + 32);
     });
 
@@ -624,7 +631,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
     measureSpan.style.font = '400 14px ui-monospace, monospace';
     grouped.forEach((data) => {
       if (data.clientsSet.size > 1) {
-        measureSpan.textContent = `${data.clientsSet.size} clients`;
+        measureSpan.textContent = t('downloads.tab.retro.clientCount', { count: data.clientsSet.size });
       } else {
         measureSpan.textContent = data.clientIp;
       }
@@ -647,23 +654,25 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
 
     // Measure headers too
     measureSpan.style.font = '600 11px system-ui, -apple-system, sans-serif';
-    measureSpan.textContent = 'TIMESTAMP';
+    measureSpan.textContent = t('downloads.tab.retro.headers.timestamp');
     measuredWidths.timestamp = Math.max(measuredWidths.timestamp, measureSpan.offsetWidth + 32);
-    measureSpan.textContent = 'APP';
+    measureSpan.textContent = t('downloads.tab.retro.headers.app');
     measuredWidths.app = Math.max(measuredWidths.app, measureSpan.offsetWidth + 32);
-    measureSpan.textContent = 'SOURCE';
-    measuredWidths.datasource = Math.max(measuredWidths.datasource, measureSpan.offsetWidth + 32);
-    measureSpan.textContent = 'EVENTS';
+    if (isDatasourceShown) {
+      measureSpan.textContent = t('downloads.tab.retro.headers.source');
+      measuredWidths.datasource = Math.max(measuredWidths.datasource, measureSpan.offsetWidth + 32);
+    }
+    measureSpan.textContent = t('downloads.tab.retro.headers.events');
     measuredWidths.events = Math.max(measuredWidths.events, measureSpan.offsetWidth + 32);
-    measureSpan.textContent = 'DEPOT';
+    measureSpan.textContent = t('downloads.tab.retro.headers.depot');
     measuredWidths.depot = Math.max(measuredWidths.depot, measureSpan.offsetWidth + 32);
-    measureSpan.textContent = 'CLIENT';
+    measureSpan.textContent = t('downloads.tab.retro.headers.client');
     measuredWidths.client = Math.max(measuredWidths.client, measureSpan.offsetWidth + 32);
-    measureSpan.textContent = 'AVG SPEED';
+    measureSpan.textContent = t('downloads.tab.retro.headers.avgSpeed');
     measuredWidths.speed = Math.max(measuredWidths.speed, measureSpan.offsetWidth + 32);
-    measureSpan.textContent = 'CACHE PERFORMANCE';
+    measureSpan.textContent = t('downloads.tab.retro.headers.cachePerformance');
     measuredWidths.cacheHit = Math.max(measuredWidths.cacheHit, measureSpan.offsetWidth + 16);
-    measureSpan.textContent = 'EFFICIENCY';
+    measureSpan.textContent = t('downloads.tab.retro.headers.efficiency');
     measuredWidths.overall = Math.max(measuredWidths.overall, measureSpan.offsetWidth + 32);
 
     document.body.removeChild(measureSpan);
@@ -745,7 +754,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
         overall: Math.max(minWidths.overall, Math.floor(measuredWidths.overall * otherScaleFactor))
       });
     }
-  }, [items, sortOrder, hasMultipleDatasources, showDatasourceLabels, smartDefaultWidths]);
+  }, [items, sortOrder, hasMultipleDatasources, showDatasourceLabels, smartDefaultWidths, t]);
 
   // Auto-fit a single column by measuring actual data content (not truncated DOM text)
   // Uses data from groupedItems to get full text values
@@ -787,7 +796,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
         measureSpan.style.font = '400 14px ui-monospace, monospace';
         grouped.forEach((data) => {
           if (data.clientsSet.size > 1) {
-            measureSpan.textContent = `${data.clientsSet.size} clients`;
+            measureSpan.textContent = t('downloads.tab.retro.clientCount', { count: data.clientsSet.size });
           } else {
             measureSpan.textContent = data.clientIp;
           }
@@ -798,7 +807,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
       case 'depot':
         measureSpan.style.font = '400 14px ui-monospace, monospace';
         grouped.forEach((data) => {
-          measureSpan.textContent = data.depotId ? String(data.depotId) : 'N/A';
+          measureSpan.textContent = data.depotId ? String(data.depotId) : t('downloads.tab.retro.notAvailable');
           maxWidth = Math.max(maxWidth, measureSpan.offsetWidth + 32);
         });
         break;
@@ -814,7 +823,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
       case 'datasource':
         measureSpan.style.font = '500 12px system-ui, -apple-system, sans-serif';
         grouped.forEach((data) => {
-          measureSpan.textContent = data.datasource || 'N/A';
+          measureSpan.textContent = data.datasource || t('downloads.tab.retro.notAvailable');
           maxWidth = Math.max(maxWidth, measureSpan.offsetWidth + 32);
         });
         break;
@@ -827,16 +836,16 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
     // Also measure header
     measureSpan.style.font = '600 11px system-ui, -apple-system, sans-serif';
     const headerLabels: Record<string, string> = {
-      timestamp: 'TIMESTAMP',
-      app: 'APP',
-      datasource: 'SOURCE',
-      events: 'EVENTS',
-      depot: 'DEPOT',
-      client: 'CLIENT',
-      speed: 'AVG SPEED',
-      cacheHit: 'CACHE PERFORMANCE',
-      cacheMiss: 'CACHE PERFORMANCE',
-      overall: 'EFFICIENCY'
+      timestamp: t('downloads.tab.retro.headers.timestamp'),
+      app: t('downloads.tab.retro.headers.app'),
+      datasource: t('downloads.tab.retro.headers.source'),
+      events: t('downloads.tab.retro.headers.events'),
+      depot: t('downloads.tab.retro.headers.depot'),
+      client: t('downloads.tab.retro.headers.client'),
+      speed: t('downloads.tab.retro.headers.avgSpeed'),
+      cacheHit: t('downloads.tab.retro.headers.cachePerformance'),
+      cacheMiss: t('downloads.tab.retro.headers.cachePerformance'),
+      overall: t('downloads.tab.retro.headers.efficiency')
     };
     measureSpan.textContent = headerLabels[column] || '';
     maxWidth = Math.max(maxWidth, measureSpan.offsetWidth + 32);
@@ -848,7 +857,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
       ...prev,
       [column]: Math.max(60, Math.ceil(maxWidth)) // Ensure minimum of 60px
     }));
-  }, [smartDefaultWidths, items, sortOrder]);
+  }, [smartDefaultWidths, items, sortOrder, t]);
 
   // Expose resetWidths to parent via ref
   useImperativeHandle(ref, () => ({
@@ -952,14 +961,14 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
           style={{ gridTemplateColumns: gridTemplate }}
         >
           <div className="relative px-2" data-header>
-            Timestamp
+            {t('downloads.tab.retro.headers.timestamp')}
             <ResizeHandle
               onMouseDown={(e) => handleMouseDown('timestamp', e)}
               onDoubleClick={() => handleAutoFitColumn('timestamp')}
             />
           </div>
           <div className="relative px-2" data-header>
-            App
+            {t('downloads.tab.retro.headers.app')}
             <ResizeHandle
               onMouseDown={(e) => handleMouseDown('app', e)}
               onDoubleClick={() => handleAutoFitColumn('app')}
@@ -967,7 +976,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
           </div>
           {showDatasourceColumn && (
             <div className="relative px-2 text-center" data-header>
-              Source
+              {t('downloads.tab.retro.headers.source')}
               <ResizeHandle
                 onMouseDown={(e) => handleMouseDown('datasource', e)}
                 onDoubleClick={() => handleAutoFitColumn('datasource')}
@@ -975,42 +984,42 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
             </div>
           )}
           <div className="relative px-2 text-center" data-header>
-            Events
+            {t('downloads.tab.retro.headers.events')}
             <ResizeHandle
               onMouseDown={(e) => handleMouseDown('events', e)}
               onDoubleClick={() => handleAutoFitColumn('events')}
             />
           </div>
           <div className="relative px-2 text-center" data-header>
-            Depot
+            {t('downloads.tab.retro.headers.depot')}
             <ResizeHandle
               onMouseDown={(e) => handleMouseDown('depot', e)}
               onDoubleClick={() => handleAutoFitColumn('depot')}
             />
           </div>
           <div className="relative px-2 text-center" data-header>
-            Client
+            {t('downloads.tab.retro.headers.client')}
             <ResizeHandle
               onMouseDown={(e) => handleMouseDown('client', e)}
               onDoubleClick={() => handleAutoFitColumn('client')}
             />
           </div>
           <div className="relative px-2 text-center" data-header>
-            Avg Speed
+            {t('downloads.tab.retro.headers.avgSpeed')}
             <ResizeHandle
               onMouseDown={(e) => handleMouseDown('speed', e)}
               onDoubleClick={() => handleAutoFitColumn('speed')}
             />
           </div>
           <div className="relative px-2 text-center" data-header>
-            Cache Performance
+            {t('downloads.tab.retro.headers.cachePerformance')}
             <ResizeHandle
               onMouseDown={(e) => handleMouseDown('cacheHit', e)}
               onDoubleClick={() => handleAutoFitColumn('cacheHit')}
             />
           </div>
           <div className="relative px-2 text-center" data-header>
-            Efficiency
+            {t('downloads.tab.retro.headers.efficiency')}
           </div>
         </div>
       )}
@@ -1068,7 +1077,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                     {hasGameImage && data.gameAppId ? (
                       <img
                         src={`${API_BASE}/game-images/${data.gameAppId}/header`}
-                        alt={data.gameName || 'Game'}
+                        alt={data.gameName || t('downloads.tab.retro.gameFallback')}
                         className="min-w-[60px] max-w-[120px] w-2/5 h-auto aspect-[120/45] rounded object-cover flex-shrink transition-transform group-hover:scale-[1.02]"
                         loading="lazy"
                         onError={() => handleImageError(String(data.gameAppId))}
@@ -1085,7 +1094,8 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                       </span>
                       {data.requestCount > 1 && (
                         <span className="text-xs text-[var(--theme-text-muted)]">
-                          {data.clientsSet.size} client{data.clientsSet.size !== 1 ? 's' : ''} · {data.requestCount} request{data.requestCount !== 1 ? 's' : ''}
+                          {t('downloads.tab.retro.clientCount', { count: data.clientsSet.size })} ·{' '}
+                          {t('downloads.tab.retro.requestCount', { count: data.requestCount })}
                         </span>
                       )}
                     </div>
@@ -1098,7 +1108,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                         className="px-1.5 py-0.5 text-xs font-medium rounded inline-block truncate max-w-full bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]"
                         title={data.datasource}
                       >
-                        {data.datasource || 'N/A'}
+                        {data.datasource || t('downloads.tab.retro.notAvailable')}
                       </span>
                     </div>
                   )}
@@ -1127,15 +1137,20 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                         {data.depotId}
                       </a>
                     ) : (
-                      <span className="text-sm text-[var(--theme-text-muted)]">N/A</span>
+                        <span className="text-sm text-[var(--theme-text-muted)]">
+                          {t('downloads.tab.retro.notAvailable')}
+                        </span>
                     )}
                   </div>
 
                   {/* Client IP */}
                   <div className="px-2 text-sm font-mono text-[var(--theme-text-primary)] overflow-hidden text-center" data-cell>
                     {data.clientsSet.size > 1 ? (
-                      <span className="truncate block" title={`${data.clientsSet.size} clients`}>
-                        {data.clientsSet.size} clients
+                      <span
+                        className="truncate block"
+                        title={t('downloads.tab.retro.clientCount', { count: data.clientsSet.size })}
+                      >
+                        {t('downloads.tab.retro.clientCount', { count: data.clientsSet.size })}
                       </span>
                     ) : (
                       <ClientIpDisplay clientIp={data.clientIp} />
@@ -1170,7 +1185,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                     {hasGameImage && data.gameAppId ? (
                       <img
                         src={`${API_BASE}/game-images/${data.gameAppId}/header`}
-                        alt={data.gameName || 'Game'}
+                        alt={data.gameName || t('downloads.tab.retro.gameFallback')}
                         className="w-[100px] h-[40px] sm:w-[130px] sm:h-[50px] rounded object-cover flex-shrink-0"
                         loading="lazy"
                         onError={() => handleImageError(String(data.gameAppId))}
@@ -1187,7 +1202,8 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                         {data.gameName || data.service}
                         {data.requestCount > 1 && (
                           <span className="ml-2 text-xs text-[var(--theme-text-muted)]">
-                            ({data.clientsSet.size} client{data.clientsSet.size !== 1 ? 's' : ''} · {data.requestCount} request{data.requestCount !== 1 ? 's' : ''})
+                            ({t('downloads.tab.retro.clientCount', { count: data.clientsSet.size })} ·{' '}
+                            {t('downloads.tab.retro.requestCount', { count: data.requestCount })})
                           </span>
                         )}
                       </div>
@@ -1209,7 +1225,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                           )}
                         </span>
                         {hasMultipleDatasources && showDatasourceLabels && data.datasource && (
-                          <Tooltip content={`Datasource: ${data.datasource}`}>
+                          <Tooltip content={t('downloads.tab.retro.datasourceTooltip', { datasource: data.datasource })}>
                             <span
                               className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]"
                             >

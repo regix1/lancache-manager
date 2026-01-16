@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Key, User, Info, AlertTriangle } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -26,6 +27,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
   onError,
   onSuccess
 }) => {
+  const { t } = useTranslation();
   const {
     steamAuthMode,
     username: authenticatedUsername,
@@ -102,10 +104,10 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
         onSuccess?.('Switched to anonymous Steam mode. Depot mappings preserved.');
       } else {
         const error = await response.json();
-        onError?.(error.message || 'Failed to switch to anonymous mode');
+        onError?.(error.message || t('modals.steamAuth.errors.failedToSwitchToAnonymous'));
       }
     } catch (err: unknown) {
-      onError?.((err instanceof Error ? err.message : String(err)) || 'Failed to switch to anonymous mode');
+      onError?.((err instanceof Error ? err.message : String(err)) || t('modals.steamAuth.errors.failedToSwitchToAnonymous'));
     } finally {
       setLoading(false);
     }
@@ -119,8 +121,8 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
   };
 
   const dropdownOptions = [
-    { value: 'anonymous', label: 'Anonymous (Public Games Only)' },
-    { value: 'authenticated', label: 'Account Login (Playtest/Restricted Games)' }
+    { value: 'anonymous', label: t('management.steamAuth.modes.anonymous') },
+    { value: 'authenticated', label: t('management.steamAuth.modes.authenticated') }
   ];
 
   return (
@@ -130,26 +132,25 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
           <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-blue">
             <Key className="w-5 h-5 icon-blue" />
           </div>
-          <h3 className="text-lg font-semibold text-themed-primary">Steam PICS Authentication</h3>
+          <h3 className="text-lg font-semibold text-themed-primary">{t('management.steamAuth.title')}</h3>
           <HelpPopover position="left" width={320}>
-            <HelpSection title="Authentication Modes">
+            <HelpSection title={t('management.steamAuth.help.authModes.title')}>
               <div className="space-y-1.5">
-                <HelpDefinition term="Anonymous" termColor="blue">
-                  Public games only, no Steam account needed
+                <HelpDefinition term={t('management.steamAuth.help.authModes.anonymous.term')} termColor="blue">
+                  {t('management.steamAuth.help.authModes.anonymous.description')}
                 </HelpDefinition>
-                <HelpDefinition term="Account Login" termColor="green">
-                  Access playtest and restricted games with your Steam account
+                <HelpDefinition term={t('management.steamAuth.help.authModes.accountLogin.term')} termColor="green">
+                  {t('management.steamAuth.help.authModes.accountLogin.description')}
                 </HelpDefinition>
               </div>
             </HelpSection>
 
-            <HelpSection title="Depot Mapping" variant="subtle">
-              Automatic mode rebuilds depot mappings after login.
-              Manual mode lets you rebuild when you choose.
+            <HelpSection title={t('management.steamAuth.help.depotMapping.title')} variant="subtle">
+              {t('management.steamAuth.help.depotMapping.description')}
             </HelpSection>
 
             <HelpNote type="info">
-              Account login requires V2 API. A V1 API key alone can access restricted games but does not allow login.
+              {t('management.steamAuth.help.note')}
             </HelpNote>
           </HelpPopover>
         </div>
@@ -159,7 +160,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
           <Alert color="red" className="mb-4" icon={<AlertTriangle className="w-5 h-5" />}>
             <div className="flex items-start gap-3">
               <div className="flex-1">
-                <p className="font-medium text-sm mb-1">Steam Session Auto-Logout</p>
+                <p className="font-medium text-sm mb-1">{t('management.steamAuth.autoLogout.title')}</p>
                 <p className="text-xs opacity-90">{autoLogoutMessage}</p>
               </div>
               <Button
@@ -168,7 +169,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                 onClick={clearAutoLogoutMessage}
                 className="bg-white/20 text-themed-button border-none hover:!bg-white/30"
               >
-                Dismiss
+                {t('common.dismiss')}
               </Button>
             </div>
           </Alert>
@@ -181,13 +182,13 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
               <Info className="w-5 h-5 flex-shrink-0 mt-0.5 icon-info" />
               <div className="flex-1">
                 <p className="font-medium text-sm mb-1 text-themed-info">
-                  Steam Account Login Unavailable
+                  {t('management.steamAuth.loginUnavailable')}
                 </p>
                 <p className="text-xs text-themed-info opacity-90">
-                  Steam account login requires V2 API which is currently unavailable.
+                  {t('management.steamAuth.v2Required')}
                   {hasV1ApiKey
-                    ? ' Your V1 API key already provides access to playtest/restricted games since it\'s tied to your Steam account.'
-                    : ' Configure a V1 API key above to access playtest/restricted games.'}
+                    ? ' ' + t('management.steamAuth.v1KeyProvides')
+                    : ' ' + t('management.steamAuth.configureV1Key')}
                 </p>
               </div>
             </div>
@@ -200,13 +201,13 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
             <div className="flex-1 min-w-0">
               <p className="text-themed-primary text-sm font-medium mb-1">
                 {steamAuthMode === 'authenticated'
-                  ? 'Logged in with Steam account'
-                  : 'Using anonymous mode'}
+                  ? t('management.steamAuth.status.loggedIn')
+                  : t('management.steamAuth.status.anonymous')}
               </p>
               <p className="text-xs text-themed-muted">
                 {steamAuthMode === 'authenticated'
-                  ? 'Can access playtest and restricted games'
-                  : 'Only public games available'}
+                  ? t('management.steamAuth.status.canAccessRestricted')
+                  : t('management.steamAuth.status.publicOnly')}
               </p>
             </div>
 
@@ -222,7 +223,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
             ) : (
               <div className="w-full sm:w-auto sm:min-w-[180px] px-3 py-2 rounded-lg text-center bg-themed-secondary border border-themed-primary">
                 <p className="text-sm text-themed-muted">
-                  {steamAuthMode === 'authenticated' ? 'Account Login' : 'Anonymous'}
+                  {steamAuthMode === 'authenticated' ? t('management.steamAuth.accountLogin') : t('management.steamAuth.anonymous')}
                 </p>
               </div>
             )}
@@ -234,12 +235,12 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="flex-1 min-w-0">
               <p className="text-themed-primary font-medium text-sm mb-1">
-                Depot Mapping After Login
+                {t('management.steamAuth.depotMappingAfterLogin')}
               </p>
               <p className="text-xs text-themed-muted">
                 {autoStartPics
-                  ? 'Automatically rebuild depot mappings after login'
-                  : 'Manually trigger depot mapping rebuild after login'}
+                  ? t('management.steamAuth.autoRebuild')
+                  : t('management.steamAuth.manualRebuild')}
               </p>
             </div>
             <div className="inline-flex rounded-lg p-0.5 bg-themed-secondary">
@@ -250,7 +251,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                   loading || mockMode || steamAuthDisabled ? 'opacity-50 cursor-not-allowed' : ''
                 } ${autoStartPics ? 'toggle-btn-active' : 'toggle-btn-inactive'}`}
               >
-                Automatic
+                {t('management.steamAuth.automatic')}
               </button>
               <button
                 onClick={() => handleAutoStartPicsChange(false)}
@@ -259,7 +260,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                   loading || mockMode || steamAuthDisabled ? 'opacity-50 cursor-not-allowed' : ''
                 } ${!autoStartPics ? 'toggle-btn-active' : 'toggle-btn-inactive'}`}
               >
-                Manual
+                {t('management.steamAuth.manual')}
               </button>
             </div>
           </div>
@@ -272,7 +273,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
               <div className="flex items-center justify-between">
                 <span className="text-sm">
                   <User className="w-4 h-4 inline mr-2" />
-                  Authenticated as <strong>{authenticatedUsername || 'Steam User'}</strong>
+                  {t('management.steamAuth.authenticatedAs')} <strong>{authenticatedUsername || t('management.steamAuth.steamUser')}</strong>
                 </span>
                 <Button
                   size="xs"
@@ -281,7 +282,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                   onClick={handleSwitchToAnonymous}
                   disabled={loading || mockMode}
                 >
-                  Logout
+                  {t('management.steamAuth.logout')}
                 </Button>
               </div>
             </Alert>

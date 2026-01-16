@@ -90,7 +90,7 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
 
   const modalContent = (
     <div
-      className={`modal-backdrop fixed inset-0 overflow-y-auto py-4 sm:py-8 transition-all duration-250 ease-out ${
+      className={`modal-backdrop fixed inset-0 overflow-y-auto overflow-x-hidden py-4 sm:py-8 transition-all duration-250 ease-out ${
         isAnimating ? 'bg-black/50 pointer-events-auto' : 'bg-transparent pointer-events-none'
       }`}
       style={{ zIndex }}
@@ -113,7 +113,7 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
               </button>
             </div>
           )}
-          <div className="p-4 sm:p-6 overflow-y-auto flex-1 min-h-0">{children}</div>
+          <div className="p-4 sm:p-6 overflow-y-auto overflow-x-hidden flex-1 min-h-0">{children}</div>
         </div>
       </div>
     </div>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Logs, PlayCircle } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
@@ -40,6 +41,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   onSuccess,
   onDataRefresh
 }) => {
+  const { t } = useTranslation();
   const [config, setConfig] = useState<Config | null>(null);
   const [logPositions, setLogPositions] = useState<DatasourceLogPosition[]>([]);
   const [loading, setLoading] = useState(true);
@@ -117,7 +119,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       // Note: Progress/completion notifications are handled via SignalR in NotificationsContext
       onDataRefresh?.();
     } catch (err: unknown) {
-      onError?.((err instanceof Error ? err.message : String(err)) || 'Failed to start processing');
+      onError?.((err instanceof Error ? err.message : String(err)) || t('management.datasources.errors.processingFailed'));
     } finally {
       setActionLoading(null);
     }
@@ -132,7 +134,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       // Note: Progress/completion notifications are handled via SignalR in NotificationsContext
       onDataRefresh?.();
     } catch (err: unknown) {
-      onError?.((err instanceof Error ? err.message : String(err)) || 'Failed to start processing');
+      onError?.((err instanceof Error ? err.message : String(err)) || t('management.datasources.errors.processingFailed'));
     } finally {
       setActionLoading(null);
     }
@@ -146,17 +148,17 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     try {
       if (datasourceName) {
         await ApiService.resetDatasourceLogPosition(datasourceName, position);
-        onSuccess?.(`Log position reset for ${datasourceName}`);
+        onSuccess?.(t('management.datasources.messages.positionReset', { datasource: datasourceName }));
       } else {
         await ApiService.resetLogPosition(position);
-        onSuccess?.('Log position reset for all datasources');
+        onSuccess?.(t('management.datasources.messages.positionResetAll'));
       }
       // Refresh positions
       const positions = await fetchLogPositions();
       setLogPositions(positions);
       onDataRefresh?.();
     } catch (err: unknown) {
-      onError?.((err instanceof Error ? err.message : String(err)) || 'Failed to reset position');
+      onError?.((err instanceof Error ? err.message : String(err)) || t('management.datasources.errors.resetFailed'));
     } finally {
       setActionLoading(null);
       setResetModal(null);
@@ -168,19 +170,23 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   };
 
   const formatPosition = (pos: DatasourceLogPosition | undefined): string => {
-    if (!pos) return 'Unknown';
-    if (pos.totalLines === 0) return 'No log file';
+    if (!pos) return t('management.datasources.position.unknown');
+    if (pos.totalLines === 0) return t('management.datasources.position.noLogFile');
 
     // When position equals or exceeds totalLines, we're "caught up" to where the log was
     // when last checked. The log may have grown since, so avoid showing misleading 100%.
     if (pos.position >= pos.totalLines) {
-      return `${pos.position.toLocaleString()} (caught up)`;
+      return t('management.datasources.position.caughtUp', { position: pos.position.toLocaleString() });
     }
 
     // Cap at 99% when not fully caught up to avoid misleading 100% display
     const rawPercent = (pos.position / pos.totalLines) * 100;
     const percent = Math.min(Math.round(rawPercent), 99);
-    return `${pos.position.toLocaleString()} / ${pos.totalLines.toLocaleString()} (${percent}%)`;
+    return t('management.datasources.position.progress', {
+      position: pos.position.toLocaleString(),
+      total: pos.totalLines.toLocaleString(),
+      percent
+    });
   };
 
   // Get datasources - ensure at least one exists
@@ -203,24 +209,24 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   // Help content
   const helpContent = (
     <HelpPopover position="left" width={320}>
-      <HelpSection title="Log Processing">
+      <HelpSection title={t('management.datasources.help.title')}>
         <div className="space-y-1.5">
-          <HelpDefinition term="Process" termColor="green">
-            Import log entries into the database from the current position
+          <HelpDefinition term={t('management.datasources.help.process.term')} termColor="green">
+            {t('management.datasources.help.process.description')}
           </HelpDefinition>
-          <HelpDefinition term="Reposition" termColor="blue">
-            Choose where processing starts: beginning (reprocess all) or end (new entries only)
+          <HelpDefinition term={t('management.datasources.help.reposition.term')} termColor="blue">
+            {t('management.datasources.help.reposition.description')}
           </HelpDefinition>
           {hasMultiple && (
-            <HelpDefinition term="Datasource" termColor="purple">
-              A named cache/logs pair for separate LANCache instances
+            <HelpDefinition term={t('management.datasources.help.datasource.term')} termColor="purple">
+              {t('management.datasources.help.datasource.description')}
             </HelpDefinition>
           )}
         </div>
       </HelpSection>
 
       <HelpNote type="info">
-        The Rust processor de-duplicates to avoid reimporting entries.
+        {t('management.datasources.help.note')}
       </HelpNote>
     </HelpPopover>
   );
@@ -234,7 +240,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
         onClick={() => setResetModal({ datasource: null, all: true })}
         disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated}
       >
-        Reposition
+        {t('management.datasources.reposition')}
       </Button>
       <Button
         variant="filled"
@@ -244,7 +250,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
         disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated}
         loading={actionLoading === 'all'}
       >
-        Process All
+        {t('common.processAll')}
       </Button>
     </div>
   );
@@ -255,12 +261,12 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
         <ManagerCardHeader
           icon={Logs}
           iconColor="purple"
-          title="Log Processing"
-          subtitle="Loading..."
+          title={t('management.datasources.title')}
+          subtitle={t('management.datasources.subtitleLoading')}
           helpContent={helpContent}
           permissions={{ logsReadOnly, checkingPermissions: true }}
         />
-        <LoadingState message="Loading datasources..." />
+        <LoadingState message={t('management.datasources.loadingDatasources')} />
       </Card>
     );
   }
@@ -271,10 +277,10 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
         <ManagerCardHeader
           icon={Logs}
           iconColor="purple"
-          title="Log Processing"
+          title={t('management.datasources.title')}
           subtitle={hasMultiple
-            ? `${datasources.length} datasources configured`
-            : 'Import historical data or monitor new downloads'}
+            ? t('management.datasources.subtitleMultiple', { count: datasources.length })
+            : t('management.datasources.subtitleSingle')}
           helpContent={helpContent}
           permissions={{ logsReadOnly, checkingPermissions: false }}
           actions={headerActions}
@@ -317,7 +323,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                         disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated || !ds.enabled}
                         className="flex-1 sm:flex-initial"
                       >
-                        Reposition
+                        {t('management.datasources.reposition')}
                       </Button>
                       <Button
                         variant="filled"
@@ -332,7 +338,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                         loading={actionLoading === `access-${ds.name}`}
                         className="flex-1 sm:flex-initial"
                       >
-                        Process
+                        {t('common.process')}
                       </Button>
                     </div>
                   </div>
@@ -349,20 +355,20 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
         onClose={() => setResetModal(null)}
         title={
           resetModal?.all
-            ? 'Reposition All Logs'
-            : `Reposition Log: ${resetModal?.datasource}`
+            ? t('management.datasources.modal.repositionAll')
+            : t('management.datasources.modal.repositionSingle', { datasource: resetModal?.datasource })
         }
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            Choose where to start processing logs from:
+            {t('management.datasources.modal.choosePosition')}
           </p>
 
           <div className="p-3 bg-themed-tertiary rounded-lg">
             <p className="text-xs text-themed-muted leading-relaxed">
-              <strong>Start from Beginning:</strong> Process entire log history (duplicate detection prevents reimporting)
+              <strong>{t('management.datasources.modal.startFromBeginning')}:</strong> {t('management.datasources.modal.beginningDescription')}
               <br />
-              <strong>Start from End:</strong> Monitor only new downloads going forward
+              <strong>{t('management.datasources.modal.startFromEnd')}:</strong> {t('management.datasources.modal.endDescription')}
             </p>
           </div>
 
@@ -374,7 +380,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
               loading={actionLoading?.startsWith('reset-')}
               fullWidth
             >
-              Start from Beginning
+              {t('management.datasources.modal.startFromBeginning')}
             </Button>
             <Button
               variant="default"
@@ -382,7 +388,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
               loading={actionLoading?.startsWith('reset-')}
               fullWidth
             >
-              Start from End
+              {t('management.datasources.modal.startFromEnd')}
             </Button>
             <Button
               variant="outline"
@@ -390,7 +396,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
               disabled={actionLoading !== null}
               fullWidth
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
           </div>
         </div>

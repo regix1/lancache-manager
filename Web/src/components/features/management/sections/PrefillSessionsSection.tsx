@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Container,
   Play,
@@ -63,6 +64,8 @@ const formatBytes = (bytes: number): string => {
 
 // Prefill history status badge - derives effective status from status + completedAtUtc
 const HistoryStatusBadge: React.FC<{ status: string; completedAtUtc?: string }> = ({ status, completedAtUtc }) => {
+  const { t } = useTranslation();
+  
   // Derive the effective status: if completedAtUtc is set but status is still InProgress,
   // the download actually completed (race condition with status update)
   const getEffectiveStatus = () => {
@@ -101,12 +104,12 @@ const HistoryStatusBadge: React.FC<{ status: string; completedAtUtc?: string }> 
   // Display capitalized version
   const getDisplayStatus = () => {
     switch (effectiveStatus) {
-      case 'completed': return 'Completed';
-      case 'inprogress': return 'In Progress';
-      case 'failed': return 'Failed';
-      case 'error': return 'Error';
-      case 'cancelled': return 'Cancelled';
-      case 'cached': return 'Cached';
+      case 'completed': return t('management.prefillSessions.historyStatusBadges.completed');
+      case 'inprogress': return t('management.prefillSessions.historyStatusBadges.inProgress');
+      case 'failed': return t('management.prefillSessions.historyStatusBadges.failed');
+      case 'error': return t('management.prefillSessions.historyStatusBadges.error');
+      case 'cancelled': return t('management.prefillSessions.historyStatusBadges.cancelled');
+      case 'cached': return t('management.prefillSessions.historyStatusBadges.cached');
       default: return status;
     }
   };
@@ -123,6 +126,8 @@ const HistoryStatusBadge: React.FC<{ status: string; completedAtUtc?: string }> 
 
 // Status badge component
 const StatusBadge: React.FC<{ status: string; isLive?: boolean }> = ({ status, isLive }) => {
+  const { t } = useTranslation();
+  
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
       case 'active':
@@ -154,12 +159,12 @@ const StatusBadge: React.FC<{ status: string; isLive?: boolean }> = ({ status, i
         {status}
       </span>
       {isLive && (
-        <Tooltip content="Session is currently active in memory">
+        <Tooltip content={t('management.prefillSessions.tooltips.sessionActive')}>
           <span
             className="px-1.5 py-0.5 rounded text-xs font-medium flex items-center gap-1 icon-bg-green icon-green"
           >
             <Play className="w-3 h-3" />
-            Live
+            {t('management.prefillSessions.statusBadges.live')}
           </span>
         </Tooltip>
       )}
@@ -172,6 +177,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   onError,
   onSuccess
 }) => {
+  const { t } = useTranslation();
   const { on, off } = useSignalR();
 
   // Sessions state
@@ -370,7 +376,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     setTerminatingSession(sessionId);
     try {
       await ApiService.terminatePrefillSession(sessionId, 'Terminated by admin');
-      onSuccess('Session terminated');
+      onSuccess(t('management.prefillSessions.actions.terminateSession'));
       await loadSessions();
     } catch (error) {
       onError(getErrorMessage(error));
@@ -400,7 +406,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     setBanningSession(banConfirm.sessionId);
     try {
       await ApiService.banSteamUserBySession(banConfirm.sessionId, banConfirm.reason || undefined);
-      onSuccess('User banned successfully');
+      onSuccess(t('management.prefillSessions.actions.banUser'));
       setBanConfirm(null);
       await Promise.all([loadSessions(), loadBans()]);
     } catch (error) {
@@ -415,7 +421,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     setLiftingBan(banId);
     try {
       await ApiService.liftSteamBan(banId);
-      onSuccess('Ban lifted successfully');
+      onSuccess(t('management.prefillSessions.actions.liftBan'));
       setLiftBanConfirm(null);
       await loadBans();
     } catch (error) {
@@ -438,10 +444,10 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold text-themed-primary mb-1">
-            Prefill Sessions
+            {t('management.prefillSessions.title')}
           </h2>
           <p className="text-themed-secondary text-sm">
-            Manage Steam Prefill daemon sessions and user bans
+            {t('management.prefillSessions.subtitle')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -462,7 +468,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               disabled={terminatingAll}
             >
               <StopCircle className="w-4 h-4" />
-              End All ({activeSessions.length})
+              {t('management.prefillSessions.endAll', { count: activeSessions.length })}
             </Button>
           )}
         </div>
@@ -477,7 +483,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             </div>
             <div>
               <div className="text-2xl font-bold text-themed-primary">{activeSessions.length}</div>
-              <div className="text-sm text-themed-muted">Active Sessions</div>
+              <div className="text-sm text-themed-muted">{t('management.prefillSessions.activeSessions')}</div>
             </div>
           </CardContent>
         </Card>
@@ -489,7 +495,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             </div>
             <div>
               <div className="text-2xl font-bold text-themed-primary">{totalCount}</div>
-              <div className="text-sm text-themed-muted">Total Sessions</div>
+              <div className="text-sm text-themed-muted">{t('management.prefillSessions.totalSessions')}</div>
             </div>
           </CardContent>
         </Card>
@@ -503,7 +509,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               <div className="text-2xl font-bold text-themed-primary">
                 {bans.filter(b => b.isActive).length}
               </div>
-              <div className="text-sm text-themed-muted">Active Bans</div>
+              <div className="text-sm text-themed-muted">{t('management.prefillSessions.activeBans')}</div>
             </div>
           </CardContent>
         </Card>
@@ -514,7 +520,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         <div className="flex items-center gap-2 mb-4">
           <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-green)]" />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            Live Sessions ({activeSessions.length})
+            {t('management.prefillSessions.liveSessions', { count: activeSessions.length })}
           </h3>
         </div>
 
@@ -522,16 +528,16 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
           <Card>
             <CardContent className="py-8 flex items-center justify-center">
               <Loader2 className="w-6 h-6 animate-spin text-themed-muted" />
-              <span className="ml-2 text-themed-muted">Loading sessions...</span>
+              <span className="ml-2 text-themed-muted">{t('management.prefillSessions.loadingSessions')}</span>
             </CardContent>
           </Card>
         ) : activeSessions.length === 0 ? (
           <Card>
             <CardContent className="py-8 text-center text-themed-muted">
               <Container className="w-12 h-12 mx-auto mb-3 opacity-50" />
-              <p className="mb-2">No active prefill sessions</p>
+              <p className="mb-2">{t('management.prefillSessions.noActiveSessions')}</p>
               <p className="text-sm">
-                Sessions appear here when users start Steam Prefill
+                {t('management.prefillSessions.noActiveSessionsDesc')}
               </p>
             </CardContent>
           </Card>
@@ -577,8 +583,8 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                           ) : (
                             <span className="text-sm text-themed-muted">
                               {session.authState === 'Authenticated'
-                                ? 'Unauthorized Steam account'
-                                : 'Not logged in session'}
+                                ? t('management.prefillSessions.labels.unauthorizedAccount')
+                                : t('management.prefillSessions.labels.notLoggedInSession')}
                             </span>
                           )}
                           <StatusBadge status={session.status} isLive />
@@ -588,7 +594,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                         {session.isPrefilling && (
                           <div className="flex items-center gap-2 mt-2 px-2 py-1.5 rounded-md bg-themed-tertiary">
                             <span className="text-sm font-medium icon-primary">
-                              {session.currentAppName || 'Loading...'}
+                              {session.currentAppName || t('management.prefillSessions.labels.loading')}
                             </span>
                             {(session.totalBytesTransferred ?? 0) > 0 && (
                               <span className="text-xs text-themed-muted">
@@ -634,7 +640,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                       {(gamesCount > 0 || totalBytesFromHistory > 0 || (!session.isPrefilling && (session.totalBytesTransferred ?? 0) > 0)) && (
                         <div className="flex items-center gap-2">
                           {gamesCount > 0 && (
-                            <Tooltip content={`${gamesCount} game${gamesCount !== 1 ? 's' : ''} prefilled`}>
+                            <Tooltip content={t('management.prefillSessions.tooltips.gamesPrefilled', { count: gamesCount })}>
                               <span className="px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 icon-bg-blue icon-primary">
                                 <Gamepad2 className="w-3.5 h-3.5" />
                                 {gamesCount}
@@ -642,7 +648,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                             </Tooltip>
                           )}
                           {(totalBytesFromHistory > 0 || (!session.isPrefilling && (session.totalBytesTransferred ?? 0) > 0)) && (
-                            <Tooltip content="Total data downloaded">
+                            <Tooltip content={t('management.prefillSessions.tooltips.totalDataDownloaded')}>
                               <span className="px-2 py-1 rounded-md text-xs font-medium icon-bg-green icon-green">
                                 {formatBytes(totalBytesFromHistory || session.totalBytesTransferred || 0)}
                               </span>
@@ -668,7 +674,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                         </Button>
                         {isAuthenticated && (
                           <>
-                            <Tooltip content="Ban this Steam user">
+                            <Tooltip content={t('management.prefillSessions.tooltips.banUser')}>
                             <Button
                               variant="subtle"
                               size="sm"
@@ -683,7 +689,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                               )}
                             </Button>
                           </Tooltip>
-                          <Tooltip content="Terminate session">
+                          <Tooltip content={t('management.prefillSessions.tooltips.terminateSession')}>
                             <Button
                               variant="subtle"
                               size="sm"
@@ -711,17 +717,17 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                     >
                       <div className="flex items-center gap-2 mb-3">
                         <Gamepad2 className="w-4 h-4 text-themed-muted" />
-                        <span className="text-sm font-medium text-themed-secondary">Prefill History</span>
+                        <span className="text-sm font-medium text-themed-secondary">{t('management.prefillSessions.labels.prefillHistory')}</span>
                       </div>
 
                       {loadingHistory.has(session.id) ? (
                         <div className="flex items-center gap-2 py-4 justify-center">
                           <Loader2 className="w-4 h-4 animate-spin text-themed-muted" />
-                          <span className="text-sm text-themed-muted">Loading history...</span>
+                          <span className="text-sm text-themed-muted">{t('management.prefillSessions.labels.loadingHistory')}</span>
                         </div>
                       ) : !historyData[session.id] || historyData[session.id].length === 0 ? (
                         <div className="text-center py-4 text-sm text-themed-muted">
-                          No prefill history yet
+                          {t('management.prefillSessions.labels.noPrefillHistoryYet')}
                         </div>
                       ) : (() => {
                         const allEntries = historyData[session.id];
@@ -735,9 +741,9 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                           <>
                             {/* Summary stats */}
                             <div className="flex items-center gap-4 mb-3 text-xs text-themed-muted">
-                              <span>{allEntries.length} game{allEntries.length !== 1 ? 's' : ''} prefilled</span>
+                              <span>{t('management.prefillSessions.labels.gamesPrefilled', { count: allEntries.length })}</span>
                               {totalBytes > 0 && (
-                                <span>Total: {formatBytes(totalBytes)}</span>
+                                <span>{t('management.prefillSessions.labels.total', { bytes: formatBytes(totalBytes) })}</span>
                               )}
                             </div>
 
@@ -790,7 +796,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                                   totalItems={allEntries.length}
                                   itemsPerPage={historyPageSize}
                                   onPageChange={(newPage) => setHistoryPage(prev => ({ ...prev, [session.id]: newPage }))}
-                                  itemLabel="games"
+                                  itemLabel={t('management.prefillSessions.labels.games')}
                                   compact
                                 />
                               </div>
@@ -814,22 +820,22 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
           <div className="flex items-center gap-2">
             <div className="w-1 h-5 rounded-full bg-[var(--theme-primary)]" />
             <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-              Session History ({totalCount})
+              {t('management.prefillSessions.sessionHistory', { count: totalCount })}
             </h3>
           </div>
 
           <div className="flex items-center gap-2">
             <EnhancedDropdown
               options={[
-                { value: '', label: 'All Statuses' },
-                { value: 'Active', label: 'Active' },
-                { value: 'Terminated', label: 'Terminated' },
-                { value: 'Orphaned', label: 'Orphaned' },
-                { value: 'Cleaned', label: 'Cleaned' }
+                { value: '', label: t('management.prefillSessions.statusFilters.all') },
+                { value: 'Active', label: t('management.prefillSessions.statusFilters.active') },
+                { value: 'Terminated', label: t('management.prefillSessions.statusFilters.terminated') },
+                { value: 'Orphaned', label: t('management.prefillSessions.statusFilters.orphaned') },
+                { value: 'Cleaned', label: t('management.prefillSessions.statusFilters.cleaned') }
               ] as DropdownOption[]}
               value={statusFilter}
               onChange={(value) => { setStatusFilter(value); setPage(1); }}
-              placeholder="All Statuses"
+              placeholder={t('management.prefillSessions.statusFilters.all')}
               compactMode
               className="min-w-[140px]"
               dropdownWidth="160px"
@@ -841,13 +847,13 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
           <Card>
             <CardContent className="py-8 flex items-center justify-center">
               <Loader2 className="w-6 h-6 animate-spin text-themed-muted" />
-              <span className="ml-2 text-themed-muted">Loading...</span>
+              <span className="ml-2 text-themed-muted">{t('management.prefillSessions.loading')}</span>
             </CardContent>
           </Card>
         ) : sessions.length === 0 ? (
           <Card>
             <CardContent className="py-8 text-center text-themed-muted">
-              <p>No sessions found</p>
+              <p>{t('management.prefillSessions.noSessionsFound')}</p>
             </CardContent>
           </Card>
         ) : (
@@ -897,13 +903,13 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                               ) : (
                                 <span className="text-sm text-themed-muted">
                                   {session.isAuthenticated
-                                    ? 'Unauthorized Steam account'
-                                    : 'Not logged in session'}
+                                    ? t('management.prefillSessions.labels.unauthorizedAccount')
+                                    : t('management.prefillSessions.labels.notLoggedInSession')}
                                 </span>
                               )}
                               <StatusBadge status={session.status} isLive={session.isLive} />
                               {session.isAuthenticated && (
-                                <Tooltip content="Steam authenticated">
+                                <Tooltip content={t('management.prefillSessions.tooltips.steamAuthenticated')}>
                                   <CheckCircle className="w-4 h-4 icon-green" />
                                 </Tooltip>
                               )}
@@ -940,7 +946,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                           {(gamesCount > 0 || totalBytesFromHistory > 0) && (
                             <div className="flex items-center gap-2">
                               {gamesCount > 0 && (
-                                <Tooltip content={`${gamesCount} game${gamesCount !== 1 ? 's' : ''} prefilled`}>
+                                <Tooltip content={t('management.prefillSessions.tooltips.gamesPrefilled', { count: gamesCount })}>
                                   <span className="px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 icon-bg-blue icon-primary">
                                     <Gamepad2 className="w-3.5 h-3.5" />
                                     {gamesCount}
@@ -948,7 +954,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                                 </Tooltip>
                               )}
                               {totalBytesFromHistory > 0 && (
-                                <Tooltip content="Total data downloaded">
+                                <Tooltip content={t('management.prefillSessions.tooltips.totalDataDownloaded')}>
                                   <span className="px-2 py-1 rounded-md text-xs font-medium icon-bg-green icon-green">
                                     {formatBytes(totalBytesFromHistory)}
                                   </span>
@@ -976,7 +982,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                             {isAuthenticated && session.isLive && (
                               <>
                                 {session.steamUsername && (
-                                  <Tooltip content="Ban this Steam user">
+                                  <Tooltip content={t('management.prefillSessions.tooltips.banUser')}>
                                     <Button
                                       variant="subtle"
                                       size="sm"
@@ -987,7 +993,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                                     </Button>
                                   </Tooltip>
                                 )}
-                                <Tooltip content="Terminate session">
+                                <Tooltip content={t('management.prefillSessions.tooltips.terminateSession')}>
                                   <Button
                                     variant="subtle"
                                     size="sm"
@@ -1015,17 +1021,17 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                         >
                           <div className="flex items-center gap-2 mb-3">
                             <Gamepad2 className="w-4 h-4 text-themed-muted" />
-                            <span className="text-sm font-medium text-themed-secondary">Prefill History</span>
+                            <span className="text-sm font-medium text-themed-secondary">{t('management.prefillSessions.labels.prefillHistory')}</span>
                           </div>
 
                           {loadingHistory.has(session.sessionId) ? (
                             <div className="flex items-center gap-2 py-4 justify-center">
                               <Loader2 className="w-4 h-4 animate-spin text-themed-muted" />
-                              <span className="text-sm text-themed-muted">Loading history...</span>
+                              <span className="text-sm text-themed-muted">{t('management.prefillSessions.labels.loadingHistory')}</span>
                             </div>
                           ) : !sessionHistory || sessionHistory.length === 0 ? (
                             <div className="text-center py-4 text-sm text-themed-muted">
-                              No prefill history recorded
+                              {t('management.prefillSessions.labels.noPrefillHistoryRecorded')}
                             </div>
                           ) : (() => {
                             const currentPage = historyPage[session.sessionId] || 1;
@@ -1037,9 +1043,9 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                               <>
                                 {/* Summary stats */}
                                 <div className="flex items-center gap-4 mb-3 text-xs text-themed-muted">
-                                  <span>{sessionHistory.length} game{sessionHistory.length !== 1 ? 's' : ''} prefilled</span>
+                                  <span>{t('management.prefillSessions.labels.gamesPrefilled', { count: sessionHistory.length })}</span>
                                   {totalBytesFromHistory > 0 && (
-                                    <span>Total: {formatBytes(totalBytesFromHistory)}</span>
+                                    <span>{t('management.prefillSessions.labels.total', { bytes: formatBytes(totalBytesFromHistory) })}</span>
                                   )}
                                 </div>
 
@@ -1092,7 +1098,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                                       totalItems={sessionHistory.length}
                                       itemsPerPage={historyPageSize}
                                       onPageChange={(newPage) => setHistoryPage(prev => ({ ...prev, [session.sessionId]: newPage }))}
-                                      itemLabel="games"
+                                      itemLabel={t('management.prefillSessions.labels.games')}
                                       compact
                                     />
                                   </div>
@@ -1116,7 +1122,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                   totalItems={totalCount}
                   itemsPerPage={pageSize}
                   onPageChange={setPage}
-                  itemLabel="sessions"
+                  itemLabel={t('management.prefillSessions.labels.sessions', 'sessions')}
                 />
               </div>
             )}
@@ -1130,12 +1136,12 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
           <div className="flex items-center gap-2">
             <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-red)]" />
             <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-              Banned Steam Users ({bans.filter(b => b.isActive).length})
+              {t('management.prefillSessions.bannedUsers.title', { count: bans.filter(b => b.isActive).length })}
             </h3>
           </div>
 
           <Checkbox
-            label="Show lifted bans"
+            label={t('management.prefillSessions.bannedUsers.showLifted')}
             checked={includeLifted}
             onChange={(e) => setIncludeLifted(e.target.checked)}
           />
@@ -1145,16 +1151,16 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
           <Card>
             <CardContent className="py-8 flex items-center justify-center">
               <Loader2 className="w-6 h-6 animate-spin text-themed-muted" />
-              <span className="ml-2 text-themed-muted">Loading bans...</span>
+              <span className="ml-2 text-themed-muted">{t('management.prefillSessions.bannedUsers.loadingBans')}</span>
             </CardContent>
           </Card>
         ) : bans.length === 0 ? (
           <Card>
             <CardContent className="py-8 text-center text-themed-muted">
               <Shield className="w-12 h-12 mx-auto mb-3 opacity-50" />
-              <p className="mb-2">No banned users</p>
+              <p className="mb-2">{t('management.prefillSessions.bannedUsers.noBannedUsers')}</p>
               <p className="text-sm">
-                Ban users from sessions to prevent them from using prefill
+                {t('management.prefillSessions.bannedUsers.noBannedUsersDesc')}
               </p>
             </CardContent>
           </Card>
@@ -1183,35 +1189,35 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="font-mono text-sm text-themed-primary">
-                            {ban.username || 'Unknown'}
+                            {ban.username || t('management.prefillSessions.bannedUsers.unknown')}
                           </span>
                           {ban.isActive ? (
                             <span className="px-2 py-0.5 rounded text-xs font-medium bg-[var(--theme-icon-red)] text-white">
-                              Active
+                              {t('management.prefillSessions.bannedUsers.active')}
                             </span>
                           ) : (
                             <span className="px-2 py-0.5 rounded text-xs font-medium bg-[var(--theme-text-muted)] text-white">
-                              Lifted
+                              {t('management.prefillSessions.bannedUsers.lifted')}
                             </span>
                           )}
                         </div>
                         <div className="flex items-center gap-3 text-xs text-themed-muted mt-1">
                           <span>
-                            Banned: <FormattedTimestamp timestamp={ban.bannedAtUtc} />
+                            {t('management.prefillSessions.bannedUsers.banned', { time: '' })}<FormattedTimestamp timestamp={ban.bannedAtUtc} />
                           </span>
                           {ban.banReason && (
                             <span className="truncate max-w-xs">
-                              Reason: {ban.banReason}
+                              {t('management.prefillSessions.bannedUsers.reason', { reason: ban.banReason })}
                             </span>
                           )}
                           {ban.expiresAtUtc && (
                             <span>
-                              Expires: <FormattedTimestamp timestamp={ban.expiresAtUtc} />
+                              {t('management.prefillSessions.bannedUsers.expires', { time: '' })}<FormattedTimestamp timestamp={ban.expiresAtUtc} />
                             </span>
                           )}
                           {ban.isLifted && ban.liftedAtUtc && (
                             <span>
-                              Lifted: <FormattedTimestamp timestamp={ban.liftedAtUtc} />
+                              {t('management.prefillSessions.bannedUsers.liftedAt', { time: '' })}<FormattedTimestamp timestamp={ban.liftedAtUtc} />
                             </span>
                           )}
                         </div>
@@ -1219,7 +1225,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                     </div>
 
                     {isAuthenticated && ban.isActive && (
-                      <Tooltip content="Lift this ban">
+                      <Tooltip content={t('management.prefillSessions.tooltips.liftBan')}>
                         <Button
                           variant="subtle"
                           size="sm"
@@ -1249,18 +1255,17 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         title={
           <div className="flex items-center gap-3">
             <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>Terminate All Sessions</span>
+            <span>{t('management.prefillSessions.modals.terminateAll.title')}</span>
           </div>
         }
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            This will terminate <strong>{activeSessions.length}</strong> active prefill session(s).
-            All Docker containers will be stopped and removed.
+            {t('management.prefillSessions.modals.terminateAll.message', { count: activeSessions.length })}
           </p>
 
           <Alert color="yellow">
-            <p className="text-sm">Users will need to restart their prefill sessions.</p>
+            <p className="text-sm">{t('management.prefillSessions.modals.terminateAll.warning')}</p>
           </Alert>
 
           <div className="flex justify-end gap-3 pt-2">
@@ -1269,7 +1274,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               onClick={() => setTerminateAllConfirm(false)}
               disabled={terminatingAll}
             >
-              Cancel
+              {t('management.prefillSessions.modals.terminateAll.cancel')}
             </Button>
             <Button
               variant="filled"
@@ -1277,7 +1282,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               onClick={handleTerminateAll}
               loading={terminatingAll}
             >
-              Terminate All
+              {t('management.prefillSessions.modals.terminateAll.confirm')}
             </Button>
           </div>
         </div>
@@ -1290,32 +1295,31 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         title={
           <div className="flex items-center gap-3">
             <Ban className="w-6 h-6 text-themed-error" />
-            <span>Ban Steam User</span>
+            <span>{t('management.prefillSessions.modals.ban.title')}</span>
           </div>
         }
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            This will ban the Steam user associated with this session.
-            They will not be able to log in to prefill in the future.
+            {t('management.prefillSessions.modals.ban.message')}
           </p>
 
           <div>
             <label className="block text-sm font-medium text-themed-secondary mb-1">
-              Reason (optional)
+              {t('management.prefillSessions.modals.ban.reasonLabel')}
             </label>
             <input
               type="text"
               value={banConfirm?.reason || ''}
               onChange={(e) => banConfirm && setBanConfirm({ ...banConfirm, reason: e.target.value })}
-              placeholder="Enter ban reason..."
+              placeholder={t('management.prefillSessions.modals.ban.reasonPlaceholder')}
               className="w-full px-3 py-2 rounded text-sm bg-themed-tertiary text-themed-primary border border-themed-primary"
             />
           </div>
 
           <Alert color="red">
             <p className="text-sm">
-              The ban is based on the Steam username. The same user cannot create a new session.
+              {t('management.prefillSessions.modals.ban.warning')}
             </p>
           </Alert>
 
@@ -1325,7 +1329,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               onClick={() => setBanConfirm(null)}
               disabled={banningSession !== null}
             >
-              Cancel
+              {t('management.prefillSessions.modals.ban.cancel')}
             </Button>
             <Button
               variant="filled"
@@ -1333,7 +1337,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               onClick={handleBanBySession}
               loading={banningSession !== null}
             >
-              Ban User
+              {t('management.prefillSessions.modals.ban.confirm')}
             </Button>
           </div>
         </div>
@@ -1346,24 +1350,24 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         title={
           <div className="flex items-center gap-3">
             <Shield className="w-6 h-6 text-themed-primary" />
-            <span>Lift Ban</span>
+            <span>{t('management.prefillSessions.modals.liftBan.title')}</span>
           </div>
         }
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            Are you sure you want to lift this ban? The user will be able to use prefill again.
+            {t('management.prefillSessions.modals.liftBan.message')}
           </p>
 
           {liftBanConfirm && (
             <div className="p-3 rounded bg-themed-tertiary">
               <div className="text-sm">
                 <span className="font-mono text-themed-primary">
-                  {liftBanConfirm.username || 'Unknown'}
+                  {liftBanConfirm.username || t('management.prefillSessions.bannedUsers.unknown')}
                 </span>
                 {liftBanConfirm.banReason && (
                   <div className="mt-2 text-themed-muted">
-                    Reason: {liftBanConfirm.banReason}
+                    {t('management.prefillSessions.bannedUsers.reason', { reason: liftBanConfirm.banReason })}
                   </div>
                 )}
               </div>
@@ -1376,14 +1380,14 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               onClick={() => setLiftBanConfirm(null)}
               disabled={liftingBan !== null}
             >
-              Cancel
+              {t('management.prefillSessions.modals.liftBan.cancel')}
             </Button>
             <Button
               variant="filled"
               onClick={() => liftBanConfirm && handleLiftBan(liftBanConfirm.id)}
               loading={liftingBan !== null}
             >
-              Lift Ban
+              {t('management.prefillSessions.modals.liftBan.confirm')}
             </Button>
           </div>
         </div>

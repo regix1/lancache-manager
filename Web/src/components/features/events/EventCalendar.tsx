@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
@@ -36,6 +37,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
   onEventClick,
   onDayClick
 }) => {
+  const { t } = useTranslation();
   const { useLocalTimezone } = useTimezone();
   const { settings } = useCalendarSettings();
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
@@ -61,19 +63,37 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [expandedDay]);
 
-  const monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
-  ];
+  const monthNames = useMemo(() => [
+    t('events.calendar.months.january'),
+    t('events.calendar.months.february'),
+    t('events.calendar.months.march'),
+    t('events.calendar.months.april'),
+    t('events.calendar.months.may'),
+    t('events.calendar.months.june'),
+    t('events.calendar.months.july'),
+    t('events.calendar.months.august'),
+    t('events.calendar.months.september'),
+    t('events.calendar.months.october'),
+    t('events.calendar.months.november'),
+    t('events.calendar.months.december')
+  ], [t]);
 
   // Week days order based on settings
   const weekDays = useMemo(() => {
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const days = [
+      t('events.calendar.weekDays.sun'),
+      t('events.calendar.weekDays.mon'),
+      t('events.calendar.weekDays.tue'),
+      t('events.calendar.weekDays.wed'),
+      t('events.calendar.weekDays.thu'),
+      t('events.calendar.weekDays.fri'),
+      t('events.calendar.weekDays.sat')
+    ];
     if (settings.weekStartDay === 'monday') {
       return [...days.slice(1), days[0]]; // Mon, Tue, Wed, Thu, Fri, Sat, Sun
     }
     return days;
-  }, [settings.weekStartDay]);
+  }, [settings.weekStartDay, t]);
 
   const currentYear = new Date().getFullYear();
   const startYear = currentYear - 5;
@@ -373,7 +393,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
               size="sm"
               onClick={goToToday}
             >
-              Today
+              {t('events.calendar.today')}
             </Button>
           )}
           <CalendarSettingsPopover />
@@ -385,9 +405,9 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
         {settings.showWeekNumbers && (
           <div
             className="text-center text-xs font-semibold py-2 text-[var(--theme-text-muted)]"
-            title="Week number"
+            title={t('events.calendar.weekNumber')}
           >
-            Wk
+            {t('events.calendar.weekAbbrev')}
           </div>
         )}
         {weekDays.map((day) => (
@@ -520,7 +540,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                               backgroundColor: 'var(--theme-primary)',
                               color: 'var(--theme-primary-text)'
                             }}
-                            title={`${eventCount} events - click to see all`}
+                            title={t('events.calendar.eventCountTooltip', { count: eventCount })}
                           >
                             {eventCount}
                           </button>
@@ -612,7 +632,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                         dayBars.push(
                           <Tooltip
                             key={`${spanEvent.event.id}-${week.weekIndex}-${col}`}
-                            content={`${spanEvent.event.name}${isEnded ? ' (Ended)' : ''}`}
+                            content={isEnded ? t('events.calendar.eventEnded', { name: spanEvent.event.name }) : spanEvent.event.name}
                             strategy="overlay"
                             className="pointer-events-auto"
                             style={{
@@ -653,7 +673,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                             >
                               {!settings.compactMode && (
                                 <>
-                                  {isEnded && <span style={{ marginRight: '4px' }}>(Ended)</span>}
+                                  {isEnded && <span style={{ marginRight: '4px' }}>{t('events.ended')}</span>}
                                   {spanEvent.event.name}
                                 </>
                               )}
@@ -668,7 +688,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                     return (
                       <Tooltip
                         key={`${spanEvent.event.id}-${week.weekIndex}`}
-                        content={`${spanEvent.event.name}${isEnded ? ' (Ended)' : ''}`}
+                        content={isEnded ? t('events.calendar.eventEnded', { name: spanEvent.event.name }) : spanEvent.event.name}
                         strategy="overlay"
                         className="pointer-events-auto"
                         style={{
@@ -780,7 +800,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
 
                   {/* Events count */}
                   <div className="px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-[var(--theme-text-muted)] border-b border-[var(--theme-border-secondary)]">
-                    {dayEvents.length} Event{dayEvents.length !== 1 ? 's' : ''}
+                    {t('events.calendar.eventCount', { count: dayEvents.length })}
                   </div>
 
                   {/* Events list */}
@@ -812,7 +832,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                               e.currentTarget.style.transform = 'translateX(0)';
                               e.currentTarget.style.backgroundColor = `color-mix(in srgb, ${colorVar} ${isEnded ? '12%' : '20%'}, transparent)`;
                             }}
-                            title={`${event.name}${isEnded ? ' (Ended)' : ''}`}
+                            title={isEnded ? t('events.calendar.eventEnded', { name: event.name }) : event.name}
                           >
                             <span
                               className="w-2 h-2 rounded-full flex-shrink-0"
@@ -841,18 +861,18 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
       {!hasEventsThisMonth && (
         <div className="mt-6 py-6 text-center rounded-lg border border-dashed border-[var(--theme-border-secondary)] bg-[color-mix(in_srgb,var(--theme-bg-tertiary)_50%,transparent)]">
           <p className="text-sm font-medium mb-1 text-[var(--theme-text-secondary)]">
-            No events in {monthNames[currentMonth.getMonth()]}
+            {t('events.calendar.emptyMonth', { month: monthNames[currentMonth.getMonth()] })}
           </p>
           <p className="text-xs text-[var(--theme-text-muted)]">
-            Click on any day to create an event
+            {t('events.calendar.emptyMonthHint')}
           </p>
         </div>
       )}
 
       {/* Legend/Help */}
-      <div className="mt-4 pt-4 flex items-center justify-between text-xs border-t border-[var(--theme-border-secondary)] text-[var(--theme-text-muted)]">
-        <span>Click on a day to create an event</span>
-        <span>Click on an event to edit</span>
+      <div className="mt-4 pt-4 flex flex-col gap-1 text-xs border-t border-[var(--theme-border-secondary)] text-[var(--theme-text-muted)] sm:flex-row sm:items-center sm:justify-between">
+        <span>{t('events.calendar.legend.create')}</span>
+        <span>{t('events.calendar.legend.edit')}</span>
       </div>
     </div>
   );

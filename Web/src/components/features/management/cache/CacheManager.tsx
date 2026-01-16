@@ -1,4 +1,5 @@
 import React, { useState, useEffect, use, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Server, AlertTriangle, FolderOpen, Clock, Loader2, RefreshCw } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
@@ -83,6 +84,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   onError,
   onSuccess
 }) => {
+  const { t } = useTranslation();
   const signalR = useSignalR();
 
   // Use the 'use' hook to load data
@@ -172,11 +174,11 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       await ApiService.setCacheDeleteMode(newMode);
       setDeleteMode(newMode);
       const modeDesc =
-        newMode === 'rsync' ? 'Rsync' : newMode === 'full' ? 'Remove All' : 'Preserve';
-      onSuccess?.(`Delete mode set to: ${modeDesc}`);
+        newMode === 'rsync' ? t('management.cache.deleteModes.rsync') : newMode === 'full' ? t('management.cache.deleteModes.removeAll') : t('management.cache.deleteModes.preserve');
+      onSuccess?.(t('management.cache.deleteModeSet', { mode: modeDesc }));
     } catch (err: unknown) {
       console.error('Failed to update delete mode:', err);
-      onError?.((err instanceof Error ? err.message : String(err)) || 'Failed to update delete mode');
+      onError?.((err instanceof Error ? err.message : String(err)) || t('management.cache.errors.updateDeleteMode'));
     } finally {
       setDeleteModeLoading(false);
       deleteModeChangeInProgressRef.current = false;
@@ -186,7 +188,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
 
   const handleClearCache = (datasourceName: string | null = null) => {
     if (authMode !== 'authenticated') {
-      onError?.('Full authentication required for management operations');
+      onError?.(t('common.fullAuthRequired'));
       return;
     }
 
@@ -216,7 +218,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       }
       // NotificationsContext handles success/error messages via SignalR
     } catch (err: unknown) {
-      onError?.('Failed to start cache clearing: ' + ((err instanceof Error ? err.message : String(err)) || 'Unknown error'));
+      onError?.(t('management.cache.errors.startCacheClearing', { error: (err instanceof Error ? err.message : String(err)) || t('common.unknownError') }));
       setIsCacheClearing(false);
     } finally {
       setActionLoading(false);
@@ -240,23 +242,22 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   // Help content
   const helpContent = (
     <HelpPopover position="left" width={300}>
-      <HelpSection title="Deletion Methods">
+      <HelpSection title={t('management.cache.help.title')}>
         <div className="space-y-1.5">
-          <HelpDefinition term="Preserve" termColor="blue">
-            Deletes files one by one and keeps the folder structure intact
+          <HelpDefinition term={t('management.cache.help.preserve.term')} termColor="blue">
+            {t('management.cache.help.preserve.description')}
           </HelpDefinition>
-          <HelpDefinition term="Remove All" termColor="green">
-            Deletes entire directories at once, fastest for local storage
+          <HelpDefinition term={t('management.cache.help.removeAll.term')} termColor="green">
+            {t('management.cache.help.removeAll.description')}
           </HelpDefinition>
-          <HelpDefinition term="Rsync" termColor="purple">
-            Uses rsync --delete, safest for network storage (NFS/SMB)
+          <HelpDefinition term={t('management.cache.help.rsync.term')} termColor="purple">
+            {t('management.cache.help.rsync.description')}
           </HelpDefinition>
         </div>
       </HelpSection>
 
       <HelpNote type="warning">
-        Clearing the cache deletes all cached game files.
-        Clients will need to download content again.
+        {t('management.cache.help.warning')}
       </HelpNote>
     </HelpPopover>
   );
@@ -264,14 +265,14 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   // Header actions
   const headerActions = (
     <div className="flex items-center gap-2">
-      <Tooltip content="Refresh cache size" position="top">
+      <Tooltip content={t('management.cache.refreshCacheSize')} position="top">
         <Button
           onClick={fetchCacheSize}
           disabled={cacheSizeLoading || isCacheClearing}
           variant="subtle"
           size="sm"
         >
-          {cacheSizeLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Refresh'}
+          {cacheSizeLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : t('common.refresh')}
         </Button>
       </Tooltip>
       {hasMultipleDatasources && !cacheReadOnly && (
@@ -288,9 +289,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
             cacheReadOnly
           }
           loading={actionLoading && !clearingDatasource}
-          title={cacheReadOnly ? 'Cache directory is mounted read-only' : undefined}
+          title={cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined}
         >
-          {isCacheClearing && !clearingDatasource ? 'Clearing...' : 'Clear All'}
+          {isCacheClearing && !clearingDatasource ? t('common.clearing') : t('common.clearAll')}
         </Button>
       )}
     </div>
@@ -302,8 +303,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
         <ManagerCardHeader
           icon={Server}
           iconColor="green"
-          title="Disk Cache Management"
-          subtitle="Clear cached game files from disk"
+          title={t('management.cache.title')}
+          subtitle={t('management.cache.subtitle')}
           helpContent={helpContent}
           permissions={{
             cacheReadOnly,
@@ -316,10 +317,11 @@ const CacheManager: React.FC<CacheManagerProps> = ({
         {cacheReadOnly && (
           <Alert color="orange" className="mb-6">
             <div>
-              <p className="font-medium">Cache directory is read-only</p>
+              <p className="font-medium">{t('management.cache.alerts.readOnly.title')}</p>
               <p className="text-sm mt-1">
-                Remove <code className="bg-themed-tertiary px-1 rounded">:ro</code> from your
-                docker-compose volume mounts to enable cache clearing.
+                {t('management.cache.alerts.readOnly.descriptionPrefix')}{' '}
+                <code className="bg-themed-tertiary px-1 rounded">:ro</code>{' '}
+                {t('management.cache.alerts.readOnly.descriptionSuffix')}
               </p>
             </div>
           </Alert>
@@ -361,9 +363,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                         }
                         loading={isCacheClearing && clearingDatasource === ds.name}
                         fullWidth
-                        title={!ds.cacheWritable ? 'Cache directory is read-only' : `Clear ${ds.name} cache`}
+                        title={!ds.cacheWritable ? t('management.cache.alerts.readOnly.title') : t('management.cache.clearDatasourceCache', { datasource: ds.name })}
                       >
-                        {isCacheClearing && clearingDatasource === ds.name ? 'Clearing...' : 'Clear Cache'}
+                        {isCacheClearing && clearingDatasource === ds.name ? t('common.clearing') : t('management.cache.clearCache')}
                       </Button>
                     </div>
                   </DatasourceListItem>
@@ -373,15 +375,15 @@ const CacheManager: React.FC<CacheManagerProps> = ({
               {/* Warning */}
               <p className="text-xs text-themed-muted flex items-center gap-1.5">
                 <AlertTriangle className="w-3.5 h-3.5 text-themed-accent flex-shrink-0" />
-                <span>Clearing cache deletes ALL cached game files from disk</span>
+                <span>{t('management.cache.clearingCacheDeletes')}</span>
               </p>
             </div>
 
             {/* Cache Size Info */}
             <div className="p-4 rounded-lg bg-themed-tertiary/30 mb-4">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-themed-primary font-medium text-sm">Cache Size</p>
-                <Tooltip content="Refresh cache size" position="top">
+                <p className="text-themed-primary font-medium text-sm">{t('management.cache.cacheSize')}</p>
+                <Tooltip content={t('management.cache.refreshCacheSize')} position="top">
                   <Button
                     variant="subtle"
                     size="sm"
@@ -402,34 +404,34 @@ const CacheManager: React.FC<CacheManagerProps> = ({
               ) : cacheSizeLoading && !cacheSize ? (
                 <div className="flex items-center gap-2 text-xs text-themed-muted">
                   <Loader2 className="w-3 h-3 animate-spin" />
-                  <span>Calculating cache size...</span>
+                  <span>{t('management.cache.calculatingSize')}</span>
                 </div>
               ) : cacheSize ? (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-themed-muted">Total Size</span>
+                    <span className="text-xs text-themed-muted">{t('management.cache.totalSize')}</span>
                     <span className="text-sm font-semibold text-themed-primary">{cacheSize.formattedSize}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-themed-muted">Files</span>
+                    <span className="text-xs text-themed-muted">{t('management.cache.files')}</span>
                     <span className="text-sm text-themed-secondary">{cacheSize.totalFiles.toLocaleString()}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-themed-muted">Directories</span>
+                    <span className="text-xs text-themed-muted">{t('management.cache.directories')}</span>
                     <span className="text-sm text-themed-secondary">{cacheSize.hexDirectories.toLocaleString()}</span>
                   </div>
                   {getEstimatedTime() && (
                     <div className="flex items-center justify-between pt-2 border-t border-themed-secondary">
                       <span className="text-xs text-themed-muted flex items-center gap-1">
                         <Clock className="w-3 h-3" />
-                        Est. deletion time
+                        {t('management.cache.estDeletionTime')}
                       </span>
                       <span className="text-sm text-themed-secondary">{getEstimatedTime()}</span>
                     </div>
                   )}
                 </div>
               ) : (
-                <p className="text-xs text-themed-muted">Click refresh to calculate cache size</p>
+                <p className="text-xs text-themed-muted">{t('management.cache.clickRefreshToCalculate')}</p>
               )}
             </div>
 
@@ -438,13 +440,13 @@ const CacheManager: React.FC<CacheManagerProps> = ({
               {/* Delete Mode Configuration */}
               <div className="space-y-3">
                 <div>
-                  <p className="text-themed-primary font-medium text-sm mb-1">Deletion Method</p>
+                  <p className="text-themed-primary font-medium text-sm mb-1">{t('management.cache.deletionMethod')}</p>
                   <p className="text-xs text-themed-muted">
                     {deleteMode === 'rsync'
-                      ? 'Rsync with empty directory (best for NFS/SMB)'
+                      ? t('management.cache.deletionMethods.rsyncDesc')
                       : deleteMode === 'full'
-                        ? 'Remove entire directories at once'
-                        : 'Delete files individually (keeps structure)'}
+                        ? t('management.cache.deletionMethods.fullDesc')
+                        : t('management.cache.deletionMethods.preserveDesc')}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -460,9 +462,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                       authMode !== 'authenticated' ||
                       cacheReadOnly
                     }
-                    title={cacheReadOnly ? 'Cache directory is read-only' : undefined}
+                    title={cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined}
                   >
-                    Preserve
+                    {t('management.cache.deleteModes.preserve')}
                   </Button>
                   <Button
                     size="sm"
@@ -476,9 +478,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                       authMode !== 'authenticated' ||
                       cacheReadOnly
                     }
-                    title={cacheReadOnly ? 'Cache directory is read-only' : undefined}
+                    title={cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined}
                   >
-                    Remove All
+                    {t('management.cache.deleteModes.removeAll')}
                   </Button>
                   {rsyncAvailable && (
                     <Button
@@ -493,9 +495,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                         authMode !== 'authenticated' ||
                         cacheReadOnly
                       }
-                      title={cacheReadOnly ? 'Cache directory is read-only' : undefined}
+                      title={cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined}
                     >
-                      Rsync
+                      {t('management.cache.deleteModes.rsync')}
                     </Button>
                   )}
                 </div>
@@ -515,7 +517,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
         title={
           <div className="flex items-center space-x-3">
             <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>{clearingDatasource ? `Clear ${clearingDatasource} Cache` : 'Clear All Caches'}</span>
+            <span>{clearingDatasource ? t('management.cache.confirmClear', { datasource: clearingDatasource }) : t('management.cache.confirmClearAll')}</span>
           </div>
         }
         size="md"
@@ -523,15 +525,12 @@ const CacheManager: React.FC<CacheManagerProps> = ({
         <div className="space-y-4">
           {clearingDatasource ? (
             <p className="text-themed-secondary">
-              This will permanently delete <strong>all cached game files</strong> from the <strong>{clearingDatasource}</strong> cache at{' '}
-              <code className="bg-themed-tertiary px-1 py-0.5 rounded">{datasources.find(ds => ds.name === clearingDatasource)?.cachePath || 'unknown'}</code>.
-              Games will need to redownload content after clearing.
+              {t('management.cache.modal.deleteFromDatasource', { datasource: clearingDatasource, path: datasources.find(ds => ds.name === clearingDatasource)?.cachePath || 'unknown' })}
             </p>
           ) : (
             <>
               <p className="text-themed-secondary">
-                This will permanently delete <strong>all cached game files</strong> from {datasources.length > 1 ? 'all datasources' : 'the cache'}.
-                Games will need to redownload content after clearing.
+                {t('management.cache.modal.deleteFromAll', { count: datasources.length })}
               </p>
               <div className="space-y-1.5 p-3 rounded-lg bg-themed-tertiary/50">
                 {datasources.map((ds) => (
@@ -547,11 +546,11 @@ const CacheManager: React.FC<CacheManagerProps> = ({
 
           <Alert color="yellow">
             <div>
-              <p className="text-sm font-medium mb-2">Important:</p>
+              <p className="text-sm font-medium mb-2">{t('management.cache.alerts.important')}</p>
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>This action cannot be undone</li>
-                <li>Stop all active downloads before proceeding</li>
-                <li>Download history and settings will be preserved</li>
+                <li>{t('management.cache.modal.cannotBeUndone')}</li>
+                <li>{t('management.cache.modal.stopActiveDownloads')}</li>
+                <li>{t('management.cache.modal.historyPreserved')}</li>
               </ul>
             </div>
           </Alert>
@@ -562,7 +561,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
               onClick={() => setShowConfirmModal(false)}
               disabled={actionLoading}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="filled"
@@ -570,7 +569,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
               onClick={startCacheClear}
               loading={actionLoading}
             >
-              {clearingDatasource ? `Delete ${clearingDatasource} Cache` : 'Delete All Caches'}
+              {clearingDatasource ? t('management.cache.modal.deleteDatasourceCache', { datasource: clearingDatasource }) : t('management.cache.modal.deleteAllCaches')}
             </Button>
           </div>
         </div>

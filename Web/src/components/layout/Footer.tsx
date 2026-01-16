@@ -1,4 +1,5 @@
 import React, { use } from 'react';
+import { useTranslation } from 'react-i18next';
 
 // Fetch version from API
 const fetchVersion = async (): Promise<string> => {
@@ -28,11 +29,12 @@ const getVersionPromise = () => {
 
 const Footer: React.FC = () => {
   const version = use(getVersionPromise());
+  const { t } = useTranslation();
 
   return (
     <footer className="py-4 text-center text-sm border-t bg-themed-nav border-themed-nav text-themed-secondary">
       <div className="container mx-auto px-4">
-        <p>LANCache Manager v{version}</p>
+        <p>{t('footer.version', { version })}</p>
       </div>
     </footer>
   );

@@ -4,6 +4,7 @@ import { Button } from '@components/ui/Button';
 import authService from '@services/auth.service';
 import { useGuestConfig } from '@contexts/GuestConfigContext';
 import { useSignalR } from '@contexts/SignalRContext';
+import { useTranslation } from 'react-i18next';
 
 interface DatabaseResetStatus {
   isResetting: boolean;
@@ -27,6 +28,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   subtitle = 'Please enter your API key to continue',
   allowGuestMode = true
 }) => {
+  const { t } = useTranslation();
   const { guestDurationHours, guestModeLocked: contextGuestModeLocked } = useGuestConfig();
   const { on, off } = useSignalR();
   const [apiKey, setApiKey] = useState('');
@@ -82,7 +84,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
         setResetStatus({
           isResetting: false,
           percentComplete: 100,
-          message: event.message || 'Database reset completed',
+          message: event.message || t('modals.auth.databaseReset.completed'),
           status: 'completed'
         });
         setResetJustCompleted(true);
@@ -91,7 +93,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
         setResetStatus({
           isResetting: false,
           percentComplete: 0,
-          message: event.message || 'Database reset failed',
+          message: event.message || t('modals.auth.databaseReset.failed'),
           status: 'error'
         });
         setResetJustCompleted(true);
@@ -100,7 +102,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
         setResetStatus({
           isResetting: true,
           percentComplete: event.percentComplete || 0,
-          message: event.message || 'Resetting database...',
+          message: event.message || t('modals.auth.databaseReset.resetting'),
           status: event.status || 'running'
         });
       }
@@ -152,7 +154,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
 
   const handleAuthenticate = async () => {
     if (!apiKey.trim()) {
-      setAuthError('API key is required');
+      setAuthError(t('modals.auth.errors.apiKeyRequired'));
       return;
     }
 
@@ -167,13 +169,13 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
           onAuthChanged?.();
           setTimeout(() => onAuthComplete(), 1000);
         } else {
-          setAuthError('Authentication succeeded but verification failed');
+          setAuthError(t('modals.auth.errors.verificationFailed'));
         }
       } else {
         setAuthError(result.message);
       }
     } catch (error: unknown) {
-      setAuthError((error instanceof Error ? error.message : String(error)) || 'Authentication failed');
+      setAuthError((error instanceof Error ? error.message : String(error)) || t('modals.auth.errors.authenticationFailed'));
     } finally {
       setAuthenticating(false);
     }
@@ -182,13 +184,13 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   const handleStartGuestMode = async () => {
     // Check if guest mode is locked first
     if (guestModeLocked) {
-      setAuthError('Guest mode is currently disabled by the administrator.');
+      setAuthError(t('modals.auth.errors.guestModeDisabled'));
       return;
     }
 
     const hasData = await checkDataAvailability();
     if (!hasData) {
-      setAuthError('Guest mode is not available. No data has been loaded yet.');
+      setAuthError(t('modals.auth.errors.guestModeNoData'));
       return;
     }
 
@@ -198,8 +200,8 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
       setTimeout(() => onAuthComplete(), 1000);
     } catch (err: unknown) {
       // Handle case where backend rejects (e.g., locked after button click)
-      const message = err instanceof Error ? err.message : 'Failed to start guest mode';
-      setAuthError(message.includes('disabled') ? message : 'Guest mode is currently unavailable.');
+      const message = err instanceof Error ? err.message : t('modals.auth.errors.failedToStartGuest');
+      setAuthError(message.includes('disabled') ? message : t('modals.auth.errors.guestModeUnavailable'));
     }
   };
 
@@ -247,8 +249,8 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
                     }`}
                   >
                     {resetJustCompleted
-                      ? 'Database Reset Complete'
-                      : 'Database Reset In Progress'}
+                      ? t('modals.auth.databaseReset.complete')
+                      : t('modals.auth.databaseReset.inProgress')}
                   </p>
                   <p
                     className={`text-xs mt-1 opacity-90 ${
@@ -256,8 +258,8 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
                     }`}
                   >
                     {resetJustCompleted
-                      ? 'You can now log in.'
-                      : resetStatus.message || 'Please wait...'}
+                      ? t('modals.auth.databaseReset.canLoginNow')
+                      : resetStatus.message || t('modals.auth.databaseReset.pleaseWait')}
                   </p>
                   {resetStatus.isResetting && resetStatus.percentComplete > 0 && (
                     <div className="mt-2">
@@ -286,8 +288,8 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
                   className={`text-sm ${guestModeLocked ? 'text-error' : 'text-themed-muted'}`}
                 >
                   {guestModeLocked
-                    ? 'Guest mode is currently disabled by the administrator.'
-                    : `Or continue as guest to view data for ${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''}.`}
+                    ? t('modals.auth.guestMode.disabled')
+                    : t('modals.auth.guestMode.available', { count: guestDurationHours })}
                 </span>
               </>
             )}
@@ -296,7 +298,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
           {/* API Key Form */}
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-themed-primary mb-2">API Key</label>
+              <label className="block text-sm font-medium text-themed-primary mb-2">{t('modals.auth.labels.apiKey')}</label>
               <input
                 type="text"
                 value={apiKey}
@@ -306,7 +308,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
                     handleAuthenticate();
                   }
                 }}
-                placeholder={resetStatus.isResetting ? 'Please wait for reset to complete...' : 'Enter your API key here...'}
+                placeholder={resetStatus.isResetting ? t('modals.auth.placeholders.waitForReset') : t('modals.auth.placeholders.enterApiKey')}
                 className="w-full p-3 text-sm themed-input"
                 disabled={authenticating || resetStatus.isResetting}
                 autoFocus={!resetStatus.isResetting}
@@ -328,7 +330,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
                 disabled={authenticating || !apiKey.trim() || resetStatus.isResetting}
                 fullWidth
               >
-                {resetStatus.isResetting ? 'Please Wait...' : authenticating ? 'Authenticating...' : 'Authenticate'}
+                {resetStatus.isResetting ? t('modals.auth.actions.pleaseWait') : authenticating ? t('modals.auth.actions.authenticating') : t('modals.auth.actions.authenticate')}
               </Button>
 
               {/* Show guest mode divider and button if allowed (disabled when locked) */}
@@ -336,7 +338,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
                 <>
                   <div className="flex items-center gap-4">
                     <div className="flex-1 h-px bg-themed-border-secondary" />
-                    <span className="text-xs text-themed-muted">OR</span>
+                    <span className="text-xs text-themed-muted">{t('modals.auth.labels.or')}</span>
                     <div className="flex-1 h-px bg-themed-border-secondary" />
                   </div>
 
@@ -348,17 +350,17 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
                     fullWidth
                     title={
                       guestModeLocked
-                        ? 'Guest mode is disabled by the administrator'
+                        ? t('modals.auth.guestMode.disabledTitle')
                         : !dataAvailable
-                        ? 'No data available. Complete setup first.'
-                        : `View data for ${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''}`
+                        ? t('modals.auth.guestMode.noDataTitle')
+                        : t('modals.auth.guestMode.viewDataTitle', { count: guestDurationHours })
                     }
                   >
                     {guestModeLocked
-                      ? 'Guest Mode (Disabled)'
+                      ? t('modals.auth.guestMode.disabledButton')
                       : !dataAvailable
-                      ? 'Guest Mode (No Data Available)'
-                      : `Continue as Guest (${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''})`}
+                      ? t('modals.auth.guestMode.noDataButton')
+                      : t('modals.auth.guestMode.continueButton', { count: guestDurationHours })}
                   </Button>
                 </>
               )}
@@ -368,10 +370,9 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
           {/* API Key Help */}
           <div className="mt-6 p-4 rounded-lg border bg-info border-info text-info-text">
             <p className="text-sm">
-              <strong>Where to find your API key:</strong>
+              <strong>{t('modals.auth.help.title')}</strong>
               <br />
-              The API key was displayed when you first started the server. Check your server logs
-              for "API Key:" or look in the <code>data/api_key.txt</code> file.
+              {t('modals.auth.help.description')}
             </p>
           </div>
 

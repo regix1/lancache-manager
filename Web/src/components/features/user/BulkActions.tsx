@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { AlertTriangle, RotateCcw, Eraser } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
@@ -12,6 +13,7 @@ interface BulkActionsProps {
 }
 
 const BulkActions: React.FC<BulkActionsProps> = ({ onSessionsChange }) => {
+  const { t } = useTranslation();
   const [bulkActionInProgress, setBulkActionInProgress] = useState<string | null>(null);
   const [showBulkResetConfirm, setShowBulkResetConfirm] = useState(false);
   const [showClearGuestsConfirm, setShowClearGuestsConfirm] = useState(false);
@@ -26,14 +28,14 @@ const BulkActions: React.FC<BulkActionsProps> = ({ onSessionsChange }) => {
 
       if (response.ok) {
         const data = await response.json();
-        showToast('success', `Reset ${data.affectedCount} guest sessions to defaults`);
+        showToast('success', t('user.bulkActions.resetSuccess', { count: data.affectedCount }));
         setShowBulkResetConfirm(false);
       } else {
         const errorData = await response.json();
-        showToast('error', errorData.error || 'Failed to reset guest sessions');
+        showToast('error', errorData.error || t('user.bulkActions.errors.resetFailed'));
       }
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || 'Failed to reset guest sessions');
+      showToast('error', getErrorMessage(err) || t('user.bulkActions.errors.resetFailed'));
     } finally {
       setBulkActionInProgress(null);
     }
@@ -49,15 +51,15 @@ const BulkActions: React.FC<BulkActionsProps> = ({ onSessionsChange }) => {
 
       if (response.ok) {
         const data = await response.json();
-        showToast('success', `Cleared ${data.clearedCount} guest sessions`);
+        showToast('success', t('user.bulkActions.clearSuccess', { count: data.clearedCount }));
         onSessionsChange();
         setShowClearGuestsConfirm(false);
       } else {
         const errorData = await response.json();
-        showToast('error', errorData.error || 'Failed to clear guest sessions');
+        showToast('error', errorData.error || t('user.bulkActions.errors.clearFailed'));
       }
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || 'Failed to clear guest sessions');
+      showToast('error', getErrorMessage(err) || t('user.bulkActions.errors.clearFailed'));
     } finally {
       setBulkActionInProgress(null);
     }
@@ -70,10 +72,10 @@ const BulkActions: React.FC<BulkActionsProps> = ({ onSessionsChange }) => {
           <div>
             <h3 className="text-base font-semibold flex items-center gap-2 text-themed-primary">
               <AlertTriangle className="w-4 h-4 text-themed-warning" />
-              Bulk Actions
+              {t('user.bulkActions.title')}
             </h3>
             <p className="text-sm mt-1 text-themed-muted">
-              Apply actions to all guest sessions at once
+              {t('user.bulkActions.subtitle')}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -85,7 +87,7 @@ const BulkActions: React.FC<BulkActionsProps> = ({ onSessionsChange }) => {
               loading={bulkActionInProgress === 'reset'}
               leftSection={<RotateCcw className="w-4 h-4" />}
             >
-              Reset to Defaults
+              {t('user.bulkActions.buttons.reset')}
             </Button>
             <Button
               variant="outline"
@@ -96,7 +98,7 @@ const BulkActions: React.FC<BulkActionsProps> = ({ onSessionsChange }) => {
               loading={bulkActionInProgress === 'clear'}
               leftSection={<Eraser className="w-4 h-4" />}
             >
-              Clear All Guests
+              {t('user.bulkActions.buttons.clear')}
             </Button>
           </div>
         </div>
@@ -113,24 +115,24 @@ const BulkActions: React.FC<BulkActionsProps> = ({ onSessionsChange }) => {
         title={
           <div className="flex items-center space-x-3">
             <RotateCcw className="w-6 h-6 text-themed-warning" />
-            <span>Reset All Guests to Defaults</span>
+            <span>{t('user.bulkActions.resetModal.title')}</span>
           </div>
         }
         size="md"
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            Are you sure you want to reset all guest session preferences to the default values?
+            {t('user.bulkActions.resetModal.message')}
           </p>
 
           <Alert color="yellow">
             <div>
-              <p className="text-sm font-medium mb-2">This action will:</p>
+              <p className="text-sm font-medium mb-2">{t('user.bulkActions.resetModal.noteTitle')}</p>
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>Reset theme to default guest theme</li>
-                <li>Reset refresh rate to default guest refresh rate</li>
-                <li>Reset all display and timezone preferences</li>
-                <li>Guest sessions will remain active</li>
+                <li>{t('user.bulkActions.resetModal.points.theme')}</li>
+                <li>{t('user.bulkActions.resetModal.points.refreshRate')}</li>
+                <li>{t('user.bulkActions.resetModal.points.preferences')}</li>
+                <li>{t('user.bulkActions.resetModal.points.active')}</li>
               </ul>
             </div>
           </Alert>
@@ -141,7 +143,7 @@ const BulkActions: React.FC<BulkActionsProps> = ({ onSessionsChange }) => {
               onClick={() => setShowBulkResetConfirm(false)}
               disabled={!!bulkActionInProgress}
             >
-              Cancel
+              {t('actions.cancel')}
             </Button>
             <Button
               variant="filled"
@@ -149,7 +151,7 @@ const BulkActions: React.FC<BulkActionsProps> = ({ onSessionsChange }) => {
               onClick={handleBulkResetToDefaults}
               loading={bulkActionInProgress === 'reset'}
             >
-              Reset All Guests
+              {t('user.bulkActions.resetModal.confirm')}
             </Button>
           </div>
         </div>
@@ -166,23 +168,23 @@ const BulkActions: React.FC<BulkActionsProps> = ({ onSessionsChange }) => {
         title={
           <div className="flex items-center space-x-3">
             <Eraser className="w-6 h-6 text-themed-error" />
-            <span>Clear All Guest Sessions</span>
+            <span>{t('user.bulkActions.clearModal.title')}</span>
           </div>
         }
         size="md"
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            Are you sure you want to remove all guest sessions? This action cannot be undone.
+            {t('user.bulkActions.clearModal.message')}
           </p>
 
           <Alert color="red">
             <div>
-              <p className="text-sm font-medium mb-2">Warning:</p>
+              <p className="text-sm font-medium mb-2">{t('user.bulkActions.clearModal.noteTitle')}</p>
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>All guest sessions will be permanently deleted</li>
-                <li>All connected guests will be logged out immediately</li>
-                <li>Guest preferences and session data will be lost</li>
+                <li>{t('user.bulkActions.clearModal.points.deleted')}</li>
+                <li>{t('user.bulkActions.clearModal.points.logout')}</li>
+                <li>{t('user.bulkActions.clearModal.points.data')}</li>
               </ul>
             </div>
           </Alert>
@@ -193,7 +195,7 @@ const BulkActions: React.FC<BulkActionsProps> = ({ onSessionsChange }) => {
               onClick={() => setShowClearGuestsConfirm(false)}
               disabled={!!bulkActionInProgress}
             >
-              Cancel
+              {t('actions.cancel')}
             </Button>
             <Button
               variant="filled"
@@ -201,7 +203,7 @@ const BulkActions: React.FC<BulkActionsProps> = ({ onSessionsChange }) => {
               onClick={handleClearAllGuests}
               loading={bulkActionInProgress === 'clear'}
             >
-              Clear All Guests
+              {t('user.bulkActions.clearModal.confirm')}
             </Button>
           </div>
         </div>

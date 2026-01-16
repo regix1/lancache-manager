@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Calendar, Clock, ChevronRight, Zap, History, CalendarClock, Loader2, Pencil, BarChart3 } from 'lucide-react';
 import { useTimezone } from '@contexts/TimezoneContext';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
@@ -17,14 +18,14 @@ interface EventDownloadsCache {
 }
 
 // Group downloads by game name - moved outside component
-const groupDownloadsByGame = (downloads: Download[]) => {
+const groupDownloadsByGame = (downloads: Download[], unknownLabel: string) => {
   const grouped: { [key: string]: { name: string; service: string; totalBytes: number; count: number } } = {};
 
   downloads.forEach(d => {
-    const key = `${d.service}-${d.gameName || 'Unknown'}`;
+    const key = `${d.service}-${d.gameName || unknownLabel}`;
     if (!grouped[key]) {
       grouped[key] = {
-        name: d.gameName || 'Unknown',
+        name: d.gameName || unknownLabel,
         service: d.service,
         totalBytes: 0,
         count: 0
@@ -63,9 +64,10 @@ const EventCard: React.FC<EventCardProps> = ({
   formatDateTime,
   formatDuration
 }) => {
+  const { t } = useTranslation();
   const downloads = cacheEntry?.downloads || [];
   const isLoading = cacheEntry?.loading || false;
-  const groupedDownloads = groupDownloadsByGame(downloads);
+  const groupedDownloads = groupDownloadsByGame(downloads, t('events.list.unknownGame'));
 
   const colorVar = getEventColorVar(event.colorIndex);
 
@@ -109,7 +111,11 @@ const EventCard: React.FC<EventCardProps> = ({
                 {status === 'active' && (
                   <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: colorVar }} />
                 )}
-                {status === 'active' ? 'Live' : status === 'upcoming' ? 'Upcoming' : 'Ended'}
+                {status === 'active'
+                  ? t('events.list.status.live')
+                  : status === 'upcoming'
+                  ? t('events.list.status.upcoming')
+                  : t('events.list.status.ended')}
               </span>
 
               <h3 className="font-semibold truncate text-[var(--theme-text-primary)]">
@@ -139,7 +145,7 @@ const EventCard: React.FC<EventCardProps> = ({
 
           {/* Action buttons */}
           <div className="flex gap-2 flex-shrink-0">
-            <Tooltip content="View stats on dashboard" position="top">
+            <Tooltip content={t('events.list.tooltips.viewStats')} position="top">
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -150,7 +156,7 @@ const EventCard: React.FC<EventCardProps> = ({
                 <BarChart3 className="w-4 h-4 text-[var(--theme-text-secondary)]" />
               </button>
             </Tooltip>
-            <Tooltip content="Edit event" position="top">
+            <Tooltip content={t('events.list.tooltips.edit')} position="top">
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -172,21 +178,21 @@ const EventCard: React.FC<EventCardProps> = ({
             <div className="flex items-center justify-center py-4 gap-2">
               <Loader2 className="w-4 h-4 animate-spin text-[var(--theme-primary)]" />
               <span className="text-sm text-[var(--theme-text-secondary)]">
-                Loading downloads...
+                {t('events.list.loadingDownloads')}
               </span>
             </div>
           ) : groupedDownloads.length === 0 ? (
             <p className="text-sm text-center py-4 text-[var(--theme-text-muted)]">
-              No downloads recorded during this event
+              {t('events.list.emptyDownloads')}
             </p>
           ) : (
             <div className="space-y-2">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-medium text-[var(--theme-text-secondary)]">
-                  Games downloaded during event
+                  {t('events.list.gamesDuringEvent')}
                 </span>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--theme-bg-secondary)] text-[var(--theme-text-muted)]">
-                  {groupedDownloads.length} game{groupedDownloads.length !== 1 ? 's' : ''}
+                  {t('events.list.gameCount', { count: groupedDownloads.length })}
                 </span>
               </div>
               {groupedDownloads.slice(0, 10).map((game, idx) => (
@@ -214,7 +220,7 @@ const EventCard: React.FC<EventCardProps> = ({
               ))}
               {groupedDownloads.length > 10 && (
                 <p className="text-xs text-center pt-2 text-[var(--theme-text-muted)]">
-                  +{groupedDownloads.length - 10} more games
+                  {t('events.list.moreGames', { count: groupedDownloads.length - 10 })}
                 </p>
               )}
             </div>
@@ -231,6 +237,7 @@ interface EventListProps {
 }
 
 const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
+  const { t } = useTranslation();
   const { use24HourFormat } = useTimezone();
   const { setTimeRange, setSelectedEventIds } = useTimeFilter();
   const [expandedEventId, setExpandedEventId] = useState<number | null>(null);
@@ -287,12 +294,12 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
 
     if (days > 0) {
       if (remainingHours > 0) {
-        return `${days}d ${remainingHours}h`;
+        return t('events.list.duration.daysHours', { days, hours: remainingHours });
       }
-      return `${days} day${days > 1 ? 's' : ''}`;
+      return t('events.list.duration.days', { count: days });
     }
-    return `${hours} hour${hours !== 1 ? 's' : ''}`;
-  }, []);
+    return t('events.list.duration.hours', { count: hours });
+  }, [t]);
 
   const fetchEventDownloads = useCallback(async (eventId: number) => {
     // Already fetching or fetched
@@ -389,10 +396,10 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
           <CalendarClock className="w-8 h-8 text-[var(--theme-text-muted)]" />
         </div>
         <h3 className="text-lg font-semibold mb-2 text-[var(--theme-text-primary)]">
-          No Events
+          {t('events.list.empty.title')}
         </h3>
         <p className="text-sm max-w-sm mx-auto text-[var(--theme-text-secondary)]">
-          Create your first event to start tracking downloads during LAN parties.
+          {t('events.list.empty.description')}
         </p>
       </div>
     );
@@ -405,7 +412,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
         <div>
           <SectionHeader
             icon={<Zap className="w-3.5 h-3.5" style={{ color: 'var(--theme-status-success)' }} />}
-            title="Active Events"
+            title={t('events.list.sections.active')}
             count={groupedEvents.active.length}
             color="var(--theme-status-success)"
             pulse
@@ -435,7 +442,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
         <div>
           <SectionHeader
             icon={<CalendarClock className="w-3.5 h-3.5" style={{ color: 'var(--theme-primary)' }} />}
-            title="Upcoming Events"
+            title={t('events.list.sections.upcoming')}
             count={groupedEvents.upcoming.length}
             color="var(--theme-primary)"
           />
@@ -464,7 +471,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
         <div>
           <SectionHeader
             icon={<History className="w-3.5 h-3.5" style={{ color: 'var(--theme-text-muted)' }} />}
-            title="Past Events"
+            title={t('events.list.sections.past')}
             count={groupedEvents.past.length}
             color="var(--theme-text-muted)"
           />

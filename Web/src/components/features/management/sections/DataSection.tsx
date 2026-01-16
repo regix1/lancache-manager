@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Database,
   AlertTriangle
@@ -25,108 +26,6 @@ interface DataSectionProps {
   onDataRefresh: () => void;
 }
 
-// Table definitions with descriptions and affected pages
-const tables = [
-  {
-    name: 'LogEntries',
-    label: 'Log Entries',
-    description: 'Raw access log entries from nginx cache logs',
-    details: 'Individual log line records used for analytics and reporting',
-    affectedPages: 'Dashboard • Downloads • Analytics • Charts'
-  },
-  {
-    name: 'Downloads',
-    label: 'Downloads',
-    description: 'Download records with game associations and statistics',
-    details: 'Tracked downloads with game names, sizes, and timestamps',
-    affectedPages: 'Dashboard • Downloads • Clients • Analytics'
-  },
-  {
-    name: 'ClientStats',
-    label: 'Client Statistics',
-    description: 'Per-client download statistics and metrics',
-    details: 'Bandwidth and download counts grouped by IP address',
-    affectedPages: 'Dashboard • Clients tab'
-  },
-  {
-    name: 'ServiceStats',
-    label: 'Service Statistics',
-    description: 'Per-service (Steam, Epic, etc.) download statistics',
-    details: 'Total downloads and bandwidth usage by CDN service',
-    affectedPages: 'Dashboard service cards • Charts'
-  },
-  {
-    name: 'SteamDepotMappings',
-    label: 'Steam Depot Mappings',
-    description: 'Depot ID to game name associations from SteamKit',
-    details: 'Mappings used to identify which game a depot belongs to. Also clears game names from existing downloads.',
-    affectedPages: 'Dashboard • Downloads • All game name displays'
-  },
-  {
-    name: 'CachedGameDetections',
-    label: 'Cache Detection Results',
-    description: 'Cached results from game and service detection scans',
-    details: 'Pre-computed game and service detections from cache files to speed up dashboard loading',
-    affectedPages: 'Cache tab • Game detection cards'
-  },
-  {
-    name: 'CachedCorruptionDetections',
-    label: 'Corruption Detection Cache',
-    description: 'Cached results from cache file corruption analysis',
-    details: 'Pre-computed corruption detection results to speed up corruption status checks',
-    affectedPages: 'Cache tab • Corruption detection'
-  },
-  {
-    name: 'ClientGroups',
-    label: 'Client Groups',
-    description: 'Named groups for organizing clients/machines',
-    details: 'User-defined groups with nicknames and colors. Also clears group member associations.',
-    affectedPages: 'Clients tab • Client group labels'
-  },
-  {
-    name: 'Events',
-    label: 'Events',
-    description: 'Custom events for tracking LAN parties and gaming sessions',
-    details: 'User-created events with date ranges. Clears associated download links via cascade.',
-    affectedPages: 'Events tab • Downloads event filters'
-  },
-  {
-    name: 'EventDownloads',
-    label: 'Event Download Links',
-    description: 'Associations between events and downloads',
-    details: 'Links connecting downloads to events (both auto-tagged and manual)',
-    affectedPages: 'Events tab • Downloads event tags'
-  },
-  {
-    name: 'PrefillSessions',
-    label: 'Prefill Sessions',
-    description: 'Steam-lancache-prefill session tracking',
-    details: 'Active and historical prefill sessions with status and configuration. Also clears prefill history.',
-    affectedPages: 'Management → Prefill Sessions section'
-  },
-  {
-    name: 'BannedSteamUsers',
-    label: 'Banned Steam Users',
-    description: 'Steam accounts blocked from prefill operations',
-    details: 'Users banned due to authentication failures or rate limiting',
-    affectedPages: 'Management → Prefill Sessions section'
-  },
-  {
-    name: 'UserSessions',
-    label: 'User Sessions',
-    description: 'Active and historical user session records',
-    details: 'Session tracking with device info, IP addresses, and authentication status',
-    affectedPages: 'All users will be logged out'
-  },
-  {
-    name: 'UserPreferences',
-    label: 'User Preferences',
-    description: 'Per-session user interface preferences',
-    details: 'Theme selections and UI customization settings linked to sessions',
-    affectedPages: 'Theme and UI settings reset to defaults'
-  }
-];
-
 const DataSection: React.FC<DataSectionProps> = ({
   isAuthenticated,
   authMode,
@@ -137,6 +36,8 @@ const DataSection: React.FC<DataSectionProps> = ({
   onSuccess,
   onDataRefresh
 }) => {
+  const { t } = useTranslation();
+
   // Database Manager State
   const [loading, setLoading] = useState(false);
   const [showClearModal, setShowClearModal] = useState(false);
@@ -145,6 +46,108 @@ const DataSection: React.FC<DataSectionProps> = ({
 
   // Depot Manager State
   const [depotActionLoading, setDepotActionLoading] = useState(false);
+
+  // Get table definitions from translations
+  const tables = [
+    {
+      name: 'LogEntries',
+      label: t('management.sections.data.tables.logEntries.label'),
+      description: t('management.sections.data.tables.logEntries.description'),
+      details: t('management.sections.data.tables.logEntries.details'),
+      affectedPages: t('management.sections.data.tables.logEntries.affectedPages')
+    },
+    {
+      name: 'Downloads',
+      label: t('management.sections.data.tables.downloads.label'),
+      description: t('management.sections.data.tables.downloads.description'),
+      details: t('management.sections.data.tables.downloads.details'),
+      affectedPages: t('management.sections.data.tables.downloads.affectedPages')
+    },
+    {
+      name: 'ClientStats',
+      label: t('management.sections.data.tables.clientStats.label'),
+      description: t('management.sections.data.tables.clientStats.description'),
+      details: t('management.sections.data.tables.clientStats.details'),
+      affectedPages: t('management.sections.data.tables.clientStats.affectedPages')
+    },
+    {
+      name: 'ServiceStats',
+      label: t('management.sections.data.tables.serviceStats.label'),
+      description: t('management.sections.data.tables.serviceStats.description'),
+      details: t('management.sections.data.tables.serviceStats.details'),
+      affectedPages: t('management.sections.data.tables.serviceStats.affectedPages')
+    },
+    {
+      name: 'SteamDepotMappings',
+      label: t('management.sections.data.tables.steamDepotMappings.label'),
+      description: t('management.sections.data.tables.steamDepotMappings.description'),
+      details: t('management.sections.data.tables.steamDepotMappings.details'),
+      affectedPages: t('management.sections.data.tables.steamDepotMappings.affectedPages')
+    },
+    {
+      name: 'CachedGameDetections',
+      label: t('management.sections.data.tables.cachedGameDetections.label'),
+      description: t('management.sections.data.tables.cachedGameDetections.description'),
+      details: t('management.sections.data.tables.cachedGameDetections.details'),
+      affectedPages: t('management.sections.data.tables.cachedGameDetections.affectedPages')
+    },
+    {
+      name: 'CachedCorruptionDetections',
+      label: t('management.sections.data.tables.cachedCorruptionDetections.label'),
+      description: t('management.sections.data.tables.cachedCorruptionDetections.description'),
+      details: t('management.sections.data.tables.cachedCorruptionDetections.details'),
+      affectedPages: t('management.sections.data.tables.cachedCorruptionDetections.affectedPages')
+    },
+    {
+      name: 'ClientGroups',
+      label: t('management.sections.data.tables.clientGroups.label'),
+      description: t('management.sections.data.tables.clientGroups.description'),
+      details: t('management.sections.data.tables.clientGroups.details'),
+      affectedPages: t('management.sections.data.tables.clientGroups.affectedPages')
+    },
+    {
+      name: 'Events',
+      label: t('management.sections.data.tables.events.label'),
+      description: t('management.sections.data.tables.events.description'),
+      details: t('management.sections.data.tables.events.details'),
+      affectedPages: t('management.sections.data.tables.events.affectedPages')
+    },
+    {
+      name: 'EventDownloads',
+      label: t('management.sections.data.tables.eventDownloads.label'),
+      description: t('management.sections.data.tables.eventDownloads.description'),
+      details: t('management.sections.data.tables.eventDownloads.details'),
+      affectedPages: t('management.sections.data.tables.eventDownloads.affectedPages')
+    },
+    {
+      name: 'PrefillSessions',
+      label: t('management.sections.data.tables.prefillSessions.label'),
+      description: t('management.sections.data.tables.prefillSessions.description'),
+      details: t('management.sections.data.tables.prefillSessions.details'),
+      affectedPages: t('management.sections.data.tables.prefillSessions.affectedPages')
+    },
+    {
+      name: 'BannedSteamUsers',
+      label: t('management.sections.data.tables.bannedSteamUsers.label'),
+      description: t('management.sections.data.tables.bannedSteamUsers.description'),
+      details: t('management.sections.data.tables.bannedSteamUsers.details'),
+      affectedPages: t('management.sections.data.tables.bannedSteamUsers.affectedPages')
+    },
+    {
+      name: 'UserSessions',
+      label: t('management.sections.data.tables.userSessions.label'),
+      description: t('management.sections.data.tables.userSessions.description'),
+      details: t('management.sections.data.tables.userSessions.details'),
+      affectedPages: t('management.sections.data.tables.userSessions.affectedPages')
+    },
+    {
+      name: 'UserPreferences',
+      label: t('management.sections.data.tables.userPreferences.label'),
+      description: t('management.sections.data.tables.userPreferences.description'),
+      details: t('management.sections.data.tables.userPreferences.details'),
+      affectedPages: t('management.sections.data.tables.userPreferences.affectedPages')
+    }
+  ];
 
   const handleTableToggle = (tableName: string) => {
     setSelectedTables((prev) =>
@@ -162,12 +165,12 @@ const DataSection: React.FC<DataSectionProps> = ({
 
   const handleClearSelected = () => {
     if (authMode !== 'authenticated') {
-      onError('Full authentication required for management operations');
+      onError(t('management.database.errors.authRequired'));
       return;
     }
 
     if (selectedTables.length === 0) {
-      onError('Please select at least one table to clear');
+      onError(t('management.database.errors.selectAtLeastOne'));
       return;
     }
 
@@ -179,7 +182,7 @@ const DataSection: React.FC<DataSectionProps> = ({
     clearInProgressRef.current = true;
 
     if (authMode !== 'authenticated') {
-      onError('Full authentication required for management operations');
+      onError(t('management.database.errors.authRequired'));
       clearInProgressRef.current = false;
       return;
     }
@@ -190,14 +193,14 @@ const DataSection: React.FC<DataSectionProps> = ({
     try {
       const result = await ApiService.resetSelectedTables(selectedTables);
       if (result) {
-        onSuccess(result.message || `Database reset started for ${selectedTables.length} table(s)`);
+        onSuccess(result.message || t('management.database.success.resetStarted', { count: selectedTables.length }));
         setSelectedTables([]);
         if (!selectedTables.includes('UserSessions')) {
           onDataRefresh();
         }
       }
     } catch (err: unknown) {
-      onError((err instanceof Error ? err.message : String(err)) || 'Failed to clear selected tables');
+      onError((err instanceof Error ? err.message : String(err)) || t('management.database.errors.failedToClear'));
     } finally {
       setLoading(false);
       clearInProgressRef.current = false;
@@ -216,10 +219,10 @@ const DataSection: React.FC<DataSectionProps> = ({
       {/* Section Header */}
       <div className="mb-6">
         <h2 className="text-xl font-semibold text-themed-primary mb-1">
-          Data Configuration
+          {t('management.sections.data.title')}
         </h2>
         <p className="text-themed-secondary text-sm">
-          Manage depot mappings, import data, and control database tables
+          {t('management.sections.data.subtitle')}
         </p>
       </div>
 
@@ -228,7 +231,7 @@ const DataSection: React.FC<DataSectionProps> = ({
         <div className="flex items-center gap-2 mb-4">
           <div className="w-1 h-5 rounded-full bg-[var(--theme-steam)]" />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            Depot Mapping
+            {t('management.sections.data.depotMapping')}
           </h3>
         </div>
 
@@ -250,7 +253,7 @@ const DataSection: React.FC<DataSectionProps> = ({
         <div className="flex items-center gap-2 mb-4">
           <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-green)]" />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            Data Import
+            {t('management.sections.data.dataImport')}
           </h3>
         </div>
 
@@ -268,7 +271,7 @@ const DataSection: React.FC<DataSectionProps> = ({
         <div className="flex items-center gap-2 mb-4">
           <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-cyan)]" />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            Database Management
+            {t('management.sections.data.databaseManagement')}
           </h3>
         </div>
 
@@ -277,31 +280,30 @@ const DataSection: React.FC<DataSectionProps> = ({
             <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-cyan">
               <Database className="w-5 h-5 icon-cyan" />
             </div>
-            <h3 className="text-lg font-semibold text-themed-primary">Database Management</h3>
+            <h3 className="text-lg font-semibold text-themed-primary">{t('management.sections.data.databaseManagement')}</h3>
             <HelpPopover position="left" width={320}>
-              <HelpSection title="What Gets Cleared">
+              <HelpSection title={t('management.database.help.whatGetsCleared.title')}>
                 <div className="space-y-1.5">
-                  <HelpDefinition term="Log Entries" termColor="blue">
-                    Raw nginx access log records used for analytics
+                  <HelpDefinition term={t('management.database.help.whatGetsCleared.logEntries.term')} termColor="blue">
+                    {t('management.database.help.whatGetsCleared.logEntries.description')}
                   </HelpDefinition>
-                  <HelpDefinition term="Downloads" termColor="green">
-                    Download sessions with stats and timestamps
+                  <HelpDefinition term={t('management.database.help.whatGetsCleared.downloads.term')} termColor="green">
+                    {t('management.database.help.whatGetsCleared.downloads.description')}
                   </HelpDefinition>
-                  <HelpDefinition term="Depot Mappings" termColor="purple">
-                    Depot-to-game mappings (also clears cached game names)
+                  <HelpDefinition term={t('management.database.help.whatGetsCleared.depotMappings.term')} termColor="purple">
+                    {t('management.database.help.whatGetsCleared.depotMappings.description')}
                   </HelpDefinition>
                 </div>
               </HelpSection>
 
               <HelpNote type="info">
-                Only database records are cleared; cached files on disk are untouched.
+                {t('management.database.help.note')}
               </HelpNote>
             </HelpPopover>
           </div>
 
           <p className="text-themed-secondary mb-4">
-            Select which database tables you want to clear. Cached files on disk will remain
-            untouched.
+            {t('management.database.description')}
           </p>
 
           {/* Select All / Deselect All */}
@@ -310,7 +312,7 @@ const DataSection: React.FC<DataSectionProps> = ({
               checked={selectedTables.length === tables.length}
               onChange={handleSelectAll}
               label={
-                selectedTables.length === tables.length ? 'Deselect All Tables' : 'Select All Tables'
+                selectedTables.length === tables.length ? t('management.sections.data.deselectAllTables') : t('management.sections.data.selectAllTables')
               }
               variant="rounded"
             />
@@ -336,7 +338,7 @@ const DataSection: React.FC<DataSectionProps> = ({
                   <div className="font-medium text-themed-primary">{table.label}</div>
                   <div className="text-sm text-themed-secondary mt-1 line-clamp-1">{table.description}</div>
                   <div className="text-xs text-themed-muted mt-1.5 flex items-center gap-1">
-                    <span className="opacity-70">Affects:</span>
+                    <span className="opacity-70">{t('management.sections.data.affects')}</span>
                     <span className="text-themed-warning">{table.affectedPages}</span>
                   </div>
                 </div>
@@ -348,8 +350,8 @@ const DataSection: React.FC<DataSectionProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-4 border-t border-themed-primary">
             <div className="text-sm text-themed-secondary">
               {selectedTables.length > 0
-                ? `${selectedTables.length} table(s) selected`
-                : 'No tables selected'}
+                ? t('management.sections.data.selectedTables', { count: selectedTables.length })
+                : t('management.sections.data.noTablesSelected')}
             </div>
             <Button
               onClick={handleClearSelected}
@@ -361,8 +363,8 @@ const DataSection: React.FC<DataSectionProps> = ({
               color="red"
               className="w-full sm:w-auto"
             >
-              <span className="hidden sm:inline">Clear Selected Tables</span>
-              <span className="sm:hidden">Clear Selected</span>
+              <span className="hidden sm:inline">{t('management.sections.data.clearSelected')}</span>
+              <span className="sm:hidden">{t('management.sections.data.clearSelectedShort')}</span>
             </Button>
           </div>
         </Card>
@@ -380,13 +382,13 @@ const DataSection: React.FC<DataSectionProps> = ({
         title={
           <div className="flex items-center space-x-3">
             <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>Clear Selected Tables</span>
+            <span>{t('management.sections.data.confirmClearTitle')}</span>
           </div>
         }
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            You are about to permanently delete data from the following table(s):
+            {t('management.sections.data.confirmClearMessage')}
           </p>
 
           <div className="space-y-2 max-h-[40vh] overflow-y-auto custom-scrollbar pr-2">
@@ -398,7 +400,7 @@ const DataSection: React.FC<DataSectionProps> = ({
                 <div className="font-medium text-themed-primary">{table.label}</div>
                 <div className="text-sm text-themed-secondary mt-1">{table.description}</div>
                 <div className="text-xs mt-2 flex items-center gap-1.5">
-                  <span className="text-themed-muted">Affects:</span>
+                  <span className="text-themed-muted">{t('management.sections.data.affects')}</span>
                   <span className="text-themed-warning font-medium">{table.affectedPages}</span>
                 </div>
               </div>
@@ -407,31 +409,31 @@ const DataSection: React.FC<DataSectionProps> = ({
 
           <Alert color="yellow">
             <div>
-              <p className="text-sm font-medium mb-2">Important:</p>
+              <p className="text-sm font-medium mb-2">{t('management.sections.data.confirmClearImportant')}</p>
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>This action cannot be undone</li>
-                <li>Export any data you need before continuing</li>
-                <li>Historical reports may be affected</li>
+                <li>{t('management.sections.data.confirmClearWarnings.noUndo')}</li>
+                <li>{t('management.sections.data.confirmClearWarnings.exportFirst')}</li>
+                <li>{t('management.sections.data.confirmClearWarnings.reportsAffected')}</li>
                 {selectedTables.includes('SteamDepotMappings') && (
-                  <li>Games will show as "Unknown" until mappings are rebuilt</li>
+                  <li>{t('management.sections.data.confirmClearWarnings.depotMappings')}</li>
                 )}
                 {selectedTables.includes('Events') && (
-                  <li>All events and their download associations will be permanently deleted</li>
+                  <li>{t('management.sections.data.confirmClearWarnings.events')}</li>
                 )}
                 {selectedTables.includes('UserSessions') && (
-                  <li className="font-semibold">All devices will be logged out and the application will reload</li>
+                  <li className="font-semibold">{t('management.sections.data.confirmClearWarnings.userSessionsLogout')}</li>
                 )}
                 {selectedTables.includes('UserSessions') && (
-                  <li className="font-semibold">All registered devices will be cleared - you will need to re-authenticate</li>
+                  <li className="font-semibold">{t('management.sections.data.confirmClearWarnings.userSessionsCleared')}</li>
                 )}
                 {selectedTables.includes('ClientGroups') && (
-                  <li>All client groups and their member associations will be permanently deleted</li>
+                  <li>{t('management.sections.data.confirmClearWarnings.clientGroups')}</li>
                 )}
                 {selectedTables.includes('PrefillSessions') && (
-                  <li>All prefill sessions and their history entries will be permanently deleted</li>
+                  <li>{t('management.sections.data.confirmClearWarnings.prefillSessions')}</li>
                 )}
                 {selectedTables.includes('BannedSteamUsers') && (
-                  <li>All banned Steam users will be unblocked and can prefill again</li>
+                  <li>{t('management.sections.data.confirmClearWarnings.bannedSteamUsers')}</li>
                 )}
               </ul>
             </div>
@@ -439,7 +441,7 @@ const DataSection: React.FC<DataSectionProps> = ({
 
           <div className="flex justify-end space-x-3 pt-2">
             <Button variant="default" onClick={() => setShowClearModal(false)} disabled={loading}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="filled"
@@ -447,7 +449,7 @@ const DataSection: React.FC<DataSectionProps> = ({
               onClick={confirmClear}
               loading={loading}
             >
-              Clear {selectedTables.length} Table{selectedTables.length !== 1 ? 's' : ''}
+              {t('management.sections.data.clearTables', { count: selectedTables.length })}
             </Button>
           </div>
         </div>

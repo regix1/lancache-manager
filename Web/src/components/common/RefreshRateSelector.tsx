@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Lightbulb, Gauge, Zap, Lock } from 'lucide-react';
 import { useRefreshRate } from '@contexts/RefreshRateContext';
 import { type RefreshRate } from '@utils/constants';
@@ -10,55 +11,56 @@ interface RefreshRateSelectorProps {
 }
 
 const RefreshRateSelector: React.FC<RefreshRateSelectorProps> = ({ disabled = false }) => {
+  const { t } = useTranslation();
   const { refreshRate, setRefreshRate, isControlledByAdmin } = useRefreshRate();
 
   const refreshOptions = [
     {
       value: 'LIVE',
-      label: 'Live',
-      shortLabel: 'Live',
-      description: 'Real-time updates (min 500ms)',
-      rightLabel: 'Live',
+      label: t('common.refreshRate.options.live.label'),
+      shortLabel: t('common.refreshRate.options.live.shortLabel'),
+      description: t('common.refreshRate.options.live.description'),
+      rightLabel: t('common.refreshRate.options.live.rightLabel'),
       icon: Zap
     },
     {
       value: 'ULTRA',
-      label: 'Ultra-fast',
-      shortLabel: '1s',
-      description: 'Max 1 update per second',
-      rightLabel: '1s',
+      label: t('common.refreshRate.options.ultra.label'),
+      shortLabel: t('common.refreshRate.options.ultra.shortLabel'),
+      description: t('common.refreshRate.options.ultra.description'),
+      rightLabel: t('common.refreshRate.options.ultra.rightLabel'),
       icon: Gauge
     },
     {
       value: 'REALTIME',
-      label: 'Real-time',
-      shortLabel: '5s',
-      description: 'Max 1 update every 5 seconds',
-      rightLabel: '5s',
+      label: t('common.refreshRate.options.realtime.label'),
+      shortLabel: t('common.refreshRate.options.realtime.shortLabel'),
+      description: t('common.refreshRate.options.realtime.description'),
+      rightLabel: t('common.refreshRate.options.realtime.rightLabel'),
       icon: Gauge
     },
     {
       value: 'STANDARD',
-      label: 'Standard',
-      shortLabel: '10s',
-      description: 'Max 1 update every 10 seconds (recommended)',
-      rightLabel: '10s',
+      label: t('common.refreshRate.options.standard.label'),
+      shortLabel: t('common.refreshRate.options.standard.shortLabel'),
+      description: t('common.refreshRate.options.standard.description'),
+      rightLabel: t('common.refreshRate.options.standard.rightLabel'),
       icon: Gauge
     },
     {
       value: 'RELAXED',
-      label: 'Relaxed',
-      shortLabel: '30s',
-      description: 'Max 1 update every 30 seconds',
-      rightLabel: '30s',
+      label: t('common.refreshRate.options.relaxed.label'),
+      shortLabel: t('common.refreshRate.options.relaxed.shortLabel'),
+      description: t('common.refreshRate.options.relaxed.description'),
+      rightLabel: t('common.refreshRate.options.relaxed.rightLabel'),
       icon: Gauge
     },
     {
       value: 'SLOW',
-      label: 'Slow',
-      shortLabel: '60s',
-      description: 'Max 1 update every 60 seconds',
-      rightLabel: '60s',
+      label: t('common.refreshRate.options.slow.label'),
+      shortLabel: t('common.refreshRate.options.slow.shortLabel'),
+      description: t('common.refreshRate.options.slow.description'),
+      rightLabel: t('common.refreshRate.options.slow.rightLabel'),
       icon: Gauge
     }
   ];
@@ -75,7 +77,7 @@ const RefreshRateSelector: React.FC<RefreshRateSelectorProps> = ({ disabled = fa
     const displayLabel = currentOption?.shortLabel || refreshRate;
 
     return (
-      <Tooltip content="Refresh rate is controlled by administrator">
+      <Tooltip content={t('tooltips.refreshRateControlled')}>
         <div className="flex items-center gap-1.5 px-2 py-1 rounded text-sm cursor-not-allowed opacity-75">
           <Lock className="w-3.5 h-3.5 text-themed-muted" />
           <span className="text-themed-secondary">{displayLabel}</span>
@@ -90,12 +92,12 @@ const RefreshRateSelector: React.FC<RefreshRateSelectorProps> = ({ disabled = fa
       value={refreshRate}
       onChange={handleRefreshRateChange}
       disabled={isDisabled}
-      placeholder="Select refresh rate"
+      placeholder={t('common.refreshRate.placeholder')}
       compactMode={true}
       dropdownWidth="w-64"
       alignRight={true}
-      dropdownTitle="Refresh Rate"
-      footerNote="Controls how often the UI updates with new data"
+      dropdownTitle={t('common.refreshRate.title')}
+      footerNote={t('common.refreshRate.footerNote')}
       footerIcon={Lightbulb}
       cleanStyle={true}
     />

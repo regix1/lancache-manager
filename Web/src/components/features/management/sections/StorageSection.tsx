@@ -1,4 +1,5 @@
 import React, { Suspense } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card } from '@components/ui/Card';
 import { type AuthMode } from '@services/auth.service';
 import DatasourcesManager from '../datasources/DatasourcesInfo';
@@ -30,6 +31,8 @@ const StorageSection: React.FC<StorageSectionProps> = ({
   logRemovalReloadRef,
   corruptionReloadRef
 }) => {
+  const { t } = useTranslation();
+
   return (
     <div
       className="management-section animate-fade-in"
@@ -40,10 +43,10 @@ const StorageSection: React.FC<StorageSectionProps> = ({
       {/* Section Header */}
       <div className="mb-4 sm:mb-6">
         <h2 className="text-xl font-semibold text-themed-primary mb-1">
-          Storage Management
+          {t('management.sections.storage.title')}
         </h2>
         <p className="text-themed-secondary text-sm">
-          Manage cache directories, process logs, detect corrupted files, and identify cached games
+          {t('management.sections.storage.subtitle')}
         </p>
       </div>
 
@@ -52,7 +55,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
         <div className="flex items-center gap-2 mb-3 sm:mb-4">
           <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-blue)]" />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            Log Operations
+            {t('management.sections.storage.logOperations')}
           </h3>
         </div>
 
@@ -81,7 +84,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
         <div className="flex items-center gap-2 mb-3 sm:mb-4">
           <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-green)]" />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            Cache Operations
+            {t('management.sections.storage.cacheOperations')}
           </h3>
         </div>
 
@@ -91,7 +94,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
             fallback={
               <Card>
                 <div className="flex items-center justify-center py-8">
-                  <div className="text-themed-muted">Loading cache configuration...</div>
+                  <div className="text-themed-muted">{t('management.sections.storage.loadingCacheConfig')}</div>
                 </div>
               </Card>
             }

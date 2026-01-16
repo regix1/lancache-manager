@@ -1,4 +1,5 @@
 import React, { useCallback, Suspense } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Shield, Sparkles, Settings, ToggleLeft, ToggleRight, Gauge, RotateCw } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -23,6 +24,7 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
   logRotationEnabled,
   isAuthenticated
 }) => {
+  const { t } = useTranslation();
   const { mockMode, setMockMode } = useMockMode();
   const { addNotification } = useNotifications();
 
@@ -60,9 +62,9 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
     >
       {/* Section Header */}
       <div className="mb-6">
-        <h2 className="text-xl font-semibold text-themed-primary mb-1">Settings</h2>
+        <h2 className="text-xl font-semibold text-themed-primary mb-1">{t('management.sections.settings.title')}</h2>
         <p className="text-themed-secondary text-sm">
-          Manage authentication, demo mode, and display preferences
+          {t('management.sections.settings.subtitle')}
         </p>
       </div>
 
@@ -74,8 +76,8 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
               <Shield className="w-5 h-5 icon-green" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-themed-primary">API Authentication</h3>
-              <p className="text-xs text-themed-muted">Secure access to management features</p>
+              <h3 className="text-lg font-semibold text-themed-primary">{t('management.sections.settings.apiAuth')}</h3>
+              <p className="text-xs text-themed-muted">{t('management.sections.settings.apiAuthDesc')}</p>
             </div>
           </div>
           <AuthenticationManager
@@ -92,16 +94,16 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
               <Sparkles className="w-5 h-5 icon-purple" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-themed-primary">Demo Mode</h3>
-              <p className="text-xs text-themed-muted">Test the interface with simulated data</p>
+              <h3 className="text-lg font-semibold text-themed-primary">{t('management.sections.settings.demoMode')}</h3>
+              <p className="text-xs text-themed-muted">{t('management.sections.settings.demoModeDesc')}</p>
             </div>
           </div>
           <div className="p-4 rounded-lg bg-themed-tertiary">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex-1">
-                <p className="text-themed-primary text-sm font-medium">Mock Data</p>
+                <p className="text-themed-primary text-sm font-medium">{t('management.sections.settings.mockData')}</p>
                 <p className="text-xs text-themed-muted mt-1">
-                  Simulates realistic cache data and download activity
+                  {t('management.sections.settings.mockDataDesc')}
                 </p>
               </div>
               <Button
@@ -117,14 +119,14 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
                 }
                 className="w-full sm:w-36"
               >
-                {mockMode ? 'Enabled' : 'Disabled'}
+                {mockMode ? t('management.sections.settings.enabled') : t('management.sections.settings.disabled')}
               </Button>
             </div>
           </div>
           {mockMode && (
             <div className="mt-4">
               <Alert color="blue">
-                <span className="text-sm">Mock mode active — API actions are disabled</span>
+                <span className="text-sm">{t('management.sections.settings.mockModeActive')}</span>
               </Alert>
             </div>
           )}
@@ -137,8 +139,8 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
               <Settings className="w-5 h-5 icon-blue" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-themed-primary">Display Preferences</h3>
-              <p className="text-xs text-themed-muted">Customize your experience</p>
+              <h3 className="text-lg font-semibold text-themed-primary">{t('management.sections.settings.displayPreferences')}</h3>
+              <p className="text-xs text-themed-muted">{t('management.sections.settings.displayPreferencesDesc')}</p>
             </div>
           </div>
           <DisplayPreferences />
@@ -153,9 +155,9 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
               <RotateCw className={`w-5 h-5 ${logRotationEnabled ? 'icon-cyan' : 'icon-gray'}`} />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-themed-primary">Nginx Log Rotation</h3>
+              <h3 className="text-lg font-semibold text-themed-primary">{t('management.sections.settings.nginxLogRotation')}</h3>
               <p className="text-xs text-themed-muted">
-                Signal nginx to reopen log files after manipulation
+                {t('management.sections.settings.nginxLogRotationDesc')}
               </p>
             </div>
           </div>
@@ -168,9 +170,9 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
           ) : (
             <Alert color="yellow">
               <div className="min-w-0">
-                <p className="font-medium">Nginx log rotation is disabled</p>
+                <p className="font-medium">{t('management.sections.settings.nginxLogRotationDisabled')}</p>
                 <p className="text-sm mt-1 mb-2">
-                  Add the following environment variable to your docker-compose.yml:
+                  {t('management.sections.settings.nginxLogRotationEnvVar')}
                 </p>
                 <pre className="px-3 py-2 rounded text-xs overflow-x-auto break-all whitespace-pre-wrap bg-themed-tertiary">
                   - NginxLogRotation__Enabled=true
@@ -190,16 +192,16 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
             </div>
             <div>
               <h3 className="text-lg font-semibold text-themed-primary">
-                Performance Optimizations
+                {t('management.sections.settings.performanceOptimizations')}
               </h3>
-              <p className="text-xs text-themed-muted">Garbage collection and memory management</p>
+              <p className="text-xs text-themed-muted">{t('management.sections.settings.performanceOptimizationsDesc')}</p>
             </div>
           </div>
           {optimizationsEnabled ? (
             <Suspense
               fallback={
                 <div className="flex items-center justify-center py-8">
-                  <div className="text-themed-muted">Loading GC settings...</div>
+                  <div className="text-themed-muted">{t('management.sections.settings.loadingGcSettings')}</div>
                 </div>
               }
             >
@@ -208,9 +210,9 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
           ) : (
             <Alert color="yellow">
               <div className="min-w-0">
-                <p className="font-medium">Performance optimizations are disabled</p>
+                <p className="font-medium">{t('management.sections.settings.performanceOptimizationsDisabled')}</p>
                 <p className="text-sm mt-1 mb-2">
-                  Add the following environment variable to your docker-compose.yml:
+                  {t('management.sections.settings.performanceOptimizationsEnvVar')}
                 </p>
                 <pre className="px-3 py-2 rounded text-xs overflow-x-auto break-all whitespace-pre-wrap bg-themed-tertiary">
                   - Optimizations__EnableGarbageCollectionManagement=true

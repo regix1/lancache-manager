@@ -2,6 +2,7 @@ import React from 'react';
 import { AlertTriangle, Download, Scan, Github, Clock, Database, RefreshCw } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
+import { useTranslation } from 'react-i18next';
 
 interface FullScanRequiredModalProps {
   changeGap?: number;
@@ -26,6 +27,8 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
   title = 'Data Update Required',
   isDownloading = false
 }) => {
+  const { t } = useTranslation();
+  
   const formatNumber = (num: number) => {
     if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
     if (num >= 1000) return `${(num / 1000).toFixed(0)}K`;
@@ -56,7 +59,7 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
               </div>
               <div className="full-scan-modal-stat-content">
                 <span className="full-scan-modal-stat-value">{formatNumber(changeGap)}</span>
-                <span className="full-scan-modal-stat-label">updates behind</span>
+                <span className="full-scan-modal-stat-label">{t('modals.fullScan.stats.updatesBehind')}</span>
               </div>
             </div>
           )}
@@ -68,14 +71,14 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
               <span className="full-scan-modal-stat-value">
                 {estimatedApps ? `~${formatNumber(estimatedApps)}` : '300K+'}
               </span>
-              <span className="full-scan-modal-stat-label">apps to scan</span>
+              <span className="full-scan-modal-stat-label">{t('modals.fullScan.stats.appsToScan')}</span>
             </div>
           </div>
         </div>
 
         {/* Description */}
         <p className="full-scan-modal-description">
-          Your depot data is too outdated for incremental updates. Download the latest mappings from GitHub to continue.
+          {t('modals.fullScan.description')}
         </p>
 
         {/* GitHub Option */}
@@ -83,17 +86,17 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
           <div className="full-scan-modal-option full-scan-modal-option-primary">
             <div className="full-scan-modal-option-header">
               <Github className="w-4 h-4" />
-              <span>Download from GitHub</span>
-              <span className="full-scan-modal-badge">Recommended</span>
+              <span>{t('modals.fullScan.github.title')}</span>
+              <span className="full-scan-modal-badge">{t('modals.fullScan.github.recommended')}</span>
             </div>
             <div className="full-scan-modal-option-features">
               <div className="full-scan-modal-feature">
                 <Clock className="w-3.5 h-3.5" />
-                <span>1-2 minutes</span>
+                <span>{t('modals.fullScan.github.duration')}</span>
               </div>
               <div className="full-scan-modal-feature">
                 <Database className="w-3.5 h-3.5" />
-                <span>300K+ depot mappings</span>
+                <span>{t('modals.fullScan.github.depots')}</span>
               </div>
             </div>
             <Button
@@ -104,7 +107,7 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
               loading={isDownloading}
               leftSection={!isDownloading ? <Download className="w-4 h-4" /> : undefined}
             >
-              {isDownloading ? 'Downloading...' : 'Download from GitHub'}
+              {isDownloading ? t('modals.fullScan.github.downloading') : t('modals.fullScan.github.downloadButton')}
             </Button>
           </div>
         )}
@@ -114,7 +117,7 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
           <>
             {showDownloadOption && (
               <div className="full-scan-modal-divider">
-                <span>or</span>
+                <span>{t('modals.fullScan.or')}</span>
               </div>
             )}
             <div className="full-scan-modal-option full-scan-modal-option-secondary">
@@ -124,7 +127,7 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
                 fullWidth
                 leftSection={<Scan className="w-4 h-4" />}
               >
-                Full Scan (Slower)
+                {t('modals.fullScan.fullScanButton')}
               </Button>
             </div>
           </>
@@ -132,7 +135,7 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
 
         {/* Cancel */}
         <Button onClick={onCancel} variant="subtle" fullWidth className="mt-2">
-          Cancel
+          {t('common.cancel')}
         </Button>
       </div>
     </Modal>

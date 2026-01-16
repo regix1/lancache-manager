@@ -1,4 +1,5 @@
 import { useEffect, useCallback, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from '../../ui/Card';
 import { Button } from '../../ui/Button';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
@@ -31,6 +32,8 @@ import {
 } from './types';
 
 export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
+  const { t } = useTranslation();
+
   // Use context for log entries (persists across tab switches)
   const {
     logEntries,
@@ -86,22 +89,22 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           signalR.setIsLoggedIn(true);
           setShowAuthModal(false);
           authActions.resetAuthForm();
-          addLog('success', 'Successfully logged in to Steam');
+          addLog('success', t('prefill.log.loginSuccess'));
           break;
         case 'CredentialsRequired':
           authActions.resetAuthForm();
           setShowAuthModal(true);
-          addLog('auth', 'Steam credentials required');
+          addLog('auth', t('prefill.log.credentialsRequired'));
           break;
         case 'TwoFactorRequired':
           trigger2FAPrompt();
           setShowAuthModal(true);
-          addLog('auth', 'Two-factor authentication required');
+          addLog('auth', t('prefill.log.twoFactorRequired'));
           break;
         case 'EmailCodeRequired':
           triggerEmailPrompt();
           setShowAuthModal(true);
-          addLog('auth', 'Email verification code required');
+          addLog('auth', t('prefill.log.emailCodeRequired'));
           break;
         case 'NotAuthenticated':
           signalR.setIsLoggedIn(false);
@@ -151,7 +154,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       signalR.setTimeRemaining(remaining);
 
       if (remaining <= 0) {
-        signalR.setError('Session expired');
+        signalR.setError(t('prefill.errors.sessionExpired'));
         handleEndSession();
       }
     }, 1000);
@@ -193,8 +196,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       });
 
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ message: 'Prefill request failed' }));
-        throw new Error(error.message || `HTTP ${response.status}`);
+        const error = await response.json().catch(() => ({ message: t('prefill.errors.requestFailed') }));
+        throw new Error(error.message || t('prefill.errors.httpStatus', { status: response.status }));
       }
 
       return response.json();
@@ -225,17 +228,17 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
               }
               const games = await gamesResponse.json();
               setOwnedGames(games || []);
-              addLog('info', `Found ${games?.length || 0} owned games`);
+              addLog('info', t('prefill.log.foundGames', { count: games?.length || 0 }));
 
               // Get cached apps via ApiService
               const cachedApps = await ApiService.getPrefillCachedApps();
               setCachedAppIds(cachedApps.map(a => a.appId));
               if (cachedApps.length > 0) {
-                addLog('info', `${cachedApps.length} games already cached in lancache`);
+                addLog('info', t('prefill.log.gamesCached', { count: cachedApps.length }));
               }
             } catch (err) {
               console.error('Failed to load games:', err);
-              addLog('error', 'Failed to load game library');
+              addLog('error', t('prefill.log.failedLoadLibrary'));
             } finally {
               setIsLoadingGames(false);
             }
@@ -243,81 +246,81 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           }
           case 'prefill': {
             if (selectedAppIds.length === 0) {
-              addLog('warning', 'No games selected. Use "Select Apps" to choose games for prefill first.');
+              addLog('warning', t('prefill.log.noGamesSelected'));
               break;
             }
             signalR.expectedAppCountRef.current = selectedAppIds.length;
-            addLog('download', `Starting prefill of ${selectedAppIds.length} selected apps...`);
+            addLog('download', t('prefill.log.startingPrefillSelected', { count: selectedAppIds.length }));
             const result = await callPrefillApi(signalR.session.id, {});
             if (!result?.success) {
-              addLog('error', result?.errorMessage || 'Prefill failed');
+              addLog('error', result?.errorMessage || t('prefill.log.prefillFailed'));
             }
             break;
           }
           case 'prefill-all': {
             signalR.expectedAppCountRef.current = 0;
-            addLog('download', 'Starting prefill of all owned games...');
+            addLog('download', t('prefill.log.startingPrefillAll'));
             const result = await callPrefillApi(signalR.session.id, { all: true });
             if (!result?.success) {
-              addLog('error', result?.errorMessage || 'Prefill failed');
+              addLog('error', result?.errorMessage || t('prefill.log.prefillFailed'));
             }
             break;
           }
           case 'prefill-recent': {
             signalR.expectedAppCountRef.current = 0;
-            addLog('download', 'Starting prefill of recently played games...');
+            addLog('download', t('prefill.log.startingPrefillRecent'));
             const result = await callPrefillApi(signalR.session.id, { recent: true });
             if (!result?.success) {
-              addLog('error', result?.errorMessage || 'Prefill failed');
+              addLog('error', result?.errorMessage || t('prefill.log.prefillFailed'));
             }
             break;
           }
           case 'prefill-recent-purchased': {
             signalR.expectedAppCountRef.current = 0;
-            addLog('download', 'Starting prefill of recently purchased games...');
+            addLog('download', t('prefill.log.startingPrefillRecentPurchased'));
             const result = await callPrefillApi(signalR.session.id, { recentlyPurchased: true });
             if (!result?.success) {
-              addLog('error', result?.errorMessage || 'Prefill failed');
+              addLog('error', result?.errorMessage || t('prefill.log.prefillFailed'));
             }
             break;
           }
           case 'prefill-top': {
             signalR.expectedAppCountRef.current = 50;
-            addLog('download', 'Starting prefill of top 50 popular games...');
+            addLog('download', t('prefill.log.startingPrefillTop'));
             const result = await callPrefillApi(signalR.session.id, { top: 50 });
             if (!result?.success) {
-              addLog('error', result?.errorMessage || 'Prefill failed');
+              addLog('error', result?.errorMessage || t('prefill.log.prefillFailed'));
             }
             break;
           }
           case 'prefill-force': {
             signalR.expectedAppCountRef.current = selectedAppIds.length || 0;
-            addLog('download', 'Starting force prefill (re-downloading)...');
+            addLog('download', t('prefill.log.startingPrefillForce'));
             const result = await callPrefillApi(signalR.session.id, { force: true });
             if (!result?.success) {
-              addLog('error', result?.errorMessage || 'Prefill failed');
+              addLog('error', result?.errorMessage || t('prefill.log.prefillFailed'));
             }
             break;
           }
           case 'clear-temp': {
-            addLog('info', 'Clearing temporary cache...');
+            addLog('info', t('prefill.log.clearingTempCache'));
             try {
               await signalR.hubConnection.current.invoke('ClearCache', signalR.session.id);
-              addLog('success', 'Temporary cache cleared');
+              addLog('success', t('prefill.log.tempCacheCleared'));
             } catch (err) {
-              const errorMessage = err instanceof Error ? err.message : 'Failed to clear cache';
+              const errorMessage = err instanceof Error ? err.message : t('prefill.log.failedClearCache');
               addLog('error', errorMessage);
             }
             break;
           }
           case 'clear-cache-data': {
-            addLog('info', 'Clearing prefill cache database...');
+            addLog('info', t('prefill.log.clearingCacheDb'));
             try {
               const result = await ApiService.clearAllPrefillCache();
-              addLog('success', result.message || 'Prefill cache database cleared successfully');
+              addLog('success', result.message || t('prefill.log.cacheDbCleared'));
               setCachedAppIds([]);
             } catch (err) {
-              const errorMessage = err instanceof Error ? err.message : 'Failed to clear cache database';
+              const errorMessage = err instanceof Error ? err.message : t('prefill.log.failedClearCacheDb');
               addLog('error', errorMessage);
             }
             break;
@@ -325,7 +328,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         }
       } catch (err) {
         console.error('Command execution failed:', err);
-        addLog('error', err instanceof Error ? err.message : 'Command failed');
+        addLog('error', err instanceof Error ? err.message : t('prefill.log.commandFailed'));
       } finally {
         setIsExecuting(false);
       }
@@ -359,13 +362,13 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     if (!signalR.session || !signalR.hubConnection.current) return;
 
     signalR.isCancelling.current = true;
-    addLog('info', 'Cancelling prefill operation...');
+    addLog('info', t('prefill.log.cancellingPrefill'));
 
     try {
       await signalR.hubConnection.current.invoke('CancelPrefill', signalR.session.id);
     } catch (err) {
       signalR.isCancelling.current = false;
-      addLog('error', 'Failed to cancel prefill');
+      addLog('error', t('prefill.log.failedCancelPrefill'));
     }
   }, [signalR.session, signalR.hubConnection, signalR.isCancelling, addLog]);
 
@@ -396,10 +399,10 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         if (!response.ok) {
           throw new Error(`Failed to save selection: HTTP ${response.status}`);
         }
-        addLog('success', `Selected ${appIds.length} game${appIds.length !== 1 ? 's' : ''} for prefill`);
+        addLog('success', t('prefill.log.selectedGames', { count: appIds.length }));
       } catch (err) {
         console.error('Failed to save selection:', err);
-        addLog('error', 'Failed to save game selection');
+        addLog('error', t('prefill.log.failedSaveSelection'));
       }
     },
     [signalR.session, addLog]
@@ -444,7 +447,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       setEstimatedSize({
         bytes: 0,
         loading: false,
-        error: 'Unable to estimate size'
+        error: t('prefill.errors.unableEstimateSize')
       });
     }
   }, [signalR.session, signalR.hubConnection, selectedAppIds, selectedOS]);
@@ -454,32 +457,29 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       switch (command) {
         case 'prefill':
           return {
-            title: 'Confirm Download',
-            message: `You are about to download ${selectedAppIds.length} game${selectedAppIds.length !== 1 ? 's' : ''}. This may take a while and use significant bandwidth.`
+            title: t('prefill.confirm.downloadTitle'),
+            message: t('prefill.confirm.downloadMessage', { count: selectedAppIds.length })
           };
         case 'prefill-all':
           return {
-            title: 'Download All Games',
-            message:
-              'This will download ALL games in your Steam library. This could be hundreds of gigabytes and take many hours.'
+            title: t('prefill.confirm.downloadAllTitle'),
+            message: t('prefill.confirm.downloadAllMessage')
           };
         case 'prefill-force':
           return {
-            title: 'Force Re-download',
-            message:
-              'This will re-download games even if they are already cached. Use this if you suspect cache corruption.'
+            title: t('prefill.confirm.forceTitle'),
+            message: t('prefill.confirm.forceMessage')
           };
         case 'clear-cache-data':
           return {
-            title: 'Clear Cache Database',
-            message:
-              'This will remove all cache records from the database. Cached files will remain but tracking data will be lost.'
+            title: t('prefill.confirm.clearDbTitle'),
+            message: t('prefill.confirm.clearDbMessage')
           };
         default:
-          return { title: 'Confirm', message: 'Are you sure you want to proceed?' };
+          return { title: t('common.confirm'), message: t('prefill.confirm.defaultMessage') };
       }
     },
-    [selectedAppIds]
+    [selectedAppIds, t]
   );
 
   const handleCommandClick = useCallback(
@@ -580,8 +580,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             <SteamIcon size={24} className="text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-themed-primary">Steam Prefill</h1>
-            <p className="text-sm text-themed-muted">Pre-download games to your cache</p>
+            <h1 className="text-xl font-bold text-themed-primary">{t('prefill.title')}</h1>
+            <p className="text-sm text-themed-muted">{t('prefill.subtitle')}</p>
           </div>
         </div>
 
@@ -616,7 +616,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             className="flex-shrink-0 border-[color-mix(in_srgb,var(--theme-error)_40%,transparent)] text-[var(--theme-error)]"
           >
             <X className="h-4 w-4" />
-            <span className="hidden sm:inline">End Session</span>
+            <span className="hidden sm:inline">{t('prefill.endSession')}</span>
           </Button>
         </div>
       </div>
@@ -652,12 +652,12 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                 </div>
                 <div>
                   <p className="font-medium text-themed-primary">
-                    {signalR.isLoggedIn ? 'Logged In to Steam' : 'Steam Login Required'}
+                    {signalR.isLoggedIn ? t('prefill.auth.loggedIn') : t('prefill.auth.loginRequired')}
                   </p>
                   <p className="text-sm text-themed-muted">
                     {signalR.isLoggedIn
-                      ? 'You can now use prefill commands'
-                      : 'Authenticate to access your game library'}
+                      ? t('prefill.auth.canUsePrefill')
+                      : t('prefill.auth.authenticateToAccess')}
                   </p>
                 </div>
               </div>
@@ -665,7 +665,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
               {!signalR.isLoggedIn && (
                 <Button variant="filled" onClick={handleOpenAuthModal} className="flex-shrink-0">
                   <SteamIcon size={18} />
-                  Login to Steam
+                  {t('prefill.auth.loginToSteam')}
                 </Button>
               )}
             </div>
@@ -707,8 +707,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                 <ScrollText className="h-4 w-4 text-[var(--theme-accent)]" />
               </div>
               <div>
-                <h3 className="text-base font-semibold text-themed-primary">Activity Log</h3>
-                <p className="text-xs text-themed-muted">Status updates and output</p>
+                <h3 className="text-base font-semibold text-themed-primary">{t('prefill.activityLog.title')}</h3>
+                <p className="text-xs text-themed-muted">{t('prefill.activityLog.subtitle')}</p>
               </div>
             </div>
             <CardContent className="p-0">

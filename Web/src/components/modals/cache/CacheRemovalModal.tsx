@@ -4,6 +4,7 @@ import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { formatBytes } from '@utils/formatters';
+import { useTranslation } from 'react-i18next';
 import type { GameCacheInfo, ServiceCacheInfo } from '../../../types';
 
 type RemovalTarget =
@@ -17,6 +18,8 @@ interface CacheRemovalModalProps {
 }
 
 const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({ target, onClose, onConfirm }) => {
+  const { t } = useTranslation();
+  
   if (!target) return null;
 
   const isGame = target.type === 'game';
@@ -34,45 +37,43 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({ target, onClose, 
       title={
         <div className="flex items-center space-x-3">
           <AlertTriangle className="w-6 h-6 text-themed-warning" />
-          <span>Remove {isGame ? 'Game' : 'Service'} from Cache</span>
+          <span>{isGame ? t('modals.cacheRemoval.titleGame') : t('modals.cacheRemoval.titleService')}</span>
         </div>
       }
     >
       <div className="space-y-4">
         <p className="text-themed-secondary">
-          Are you sure you want to remove{' '}
-          <span className={`font-semibold text-themed-primary ${!isGame ? 'capitalize' : ''}`}>
-            {name}
-          </span>
-          {!isGame && ' service'} from cache?
+          {isGame 
+            ? t('modals.cacheRemoval.confirmGame', { name })
+            : t('modals.cacheRemoval.confirmService', { name })}
         </p>
 
         <Alert color="yellow">
           <div>
-            <p className="text-xs font-medium mb-2">This will:</p>
+            <p className="text-xs font-medium mb-2">{t('modals.cacheRemoval.thisWill')}</p>
             <ul className="list-disc list-inside text-xs space-y-1 ml-2">
-              <li>Delete approximately {filesCount.toLocaleString()} cache files</li>
-              <li>Free up approximately {formatBytes(totalSize)}</li>
+              <li>{t('modals.cacheRemoval.actions.deleteFiles', { count: filesCount.toLocaleString() })}</li>
+              <li>{t('modals.cacheRemoval.actions.freeSpace', { size: formatBytes(totalSize) })}</li>
               {isGame && (
                 <li>
-                  Remove cache for {depotCount} depot{depotCount !== 1 ? 's' : ''}
+                  {t('modals.cacheRemoval.actions.removeDepots', { count: depotCount })}
                 </li>
               )}
               {!isGame && (
                 <>
-                  <li>Remove ALL log entries for this service from the database</li>
-                  <li>Remove ALL download records for this service from the database</li>
+                  <li>{t('modals.cacheRemoval.actions.removeLogEntries')}</li>
+                  <li>{t('modals.cacheRemoval.actions.removeDownloadRecords')}</li>
                 </>
               )}
-              <li>Progress will be shown in the notification bar at the top</li>
-              <li>This action cannot be undone</li>
+              <li>{t('modals.cacheRemoval.actions.showProgress')}</li>
+              <li>{t('modals.cacheRemoval.actions.cannotUndo')}</li>
             </ul>
           </div>
         </Alert>
 
         <div className="flex justify-end gap-3 pt-2">
           <Button variant="default" onClick={onClose}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button
             variant="filled"
@@ -80,7 +81,7 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({ target, onClose, 
             leftSection={<Trash2 className="w-4 h-4" />}
             onClick={onConfirm}
           >
-            Remove from Cache
+            {t('modals.cacheRemoval.removeButton')}
           </Button>
         </div>
       </div>

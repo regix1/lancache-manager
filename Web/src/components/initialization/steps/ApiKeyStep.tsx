@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Key, Eye, Loader2, Shield } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { useGuestConfig } from '@contexts/GuestConfigContext';
@@ -30,6 +31,7 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
   onStartGuestMode,
   onContinueAsAdmin
 }) => {
+  const { t } = useTranslation();
   const { guestDurationHours } = useGuestConfig();
 
   // Simplified UI when authentication is globally disabled
@@ -41,9 +43,9 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
           <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-info">
             <Shield className="w-7 h-7 icon-info" />
           </div>
-          <h3 className="text-lg font-semibold text-themed-primary mb-1">Choose Access Mode</h3>
+          <h3 className="text-lg font-semibold text-themed-primary mb-1">{t('initialization.apiKey.titleChoice')}</h3>
           <p className="text-sm text-themed-secondary max-w-md">
-            Authentication is disabled. Select how you'd like to proceed.
+            {t('initialization.apiKey.subtitleDisabled')}
           </p>
         </div>
 
@@ -55,12 +57,12 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
             onClick={onContinueAsAdmin}
             fullWidth
           >
-            Continue as Admin
+            {t('initialization.apiKey.continueAsAdmin')}
           </Button>
 
           <div className="flex items-center gap-4">
             <div className="flex-1 h-px bg-themed-border" />
-            <span className="text-xs text-themed-muted">OR</span>
+            <span className="text-xs text-themed-muted">{t('initialization.apiKey.or')}</span>
             <div className="flex-1 h-px bg-themed-border" />
           </div>
 
@@ -69,19 +71,19 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
             onClick={onStartGuestMode}
             disabled={checkingDataAvailability || !dataAvailable}
             fullWidth
-            title={!dataAvailable ? 'No data available. Complete setup first.' : undefined}
+            title={!dataAvailable ? t('initialization.apiKey.noDataTooltip') : undefined}
           >
             {!dataAvailable
-              ? 'Continue as Guest (No Data)'
-              : `Continue as Guest (${guestDurationHours}h)`}
+              ? t('initialization.apiKey.continueAsGuestNoData')
+              : t('initialization.apiKey.continueAsGuest', { hours: guestDurationHours })}
           </Button>
         </div>
 
         {/* Info */}
         <div className="p-3 rounded-lg text-sm bg-themed-tertiary">
           <p className="text-themed-secondary">
-            <strong className="text-themed-primary">Admin:</strong> Full management access.{' '}
-            <strong className="text-themed-primary">Guest:</strong> Read-only for {guestDurationHours}h.
+            {t('initialization.apiKey.adminAccess')}{' '}
+            {t('initialization.apiKey.guestAccess', { hours: guestDurationHours })}
           </p>
         </div>
 
@@ -103,24 +105,24 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
         <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-warning">
           <Key className="w-7 h-7 icon-warning" />
         </div>
-        <h3 className="text-lg font-semibold text-themed-primary mb-1">Authentication Required</h3>
+        <h3 className="text-lg font-semibold text-themed-primary mb-1">{t('initialization.apiKey.title')}</h3>
         <p className="text-sm text-themed-secondary max-w-md">
           {apiKeyOnlyMode
-            ? 'Enter your new API key to continue'
-            : 'Enter your API key for full access'}
+            ? t('initialization.apiKey.subtitleNewKey')
+            : t('initialization.apiKey.subtitle')}
         </p>
       </div>
 
       {/* API Key Input */}
       <div>
         <label className="block text-sm font-medium text-themed-secondary mb-1.5">
-          API Key
+          {t('initialization.apiKey.label')}
         </label>
         <input
           type="text"
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
-          placeholder="Enter your API key"
+          placeholder={t('initialization.apiKey.placeholder')}
           className="w-full px-3 py-2.5 themed-input"
           disabled={authenticating}
         />
@@ -136,14 +138,14 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
           fullWidth
         >
           {authenticating && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-          {authenticating ? 'Authenticating...' : 'Authenticate'}
+          {authenticating ? t('initialization.apiKey.authenticating') : t('initialization.apiKey.authenticate')}
         </Button>
 
         {!apiKeyOnlyMode && (
           <>
             <div className="flex items-center gap-4">
               <div className="flex-1 h-px bg-themed-border" />
-              <span className="text-xs text-themed-muted">OR</span>
+              <span className="text-xs text-themed-muted">{t('initialization.apiKey.or')}</span>
               <div className="flex-1 h-px bg-themed-border" />
             </div>
 
@@ -153,11 +155,11 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
               onClick={onStartGuestMode}
               disabled={authenticating || checkingDataAvailability || !dataAvailable}
               fullWidth
-              title={!dataAvailable ? 'No data available. Complete setup first.' : undefined}
+              title={!dataAvailable ? t('initialization.apiKey.noDataTooltip') : undefined}
             >
               {!dataAvailable
-                ? 'Guest Mode (No Data)'
-                : `Continue as Guest (${guestDurationHours}h)`}
+                ? t('initialization.apiKey.guestMode')
+                : t('initialization.apiKey.guestModeHours', { hours: guestDurationHours })}
             </Button>
           </>
         )}
@@ -166,8 +168,8 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
       {/* Help Info */}
       <div className="p-3 rounded-lg text-sm bg-themed-tertiary">
         <p className="text-themed-secondary">
-          <strong className="text-themed-primary">Where to find your API key:</strong>{' '}
-          Check your server logs for "API Key:" or look in <code className="text-themed-accent">data/api_key.txt</code>
+          <strong className="text-themed-primary">{t('initialization.apiKey.whereToFind')}</strong>{' '}
+          {t('initialization.apiKey.whereToFindDesc')} <code className="text-themed-accent">data/api_key.txt</code>
         </p>
       </div>
 

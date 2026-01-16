@@ -1,6 +1,7 @@
 import React, { useState, useLayoutEffect, useEffect, useRef, useMemo, useCallback, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, Check } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface IconComponentProps {
   size?: number;
@@ -94,7 +95,7 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
   options,
   values,
   onChange,
-  placeholder = 'Select options',
+  placeholder,
   className = '',
   disabled = false,
   dropdownWidth,
@@ -103,6 +104,7 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
   minSelections = 1,
   maxSelections
 }) => {
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [dropdownStyle, setDropdownStyle] = useState<{ top?: number; bottom?: number; left: number; animation: string }>({ left: 0, animation: '' });
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -113,14 +115,15 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
   const selectedCount = valuesSet.size;
 
   const displayLabel = useMemo(() => {
-    if (selectedCount === 0) return placeholder;
+    const defaultPlaceholder = placeholder || t('ui.multiSelect.selectOptions');
+    if (selectedCount === 0) return defaultPlaceholder;
     if (selectedCount === 1) {
       const opt = options.find(o => valuesSet.has(o.value));
-      return opt?.label || placeholder;
+      return opt?.label || defaultPlaceholder;
     }
-    if (selectedCount === options.length) return 'All selected';
-    return `${selectedCount} selected`;
-  }, [selectedCount, options, valuesSet, placeholder]);
+    if (selectedCount === options.length) return t('ui.multiSelect.allSelected');
+    return `${selectedCount} ${t('ui.multiSelect.selected')}`;
+  }, [selectedCount, options, valuesSet, placeholder, t]);
 
   const updatePosition = useCallback(() => {
     if (!buttonRef.current) return;
@@ -289,7 +292,7 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
           {minSelections > 0 && (
             <div className="px-4 py-3 text-xs border-t border-themed-secondary flex items-center gap-2 text-themed-muted bg-themed-tertiary">
               <div className="w-1.5 h-1.5 rounded-full bg-[var(--theme-warning)]" />
-              <span>Minimum {minSelections} selection{minSelections > 1 ? 's' : ''} required</span>
+              <span>{t('ui.multiSelect.minimumSelections', { count: minSelections })}</span>
             </div>
           )}
         </div>,

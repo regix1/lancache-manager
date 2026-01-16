@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, memo } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   CheckCircle2,
   AlertCircle,
@@ -68,8 +69,8 @@ const LogIcon = memo(({ type }: { type: LogEntryType }) => {
 
 LogIcon.displayName = 'LogIcon';
 
-const formatTime = (date: Date): string => {
-  return date.toLocaleTimeString('en-US', {
+const formatTime = (date: Date, locale: string): string => {
+  return date.toLocaleTimeString(locale || 'en-US', {
     hour12: false,
     hour: '2-digit',
     minute: '2-digit',
@@ -77,7 +78,7 @@ const formatTime = (date: Date): string => {
   });
 };
 
-const LogEntryRow = memo(({ entry, isLast }: { entry: LogEntry; isLast: boolean }) => {
+const LogEntryRow = memo(({ entry, isLast, locale }: { entry: LogEntry; isLast: boolean; locale: string }) => {
   const style = typeStyles[entry.type];
 
   return (
@@ -88,7 +89,7 @@ const LogEntryRow = memo(({ entry, isLast }: { entry: LogEntry; isLast: boolean 
     >
       {/* Timestamp - hidden on mobile, shown on sm+ */}
       <span className="hidden sm:block text-[11px] font-mono flex-shrink-0 tabular-nums pt-1.5 opacity-50 group-hover:opacity-80 transition-opacity text-[var(--theme-text-muted)] tracking-[0.02em]">
-        {formatTime(entry.timestamp)}
+        {formatTime(entry.timestamp, locale)}
       </span>
 
       {/* Color indicator line */}
@@ -120,8 +121,10 @@ LogEntryRow.displayName = 'LogEntryRow';
 const ENTRIES_PER_PAGE = 10;
 
 export function ActivityLog({ entries, className = '' }: ActivityLogProps) {
+  const { t, i18n } = useTranslation();
   const shouldAutoScroll = useRef(true);
   const [currentPage, setCurrentPage] = useState(1);
+  const locale = i18n.language || 'en-US';
 
   // Calculate pagination
   const totalPages = Math.ceil(entries.length / ENTRIES_PER_PAGE);
@@ -157,10 +160,10 @@ export function ActivityLog({ entries, className = '' }: ActivityLogProps) {
             <Activity className="h-6 w-6 text-[var(--theme-text-muted)] opacity-40" />
           </div>
           <p className="text-sm font-medium mb-0.5 text-[var(--theme-text-primary)]">
-            Waiting for activity
+            {t('prefill.activityLog.waitingForActivity')}
           </p>
           <p className="text-xs text-center max-w-[180px] text-[var(--theme-text-muted)] opacity-60">
-            Commands and status updates will appear here
+            {t('prefill.activityLog.updatesWillAppear')}
           </p>
         </div>
       ) : (
@@ -172,6 +175,7 @@ export function ActivityLog({ entries, className = '' }: ActivityLogProps) {
                 key={entry.id}
                 entry={entry}
                 isLast={index === visibleEntries.length - 1}
+                locale={locale}
               />
             ))}
           </div>
@@ -183,7 +187,11 @@ export function ActivityLog({ entries, className = '' }: ActivityLogProps) {
             >
               {/* Entry count - hidden on very small screens */}
               <span className="hidden xs:block text-[10px] sm:text-[11px] tabular-nums text-[var(--theme-text-muted)]">
-                {startItem}–{endItem} of {entries.length}
+                {t('prefill.activityLog.paginationCount', {
+                  start: startItem,
+                  end: endItem,
+                  total: entries.length
+                })}
               </span>
 
               {/* Navigation controls - centered on very small screens */}
@@ -192,7 +200,7 @@ export function ActivityLog({ entries, className = '' }: ActivityLogProps) {
                   onClick={() => handlePageChange(currentPage - 1)}
                   disabled={currentPage === 1}
                   className="flex items-center justify-center w-8 h-8 sm:w-7 sm:h-7 rounded-md transition-all disabled:opacity-30 disabled:cursor-not-allowed bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-hover)] hover:border-[var(--theme-border-primary)]"
-                  aria-label="Previous page"
+                  aria-label={t('aria.previousPage')}
                 >
                   <ChevronLeft size={14} />
                 </button>
@@ -206,7 +214,7 @@ export function ActivityLog({ entries, className = '' }: ActivityLogProps) {
                   onClick={() => handlePageChange(currentPage + 1)}
                   disabled={currentPage === totalPages}
                   className="flex items-center justify-center w-8 h-8 sm:w-7 sm:h-7 rounded-md transition-all disabled:opacity-30 disabled:cursor-not-allowed bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-hover)] hover:border-[var(--theme-border-primary)]"
-                  aria-label="Next page"
+                  aria-label={t('aria.nextPage')}
                 >
                   <ChevronRight size={14} />
                 </button>

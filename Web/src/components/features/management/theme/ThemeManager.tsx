@@ -15,6 +15,7 @@ import {
   Moon,
   Sun
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import themeService from '@services/theme.service';
 import preferencesService from '@services/preferences.service';
 import authService from '@services/auth.service';
@@ -35,6 +36,7 @@ import { type Theme, type ThemeManagerProps, type EditableTheme, type ThemeColor
 import { useNotifications } from '@contexts/NotificationsContext';
 
 const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
+  const { t } = useTranslation();
   const { addNotification } = useNotifications();
 
   // State Management
@@ -132,7 +134,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       addNotification({
         type: 'generic',
         status: 'failed',
-        message: 'Guest users cannot change themes',
+        message: t('management.themes.notifications.guestCannotChange'),
         details: { notificationType: 'error' }
       });
       return;
@@ -144,7 +146,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           addNotification({
             type: 'generic',
             status: 'failed',
-            message: 'Failed to save theme preference',
+            message: t('management.themes.notifications.failedToSave'),
             details: { notificationType: 'error' }
           });
         }
@@ -165,7 +167,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       addNotification({
         type: 'generic',
         status: 'failed',
-        message: 'Guest users cannot preview themes',
+        message: t('management.themes.notifications.guestCannotPreview'),
         details: { notificationType: 'error' }
       });
       return;
@@ -284,7 +286,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         addNotification({
           type: 'generic',
           status: 'failed',
-          message: 'Theme name cannot be empty',
+          message: t('management.themes.notifications.nameRequired'),
           details: { notificationType: 'error' }
         });
         return;
@@ -375,7 +377,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       addNotification({
         type: 'generic',
         status: 'failed',
-        message: 'Failed to delete theme',
+        message: t('management.themes.notifications.deleteFailed'),
         details: { notificationType: 'error' }
       });
     } finally {
@@ -439,7 +441,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       addNotification({
         type: 'generic',
         status: 'failed',
-        message: 'Please upload a .toml file',
+        message: t('management.themes.notifications.uploadToml'),
         details: { notificationType: 'error' }
       });
       return;
@@ -449,7 +451,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       addNotification({
         type: 'generic',
         status: 'failed',
-        message: 'File size must be less than 1MB',
+        message: t('management.themes.notifications.fileTooLarge'),
         details: { notificationType: 'error' }
       });
       return;
@@ -468,13 +470,13 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || 'Upload failed');
+        throw new Error(error.error || t('management.themes.errors.uploadFailed'));
       }
 
       addNotification({
         type: 'generic',
         status: 'completed',
-        message: 'Theme uploaded successfully!',
+        message: t('management.themes.notifications.uploadSuccess'),
         details: { notificationType: 'success' }
       });
       await loadThemes();
@@ -482,7 +484,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       addNotification({
         type: 'generic',
         status: 'failed',
-        message: (error instanceof Error ? error.message : String(error)) || 'Failed to upload theme',
+        message: (error instanceof Error ? error.message : String(error)) || t('management.themes.notifications.uploadFailed'),
         details: { notificationType: 'error' }
       });
     } finally {
@@ -557,34 +559,34 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
               <Palette className="w-5 h-5 icon-purple" />
             </div>
             <div className="min-w-0">
-              <h3 className="text-lg font-semibold text-themed-primary">Theme Management</h3>
-              <p className="text-xs text-themed-muted">{themes.length} themes available</p>
+              <h3 className="text-lg font-semibold text-themed-primary">{t('management.themes.title')}</h3>
+              <p className="text-xs text-themed-muted">{t('management.themes.themesAvailable', { count: themes.length })}</p>
             </div>
             <HelpPopover position="left" width={300}>
-              <HelpSection title="Theme Types">
+              <HelpSection title={t('management.themes.help.themeTypes.title')}>
                 <div className="space-y-1.5">
-                  <HelpDefinition term="System" termColor="blue">
-                    Built-in themes that cannot be deleted
+                  <HelpDefinition term={t('management.themes.help.themeTypes.system.term')} termColor="blue">
+                    {t('management.themes.help.themeTypes.system.description')}
                   </HelpDefinition>
-                  <HelpDefinition term="Custom" termColor="purple">
-                    Themes you create or import from the community
+                  <HelpDefinition term={t('management.themes.help.themeTypes.custom.term')} termColor="purple">
+                    {t('management.themes.help.themeTypes.custom.description')}
                   </HelpDefinition>
                 </div>
               </HelpSection>
 
-              <HelpSection title="Preview Mode" variant="subtle">
-                Try a theme temporarily. Click Apply to make it your active theme.
+              <HelpSection title={t('management.themes.help.previewMode.title')} variant="subtle">
+                {t('management.themes.help.previewMode.description')}
               </HelpSection>
 
               <HelpNote type="info">
-                Theme files use TOML. Download a sample to see the expected structure.
+                {t('management.themes.help.note')}
               </HelpNote>
             </HelpPopover>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {isAuthenticated ? (
               <>
-                <Tooltip content="Create new theme" position="bottom">
+                <Tooltip content={t('management.themes.createNewTheme')} position="bottom">
                   <Button
                     variant="default"
                     size="sm"
@@ -593,7 +595,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                     <Plus className="w-4 h-4" />
                   </Button>
                 </Tooltip>
-                <Tooltip content="Delete all custom themes" position="bottom">
+                <Tooltip content={t('management.themes.deleteAllCustom')} position="bottom">
                   <Button
                     variant="default"
                     size="sm"
@@ -605,13 +607,13 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                 </Tooltip>
               </>
             ) : (
-              <Tooltip content="Authentication required" position="bottom">
+              <Tooltip content={t('common.authRequired')} position="bottom">
                 <Button variant="default" size="sm" disabled>
                   <Lock className="w-4 h-4" />
                 </Button>
               </Tooltip>
             )}
-            <Tooltip content="Refresh themes" position="bottom">
+            <Tooltip content={t('management.themes.refreshThemes')} position="bottom">
               <Button
                 variant="default"
                 size="sm"
@@ -637,7 +639,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
             }`}
           >
             <Layers className="w-4 h-4" />
-            Themes
+            {t('management.themes.tabs.themes')}
           </button>
           <button
             onClick={() => setActiveTab('customize')}
@@ -646,7 +648,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
             }`}
           >
             <Brush className="w-4 h-4" />
-            Customize
+            {t('management.themes.tabs.customize')}
           </button>
         </div>
 
@@ -656,9 +658,9 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
             {authService.authMode === 'guest' && (
               <Alert color="blue">
                 <div>
-                  <p className="text-sm font-medium mb-1">Guest Mode - Theme Selection Disabled</p>
+                  <p className="text-sm font-medium mb-1">{t('management.themes.guestMode.title')}</p>
                   <p className="text-sm">
-                    Guest users cannot change themes. The theme is set by the administrator.
+                    {t('management.themes.guestMode.description')}
                   </p>
                 </div>
               </Alert>
@@ -668,7 +670,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
             <div className="p-4 rounded-lg border bg-themed-tertiary border-themed-secondary">
               <div className="flex items-center gap-2 mb-4">
                 <Settings2 className="w-4 h-4 text-themed-accent" />
-                <span className="text-sm font-medium text-themed-primary">Active Theme</span>
+                <span className="text-sm font-medium text-themed-primary">{t('management.themes.activeTheme')}</span>
               </div>
 
               <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
@@ -676,11 +678,11 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                   <EnhancedDropdown
                     options={themes.map((theme) => ({
                       value: theme.meta.id,
-                      label: `${theme.meta.name}${isSystemTheme(theme.meta.id) ? ' (System)' : ''}${previewTheme === theme.meta.id ? ' (Preview)' : ''}`
+                      label: `${theme.meta.name}${isSystemTheme(theme.meta.id) ? ` (${t('management.themes.systemBadge')})` : ''}${previewTheme === theme.meta.id ? ` (${t('management.themes.previewBadge')})` : ''}`
                     }))}
                     value={previewTheme || currentTheme}
                     onChange={handleThemeChange}
-                    placeholder="Select a theme"
+                    placeholder={t('management.themes.selectTheme')}
                     className="w-full"
                     disabled={authService.authMode === 'guest'}
                   />
@@ -711,7 +713,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
               {previewTheme && authService.authMode !== 'guest' && (
                 <p className="text-xs mt-2 text-themed-warning">
-                  Preview mode active. Select a theme to apply it permanently.
+                  {t('management.themes.previewActive')}
                 </p>
               )}
             </div>
@@ -719,9 +721,9 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
             {/* Installed Themes */}
             <div>
               <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                <h4 className="text-sm font-medium text-themed-secondary">Installed Themes</h4>
+                <h4 className="text-sm font-medium text-themed-secondary">{t('management.themes.installedThemes')}</h4>
                 <span className="text-xs text-themed-muted">
-                  {systemThemes.length} system, {customThemes.length} custom
+                  {systemThemes.length} {t('management.themes.system')}, {customThemes.length} {t('management.themes.custom')}
                 </span>
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
@@ -759,7 +761,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
             {isAuthenticated && (
               <div>
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-                  <h4 className="text-sm font-medium text-themed-secondary">Upload Custom Theme</h4>
+                  <h4 className="text-sm font-medium text-themed-secondary">{t('management.themes.uploadCustomTheme')}</h4>
                   <Button
                     variant="subtle"
                     size="xs"
@@ -767,7 +769,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                     onClick={downloadSampleTheme}
                     className="self-start sm:self-auto"
                   >
-                    Download Sample
+                    {t('management.themes.downloadSample')}
                   </Button>
                 </div>
                 <div
@@ -785,9 +787,9 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                     <FileText className="w-6 h-6 text-themed-muted" />
                   </div>
                   <p className="text-sm text-themed-secondary mb-1">
-                    Drop a theme file here, or click to browse
+                    {t('management.themes.dropzone.title')}
                   </p>
-                  <p className="text-xs text-themed-muted mb-3">TOML format, max 1MB</p>
+                  <p className="text-xs text-themed-muted mb-3">{t('management.themes.dropzone.format')}</p>
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -803,7 +805,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                     disabled={loading}
                     loading={loading}
                   >
-                    Browse Files
+                    {t('management.themes.browseFiles')}
                   </Button>
                 </div>
               </div>
@@ -811,7 +813,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
             {!isAuthenticated && (
               <Alert color="yellow">
-                Authentication required to create, upload, or delete custom themes
+                {t('management.themes.authRequired')}
               </Alert>
             )}
           </div>
@@ -819,12 +821,12 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           /* Customize Tab */
           <div className="space-y-4">
             <Alert color="blue">
-              Select a theme above and click Edit to customize its colors
+              {t('management.themes.customize.selectThemeHint')}
             </Alert>
 
             {/* Quick Actions */}
             <div className="p-4 rounded-lg border bg-themed-tertiary border-themed-secondary">
-              <h4 className="text-sm font-semibold text-themed-primary mb-3">Quick Actions</h4>
+              <h4 className="text-sm font-semibold text-themed-primary mb-3">{t('management.themes.customize.quickActions')}</h4>
               <div className="flex flex-col sm:flex-row gap-2 sm:flex-wrap">
                 <Button
                   variant="default"
@@ -834,7 +836,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                   disabled={!isAuthenticated}
                   className="w-full sm:w-auto"
                 >
-                  Create New Theme
+                  {t('management.themes.customize.createNewTheme')}
                 </Button>
                 <Button
                   variant="default"
@@ -843,7 +845,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                   onClick={downloadSampleTheme}
                   className="w-full sm:w-auto"
                 >
-                  Download Sample
+                  {t('management.themes.customize.downloadSample')}
                 </Button>
                 {themes.find((t) => t.meta.id === currentTheme) && !isSystemTheme(currentTheme) && (
                   <Button
@@ -854,7 +856,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                     disabled={!isAuthenticated}
                     className="w-full sm:w-auto"
                   >
-                    Edit Current Theme
+                    {t('management.themes.customize.editCurrentTheme')}
                   </Button>
                 )}
               </div>
@@ -862,10 +864,12 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
             {/* Color Groups Overview */}
             <div className="p-4 rounded-lg border bg-themed-tertiary border-themed-secondary">
-              <h4 className="text-sm font-semibold text-themed-primary mb-2">Color Groups</h4>
+              <h4 className="text-sm font-semibold text-themed-primary mb-2">{t('management.themes.customize.colorGroups')}</h4>
               <p className="text-xs text-themed-muted mb-4">
-                Themes contain {colorGroups.reduce((acc, g) => acc + g.colors.length, 0)} customizable
-                colors organized into {colorGroups.length} groups
+                {t('management.themes.customize.colorGroupsInfo', {
+                  totalColors: colorGroups.reduce((acc, g) => acc + g.colors.length, 0),
+                  groupCount: colorGroups.length
+                })}
               </p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 {colorGroups.map((group) => {
@@ -883,7 +887,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                           {group.name.replace(/([A-Z])/g, ' $1').trim()}
                         </span>
                         <span className="text-xs text-themed-muted">
-                          {group.colors.length} colors
+                          {group.colors.length} {t('management.themes.customize.colors')}
                         </span>
                       </div>
                     </div>

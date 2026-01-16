@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Users, User } from 'lucide-react';
 import ApiService from '@services/api.service';
 import themeService from '@services/theme.service';
@@ -9,6 +10,7 @@ import BulkActions from './BulkActions';
 import { Session, ThemeOption, showToast } from './types';
 
 const UserTab: React.FC = () => {
+  const { t } = useTranslation();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [guestDurationHours, setGuestDurationHours] = useState<number>(6);
@@ -47,7 +49,7 @@ const UserTab: React.FC = () => {
       await ApiService.setGuestSessionDuration(newDuration);
       setGuestDurationHours(newDuration);
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || 'Failed to update guest session duration');
+      showToast('error', getErrorMessage(err) || t('user.errors.updateGuestDuration'));
     } finally {
       setUpdatingDuration(false);
     }
@@ -71,15 +73,15 @@ const UserTab: React.FC = () => {
         showToast(
           'success',
           newLockState
-            ? 'Guest mode locked. New guests cannot log in.'
-            : 'Guest mode unlocked. Guests can now log in.'
+            ? t('user.locked')
+            : t('user.unlocked')
         );
       } else {
         const errorData = await response.json();
-        showToast('error', errorData.error || 'Failed to update guest mode lock');
+        showToast('error', errorData.error || t('user.errors.updateGuestLock'));
       }
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || 'Failed to update guest mode lock');
+      showToast('error', getErrorMessage(err) || t('user.errors.updateGuestLock'));
     } finally {
       setUpdatingGuestLock(false);
     }
@@ -129,10 +131,10 @@ const UserTab: React.FC = () => {
         setDefaultGuestTheme(newThemeId);
       } else {
         const errorData = await response.json();
-        showToast('error', errorData.error || 'Failed to update default guest theme');
+        showToast('error', errorData.error || t('user.errors.updateGuestTheme'));
       }
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || 'Failed to update default guest theme');
+      showToast('error', getErrorMessage(err) || t('user.errors.updateGuestTheme'));
     } finally {
       setUpdatingGuestTheme(false);
     }
@@ -166,13 +168,13 @@ const UserTab: React.FC = () => {
 
       if (response.ok) {
         setDefaultGuestRefreshRate(newRate);
-        showToast('success', 'Default guest refresh rate updated');
+        showToast('success', t('user.refreshRateUpdated'));
       } else {
         const errorData = await response.json();
-        showToast('error', errorData.error || 'Failed to update default guest refresh rate');
+        showToast('error', errorData.error || t('user.errors.updateGuestRefreshRate'));
       }
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || 'Failed to update default guest refresh rate');
+      showToast('error', getErrorMessage(err) || t('user.errors.updateGuestRefreshRate'));
     } finally {
       setUpdatingGuestRefreshRate(false);
     }
@@ -199,10 +201,10 @@ const UserTab: React.FC = () => {
           </div>
           <div>
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-themed-primary">
-              User Management
+              {t('user.title')}
             </h1>
             <p className="text-sm text-themed-muted">
-              Sessions & guest controls
+              {t('user.subtitle')}
             </p>
           </div>
         </div>
@@ -212,21 +214,21 @@ const UserTab: React.FC = () => {
           <div className="stat-pill">
             <Users className="w-4 h-4 text-themed-accent" />
             <span className="stat-value text-themed-primary">{sessions.length}</span>
-            <span className="text-themed-muted">total</span>
+            <span className="text-themed-muted">{t('user.stats.total')}</span>
           </div>
           <div className="stat-pill">
             <User className="w-4 h-4 user-session-icon" />
             <span className="stat-value text-themed-primary">
               {sessions.filter((s) => s.type === 'authenticated').length}
             </span>
-            <span className="text-themed-muted">users</span>
+            <span className="text-themed-muted">{t('user.stats.users')}</span>
           </div>
           <div className="stat-pill">
             <User className="w-4 h-4 guest-session-icon" />
             <span className="stat-value text-themed-primary">
               {sessions.filter((s) => s.type === 'guest').length}
             </span>
-            <span className="text-themed-muted">guests</span>
+            <span className="text-themed-muted">{t('user.stats.guests')}</span>
           </div>
         </div>
       </div>

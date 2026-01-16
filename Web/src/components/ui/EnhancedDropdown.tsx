@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useLayoutEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronRight, Check } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { CustomScrollbar } from './CustomScrollbar';
 import { Tooltip } from './Tooltip';
 import { getEventColorVar } from '@utils/eventColors';
@@ -128,7 +129,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
   options,
   value,
   onChange,
-  placeholder = 'Select option',
+  placeholder,
   className = '',
   disabled = false,
   compactMode = false,
@@ -142,6 +143,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
   cleanStyle = false,
   maxHeight
 }) => {
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [dropdownStyle, setDropdownStyle] = useState<{ animation: string }>({ animation: '' });
   const [dropdownPosition, setDropdownPosition] = useState<DropdownPosition | null>(null);
@@ -282,7 +284,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
     ? customTriggerLabel
     : selectedOption
     ? (prefix ? `${prefix} ` : '') + (compactMode && selectedOption.shortLabel ? selectedOption.shortLabel : selectedOption.label)
-    : placeholder;
+    : (placeholder || t('ui.dropdown.selectOption'));
 
   return (
     <div className={`relative ${className}`}>

@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from '../../ui/Card';
 import { Button } from '../../ui/Button';
 import { SteamIcon } from '@components/ui/SteamIcon';
@@ -10,6 +11,8 @@ interface PrefillStartScreenProps {
 }
 
 export function PrefillStartScreen({ error, isConnecting, onCreateSession }: PrefillStartScreenProps) {
+  const { t } = useTranslation();
+
   return (
     <div className="animate-fade-in">
       <Card className="max-w-2xl mx-auto">
@@ -21,10 +24,9 @@ export function PrefillStartScreen({ error, isConnecting, onCreateSession }: Pre
             </div>
 
             <div className="space-y-2">
-              <h2 className="text-2xl font-bold text-themed-primary">Steam Prefill</h2>
+              <h2 className="text-2xl font-bold text-themed-primary">{t('prefill.title')}</h2>
               <p className="text-themed-muted max-w-md">
-                Pre-download Steam games to your cache for faster LAN party downloads. Connect to
-                your Steam library and prefill games before the event.
+                {t('prefill.startScreen.description')}
               </p>
             </div>
 
@@ -46,18 +48,18 @@ export function PrefillStartScreen({ error, isConnecting, onCreateSession }: Pre
                 {isConnecting ? (
                   <>
                     <Loader2 className="h-5 w-5 animate-spin" />
-                    Connecting...
+                    {t('prefill.startScreen.connecting')}
                   </>
                 ) : (
                   <>
                     <Play className="h-5 w-5" />
-                    Start Session
+                    {t('prefill.startScreen.startSession')}
                   </>
                 )}
               </Button>
               <p className="text-xs text-themed-muted flex items-center gap-1.5">
                 <Shield className="h-3.5 w-3.5" />
-                Requires Steam login to access your game library
+                {t('prefill.startScreen.requiresLogin')}
               </p>
             </div>
           </div>

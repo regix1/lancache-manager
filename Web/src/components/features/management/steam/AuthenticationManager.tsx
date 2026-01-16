@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Key, Lock, Unlock, AlertCircle, AlertTriangle, Clock, Eye, LogOut } from 'lucide-react';
 import authService from '@services/auth.service';
 import ApiService from '@services/api.service';
@@ -21,6 +22,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
   onSuccess,
   onApiKeyRegenerated
 }) => {
+  const { t } = useTranslation();
   const { guestDurationHours } = useGuestConfig();
   const { authMode, refreshAuth } = useAuth();
   const { refreshSteamAuth, setSteamAuthMode, setUsername } = useSteamAuth();
@@ -159,11 +161,11 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
         setApiKey('');
         onSuccess?.('Authentication successful! You can now use management features.');
       } else {
-        setAuthError(result.message || 'Authentication failed');
+        setAuthError(result.message || t('modals.steamAuth.errors.authenticationFailed'));
       }
     } catch (error: unknown) {
       console.error('Authentication error:', error);
-      setAuthError((error instanceof Error ? error.message : String(error)) || 'Authentication failed');
+      setAuthError((error instanceof Error ? error.message : String(error)) || t('modals.steamAuth.errors.authenticationFailed'));
     } finally {
       setAuthLoading(false);
     }
@@ -229,7 +231,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
           onApiKeyRegenerated?.();
         }
       } else {
-        onError?.(result.message || 'Failed to regenerate API key');
+        onError?.(result.message || t('modals.steamAuth.errors.failedToRegenerateApiKey'));
       }
     } catch (error: unknown) {
       console.error('Error regenerating key:', error);
@@ -272,7 +274,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
         refreshSteamWebApiStatus();
         onSuccess?.('Logged out successfully. This device slot is now available for another user.');
       } else {
-        onError?.(result.message || 'Failed to logout');
+        onError?.(result.message || t('modals.steamAuth.errors.failedToLogout'));
       }
     } catch (error: unknown) {
       console.error('Error logging out:', error);
@@ -315,30 +317,30 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
   const getStatusText = () => {
     switch (authMode) {
       case 'authenticated':
-        return 'Authenticated';
+        return t('management.auth.status.authenticated');
       case 'guest':
-        return `Guest Mode (${formatTimeRemaining(guestTimeRemaining)} remaining)`;
+        return t('management.auth.status.guestMode', { time: formatTimeRemaining(guestTimeRemaining) });
       case 'expired':
-        return 'Guest Session Expired';
+        return t('management.auth.status.expired');
       default:
-        return 'Not Authenticated';
+        return t('management.auth.status.notAuthenticated');
     }
   };
 
   const getDescriptionText = () => {
     switch (authMode) {
       case 'authenticated':
-        return 'Management features enabled';
+        return t('management.auth.description.authenticated');
       case 'guest':
-        return 'View-only access active';
+        return t('management.auth.description.guest');
       case 'expired':
-        return 'Authentication required to continue';
+        return t('management.auth.description.expired');
       default: {
         // Show hint about guest mode if eligible
         if (hasData && hasBeenInitialized) {
-          return 'Management features require API key or guest access';
+          return t('management.auth.description.requiresKeyOrGuest');
         }
-        return 'Management features require API key';
+        return t('management.auth.description.requiresKey');
       }
     }
   };
@@ -359,7 +361,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
             {authMode === 'guest' && guestTimeRemaining > 0 && (
               <div className="flex items-center mt-2 text-xs opacity-75">
                 <Clock className="w-3 h-3 mr-1" />
-                <span>Session expires in {formatTimeRemaining(guestTimeRemaining)}</span>
+                <span>{t('management.auth.sessionExpires', { time: formatTimeRemaining(guestTimeRemaining) })}</span>
               </div>
             )}
           </div>
@@ -376,8 +378,8 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
                   loading={authLoading}
                   className="flex-1 sm:flex-none"
                 >
-                  <span className="hidden sm:inline">Logout</span>
-                  <span className="sm:hidden">Logout</span>
+                  <span className="hidden sm:inline">{t('management.auth.logout')}</span>
+                  <span className="sm:hidden">{t('management.auth.logout')}</span>
                 </Button>
                 <Button
                   variant="filled"
@@ -388,8 +390,8 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
                   loading={authLoading}
                   className="flex-1 sm:flex-none"
                 >
-                  <span className="hidden sm:inline">Regenerate Key</span>
-                  <span className="sm:hidden">Regenerate</span>
+                  <span className="hidden sm:inline">{t('management.auth.regenerateKey')}</span>
+                  <span className="sm:hidden">{t('management.auth.regenerate')}</span>
                 </Button>
               </>
             )}
@@ -406,8 +408,8 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
                     size="sm"
                     className="flex-1 sm:flex-none"
                   >
-                    <span className="hidden sm:inline">Guest Mode</span>
-                    <span className="sm:hidden">Guest</span>
+                    <span className="hidden sm:inline">{t('management.auth.guestMode')}</span>
+                    <span className="sm:hidden">{t('management.auth.guest')}</span>
                   </Button>
                 )}
                 <Button
@@ -418,8 +420,8 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
                   size="sm"
                   className="flex-1 sm:flex-none"
                 >
-                  <span className="hidden sm:inline">Authenticate</span>
-                  <span className="sm:hidden">Auth</span>
+                  <span className="hidden sm:inline">{t('management.auth.authenticate')}</span>
+                  <span className="sm:hidden">{t('management.auth.auth')}</span>
                 </Button>
               </>
             )}
@@ -433,8 +435,8 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
                 onClick={() => setShowAuthModal(true)}
                 className="w-full sm:w-auto"
               >
-                <span className="hidden sm:inline">Full Access</span>
-                <span className="sm:hidden">Auth</span>
+                <span className="hidden sm:inline">{t('management.auth.fullAccess')}</span>
+                <span className="sm:hidden">{t('management.auth.auth')}</span>
               </Button>
             )}
           </div>
@@ -453,10 +455,10 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
             <Key className="w-6 h-6 text-themed-warning" />
             <span>
               {authMode === 'expired'
-                ? 'Session Expired'
+                ? t('management.auth.modal.sessionExpired')
                 : authMode === 'guest'
-                  ? 'Full Access Required'
-                  : 'Authentication Required'}
+                  ? t('management.auth.modal.fullAccessRequired')
+                  : t('management.auth.modal.authenticationRequired')}
             </span>
           </div>
         }
@@ -464,14 +466,14 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
         <div className="space-y-4">
           <p className="text-themed-secondary">
             {authMode === 'expired'
-              ? 'Your guest session has expired. Please authenticate with an API key or start a new guest session.'
+              ? t('management.auth.modal.expiredMessage')
               : authMode === 'guest'
-                ? 'For full management features, please authenticate with your API key.'
-                : 'Management operations require authentication. Please enter your API key or continue as guest.'}
+                ? t('management.auth.modal.guestMessage')
+                : t('management.auth.modal.unauthenticatedMessage')}
           </p>
 
           <div>
-            <label className="block text-sm font-medium text-themed-secondary mb-2">API Key</label>
+            <label className="block text-sm font-medium text-themed-secondary mb-2">{t('management.auth.modal.apiKeyLabel')}</label>
             <input
               type="password"
               value={apiKey}
@@ -487,14 +489,14 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
 
           <Alert color="blue">
             <div>
-              <p className="font-medium mb-2">To find your API key:</p>
+              <p className="font-medium mb-2">{t('management.auth.modal.findApiKey')}</p>
               <ol className="list-decimal list-inside text-sm space-y-1 ml-2">
-                <li>SSH into your LANCache Manager server</li>
+                <li>{t('management.auth.modal.step1')}</li>
                 <li>
-                  Check <code className="bg-themed-tertiary px-1 rounded">/data/api_key.txt</code>
+                  {t('management.auth.modal.step2Before')} <code className="bg-themed-tertiary px-1 rounded">/data/api_key.txt</code>
                 </li>
                 <li>
-                  Or check container logs:{' '}
+                  {t('management.auth.modal.step3Before')}{' '}
                   <code className="bg-themed-tertiary px-1 rounded">
                     docker logs lancache-manager-api
                   </code>
@@ -514,7 +516,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
                 }}
                 disabled={authLoading}
               >
-                Cancel
+                {t('common.cancel')}
               </Button>
               {/* Show guest mode option only when not already in guest mode and guest mode is available */}
               {(authMode === 'unauthenticated' || authMode === 'expired') &&
@@ -526,7 +528,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
                     onClick={handleStartGuestMode}
                     disabled={authLoading}
                   >
-                    Continue as Guest
+                    {t('management.auth.modal.continueAsGuest')}
                   </Button>
                 )}
             </div>
@@ -539,7 +541,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
               loading={authLoading}
               disabled={!apiKey.trim()}
             >
-              {authMode === 'guest' ? 'Upgrade to Full Access' : 'Authenticate'}
+              {authMode === 'guest' ? t('management.auth.modal.upgradeToFullAccess') : t('management.auth.authenticate')}
             </Button>
           </div>
         </div>
@@ -555,26 +557,25 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
         title={
           <div className="flex items-center space-x-3">
             <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>Regenerate API Key</span>
+            <span>{t('management.auth.regenerateModal.title')}</span>
           </div>
         }
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            Regenerating the API key will immediately log out all connected devices and guests,
-            requiring everyone to re-authenticate with the new key.
+            {t('management.auth.regenerateModal.message')}
           </p>
 
           <Alert color="yellow">
             <div>
-              <p className="font-medium mb-2">Important:</p>
+              <p className="font-medium mb-2">{t('management.auth.regenerateModal.important')}</p>
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>The API key will be regenerated</li>
-                <li>All users and guests will be logged out immediately</li>
-                <li>Steam integration will be logged out</li>
+                <li>{t('management.auth.regenerateModal.point1')}</li>
+                <li>{t('management.auth.regenerateModal.point2')}</li>
+                <li>{t('management.auth.regenerateModal.point3')}</li>
                 <li>
-                  Check <code className="bg-themed-tertiary px-1 rounded">/data/api_key.txt</code>{' '}
-                  for the new API key
+                  {t('management.auth.regenerateModal.point4Before')} <code className="bg-themed-tertiary px-1 rounded">/data/api_key.txt</code>{' '}
+                  {t('management.auth.regenerateModal.point4After')}
                 </li>
               </ul>
             </div>
@@ -586,7 +587,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
               onClick={() => setShowRegenerateModal(false)}
               disabled={authLoading}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="filled"
@@ -595,7 +596,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
               onClick={confirmRegenerateKey}
               loading={authLoading}
             >
-              Regenerate Key
+              {t('management.auth.regenerateKey')}
             </Button>
           </div>
         </div>

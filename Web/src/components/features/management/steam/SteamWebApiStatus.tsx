@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Globe, AlertCircle, CheckCircle, Key, Loader2, Trash2, AlertTriangle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -16,6 +17,7 @@ interface SteamWebApiStatusProps {
 }
 
 const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _steamAuthMode }) => {
+  const { t } = useTranslation();
   const { status, loading, refresh, updateStatus } = useSteamWebApiStatus();
   const { updateProgress } = usePicsProgress();
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -64,10 +66,10 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
 
         // Update PICS progress in useEffect, not during render
       } else {
-        alert(data.error || 'Failed to remove API key');
+        alert(data.error || t('modals.steamAuth.errors.failedToRemoveApiKey'));
       }
     } catch (error: unknown) {
-      alert((error instanceof Error ? error.message : String(error)) || 'Network error - failed to remove API key');
+      alert((error instanceof Error ? error.message : String(error)) || t('modals.steamAuth.errors.networkError'));
     } finally {
       setRemoving(false);
     }
@@ -161,26 +163,25 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
           <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-cyan">
             <Globe className="w-5 h-5 icon-cyan" />
           </div>
-          <h3 className="text-lg font-semibold text-themed-primary">Steam Web API Status</h3>
+          <h3 className="text-lg font-semibold text-themed-primary">{t('management.steamWebApi.title')}</h3>
           <HelpPopover position="left" width={340}>
-            <HelpSection title="API Versions">
+            <HelpSection title={t('management.steamWebApi.help.apiVersions.title')}>
               <div className="space-y-1.5">
-                <HelpDefinition term="V2" termColor="green">
-                  No API key required, but it can be rate-limited or unavailable
+                <HelpDefinition term={t('management.steamWebApi.help.apiVersions.v2.term')} termColor="green">
+                  {t('management.steamWebApi.help.apiVersions.v2.description')}
                 </HelpDefinition>
-                <HelpDefinition term="V1" termColor="blue">
-                  Requires an API key and works as a fallback when V2 is down
+                <HelpDefinition term={t('management.steamWebApi.help.apiVersions.v1.term')} termColor="blue">
+                  {t('management.steamWebApi.help.apiVersions.v1.description')}
                 </HelpDefinition>
               </div>
             </HelpSection>
 
-            <HelpSection title="API Key" variant="subtle">
-              Optional. Only needed if V2 is unavailable.
-              Anonymous users can use the GitHub download instead.
+            <HelpSection title={t('management.steamWebApi.help.apiKey.title')} variant="subtle">
+              {t('management.steamWebApi.help.apiKey.description')}
             </HelpSection>
 
             <HelpNote type="info">
-              Get your free API key at{' '}
+              {t('management.steamWebApi.help.getApiKey.before')}{' '}
               <a
                 href="https://steamcommunity.com/dev/apikey"
                 target="_blank"
@@ -190,7 +191,7 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
               >
                 steamcommunity.com/dev/apikey
               </a>
-              {' '}and approve the confirmation in the Steam Mobile app.
+              {' '}{t('management.steamWebApi.help.getApiKey.after')}
             </HelpNote>
           </HelpPopover>
         </div>
@@ -204,7 +205,7 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
               className="text-sm font-medium leading-relaxed"
               style={{ color: getStatusColor() }}
             >
-              {loading ? 'Checking status...' : status?.message || 'Unknown status'}
+              {loading ? t('management.steamWebApi.checkingStatus') : status?.message || t('management.steamWebApi.unknownStatus')}
             </p>
           </div>
 
@@ -214,7 +215,7 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
               <div className="flex flex-wrap gap-2">
                 {getVersionBadge('V2', status.isV2Available)}
                 {getVersionBadge(
-                  status.hasApiKey ? 'V1 (with key)' : 'V1 (no key)',
+                  status.hasApiKey ? t('management.steamWebApi.v1WithKey') : t('management.steamWebApi.v1NoKey'),
                   status.isV1Available
                 )}
               </div>
@@ -236,7 +237,7 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
               loading={refreshing}
               className="flex-shrink-0"
             >
-              Refresh
+              {t('common.refresh')}
             </Button>
           </div>
         </div>
@@ -248,11 +249,10 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
               <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5 icon-error" />
               <div className="flex-1">
                 <p className="font-medium text-sm mb-1 text-themed-error">
-                  Both V2 and V1 Unavailable
+                  {t('management.steamWebApi.bothUnavailable.title')}
                 </p>
                 <p className="text-xs text-themed-error opacity-90">
-                  Both Steam Web API V2 and V1 are currently unavailable. This may be a temporary
-                  Steam service issue. Please try again later.
+                  {t('management.steamWebApi.bothUnavailable.description')}
                 </p>
               </div>
             </div>
@@ -271,7 +271,7 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
               className="flex-1"
               disabled={removing}
             >
-              {status?.hasApiKey ? 'Update API Key' : 'Configure API Key'}
+              {status?.hasApiKey ? t('management.steamWebApi.updateApiKey') : t('management.steamWebApi.configureApiKey')}
             </Button>
             {status?.hasApiKey && (
               <Button
@@ -281,7 +281,7 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
                 onClick={() => setShowRemoveModal(true)}
                 disabled={removing || loading}
               >
-                Remove
+                {t('management.steamWebApi.remove')}
               </Button>
             )}
           </div>
@@ -290,7 +290,7 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
         {/* Last Checked */}
         {!loading && status && (
           <p className="text-xs text-themed-muted mt-3 text-center">
-            Last checked: {formattedLastChecked}
+            {t('management.steamWebApi.lastChecked')}: {formattedLastChecked}
           </p>
         )}
       </Card>
@@ -313,23 +313,22 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
         title={
           <div className="flex items-center space-x-3">
             <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>Remove Steam Web API Key</span>
+            <span>{t('management.steamWebApi.removeModal.title')}</span>
           </div>
         }
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            Are you sure you want to remove the Steam Web API key? If V2 becomes unavailable,
-            you will need to reconfigure the key to use V1 fallback.
+            {t('management.steamWebApi.removeModal.message')}
           </p>
 
           <Alert color="yellow">
-            <p className="text-sm">This action will remove the stored API key from the server.</p>
+            <p className="text-sm">{t('management.steamWebApi.removeModal.warning')}</p>
           </Alert>
 
           <div className="flex justify-end space-x-3 pt-2">
             <Button variant="default" onClick={() => setShowRemoveModal(false)} disabled={removing}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="filled"
@@ -338,7 +337,7 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
               onClick={confirmRemoveApiKey}
               loading={removing}
             >
-              Remove API Key
+              {t('management.steamWebApi.removeModal.confirm')}
             </Button>
           </div>
         </div>

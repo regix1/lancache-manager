@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useStats } from '@contexts/StatsContext';
 import { useNotifications } from '@contexts/NotificationsContext';
 import { useMockMode } from '@contexts/MockModeContext';
@@ -30,6 +31,7 @@ interface ManagementTabProps {
 }
 
 const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) => {
+  const { t } = useTranslation();
   const { refreshStats } = useStats();
   const { addNotification, notifications } = useNotifications();
   const { mockMode } = useMockMode();
@@ -165,7 +167,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
       if (!hasMigratedRef.current) {
         const migrated = await operationStateService.migrateFromLocalStorage();
         if (migrated > 0) {
-          setSuccess(`Migrated ${migrated} operations from local storage to server`);
+          setSuccess(t('management.sections.migratedOperations', { count: migrated }));
         }
         hasMigratedRef.current = true;
       }
@@ -225,9 +227,9 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
       return (
         <Card>
           <div className="text-center py-12">
-            <p className="text-themed-secondary text-lg mb-2">Authentication Required</p>
+            <p className="text-themed-secondary text-lg mb-2">{t('management.sections.authRequired')}</p>
             <p className="text-themed-muted text-sm">
-              Please authenticate to access this section.
+              {t('management.sections.authRequiredDesc')}
             </p>
           </div>
         </Card>
@@ -328,10 +330,9 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
         <div className="mt-4">
           <Card>
             <div className="text-center py-6">
-              <p className="text-themed-secondary text-lg mb-2">Guest Mode Active</p>
+              <p className="text-themed-secondary text-lg mb-2">{t('management.sections.guestModeActive')}</p>
               <p className="text-themed-muted text-sm">
-                Management features are disabled in guest mode. Please authenticate to access full
-                functionality.
+                {t('management.sections.guestModeDesc')}
               </p>
             </div>
           </Card>

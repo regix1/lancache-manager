@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronRight, ExternalLink, ChevronLeft } from 'lucide-react';
 import { formatBytes, formatPercent, formatRelativeTime } from '@utils/formatters';
 import { getServiceBadgeStyles } from '@utils/serviceColors';
@@ -20,13 +21,13 @@ interface CompactViewSectionLabels {
   downloadList: string;
 }
 
-const DEFAULT_SECTION_LABELS: CompactViewSectionLabels = {
-  multipleDownloads: 'Frequently Downloaded Games (2+ sessions)',
-  singleDownloads: 'Single Session Downloads',
-  individual: 'Uncategorized Downloads',
-  banner: 'Game Banner',
-  downloadList: 'Download Sessions'
-};
+const getDefaultSectionLabels = (t: (key: string, options?: Record<string, unknown>) => string): CompactViewSectionLabels => ({
+  multipleDownloads: t('downloads.tab.compact.sections.multipleDownloads'),
+  singleDownloads: t('downloads.tab.compact.sections.singleDownloads'),
+  individual: t('downloads.tab.compact.sections.individual'),
+  banner: t('downloads.tab.compact.sections.banner'),
+  downloadList: t('downloads.tab.compact.sections.downloadList')
+});
 
 interface CompactViewProps {
   items: (Download | DownloadGroup)[];
@@ -74,6 +75,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
   showDatasourceLabels,
   hasMultipleDatasources
 }) => {
+  const { t } = useTranslation();
   const { fetchAssociations, getAssociations } = useDownloadAssociations();
   const isExpanded = expandedItem === group.id;
   const rowRef = React.useRef<HTMLDivElement>(null);
@@ -160,10 +162,11 @@ const GroupRow: React.FC<GroupRowProps> = ({
                 <div className="flex items-center justify-between pl-6 text-xs">
                   <div className="flex items-center gap-2">
                     <span className="text-themed-muted">
-                      {group.clientsSet.size} client{group.clientsSet.size !== 1 ? 's' : ''} · {group.count} request{group.count !== 1 ? 's' : ''}
+                      {t('downloads.tab.compact.counts.clients', { count: group.clientsSet.size })}{' '}
+                      · {t('downloads.tab.compact.counts.requests', { count: group.count })}
                     </span>
                     {shouldShowDatasource && (
-                      <Tooltip content={`Datasource: ${primaryDatasource}`}>
+                      <Tooltip content={t('downloads.tab.compact.datasourceTooltip', { datasource: primaryDatasource })}>
                         <span
                           className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]"
                         >
@@ -210,7 +213,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     </span>
                   )}
                   {shouldShowDatasource && (
-                    <Tooltip content={`Datasource: ${primaryDatasource}`}>
+                    <Tooltip content={t('downloads.tab.compact.datasourceTooltip', { datasource: primaryDatasource })}>
                       <span
                         className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]"
                       >
@@ -219,7 +222,8 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     </Tooltip>
                   )}
                   <span className="text-xs text-themed-muted flex-shrink-0">
-                    {group.clientsSet.size} client{group.clientsSet.size !== 1 ? 's' : ''} · {group.count} request{group.count !== 1 ? 's' : ''}
+                    {t('downloads.tab.compact.counts.clients', { count: group.clientsSet.size })}{' '}
+                    · {t('downloads.tab.compact.counts.requests', { count: group.count })}
                   </span>
                 </div>
                 <div className="flex items-center gap-3 flex-shrink-0">
@@ -277,23 +281,23 @@ const GroupRow: React.FC<GroupRowProps> = ({
               {/* Stats - grid on mobile, flex on desktop */}
               <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-x-3 gap-y-2 text-xs text-themed-muted mb-2">
                 <span>
-                  <span className="text-themed-secondary">Hit:</span>{' '}
+                  <span className="text-themed-secondary">{t('downloads.tab.compact.labels.hit')}</span>{' '}
                   <span className="text-[var(--theme-text-primary)]">
-                    {group.cacheHitBytes > 0 ? formatBytes(group.cacheHitBytes) : '0 B'}
+                    {group.cacheHitBytes > 0 ? formatBytes(group.cacheHitBytes) : t('downloads.tab.compact.labels.zeroBytes')}
                   </span>
                 </span>
                 <span>
-                  <span className="text-themed-secondary">Miss:</span>{' '}
+                  <span className="text-themed-secondary">{t('downloads.tab.compact.labels.miss')}</span>{' '}
                   <span className="text-[var(--theme-text-primary)]">
                     {formatBytes(group.cacheMissBytes || 0)}
                   </span>
                 </span>
                 <span>
-                  <span className="text-themed-secondary">First:</span>{' '}
+                  <span className="text-themed-secondary">{t('downloads.tab.compact.labels.first')}</span>{' '}
                   {formatRelativeTime(group.firstSeen)}
                 </span>
                 <span>
-                  <span className="text-themed-secondary">Last:</span>{' '}
+                  <span className="text-themed-secondary">{t('downloads.tab.compact.labels.last')}</span>{' '}
                   {formatRelativeTime(group.lastSeen)}
                 </span>
                 {storeLink && (
@@ -303,10 +307,10 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     rel="noopener noreferrer"
                     onClick={(event) => event.stopPropagation()}
                     className="inline-flex items-center gap-1 text-[var(--theme-primary)] hover:text-[var(--theme-primary-hover)] transition-colors col-span-2 sm:col-span-1"
-                    title="View in Steam Store"
+                    title={t('downloads.tab.compact.labels.storeTitle')}
                   >
                     <ExternalLink size={11} />
-                    <span>Store</span>
+                    <span>{t('downloads.tab.compact.labels.store')}</span>
                   </a>
                 )}
               </div>
@@ -363,12 +367,12 @@ const GroupRow: React.FC<GroupRowProps> = ({
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-xs text-themed-muted">
-                        Sessions ({group.downloads.length})
+                        {t('downloads.tab.compact.labels.sessions', { count: group.downloads.length })}
                       </span>
                       {/* Inline pagination */}
                       {totalPages > 1 && (
                         <div className="flex items-center gap-1">
-                          <Tooltip content="Previous page (hold to skip)">
+                          <Tooltip content={t('downloads.tab.compact.pagination.previous')}>
                             <button
                               onClick={() => handlePageChange(currentPage - 1)}
                               onPointerDown={(event) => handlePointerHoldStart(event, 'prev')}
@@ -384,7 +388,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                           <span className="text-xs text-themed-muted font-mono min-w-[40px] text-center">
                             {currentPage}/{totalPages}
                           </span>
-                          <Tooltip content="Next page (hold to skip)">
+                          <Tooltip content={t('downloads.tab.compact.pagination.next')}>
                             <button
                               onClick={() => handlePageChange(currentPage + 1)}
                               onPointerDown={(event) => handlePointerHoldStart(event, 'next')}
@@ -513,7 +517,8 @@ const CompactView: React.FC<CompactViewProps> = ({
   showDatasourceLabels = true,
   hasMultipleDatasources = false
 }) => {
-  const labels = { ...DEFAULT_SECTION_LABELS, ...sectionLabels };
+  const { t } = useTranslation();
+  const labels = { ...getDefaultSectionLabels(t), ...sectionLabels };
   const [imageErrors, setImageErrors] = React.useState<Set<string>>(new Set());
   const [groupPages, setGroupPages] = React.useState<Record<string, number>>({});
   const { startHoldTimer, stopHoldTimer } = useHoldTimer();

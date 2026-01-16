@@ -5,6 +5,7 @@ import {
   ChevronsLeft,
   ChevronsRight
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { EnhancedDropdown } from './EnhancedDropdown';
 
 interface PaginationProps {
@@ -34,6 +35,8 @@ export const Pagination: React.FC<PaginationProps> = ({
   parentPadding = 'lg',
   compact = false
 }) => {
+  const { t } = useTranslation();
+  
   // Calculate offset based on parent padding
   const paddingValues = {
     none: '0',
@@ -62,7 +65,7 @@ export const Pagination: React.FC<PaginationProps> = ({
             onClick={() => onPageChange(Math.max(1, currentPage - 1))}
             disabled={currentPage === 1}
             className="p-1.5 rounded-md transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] border border-[var(--theme-border-secondary)]"
-            title="Previous page"
+            title={t('ui.pagination.previousPage')}
           >
             <ChevronLeft size={14} />
           </button>
@@ -75,7 +78,7 @@ export const Pagination: React.FC<PaginationProps> = ({
             onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
             disabled={currentPage === totalPages}
             className="p-1.5 rounded-md transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] border border-[var(--theme-border-secondary)]"
-            title="Next page"
+            title={t('ui.pagination.nextPage')}
           >
             <ChevronRight size={14} />
           </button>
@@ -109,10 +112,10 @@ export const Pagination: React.FC<PaginationProps> = ({
       {/* Page Info */}
       <div className="flex items-center gap-4">
         <span className="text-sm font-medium text-themed-primary">
-          Page {currentPage} of {totalPages}
+          {t('ui.pagination.pageInfo', { current: currentPage, total: totalPages })}
         </span>
         <span className="text-sm text-themed-secondary">
-          {startItem} - {endItem} of {totalItems} {itemLabel}
+          {t('ui.pagination.itemRange', { start: startItem, end: endItem, total: totalItems, label: itemLabel })}
         </span>
       </div>
 
@@ -123,8 +126,8 @@ export const Pagination: React.FC<PaginationProps> = ({
           onClick={() => onPageChange(1)}
           disabled={currentPage === 1}
           className="p-2 rounded-lg transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 bg-[var(--theme-bg-secondary)] text-[var(--theme-text-primary)] border border-[var(--theme-border-primary)]"
-          title="First page"
-          aria-label="Go to first page"
+          title={t('ui.pagination.firstPage')}
+          aria-label={t('ui.pagination.goToFirstPage')}
         >
           <ChevronsLeft size={16} />
         </button>
@@ -134,8 +137,8 @@ export const Pagination: React.FC<PaginationProps> = ({
           onClick={() => onPageChange(Math.max(1, currentPage - 1))}
           disabled={currentPage === 1}
           className="p-2 rounded-lg transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 bg-[var(--theme-bg-secondary)] text-[var(--theme-text-primary)] border border-[var(--theme-border-primary)]"
-          title="Previous page"
-          aria-label="Go to previous page"
+          title={t('ui.pagination.previousPage')}
+          aria-label={t('ui.pagination.goToPreviousPage')}
         >
           <ChevronLeft size={16} />
         </button>
@@ -165,7 +168,7 @@ export const Pagination: React.FC<PaginationProps> = ({
                       ? '1px solid var(--theme-primary)'
                       : '1px solid var(--theme-border-secondary)'
                 }}
-                aria-label={`Go to page ${pageNum}`}
+                aria-label={t('ui.pagination.goToPage', { page: pageNum })}
                 aria-current={currentPage === pageNum ? 'page' : undefined}
               >
                 {pageNum}
@@ -191,7 +194,7 @@ export const Pagination: React.FC<PaginationProps> = ({
                       ? '1px solid var(--theme-primary)'
                       : '1px solid var(--theme-border-secondary)'
                 }}
-                aria-label="Go to page 1"
+                aria-label={t('ui.pagination.goToPage', { page: 1 })}
                 aria-current={currentPage === 1 ? 'page' : undefined}
               >
                 1
@@ -225,7 +228,7 @@ export const Pagination: React.FC<PaginationProps> = ({
                           ? '1px solid var(--theme-primary)'
                           : '1px solid var(--theme-border-secondary)'
                     }}
-                    aria-label={`Go to page ${pageNum}`}
+                    aria-label={t('ui.pagination.goToPage', { page: pageNum })}
                     aria-current={currentPage === pageNum ? 'page' : undefined}
                   >
                     {pageNum}
@@ -256,7 +259,7 @@ export const Pagination: React.FC<PaginationProps> = ({
                       ? '1px solid var(--theme-primary)'
                       : '1px solid var(--theme-border-secondary)'
                 }}
-                aria-label={`Go to page ${totalPages}`}
+                aria-label={t('ui.pagination.goToPage', { page: totalPages })}
                 aria-current={currentPage === totalPages ? 'page' : undefined}
               >
                 {totalPages}
@@ -270,8 +273,8 @@ export const Pagination: React.FC<PaginationProps> = ({
           onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
           disabled={currentPage === totalPages}
           className="p-2 rounded-lg transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 bg-[var(--theme-bg-secondary)] text-[var(--theme-text-primary)] border border-[var(--theme-border-primary)]"
-          title="Next page"
-          aria-label="Go to next page"
+          title={t('ui.pagination.nextPage')}
+          aria-label={t('ui.pagination.goToNextPage')}
         >
           <ChevronRight size={16} />
         </button>
@@ -281,8 +284,8 @@ export const Pagination: React.FC<PaginationProps> = ({
           onClick={() => onPageChange(totalPages)}
           disabled={currentPage === totalPages}
           className="p-2 rounded-lg transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 bg-[var(--theme-bg-secondary)] text-[var(--theme-text-primary)] border border-[var(--theme-border-primary)]"
-          title="Last page"
-          aria-label="Go to last page"
+          title={t('ui.pagination.lastPage')}
+          aria-label={t('ui.pagination.goToLastPage')}
         >
           <ChevronsRight size={16} />
         </button>
@@ -294,11 +297,11 @@ export const Pagination: React.FC<PaginationProps> = ({
             <EnhancedDropdown
               options={Array.from({ length: totalPages }, (_, i) => ({
                 value: (i + 1).toString(),
-                label: `Page ${i + 1}`
+                label: t('ui.pagination.page') + ' ' + (i + 1)
               }))}
               value={currentPage.toString()}
               onChange={(value) => onPageChange(parseInt(value))}
-              placeholder="Jump to..."
+              placeholder={t('ui.pagination.jumpTo')}
               className="w-32"
             />
           </>

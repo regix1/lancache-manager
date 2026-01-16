@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, memo } from 'react';
 import { TrendingUp, TrendingDown, Loader2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { formatBytes } from '@utils/formatters';
 import { type CacheGrowthResponse } from '../../../../types';
 import Sparkline from '../components/Sparkline';
@@ -30,6 +31,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
   glassmorphism = true,
   staggerIndex,
 }) => {
+  const { t } = useTranslation();
   const { timeRange, getTimeRangeParams, selectedEventIds } = useTimeFilter();
 
   // Determine if we're viewing historical/filtered data (not live)
@@ -138,7 +140,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
         <div className="flex items-center gap-2 mb-3">
           <TrendingUp className="w-5 h-5 text-themed-muted" />
           <h3 className="text-sm font-semibold text-themed-primary">
-            Cache Growth
+            {t('widgets.cacheGrowthTrend.title')}
           </h3>
         </div>
         <div className="flex items-center justify-center h-24">
@@ -155,11 +157,11 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
         <div className="flex items-center gap-2 mb-3">
           <TrendingUp className="w-5 h-5 text-themed-muted" />
           <h3 className="text-sm font-semibold text-themed-primary">
-            Cache Growth
+            {t('widgets.cacheGrowthTrend.title')}
           </h3>
         </div>
         <p className="text-sm text-themed-muted">
-          {error}
+          {t('widgets.cacheGrowthTrend.failedToLoad')}
         </p>
       </div>
     );
@@ -174,24 +176,24 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
         <div className="flex items-center gap-2">
           <TrendingUp className="w-5 h-5 text-themed-accent" />
           <h3 className="text-sm font-semibold text-themed-primary">
-            Cache Growth
+            {t('widgets.cacheGrowthTrend.title')}
           </h3>
           <HelpPopover width={280}>
             <div className="space-y-1.5">
-              <HelpDefinition term="↑ Up" termColor="green">Cache is growing faster recently</HelpDefinition>
-              <HelpDefinition term="↓ Down" termColor="orange">Cache growth is slowing recently</HelpDefinition>
+              <HelpDefinition term={t('widgets.cacheGrowthTrend.trendUp.term')} termColor="green">{t('widgets.cacheGrowthTrend.trendUp.description')}</HelpDefinition>
+              <HelpDefinition term={t('widgets.cacheGrowthTrend.trendDown.term')} termColor="orange">{t('widgets.cacheGrowthTrend.trendDown.description')}</HelpDefinition>
               {hasDataDeletion && (
-                <HelpDefinition term="Net Growth" termColor="blue">
-                  Adjusts for cache that was cleared or deleted
+                <HelpDefinition term={t('widgets.cacheGrowthTrend.netGrowth.term')} termColor="blue">
+                  {t('widgets.cacheGrowthTrend.netGrowth.description')}
                 </HelpDefinition>
               )}
-              <HelpDefinition term="Data Points" termColor="purple">
-                Time buckets with download activity. More points mean finer detail.
+              <HelpDefinition term={t('widgets.cacheGrowthTrend.dataPoints.term')} termColor="purple">
+                {t('widgets.cacheGrowthTrend.dataPoints.description')}
               </HelpDefinition>
               <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
                 {hasDataDeletion
-                  ? 'Cache was cleared in this period; the trend accounts for deletions.'
-                  : 'Shows data added during the period (not total cache size).'}
+                  ? t('widgets.cacheGrowthTrend.cacheCleared')
+                  : t('widgets.cacheGrowthTrend.dataAddedNote')}
               </div>
             </div>
           </HelpPopover>
@@ -217,7 +219,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
               {formatBytes(periodGrowth)}
             </span>
             <span className="text-sm text-themed-muted">
-              added during period
+              {t('widgets.cacheGrowthTrend.addedDuringPeriod')}
             </span>
           </div>
           {/* No usage bar for historical view - we don't have snapshot data */}
@@ -270,8 +272,8 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
           {hasDataDeletion && (
             <div className="text-[10px] text-center mt-1 text-themed-muted">
               {cacheWasCleared
-                ? 'Cache cleared • Showing new downloads'
-                : 'Some cache data was deleted'}
+                ? t('widgets.cacheGrowthTrend.cacheCleared')
+                : t('widgets.cacheGrowthTrend.someDeleted')}
             </div>
           )}
         </div>
@@ -281,7 +283,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
       <div className="grid grid-cols-2 gap-4 text-xs">
         <div>
           <div className="text-themed-muted">
-            {isHistoricalView ? 'Avg. Growth' : cacheWasCleared ? 'Download Rate' : hasDataDeletion ? 'Net Growth' : 'Growth Rate'}
+            {isHistoricalView ? t('widgets.cacheGrowthTrend.avgGrowth') : cacheWasCleared ? t('widgets.cacheGrowthTrend.downloadRate') : hasDataDeletion ? t('widgets.cacheGrowthTrend.netGrowth.term') : t('widgets.cacheGrowthTrend.growthRate')}
           </div>
           <div
             className={`font-medium ${
@@ -296,23 +298,23 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
               ? `+${formatBytes(growthRatePerDay)}/day`
               : growthRatePerDay < 0
                 ? `-${formatBytes(Math.abs(growthRatePerDay))}/day`
-                : 'Stable'}
+                : t('widgets.cacheGrowthTrend.stable')}
           </div>
         </div>
         <div>
           <div className="text-themed-muted">
-            {isHistoricalView ? 'Data Points' : daysUntilFull !== null && daysUntilFull > 0 ? 'Est. Full' : 'Status'}
+            {isHistoricalView ? t('widgets.cacheGrowthTrend.dataPoints.term') : daysUntilFull !== null && daysUntilFull > 0 ? t('widgets.cacheGrowthTrend.estFull') : t('widgets.cacheGrowthTrend.status')}
           </div>
           <div className="font-medium text-themed-primary">
             {isHistoricalView
-              ? `${sparklineData.length} samples`
+              ? t('widgets.cacheGrowthTrend.dataPointsCount', { count: sparklineData.length })
               : daysUntilFull !== null && daysUntilFull > 0
-                ? `~${daysUntilFull} days`
+                ? t('widgets.cacheGrowthTrend.days', { count: daysUntilFull })
                 : daysUntilFull === 0
-                  ? 'Full'
+                  ? t('widgets.cacheGrowthTrend.full')
                   : usagePercent > 0
-                    ? `${usagePercent.toFixed(1)}% used`
-                    : 'Empty'}
+                    ? t('widgets.cacheGrowthTrend.used', { percent: usagePercent.toFixed(1) })
+                    : t('widgets.cacheGrowthTrend.empty')}
           </div>
         </div>
       </div>

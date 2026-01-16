@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 
 // Document-relative rect (top/left include current scroll offset).
@@ -48,12 +49,13 @@ const EventFrame: React.FC<EventFrameProps> = ({
   enabled = true,
   color = 'var(--theme-primary)',
   label,
-  badgeText = 'LIVE',
+  badgeText,
   showBadge = true,
   tokens,
   trackScroll = false,
   className
 }) => {
+  const { t } = useTranslation();
   const contentRef = useRef<HTMLDivElement>(null);
   const [rect, setRect] = useState<ContentRect | null>(null);
   const rafIdRef = useRef<number | null>(null);
@@ -212,6 +214,7 @@ const EventFrame: React.FC<EventFrameProps> = ({
   }
 
   const shouldShowBadge = showBadge && Boolean(label);
+  const resolvedBadgeText = badgeText ?? t('eventFrame.badge');
   const contentClassName = `event-frame-content${className ? ` ${className}` : ''}`;
   const contentStyle = {
     '--event-frame-top-margin': `${mergedTokens.topMargin}px`
@@ -272,7 +275,9 @@ const EventFrame: React.FC<EventFrameProps> = ({
               <div className="event-frame-badge">
                 <span className="event-frame-badge-dot animate-pulse" />
                 <span className="event-frame-badge-name">{label}</span>
-                {badgeText && <span className="event-frame-badge-tag">{badgeText}</span>}
+                {resolvedBadgeText && (
+                  <span className="event-frame-badge-tag">{resolvedBadgeText}</span>
+                )}
               </div>
             </div>
           )}

@@ -8,6 +8,7 @@ import {
   XCircle,
   Lock
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Button } from './Button';
 import { Tooltip } from './Tooltip';
 
@@ -103,11 +104,13 @@ export const PermissionIndicators: React.FC<PermissionIndicatorsProps> = ({
   showLogs = true,
   showCache = true
 }) => {
+  const { t } = useTranslation();
+  
   return (
     <div className="flex items-center gap-2">
       {showLogs && logsReadOnly !== undefined && (
         <Tooltip
-          content={logsReadOnly ? 'Logs are read-only' : 'Logs are writable'}
+          content={logsReadOnly ? t('ui.managerCard.logsReadOnly') : t('ui.managerCard.logsWritable')}
           position="top"
         >
           <span className="flex items-center gap-0.5">
@@ -122,7 +125,7 @@ export const PermissionIndicators: React.FC<PermissionIndicatorsProps> = ({
       )}
       {showCache && cacheReadOnly !== undefined && (
         <Tooltip
-          content={cacheReadOnly ? 'Cache is read-only' : 'Cache is writable'}
+          content={cacheReadOnly ? t('ui.managerCard.cacheReadOnly') : t('ui.managerCard.cacheWritable')}
           position="top"
         >
           <span className="flex items-center gap-0.5">
@@ -157,10 +160,12 @@ export const RefreshButton: React.FC<RefreshButtonProps> = ({
   onClick,
   isLoading = false,
   disabled = false,
-  tooltip = 'Refresh data'
+  tooltip
 }) => {
+  const { t } = useTranslation();
+  
   return (
-    <Tooltip content={tooltip} position="top">
+    <Tooltip content={tooltip || t('ui.managerCard.refreshData')} position="top">
       <Button
         onClick={onClick}
         disabled={disabled || isLoading}
@@ -190,13 +195,15 @@ interface LoadingStateProps {
  * Standardized loading state for management cards
  */
 export const LoadingState: React.FC<LoadingStateProps> = ({
-  message = 'Loading...',
+  message,
   submessage
 }) => {
+  const { t } = useTranslation();
+  
   return (
     <div className="flex flex-col items-center justify-center py-8 gap-3">
       <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
-      <p className="text-sm text-themed-secondary">{message}</p>
+      <p className="text-sm text-themed-secondary">{message || t('common.loading')}</p>
       {submessage && (
         <p className="text-xs text-themed-muted">{submessage}</p>
       )}
@@ -246,13 +253,15 @@ interface ReadOnlyBadgeProps {
  * Standardized read-only badge for disabled states
  */
 export const ReadOnlyBadge: React.FC<ReadOnlyBadgeProps> = ({
-  message = 'Read-only'
+  message
 }) => {
+  const { t } = useTranslation();
+  
   return (
     <div className="flex items-center justify-center py-4">
       <span className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 border bg-[var(--theme-warning-bg)] text-[var(--theme-warning)] border-[var(--theme-warning)]">
         <Lock className="w-3 h-3" />
-        {message}
+        {message || t('ui.managerCard.readOnly')}
       </span>
     </div>
   );

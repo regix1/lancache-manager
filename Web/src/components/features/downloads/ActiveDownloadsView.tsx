@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Activity, HardDrive, Users, Loader2, RefreshCw } from 'lucide-react';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useRefreshRate } from '@contexts/RefreshRateContext';
@@ -18,6 +19,7 @@ const formatSpeed = (bytesPerSecond: number): string => {
 };
 
 const ActiveDownloadsView: React.FC = () => {
+  const { t } = useTranslation();
   const signalR = useSignalR();
   const { getRefreshInterval } = useRefreshRate();
 
@@ -174,9 +176,9 @@ const ActiveDownloadsView: React.FC = () => {
             <Activity size={32} className="text-[var(--theme-text-muted)]" />
           </div>
         </div>
-        <div className="empty-title">No Active Downloads</div>
+        <div className="empty-title">{t('downloads.active.empty.title')}</div>
         <div className="empty-description">
-          Downloads will appear here in real-time when clients start downloading games through the cache.
+          {t('downloads.active.empty.description')}
         </div>
       </div>
     );
@@ -438,20 +440,20 @@ const ActiveDownloadsView: React.FC = () => {
             onClick={() => setViewMode('games')}
           >
             <HardDrive />
-            Games ({games.length})
+            {t('downloads.active.tabs.games', { count: games.length })}
           </button>
           <button
             className={`view-toggle-btn ${viewMode === 'clients' ? 'active' : ''}`}
             onClick={() => setViewMode('clients')}
           >
             <Users />
-            Clients ({clients.length})
+            {t('downloads.active.tabs.clients', { count: clients.length })}
           </button>
         </div>
 
         <button className="refresh-btn" onClick={fetchSpeeds}>
           <RefreshCw />
-          Refresh
+          {t('downloads.active.refresh')}
         </button>
       </div>
 
@@ -469,8 +471,11 @@ const ActiveDownloadsView: React.FC = () => {
               </div>
 
               <div className="download-info">
-                <div className="download-name" title={game.gameName || `Depot ${game.depotId}`}>
-                  {game.gameName || `Depot ${game.depotId}`}
+                <div
+                  className="download-name"
+                  title={game.gameName || t('downloads.active.depotLabel', { depotId: game.depotId })}
+                >
+                  {game.gameName || t('downloads.active.depotLabel', { depotId: game.depotId })}
                 </div>
                 <div className="download-meta">
                   <span className="meta-item">{formatBytes(game.totalBytes)}</span>
@@ -478,16 +483,18 @@ const ActiveDownloadsView: React.FC = () => {
                   <span className={`meta-item cache-hit ${
                     game.cacheHitPercent >= 80 ? '' : game.cacheHitPercent >= 50 ? 'medium' : 'low'
                   }`}>
-                    {game.cacheHitPercent.toFixed(0)}% hit
+                    {t('downloads.active.hitRate', { percent: game.cacheHitPercent.toFixed(0) })}
                   </span>
                   <span className="meta-divider">•</span>
-                  <span className="meta-item">{game.requestCount} requests</span>
+                  <span className="meta-item">
+                    {t('downloads.active.requests', { count: game.requestCount })}
+                  </span>
                 </div>
               </div>
 
               <div className="download-speed">
                 <span className="speed-value">{formatSpeed(game.bytesPerSecond)}</span>
-                <span className="speed-label">Speed</span>
+                <span className="speed-label">{t('downloads.active.speed')}</span>
               </div>
             </div>
           ))
@@ -509,13 +516,15 @@ const ActiveDownloadsView: React.FC = () => {
                 <div className="download-meta">
                   <span className="meta-item">{formatBytes(client.totalBytes)}</span>
                   <span className="meta-divider">•</span>
-                  <span className="meta-item">{client.activeGames} game{client.activeGames !== 1 ? 's' : ''}</span>
+                  <span className="meta-item">
+                    {t('downloads.active.gamesCount', { count: client.activeGames })}
+                  </span>
                 </div>
               </div>
 
               <div className="download-speed">
                 <span className="speed-value">{formatSpeed(client.bytesPerSecond)}</span>
-                <span className="speed-label">Speed</span>
+                <span className="speed-label">{t('downloads.active.speed')}</span>
               </div>
             </div>
           ))
@@ -525,16 +534,20 @@ const ActiveDownloadsView: React.FC = () => {
       {/* Summary Footer */}
       <div className="summary-footer">
         <div className="summary-stat">
-          <strong>{games.length}</strong> game{games.length !== 1 ? 's' : ''}
+          <strong>{games.length}</strong>{' '}
+          {t('downloads.active.summary.gamesLabel', { count: games.length })}
         </div>
         <div className="summary-stat">
-          <strong>{clients.length}</strong> client{clients.length !== 1 ? 's' : ''}
+          <strong>{clients.length}</strong>{' '}
+          {t('downloads.active.summary.clientsLabel', { count: clients.length })}
         </div>
         <div className="summary-stat">
-          <strong>{formatSpeed(speedSnapshot?.totalBytesPerSecond || 0)}</strong> total
+          <strong>{formatSpeed(speedSnapshot?.totalBytesPerSecond || 0)}</strong>{' '}
+          {t('downloads.active.summary.totalLabel')}
         </div>
         <div className="summary-stat">
-          <strong>{speedSnapshot?.entriesInWindow || 0}</strong> requests/2s
+          <strong>{speedSnapshot?.entriesInWindow || 0}</strong>{' '}
+          {t('downloads.active.summary.requestsWindowLabel')}
         </div>
       </div>
     </div>

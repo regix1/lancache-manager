@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Shield, CheckCircle, Users, User, Loader2, Info } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
@@ -13,6 +14,7 @@ interface SteamPicsAuthStepProps {
 type AuthMode = 'anonymous' | 'account';
 
 export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete }) => {
+  const { t } = useTranslation();
   const [selectedMode, setSelectedMode] = useState<AuthMode>('anonymous');
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -38,7 +40,7 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
   const handleModeSelect = (mode: AuthMode) => {
     // Block account login if V2 API is not available
     if (mode === 'account' && steamAuthDisabled) {
-      setError('Steam account login requires V2 API which is currently unavailable');
+      setError(t('initialization.steamPicsAuth.v2Required'));
       return;
     }
     setSelectedMode(mode);
@@ -67,10 +69,10 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
         onComplete(false);
       } else {
         const data = await response.json();
-        setError(data.error || 'Failed to save authentication mode');
+        setError(data.error || t('initialization.steamPicsAuth.failedToSave'));
       }
     } catch (err: unknown) {
-      setError((err instanceof Error ? err.message : String(err)) || 'Network error - failed to save authentication mode');
+      setError((err instanceof Error ? err.message : String(err)) || t('initialization.steamPicsAuth.networkError'));
     } finally {
       setSaving(false);
     }
@@ -92,18 +94,17 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
           <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-info">
             <Shield className="w-7 h-7 icon-info" />
           </div>
-          <h3 className="text-lg font-semibold text-themed-primary mb-1">Steam PICS Authentication</h3>
+          <h3 className="text-lg font-semibold text-themed-primary mb-1">{t('initialization.steamPicsAuth.title')}</h3>
           <p className="text-sm text-themed-secondary max-w-md">
-            Choose how to authenticate with Steam for depot mapping data
+            {t('initialization.steamPicsAuth.subtitle')}
           </p>
         </div>
 
         {/* Info Box */}
         <div className="p-3 rounded-lg text-sm bg-themed-tertiary">
           <p className="text-themed-secondary">
-            <strong className="text-themed-primary">What is depot mapping?</strong>{' '}
-            Links cache files to games. Anonymous mode provides public games only.
-            Account login enables access to playtest and restricted games.
+            <strong className="text-themed-primary">{t('initialization.steamPicsAuth.whatIsDepotMapping')}</strong>{' '}
+            {t('initialization.steamPicsAuth.depotMappingDesc')}
           </p>
         </div>
 
@@ -123,8 +124,8 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
                 <Users className="w-5 h-5 icon-primary" />
               </div>
               <div className="flex-1 min-w-0">
-                <h4 className="font-semibold text-themed-primary">Anonymous (Public Games)</h4>
-                <p className="text-sm text-themed-secondary">No authentication required</p>
+                <h4 className="font-semibold text-themed-primary">{t('initialization.steamPicsAuth.anonymousMode')}</h4>
+                <p className="text-sm text-themed-secondary">{t('initialization.steamPicsAuth.anonymousModeDesc')}</p>
               </div>
               {selectedMode === 'anonymous' && (
                 <CheckCircle className="w-5 h-5 flex-shrink-0 icon-primary" />
@@ -150,12 +151,12 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
               </div>
               <div className="flex-1 min-w-0">
                 <h4 className={`font-semibold ${steamAuthDisabled ? 'text-themed-muted' : 'text-themed-primary'}`}>
-                  {steamAuthDisabled ? 'Account Login (Requires V2 API)' : 'Account Login (Playtest/Restricted)'}
+                  {steamAuthDisabled ? t('initialization.steamPicsAuth.accountModeDisabled') : t('initialization.steamPicsAuth.accountMode')}
                 </h4>
                 <p className="text-sm text-themed-secondary">
                   {steamAuthDisabled
-                    ? 'V2 API unavailable - use V1 API key instead'
-                    : 'Access playtest and restricted games via V2'}
+                    ? t('initialization.steamPicsAuth.accountModeUnavailable')
+                    : t('initialization.steamPicsAuth.accountModeDesc')}
                 </p>
               </div>
               {selectedMode === 'account' && !steamAuthDisabled && (
@@ -172,10 +173,10 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
               <Info className="w-5 h-5 flex-shrink-0 mt-0.5 icon-info" />
               <div className="flex-1">
                 <p className="text-xs text-themed-info opacity-90">
-                  <strong>Steam account login requires V2 API</strong> which is currently unavailable.
+                  <strong>{t('initialization.steamPicsAuth.v2Required')}</strong>
                   {hasV1ApiKey
-                    ? ' Your V1 API key already provides access to playtest/restricted games since it\'s tied to your Steam account.'
-                    : ' You can configure a V1 API key later in Settings to access playtest/restricted games.'}
+                    ? ' ' + t('initialization.steamPicsAuth.v2RequiredWithV1')
+                    : ' ' + t('initialization.steamPicsAuth.v2RequiredNoV1')}
                 </p>
               </div>
             </div>
@@ -199,7 +200,7 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
             fullWidth
           >
             {saving && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-            {saving ? 'Saving...' : 'Continue with Anonymous Mode'}
+            {saving ? t('initialization.steamPicsAuth.saving') : t('initialization.steamPicsAuth.continueAnonymous')}
           </Button>
         )}
       </div>

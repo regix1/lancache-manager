@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import { Activity, Clock, Loader2, HardDrive, TrendingUp, RefreshCw } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
@@ -49,7 +50,7 @@ const formatSpeed = (bytesPerSecond: number): string => {
 };
 
 // Active download item component using real-time speed data
-const ActiveDownloadItem: React.FC<{ game: GameSpeedInfo; index: number }> = ({ game, index }) => {
+const ActiveDownloadItem: React.FC<{ game: GameSpeedInfo; index: number; t: any }> = ({ game, index, t }) => {
   return (
     <div
       className="download-item active-item"
@@ -67,7 +68,7 @@ const ActiveDownloadItem: React.FC<{ game: GameSpeedInfo; index: number }> = ({ 
             <span className="meta-separator">•</span>
             <span className="meta-text">{formatBytes(game.totalBytes)}</span>
             <span className="meta-separator">•</span>
-            <span className="meta-text">{game.requestCount} req</span>
+            <span className="meta-text">{game.requestCount} {t('dashboard.downloadsPanel.req')}</span>
           </div>
         </div>
       </div>
@@ -170,6 +171,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   timeRange = 'live',
   glassmorphism = false
 }) => {
+  const { t } = useTranslation();
   const [selectedService, setSelectedService] = useState<string>('all');
   const [selectedClient, setSelectedClient] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'recent' | 'active'>('recent');
@@ -327,20 +329,9 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   }, []);
 
   const getTimeRangeLabel = useMemo(() => {
-    const labels: Record<string, string> = {
-      '15m': 'Last 15 Min',
-      '30m': 'Last 30 Min',
-      '1h': 'Last Hour',
-      '6h': 'Last 6 Hours',
-      '12h': 'Last 12 Hours',
-      '24h': 'Last 24 Hours',
-      '7d': 'Last 7 Days',
-      '30d': 'Last 30 Days',
-      '90d': 'Last 90 Days',
-      live: 'All Time'
-    };
-    return labels[timeRange] || 'Recent';
-  }, [timeRange]);
+    const key = `dashboard.downloadsPanel.timeRanges.${timeRange}` as const;
+    return t(key);
+  }, [timeRange, t]);
 
   const availableServices = useMemo(() => {
     const services = new Set(latestDownloads.map((d) => d.service));
@@ -374,7 +365,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     });
 
     const options: { value: string; label: string; description?: string }[] = [
-      { value: 'all', label: 'All Clients' }
+      { value: 'all', label: t('dashboard.downloadsPanel.allClients') }
     ];
 
     // Add grouped clients - show once per group with IPs in description
@@ -397,7 +388,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     });
 
     return options;
-  }, [availableClients, getGroupForIp, clientGroups]);
+  }, [availableClients, getGroupForIp, clientGroups, t]);
 
   const filteredDownloads = useMemo(() => {
     return latestDownloads.filter((download) => {
@@ -987,18 +978,18 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       <div className="panel-header">
         <div className="header-top">
           <div className="header-title">
-            <h3>Downloads</h3>
+            <h3>{t('dashboard.downloadsPanel.title')}</h3>
           </div>
 
           <SegmentedControl
             options={[
-              { value: 'recent', label: 'Recent', icon: <Clock size={14} /> },
+              { value: 'recent', label: t('dashboard.downloadsPanel.recent'), icon: <Clock size={14} /> },
               {
                 value: 'active',
-                label: isHistoricalView ? 'Active' : (activeCount > 0 ? `Active (${activeCount})` : 'Active'),
+                label: isHistoricalView ? t('dashboard.downloadsPanel.active') : (activeCount > 0 ? t('dashboard.downloadsPanel.activeWithCount', { count: activeCount }) : t('dashboard.downloadsPanel.active')),
                 icon: <Activity size={14} />,
                 disabled: isHistoricalView,
-                tooltip: isHistoricalView ? 'Active downloads only available in Live mode' : undefined
+                tooltip: isHistoricalView ? t('dashboard.downloadsPanel.activeDownloadsOnly') : undefined
               }
             ]}
             value={viewMode}
@@ -1020,10 +1011,10 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
               )}
               <div className="stat-item">
                 <HardDrive />
-                <span className="stat-value">{activeCount}</span> game{activeCount !== 1 ? 's' : ''}
+                <span className="stat-value">{activeCount}</span> {t('dashboard.downloadsPanel.game', { count: activeCount })}
               </div>
               <div className="stat-item">
-                <span>Live</span>
+                <span>{t('dashboard.downloadsPanel.live')}</span>
               </div>
             </>
           ) : (
@@ -1032,7 +1023,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                 <span className={`stat-value ${stats.overallHitRate >= 75 ? 'hit-high' : stats.overallHitRate >= 50 ? 'hit-medium' : 'hit-low'}`}>
                   {formatPercent(stats.overallHitRate)}
                 </span>
-                <span>hit rate</span>
+                <span>{t('dashboard.downloadsPanel.hitRate')}</span>
               </div>
               <div className="stat-item">
                 <span>{getTimeRangeLabel}</span>
@@ -1047,7 +1038,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
             <EnhancedDropdown
               options={availableServices.map((service) => ({
                 value: service,
-                label: service === 'all' ? 'All Services' : service.charAt(0).toUpperCase() + service.slice(1)
+                label: service === 'all' ? t('dashboard.downloadsPanel.allServices') : service.charAt(0).toUpperCase() + service.slice(1)
               }))}
               value={selectedService}
               onChange={setSelectedService}
@@ -1065,7 +1056,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                   setSelectedClient('all');
                 }}
               >
-                Clear
+                {t('dashboard.downloadsPanel.clear')}
               </button>
             )}
           </div>
@@ -1077,7 +1068,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
         {viewMode === 'active' ? (
           hasActiveDownloads && activeGames.length > 0 ? (
             activeGames.map((game, idx) => (
-              <ActiveDownloadItem key={game.depotId} game={game} index={idx} />
+              <ActiveDownloadItem key={game.depotId} game={game} index={idx} t={t} />
             ))
           ) : (
             <div className="empty-state">
@@ -1085,14 +1076,14 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                 <div className="empty-icon-bg" />
                 <Activity size={24} />
               </div>
-              <div className="empty-title">No Active Downloads</div>
-              <div className="empty-desc">Downloads will appear here in real-time</div>
+              <div className="empty-title">{t('dashboard.downloadsPanel.emptyStates.noActive')}</div>
+              <div className="empty-desc">{t('dashboard.downloadsPanel.emptyStates.noActiveDesc')}</div>
             </div>
           )
         ) : loading ? (
           <div className="loading-state">
             <Loader2 size={18} />
-            <span>Loading downloads...</span>
+            <span>{t('dashboard.downloadsPanel.emptyStates.loading')}</span>
           </div>
         ) : groupedItems.displayedItems.length > 0 ? (
           groupedItems.displayedItems.map((item, idx) => {
@@ -1120,8 +1111,8 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
               <div className="empty-icon-bg" />
               <Clock size={24} />
             </div>
-            <div className="empty-title">No Downloads</div>
-            <div className="empty-desc">No downloads in the {getTimeRangeLabel.toLowerCase()}</div>
+            <div className="empty-title">{t('dashboard.downloadsPanel.emptyStates.noDownloads')}</div>
+            <div className="empty-desc">{t('dashboard.downloadsPanel.emptyStates.noDownloadsInPeriod', { period: getTimeRangeLabel.toLowerCase() })}</div>
           </div>
         )}
       </div>
@@ -1130,22 +1121,25 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       {viewMode === 'active' && hasActiveDownloads && (
         <div className="panel-footer">
           <div className="footer-stat">
-            <strong>{activeGames.length}</strong> game{activeGames.length !== 1 ? 's' : ''} downloading
+            <strong>{activeGames.length}</strong> {t('dashboard.downloadsPanel.game', { count: activeGames.length })} {t('dashboard.downloadsPanel.downloading')}
           </div>
           <button className="refresh-btn" onClick={fetchSpeeds}>
             <RefreshCw />
-            Refresh
+            {t('dashboard.downloadsPanel.refresh')}
           </button>
         </div>
       )}
 
       {viewMode === 'recent' && groupedItems.totalGroups > displayCount && (
         <div className="panel-footer">
+          <div className="footer-stat" dangerouslySetInnerHTML={{ 
+            __html: t('dashboard.downloadsPanel.showing', { 
+              displayed: Math.min(displayCount, groupedItems.displayedItems.length), 
+              total: groupedItems.totalGroups 
+            })
+          }} />
           <div className="footer-stat">
-            Showing <strong>{Math.min(displayCount, groupedItems.displayedItems.length)}</strong> of <strong>{groupedItems.totalGroups}</strong>
-          </div>
-          <div className="footer-stat">
-            <strong>{stats.totalDownloads}</strong> total downloads
+            <strong>{stats.totalDownloads}</strong> {t('dashboard.downloadsPanel.totalDownloads')}
           </div>
         </div>
       )}

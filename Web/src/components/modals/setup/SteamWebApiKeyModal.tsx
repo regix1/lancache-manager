@@ -3,6 +3,7 @@ import { Key, Lock, ExternalLink, CheckCircle, XCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
 import ApiService from '@services/api.service';
+import { useTranslation } from 'react-i18next';
 
 interface SteamWebApiKeyModalProps {
   isOpen: boolean;
@@ -15,6 +16,7 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
   onClose,
   onSuccess
 }) => {
+  const { t } = useTranslation();
   const [apiKey, setApiKey] = useState('');
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -22,7 +24,7 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
 
   const handleTest = async () => {
     if (!apiKey.trim()) {
-      setTestResult({ valid: false, message: 'Please enter an API key' });
+      setTestResult({ valid: false, message: t('modals.steamWebApi.errors.enterKey') });
       return;
     }
 
@@ -49,13 +51,13 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
       } else {
         setTestResult({
           valid: false,
-          message: data.error || 'Failed to test API key'
+          message: data.error || t('modals.steamWebApi.errors.testFailed')
         });
       }
     } catch (error: unknown) {
       setTestResult({
         valid: false,
-        message: (error instanceof Error ? error.message : String(error)) || 'Network error - failed to test API key'
+        message: (error instanceof Error ? error.message : String(error)) || t('modals.steamWebApi.errors.networkError')
       });
     } finally {
       setTesting(false);
@@ -64,7 +66,7 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
 
   const handleSave = async () => {
     if (!apiKey.trim()) {
-      setTestResult({ valid: false, message: 'Please enter an API key' });
+      setTestResult({ valid: false, message: t('modals.steamWebApi.errors.enterKey') });
       return;
     }
 
@@ -88,13 +90,13 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
       } else {
         setTestResult({
           valid: false,
-          message: data.error || data.message || 'Failed to save API key'
+          message: data.error || data.message || t('modals.steamWebApi.errors.saveFailed')
         });
       }
     } catch (error: unknown) {
       setTestResult({
         valid: false,
-        message: (error instanceof Error ? error.message : String(error)) || 'Network error - failed to save API key'
+        message: (error instanceof Error ? error.message : String(error)) || t('modals.steamWebApi.errors.networkErrorSave')
       });
     } finally {
       setSaving(false);
@@ -116,7 +118,7 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
           <div className="p-2 rounded-lg bg-info">
             <Key className="w-6 h-6 text-info" />
           </div>
-          <span>Configure Steam Web API Key</span>
+          <span>{t('modals.steamWebApi.title')}</span>
         </div>
       }
       size="lg"
@@ -125,17 +127,16 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
         {/* Info Section */}
         <div className="rounded-lg p-4 border bg-info border-info">
           <p className="text-sm text-themed-secondary mb-3">
-            The Steam Web API V1 requires an API key for access. This is only needed if V2 becomes
-            unavailable.
+            {t('modals.steamWebApi.info.description')}
           </p>
 
           <div className="space-y-2 text-sm text-themed-secondary">
             <p className="font-medium text-info-text">
-              Steps to get your API key:
+              {t('modals.steamWebApi.info.stepsTitle')}
             </p>
             <ol className="list-decimal list-inside space-y-1 ml-2">
               <li>
-                Visit{' '}
+                {t('modals.steamWebApi.info.step1')}{' '}
                 <a
                   href="https://steamcommunity.com/dev/apikey"
                   target="_blank"
@@ -146,16 +147,16 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
                   <ExternalLink className="w-3 h-3" />
                 </a>
               </li>
-              <li>Login with your Steam account</li>
+              <li>{t('modals.steamWebApi.info.step2')}</li>
               <li>
-                Enter a domain name (can be anything):
+                {t('modals.steamWebApi.info.step3')}
                 <ul className="list-disc list-inside ml-4 mt-1 space-y-0.5">
-                  <li>Recommended: Your Steam username</li>
-                  <li>Examples: "MyLancache", "HomeServer", etc.</li>
-                  <li>This is just for organization - use any name you prefer</li>
+                  <li>{t('modals.steamWebApi.info.step3a')}</li>
+                  <li>{t('modals.steamWebApi.info.step3b')}</li>
+                  <li>{t('modals.steamWebApi.info.step3c')}</li>
                 </ul>
               </li>
-              <li>Copy your API key and paste below</li>
+              <li>{t('modals.steamWebApi.info.step4')}</li>
             </ol>
           </div>
         </div>
@@ -163,7 +164,7 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
         {/* API Key Input */}
         <div>
           <label className="block text-sm font-medium text-themed-secondary mb-2">
-            Steam Web API Key
+            {t('modals.steamWebApi.labels.apiKey')}
           </label>
           <input
             type="password"
@@ -172,7 +173,7 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
               setApiKey(e.target.value);
               setTestResult(null); // Clear test result when typing
             }}
-            placeholder="Enter your Steam Web API key..."
+            placeholder={t('modals.steamWebApi.placeholder')}
             className="w-full px-4 py-2 rounded-lg themed-input"
           />
         </div>
@@ -181,8 +182,7 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
         <div className="flex items-start gap-2 text-xs text-themed-muted">
           <Lock className="w-4 h-4 flex-shrink-0 mt-0.5" />
           <p>
-            Your API key will be encrypted and stored securely alongside your Steam credentials
-            using Microsoft Data Protection API.
+            {t('modals.steamWebApi.security.description')}
           </p>
         </div>
 
@@ -221,7 +221,7 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
             loading={testing}
             className="flex-1"
           >
-            {testing ? 'Testing...' : 'Test Connection'}
+            {testing ? t('modals.steamWebApi.actions.testing') : t('modals.steamWebApi.actions.testConnection')}
           </Button>
 
           <Button
@@ -232,11 +232,11 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
             loading={saving}
             className="flex-1"
           >
-            {saving ? 'Saving...' : 'Save API Key'}
+            {saving ? t('modals.steamWebApi.actions.saving') : t('modals.steamWebApi.actions.saveApiKey')}
           </Button>
 
           <Button onClick={handleClose} variant="default" disabled={testing || saving}>
-            Cancel
+            {t('common.cancel')}
           </Button>
         </div>
       </div>

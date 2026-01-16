@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { HexColorPicker, HexColorInput } from 'react-colorful';
 import { Percent, Copy, Check, RotateCcw, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface ImprovedColorPickerProps {
   value: string;
@@ -32,6 +33,7 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
   onRestore,
   hasHistory = false
 }) => {
+  const { t } = useTranslation();
   const [showPicker, setShowPicker] = useState(false);
   const [pickerPosition, setPickerPosition] = useState({ left: 0, top: 0 });
   const [hexValue, setHexValue] = useState('');
@@ -196,7 +198,7 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
             onClick={handlePickerToggle}
             className="w-12 h-8 rounded border-2 cursor-pointer transition-all hover:scale-105 border-themed-secondary"
             style={{ backgroundColor: value }}
-            title="Click to toggle color picker"
+            title={t('modals.theme.colorPicker.pickColor')}
           />
 
           {/* Color picker popover - rendered via portal */}
@@ -212,7 +214,7 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
                 }}
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-medium text-themed-secondary">Pick Color</span>
+                  <span className="text-xs font-medium text-themed-secondary">{t('modals.theme.colorPicker.pickColor')}</span>
                   <button
                     type="button"
                     onClick={() => setShowPicker(false)}
@@ -239,7 +241,7 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
                         value={Math.round(alpha * 100)}
                         onChange={(e) => handleAlphaChange(parseInt(e.target.value) / 100)}
                         className="flex-1"
-                        title={`Opacity: ${Math.round(alpha * 100)}%`}
+                        title={`${t('modals.theme.colorPicker.opacity')} ${Math.round(alpha * 100)}%`}
                       />
                       <span className="text-xs text-themed-muted w-10 text-right">
                         {Math.round(alpha * 100)}%
@@ -268,7 +270,7 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
             type="button"
             onClick={() => onCopy(value)}
             className="p-1 rounded-lg hover:bg-opacity-50 bg-themed-hover"
-            title="Copy color"
+            title={t('modals.theme.colorPicker.copyColor')}
           >
             {copiedColor === value ? (
               <Check className="w-3 h-3 icon-success" />
@@ -285,7 +287,7 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
             onClick={onRestore}
             disabled={!hasHistory}
             className="p-1 rounded-lg hover:bg-opacity-50 bg-themed-hover disabled:opacity-30 disabled:cursor-not-allowed transition-none"
-            title={hasHistory ? 'Restore previous color' : 'No history available'}
+            title={hasHistory ? t('modals.theme.colorPicker.restorePrevious') : t('modals.theme.colorPicker.noHistory')}
           >
             <RotateCcw className="w-3 h-3 text-themed-muted" />
           </button>

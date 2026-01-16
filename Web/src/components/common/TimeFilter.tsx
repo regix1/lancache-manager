@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useLayoutEffect, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { Clock, Calendar, Radio, Info, ChevronDown, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useTimeFilter, type TimeRange } from '@contexts/TimeFilterContext';
@@ -12,6 +13,7 @@ interface TimeFilterProps {
 }
 
 const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
+  const { t } = useTranslation();
   const {
     timeRange,
     setTimeRange,
@@ -79,15 +81,71 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
 
   // Time range options - matching old structure
   const timeOptions = useMemo(() => [
-    { value: 'live', label: 'Live', shortLabel: 'Live', description: 'Show real-time data updates', icon: Radio, rightLabel: 'Now' },
-    { value: '1h', label: 'Last Hour', shortLabel: '1H', description: 'Show data from the last 1 hour', icon: Clock, rightLabel: '1h' },
-    { value: '6h', label: 'Last 6 Hours', shortLabel: '6H', description: 'Show data from the last 6 hours', icon: Clock, rightLabel: '6h' },
-    { value: '12h', label: 'Last 12 Hours', shortLabel: '12H', description: 'Show data from the last 12 hours', icon: Clock, rightLabel: '12h' },
-    { value: '24h', label: 'Last 24 Hours', shortLabel: '24H', description: 'Show data from the last 24 hours', icon: Clock, rightLabel: '24h' },
-    { value: '7d', label: 'Last 7 Days', shortLabel: '7D', description: 'Show data from the last 7 days', icon: Calendar, rightLabel: '7d' },
-    { value: '30d', label: 'Last 30 Days', shortLabel: '30D', description: 'Show data from the last 30 days', icon: Calendar, rightLabel: '30d' },
-    { value: 'custom', label: 'Custom Range', shortLabel: 'Custom', description: 'Select a custom date range', icon: Calendar, rightLabel: '...' }
-  ], []);
+    {
+      value: 'live',
+      label: t('common.timeFilter.options.live.label'),
+      shortLabel: t('common.timeFilter.options.live.shortLabel'),
+      description: t('common.timeFilter.options.live.description'),
+      icon: Radio,
+      rightLabel: t('common.timeFilter.options.live.rightLabel')
+    },
+    {
+      value: '1h',
+      label: t('common.timeFilter.options.1h.label'),
+      shortLabel: t('common.timeFilter.options.1h.shortLabel'),
+      description: t('common.timeFilter.options.1h.description'),
+      icon: Clock,
+      rightLabel: t('common.timeFilter.options.1h.rightLabel')
+    },
+    {
+      value: '6h',
+      label: t('common.timeFilter.options.6h.label'),
+      shortLabel: t('common.timeFilter.options.6h.shortLabel'),
+      description: t('common.timeFilter.options.6h.description'),
+      icon: Clock,
+      rightLabel: t('common.timeFilter.options.6h.rightLabel')
+    },
+    {
+      value: '12h',
+      label: t('common.timeFilter.options.12h.label'),
+      shortLabel: t('common.timeFilter.options.12h.shortLabel'),
+      description: t('common.timeFilter.options.12h.description'),
+      icon: Clock,
+      rightLabel: t('common.timeFilter.options.12h.rightLabel')
+    },
+    {
+      value: '24h',
+      label: t('common.timeFilter.options.24h.label'),
+      shortLabel: t('common.timeFilter.options.24h.shortLabel'),
+      description: t('common.timeFilter.options.24h.description'),
+      icon: Clock,
+      rightLabel: t('common.timeFilter.options.24h.rightLabel')
+    },
+    {
+      value: '7d',
+      label: t('common.timeFilter.options.7d.label'),
+      shortLabel: t('common.timeFilter.options.7d.shortLabel'),
+      description: t('common.timeFilter.options.7d.description'),
+      icon: Calendar,
+      rightLabel: t('common.timeFilter.options.7d.rightLabel')
+    },
+    {
+      value: '30d',
+      label: t('common.timeFilter.options.30d.label'),
+      shortLabel: t('common.timeFilter.options.30d.shortLabel'),
+      description: t('common.timeFilter.options.30d.description'),
+      icon: Calendar,
+      rightLabel: t('common.timeFilter.options.30d.rightLabel')
+    },
+    {
+      value: 'custom',
+      label: t('common.timeFilter.options.custom.label'),
+      shortLabel: t('common.timeFilter.options.custom.shortLabel'),
+      description: t('common.timeFilter.options.custom.description'),
+      icon: Calendar,
+      rightLabel: t('common.timeFilter.options.custom.rightLabel')
+    }
+  ], [t]);
 
   // Calculate position before paint - for portal rendering
   useLayoutEffect(() => {
@@ -243,7 +301,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
       return `${start} - ${end}`;
     }
     const option = timeOptions.find(o => o.value === timeRange);
-    return option?.shortLabel || 'Live';
+    return option?.shortLabel || t('common.timeFilter.options.live.shortLabel');
   };
 
   const selectedTimeOption = timeOptions.find(o => o.value === timeRange);
@@ -258,7 +316,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
             type="button"
             onClick={() => !disabled && setIsOpen(!isOpen)}
             disabled={disabled}
-            className={`ed-trigger w-full px-3 py-2 rounded-lg border text-left flex items-center justify-between text-sm bg-[var(--theme-card-bg)] text-[var(--theme-text-primary)] ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${isOpen ? 'border-[var(--theme-border-focus)]' : 'border-[var(--theme-border-primary)]'}`}
+            className={`ed-trigger w-full px-3 py-2 sm:px-3 sm:py-2 rounded-lg border text-left flex items-center justify-between text-sm bg-[var(--theme-card-bg)] text-[var(--theme-text-primary)] ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${isOpen ? 'border-[var(--theme-border-focus)]' : 'border-[var(--theme-border-primary)]'}`}
           >
             <div className="flex items-center gap-1.5 flex-1 truncate">
               {selectedTimeOption?.icon && (
@@ -287,7 +345,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
               <div
                 className="px-3 py-2 text-sm font-medium border-b text-[var(--theme-text-secondary)] border-[var(--theme-border-primary)] bg-[var(--theme-bg-secondary)]"
               >
-                Time Range
+                {t('common.timeFilter.title')}
               </div>
 
               <CustomScrollbar maxHeight="min(70vh, 32rem)" paddingMode="compact">
@@ -332,7 +390,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
                       className="px-3 py-2 text-xs font-medium border-t mt-1 mb-1 flex items-center justify-between text-[var(--theme-text-muted)] border-[var(--theme-border-primary)] bg-[var(--theme-bg-tertiary)]"
                     >
                       <div className="flex items-center gap-2">
-                        <span>Filter by Events</span>
+                        <span>{t('common.timeFilter.filterByEvents')}</span>
                         {sortedEvents.length > eventsPerPage && (
                           <div className="flex items-center gap-1.5">
                             <button
@@ -342,7 +400,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
                                 goToPrevPage();
                               }}
                               className="h-6 w-6 rounded flex items-center justify-center text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-secondary)]"
-                              aria-label="Previous events page"
+                              aria-label={t('common.timeFilter.previousEventsPage')}
                             >
                               <ChevronLeft size={14} />
                             </button>
@@ -356,7 +414,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
                                 goToNextPage();
                               }}
                               className="h-6 w-6 rounded flex items-center justify-center text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-secondary)]"
-                              aria-label="Next events page"
+                              aria-label={t('common.timeFilter.nextEventsPage')}
                             >
                               <ChevronRight size={14} />
                             </button>
@@ -371,7 +429,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
                           }}
                           className="text-xs px-1.5 py-0.5 rounded hover:opacity-80 transition-opacity text-[var(--theme-primary)] bg-[var(--theme-primary-muted)]"
                         >
-                          Clear
+                          {t('common.clear')}
                         </button>
                       )}
                     </div>
@@ -420,7 +478,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
                                         color: 'var(--theme-success)'
                                       }}
                                     >
-                                      Live
+                                      {t('common.timeFilter.liveBadge')}
                                     </span>
                                   )}
                                 </div>
@@ -444,8 +502,8 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
                 <Info className="flex-shrink-0 mt-0.5 text-[var(--theme-warning)]" size={14} />
                 <span className="leading-relaxed">
                   {sortedEvents.length > 0
-                    ? 'Time range and event filters can be combined'
-                    : 'Historical data helps identify trends and patterns over time'}
+                    ? t('common.timeFilter.footer.combinedFilters')
+                    : t('common.timeFilter.footer.historicalNote')}
                 </span>
               </div>
             </div>,

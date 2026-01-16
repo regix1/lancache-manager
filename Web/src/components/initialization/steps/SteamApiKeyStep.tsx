@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Key, ExternalLink, CheckCircle, XCircle, Loader2, Shield } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import ApiService from '@services/api.service';
@@ -9,6 +10,7 @@ interface SteamApiKeyStepProps {
 }
 
 export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) => {
+  const { t } = useTranslation();
   const [apiKey, setApiKey] = useState(() => {
     return storage.getItem('steamApiKey') || '';
   });
@@ -26,7 +28,7 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
 
   const handleTest = async () => {
     if (!apiKey.trim()) {
-      setTestResult({ valid: false, message: 'Please enter an API key' });
+      setTestResult({ valid: false, message: t('initialization.steamWebApiKey.pleaseEnter') });
       return;
     }
 
@@ -53,13 +55,13 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
       } else {
         setTestResult({
           valid: false,
-          message: data.error || 'Failed to test API key'
+          message: data.error || t('initialization.steamWebApiKey.failedToTest')
         });
       }
     } catch (error: unknown) {
       setTestResult({
         valid: false,
-        message: (error instanceof Error ? error.message : String(error)) || 'Network error - failed to test API key'
+        message: (error instanceof Error ? error.message : String(error)) || t('initialization.steamWebApiKey.networkError')
       });
     } finally {
       setTesting(false);
@@ -68,7 +70,7 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
 
   const handleSave = async () => {
     if (!apiKey.trim()) {
-      setTestResult({ valid: false, message: 'Please enter an API key' });
+      setTestResult({ valid: false, message: t('initialization.steamWebApiKey.pleaseEnter') });
       return;
     }
 
@@ -91,13 +93,13 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
       } else {
         setTestResult({
           valid: false,
-          message: data.error || data.message || 'Failed to save API key'
+          message: data.error || data.message || t('initialization.steamWebApiKey.failedToSave')
         });
       }
     } catch (error: unknown) {
       setTestResult({
         valid: false,
-        message: (error instanceof Error ? error.message : String(error)) || 'Network error - failed to save API key'
+        message: (error instanceof Error ? error.message : String(error)) || t('initialization.steamWebApiKey.networkErrorSave')
       });
     } finally {
       setSaving(false);
@@ -111,18 +113,18 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
         <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-primary-subtle">
           <Key className="w-7 h-7 icon-primary" />
         </div>
-        <h3 className="text-lg font-semibold text-themed-primary mb-1">Steam Web API Key</h3>
+        <h3 className="text-lg font-semibold text-themed-primary mb-1">{t('initialization.steamWebApiKey.title')}</h3>
         <p className="text-sm text-themed-secondary max-w-md">
-          Required to fetch depot information directly from Steam
+          {t('initialization.steamWebApiKey.subtitle')}
         </p>
       </div>
 
       {/* Instructions */}
       <div className="p-4 rounded-lg bg-themed-tertiary">
-        <p className="text-sm font-medium text-themed-primary mb-2">How to get your API key:</p>
+        <p className="text-sm font-medium text-themed-primary mb-2">{t('initialization.steamWebApiKey.howToGet')}</p>
         <ol className="text-sm text-themed-secondary space-y-1.5 list-decimal list-inside">
           <li>
-            Visit{' '}
+            {t('initialization.steamWebApiKey.step1')}{' '}
             <a
               href="https://steamcommunity.com/dev/apikey"
               target="_blank"
@@ -133,16 +135,16 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
               <ExternalLink className="w-3 h-3" />
             </a>
           </li>
-          <li>Login with your Steam account</li>
-          <li>Enter any domain name (e.g., "MyLancache")</li>
-          <li>Copy and paste your key below</li>
+          <li>{t('initialization.steamWebApiKey.step2')}</li>
+          <li>{t('initialization.steamWebApiKey.step3')}</li>
+          <li>{t('initialization.steamWebApiKey.step4')}</li>
         </ol>
       </div>
 
       {/* API Key Input */}
       <div>
         <label className="block text-sm font-medium text-themed-secondary mb-1.5">
-          API Key
+          {t('initialization.steamWebApiKey.label')}
         </label>
         <input
           type="password"
@@ -151,7 +153,7 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
             setApiKey(e.target.value);
             setTestResult(null);
           }}
-          placeholder="Enter your Steam Web API key"
+          placeholder={t('initialization.steamWebApiKey.placeholder')}
           className="w-full px-3 py-2.5 themed-input"
           disabled={testing || saving}
         />
@@ -178,7 +180,7 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
       {/* Security Note */}
       <div className="flex items-start gap-2 text-xs text-themed-muted">
         <Shield className="w-4 h-4 flex-shrink-0 mt-0.5 icon-success" />
-        <p>Your API key is encrypted and stored securely using Microsoft Data Protection API.</p>
+        <p>{t('initialization.steamWebApiKey.securityNote')}</p>
       </div>
 
       {/* Action Buttons */}
@@ -190,7 +192,7 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
           className="flex-1"
         >
           {testing && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-          {testing ? 'Testing...' : 'Test Connection'}
+          {testing ? t('initialization.steamWebApiKey.testing') : t('initialization.steamWebApiKey.testConnection')}
         </Button>
 
         <Button
@@ -201,7 +203,7 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
           className="flex-1"
         >
           {saving && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-          {saving ? 'Saving...' : 'Save & Continue'}
+          {saving ? t('initialization.steamWebApiKey.saving') : t('initialization.steamWebApiKey.saveAndContinue')}
         </Button>
       </div>
     </div>

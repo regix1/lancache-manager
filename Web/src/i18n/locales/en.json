@@ -1,0 +1,4372 @@
+{
+  "app": {
+    "title": "LANCache Manager",
+    "subtitle": "High-performance cache monitoring & management",
+    "loading": {
+      "checkingAuth": "Checking authentication...",
+      "checkingSetup": "Checking setup status...",
+      "checkingDepot": "Checking depot status..."
+    },
+    "auth": {
+      "apiKeyRegenerated": {
+        "title": "API Key Regenerated",
+        "subtitle": "Please enter your new API key"
+      },
+      "sessionExpired": {
+        "title": "Session Expired",
+        "subtitle": "Your guest session has expired. Please authenticate to continue."
+      },
+      "authenticationRequired": {
+        "title": "Authentication Required",
+        "subtitle": "Please enter your API key to continue"
+      }
+    },
+    "prefill": {
+      "accessDenied": {
+        "title": "Access Denied",
+        "description": "Your account has been banned from using the Prefill feature.",
+        "help": "Please contact an administrator if you believe this is a mistake."
+      }
+    },
+    "fullScanRequired": {
+      "title": "Full Scan Required"
+    }
+  },
+  "common": {
+    "loading": "Loading...",
+    "refresh": "Refresh",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "save": "Save",
+    "delete": "Delete",
+    "edit": "Edit",
+    "close": "Close",
+    "dismiss": "Dismiss",
+    "apply": "Apply",
+    "reset": "Reset",
+    "search": "Search",
+    "clear": "Clear",
+    "copy": "Copy",
+    "load": "Load",
+    "scan": "Scan",
+    "process": "Process",
+    "processAll": "Process All",
+    "clearing": "Clearing...",
+    "clearAll": "Clear All",
+    "selectAll": "Select All",
+    "deselectAll": "Deselect All",
+    "noDataAvailable": "No data available",
+    "unknownError": "Unknown error",
+    "authRequired": "Authentication required",
+    "fullAuthRequired": "Full authentication required for management operations",
+    "mockModeEnabled": "Mock mode is enabled",
+    "resultsFromPreviousScan": "Results from previous scan",
+    "previousPage": "Previous page",
+    "nextPage": "Next page",
+    "firstPage": "First page",
+    "lastPage": "Last page",
+    "goToPage": "Go to page {{page}}",
+    "jumpTo": "Jump to...",
+    "hideThisHint": "Hide this hint",
+    "remove": "Remove",
+    "bytes": {
+      "units": ["B", "KB", "MB", "GB", "TB"],
+      "zero": "0 {{unit}}"
+    },
+    "dateRangePicker": {
+      "daysSelected": "{{count}} day selected",
+      "daysSelected_plural": "{{count}} days selected",
+      "endLabel": "End:",
+      "eventDateRanges": "Event Date Ranges:",
+      "eventRangeHint": "Click an event to use its date range",
+      "last30Days": "Last 30 Days",
+      "last7Days": "Last 7 Days",
+      "lastMonth": "Last Month",
+      "liveBadge": "Live",
+      "months": [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December"
+      ],
+      "notSelected": "Not selected",
+      "quickSelect": "Quick Select:",
+      "selectEndDate": "Click to select end date",
+      "selectStartDate": "Click to select start date",
+      "startLabel": "Start:",
+      "thisMonth": "This Month",
+      "thisYear": "This Year",
+      "title": "Select Date Range",
+      "today": "Today",
+      "weekDays": ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    },
+    "dateTimePicker": {
+      "am": "AM",
+      "months": [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December"
+      ],
+      "none": "None",
+      "now": "Now",
+      "pm": "PM",
+      "selectedLabel": "Selected:",
+      "timeLabel": "Time:",
+      "title": "Select Date & Time",
+      "weekDays": ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    },
+    "languageSelector": {
+      "title": "Language"
+    },
+    "errorBoundary": {
+      "reload": "Reload Page",
+      "title": "Something went wrong",
+      "unexpectedError": "An unexpected error occurred"
+    },
+    "notifications": {
+      "cacheFilesDeleted": "{{formattedCount}} cache file deleted",
+      "cacheFilesDeleted_plural": "{{formattedCount}} cache files deleted",
+      "cancelCacheClearing": "Cancel cache clearing",
+      "cancelDepotMapping": "Cancel depot mapping",
+      "cancelLogRemoval": "Cancel log removal",
+      "cancelOperationAria": "Cancel operation",
+      "cancelling": "Cancelling...",
+      "corruptedChunksRemoved": "Corrupted chunks successfully removed",
+      "filesDeleted": "{{formattedCount}} file deleted",
+      "filesDeleted_plural": "{{formattedCount}} files deleted",
+      "freed": "{{value}} freed",
+      "logEntriesRemoved": "{{formattedCount}} log entry removed",
+      "logEntriesRemoved_plural": "{{formattedCount}} log entries removed",
+      "progressComplete": "{{value}}% complete",
+      "remaining": "{{value}} remaining",
+      "steamAnonymous": "Steam Anonymous",
+      "steamAuthenticated": "Steam Authenticated",
+      "webApiKey": "Web API Key"
+    },
+    "refreshRate": {
+      "footerNote": "Controls how often the UI updates with new data",
+      "options": {
+        "live": {
+          "description": "Real-time updates (min 500ms)",
+          "label": "Live",
+          "rightLabel": "Live",
+          "shortLabel": "Live"
+        },
+        "realtime": {
+          "description": "Max 1 update every 5 seconds",
+          "label": "Real-time",
+          "rightLabel": "5s",
+          "shortLabel": "5s"
+        },
+        "relaxed": {
+          "description": "Max 1 update every 30 seconds",
+          "label": "Relaxed",
+          "rightLabel": "30s",
+          "shortLabel": "30s"
+        },
+        "slow": {
+          "description": "Max 1 update every 60 seconds",
+          "label": "Slow",
+          "rightLabel": "60s",
+          "shortLabel": "60s"
+        },
+        "standard": {
+          "description": "Max 1 update every 10 seconds (recommended)",
+          "label": "Standard",
+          "rightLabel": "10s",
+          "shortLabel": "10s"
+        },
+        "ultra": {
+          "description": "Max 1 update per second",
+          "label": "Ultra-fast",
+          "rightLabel": "1s",
+          "shortLabel": "1s"
+        }
+      },
+      "placeholder": "Select refresh rate",
+      "title": "Refresh Rate"
+    },
+    "statCard": {
+      "sparklineAria": "{{title}} trend over the last {{count}} data point",
+      "sparklineAria_plural": "{{title}} trend over the last {{count}} data points"
+    },
+    "timeFilter": {
+      "filterByEvents": "Filter by Events",
+      "footer": {
+        "combinedFilters": "Time range and event filters can be combined",
+        "historicalNote": "Historical data helps identify trends and patterns over time"
+      },
+      "liveBadge": "Live",
+      "nextEventsPage": "Next events page",
+      "options": {
+        "1h": {
+          "description": "Show data from the last 1 hour",
+          "label": "Last Hour",
+          "rightLabel": "1h",
+          "shortLabel": "1H"
+        },
+        "12h": {
+          "description": "Show data from the last 12 hours",
+          "label": "Last 12 Hours",
+          "rightLabel": "12h",
+          "shortLabel": "12H"
+        },
+        "24h": {
+          "description": "Show data from the last 24 hours",
+          "label": "Last 24 Hours",
+          "rightLabel": "24h",
+          "shortLabel": "24H"
+        },
+        "30d": {
+          "description": "Show data from the last 30 days",
+          "label": "Last 30 Days",
+          "rightLabel": "30d",
+          "shortLabel": "30D"
+        },
+        "6h": {
+          "description": "Show data from the last 6 hours",
+          "label": "Last 6 Hours",
+          "rightLabel": "6h",
+          "shortLabel": "6H"
+        },
+        "7d": {
+          "description": "Show data from the last 7 days",
+          "label": "Last 7 Days",
+          "rightLabel": "7d",
+          "shortLabel": "7D"
+        },
+        "custom": {
+          "description": "Select a custom date range",
+          "label": "Custom Range",
+          "rightLabel": "...",
+          "shortLabel": "Custom"
+        },
+        "live": {
+          "description": "Show real-time data updates",
+          "label": "Live",
+          "rightLabel": "Now",
+          "shortLabel": "Live"
+        }
+      },
+      "previousEventsPage": "Previous events page",
+      "title": "Time Range"
+    },
+    "timezoneSelector": {
+      "am": "AM",
+      "defaultLabel": "Default",
+      "options": {
+        "local12": {
+          "description": "Your local timezone with 12-hour format",
+          "label": "Local (12h)"
+        },
+        "local24": {
+          "description": "Your local timezone with 24-hour format",
+          "label": "Local (24h)"
+        },
+        "server12": {
+          "description": "Server timezone with 12-hour format (3:30 PM)",
+          "label": "Server (12h)"
+        },
+        "server24": {
+          "description": "Server timezone with 24-hour format (15:30)",
+          "label": "Server (24h)"
+        }
+      },
+      "pm": "PM"
+    }
+  },
+  "tooltips": {
+    "dragToReorder": "Drag to reorder",
+    "hideThisCard": "Hide this card",
+    "liveDataOnly": "Live data only - switch to Live mode to see real-time stats",
+    "rearrangeCards": "Rearrange cards",
+    "resetCardLayout": "Reset card layout to default order",
+    "refreshRateControlled": "Refresh rate is controlled by administrator",
+    "totalDataDownloaded": "Total data downloaded",
+    "sessionActive": "Session is currently active in memory",
+    "steamAuthenticated": "Steam authenticated",
+    "multipleIpsShared": "This nickname is shared by multiple IPs",
+    "viewStatsOnDashboard": "View stats on dashboard",
+    "editEvent": "Edit event",
+    "holdToSkip": "hold to skip",
+    "holdToSkipMultiple": "hold to skip multiple",
+    "exportData": "Export Data",
+    "fitColumnsToPage": "Fit columns to page",
+    "settings": "Settings"
+  },
+  "cacheInfo": {
+    "cacheHits": "Cache Hits:",
+    "cacheHitsDesc": "Data served from local cache",
+    "cacheMisses": "Cache Misses:",
+    "cacheMissesDesc": "Data downloaded from internet"
+  },
+  "status": {
+    "connectedTooltip": "API Status: Connected - All backend services are responding normally",
+    "disconnectedTooltip": "API Status: Disconnected - Unable to connect to backend services",
+    "reconnectingTooltip": "API Status: Reconnecting - Attempting to restore connection to backend services",
+    "disconnectedLabel": "Disconnected",
+    "reconnectingLabel": "Reconnecting"
+  },
+  "guest": {
+    "guestMode": "Guest Mode",
+    "guest": "Guest",
+    "revoked": "Revoked"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "downloads": "Downloads",
+    "clients": "Clients",
+    "prefill": "Prefill",
+    "authenticate": "Authenticate",
+    "users": "Users",
+    "events": "Events",
+    "management": "Management"
+  },
+  "footer": {
+    "version": "LANCache Manager v{{version}}"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "done": "Done",
+    "edit": "Edit",
+    "hidden": "Hidden",
+    "hiddenCount": "{{count}} hidden card",
+    "hiddenCount_plural": "{{count}} hidden cards",
+    "hiddenCardsTooltip": "{{count}} hidden card - click to restore",
+    "hiddenCardsTooltip_plural": "{{count}} hidden cards - click to restore",
+    "showAllCards": "Show all cards",
+    "searchHiddenCards": "Search hidden cards...",
+    "noCardsMatch": "No cards match \"{{query}}\"",
+    "resetLayout": "Reset Layout",
+    "editModeInstructions": {
+      "dragging": "Tap another card to swap, or tap the same card to cancel",
+      "initial": "Tap any card to select it, then tap another to swap positions"
+    },
+    "dragHint": "Use the <strong>Edit</strong> button to rearrange your dashboard cards",
+    "hideThisHint": "Hide this hint",
+    "timeRanges": {
+      "1h": "Last hour",
+      "6h": "Last 6 hours",
+      "12h": "Last 12 hours",
+      "24h": "Last 24 hours",
+      "7d": "Last 7 days",
+      "30d": "Last 30 days",
+      "live": "Live data",
+      "custom": "Custom range"
+    },
+    "cards": {
+      "totalCache": "Total Cache",
+      "usedSpace": "Used Space",
+      "usedSpaceEnd": "Used Space (end)",
+      "bandwidthSaved": "Bandwidth Saved",
+      "addedToCache": "Added to Cache",
+      "totalServed": "Total Served",
+      "activeDownloads": "Active Downloads",
+      "activeClients": "Active Clients",
+      "cacheHitRatio": "Cache Hit Ratio",
+      "driveCapacity": "Drive capacity",
+      "disabled": "Disabled",
+      "liveDataOnly": "Live data only",
+      "inPeriod": "in period",
+      "uniqueInPeriod": "unique in period",
+      "startedAt": "started at {{size}}",
+      "snapshots": "{{count}} snapshot",
+      "snapshots_plural": "{{count}} snapshots",
+      "noSnapshotsYet": "No snapshots yet"
+    },
+    "statCards": {
+      "totalCache": {
+        "term": "What it shows",
+        "description": "Total cache capacity configured for this instance, based on your cache drive size."
+      },
+      "usedSpace": {
+        "term": "What it shows",
+        "description": "Live is current size; Historical is the hourly average from snapshots."
+      },
+      "bandwidthSaved": {
+        "term": "Saved",
+        "description": "Data served from cache instead of the internet. Higher values mean better caching efficiency."
+      },
+      "addedToCache": {
+        "term": "New Data",
+        "description": "Content downloaded and stored in the cache, available for future requests."
+      },
+      "totalServed": {
+        "term": "Served",
+        "description": "Total data delivered to all clients, including cache hits and new downloads."
+      },
+      "activeDownloads": {
+        "term": "Active",
+        "description": "Downloads currently in progress (Live only); hidden in historical views."
+      },
+      "activeClients": {
+        "term": "Active",
+        "description": "Clients currently downloading (Live only); hidden in historical views."
+      },
+      "cacheHitRatio": {
+        "term": "Hit Ratio",
+        "description": "Percent of data served from cache; higher ratios mean better efficiency."
+      }
+    },
+    "trends": {
+      "bandwidthSaved": {
+        "term": "Trend",
+        "description": "↑ means more saved recently; ↓ means less saved recently, compared to earlier in the selected time range."
+      },
+      "addedToCache": {
+        "term": "Trend",
+        "description": "↑ means more cached recently; ↓ means less cached recently, compared to earlier in the selected time range."
+      },
+      "totalServed": {
+        "term": "Trend",
+        "description": "↑ means more served recently; ↓ means less served recently, compared to earlier in the selected time range."
+      },
+      "cacheHitRatio": {
+        "term": "Trend",
+        "description": "↑ improving; ↓ declining. Shows change in percentage points."
+      }
+    },
+    "downloadsPanel": {
+      "title": "Downloads",
+      "recent": "Recent",
+      "active": "Active",
+      "activeWithCount": "Active ({{count}})",
+      "allServices": "All Services",
+      "allClients": "All Clients",
+      "clear": "Clear",
+      "hitRate": "hit rate",
+      "live": "Live",
+      "req": "req",
+      "game": "game",
+      "game_plural": "games",
+      "client": "client",
+      "client_plural": "clients",
+      "downloading": "downloading",
+      "refresh": "Refresh",
+      "showing": "Showing <strong>{{displayed}}</strong> of <strong>{{total}}</strong>",
+      "totalDownloads": "total downloads",
+      "activeDownloadsOnly": "Active downloads only available in Live mode",
+      "emptyStates": {
+        "noActive": "No Active Downloads",
+        "noActiveDesc": "Downloads will appear here in real-time",
+        "noDownloads": "No Downloads",
+        "noDownloadsInPeriod": "No downloads in the {{period}}",
+        "loading": "Loading downloads..."
+      },
+      "timeRanges": {
+        "15m": "Last 15 Min",
+        "30m": "Last 30 Min",
+        "1h": "Last Hour",
+        "6h": "Last 6 Hours",
+        "12h": "Last 12 Hours",
+        "24h": "Last 24 Hours",
+        "7d": "Last 7 Days",
+        "30d": "Last 30 Days",
+        "90d": "Last 90 Days",
+        "live": "All Time",
+        "custom": "Custom"
+      }
+    },
+    "topClients": {
+      "title": "Top Clients",
+      "sort": {
+        "total": "Total Downloaded",
+        "hits": "Cache Hits",
+        "misses": "Cache Misses",
+        "hitRate": "Hit Rate"
+      },
+      "columns": {
+        "client": "Client",
+        "total": "Total",
+        "hits": "Hits",
+        "misses": "Misses",
+        "hitRate": "Hit Rate",
+        "lastSeen": "Last Seen"
+      },
+      "ipsTooltip": "IPs: {{ips}}",
+      "ipTooltip": "IP: {{ip}}",
+      "noData": "No client data available for selected time range",
+      "timeRanges": {
+        "15m": "Last 15 Minutes",
+        "30m": "Last 30 Minutes",
+        "1h": "Last Hour",
+        "6h": "Last 6 Hours",
+        "12h": "Last 12 Hours",
+        "24h": "Last 24 Hours",
+        "7d": "Last 7 Days",
+        "30d": "Last 30 Days",
+        "90d": "Last 90 Days",
+        "live": "Live Data"
+      }
+    },
+    "serviceAnalytics": {
+      "title": "Service Analytics",
+      "tabs": {
+        "service": "Services",
+        "serviceDistribution": "Service Distribution",
+        "hitRatio": "Cache",
+        "hitRatioFull": "Cache Hit Ratio",
+        "bandwidth": "Saved",
+        "bandwidthFull": "Bandwidth Saved"
+      },
+      "centerLabels": {
+        "saved": "Saved",
+        "total": "Total"
+      },
+      "footer": {
+        "totalData": "Total Data",
+        "services": "Services",
+        "hitRate": "Hit Rate"
+      },
+      "empty": {
+        "title": "No Data Available",
+        "description": "Service statistics will appear here"
+      }
+    }
+  },
+  "widgets": {
+    "peakUsageHours": {
+      "title": "Peak Usage Hours",
+      "description": "Shows when downloads usually happen across the day based on your history.",
+      "dataPeriod": {
+        "term": "Data Period",
+        "multiDay": "Based on {{days}} days of data. Values are averaged per day to show typical patterns.",
+        "singleDay": "Based on the selected time range."
+      },
+      "peakHour": {
+        "term": "Peak Hour",
+        "multiDay": "The hour that averages the most download activity across all days.",
+        "singleDay": "The hour with the most downloads in the selected period."
+      },
+      "currentHour": {
+        "term": "Current Hour",
+        "multiDay": "Shows the typical activity for the current hour (historical average).",
+        "singleDay": "Activity during the current hour."
+      },
+      "heatmapNote": "Heatmap: Each block is an hour (12AM-11PM). Brighter colors mean more activity.",
+      "mostActive": "Most active:",
+      "days": "{{count}} days",
+      "daysOnly": "{{count}} day",
+      "daysOnly_plural": "{{count}} days",
+      "selectedPeriod": "Selected Period",
+      "downloads": "downloads",
+      "busiestHour": "Busiest Hour",
+      "dailyAvg": "daily avg",
+      "perDay": "/day",
+      "typicalFor": "Typical for {{hour}}",
+      "nowPeakHour": "Now (Peak Hour)",
+      "ofPeak": "{{percent}}% of peak",
+      "totalDownloads": "{{count}} total downloads",
+      "totalData": "{{size}} total",
+      "currentHourLabel": "Current Hour",
+      "busiestHourLabel": "Busiest Hour",
+      "less": "Less",
+      "more": "More",
+      "noDataAvailable": "No download data available yet",
+      "failedToLoad": "Failed to load hourly data",
+      "morning": "Morning",
+      "afternoon": "Afternoon",
+      "evening": "Evening",
+      "night": "Night"
+    },
+    "cacheGrowthTrend": {
+      "title": "Cache Growth",
+      "trendUp": {
+        "term": "↑ Up",
+        "description": "Cache is growing faster recently"
+      },
+      "trendDown": {
+        "term": "↓ Down",
+        "description": "Cache growth is slowing recently"
+      },
+      "netGrowth": {
+        "term": "Net Growth",
+        "description": "Adjusts for cache that was cleared or deleted"
+      },
+      "dataPoints": {
+        "term": "Data Points",
+        "description": "Time buckets with download activity. More points mean finer detail."
+      },
+      "cacheCleared": "Cache was cleared in this period; the trend accounts for deletions.",
+      "dataAddedNote": "Shows data added during the period (not total cache size).",
+      "addedDuringPeriod": "added during period",
+      "growthRate": "Growth Rate",
+      "downloadRate": "Download Rate",
+      "avgGrowth": "Avg. Growth",
+      "estFull": "Est. Full",
+      "status": "Status",
+      "dataPointsCount": "{{count}} samples",
+      "days": "~{{count}} days",
+      "full": "Full",
+      "empty": "Empty",
+      "used": "{{percent}}% used",
+      "stable": "Stable",
+      "cacheClearedNote": "Cache cleared • Showing new downloads",
+      "someDeleted": "Some cache data was deleted",
+      "failedToLoad": "Failed to load growth data"
+    }
+  },
+  "auth": {
+    "header": {
+      "title": "Upgrade to Full Access",
+      "subtitle": "Enter your API key to unlock management features"
+    },
+    "form": {
+      "title": "Enter API Key",
+      "subtitle": {
+        "before": "You are currently in ",
+        "emphasis": "Guest Mode",
+        "after": " with view-only access. Enter your API key to gain full management capabilities."
+      },
+      "label": "API Key",
+      "placeholder": "lm_xxxxxxxxxxxxxxxxxxxxx",
+      "submit": "Authenticate"
+    },
+    "help": {
+      "title": "To find your API key:",
+      "step1": "SSH into your LANCache Manager server",
+      "step2": {
+        "before": "Check ",
+        "code": "/data/api_key.txt"
+      },
+      "step3": {
+        "before": "Or check container logs: ",
+        "code": "docker logs lancache-manager-api"
+      }
+    },
+    "features": {
+      "title": "What You'll Get with Full Access",
+      "userManagement": {
+        "title": "User Management",
+        "description": "View and manage all authenticated users and guest sessions"
+      },
+      "cacheManagement": {
+        "title": "Cache Management",
+        "description": "Clear cache, remove games, and manage cache operations"
+      },
+      "databaseOperations": {
+        "title": "Database Operations",
+        "description": "Reset database, process logs, and manage data"
+      },
+      "themeCustomization": {
+        "title": "Theme Customization",
+        "description": "Create and apply custom themes to personalize your experience"
+      }
+    },
+    "success": "Authentication successful! Upgrading to full access...",
+    "errors": {
+      "missingKey": "Please enter an API key",
+      "failed": "Authentication failed"
+    }
+  },
+  "clients": {
+    "title": "Clients",
+    "subtitle": "Client Statistics",
+    "empty": "No client data available",
+    "groupCount": "({{count}} IPs)",
+    "tooltips": {
+      "groupIps": "IPs: {{ips}}",
+      "singleIp": "IP: {{ip}}"
+    },
+    "labels": {
+      "totalData": "Total Data",
+      "downloads": "Downloads",
+      "cacheHits": "Cache Hits",
+      "cacheMisses": "Cache Misses",
+      "lastActivity": "Last Activity: {{time}}"
+    },
+    "sort": {
+      "prefix": "Sort:",
+      "totalData": "Total Data",
+      "totalDownloads": "Total Downloads",
+      "cacheHits": "Cache Hits",
+      "cacheMisses": "Cache Misses",
+      "hitRate": "Hit Rate",
+      "lastActivity": "Last Activity",
+      "clientName": "Client Name",
+      "descending": "Descending",
+      "ascending": "Ascending"
+    },
+    "table": {
+      "client": "Client",
+      "totalDownloads": "Total Downloads",
+      "totalData": "Total Data",
+      "cacheHits": "Cache Hits",
+      "cacheMisses": "Cache Misses",
+      "hitRate": "Hit Rate",
+      "lastActivity": "Last Activity"
+    }
+  },
+  "services": {
+    "title": "Service Statistics",
+    "empty": "No service data available",
+    "table": {
+      "service": "Service",
+      "totalDownloads": "Total Downloads",
+      "totalData": "Total Data",
+      "cacheHits": "Cache Hits",
+      "cacheMisses": "Cache Misses",
+      "hitRate": "Hit Rate",
+      "lastActivity": "Last Activity"
+    }
+  },
+  "user": {
+    "title": "User Management",
+    "subtitle": "Sessions & guest controls",
+    "stats": {
+      "total": "total",
+      "users": "users",
+      "guests": "guests"
+    },
+    "locked": "Guest mode locked. New guests cannot log in.",
+    "unlocked": "Guest mode unlocked. Guests can now log in.",
+    "refreshRateUpdated": "Default guest refresh rate updated",
+    "errors": {
+      "updateGuestDuration": "Failed to update guest session duration",
+      "updateGuestLock": "Failed to update guest mode lock",
+      "updateGuestTheme": "Failed to update default guest theme",
+      "updateGuestRefreshRate": "Failed to update default guest refresh rate"
+    },
+    "guest": {
+      "title": "Guest Configuration",
+      "subtitle": "Configure default settings for guest sessions",
+      "sections": {
+        "sessionDuration": "Session Duration",
+        "defaultTheme": "Default Theme",
+        "refreshRate": "Refresh Rate",
+        "dateTime": "Date & Time",
+        "display": "Display"
+      },
+      "durationOptions": {
+        "1": "1 hour",
+        "2": "2 hours",
+        "3": "3 hours",
+        "6": "6 hours",
+        "12": "12 hours",
+        "24": "24 hours (1 day)",
+        "48": "48 hours (2 days)",
+        "72": "72 hours (3 days)",
+        "168": "168 hours (1 week)"
+      },
+      "refreshRates": {
+        "LIVE": "Live (Real-time)",
+        "ULTRA": "Ultra (1s)",
+        "REALTIME": "Real-time (5s)",
+        "STANDARD": "Standard (10s)",
+        "RELAXED": "Relaxed (30s)",
+        "SLOW": "Slow (60s)"
+      },
+      "timeFormats": {
+        "title": "Allowed Time Formats",
+        "placeholder": "Select allowed formats",
+        "note": "First selected format is the default for guests",
+        "server24h": {
+          "label": "Server (24h)",
+          "description": "Server timezone, 24-hour format"
+        },
+        "server12h": {
+          "label": "Server (12h)",
+          "description": "Server timezone, 12-hour format"
+        },
+        "local24h": {
+          "label": "Local (24h)",
+          "description": "Guest's timezone, 24-hour format"
+        },
+        "local12h": {
+          "label": "Local (12h)",
+          "description": "Guest's timezone, 12-hour format"
+        }
+      },
+      "preferences": {
+        "showYear": {
+          "label": "Always Show Year",
+          "description": "Include year in dates even for current year"
+        },
+        "sharpCorners": {
+          "label": "Sharp Corners",
+          "description": "Square instead of rounded"
+        },
+        "disableTooltips": {
+          "label": "Disable Tooltips",
+          "description": "Hide tooltip hints"
+        },
+        "datasourceLabels": {
+          "label": "Datasource Labels",
+          "description": "Show in multi-source mode"
+        }
+      },
+      "prefillDurationOptions": {
+        "1": "1 hour",
+        "2": "2 hours"
+      },
+      "prefill": {
+        "title": "Prefill Permissions",
+        "subtitle": "Control guest access to the Prefill tab. Permissions are time-limited and can be granted per-session.",
+        "updated": "Prefill configuration updated",
+        "warning": "Security risk: All new guests will be able to trigger prefills. Consider keeping this off and granting access per-session instead.",
+        "enableByDefault": {
+          "label": "Enable by Default",
+          "description": "New guests automatically get prefill access"
+        },
+        "duration": {
+          "label": "Permission Duration",
+          "description": "How long prefill access lasts after being granted"
+        },
+        "errors": {
+          "update": "Failed to update prefill configuration"
+        }
+      },
+      "errors": {
+        "updateDefault": "Failed to update default {{label}}",
+        "updateAllowedTimeFormats": "Failed to update allowed time formats"
+      }
+    },
+    "bulkActions": {
+      "title": "Bulk Actions",
+      "subtitle": "Apply actions to all guest sessions at once",
+      "buttons": {
+        "reset": "Reset to Defaults",
+        "clear": "Clear All Guests"
+      },
+      "resetSuccess": "Reset {{count}} guest sessions to defaults",
+      "clearSuccess": "Cleared {{count}} guest sessions",
+      "errors": {
+        "resetFailed": "Failed to reset guest sessions",
+        "clearFailed": "Failed to clear guest sessions"
+      },
+      "resetModal": {
+        "title": "Reset All Guests to Defaults",
+        "message": "Are you sure you want to reset all guest session preferences to the default values?",
+        "noteTitle": "This action will:",
+        "points": {
+          "theme": "Reset theme to default guest theme",
+          "refreshRate": "Reset refresh rate to default guest refresh rate",
+          "preferences": "Reset all display and timezone preferences",
+          "active": "Guest sessions will remain active"
+        },
+        "confirm": "Reset All Guests"
+      },
+      "clearModal": {
+        "title": "Clear All Guest Sessions",
+        "message": "Are you sure you want to remove all guest sessions? This action cannot be undone.",
+        "noteTitle": "Warning:",
+        "points": {
+          "deleted": "All guest sessions will be permanently deleted",
+          "logout": "All connected guests will be logged out immediately",
+          "data": "Guest preferences and session data will be lost"
+        },
+        "confirm": "Clear All Guests"
+      }
+    }
+  },
+  "actions": {
+    "cancel": "Cancel",
+    "useDefault": "Use Default",
+    "usingDefault": "Using Default",
+    "edit": "Edit"
+  },
+  "activeSessions": {
+    "title": "Active Sessions",
+    "loading": "Loading sessions...",
+    "paginationLabel": "sessions",
+    "unknownDevice": "Unknown Device",
+    "labels": {
+      "deviceId": "Device ID",
+      "deviceIdWithValue": "Device ID: {{id}}",
+      "userBadge": "USER",
+      "guestBadge": "GUEST",
+      "timezone": "{{zone}} TZ",
+      "local": "Local",
+      "server": "Server",
+      "created": "Created:",
+      "lastSeen": "Last seen:",
+      "revokedAt": "Revoked:",
+      "revokedBy": "Revoked by:",
+      "createdShort": "Created",
+      "lastSeenShort": "Last Seen",
+      "revokedShort": "Revoked",
+      "revokedByShort": "Revoked By",
+      "ipAddress": "IP Address",
+      "operatingSystem": "Operating System",
+      "browser": "Browser"
+    },
+    "unknownDeviceLower": "Unknown device",
+    "empty": {
+      "title": "No active sessions",
+      "subtitle": "Sessions will appear here when users connect"
+    },
+    "sessionTypes": {
+      "authenticatedUser": "authenticated user",
+      "guestUser": "guest",
+      "authenticatedDevice": "authenticated device",
+      "guestDevice": "guest device"
+    },
+    "help": {
+      "sessionTypes": {
+        "title": "Session Types",
+        "authenticated": {
+          "label": "Authenticated",
+          "description": "Full access with no automatic expiration"
+        },
+        "guest": {
+          "label": "Guest",
+          "description": "Read-only for {{hours}} hours"
+        }
+      },
+      "actions": {
+        "title": "Actions",
+        "revoke": {
+          "label": "Revoke",
+          "description": "End a guest session immediately"
+        },
+        "delete": {
+          "label": "Delete",
+          "description": "Remove the device from history"
+        }
+      }
+    },
+    "toggle": {
+      "unlocked": "Unlocked",
+      "locked": "Locked",
+      "lockedTitle": "Guest mode is locked - new guests cannot log in",
+      "unlockedTitle": "Guest mode is unlocked - guests can log in"
+    },
+    "actions": {
+      "editPreferences": "Edit Preferences",
+      "revokeSession": "Revoke Session",
+      "revoking": "Revoking...",
+      "deleteSession": "Delete Session",
+      "deleting": "Deleting...",
+      "revoke": "Revoke",
+      "delete": "Delete"
+    },
+    "revokeModal": {
+      "title": "Revoke Device",
+      "message": "Are you sure you want to revoke this {{type}}?",
+      "noteTitle": "What happens when you revoke:",
+      "points": {
+        "marked": "The device is marked as revoked but not deleted",
+        "logout": "The user will be logged out immediately",
+        "history": "The device record remains in history"
+      },
+      "confirm": "Revoke Device"
+    },
+    "deleteModal": {
+      "title": "Delete Device",
+      "message": "Are you sure you want to permanently delete this {{type}}?",
+      "noteTitle": "Warning:",
+      "points": {
+        "noUndo": "This action cannot be undone",
+        "removed": "The device will be permanently removed from history",
+        "logout": "The user will be logged out immediately"
+      },
+      "confirm": "Delete Permanently"
+    },
+    "preferencesModal": {
+      "title": "Edit User Preferences",
+      "loading": "Loading preferences...",
+      "selectedTheme": "Selected Theme",
+      "customTheme": "Custom theme for this user",
+      "defaultTheme": "Default: {{theme}}",
+      "defaultThemeShort": "Default",
+      "refreshRate": "Refresh Rate",
+      "customRefreshRate": "Custom refresh rate for this user",
+      "defaultRefreshRate": "Default: {{rate}}",
+      "uiTitle": "UI Preferences",
+      "tooltips": "Tooltips",
+      "datasourceLabels": "Show datasource indicators on downloads (multi-datasource mode)",
+      "stickyNotifications": {
+        "title": "Sticky Notifications",
+        "description": "Keep notification bar fixed at top when scrolling"
+      },
+      "staticNotifications": {
+        "title": "Static Notifications",
+        "description": "Require manual dismissal - won't auto-clear"
+      },
+      "customFormats": "Custom formats for this user",
+      "defaultFormats": "Using default ({{formats}})",
+      "allFormats": "All formats",
+      "save": "Save Preferences"
+    },
+    "prefill": {
+      "title": "Prefill Access",
+      "subtitle": "Grant this guest access to the Prefill tab. Access is time-limited and will expire automatically.",
+      "status": {
+        "enabled": "Enabled",
+        "expired": "Expired",
+        "disabled": "Disabled",
+        "expires": "Expires: {{time}}"
+      },
+      "actions": {
+        "grant": "Grant Access",
+        "revoke": "Revoke Access"
+      }
+    },
+    "status": {
+      "revoked": "Revoked"
+    },
+    "info": {
+      "revokedOwnSession": "You revoked your own session. Logging out...",
+      "deletedOwnSession": "You deleted your own session. Logging out..."
+    },
+    "errors": {
+      "loadSessions": "Failed to load sessions",
+      "revokeSession": "Failed to revoke session",
+      "deleteSession": "Failed to delete session",
+      "loadPreferences": "Failed to load user preferences",
+      "savePreferences": "Failed to save preferences",
+      "updatePrefill": "Failed to update prefill permission"
+    }
+  },
+  "downloads": {
+    "header": {
+      "historical": {
+        "title": "Historical View",
+        "viewing": "Viewing past data",
+        "unavailable": "Live stats unavailable"
+      },
+      "transferSpeed": "Transfer Speed",
+      "idle": "Idle",
+      "activeGames": "{{count}} game",
+      "activeGames_plural": "{{count}} games",
+      "activeClients": "{{count}} client",
+      "activeClients_plural": "{{count}} clients",
+      "noActive": "No active downloads",
+      "activeTooltip": "Active downloads only available in Live mode",
+      "activeTab": "Active",
+      "recentTab": "Recent",
+      "todayLabel": "Today:",
+      "disabled": "Disabled"
+    },
+    "active": {
+      "empty": {
+        "title": "No Active Downloads",
+        "description": "Downloads will appear here in real-time when clients start downloading games through the cache."
+      },
+      "tabs": {
+        "games": "Games ({{count}})",
+        "clients": "Clients ({{count}})"
+      },
+      "refresh": "Refresh",
+      "depotLabel": "Depot {{depotId}}",
+      "hitRate": "{{percent}}% hit",
+      "requests": "{{count}} request",
+      "requests_plural": "{{count}} requests",
+      "speed": "Speed",
+      "gamesCount": "{{count}} game",
+      "gamesCount_plural": "{{count}} games",
+      "summary": {
+        "gamesLabel": "game",
+        "gamesLabel_plural": "games",
+        "clientsLabel": "client",
+        "clientsLabel_plural": "clients",
+        "totalLabel": "total",
+        "requestsWindowLabel": "requests/2s"
+      }
+    },
+    "tab": {
+      "title": "Downloads",
+      "emptyRecorded": "No downloads recorded yet. Downloads will appear here as clients request content.",
+      "searchPlaceholder": "Search games, clients, depots...",
+      "updating": "Updating...",
+      "tooltips": {
+        "settings": "Settings",
+        "export": "Export Data",
+        "fitColumns": "Fit columns to page"
+      },
+      "filters": {
+        "showPrefix": "Show:",
+        "allServices": "All Services",
+        "smallFilesOnly": "Small Files Only",
+        "allClients": "All Clients",
+        "allItems": "All",
+        "showMetadata": "Show metadata (0 bytes)",
+        "showSmallFiles": "Show small files",
+        "hideLocalhost": "Hide localhost",
+        "hideUnknownGames": "Hide unknown games",
+        "clear": "Clear Filters",
+        "active": {
+          "search": "• Search: \"{{query}}\"",
+          "service": "• Service: {{service}}",
+          "client": "• Client: {{client}}"
+        }
+      },
+      "sort": {
+        "prefix": "Sort:",
+        "latest": "Newest",
+        "oldest": "Oldest",
+        "largest": "Largest",
+        "smallest": "Smallest",
+        "bestCache": "Best Cache",
+        "worstCache": "Worst Cache",
+        "sessions": "Sessions",
+        "alphabetical": "A-Z",
+        "service": "Service"
+      },
+      "view": {
+        "compact": "Compact",
+        "normal": "Normal",
+        "retro": "Retro"
+      },
+      "export": {
+        "json": "Export JSON",
+        "csv": "Export CSV"
+      },
+      "presets": {
+        "title": "Quick Presets",
+        "pretty": "Pretty",
+        "minimal": "Minimal",
+        "showAll": "Show All",
+        "default": "Default",
+        "custom": "Custom"
+      },
+      "sections": {
+        "filters": "Filters",
+        "display": "Display",
+        "behavior": "Behavior"
+      },
+      "display": {
+        "minimalMode": "Minimal mode",
+        "fullHeightBanners": "Full-height banners"
+      },
+      "behavior": {
+        "groupUnknown": "Group unknown games",
+        "groupByFrequency": "Group by frequency",
+        "scrollOnExpand": "Scroll on expand"
+      },
+      "pagination": {
+        "pageOf": "Page {{page}} of {{total}}",
+        "showingDepotGroups": "Showing {{count}} of {{total}} depot groups",
+        "showingGroups": "Showing {{count}} of {{total}} groups",
+        "downloadCount": "({{count}} download)",
+        "downloadCount_plural": "({{count}} downloads)",
+        "downloadCountTotal": "({{count}} download of {{total}} total)",
+        "downloadCountTotal_plural": "({{count}} downloads of {{total}} total)"
+      },
+      "emptyRange": {
+        "title": "No downloads found in selected time range",
+        "description": "The dashboard shows active downloads (currently in progress), while this list shows downloads that started within the selected time period. Try switching to Live to see all downloads, or adjust your time range."
+      },
+      "compact": {
+        "sections": {
+          "multipleDownloads": "Frequently Downloaded Games (2+ sessions)",
+          "singleDownloads": "Single Session Downloads",
+          "individual": "Uncategorized Downloads",
+          "banner": "Game Banner",
+          "downloadList": "Download Sessions"
+        },
+        "counts": {
+          "clients": "{{count}} client",
+          "clients_plural": "{{count}} clients",
+          "requests": "{{count}} request",
+          "requests_plural": "{{count}} requests"
+        },
+        "labels": {
+          "hit": "Hit:",
+          "miss": "Miss:",
+          "first": "First:",
+          "last": "Last:",
+          "store": "Store",
+          "storeTitle": "View in Steam Store",
+          "sessions": "Sessions ({{count}})",
+          "zeroBytes": "0 B"
+        },
+        "pagination": {
+          "previous": "Previous page (hold to skip)",
+          "next": "Next page (hold to skip)"
+        },
+        "datasourceTooltip": "Datasource: {{datasource}}"
+      },
+      "normal": {
+        "datasourceTooltip": "Datasource: {{datasource}}",
+        "sections": {
+          "multipleDownloads": "Frequently Downloaded Games (2+ sessions)",
+          "singleDownloads": "Single Session Downloads",
+          "individual": "Uncategorized Downloads",
+          "individualDescription": "Downloads that couldn't be grouped by game name"
+        },
+        "stats": {
+          "totalDownloaded": "Total Downloaded",
+          "cacheSaved": "Cache Saved",
+          "efficiency": "Efficiency",
+          "downloads": "Downloads",
+          "cacheHit": "Cache Hit",
+          "cacheMiss": "Cache Miss",
+          "efficiencyRate": "Efficiency Rate",
+          "downloadSessions": "Download Sessions",
+          "uniqueClients": "Unique Clients",
+          "firstSeen": "First Seen",
+          "lastActivity": "Last Activity",
+          "notAvailable": "N/A",
+          "none": "—"
+        },
+        "store": {
+          "title": "View in Steam Store",
+          "label": "View Store Page"
+        },
+        "sessions": {
+          "title": "Download Sessions",
+          "count": "{{count}} session",
+          "count_plural": "{{count}} sessions",
+          "page": "Page {{current}}/{{total}}"
+        },
+        "pagination": {
+          "previous": "Previous page (hold to skip multiple)",
+          "next": "Next page (hold to skip multiple)"
+        },
+        "timeline": {
+          "title": "Timeline",
+          "started": "Started {{time}}",
+          "completed": "Completed {{time}}",
+          "inProgress": "In progress",
+          "depot": "Depot: {{depotId}}"
+        },
+        "size": "Size",
+        "cache": "Cache",
+        "noHits": "No hits"
+      },
+      "retro": {
+        "headers": {
+          "timestamp": "Timestamp",
+          "app": "App",
+          "source": "Source",
+          "events": "Events",
+          "depot": "Depot",
+          "client": "Client",
+          "avgSpeed": "Avg Speed",
+          "cachePerformance": "Cache Performance",
+          "efficiency": "Efficiency"
+        },
+        "notAvailable": "N/A",
+        "gameFallback": "Game",
+        "clientCount": "{{count}} client",
+        "clientCount_plural": "{{count}} clients",
+        "requestCount": "{{count}} request",
+        "requestCount_plural": "{{count}} requests",
+        "datasourceTooltip": "Datasource: {{datasource}}",
+        "gauge": {
+          "excellent": "Excellent",
+          "partial": "Partial",
+          "miss": "Miss"
+        },
+        "empty": {
+          "title": "No Downloads Yet",
+          "description": "Download activity will appear here once your Lancache starts serving content."
+        }
+      },
+      "badges": {
+        "more": "{{count}} more badge",
+        "more_plural": "{{count}} more badges"
+      }
+    }
+  },
+  "management": {
+    "nav": {
+      "settings": "Settings",
+      "settingsShort": "Settings",
+      "settingsDesc": "Display & behavior preferences",
+      "integrations": "Integrations",
+      "integrationsShort": "Integrate",
+      "integrationsDesc": "Steam, Grafana & external services",
+      "storage": "Logs & Cache",
+      "storageShort": "Logs & Cache",
+      "storageDesc": "Cache, logs & game detection",
+      "data": "Data",
+      "dataShort": "Data",
+      "dataDesc": "Depot mappings & database",
+      "preferences": "Theme",
+      "preferencesShort": "Theme",
+      "preferencesDesc": "Themes & customization",
+      "clients": "Clients",
+      "clientsShort": "Clients",
+      "clientsDesc": "Assign nicknames to client IPs",
+      "prefillSessions": "Prefill Sessions",
+      "prefillSessionsShort": "Prefill",
+      "prefillSessionsDesc": "Manage Steam Prefill daemon sessions"
+    },
+    "sections": {
+      "authRequired": "Authentication Required",
+      "authRequiredDesc": "Please authenticate to access this section.",
+      "guestModeActive": "Guest Mode Active",
+      "guestModeDesc": "Management features are disabled in guest mode. Please authenticate to access full functionality.",
+      "migratedOperations": "Migrated {{count}} operations from local storage to server",
+      "data": {
+        "title": "Data Configuration",
+        "subtitle": "Manage depot mappings, import data, and control database tables",
+        "depotMapping": "Depot Mapping",
+        "dataImport": "Data Import",
+        "databaseManagement": "Database Management",
+        "selectedTables": "{{count}} table(s) selected",
+        "noTablesSelected": "No tables selected",
+        "clearSelected": "Clear Selected Tables",
+        "clearSelectedShort": "Clear Selected",
+        "selectAllTables": "Select All Tables",
+        "deselectAllTables": "Deselect All Tables",
+        "affects": "Affects:",
+        "confirmClearTitle": "Clear Selected Tables",
+        "confirmClearMessage": "You are about to permanently delete data from the following table(s):",
+        "confirmClearImportant": "Important:",
+        "confirmClearWarnings": {
+          "noUndo": "This action cannot be undone",
+          "exportFirst": "Export any data you need before continuing",
+          "reportsAffected": "Historical reports may be affected",
+          "depotMappings": "Games will show as \"Unknown\" until mappings are rebuilt",
+          "events": "All events and their download associations will be permanently deleted",
+          "userSessionsLogout": "All devices will be logged out and the application will reload",
+          "userSessionsCleared": "All registered devices will be cleared - you will need to re-authenticate",
+          "clientGroups": "All client groups and their member associations will be permanently deleted",
+          "prefillSessions": "All prefill sessions and their history entries will be permanently deleted",
+          "bannedSteamUsers": "All banned Steam users will be unblocked and can prefill again"
+        },
+        "clearTables": "Clear {{count}} Table",
+        "clearTables_plural": "Clear {{count}} Tables",
+        "tables": {
+          "logEntries": {
+            "label": "Log Entries",
+            "description": "Raw access log entries from nginx cache logs",
+            "details": "Individual log line records used for analytics and reporting",
+            "affectedPages": "Dashboard • Downloads • Analytics • Charts"
+          },
+          "downloads": {
+            "label": "Downloads",
+            "description": "Download records with game associations and statistics",
+            "details": "Tracked downloads with game names, sizes, and timestamps",
+            "affectedPages": "Dashboard • Downloads • Clients • Analytics"
+          },
+          "clientStats": {
+            "label": "Client Statistics",
+            "description": "Per-client download statistics and metrics",
+            "details": "Bandwidth and download counts grouped by IP address",
+            "affectedPages": "Dashboard • Clients tab"
+          },
+          "serviceStats": {
+            "label": "Service Statistics",
+            "description": "Per-service (Steam, Epic, etc.) download statistics",
+            "details": "Total downloads and bandwidth usage by CDN service",
+            "affectedPages": "Dashboard service cards • Charts"
+          },
+          "steamDepotMappings": {
+            "label": "Steam Depot Mappings",
+            "description": "Depot ID to game name associations from SteamKit",
+            "details": "Mappings used to identify which game a depot belongs to. Also clears game names from existing downloads.",
+            "affectedPages": "Dashboard • Downloads • All game name displays"
+          },
+          "cachedGameDetections": {
+            "label": "Cache Detection Results",
+            "description": "Cached results from game and service detection scans",
+            "details": "Pre-computed game and service detections from cache files to speed up dashboard loading",
+            "affectedPages": "Cache tab • Game detection cards"
+          },
+          "cachedCorruptionDetections": {
+            "label": "Corruption Detection Cache",
+            "description": "Cached results from cache file corruption analysis",
+            "details": "Pre-computed corruption detection results to speed up corruption status checks",
+            "affectedPages": "Cache tab • Corruption detection"
+          },
+          "clientGroups": {
+            "label": "Client Groups",
+            "description": "Named groups for organizing clients/machines",
+            "details": "User-defined groups with nicknames and colors. Also clears group member associations.",
+            "affectedPages": "Clients tab • Client group labels"
+          },
+          "events": {
+            "label": "Events",
+            "description": "Custom events for tracking LAN parties and gaming sessions",
+            "details": "User-created events with date ranges. Clears associated download links via cascade.",
+            "affectedPages": "Events tab • Downloads event filters"
+          },
+          "eventDownloads": {
+            "label": "Event Download Links",
+            "description": "Associations between events and downloads",
+            "details": "Links connecting downloads to events (both auto-tagged and manual)",
+            "affectedPages": "Events tab • Downloads event tags"
+          },
+          "prefillSessions": {
+            "label": "Prefill Sessions",
+            "description": "Steam-lancache-prefill session tracking",
+            "details": "Active and historical prefill sessions with status and configuration. Also clears prefill history.",
+            "affectedPages": "Management → Prefill Sessions section"
+          },
+          "bannedSteamUsers": {
+            "label": "Banned Steam Users",
+            "description": "Steam accounts blocked from prefill operations",
+            "details": "Users banned due to authentication failures or rate limiting",
+            "affectedPages": "Management → Prefill Sessions section"
+          },
+          "userSessions": {
+            "label": "User Sessions",
+            "description": "Active and historical user session records",
+            "details": "Session tracking with device info, IP addresses, and authentication status",
+            "affectedPages": "All users will be logged out"
+          },
+          "userPreferences": {
+            "label": "User Preferences",
+            "description": "Per-session user interface preferences",
+            "details": "Theme selections and UI customization settings linked to sessions",
+            "affectedPages": "Theme and UI settings reset to defaults"
+          }
+        }
+      },
+      "storage": {
+        "title": "Storage Management",
+        "subtitle": "Manage cache directories, process logs, detect corrupted files, and identify cached games",
+        "logOperations": "Log Operations",
+        "cacheOperations": "Cache Operations",
+        "loadingCacheConfig": "Loading cache configuration..."
+      },
+      "settings": {
+        "title": "Settings",
+        "subtitle": "Manage authentication, demo mode, and display preferences",
+        "apiAuth": "API Authentication",
+        "apiAuthDesc": "Secure access to management features",
+        "demoMode": "Demo Mode",
+        "demoModeDesc": "Test the interface with simulated data",
+        "mockData": "Mock Data",
+        "mockDataDesc": "Simulates realistic cache data and download activity",
+        "enabled": "Enabled",
+        "disabled": "Disabled",
+        "mockModeActive": "Mock mode active — API actions are disabled",
+        "displayPreferences": "Display Preferences",
+        "displayPreferencesDesc": "Customize your experience",
+        "nginxLogRotation": "Nginx Log Rotation",
+        "nginxLogRotationDesc": "Signal nginx to reopen log files after manipulation",
+        "nginxLogRotationDisabled": "Nginx log rotation is disabled",
+        "nginxLogRotationEnvVar": "Add the following environment variable to your docker-compose.yml:",
+        "performanceOptimizations": "Performance Optimizations",
+        "performanceOptimizationsDesc": "Garbage collection and memory management",
+        "performanceOptimizationsDisabled": "Performance optimizations are disabled",
+        "performanceOptimizationsEnvVar": "Add the following environment variable to your docker-compose.yml:",
+        "loadingGcSettings": "Loading GC settings..."
+      },
+      "preferences": {
+        "title": "Theme",
+        "subtitle": "Customize themes and visual settings"
+      },
+      "displayPreferences": {
+        "visual": "Visual",
+        "sharpCorners": "Sharp Corners",
+        "sharpCornersDesc": "Use square corners instead of rounded",
+        "disableTooltips": "Disable Tooltips",
+        "disableTooltipsDesc": "Hide tooltip hints throughout the UI",
+        "notifications": "Notifications",
+        "disableStickyNotifications": "Disable Sticky Notifications",
+        "disableStickyNotificationsDesc": "Auto-dismiss all notifications",
+        "keepProcessingVisible": "Keep Processing Visible",
+        "keepProcessingVisibleDesc": "Always show PICS download notifications",
+        "downloads": "Downloads",
+        "showDatasourceLabels": "Show Datasource Labels",
+        "showDatasourceLabelsDesc": "Display datasource info when multiple sources",
+        "dateTime": "Date & Time",
+        "alwaysShowYear": "Always Show Year",
+        "alwaysShowYearDesc": "Include year in dates even for current year"
+      },
+      "integrations": {
+        "title": "Integration & Services",
+        "subtitle": "Connect to Steam, configure Grafana endpoints, and manage external service integrations",
+        "steamIntegration": "Steam Integration",
+        "monitoringMetrics": "Monitoring & Metrics",
+        "loadingEndpoints": "Loading endpoints..."
+      },
+      "clients": {
+        "title": "Client Nicknames",
+        "subtitle": "Assign friendly names to client IPs for easier identification",
+        "addNickname": "Add Nickname",
+        "nicknames": "Nicknames ({{count}})",
+        "loadingNicknames": "Loading nicknames...",
+        "noNicknamesYet": "No nicknames assigned yet",
+        "noNicknamesDesc": "Add a nickname to give a friendly name to client IPs",
+        "withoutNicknames": "Without Nicknames",
+        "withoutNicknamesDesc": "These client IPs don't have nicknames assigned. Click \"Add Nickname\" above to give them friendly names.",
+        "clickAddNicknameTooltip": "Click \"Add Nickname\" to name this IP",
+        "excludeFromStats": "Exclude From Stats",
+        "excludedIpsDesc": "Excluded IPs are ignored in dashboard metrics, top clients, service stats, hourly activity, cache growth, and sparklines.",
+        "authenticateToManage": "Authenticate to manage excluded IPs.",
+        "pickFromKnownClients": "Pick From Known Clients",
+        "selectClients": "Select clients",
+        "addSelected": "Add Selected",
+        "allKnownExcluded": "All known clients are already excluded.",
+        "addIpsPlaceholder": "Add IPs (comma or space separated)",
+        "add": "Add",
+        "supportsIpv4Ipv6": "Supports IPv4 and IPv6. Separate multiple IPs with commas or spaces.",
+        "invalidIps": "Invalid IPs: {{ips}}",
+        "loadingExcludedIps": "Loading excluded IPs...",
+        "noExcludedIps": "No excluded IPs configured.",
+        "removeIp": "Remove IP",
+        "saveChanges": "Save Changes",
+        "deletedNickname": "Deleted nickname \"{{nickname}}\"",
+        "removedIpFromNickname": "Removed {{ip}} from nickname \"{{nickname}}\"",
+        "excludedIpsUpdated": "Excluded IPs updated",
+        "deleteNickname": "Delete Nickname",
+        "deleteNicknameConfirm": "Delete nickname {{nickname}}? The associated IPs will no longer have a nickname.",
+        "deleteNicknameWarning": "This action cannot be undone.",
+        "delete": "Delete",
+        "loadingClients": "Loading clients...",
+        "ipsLabel": "IPs",
+        "errors": {
+          "failedToUpdateExcluded": "Failed to update excluded IPs",
+          "failedToLoadExcluded": "Failed to load excluded IPs"
+        }
+      }
+    },
+    "cache": {
+      "title": "Disk Cache Management",
+      "subtitle": "Clear cached game files from disk",
+      "refreshCacheSize": "Refresh cache size",
+      "cacheSize": "Cache Size",
+      "clearCache": "Clear Cache",
+      "clearDatasourceCache": "Clear {{datasource}} cache",
+      "clearingCacheDeletes": "Clearing cache deletes ALL cached game files from disk",
+      "confirmClear": "Clear {{datasource}} Cache",
+      "confirmClearAll": "Clear All Caches",
+      "calculatingSize": "Calculating cache size...",
+      "totalSize": "Total Size",
+      "files": "Files",
+      "directories": "Directories",
+      "estDeletionTime": "Est. deletion time",
+      "clickRefreshToCalculate": "Click refresh to calculate cache size",
+      "deletionMethod": "Deletion Method",
+      "deleteModeSet": "Delete mode set to: {{mode}}",
+      "deleteModes": {
+        "preserve": "Preserve",
+        "removeAll": "Remove All",
+        "rsync": "Rsync"
+      },
+      "deletionMethods": {
+        "preserveDesc": "Delete files individually (keeps structure)",
+        "fullDesc": "Remove entire directories at once",
+        "rsyncDesc": "Rsync with empty directory (best for NFS/SMB)"
+      },
+      "help": {
+        "title": "Deletion Methods",
+        "preserve": {
+          "term": "Preserve",
+          "description": "Deletes files one by one and keeps the folder structure intact"
+        },
+        "removeAll": {
+          "term": "Remove All",
+          "description": "Deletes entire directories at once, fastest for local storage"
+        },
+        "rsync": {
+          "term": "Rsync",
+          "description": "Uses rsync --delete, safest for network storage (NFS/SMB)"
+        },
+        "warning": "Clearing the cache deletes all cached game files. Clients will need to download content again."
+      },
+      "alerts": {
+        "readOnly": {
+          "title": "Cache directory is read-only",
+          "description": "Remove :ro from your docker-compose volume mounts to enable cache clearing.",
+          "descriptionPrefix": "Remove",
+          "descriptionSuffix": "from your docker-compose volume mounts to enable cache clearing."
+        },
+        "important": "Important:",
+        "importantPoints": {
+          "removed": "All cached game data will be permanently removed",
+          "redownload": "Clients will need to download content from the internet",
+          "noUndo": "This action cannot be undone"
+        }
+      },
+      "modal": {
+        "deleteFromDatasource": "This will permanently delete all cached game files from the {{datasource}} cache. Games will need to redownload content after clearing.",
+        "deleteFromAll": "This will permanently delete all cached game files from all datasources. Games will need to redownload content after clearing.",
+        "cannotBeUndone": "This action cannot be undone",
+        "stopActiveDownloads": "Stop all active downloads before proceeding",
+        "historyPreserved": "Download history and settings will be preserved",
+        "deleteDatasourceCache": "Delete {{datasource}} Cache",
+        "deleteAllCaches": "Delete All Caches"
+      },
+      "errors": {
+        "updateDeleteMode": "Failed to update delete mode",
+        "startCacheClearing": "Failed to start cache clearing: {{error}}"
+      }
+    },
+    "corruption": {
+      "title": "Corruption Detection",
+      "subtitle": "Find and fix corrupted cache files",
+      "loadPreviousResults": "Load previous scan results from database",
+      "scanForCorrupted": "Scan for corrupted cache chunks",
+      "deleteCorrupted": "Delete cache files and remove log entries for corrupted chunks",
+      "scanningMessage": "Scanning logs for corrupted chunks... This may take several minutes for large log files.",
+      "loadingCachedData": "Loading cached data...",
+      "loadingDetails": "Loading corruption details...",
+      "corruptedChunks": "{{count}} corrupted chunk",
+      "corruptedChunks_plural": "{{count}} corrupted chunks",
+      "removeAll": "Remove All",
+      "removing": "Removing...",
+      "tryAgain": "Try Again",
+      "scanFailed": "Corruption scan failed",
+      "removalFailed": "Corruption removal failed",
+      "readOnly": "Read-only",
+      "dockerSocketRequired": "Docker socket required",
+      "missCount": "Miss count:",
+      "cache": "Cache:",
+      "noDetailsAvailable": "No details available",
+      "help": {
+        "whatThisDoes": {
+          "title": "What This Does",
+          "description": "Finds cache chunks with 3+ repeated MISS requests, which usually means the cached file is corrupted and must be re-downloaded."
+        },
+        "whatRemovalDeletes": {
+          "title": "What Removal Deletes",
+          "cacheFilesLabel": "Cache files",
+          "cacheFiles": "corrupted chunks on disk",
+          "logEntriesLabel": "Log entries",
+          "logEntries": "related access.log entries",
+          "databaseRecordsLabel": "Database records",
+          "databaseRecords": "download sessions marked as corrupt"
+        },
+        "warning": "Removal affects both cache and logs, so write access to both is required."
+      },
+      "alerts": {
+        "logsAndCacheReadOnly": "Logs and cache directories are read-only",
+        "logsReadOnly": "Logs directory is read-only",
+        "cacheReadOnly": "Cache directory is read-only",
+        "requiresWriteAccess": "Corruption removal requires write access to both logs and cache. Remove",
+        "fromVolumeMounts": "from your docker-compose volume mounts.",
+        "dockerSocketUnavailable": "Docker socket not available",
+        "requiresNginxSignal": "Corruption removal requires signaling nginx to reopen logs afterward."
+      },
+      "emptyStates": {
+        "noCorrupted": {
+          "title": "No corrupted chunks detected",
+          "subtitle": "Cache appears healthy - all chunks are being served successfully"
+        },
+        "noCachedData": {
+          "title": "No cached data available",
+          "subtitle": "Click the Scan button to detect corrupted cache chunks"
+        }
+      },
+      "notifications": {
+        "loadedResults": "Loaded previous results: {{chunks}} corrupted chunks across {{services}} services",
+        "noCorruptedInPrevious": "No corrupted chunks found in previous scan",
+        "noPreviousResults": "No previous corruption scan results found"
+      },
+      "errors": {
+        "loadCachedData": "Failed to load cached data",
+        "startScan": "Failed to start corruption scan",
+        "removeCorrupted": "Failed to remove corrupted chunks for {{service}}",
+        "loadDetails": "Failed to load corruption details for {{service}}",
+        "detectFailed": "Failed to detect corrupted chunks"
+      },
+      "modal": {
+        "title": "Remove Corrupted Chunks",
+        "confirmRemove": "Remove all corrupted cache chunks for {{service}}?",
+        "willDelete": "This will DELETE:",
+        "cacheFilesLabel": "Cache files",
+        "cacheFilesDesc": "from disk for corrupted chunks",
+        "logEntriesLabel": "Log entries",
+        "logEntriesDesc": "from access.log for these chunks",
+        "databaseRecordsLabel": "Database records",
+        "databaseRecordsDesc": "for download sessions with corruption",
+        "cannotBeUndone": "This action cannot be undone",
+        "mayTakeSeveralMinutes": "May take several minutes for large cache directories",
+        "validFilesRemain": "Valid {{service}} cache files will remain intact",
+        "removesApproximately": "Removes approximately {{count}} corrupted chunks",
+        "deleteCacheAndLogs": "Delete Cache & Logs"
+      }
+    },
+    "gameDetection": {
+      "title": "Game Cache Detection",
+      "subtitle": "Scan cache to find games and services with stored files",
+      "loadPreviousResults": "Load previous detection results from database",
+      "processLogsFirst": "Process access logs first",
+      "quickScan": "Quick scan for new items",
+      "fullScan": "Full scan from scratch",
+      "quick": "Quick",
+      "fullScanButton": "Full Scan",
+      "servicesSection": "Services",
+      "gamesSection": "Games",
+      "removeGameCache": "Remove all cache files for this game",
+      "removeServiceCache": "Remove all cache files for this service",
+      "removing": "Removing...",
+      "files": "files",
+      "depot": "depot",
+      "depot_plural": "depots",
+      "depotIds": "Depot IDs:",
+      "loadingDetails": "Loading details...",
+      "sampleUrls": "Sample URLs ({{count}}):",
+      "showLess": "Show less",
+      "showAll": "Show all {{count}}",
+      "showingUrls": "Showing {{showing}} of {{total}} URLs",
+      "cacheFileLocations": "Cache File Locations ({{count}}):",
+      "showingPaths": "Showing {{showing}} of {{total}} paths",
+      "cacheReadOnlyShort": "Cache directory is mounted read-only",
+      "dockerSocketRequired": "Docker socket required for log cleanup",
+      "noGamesMatching": "No games found matching \"{{query}}\"",
+      "clearSearch": "Clear search",
+      "gamesLabel": "games",
+      "loadedPreviousResults": "Loaded previous results: {{results}}",
+      "detectionDisabledMockMode": "Detection disabled in mock mode",
+      "failedToStartDetection": "Failed to start detection",
+      "loadedFromPreviousScan": "Loaded {{results}} from previous scan",
+      "noPreviousResults": "No previous detection results found",
+      "failedToLoadPreviousResults": "Failed to load previous results",
+      "removingGame": "Removing {{name}}...",
+      "failedToRemoveGame": "Failed to remove game from cache",
+      "removingService": "Removing {{name}} service...",
+      "failedToRemoveService": "Failed to remove service from cache",
+      "filterPrefix": "Filter:",
+      "scanningMultipleDatasources": "Scanning database and {{count}} cache directories...",
+      "scanningSingle": "Scanning database and cache directory...",
+      "scanningNote": "This may take several minutes for large databases and cache directories",
+      "collapseAll": "Collapse All",
+      "expandAll": "Expand All",
+      "filteredBy": "Filtered by <1>{{datasource}}</1>: {{gameCount}} game{{gameCount, plural, one {} other {s}}}, {{serviceCount}} service{{serviceCount, plural, one {} other {s}}}",
+      "clearFilter": "Clear filter",
+      "help": {
+        "removal": {
+          "title": "Removal",
+          "game": {
+            "term": "Game",
+            "description": "Removes cache files, log entries, and database records for a game"
+          },
+          "service": {
+            "term": "Service",
+            "description": "Removes non-game caches (Riot, Blizzard, Epic, WSUS)"
+          }
+        },
+        "howItWorks": {
+          "title": "How It Works",
+          "description": "Scans the database for games and services, verifies cache files on disk, then shows size and file count for each."
+        },
+        "note": "Process access logs first so the database has entries to scan."
+      },
+      "emptyState": {
+        "noGamesServices": "No games or services with cache files detected",
+        "noGamesServicesDatasource": "No games or services found in {{datasource}}",
+        "processLogsFirst": "Process access logs to populate the database first",
+        "clickFullScan": "Click \"Full Scan\" to scan your cache directory"
+      },
+      "alerts": {
+        "cacheReadOnly": {
+          "title": "Cache directory is read-only",
+          "description": "Remove <1>:ro</1> from your docker-compose volume mounts to enable game cache detection."
+        }
+      },
+      "placeholders": {
+        "allDatasources": "All datasources",
+        "searchGames": "Search by game name or AppID..."
+      }
+    },
+    "datasources": {
+      "title": "Log Processing",
+      "subtitleLoading": "Loading...",
+      "subtitleMultiple": "{{count}} datasources configured",
+      "subtitleSingle": "Import historical data or monitor new downloads",
+      "loadingDatasources": "Loading datasources...",
+      "reposition": "Reposition",
+      "position": {
+        "unknown": "Unknown",
+        "noLogFile": "No log file",
+        "caughtUp": "{{position}} (caught up)",
+        "progress": "{{position}} / {{total}} ({{percent}}%)"
+      },
+      "modal": {
+        "repositionAll": "Reposition All Logs",
+        "repositionSingle": "Reposition Log: {{datasource}}",
+        "choosePosition": "Choose where to start processing logs from:",
+        "startFromBeginning": "Start from Beginning",
+        "startFromEnd": "Start from End",
+        "beginningDescription": "Process entire log history (duplicate detection prevents reimporting)",
+        "endDescription": "Monitor only new downloads going forward"
+      },
+      "messages": {
+        "positionReset": "Log position reset for {{datasource}}",
+        "positionResetAll": "Log position reset for all datasources"
+      },
+      "errors": {
+        "processingFailed": "Failed to start processing",
+        "resetFailed": "Failed to reset position"
+      },
+      "help": {
+        "title": "Log Processing",
+        "process": {
+          "term": "Process",
+          "description": "Import log entries into the database from the current position"
+        },
+        "reposition": {
+          "term": "Reposition",
+          "description": "Choose where processing starts: beginning (reprocess all) or end (new entries only)"
+        },
+        "datasource": {
+          "term": "Datasource",
+          "description": "A named cache/logs pair for separate LANCache instances"
+        },
+        "note": "The Rust processor de-duplicates to avoid reimporting entries."
+      }
+    },
+    "dataImporter": {
+      "title": "Import Historical Data",
+      "subtitle": "Import from external SQLite databases",
+      "databaseType": "Database Type",
+      "importTypes": {
+        "deveLanCache": {
+          "description": "Import from DeveLanCacheUI_Backend SQLite database"
+        },
+        "lancacheManager": {
+          "description": "Import from LancacheManager database backup"
+        },
+        "unknown": "Unknown"
+      },
+      "modes": {
+        "auto": "Auto",
+        "browse": "Browse",
+        "manual": "Manual"
+      },
+      "auto": {
+        "searching": "Searching for databases...",
+        "found": "Found {{count}} database(s)"
+      },
+      "manual": {
+        "label": "Database File Path",
+        "example": "Example:"
+      },
+      "options": {
+        "batchSize": "Batch Size",
+        "batchSizeHint": "Number of records to process at once (100-10000)",
+        "overwriteExisting": "Update existing records (merge mode)",
+        "syncMode": "Sync mode: update existing + add new",
+        "appendMode": "Append only: skip duplicates"
+      },
+      "validation": {
+        "valid": "Connection Valid",
+        "failed": "Validation Failed",
+        "foundRecords": "Found {{count}} records ready to import",
+        "hintDeveLanCache": "Make sure to select a DeveLanCacheUI_Backend database for this import type.",
+        "hintLancacheManager": "Make sure to select a LancacheManager database for this import type."
+      },
+      "progress": {
+        "importing": "Importing..."
+      },
+      "result": {
+        "total": "Total",
+        "imported": "Imported",
+        "skipped": "Skipped",
+        "errors": "Errors",
+        "backupCreated": "Database backup created"
+      },
+      "buttons": {
+        "validating": "Validating...",
+        "validate": "Validate Connection",
+        "revalidate": "Re-validate",
+        "importing": "Importing...",
+        "importRecords": "Import {{count}} Records",
+        "import": "Import"
+      },
+      "confirm": {
+        "importQuestion": "Import {{count}} records from external database?",
+        "mergeMode": "Merge/Sync Mode",
+        "appendMode": "Append-Only Mode",
+        "newRecordsAdded": "New records will be added",
+        "existingUpdated": "Existing records will be updated with new data",
+        "existingSkipped": "Existing records will be skipped (no changes)",
+        "duplicateDetection": "Duplicates detected by: Client IP + Start Time (UTC)"
+      },
+      "messages": {
+        "connectionValidated": "Connection validated! Found {{count}} records.",
+        "importCompleted": "Import completed! {{imported}} imported, {{skipped}} skipped, {{errors}} errors",
+        "selectedDatabase": "Selected database: {{path}}"
+      },
+      "errors": {
+        "enterConnectionString": "Please enter a connection string",
+        "validateFailed": "Failed to validate connection: ",
+        "validateFirst": "Please validate the connection first",
+        "importFailed": "Import failed: "
+      },
+      "help": {
+        "importTypes": {
+          "title": "Import Types",
+          "deveLanCache": {
+            "term": "DeveLanCacheUI_Backend",
+            "description": "Database from the DeveLanCache monitoring system"
+          },
+          "lancacheManager": {
+            "term": "LancacheManager",
+            "description": "LancacheManager database backup"
+          }
+        },
+        "inputMethods": {
+          "title": "Input Methods",
+          "browse": {
+            "term": "Browse",
+            "description": "Choose a SQLite database file from disk"
+          },
+          "manual": {
+            "term": "Manual",
+            "description": "Paste the full file path"
+          }
+        },
+        "compatibility": {
+          "title": "Compatibility",
+          "description": "Pick the import type that matches your database. If the database is outside the container, mount it as a Docker volume."
+        },
+        "warning": "Stop the source application before importing to avoid database locks."
+      },
+      "alerts": {
+        "mockMode": "Mock mode is enabled - import functionality is disabled",
+        "skipInfo": "Most users can skip this feature. Only use if you have an existing database from a previous installation that you want to import.",
+        "authRequired": "Authentication required to import data"
+      },
+      "emptyState": {
+        "title": "No database files found",
+        "subtitle": "Try using Browse or Manual mode"
+      },
+      "placeholders": {
+        "manualPath": "/mnt/import/lancache.db"
+      },
+      "aria": {
+        "increaseBatchSize": "Increase batch size",
+        "decreaseBatchSize": "Decrease batch size"
+      },
+      "confirmImport": "Confirm Import"
+    },
+    "logRemoval": {
+      "title": "Log Removal",
+      "subtitle": "Remove service entries from log files",
+      "refreshServiceCounts": "Refresh service counts",
+      "noEntriesForDatasource": "No services with log entries",
+      "labels": {
+        "entries": "entries",
+        "removing": "Removing..."
+      },
+      "buttons": {
+        "clear": "Clear",
+        "deleteLogFile": "Delete Log File",
+        "removeLogs": "Remove Logs",
+        "tryAgain": "Try Again",
+        "showMore": "Show More ({{count}} more)",
+        "showLess": "Show Less ({{count}} hidden)"
+      },
+      "loading": {
+        "scanning": "Scanning log files for services...",
+        "mayTakeMinutes": "This may take several minutes for large log files"
+      },
+      "modal": {
+        "removeServiceLogs": "Remove Service Logs",
+        "removeQuestion": "Remove all {{service}} entries from {{datasource}} logs? This will reduce log size and improve performance.",
+        "important": "Important",
+        "cannotUndo": "This action cannot be undone",
+        "mayTakeMinutes": "May take several minutes for large log files",
+        "cachedFilesRemain": "Cached {{service}} game files will remain intact",
+        "deleteEntireLogFile": "Delete Entire Log File",
+        "deleteQuestion": "Delete the entire access.log file for {{datasource}}? This will remove all download history for this datasource.",
+        "warningDestructive": "Warning - Destructive Action",
+        "permanentlyDelete": "This will permanently delete all log entries",
+        "historyLost": "Download history and statistics will be lost",
+        "cachedGamesRemain": "Cached game files will remain intact"
+      },
+      "errors": {
+        "loadFailed": "Failed to load service log counts",
+        "unexpectedResponse": "Unexpected response when starting log removal for {{service}}",
+        "readOnly": "Logs directory is read-only. Remove :ro from docker-compose volume mount.",
+        "actionFailed": "Action failed",
+        "deleteFailed": "Failed to delete log file"
+      },
+      "help": {
+        "whatThisDoes": {
+          "title": "What This Does",
+          "description": "Removes access.log entries for a selected service to reduce log size and speed up processing."
+        },
+        "whatItAffects": {
+          "title": "What It Affects",
+          "logFiles": "Log files (entries removed)",
+          "databaseRecords": "Database records (related rows cleaned up)"
+        },
+        "note": "Cache files stay on disk; only log data is removed."
+      },
+      "alerts": {
+        "logsReadOnly": {
+          "title": "Logs directory is read-only",
+          "description": "Remove :ro from your docker-compose volume mounts to enable log removal."
+        },
+        "dockerSocket": {
+          "title": "Docker socket not available",
+          "description": "Log removal requires signaling nginx to reopen logs afterward.",
+          "addVolumes": "Add to your docker-compose.yml volumes:"
+        }
+      },
+      "emptyState": {
+        "title": "No services with log entries found",
+        "subtitle": "Services appear here when they have downloadable content in the logs"
+      }
+    },
+    "steamWebApi": {
+      "title": "Steam Web API Status",
+      "checkingStatus": "Checking status...",
+      "unknownStatus": "Unknown status",
+      "v1WithKey": "V1 (with key)",
+      "v1NoKey": "V1 (no key)",
+      "updateApiKey": "Update API Key",
+      "configureApiKey": "Configure API Key",
+      "remove": "Remove",
+      "lastChecked": "Last checked",
+      "bothUnavailable": {
+        "title": "Both V2 and V1 Unavailable",
+        "description": "Both Steam Web API V2 and V1 are currently unavailable. This may be a temporary Steam service issue. Please try again later."
+      },
+      "removeModal": {
+        "title": "Remove Steam Web API Key",
+        "message": "Are you sure you want to remove the Steam Web API key? If V2 becomes unavailable, you will need to reconfigure the key to use V1 fallback.",
+        "warning": "This action will remove the stored API key from the server.",
+        "confirm": "Remove API Key"
+      },
+      "help": {
+        "apiVersions": {
+          "title": "API Versions",
+          "v2": {
+            "term": "V2",
+            "description": "No API key required, but it can be rate-limited or unavailable"
+          },
+          "v1": {
+            "term": "V1",
+            "description": "Requires an API key and works as a fallback when V2 is down"
+          }
+        },
+        "apiKey": {
+          "title": "API Key",
+          "description": "Optional. Only needed if V2 is unavailable. Anonymous users can use the GitHub download instead."
+        },
+        "getApiKey": {
+          "before": "Get your free API key at",
+          "after": "and approve the confirmation in the Steam Mobile app."
+        },
+        "note": "Get your free API key at steamcommunity.com/dev/apikey and approve the confirmation in the Steam Mobile app."
+      }
+    },
+    "steamAuth": {
+      "title": "Steam PICS Authentication",
+      "autoLogout": {
+        "title": "Steam Session Auto-Logout",
+        "message": "{{message}}"
+      },
+      "loginUnavailable": "Steam Account Login Unavailable",
+      "v2Required": "Steam account login requires V2 API which is currently unavailable.",
+      "v1KeyProvides": "Your V1 API key already provides access to playtest/restricted games since it's tied to your Steam account.",
+      "configureV1Key": "Configure a V1 API key above to access playtest/restricted games.",
+      "modes": {
+        "anonymous": "Anonymous (Public Games Only)",
+        "authenticated": "Account Login (Playtest/Restricted Games)"
+      },
+      "status": {
+        "loggedIn": "Logged in with Steam account",
+        "anonymous": "Using anonymous mode",
+        "canAccessRestricted": "Can access playtest and restricted games",
+        "publicOnly": "Only public games available"
+      },
+      "accountLogin": "Account Login",
+      "anonymous": "Anonymous",
+      "depotMappingAfterLogin": "Depot Mapping After Login",
+      "autoRebuild": "Automatically rebuild depot mappings after login",
+      "manualRebuild": "Manually trigger depot mapping rebuild after login",
+      "automatic": "Automatic",
+      "manual": "Manual",
+      "authenticatedAs": "Authenticated as",
+      "steamUser": "Steam User",
+      "logout": "Logout",
+      "help": {
+        "authModes": {
+          "title": "Authentication Modes",
+          "anonymous": {
+            "term": "Anonymous",
+            "description": "Public games only, no Steam account needed"
+          },
+          "accountLogin": {
+            "term": "Account Login",
+            "description": "Access playtest and restricted games with your Steam account"
+          }
+        },
+        "depotMapping": {
+          "title": "Depot Mapping",
+          "description": "Automatic mode rebuilds depot mappings after login. Manual mode lets you rebuild when you choose."
+        },
+        "note": "Account login requires V2 API. A V1 API key alone can access restricted games but does not allow login."
+      }
+    },
+    "depotMapping": {
+      "title": "Depot Mapping",
+      "subtitle": "Automatically identifies Steam games from depot IDs",
+      "downloadingFromGitHub": "Downloading Depot Mappings from GitHub...",
+      "downloadingDescription": "Fetching pre-created depot mappings (290k+ depots). This may take a few moments.",
+      "githubDownloadComplete": "GitHub Data Downloaded - Applying Mappings",
+      "applyingMappingsDescription": "Pre-created depot mappings have been imported from GitHub. The system is now applying these mappings to your download history.",
+      "applyNowSource": "Apply Now Source",
+      "intervalFixedNote": "Interval is fixed at 30 minutes for GitHub mode",
+      "scanSkipped": {
+        "title": "Automatic Scan Skipped - Data Update Required",
+        "description": "The scheduled incremental scan was skipped because the change gap is too large. Please download the latest pre-created data from GitHub to reset your baseline, then incremental scans will work again."
+      },
+      "schedule": {
+        "automaticSchedule": "Automatic Schedule",
+        "runsEvery": "Runs every:",
+        "scanMode": "Scan mode:",
+        "nextRun": "Next run:",
+        "lastRun": "Last run:",
+        "disabled": "Disabled",
+        "calculating": "Calculating..."
+      },
+      "intervals": {
+        "30min": "30 minutes",
+        "every30Min": "Every 30 minutes",
+        "hours": "{{count}} hour",
+        "hours_plural": "{{count}} hours",
+        "disabled": "Disabled",
+        "everyHour": "Every hour",
+        "every6Hours": "Every 6 hours",
+        "every12Hours": "Every 12 hours",
+        "every24Hours": "Every 24 hours",
+        "every2Days": "Every 2 days",
+        "weekly": "Weekly"
+      },
+      "modes": {
+        "incremental": "Incremental",
+        "full": "Full",
+        "github": "GitHub",
+        "incrementalWebApiRequired": "Incremental (Web API required)",
+        "fullWebApiRequired": "Full (Web API required)"
+      },
+      "sources": {
+        "steamIncremental": "Steam (Incremental Scan)",
+        "steamIncrementalWebApiRequired": "Steam (Incremental Scan - Web API required)",
+        "steamFull": "Steam (Full Scan)",
+        "steamFullWebApiRequired": "Steam (Full Scan - Web API required)",
+        "githubDownload": "GitHub (Download)",
+        "githubAlreadyDownloaded": "GitHub (Already downloaded)"
+      },
+      "buttons": {
+        "downloadingFromGitHub": "Downloading from GitHub...",
+        "startingScan": "Starting Scan...",
+        "scanning": "Scanning ({{percent}}%)",
+        "applyingMappings": "Applying Mappings...",
+        "applyNow": "Apply Now"
+      },
+      "errors": {
+        "changeGapTooLarge": "Change gap too large - please download data from GitHub",
+        "failedToDownloadFromGitHub": "Failed to download from GitHub",
+        "failedToProcessDepotMappings": "Failed to process depot mappings",
+        "failedToStartFullScan": "Failed to start full scan"
+      },
+      "help": {
+        "scanModes": {
+          "title": "Scan Modes",
+          "incremental": {
+            "term": "Incremental",
+            "description": "Checks only changed apps for fast updates"
+          },
+          "full": {
+            "term": "Full",
+            "description": "Fetches all apps (about 300k) for a complete rebuild"
+          },
+          "github": {
+            "term": "GitHub",
+            "description": "Downloads prebuilt depot data (updated hourly)"
+          }
+        },
+        "settings": {
+          "title": "Settings",
+          "description": "Automatic Schedule runs in the background at your chosen interval. Apply Now runs the selected mode immediately."
+        },
+        "note": "GitHub mode checks every 30 minutes to stay in sync with hourly updates."
+      }
+    },
+    "database": {
+      "title": "Database Management",
+      "description": "Select which database tables you want to clear. Cached files on disk will remain untouched.",
+      "selectAllTables": "Select All Tables",
+      "deselectAllTables": "Deselect All Tables",
+      "help": {
+        "whatGetsCleared": {
+          "title": "What Gets Cleared",
+          "logEntries": {
+            "term": "Log Entries",
+            "description": "Raw nginx access log records used for analytics"
+          },
+          "downloads": {
+            "term": "Downloads",
+            "description": "Download sessions with stats and timestamps"
+          },
+          "depotMappings": {
+            "term": "Depot Mappings",
+            "description": "Depot-to-game mappings (also clears cached game names)"
+          }
+        },
+        "note": "Only database records are cleared; cached files on disk are untouched."
+      },
+      "errors": {
+        "authRequired": "Full authentication required for management operations",
+        "selectAtLeastOne": "Please select at least one table to clear",
+        "failedToClear": "Failed to clear selected tables"
+      },
+      "success": {
+        "resetStarted": "Database reset started for {{count}} table(s)"
+      }
+    },
+    "themes": {
+      "title": "Theme Management",
+      "themesAvailable": "{{count}} themes available",
+      "createNewTheme": "Create new theme",
+      "deleteAllCustom": "Delete all custom themes",
+      "refreshThemes": "Refresh themes",
+      "selectTheme": "Select a theme",
+      "activeTheme": "Active Theme",
+      "installedThemes": "Installed Themes",
+      "uploadCustomTheme": "Upload Custom Theme",
+      "downloadSample": "Download Sample",
+      "browseFiles": "Browse Files",
+      "system": "system",
+      "custom": "custom",
+      "systemBadge": "System",
+      "previewBadge": "Preview",
+      "activeBadge": "Active",
+      "communityBadge": "Community",
+      "customBadge": "Custom",
+      "basedOn": "Based on:",
+      "by": "by",
+      "previewActive": "Preview mode active. Select a theme to apply it permanently.",
+      "dropzone": {
+        "title": "Drop a theme file here, or click to browse",
+        "format": "TOML format, max 1MB"
+      },
+      "guestMode": {
+        "title": "Guest Mode - Theme Selection Disabled",
+        "description": "Guest users cannot change themes. The theme is set by the administrator."
+      },
+      "authRequired": "Authentication required to create, upload, or delete custom themes",
+      "customize": {
+        "title": "Customize",
+        "selectThemeHint": "Select a theme above and click Edit to customize its colors",
+        "quickActions": "Quick Actions",
+        "createNewTheme": "Create New Theme",
+        "downloadSample": "Download Sample",
+        "editCurrentTheme": "Edit Current Theme",
+        "colorGroups": "Color Groups",
+        "colorGroupsInfo": "Themes contain {{totalColors}} customizable colors organized into {{groupCount}} groups",
+        "colors": "colors"
+      },
+      "tabs": {
+        "themes": "Themes",
+        "customize": "Customize"
+      },
+      "actions": {
+        "applyTheme": "Apply Theme",
+        "preview": "Preview",
+        "stopPreview": "Stop Preview",
+        "editTheme": "Edit Theme",
+        "export": "Export",
+        "delete": "Delete"
+      },
+      "errors": {
+        "uploadFailed": "Upload failed",
+        "failedToImport": "Failed to import theme",
+        "failedToUpdate": "Failed to update theme",
+        "failedToLoadCommunity": "Failed to load community themes"
+      },
+      "colorLabels": {
+        "primary": "Primary",
+        "secondary": "Secondary",
+        "accent": "Accent",
+        "background": "Background",
+        "text": "Text"
+      },
+      "community": {
+        "title": "Community Themes",
+        "available": "available",
+        "installed": "installed",
+        "autoUpdating": "Auto-updating {{count}} theme",
+        "autoUpdating_plural": "Auto-updating {{count}} themes",
+        "loading": "Loading community themes...",
+        "noThemes": "No community themes available",
+        "allImported": {
+          "title": "All themes imported!",
+          "description": "Click the eye icon to view installed themes"
+        },
+        "showImported": "Show imported themes",
+        "hideImported": "Hide imported themes",
+        "refresh": "Refresh",
+        "github": "GitHub",
+        "import": "Import",
+        "installedBadge": "Installed",
+        "importSuccess": "Successfully imported \"{{name}}\"!",
+        "importError": "Failed to import theme",
+        "authRequired": "Authentication required to import themes",
+        "autoUpdateSuccess": "Auto-updated {{count}} theme to latest version!",
+        "autoUpdateSuccess_plural": "Auto-updated {{count}} themes to latest version!"
+      },
+      "help": {
+        "themeTypes": {
+          "title": "Theme Types",
+          "system": {
+            "term": "System",
+            "description": "Built-in themes that cannot be deleted"
+          },
+          "custom": {
+            "term": "Custom",
+            "description": "Themes you create or import from the community"
+          }
+        },
+        "previewMode": {
+          "title": "Preview Mode",
+          "description": "Try a theme temporarily. Click Apply to make it your active theme."
+        },
+        "note": "Theme files use TOML. Download a sample to see the expected structure."
+      },
+      "notifications": {
+        "guestCannotChange": "Guest users cannot change themes",
+        "guestCannotPreview": "Guest users cannot preview themes",
+        "failedToSave": "Failed to save theme preference",
+        "uploadToml": "Please upload a .toml file",
+        "fileTooLarge": "File size must be less than 1MB",
+        "uploadSuccess": "Theme uploaded successfully!",
+        "uploadFailed": "Failed to upload theme",
+        "nameRequired": "Theme name cannot be empty",
+        "deleteFailed": "Failed to delete theme"
+      }
+    },
+    "grafana": {
+      "title": "Live API Endpoints for Grafana",
+      "publicOption": "Public",
+      "securedOption": "Secured",
+      "securedTooltip": "Endpoints require API key authentication",
+      "publicTooltip": "Endpoints are publicly accessible",
+      "securedDescription": "These endpoints require API key authentication. Configure your API key in Grafana or Prometheus.",
+      "publicDescription": "These endpoints are publicly accessible. Use them directly in Grafana or Prometheus.",
+      "prometheusMetrics": "Prometheus Metrics",
+      "copied": "Copied!",
+      "prometheusFormat": "OpenMetrics/Prometheus format for scraping",
+      "dataRefreshRate": "Data Refresh Rate",
+      "dataRefreshRateDesc": "How often metrics are recalculated",
+      "dataRefreshFooter": "Controls internal metrics update frequency",
+      "prometheusConfig": "Prometheus Configuration",
+      "prometheusConfigSecured": "Authentication required - include authorization header",
+      "prometheusConfigPublic": "Public access - no authentication needed",
+      "scrapeIntervalTitle": "Scrape Interval",
+      "scrapeIntervalFooter": "Adjust scrape_interval in config",
+      "replaceApiKey": "Replace 'your-api-key-here' with the API key from your lancache-manager instance",
+      "portInfo": "Port 80 is the internal container port. External access uses your mapped port (e.g., 8080:80)",
+      "staleDataWarning": "Scrape interval is faster than data refresh - you may see stale data",
+      "queryExamples": "Grafana Query Examples",
+      "dataRefresh": {
+        "5sec": "5 seconds",
+        "5secDesc": "Very frequent updates",
+        "10sec": "10 seconds",
+        "10secDesc": "Recommended for real-time",
+        "15sec": "15 seconds",
+        "15secDesc": "Balanced performance",
+        "30sec": "30 seconds",
+        "30secDesc": "Lower resource usage",
+        "60sec": "60 seconds",
+        "60secDesc": "Minimal overhead"
+      },
+      "scrapeInterval": {
+        "5sec": "5 seconds",
+        "5secDesc": "High frequency polling",
+        "10sec": "10 seconds",
+        "10secDesc": "Recommended",
+        "15sec": "15 seconds",
+        "15secDesc": "Standard polling",
+        "30sec": "30 seconds",
+        "30secDesc": "Low frequency",
+        "60sec": "60 seconds",
+        "60secDesc": "Minimal polling"
+      },
+      "queries": {
+        "hitRate": "Cache hit rate percentage",
+        "bandwidthSaved": "Bandwidth saved (24h)",
+        "cacheUsage": "Cache usage in GB",
+        "peakHour": "Peak usage hour (0-23)",
+        "hourlyDownloads": "Downloads by hour heatmap",
+        "growthRate": "Cache growth rate (GB/day)",
+        "daysUntilFull": "Days until cache full"
+      },
+      "help": {
+        "metrics": {
+          "title": "Metrics",
+          "cache": {
+            "term": "Cache",
+            "description": "Capacity, usage, hit and miss bytes, and hit ratio"
+          },
+          "activity": {
+            "term": "Activity",
+            "description": "Active downloads, connected clients, and per-service counters"
+          }
+        },
+        "integration": {
+          "title": "Integration",
+          "description": "Works with Prometheus and Grafana JSON datasource plugins. Poll every 10-30 seconds for near-real-time monitoring."
+        },
+        "note": "Toggle authentication below or via docker-compose environment variables."
+      },
+      "placeholders": {
+        "selectRate": "Select rate",
+        "selectInterval": "Select interval"
+      }
+    },
+    "gc": {
+      "collectionFrequency": "Collection Frequency",
+      "memorySettings": "Memory Settings",
+      "aggressivenessLabel": "Aggressiveness",
+      "aggressivenessDesc": "How often the system checks and cleans memory",
+      "thresholdLabel": "Threshold",
+      "thresholdDesc": "Memory limit that triggers cleanup when exceeded",
+      "actions": "Actions",
+      "saveSettings": "Save Settings",
+      "saving": "Saving...",
+      "runGcNow": "Run GC Now",
+      "running": "Running...",
+      "runGcTooltip": "Manually run garbage collection once (5s cooldown)",
+      "noRestartRequired": "Changes take effect immediately — no restart required.",
+      "saveSuccess": "GC settings saved successfully",
+      "saveFailed": "Failed to save GC settings",
+      "triggerFailed": "Failed to trigger garbage collection",
+      "before": "Before",
+      "after": "After",
+      "freed": "Freed",
+      "cooldown": "Cooldown",
+      "remaining": "remaining",
+      "aggressiveness": {
+        "disabled": "Disabled",
+        "disabledDesc": "Memory cleaned by .NET runtime only",
+        "onPageLoad": "On Page Load",
+        "onPageLoadDesc": "Recommended for most users",
+        "every60min": "Every 60 Minutes",
+        "every60minDesc": "Minimal performance impact",
+        "every60sec": "Every 60 Seconds",
+        "every60secDesc": "Low frequency cleanup",
+        "every30sec": "Every 30 Seconds",
+        "every30secDesc": "Balanced management",
+        "every10sec": "Every 10 Seconds",
+        "every10secDesc": "Frequent cleanup",
+        "every5sec": "Every 5 Seconds",
+        "every5secDesc": "Aggressive cleanup",
+        "every1sec": "Every 1 Second",
+        "every1secDesc": "Very aggressive"
+      }
+    },
+    "fileBrowser": {
+      "home": "Home",
+      "goBack": "Go back",
+      "searchForDb": "Search for .db files",
+      "accessDenied": "Access denied to this location",
+      "noDatabaseFiles": "No database files found in this location",
+      "searchFailed": "Search failed",
+      "noFilesFound": "No directories or .db files found",
+      "selectedDatabase": "Selected database",
+      "useFile": "Use File",
+      "foundFiles": "Found <strong>{{count}}</strong> database file(s)",
+      "failedToLoadDirectory": "Failed to load directory"
+    },
+    "logRotation": {
+      "loadingStatus": "Loading log rotation status...",
+      "unableToLoad": "Unable to load log rotation status",
+      "disabled": "Log rotation is disabled",
+      "addEnvVar": "Add the following environment variable to your docker-compose.yml:",
+      "rotationSchedule": "Rotation Schedule",
+      "runsAutomatically": "Runs automatically at startup and on schedule",
+      "enableScheduled": "Enable scheduled rotation to run automatically",
+      "lastRotation": "Last Rotation",
+      "never": "Never",
+      "nextRotation": "Next Rotation",
+      "notScheduled": "Not scheduled",
+      "manualRotation": "Manual Rotation",
+      "manualRotationDesc": "Signal nginx to reopen log files immediately",
+      "rotateNow": "Rotate Now",
+      "rotating": "Rotating...",
+      "rotationSuccess": "Log rotation completed successfully",
+      "rotationFailed": "Log rotation failed",
+      "triggerFailed": "Failed to trigger log rotation",
+      "failedToUpdateSchedule": "Failed to update schedule",
+      "schedule": {
+        "disabled": "Disabled",
+        "disabledDesc": "No automatic rotation",
+        "everyHour": "Every hour",
+        "everyHourDesc": "Rotate logs hourly",
+        "every6Hours": "Every 6 hours",
+        "every6HoursDesc": "Rotate logs 4 times daily",
+        "every12Hours": "Every 12 hours",
+        "every12HoursDesc": "Rotate logs twice daily",
+        "daily": "Daily",
+        "dailyDesc": "Rotate logs once per day",
+        "every2Days": "Every 2 days",
+        "every2DaysDesc": "Rotate logs every 48 hours",
+        "weekly": "Weekly",
+        "weeklyDesc": "Rotate logs once per week"
+      }
+    },
+    "auth": {
+      "status": {
+        "authenticated": "Authenticated",
+        "guestMode": "Guest Mode ({{time}} remaining)",
+        "expired": "Guest Session Expired",
+        "notAuthenticated": "Not Authenticated"
+      },
+      "description": {
+        "authenticated": "Management features enabled",
+        "guest": "View-only access active",
+        "expired": "Authentication required to continue",
+        "requiresKeyOrGuest": "Management features require API key or guest access",
+        "requiresKey": "Management features require API key"
+      },
+      "logout": "Logout",
+      "regenerateKey": "Regenerate Key",
+      "regenerate": "Regenerate",
+      "guestMode": "Guest Mode",
+      "guest": "Guest",
+      "authenticate": "Authenticate",
+      "auth": "Auth",
+      "fullAccess": "Full Access",
+      "sessionExpires": "Session expires in {{time}}",
+      "modal": {
+        "sessionExpired": "Session Expired",
+        "fullAccessRequired": "Full Access Required",
+        "authenticationRequired": "Authentication Required",
+        "expiredMessage": "Your guest session has expired. Please authenticate with an API key or start a new guest session.",
+        "guestMessage": "For full management features, please authenticate with your API key.",
+        "unauthenticatedMessage": "Management operations require authentication. Please enter your API key or continue as guest.",
+        "apiKeyLabel": "API Key",
+        "findApiKey": "To find your API key:",
+        "step1": "SSH into your LANCache Manager server",
+        "step2Before": "Check",
+        "step3Before": "Or check container logs:",
+        "continueAsGuest": "Continue as Guest",
+        "upgradeToFullAccess": "Upgrade to Full Access"
+      },
+      "regenerateModal": {
+        "title": "Regenerate API Key",
+        "message": "Regenerating the API key will immediately log out all connected devices and guests, requiring everyone to re-authenticate with the new key.",
+        "important": "Important:",
+        "point1": "The API key will be regenerated",
+        "point2": "All users and guests will be logged out immediately",
+        "point3": "Steam integration will be logged out",
+        "point4Before": "Check",
+        "point4After": "for the new API key"
+      }
+    },
+    "sessions": {
+      "banUser": "Ban this Steam user",
+      "terminateSession": "Terminate session",
+      "liftBan": "Lift this ban"
+    },
+    "prefillSessions": {
+      "allStatuses": "All Statuses",
+      "banReason": "Enter ban reason...",
+      "title": "Prefill Sessions",
+      "subtitle": "Manage Steam Prefill daemon sessions and user bans",
+      "refresh": "Refresh",
+      "endAll": "End All ({{count}})",
+      "activeSessions": "Active Sessions",
+      "totalSessions": "Total Sessions",
+      "activeBans": "Active Bans",
+      "liveSessions": "Live Sessions ({{count}})",
+      "loadingSessions": "Loading sessions...",
+      "noActiveSessions": "No active prefill sessions",
+      "noActiveSessionsDesc": "Sessions appear here when users start Steam Prefill",
+      "sessionHistory": "Session History ({{count}})",
+      "loading": "Loading...",
+      "noSessionsFound": "No sessions found",
+      "statusFilters": {
+        "all": "All Statuses",
+        "active": "Active",
+        "terminated": "Terminated",
+        "orphaned": "Orphaned",
+        "cleaned": "Cleaned"
+      },
+      "statusBadges": {
+        "active": "Active",
+        "authenticated": "Authenticated",
+        "pendingAuth": "PendingAuth",
+        "awaitingCredential": "AwaitingCredential",
+        "terminated": "Terminated",
+        "expired": "Expired",
+        "orphaned": "Orphaned",
+        "cleaned": "Cleaned",
+        "live": "Live"
+      },
+      "historyStatusBadges": {
+        "completed": "Completed",
+        "inProgress": "In Progress",
+        "failed": "Failed",
+        "error": "Error",
+        "cancelled": "Cancelled",
+        "cached": "Cached"
+      },
+      "labels": {
+        "unauthorizedAccount": "Unauthorized Steam account",
+        "notLoggedInSession": "Not logged in session",
+        "loading": "Loading...",
+        "created": "Created",
+        "ended": "Ended",
+        "prefillHistory": "Prefill History",
+        "loadingHistory": "Loading history...",
+        "noPrefillHistoryYet": "No prefill history yet",
+        "noPrefillHistoryRecorded": "No prefill history recorded",
+        "gamesPrefilled": "{{count}} game prefilled",
+        "gamesPrefilled_plural": "{{count}} games prefilled",
+        "total": "Total: {{bytes}}",
+        "started": "Started: {{time}}",
+        "completed": "Completed: {{time}}",
+        "games": "games",
+        "sessions": "sessions"
+      },
+      "tooltips": {
+        "sessionActive": "Session is currently active in memory",
+        "steamAuthenticated": "Steam authenticated",
+        "gamesPrefilled": "{{count}} game prefilled",
+        "gamesPrefilled_plural": "{{count}} games prefilled",
+        "totalDataDownloaded": "Total data downloaded",
+        "banUser": "Ban this Steam user",
+        "terminateSession": "Terminate session",
+        "liftBan": "Lift this ban"
+      },
+      "bannedUsers": {
+        "title": "Banned Steam Users ({{count}})",
+        "showLifted": "Show lifted bans",
+        "loadingBans": "Loading bans...",
+        "noBannedUsers": "No banned users",
+        "noBannedUsersDesc": "Ban users from sessions to prevent them from using prefill",
+        "active": "Active",
+        "lifted": "Lifted",
+        "unknown": "Unknown",
+        "banned": "Banned: {{time}}",
+        "reason": "Reason: {{reason}}",
+        "expires": "Expires: {{time}}",
+        "liftedAt": "Lifted: {{time}}"
+      },
+      "modals": {
+        "terminateAll": {
+          "title": "Terminate All Sessions",
+          "message": "This will terminate {{count}} active prefill session(s). All Docker containers will be stopped and removed.",
+          "warning": "Users will need to restart their prefill sessions.",
+          "cancel": "Cancel",
+          "confirm": "Terminate All"
+        },
+        "ban": {
+          "title": "Ban Steam User",
+          "message": "This will ban the Steam user associated with this session. They will not be able to log in to prefill in the future.",
+          "reasonLabel": "Reason (optional)",
+          "reasonPlaceholder": "Enter ban reason...",
+          "warning": "The ban is based on the Steam username. The same user cannot create a new session.",
+          "cancel": "Cancel",
+          "confirm": "Ban User"
+        },
+        "liftBan": {
+          "title": "Lift Ban",
+          "message": "Are you sure you want to lift this ban? The user will be able to use prefill again.",
+          "cancel": "Cancel",
+          "confirm": "Lift Ban"
+        }
+      },
+      "actions": {
+        "terminateSession": "Session terminated",
+        "banUser": "User banned successfully",
+        "liftBan": "Ban lifted successfully"
+      }
+    },
+    "clients": {
+      "selectClients": "Select clients",
+      "addIps": "Add IPs (comma or space separated)"
+    }
+  },
+  "events": {
+    "modal": {
+      "selectStartDateTime": "Select Start Date & Time",
+      "selectEndDateTime": "Select End Date & Time",
+      "dateAt": "{{date}} at {{time}}",
+      "placeholders": {
+        "name": "e.g., LAN Party 2024",
+        "description": "Optional description..."
+      },
+      "labels": {
+        "name": "Event Name",
+        "description": "Description",
+        "startDateTime": "Start Date & Time",
+        "endDateTime": "End Date & Time",
+        "color": "Color"
+      },
+      "actions": {
+        "create": "Create Event",
+        "saveChanges": "Save Changes",
+        "delete": "Delete",
+        "viewStats": "View Stats"
+      },
+      "createTitle": "Create Event",
+      "editTitle": "Edit Event",
+      "deleteTitle": "Delete Event",
+      "deleteConfirm": "Are you sure you want to delete \"{{name}}\"?",
+      "deleteWarning": "This action cannot be undone.",
+      "errors": {
+        "nameRequired": "Event name is required",
+        "endAfterStart": "End time must be after start time",
+        "saveFailed": "Failed to save event",
+        "deleteFailed": "Failed to delete event"
+      }
+    },
+    "calendar": {
+      "settings": "Calendar Settings",
+      "resetToDefaults": "Reset to defaults",
+      "weekNumber": "Week number",
+      "weekAbbrev": "Wk",
+      "weekDays": {
+        "sun": "Sun",
+        "mon": "Mon",
+        "tue": "Tue",
+        "wed": "Wed",
+        "thu": "Thu",
+        "fri": "Fri",
+        "sat": "Sat"
+      }
+    },
+    "ended": "(Ended)",
+    "list": {
+      "unknownGame": "Unknown",
+      "status": {
+        "live": "Live",
+        "upcoming": "Upcoming",
+        "ended": "Ended"
+      },
+      "tooltips": {
+        "viewStats": "View stats on dashboard",
+        "edit": "Edit event"
+      },
+      "loadingDownloads": "Loading downloads...",
+      "emptyDownloads": "No downloads recorded during this event",
+      "gamesDuringEvent": "Games downloaded during event",
+      "gameCount": "{{count}} game",
+      "gameCount_plural": "{{count}} games",
+      "moreGames": "+{{count}} more game",
+      "moreGames_plural": "+{{count}} more games",
+      "duration": {
+        "daysHours": "{{days}}d {{hours}}h",
+        "days": "{{count}} day",
+        "days_plural": "{{count}} days",
+        "hours": "{{count}} hour",
+        "hours_plural": "{{count}} hours"
+      },
+      "empty": {
+        "title": "No Events",
+        "description": "Create your first event to start tracking downloads during LAN parties."
+      },
+      "sections": {
+        "active": "Active Events",
+        "upcoming": "Upcoming Events",
+        "past": "Past Events"
+      }
+    }
+  },
+  "eventFrame": {
+    "badge": "LIVE"
+  },
+  "prefill": {
+    "title": "Steam Prefill",
+    "subtitle": "Pre-download games to your cache",
+    "endSession": "End Session",
+    "startScreen": {
+      "description": "Pre-download Steam games to your cache for faster LAN party downloads. Connect to your Steam library and prefill games before the event.",
+      "connecting": "Connecting...",
+      "startSession": "Start Session",
+      "requiresLogin": "Requires Steam login to access your game library"
+    },
+    "loading": {
+      "creatingSession": "Creating a new prefill session...",
+      "lookingForSession": "Looking for an active prefill session...",
+      "mayTakeMoment": "This may take a moment"
+    },
+    "auth": {
+      "loggedIn": "Logged In to Steam",
+      "loginRequired": "Steam Login Required",
+      "canUsePrefill": "You can now use prefill commands",
+      "authenticateToAccess": "Authenticate to access your game library",
+      "loginToSteam": "Login to Steam"
+    },
+    "activityLog": {
+      "title": "Activity Log",
+      "subtitle": "Status updates and output",
+      "paginationCount": "{{start}}-{{end}} of {{total}}",
+      "waitingForActivity": "Waiting for activity",
+      "updatesWillAppear": "Commands and status updates will appear here"
+    },
+    "network": {
+      "title": "Container Network Status",
+      "issuesDetected": "Some issues detected",
+      "hostNetworking": "Host networking mode",
+      "allChecksPassed": "All checks passed",
+      "internetConnectivity": "Internet connectivity",
+      "ok": "OK",
+      "failed": "Failed",
+      "notResolved": "Not resolved",
+      "trySetting": "Try setting",
+      "inDockerCompose": "in your docker-compose.yml",
+      "publicDnsExpected": "Public DNS is expected with host networking. Steam-prefill will detect lancache automatically via localhost. If your cache size grows during downloads, everything is working correctly.",
+      "publicIpDetected": "Public IP detected - lancache-dns may not be configured. Prefill may download from internet instead of populating cache."
+    },
+    "progress": {
+      "loadingGameData": "Loading Game Data",
+      "preparingDownload": "Preparing Download",
+      "starting": "Starting",
+      "preparing": "Preparing",
+      "loadingNextGame": "Loading Next Game",
+      "alreadyCached": "Already Cached",
+      "downloading": "Downloading",
+      "appId": "App {{id}}",
+      "complete": "Complete",
+      "upToDate": "Up to Date",
+      "elapsed": "elapsed",
+      "gameUpToDate": "Game is already up to date in cache",
+      "preparingOperation": "Preparing prefill operation..."
+    },
+    "duration": {
+      "zero": "0s",
+      "hoursMinutesSeconds": "{{hours}}h {{minutes}}m {{seconds}}s",
+      "minutesSeconds": "{{minutes}}m {{seconds}}s",
+      "seconds": "{{seconds}}s"
+    },
+    "timeRemaining": {
+      "expiring": "Expiring...",
+      "hoursMinutes": "{{hours}}h {{minutes}}m",
+      "minutesSeconds": "{{minutes}}m {{seconds}}s",
+      "seconds": "{{seconds}}s"
+    },
+    "completion": {
+      "title": "Download Completed"
+    },
+    "sections": {
+      "gameSelection": "Game Selection",
+      "downloadSettings": "Download Settings",
+      "prefillOptions": "Prefill Options",
+      "utilities": "Utilities"
+    },
+    "settings": {
+      "targetPlatforms": "Target Platforms",
+      "downloadThreads": "Download Threads",
+      "os": {
+        "windows": {
+          "label": "Windows",
+          "description": "Windows game depots"
+        },
+        "linux": {
+          "label": "Linux",
+          "description": "Native Linux depots"
+        },
+        "macos": {
+          "label": "macOS",
+          "description": "macOS depots"
+        }
+      },
+      "threads": {
+        "default": {
+          "label": "Auto",
+          "description": "Let daemon decide (recommended)"
+        },
+        "1": {
+          "label": "1 Thread",
+          "description": "Minimal bandwidth usage"
+        },
+        "2": {
+          "label": "2 Threads",
+          "description": "Low bandwidth usage"
+        },
+        "4": {
+          "label": "4 Threads",
+          "description": "Moderate bandwidth"
+        },
+        "8": {
+          "label": "8 Threads",
+          "description": "High bandwidth"
+        },
+        "16": {
+          "label": "16 Threads",
+          "description": "Very high bandwidth"
+        },
+        "32": {
+          "label": "32 Threads",
+          "description": "Maximum performance"
+        }
+      }
+    },
+    "commands": {
+      "select-apps": {
+        "label": "Select Apps",
+        "description": "Choose games to prefill"
+      },
+      "prefill": {
+        "label": "Prefill Selected",
+        "description": "Download selected games"
+      },
+      "prefill-all": {
+        "label": "Prefill All",
+        "description": "All owned games"
+      },
+      "prefill-recent": {
+        "label": "Recent Played",
+        "description": "Last 2 weeks"
+      },
+      "prefill-recent-purchased": {
+        "label": "Recent Bought",
+        "description": "Last 2 weeks"
+      },
+      "prefill-top": {
+        "label": "Top 50",
+        "description": "Popular games"
+      },
+      "prefill-force": {
+        "label": "Force Download",
+        "description": "Re-download all"
+      },
+      "clear-temp": {
+        "label": "Clear Temp",
+        "description": "Free disk space"
+      },
+      "clear-cache-data": {
+        "label": "Clear Database",
+        "description": "Remove cache records"
+      },
+      "prefillSelectedCount": "Prefill Selected ({{count}})",
+      "selectGamesFirst": "Select games first",
+      "gamesReady": "{{count}} game ready",
+      "gamesReady_plural": "{{count}} games ready"
+    },
+    "loginNotice": {
+      "title": "Login Required to Use Commands",
+      "message": "All prefill commands require Steam authentication. Click \"Login to Steam\" above to enable commands. Your credentials are sent directly to the container and never stored by this application."
+    },
+    "confirm": {
+      "downloadTitle": "Confirm Download",
+      "downloadMessage": "You are about to download {{count}} game. This may take a while and use significant bandwidth.",
+      "downloadMessage_plural": "You are about to download {{count}} games. This may take a while and use significant bandwidth.",
+      "downloadAllTitle": "Download All Games",
+      "downloadAllMessage": "This will download ALL games in your Steam library. This could be hundreds of gigabytes and take many hours.",
+      "forceTitle": "Force Re-download",
+      "forceMessage": "This will re-download games even if they are already cached. Use this if you suspect cache corruption.",
+      "clearDbTitle": "Clear Cache Database",
+      "clearDbMessage": "This will remove all cache records from the database. Cached files will remain but tracking data will be lost.",
+      "defaultMessage": "Are you sure you want to proceed?",
+      "calculatingSize": "Calculating download size...",
+      "totalEstimated": "Total estimated download:",
+      "breakdown": "Breakdown ({{count}} game)",
+      "breakdown_plural": "Breakdown ({{count}} games)",
+      "unsupportedOs": "Unsupported OS",
+      "startDownload": "Start Download",
+      "yesContinue": "Yes, Continue"
+    },
+    "errors": {
+      "httpStatus": "HTTP {{status}}",
+      "requestFailed": "Prefill request failed",
+      "sessionExpired": "Session expired",
+      "unableEstimateSize": "Unable to estimate size"
+    },
+    "log": {
+      "loginSuccess": "Successfully logged in to Steam",
+      "credentialsRequired": "Steam credentials required",
+      "twoFactorRequired": "Two-factor authentication required",
+      "emailCodeRequired": "Email verification code required",
+      "foundGames": "Found {{count}} owned game",
+      "foundGames_plural": "Found {{count}} owned games",
+      "gamesCached": "{{count}} game already cached in lancache",
+      "gamesCached_plural": "{{count}} games already cached in lancache",
+      "failedLoadLibrary": "Failed to load game library",
+      "noGamesSelected": "No games selected. Use \"Select Apps\" to choose games for prefill first.",
+      "startingPrefillSelected": "Starting prefill of {{count}} selected app...",
+      "startingPrefillSelected_plural": "Starting prefill of {{count}} selected apps...",
+      "startingPrefillAll": "Starting prefill of all owned games...",
+      "startingPrefillRecent": "Starting prefill of recently played games...",
+      "startingPrefillRecentPurchased": "Starting prefill of recently purchased games...",
+      "startingPrefillTop": "Starting prefill of top 50 popular games...",
+      "startingPrefillForce": "Starting force prefill (re-downloading)...",
+      "prefillFailed": "Prefill failed",
+      "clearingTempCache": "Clearing temporary cache...",
+      "tempCacheCleared": "Temporary cache cleared",
+      "failedClearCache": "Failed to clear cache",
+      "clearingCacheDb": "Clearing prefill cache database...",
+      "cacheDbCleared": "Prefill cache database cleared successfully",
+      "failedClearCacheDb": "Failed to clear cache database",
+      "commandFailed": "Command failed",
+      "cancellingPrefill": "Cancelling prefill operation...",
+      "failedCancelPrefill": "Failed to cancel prefill",
+      "selectedGames": "Selected {{count}} game for prefill",
+      "selectedGames_plural": "Selected {{count}} games for prefill",
+      "failedSaveSelection": "Failed to save game selection"
+    },
+    "gameSelection": {
+      "title": "Select Games to Prefill",
+      "importAppIds": "Import App IDs",
+      "showCached": "Show Cached",
+      "hideCached": "Hide Cached",
+      "showCachedTitle": "Show cached games",
+      "hideCachedTitle": "Hide cached games",
+      "importHelp": "Paste Steam App IDs from SteamPrefill or any comma-separated list",
+      "import": "Import",
+      "importAdded": "+{{count}} added",
+      "importAlreadySelected": "{{count}} already selected",
+      "importNotInLibrary": "{{count}} not in library",
+      "noValidAppIds": "No valid App IDs found",
+      "ofGamesSelected": "of {{total}} game selected",
+      "ofGamesSelected_plural": "of {{total}} games selected",
+      "cached": "{{count}} cached",
+      "showing": "showing {{count}}",
+      "matching": "matching \"{{query}}\"",
+      "hidingCached": "hiding cached",
+      "noGamesFound": "No games found",
+      "tryDifferentSearch": "Try a different search term",
+      "selected": "Selected ({{count}})",
+      "availableGames": "Available Games ({{count}})",
+      "appId": "App ID: {{id}}",
+      "cachedBadge": "Cached",
+      "saveSelection": "Save Selection ({{count}})"
+    },
+    "placeholders": {
+      "selectPlatforms": "Select platforms",
+      "searchGames": "Search games...",
+      "bulkInput": "730, 570, 440 or [730, 570, 440] or paste selectedAppsToPrefill.json contents"
+    }
+  },
+  "modals": {
+    "clientGroup": {
+      "editTitle": "Edit Client Nickname",
+      "addTitle": "Add Client Nickname",
+      "labels": {
+        "nickname": "Nickname",
+        "description": "Description",
+        "optional": "optional",
+        "currentIps": "Current IPs ({{count}})",
+        "ipsToAdd": "IPs to Add ({{count}})",
+        "addMoreIps": "Add More IPs",
+        "clientIps": "Client IPs",
+        "selectAtLeastOne": "select at least one"
+      },
+      "placeholders": {
+        "name": "e.g., Gaming PC, Living Room, Server",
+        "description": "Optional description for this group",
+        "searchUngrouped": "Search ungrouped IPs...",
+        "searchToAdd": "Search ungrouped IPs to add..."
+      },
+      "warnings": {
+        "multipleIpsTitle": "Multiple IPs selected",
+        "multipleIpsDesc": "All {{count}} IPs will share the same nickname. This is typically used when the same device has multiple IP addresses.",
+        "sharedNicknameTitle": "Shared nickname",
+        "sharedNicknameDesc": "This nickname is shared by {{count}} IPs. Changes will apply to all of them."
+      },
+      "emptyStates": {
+        "noMatchingIps": "No matching IPs",
+        "noUngroupedIps": "No ungrouped IPs available",
+        "allSelected": "All available IPs selected",
+        "noClientsAvailable": "No ungrouped clients available. You can add IPs later."
+      },
+      "actions": {
+        "saving": "Saving...",
+        "adding": "Adding...",
+        "saveChanges": "Save Changes",
+        "addNickname": "Add Nickname"
+      },
+      "messages": {
+        "andAddedIps": " and added {{count}} IP",
+        "andAddedIps_plural": " and added {{count}} IPs",
+        "updatedNickname": "Updated nickname \"{{nickname}}\"{{ipsAdded}}",
+        "addedNickname": "Added nickname \"{{nickname}}\""
+      },
+      "errors": {
+        "nicknameRequired": "Nickname is required",
+        "failedToSave": "Failed to save nickname",
+        "failedToDelete": "Failed to delete nickname",
+        "failedToRemoveIp": "Failed to remove IP"
+      },
+      "multiIpWarning": "This nickname is shared by multiple IPs"
+    },
+    "auth": {
+      "labels": {
+        "apiKey": "API Key",
+        "or": "OR"
+      },
+      "placeholders": {
+        "waitForReset": "Please wait for reset to complete...",
+        "enterApiKey": "Enter your API key here..."
+      },
+      "actions": {
+        "pleaseWait": "Please Wait...",
+        "authenticating": "Authenticating...",
+        "authenticate": "Authenticate"
+      },
+      "guestMode": {
+        "disabled": "Guest mode is currently disabled by the administrator.",
+        "available": "Or continue as guest to view data for {{count}} hour.",
+        "available_plural": "Or continue as guest to view data for {{count}} hours.",
+        "disabledTitle": "Guest mode is disabled by the administrator",
+        "noDataTitle": "No data available. Complete setup first.",
+        "viewDataTitle": "View data for {{count}} hour",
+        "viewDataTitle_plural": "View data for {{count}} hours",
+        "disabledButton": "Guest Mode (Disabled)",
+        "noDataButton": "Guest Mode (No Data Available)",
+        "continueButton": "Continue as Guest ({{count}} hour)",
+        "continueButton_plural": "Continue as Guest ({{count}} hours)"
+      },
+      "databaseReset": {
+        "complete": "Database Reset Complete",
+        "inProgress": "Database Reset In Progress",
+        "canLoginNow": "You can now log in.",
+        "pleaseWait": "Please wait...",
+        "completed": "Database reset completed",
+        "failed": "Database reset failed",
+        "resetting": "Resetting database..."
+      },
+      "help": {
+        "title": "Where to find your API key:",
+        "description": "The API key was displayed when you first started the server. Check your server logs for \"API Key:\" or look in the data/api_key.txt file."
+      },
+      "errors": {
+        "apiKeyRequired": "API key is required",
+        "verificationFailed": "Authentication succeeded but verification failed",
+        "authenticationFailed": "Authentication failed",
+        "guestModeDisabled": "Guest mode is currently disabled by the administrator.",
+        "guestModeNoData": "Guest mode is not available. No data has been loaded yet.",
+        "failedToStartGuest": "Failed to start guest mode",
+        "guestModeUnavailable": "Guest mode is currently unavailable."
+      }
+    },
+    "steamAuth": {
+      "title": "Steam Account Login",
+      "labels": {
+        "username": "Username",
+        "password": "Password"
+      },
+      "placeholders": {
+        "username": "Steam username",
+        "password": "Password",
+        "guardCode": "XXXXX"
+      },
+      "mobileConfirmation": {
+        "title": "Waiting for Confirmation",
+        "description": "Open your Steam Mobile App and tap Approve to complete login.",
+        "waiting": "Waiting for response...",
+        "timeoutPrefill": "If approval times out, you may need to click \"End Session\" and try again.",
+        "timeoutNormal": "Steam sessions expire after ~2 minutes. If it times out, you'll be prompted to enter a 2FA code instead."
+      },
+      "emailVerification": {
+        "title": "Email Verification",
+        "description": "Enter the code sent to your email"
+      },
+      "twoFactor": {
+        "title": "Two-Factor Authentication",
+        "descriptionManual": "Enter your authenticator code",
+        "descriptionAuto": "Enter code or approve on mobile app",
+        "leaveEmptyHint": "Leave empty and click confirm to use mobile app approval"
+      },
+      "security": {
+        "description": "Your password is used once for authentication and never stored. Only secure refresh tokens are saved locally."
+      },
+      "actions": {
+        "cancelAndTryLater": "Cancel and try again later",
+        "enterCodeManually": "Enter 2FA code manually instead",
+        "authenticating": "Authenticating...",
+        "verify": "Verify",
+        "confirm": "Confirm",
+        "login": "Login"
+      },
+      "errors": {
+        "authenticationFailed": "Authentication failed",
+        "failedToRegenerateApiKey": "Failed to regenerate API key",
+        "failedToLogout": "Failed to logout",
+        "failedToSwitchToAnonymous": "Failed to switch to anonymous mode",
+        "failedToRemoveApiKey": "Failed to remove API key",
+        "networkError": "Network error - failed to remove API key"
+      }
+    },
+    "cacheRemoval": {
+      "titleGame": "Remove Game from Cache",
+      "titleService": "Remove Service from Cache",
+      "confirmGame": "Are you sure you want to remove {{name}} from cache?",
+      "confirmService": "Are you sure you want to remove {{name}} service from cache?",
+      "thisWill": "This will:",
+      "actions": {
+        "deleteFiles": "Delete approximately {{count}} cache files",
+        "freeSpace": "Free up approximately {{size}}",
+        "removeDepots": "Remove cache for {{count}} depot",
+        "removeDepots_plural": "Remove cache for {{count}} depots",
+        "removeLogEntries": "Remove ALL log entries for this service from the database",
+        "removeDownloadRecords": "Remove ALL download records for this service from the database",
+        "showProgress": "Progress will be shown in the notification bar at the top",
+        "cannotUndo": "This action cannot be undone"
+      },
+      "removeButton": "Remove from Cache"
+    },
+    "fullScan": {
+      "stats": {
+        "updatesBehind": "updates behind",
+        "appsToScan": "apps to scan"
+      },
+      "description": "Your depot data is too outdated for incremental updates. Download the latest mappings from GitHub to continue.",
+      "github": {
+        "title": "Download from GitHub",
+        "recommended": "Recommended",
+        "duration": "1-2 minutes",
+        "depots": "300K+ depot mappings",
+        "downloading": "Downloading...",
+        "downloadButton": "Download from GitHub"
+      },
+      "or": "or",
+      "fullScanButton": "Full Scan (Slower)"
+    },
+    "steamWebApi": {
+      "title": "Configure Steam Web API Key",
+      "labels": {
+        "apiKey": "Steam Web API Key"
+      },
+      "placeholder": "Enter your Steam Web API key...",
+      "info": {
+        "description": "The Steam Web API V1 requires an API key for access. This is only needed if V2 becomes unavailable.",
+        "stepsTitle": "Steps to get your API key:",
+        "step1": "Visit",
+        "step2": "Login with your Steam account",
+        "step3": "Enter a domain name (can be anything):",
+        "step3a": "Recommended: Your Steam username",
+        "step3b": "Examples: \"MyLancache\", \"HomeServer\", etc.",
+        "step3c": "This is just for organization - use any name you prefer",
+        "step4": "Copy your API key and paste below"
+      },
+      "security": {
+        "description": "Your API key will be encrypted and stored securely alongside your Steam credentials using Microsoft Data Protection API."
+      },
+      "actions": {
+        "testing": "Testing...",
+        "testConnection": "Test Connection",
+        "saving": "Saving...",
+        "saveApiKey": "Save API Key"
+      },
+      "errors": {
+        "enterKey": "Please enter an API key",
+        "testFailed": "Failed to test API key",
+        "networkError": "Network error - failed to test API key",
+        "saveFailed": "Failed to save API key",
+        "networkErrorSave": "Network error - failed to save API key"
+      }
+    },
+    "theme": {
+      "create": {
+        "title": "Create Custom Theme",
+        "saveButton": "Create Theme"
+      },
+      "edit": {
+        "title": "Edit Theme: {{name}}",
+        "saveButton": "Save Changes",
+        "communityNotice": {
+          "title": "Editing Community Theme",
+          "description": "This is a community theme that receives automatic updates. Your edits will create a custom copy named \"{{name}} (Custom)\" that won't receive updates. The original theme will be kept for future updates."
+        }
+      },
+      "delete": {
+        "title": "Delete Theme",
+        "message": "Delete theme <strong>{{name}}</strong>? This will permanently remove the theme files from the server.",
+        "warning": "This action cannot be undone.",
+        "confirmButton": "Delete Theme"
+      },
+      "form": {
+        "themeInfo": "Theme Information",
+        "themeName": "Theme Name *",
+        "author": "Author",
+        "description": "Description",
+        "darkTheme": "Dark Theme",
+        "loadDarkPreset": "Load Dark Preset",
+        "loadLightPreset": "Load Light Preset",
+        "themeId": "Theme ID: {{id}}",
+        "customCss": "Custom CSS (Optional)"
+      },
+      "organization": {
+        "byCategory": "By Category",
+        "byPage": "By Page",
+        "selectPage": "Select Page"
+      },
+      "colorPicker": {
+        "pickColor": "Pick Color",
+        "opacity": "Opacity:",
+        "copyColor": "Copy color",
+        "restorePrevious": "Restore previous color",
+        "noHistory": "No history available"
+      },
+      "placeholders": {
+        "themeName": "My Custom Theme",
+        "author": "Your Name",
+        "description": "A beautiful custom theme",
+        "searchColors": "Search colors... (e.g., 'alert', 'header', 'button', 'background')",
+        "customCss": "/* Add any custom CSS here */"
+      },
+      "pages": {
+        "all": {
+          "label": "All Pages",
+          "description": "View all colors - Shows every color used throughout the application"
+        },
+        "dashboard": {
+          "label": "Dashboard",
+          "description": "8 stat cards (Total Cache, Used Space, Bandwidth Saved, Added to Cache, Total Served, Active Downloads, Active Clients, Cache Hit Ratio), service chart, recent downloads panel, top clients table, and drag-to-reorder handles"
+        },
+        "downloads": {
+          "label": "Downloads",
+          "description": "Download cards with game banners, service/client filters (dropdowns), checkboxes (show metadata, hide localhost, etc.), pagination controls, cache hit/miss badges, view mode toggles (compact/normal), and export buttons"
+        },
+        "clients": {
+          "label": "Clients",
+          "description": "Client statistics table showing IP addresses, download counts, bandwidth usage, cache hit/miss bytes, hit rate progress bars, and last activity timestamps"
+        },
+        "services": {
+          "label": "Services",
+          "description": "Service statistics table with platform-colored badges (Steam, Epic, Origin, Blizzard, WSUS, Riot), download counts, bandwidth totals, cache hit/miss bytes, and hit rate progress bars"
+        },
+        "users": {
+          "label": "Users",
+          "description": "Session management for authenticated users and guests - USER/GUEST badges, user icons, IP addresses, device info, last seen timestamps, revoke/delete actions, and session statistics"
+        },
+        "events": {
+          "label": "Events",
+          "description": "Event scheduling calendar, event cards with customizable colors, event list with active/upcoming/past status, and event time range filtering"
+        },
+        "prefill": {
+          "label": "Prefill",
+          "description": "Steam Prefill daemon session management, game selection modal, prefill commands (all/recent/top 50), download progress bars, activity log with color-coded entries (success/error/warning/info/download/auth/command), session timer, Steam authentication status"
+        },
+        "management": {
+          "label": "Management",
+          "description": "Authentication (API keys), Steam integration, database reset/clear buttons, cache management, log processing, corruption detection, game cache detector, theme customization (modals, color pickers, checkboxes, sliders), GC settings, alert banners, and Grafana endpoints"
+        },
+        "charts": {
+          "label": "Charts & Graphs",
+          "description": "Enhanced service charts with 8 data series colors, cache hit/miss colors, grid lines, axis labels, legends, and performance trend visualizations"
+        }
+      },
+      "groups": {
+        "foundation": {
+          "title": "Foundation",
+          "description": "Primary, secondary, and accent colors - The core colors that define your theme's visual identity"
+        },
+        "content": {
+          "title": "Content",
+          "description": "Headings, body text, labels, and descriptions - Controls all text colors throughout the app"
+        },
+        "layout": {
+          "title": "Layout",
+          "description": "Backgrounds, cards, panels, and surfaces - Controls layering and depth in your theme"
+        },
+        "interactive": {
+          "title": "Interactive",
+          "description": "Buttons, inputs, checkboxes, and sliders - All interactive controls and form elements"
+        },
+        "borders": {
+          "title": "Borders",
+          "description": "Border colors for separators and outlines"
+        },
+        "feedback": {
+          "title": "Feedback",
+          "description": "Success, warning, error, and info states - Alert banners, notifications, and status messages"
+        },
+        "navigation": {
+          "title": "Navigation",
+          "description": "Header, tabs, and menus - Top navigation bar, active/inactive tabs, and mobile menu"
+        },
+        "dataDisplay": {
+          "title": "Data Display",
+          "description": "Charts, graphs, and progress bars - Data visualization colors for all chart types"
+        },
+        "accessControl": {
+          "title": "Access Control",
+          "description": "Public and secured badges - Security status indicators for API access control"
+        },
+        "sessions": {
+          "title": "Sessions",
+          "description": "Authenticated users and guests - Colors for session badges and icons in the Users tab"
+        },
+        "events": {
+          "title": "Events",
+          "description": "Calendar event colors - 8 customizable colors for events in the Events tab calendar and list views"
+        },
+        "platforms": {
+          "title": "Platforms",
+          "description": "Steam, Epic, Origin, Blizzard, WSUS, Riot, Xbox - Platform-specific colors for badges and charts"
+        },
+        "performance": {
+          "title": "Performance",
+          "description": "Cache hit rate badges - High/medium/low performance indicators for cache efficiency"
+        },
+        "actions": {
+          "title": "Actions",
+          "description": "Reset, Process, and Delete buttons - Special action buttons in the management page"
+        },
+        "utilities": {
+          "title": "Utilities",
+          "description": "Scrollbars and icon backgrounds - Specialized colors for dashboard stat card icons"
+        }
+      },
+      "colors": {
+        "primaryColor": {
+          "label": "Primary Brand Color",
+          "description": "Main brand color used throughout",
+          "affects": ["Primary buttons", "Links", "Active states", "Focus rings"]
+        },
+        "secondaryColor": {
+          "label": "Secondary Brand Color",
+          "description": "Complementary brand accent",
+          "affects": ["Secondary buttons", "Highlights", "Accents"]
+        },
+        "accentColor": {
+          "label": "Accent Color",
+          "description": "Tertiary accent for special elements",
+          "affects": ["Special badges", "Tooltips", "Info elements"]
+        },
+        "textPrimary": {
+          "label": "Primary Text",
+          "description": "Main content text color",
+          "affects": ["Headings", "Body text", "Labels"]
+        },
+        "textSecondary": {
+          "label": "Secondary Text",
+          "description": "Supporting content text",
+          "affects": ["Descriptions", "Subtitles", "Help text"]
+        },
+        "textMuted": {
+          "label": "Muted Text",
+          "description": "De-emphasized text",
+          "affects": ["Disabled text", "Timestamps", "Minor labels"]
+        },
+        "textAccent": {
+          "label": "Accent Text",
+          "description": "Highlighted or linked text",
+          "affects": ["Links", "Highlighted values", "Active menu items"]
+        },
+        "textPlaceholder": {
+          "label": "Placeholder Text",
+          "description": "Input placeholder text color",
+          "affects": ["Form placeholders", "Search hints", "Empty states"]
+        },
+        "bgPrimary": {
+          "label": "Base Background",
+          "description": "Main application background",
+          "affects": ["Body", "Main container", "Base layer"]
+        },
+        "bgSecondary": {
+          "label": "Surface Background",
+          "description": "Elevated surface backgrounds",
+          "affects": ["Cards", "Panels", "Modals", "Dialogs"]
+        },
+        "bgTertiary": {
+          "label": "Recessed Background",
+          "description": "Sunken or nested elements",
+          "affects": ["Input fields", "Wells", "Code blocks"]
+        },
+        "bgHover": {
+          "label": "Hover State",
+          "description": "Interactive hover backgrounds",
+          "affects": ["Button hovers", "List hovers", "Menu hovers"]
+        },
+        "cardBg": {
+          "label": "Card Background",
+          "description": "Card component background",
+          "affects": ["Stat cards", "Content cards", "Widget backgrounds"]
+        },
+        "cardBorder": {
+          "label": "Card Border",
+          "description": "Card component borders",
+          "affects": ["Card outlines", "Panel borders"]
+        },
+        "cardOutline": {
+          "label": "Card Focus Outline",
+          "description": "Outline color when cards are clicked/focused",
+          "affects": ["Download cards focus outline", "Interactive card selection"]
+        },
+        "buttonBg": {
+          "label": "Button Background",
+          "description": "Primary button fill color",
+          "affects": ["Primary buttons", "Submit buttons", "CTAs"]
+        },
+        "buttonHover": {
+          "label": "Button Hover",
+          "description": "Button hover state color",
+          "affects": ["Button hover effects", "Active button states"]
+        },
+        "buttonText": {
+          "label": "Button Text",
+          "description": "Button label color",
+          "affects": ["Button labels", "Button icons"]
+        },
+        "inputBg": {
+          "label": "Input Background",
+          "description": "Form input background",
+          "affects": ["Text inputs", "Textareas", "Select boxes"]
+        },
+        "inputBorder": {
+          "label": "Input Border",
+          "description": "Form input border",
+          "affects": ["Input outlines", "Field borders"]
+        },
+        "inputFocus": {
+          "label": "Input Focus",
+          "description": "Focused input indicator",
+          "affects": ["Active input borders", "Focus rings"]
+        },
+        "checkboxAccent": {
+          "label": "Checkbox Accent",
+          "description": "Checkbox checked state color",
+          "affects": ["Checkbox checkmarks", "Checkbox backgrounds"]
+        },
+        "checkboxBorder": {
+          "label": "Checkbox Border",
+          "description": "Checkbox border color when unchecked",
+          "affects": ["Checkbox borders", "Unchecked state"]
+        },
+        "checkboxBg": {
+          "label": "Checkbox Background",
+          "description": "Background color of unchecked checkboxes",
+          "affects": ["Checkbox background when unchecked"]
+        },
+        "checkboxCheckmark": {
+          "label": "Checkbox Checkmark",
+          "description": "Color of the checkmark symbol",
+          "affects": ["Checkbox checkmark color"]
+        },
+        "checkboxShadow": {
+          "label": "Checkbox Shadow",
+          "description": "Shadow effect for checkboxes",
+          "affects": ["Checkbox shadow"]
+        },
+        "checkboxHoverShadow": {
+          "label": "Checkbox Hover Shadow",
+          "description": "Shadow effect when hovering checkboxes",
+          "affects": ["Checkbox hover shadow"]
+        },
+        "checkboxHoverBg": {
+          "label": "Checkbox Hover Background",
+          "description": "Background color when hovering unchecked checkboxes",
+          "affects": ["Checkbox hover background"]
+        },
+        "checkboxFocus": {
+          "label": "Checkbox Focus",
+          "description": "Outline color when checkbox is focused",
+          "affects": ["Checkbox focus outline"]
+        },
+        "sliderAccent": {
+          "label": "Slider Accent",
+          "description": "Range slider accent color",
+          "affects": ["Slider thumbs", "Slider filled tracks"]
+        },
+        "sliderThumb": {
+          "label": "Slider Thumb",
+          "description": "Range slider thumb/handle",
+          "affects": ["Slider drag handles"]
+        },
+        "sliderTrack": {
+          "label": "Slider Track",
+          "description": "Range slider track background",
+          "affects": ["Slider backgrounds", "Progress tracks"]
+        },
+        "dragHandleColor": {
+          "label": "Drag Handle",
+          "description": "Drag and reorder controls",
+          "affects": ["Drag grips", "Reorder handles", "Move indicators"]
+        },
+        "dragHandleHover": {
+          "label": "Drag Handle Hover",
+          "description": "Active drag handle state",
+          "affects": ["Drag grip hover", "Active dragging"]
+        },
+        "borderPrimary": {
+          "label": "Primary Border",
+          "description": "Main divider and border color",
+          "affects": ["Card borders", "Dividers", "Separators"]
+        },
+        "borderSecondary": {
+          "label": "Secondary Border",
+          "description": "Subtle borders and dividers",
+          "affects": ["Input borders", "Section dividers", "Subtle lines"]
+        },
+        "borderFocus": {
+          "label": "Focus Border",
+          "description": "Active focus indicators",
+          "affects": ["Focus rings", "Active borders", "Selected outlines"]
+        },
+        "success": {
+          "label": "Success Primary",
+          "description": "Success state primary color (border for alerts)",
+          "affects": ["Success icons", "Success buttons", "Positive actions", "Alert borders", "Success notifications"]
+        },
+        "successBg": {
+          "label": "Success Background",
+          "description": "Success state background (alert background)",
+          "affects": ["Success alerts", "Success badges", "Success cards", "Alert backgrounds", "Success banners"]
+        },
+        "successText": {
+          "label": "Success Text",
+          "description": "Success state text color (alert text)",
+          "affects": ["Success messages", "Positive values", "Alert text", "Success notifications"]
+        },
+        "warning": {
+          "label": "Warning Primary",
+          "description": "Warning state primary color (border for alerts)",
+          "affects": ["Warning icons", "Caution buttons", "Alert borders", "Warning notifications"]
+        },
+        "warningBg": {
+          "label": "Warning Background",
+          "description": "Warning state background (alert background)",
+          "affects": ["Warning alerts", "Warning badges", "Alert backgrounds", "Caution banners"]
+        },
+        "warningText": {
+          "label": "Warning Text",
+          "description": "Warning state text color (alert text)",
+          "affects": ["Warning messages", "Caution text", "Alert text", "Warning notifications"]
+        },
+        "error": {
+          "label": "Error Primary",
+          "description": "Error state primary color (border for alerts)",
+          "affects": ["Error icons", "Delete buttons", "Critical actions", "Alert borders", "Error notifications"]
+        },
+        "errorBg": {
+          "label": "Error Background",
+          "description": "Error state background (alert background)",
+          "affects": ["Error alerts", "Error badges", "Alert backgrounds", "Error banners", "Danger zones"]
+        },
+        "errorText": {
+          "label": "Error Text",
+          "description": "Error state text color (alert text)",
+          "affects": ["Error messages", "Validation errors", "Alert text", "Error notifications"]
+        },
+        "info": {
+          "label": "Info Primary",
+          "description": "Information state primary color (border for alerts)",
+          "affects": ["Info icons", "Info buttons", "Alert borders", "Info notifications"]
+        },
+        "infoBg": {
+          "label": "Info Background",
+          "description": "Information state background (alert background)",
+          "affects": ["Info alerts", "Info cards", "Alert backgrounds", "Notification panels", "Info banners"]
+        },
+        "infoText": {
+          "label": "Info Text",
+          "description": "Information state text color (alert text)",
+          "affects": ["Info messages", "Help content", "Alert text", "Notification text"]
+        },
+        "navBg": {
+          "label": "Navigation Background",
+          "description": "Navigation bar background (header background)",
+          "affects": ["Header", "Nav bar", "Menu background", "Top bar", "App header"]
+        },
+        "navBorder": {
+          "label": "Navigation Border",
+          "description": "Navigation separators (header border)",
+          "affects": ["Nav borders", "Menu dividers", "Header separator", "Top bar border"]
+        },
+        "navTabActive": {
+          "label": "Active Tab",
+          "description": "Active navigation item",
+          "affects": ["Current page", "Active tab"]
+        },
+        "navTabInactive": {
+          "label": "Inactive Tab",
+          "description": "Inactive navigation items",
+          "affects": ["Unselected tabs", "Inactive menu items"]
+        },
+        "navTabHover": {
+          "label": "Tab Hover",
+          "description": "Navigation hover state",
+          "affects": ["Tab hovers", "Menu hovers"]
+        },
+        "navTabActiveBorder": {
+          "label": "Active Tab Indicator",
+          "description": "Active tab underline/border",
+          "affects": ["Tab indicators", "Active borders"]
+        },
+        "navMobileMenuBg": {
+          "label": "Mobile Menu Background",
+          "description": "Mobile navigation background",
+          "affects": ["Mobile menu", "Dropdown menus"]
+        },
+        "navMobileItemHover": {
+          "label": "Mobile Menu Hover",
+          "description": "Mobile menu item hover",
+          "affects": ["Mobile hovers", "Dropdown hovers"]
+        },
+        "progressBg": {
+          "label": "Progress Track",
+          "description": "Progress bar background",
+          "affects": ["Progress tracks", "Empty progress state"]
+        },
+        "chartColor1": {
+          "label": "Chart Primary",
+          "description": "Primary chart color",
+          "affects": ["First data series", "Main chart color"]
+        },
+        "chartColor2": {
+          "label": "Chart Secondary",
+          "description": "Secondary chart color",
+          "affects": ["Second data series"]
+        },
+        "chartColor3": {
+          "label": "Chart Tertiary",
+          "description": "Third chart color",
+          "affects": ["Third data series"]
+        },
+        "chartColor4": {
+          "label": "Chart Quaternary",
+          "description": "Fourth chart color",
+          "affects": ["Fourth data series"]
+        },
+        "chartColor5": {
+          "label": "Chart Color 5",
+          "description": "Fifth chart color",
+          "affects": ["Fifth data series"]
+        },
+        "chartColor6": {
+          "label": "Chart Color 6",
+          "description": "Sixth chart color",
+          "affects": ["Sixth data series"]
+        },
+        "chartColor7": {
+          "label": "Chart Color 7",
+          "description": "Seventh chart color",
+          "affects": ["Seventh data series"]
+        },
+        "chartColor8": {
+          "label": "Chart Color 8",
+          "description": "Eighth chart color",
+          "affects": ["Eighth data series"]
+        },
+        "chartCacheHitColor": {
+          "label": "Cache Hit Color",
+          "description": "Cache hit visualization",
+          "affects": ["Hit rate charts", "Success indicators"]
+        },
+        "chartCacheMissColor": {
+          "label": "Cache Miss Color",
+          "description": "Cache miss visualization",
+          "affects": ["Miss rate charts", "Warning indicators"]
+        },
+        "chartGridColor": {
+          "label": "Chart Grid",
+          "description": "Chart grid lines",
+          "affects": ["Grid lines", "Axes"]
+        },
+        "chartTextColor": {
+          "label": "Chart Text",
+          "description": "Chart labels and legends",
+          "affects": ["Axis labels", "Legends"]
+        },
+        "publicAccessBg": {
+          "label": "Public Access Background",
+          "description": "Public/open access indicator",
+          "affects": ["Public badges", "Open access indicators"]
+        },
+        "publicAccessText": {
+          "label": "Public Access Text",
+          "description": "Public access text color",
+          "affects": ["Public labels", "Open text"]
+        },
+        "publicAccessBorder": {
+          "label": "Public Access Border",
+          "description": "Public access border",
+          "affects": ["Public badge borders"]
+        },
+        "securedAccessBg": {
+          "label": "Secured Access Background",
+          "description": "Secured/locked access indicator",
+          "affects": ["Security badges", "Locked indicators"]
+        },
+        "securedAccessText": {
+          "label": "Secured Access Text",
+          "description": "Secured access text color",
+          "affects": ["Security labels", "Locked text"]
+        },
+        "securedAccessBorder": {
+          "label": "Secured Access Border",
+          "description": "Secured access border",
+          "affects": ["Security badge borders"]
+        },
+        "userSessionColor": {
+          "label": "Authenticated User Color",
+          "description": "Icon and text color for authenticated users",
+          "affects": ["USER badge text", "Authenticated user icon", "Authenticated stat card"]
+        },
+        "userSessionBg": {
+          "label": "Authenticated User Background",
+          "description": "Background color for authenticated user badges",
+          "affects": ["USER badge background", "Authenticated icon background"]
+        },
+        "guestSessionColor": {
+          "label": "Guest User Color",
+          "description": "Icon and text color for guest users",
+          "affects": ["GUEST badge text", "Guest user icon", "Guest stat card"]
+        },
+        "guestSessionBg": {
+          "label": "Guest User Background",
+          "description": "Background color for guest user badges",
+          "affects": ["GUEST badge background", "Guest icon background"]
+        },
+        "eventColor1": {
+          "label": "Event Color 1",
+          "description": "First event color option",
+          "affects": ["Event calendar dots", "Event cards", "Event list items"]
+        },
+        "eventColor2": {
+          "label": "Event Color 2",
+          "description": "Second event color option",
+          "affects": ["Event calendar dots", "Event cards", "Event list items"]
+        },
+        "eventColor3": {
+          "label": "Event Color 3",
+          "description": "Third event color option",
+          "affects": ["Event calendar dots", "Event cards", "Event list items"]
+        },
+        "eventColor4": {
+          "label": "Event Color 4",
+          "description": "Fourth event color option",
+          "affects": ["Event calendar dots", "Event cards", "Event list items"]
+        },
+        "eventColor5": {
+          "label": "Event Color 5",
+          "description": "Fifth event color option",
+          "affects": ["Event calendar dots", "Event cards", "Event list items"]
+        },
+        "eventColor6": {
+          "label": "Event Color 6",
+          "description": "Sixth event color option",
+          "affects": ["Event calendar dots", "Event cards", "Event list items"]
+        },
+        "eventColor7": {
+          "label": "Event Color 7",
+          "description": "Seventh event color option",
+          "affects": ["Event calendar dots", "Event cards", "Event list items"]
+        },
+        "eventColor8": {
+          "label": "Event Color 8",
+          "description": "Eighth event color option",
+          "affects": ["Event calendar dots", "Event cards", "Event list items"]
+        },
+        "steamColor": {
+          "label": "Steam",
+          "description": "Steam platform color",
+          "affects": ["Steam badges", "Steam charts", "Steam Prefill branding"]
+        },
+        "epicColor": {
+          "label": "Epic Games",
+          "description": "Epic Games platform color",
+          "affects": ["Epic badges", "Epic charts"]
+        },
+        "originColor": {
+          "label": "Origin/EA",
+          "description": "EA/Origin platform color",
+          "affects": ["Origin badges", "EA charts"]
+        },
+        "blizzardColor": {
+          "label": "Blizzard",
+          "description": "Blizzard platform color",
+          "affects": ["Blizzard badges", "Battle.net charts"]
+        },
+        "wsusColor": {
+          "label": "Windows Update",
+          "description": "Windows Update service color",
+          "affects": ["WSUS badges", "Update charts"]
+        },
+        "riotColor": {
+          "label": "Riot Games",
+          "description": "Riot Games platform color",
+          "affects": ["Riot badges", "Riot charts"]
+        },
+        "xboxColor": {
+          "label": "Xbox Live",
+          "description": "Xbox Live platform color",
+          "affects": ["Xbox badges", "Xbox charts"]
+        },
+        "hitRateHighBg": {
+          "label": "High Hit Rate Background",
+          "description": "Background for high cache hit rates",
+          "affects": ["90%+ hit rate badges", "Success indicators"]
+        },
+        "hitRateHighText": {
+          "label": "High Hit Rate Text",
+          "description": "Text color for high hit rates",
+          "affects": ["High hit rate labels"]
+        },
+        "hitRateMediumBg": {
+          "label": "Medium Hit Rate Background",
+          "description": "Background for medium cache hit rates",
+          "affects": ["50-89% hit rate badges"]
+        },
+        "hitRateMediumText": {
+          "label": "Medium Hit Rate Text",
+          "description": "Text color for medium hit rates",
+          "affects": ["Medium hit rate labels"]
+        },
+        "hitRateLowBg": {
+          "label": "Low Hit Rate Background",
+          "description": "Background for low cache hit rates",
+          "affects": ["0-49% hit rate badges"]
+        },
+        "hitRateLowText": {
+          "label": "Low Hit Rate Text",
+          "description": "Text color for low hit rates",
+          "affects": ["Low hit rate labels"]
+        },
+        "hitRateWarningBg": {
+          "label": "Warning Hit Rate Background",
+          "description": "Background for warning hit rates",
+          "affects": ["Critical performance warnings"]
+        },
+        "hitRateWarningText": {
+          "label": "Warning Hit Rate Text",
+          "description": "Text color for warning hit rates",
+          "affects": ["Warning labels"]
+        },
+        "actionResetBg": {
+          "label": "Reset Button Background",
+          "description": "Reset action button background",
+          "affects": ["Reset buttons", "Clear actions"]
+        },
+        "actionResetHover": {
+          "label": "Reset Button Hover",
+          "description": "Reset button hover state",
+          "affects": ["Reset button hover"]
+        },
+        "actionProcessBg": {
+          "label": "Process Button Background",
+          "description": "Process action button background",
+          "affects": ["Process buttons", "Start actions"]
+        },
+        "actionProcessHover": {
+          "label": "Process Button Hover",
+          "description": "Process button hover state",
+          "affects": ["Process button hover"]
+        },
+        "actionDeleteBg": {
+          "label": "Delete Button Background",
+          "description": "Delete action button background",
+          "affects": ["Delete buttons", "Remove actions"]
+        },
+        "actionDeleteHover": {
+          "label": "Delete Button Hover",
+          "description": "Delete button hover state",
+          "affects": ["Delete button hover"]
+        },
+        "scrollbarTrack": {
+          "label": "Scrollbar Track",
+          "description": "Scrollbar background track",
+          "affects": ["Scrollbar tracks", "Scroll gutters"]
+        },
+        "scrollbarThumb": {
+          "label": "Scrollbar Thumb",
+          "description": "Scrollbar draggable element",
+          "affects": ["Scrollbar handles"]
+        },
+        "scrollbarHover": {
+          "label": "Scrollbar Hover",
+          "description": "Scrollbar hover state",
+          "affects": ["Scrollbar hover effects"]
+        },
+        "iconBgBlue": {
+          "label": "Database Icon (Total Cache)",
+          "description": "Background for database/storage icons",
+          "affects": ["Total Cache card icon", "Database indicators"]
+        },
+        "iconBgGreen": {
+          "label": "Hard Drive Icon (Used Space)",
+          "description": "Background for hard drive/storage icons",
+          "affects": ["Used Space card icon", "Storage indicators"]
+        },
+        "iconBgEmerald": {
+          "label": "Trending Icon (Bandwidth Saved)",
+          "description": "Background for trending/growth icons",
+          "affects": ["Bandwidth Saved card icon", "Growth indicators"]
+        },
+        "iconBgPurple": {
+          "label": "Zap Icon (Added to Cache)",
+          "description": "Background for lightning/zap icons",
+          "affects": ["Added to Cache card icon", "Speed indicators"]
+        },
+        "iconBgIndigo": {
+          "label": "Server Icon (Total Served)",
+          "description": "Background for server icons",
+          "affects": ["Total Served card icon", "Server indicators"]
+        },
+        "iconBgOrange": {
+          "label": "Download Icon (Active Downloads)",
+          "description": "Background for download icons",
+          "affects": ["Active Downloads card icon", "Download indicators"]
+        },
+        "iconBgYellow": {
+          "label": "Users Icon (Active Clients)",
+          "description": "Background for users/people icons",
+          "affects": ["Active Clients card icon", "Client indicators"]
+        },
+        "iconBgCyan": {
+          "label": "Activity Icon (Cache Hit Ratio)",
+          "description": "Background for activity/performance icons",
+          "affects": ["Cache Hit Ratio card icon", "Performance indicators"]
+        },
+        "iconBgRed": {
+          "label": "Error Icon (Critical States)",
+          "description": "Background for error/critical icons",
+          "affects": ["Error indicators", "Critical state icons"]
+        }
+      }
+    }
+  },
+  "initialization": {
+    "steamApiKey": {
+      "placeholder": "Enter your Steam Web API key"
+    },
+    "importData": {
+      "placeholder": "/path/to/lancache.db"
+    },
+    "apiKey": {
+      "placeholder": "Enter your API key",
+      "title": "Authentication Required",
+      "titleChoice": "Choose Access Mode",
+      "subtitle": "Enter your API key for full access",
+      "subtitleNewKey": "Enter your new API key to continue",
+      "subtitleDisabled": "Authentication is disabled. Select how you'd like to proceed.",
+      "continueAsAdmin": "Continue as Admin",
+      "continueAsGuest": "Continue as Guest ({{hours}}h)",
+      "continueAsGuestNoData": "Continue as Guest (No Data)",
+      "or": "OR",
+      "adminAccess": "Admin: Full management access.",
+      "guestAccess": "Guest: Read-only for {{hours}}h.",
+      "label": "API Key",
+      "authenticating": "Authenticating...",
+      "authenticate": "Authenticate",
+      "guestMode": "Guest Mode (No Data)",
+      "guestModeHours": "Continue as Guest ({{hours}}h)",
+      "whereToFind": "Where to find your API key:",
+      "whereToFindDesc": "Check your server logs for \"API Key:\" or look in",
+      "noDataTooltip": "No data available. Complete setup first."
+    },
+    "dataSource": {
+      "title": "Choose Data Source",
+      "subtitle": "Select how to obtain depot mapping data for identifying Steam games",
+      "whatIsDepotMapping": "What is depot mapping?",
+      "depotMappingDesc": "Links cache files to games. Essential for identifying which games are being cached.",
+      "githubData": "GitHub Data",
+      "githubDesc": "Community-maintained depot mappings. Quick and easy.",
+      "quickSetup": "Quick setup (~30 seconds)",
+      "mappingsReady": "290,000+ mappings ready",
+      "noApiKey": "No API key needed",
+      "useGithubData": "Use GitHub Data",
+      "steamData": "Steam Data",
+      "steamDesc": "Generate directly from Steam. Access all games.",
+      "latestData": "Latest data from Steam",
+      "playtestAccess": "Playtest/beta games access",
+      "requiresApiKey": "Requires Steam API key",
+      "useSteamData": "Use Steam Data"
+    },
+    "steamWebApiKey": {
+      "title": "Steam Web API Key",
+      "subtitle": "Required to fetch depot information directly from Steam",
+      "howToGet": "How to get your API key:",
+      "step1": "Visit",
+      "step2": "Login with your Steam account",
+      "step3": "Enter any domain name (e.g., \"MyLancache\")",
+      "step4": "Copy and paste your key below",
+      "label": "API Key",
+      "placeholder": "Enter your Steam Web API key",
+      "testing": "Testing...",
+      "testConnection": "Test Connection",
+      "saving": "Saving...",
+      "saveAndContinue": "Save & Continue",
+      "securityNote": "Your API key is encrypted and stored securely using Microsoft Data Protection API.",
+      "pleaseEnter": "Please enter an API key",
+      "failedToTest": "Failed to test API key",
+      "failedToSave": "Failed to save API key",
+      "networkError": "Network error - failed to test API key",
+      "networkErrorSave": "Network error - failed to save API key"
+    },
+    "steamPicsAuth": {
+      "title": "Steam PICS Authentication",
+      "subtitle": "Choose how to authenticate with Steam for depot mapping data",
+      "whatIsDepotMapping": "What is depot mapping?",
+      "depotMappingDesc": "Links cache files to games. Anonymous mode provides public games only. Account login enables access to playtest and restricted games.",
+      "anonymousMode": "Anonymous (Public Games)",
+      "anonymousModeDesc": "No authentication required",
+      "accountMode": "Account Login (Playtest/Restricted)",
+      "accountModeDisabled": "Account Login (Requires V2 API)",
+      "accountModeDesc": "Access playtest and restricted games via V2",
+      "accountModeUnavailable": "V2 API unavailable - use V1 API key instead",
+      "v2Required": "Steam account login requires V2 API which is currently unavailable.",
+      "v2RequiredWithV1": "Your V1 API key already provides access to playtest/restricted games since it's tied to your Steam account.",
+      "v2RequiredNoV1": "You can configure a V1 API key later in Settings to access playtest/restricted games.",
+      "saving": "Saving...",
+      "continueAnonymous": "Continue with Anonymous Mode",
+      "failedToSave": "Failed to save authentication mode",
+      "networkError": "Network error - failed to save authentication mode"
+    },
+    "picsProgress": {
+      "initializing": "Initializing...",
+      "connecting": "Connecting to Steam...",
+      "processing": "Processing...",
+      "complete": "PICS Data Ready!",
+      "building": "Building Steam Depot Mappings",
+      "completeDesc": "Depot mappings successfully created",
+      "buildingDesc": "Fetching and processing depot information from Steam...",
+      "mappingsReady": "{{count}} depot mappings ready",
+      "mappingsReadyGeneric": "Depot mappings are ready",
+      "batches": "{{processed}} / {{total}} batches",
+      "mappingsFound": "{{count}} depot mappings found",
+      "preparing": "Preparing...",
+      "timeEstimate": "This typically takes 1-5 minutes depending on your connection.",
+      "continue": "Continue",
+      "cancelling": "Cancelling...",
+      "cancelUseGithub": "Cancel and Use GitHub Instead"
+    },
+    "depotInit": {
+      "title": "Initialize Depot Data",
+      "subtitle": "Choose how to obtain depot mapping data",
+      "preparingDownload": "Preparing Download",
+      "downloadingMappings": "Downloading Depot Mappings",
+      "downloadComplete": "Download Complete!",
+      "downloadCompleteDesc": "GitHub depot data has been imported successfully",
+      "importSuccess": "Depot mappings imported successfully!",
+      "fetchingDesc": "Fetching pre-created depot mappings from GitHub...",
+      "downloading": "Downloading...",
+      "currentStatus": "Current Status:",
+      "jsonMappings": "JSON: {{count}} mappings.",
+      "dbMappings": "DB: {{count}} mappings.",
+      "steamKitReady": "SteamKit ready.",
+      "precreated": "Pre-created",
+      "precreatedDesc": "Download from GitHub. Quick setup (~30s).",
+      "unavailable": "Unavailable",
+      "download": "Download",
+      "generateFresh": "Generate Fresh",
+      "generateDesc": "Build from Steam. Takes 10-30 minutes.",
+      "processing": "Processing...",
+      "generate": "Generate",
+      "continue": "Continue",
+      "continueDesc": "Incremental update. Fast (~1-2 min).",
+      "updating": "Updating...",
+      "update": "Update",
+      "githubUnavailable": "GitHub download unavailable with Steam login. Your personalized depot data will be generated from Steam.",
+      "changeAuthMethod": "Change Auth Method",
+      "downloadingStatus": "Downloading...",
+      "startingDownload": "Starting download...",
+      "failedToDownload": "Failed to download pre-created depot data from GitHub",
+      "unableToStart": "Unable to start full scan. Please try again or download from GitHub.",
+      "failedToGenerate": "Failed to start depot generation",
+      "startingIncremental": "Starting incremental update...",
+      "changeGapLarge": "Change gap too large. Starting full scan...",
+      "unableToStartScan": "Unable to start scan. Please try downloading from GitHub instead.",
+      "failedIncremental": "Failed to run incremental update",
+      "mappingsImportedSuccess": "Depot mappings imported successfully!",
+      "operationInProgress": "Operation in progress..."
+    },
+    "depotMapping": {
+      "title": "Map Game Depots",
+      "titleComplete": "Setup Complete!",
+      "subtitle": "Map depot IDs to game names for your downloads",
+      "subtitleComplete": "All downloads have been mapped to games",
+      "description": "This step runs an incremental PICS scan to update depot mappings, then applies them to your downloads.",
+      "canSkip": "You can skip this and map depots later from the Management tab.",
+      "scanning": "Scanning Steam for depot mappings...",
+      "percentComplete": "{{percent}}% complete",
+      "applyingMappings": "Applying depot mappings...",
+      "applyingNote": "This may take a moment",
+      "processing": "Processing...",
+      "setupComplete": "Setup complete! Your Lancache Manager is ready to use.",
+      "whatsNext": "What's Next?",
+      "picsUpdated": "PICS depot mappings updated",
+      "logsProcessed": "Cache logs processed",
+      "downloadsMapped": "Downloads mapped to games",
+      "viewDashboard": "View your dashboard for cache statistics",
+      "scanAndMap": "Scan & Map Depots",
+      "skipForNow": "Skip for Now",
+      "goToDashboard": "Go to Dashboard",
+      "failedToApply": "Failed to apply depot mappings",
+      "failedToStart": "Failed to start depot scan",
+      "failedToDownload": "Failed to download from GitHub"
+    },
+    "logProcessing": {
+      "title": "Process Cache Logs",
+      "titleComplete": "Log Processing Complete!",
+      "subtitle": "Identify downloads and games from your cache history",
+      "subtitleComplete": "All cache logs have been processed",
+      "subtitleMultiple": "{{count}} datasources configured. Import all historical data to identify downloads.",
+      "loadingDatasources": "Loading datasources...",
+      "description": "Processing imports all log entries from the beginning to identify downloads and games. This can take several minutes depending on log size.",
+      "canSkip": "You can skip this and process logs later from the Management tab.",
+      "percentComplete": "{{percent}}% complete",
+      "status": "Status",
+      "processing": "Processing...",
+      "lines": "Lines",
+      "entries": "Entries",
+      "data": "Data",
+      "dataMbProgress": "{{processed}} / {{total}} MB",
+      "processAllLogs": "Process All Logs",
+      "disabled": "Disabled",
+      "cacheWritable": "Cache is writable",
+      "cacheReadOnly": "Cache is read-only",
+      "logsWritable": "Logs are writable",
+      "logsReadOnly": "Logs are read-only",
+      "cache": "Cache:",
+      "logs": "Logs:",
+      "processThisDatasource": "Process This Datasource",
+      "complete": "Log processing complete! Click Continue to proceed.",
+      "skipForNow": "Skip for Now",
+      "continue": "Continue",
+      "failedToProcess": "Failed to start log processing",
+      "failedToProcessDatasource": "Failed to start processing"
+    },
+    "importHistorical": {
+      "title": "Import Historical Data",
+      "subtitle": "Import download history from external database systems",
+      "skipNotice": "Most users can skip this step. Only use if you have an existing database from a previous installation.",
+      "databaseType": "Database Type",
+      "deveLanCacheDesc": "Import from DeveLanCacheUI_Backend SQLite database",
+      "lancacheManagerDesc": "Import from LancacheManager database backup",
+      "auto": "Auto",
+      "browse": "Browse",
+      "manualPath": "Manual Path",
+      "searching": "Searching for databases...",
+      "foundDatabases": "Found {{count}} database(s)",
+      "searchingStatus": "Searching for databases...",
+      "noDatabasesFound": "No database files found",
+      "tryOtherModes": "Try using Browse or Manual mode",
+      "databasePath": "Database File Path",
+      "batchSize": "Batch Size",
+      "updateExisting": "Update existing records (merge mode)",
+      "updateExistingNote": "Existing records will be updated.",
+      "addNewOnly": "Only new records will be added.",
+      "validating": "Validating...",
+      "validate": "Validate",
+      "importing": "Importing...",
+      "import": "Import",
+      "skip": "Skip",
+      "pleaseEnter": "Please enter a database path",
+      "failedToValidate": "Failed to validate connection",
+      "foundRecords": "Found {{count}} records.",
+      "checkDeveLanCache": "Make sure to select a DeveLanCacheUI_Backend database for this import type.",
+      "checkLancacheManager": "Make sure to select a LancacheManager database for this import type.",
+      "importSuccess": "{{message}}",
+      "total": "Total: {{count}}",
+      "imported": "Imported: {{count}}",
+      "skipped": "Skipped: {{count}}",
+      "errors": "Errors: {{count}}",
+      "importFailed": "Import failed: {{error}}"
+    },
+    "modal": {
+      "setupWizard": "Setup Wizard",
+      "stepProgress": "{{current}} / {{total}}",
+      "goBack": "Go back",
+      "cannotGoBack": "Cannot go back during operation",
+      "stepTitles": {
+        "authentication": "Authentication",
+        "importHistoricalData": "Import Historical Data",
+        "dataSourceSelection": "Data Source Selection",
+        "steamApiKey": "Steam API Key",
+        "steamPicsAuthentication": "Steam PICS Authentication",
+        "depotInitialization": "Depot Initialization",
+        "picsDataProgress": "PICS Data Progress",
+        "logProcessing": "Log Processing",
+        "depotMapping": "Depot Mapping"
+      }
+    }
+  },
+  "memory": {
+    "title": "Memory Diagnostics",
+    "loading": "Loading memory diagnostics...",
+    "error": "Error: {{error}}",
+    "failedToLoad": "Failed to load memory statistics",
+    "totalMemory": "Total Memory (RAM)",
+    "systemTotal": "System Total:",
+    "workingSet": "Working Set (Process RAM):",
+    "workingSetDesc": "Physical RAM currently used by this process",
+    "managed": "Managed (.NET Heap):",
+    "managedDesc": "Memory managed by .NET garbage collector",
+    "unmanaged": "Unmanaged (Native):",
+    "unmanagedDesc": "Native memory used by system libraries and resources",
+    "managedDetails": "Managed Memory Details",
+    "totalAllocated": "Total Allocated:",
+    "totalAllocatedDesc": "Total memory allocated by .NET runtime",
+    "heapSize": "Heap Size:",
+    "heapSizeDesc": "Current size of the managed heap",
+    "fragmented": "Fragmented Memory:",
+    "fragmentedDesc": "Wasted space due to memory fragmentation",
+    "processStats": "Process Statistics",
+    "resourceUsage": "RESOURCE USAGE",
+    "activeThreads": "Active Threads:",
+    "activeThreadsDesc": "Handling requests and background tasks",
+    "openHandles": "Open Handles:",
+    "openHandlesDesc": "Database connections, file handles, etc.",
+    "garbageCollection": "GARBAGE COLLECTION",
+    "collections": "Collections (0 / 1 / 2):",
+    "collectionsDesc": "0: Short-lived, 1: Medium-lived, 2: Long-lived objects",
+    "autoRefresh": "Auto-refreshing every 5 seconds | Last updated: {{timestamp}}"
+  },
+  "notifications": {
+    "loadedPreviousResults": "Loaded previous results: {{details}}",
+    "noPreviousResults": "No previous detection results found",
+    "failedLoadResults": "Failed to load previous results",
+    "removing": "Removing {{name}}...",
+    "cancelOperation": "Cancel operation",
+    "dismiss": "Dismiss"
+  },
+  "pagination": {
+    "jumpTo": "Jump to...",
+    "goToFirstPage": "Go to first page",
+    "goToPreviousPage": "Go to previous page",
+    "goToNextPage": "Go to next page",
+    "goToLastPage": "Go to last page"
+  },
+  "aria": {
+    "managementSections": "Management sections",
+    "previousEventsPage": "Previous events page",
+    "nextEventsPage": "Next events page",
+    "previousPage": "Previous page",
+    "nextPage": "Next page",
+    "increaseBatchSize": "Increase batch size",
+    "decreaseBatchSize": "Decrease batch size"
+  },
+  "ui": {
+    "pagination": {
+      "page": "Page",
+      "of": "of",
+      "items": "items",
+      "pageInfo": "Page {{current}} of {{total}}",
+      "itemRange": "{{start}} - {{end}} of {{total}} {{label}}",
+      "firstPage": "First page",
+      "previousPage": "Previous page",
+      "nextPage": "Next page",
+      "lastPage": "Last page",
+      "goToPage": "Go to page {{page}}",
+      "goToFirstPage": "Go to first page",
+      "goToPreviousPage": "Go to previous page",
+      "goToNextPage": "Go to next page",
+      "goToLastPage": "Go to last page",
+      "jumpTo": "Jump to..."
+    },
+    "dropdown": {
+      "selectOption": "Select option"
+    },
+    "multiSelect": {
+      "selectOptions": "Select options",
+      "allSelected": "All selected",
+      "selected": "selected",
+      "minimumSelections": "Minimum {{count}} selection required",
+      "minimumSelections_plural": "Minimum {{count}} selections required"
+    },
+    "managerCard": {
+      "logsReadOnly": "Logs are read-only",
+      "logsWritable": "Logs are writable",
+      "cacheReadOnly": "Cache is read-only",
+      "cacheWritable": "Cache is writable",
+      "refreshData": "Refresh data",
+      "readOnly": "Read-only"
+    },
+    "datasource": {
+      "disabled": "Disabled"
+    },
+    "clientIp": {
+      "ipLabel": "IP: {{ip}}"
+    }
+  }
+}

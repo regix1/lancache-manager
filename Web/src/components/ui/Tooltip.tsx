@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Info } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 type TooltipPosition = 'top' | 'bottom' | 'left' | 'right';
 type TooltipStrategy = 'edge' | 'overlay';
@@ -336,14 +337,22 @@ export const CacheInfoTooltip: React.FC = () => {
   const tooltipsDisabled = globallyDisabled || isMobile;
 
   return (
+    <CacheInfoTooltipInner tooltipsDisabled={tooltipsDisabled} />
+  );
+};
+
+const CacheInfoTooltipInner: React.FC<{ tooltipsDisabled: boolean }> = ({ tooltipsDisabled }) => {
+  const { t } = useTranslation();
+  
+  return (
     <Tooltip
       content={
         <div className="whitespace-nowrap">
-          <span className="cache-hit font-medium">Cache Hits:</span>
-          <span className="text-themed-secondary"> Data served from local cache</span>
+          <span className="cache-hit font-medium">{t('cacheInfo.cacheHits')}</span>
+          <span className="text-themed-secondary"> {t('cacheInfo.cacheHitsDesc')}</span>
           <span className="text-themed-muted mx-2">|</span>
-          <span className="cache-miss font-medium">Cache Misses:</span>
-          <span className="text-themed-secondary"> Data downloaded from internet</span>
+          <span className="cache-miss font-medium">{t('cacheInfo.cacheMisses')}</span>
+          <span className="text-themed-secondary"> {t('cacheInfo.cacheMissesDesc')}</span>
         </div>
       }
       contentClassName="!max-w-none"

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Cloud, Database, Loader2, AlertTriangle, ArrowLeft, CheckCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { useSignalR } from '@contexts/SignalRContext';
@@ -45,6 +46,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
   onBackToSteamAuth,
   onComplete
 }) => {
+  const { t } = useTranslation();
   const signalR = useSignalR();
   const [initializing, setInitializing] = useState(false);
   const [selectedMethod, setSelectedMethod] = useState<'cloud' | 'generate' | 'continue' | null>(null);
@@ -57,7 +59,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
       if (event.scanMode === 'github') {
         setInitializing(true);
         setSelectedMethod('cloud');
-        setDownloadStatus(event.message || 'Downloading depot mappings from GitHub...');
+        setDownloadStatus(event.message || t('initialization.depotInit.fetchingDesc'));
         setProgress(0);
       }
     };
@@ -65,14 +67,14 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
     const handleDepotMappingProgress = (event: DepotMappingProgressEvent) => {
       if (selectedMethod === 'cloud') {
         setProgress(event.percentComplete || 0);
-        setDownloadStatus(event.message || 'Processing depot mappings...');
+        setDownloadStatus(event.message || t('initialization.depotInit.processing'));
       }
     };
 
     const handleDepotMappingComplete = (event: DepotMappingCompleteEvent) => {
       if (event.scanMode === 'github') {
         if (event.success) {
-          setDownloadStatus('Success! Depot mappings imported.');
+          setDownloadStatus(t('initialization.depotInit.mappingsImportedSuccess'));
           setProgress(100);
           setInitializing(false);
           setTimeout(() => {
@@ -81,7 +83,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
             onComplete();
           }, 1500);
         } else {
-          setError(event.error || event.message || 'Failed to download depot data');
+          setError(event.error || event.message || t('initialization.depotInit.failedToDownload'));
           setInitializing(false);
           setSelectedMethod(null);
           setDownloadStatus(null);
@@ -106,7 +108,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
         const status = await ApiService.getPicsStatus();
         if (status?.steamKit2?.isRebuildRunning) {
           setInitializing(true);
-          setDownloadStatus('Operation in progress...');
+          setDownloadStatus(t('initialization.depotInit.operationInProgress'));
         }
       } catch (error) {
         console.error('[DepotInit] Failed to check status:', error);
@@ -130,12 +132,12 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
     setInitializing(true);
     setSelectedMethod('cloud');
     setError(null);
-    setDownloadStatus('Starting download...');
+    setDownloadStatus(t('initialization.depotInit.startingDownload'));
 
     try {
       await ApiService.downloadPrecreatedDepotData();
     } catch (err: unknown) {
-      setError((err instanceof Error ? err.message : String(err)) || 'Failed to download pre-created depot data from GitHub');
+      setError((err instanceof Error ? err.message : String(err)) || t('initialization.depotInit.failedToDownload'));
       setInitializing(false);
       setSelectedMethod(null);
       setDownloadStatus(null);
@@ -150,14 +152,14 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
     try {
       const response = await ApiService.triggerSteamKitRebuild(false);
       if (response.requiresFullScan) {
-        setError('Unable to start full scan. Please try again or download from GitHub.');
+        setError(t('initialization.depotInit.unableToStart'));
         setInitializing(false);
         setSelectedMethod(null);
         return;
       }
       onGenerateOwn();
     } catch (err: unknown) {
-      setError((err instanceof Error ? err.message : String(err)) || 'Failed to start depot generation');
+      setError((err instanceof Error ? err.message : String(err)) || t('initialization.depotInit.failedToGenerate'));
       setInitializing(false);
       setSelectedMethod(null);
     }
@@ -167,16 +169,16 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
     setInitializing(true);
     setSelectedMethod('continue');
     setError(null);
-    setDownloadStatus('Starting incremental update...');
+    setDownloadStatus(t('initialization.depotInit.startingIncremental'));
 
     try {
       const response = await ApiService.triggerSteamKitRebuild(true);
       if (response.requiresFullScan) {
-        setDownloadStatus(`Change gap too large. Starting full scan...`);
+        setDownloadStatus(t('initialization.depotInit.changeGapLarge'));
         await new Promise((resolve) => setTimeout(resolve, 1000));
         const fullScanResponse = await ApiService.triggerSteamKitRebuild(false);
         if (fullScanResponse.requiresFullScan) {
-          setError('Unable to start scan. Please try downloading from GitHub instead.');
+          setError(t('initialization.depotInit.unableToStartScan'));
           setInitializing(false);
           setSelectedMethod(null);
           setDownloadStatus(null);
@@ -185,7 +187,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
       }
       onContinue();
     } catch (err: unknown) {
-      setError((err instanceof Error ? err.message : String(err)) || 'Failed to run incremental update');
+      setError((err instanceof Error ? err.message : String(err)) || t('initialization.depotInit.failedIncremental'));
       setInitializing(false);
       setSelectedMethod(null);
       setDownloadStatus(null);
@@ -216,12 +218,12 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
             )}
           </div>
           <h3 className="text-xl font-semibold text-themed-primary mb-1">
-            {progress === 100 ? 'Download Complete!' : initializing ? 'Downloading Depot Mappings' : 'Preparing Download'}
+            {progress === 100 ? t('initialization.depotInit.downloadComplete') : initializing ? t('initialization.depotInit.downloadingMappings') : t('initialization.depotInit.preparingDownload')}
           </h3>
           <p className="text-sm text-themed-secondary max-w-md">
             {progress === 100
-              ? 'GitHub depot data has been imported successfully'
-              : 'Fetching pre-created depot mappings from GitHub...'}
+              ? t('initialization.depotInit.downloadCompleteDesc')
+              : t('initialization.depotInit.fetchingDesc')}
           </p>
         </div>
 
@@ -229,7 +231,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
         {initializing && progress < 100 && (
           <div className="space-y-3">
             <div className="p-3 rounded-lg text-center bg-themed-tertiary">
-              <p className="text-sm font-medium text-themed-primary">{downloadStatus || 'Downloading...'}</p>
+              <p className="text-sm font-medium text-themed-primary">{downloadStatus || t('initialization.depotInit.downloading')}</p>
             </div>
             {progress > 0 && (
               <div>
@@ -249,7 +251,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
         {progress === 100 && (
           <div className="p-4 rounded-lg text-center bg-themed-success">
             <p className="text-sm text-themed-success">
-              {downloadStatus || 'Depot mappings imported successfully!'}
+              {downloadStatus || t('initialization.depotInit.importSuccess')}
             </p>
           </div>
         )}
@@ -272,9 +274,9 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
         <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-info">
           <Database className="w-7 h-7 icon-info" />
         </div>
-        <h3 className="text-lg font-semibold text-themed-primary mb-1">Initialize Depot Data</h3>
+        <h3 className="text-lg font-semibold text-themed-primary mb-1">{t('initialization.depotInit.title')}</h3>
         <p className="text-sm text-themed-secondary max-w-md">
-          Choose how to obtain depot mapping data
+          {t('initialization.depotInit.subtitle')}
         </p>
       </div>
 
@@ -284,7 +286,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
           <AlertTriangle className="w-5 h-5 flex-shrink-0 icon-warning" />
           <div className="flex-1">
             <p className="text-sm text-themed-warning">
-              GitHub download unavailable with Steam login. Your personalized depot data will be generated from Steam.
+              {t('initialization.depotInit.githubUnavailable')}
             </p>
             {onBackToSteamAuth && (
               <Button
@@ -294,7 +296,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
                 className="mt-2"
               >
                 <ArrowLeft className="w-3 h-3 mr-1" />
-                Change Auth Method
+                {t('initialization.depotInit.changeAuthMethod')}
               </Button>
             )}
           </div>
@@ -336,10 +338,10 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
       {picsData && (
         <div className="p-3 rounded-lg text-sm bg-themed-tertiary">
           <p className="text-themed-secondary">
-            <strong className="text-themed-primary">Current Status:</strong>{' '}
-            {picsData.jsonFile?.exists && `JSON: ${picsData.jsonFile?.totalMappings?.toLocaleString() ?? 0} mappings. `}
-            DB: {picsData.database?.totalMappings?.toLocaleString() ?? 0} mappings.
-            {picsData.steamKit2?.isReady ? ' SteamKit ready.' : ''}
+            <strong className="text-themed-primary">{t('initialization.depotInit.currentStatus')}</strong>{' '}
+            {picsData.jsonFile?.exists && t('initialization.depotInit.jsonMappings', { count: picsData.jsonFile?.totalMappings?.toLocaleString() ?? 0 }) + ' '}
+            {t('initialization.depotInit.dbMappings', { count: picsData.database?.totalMappings?.toLocaleString() ?? 0 })}
+            {picsData.steamKit2?.isReady ? ' ' + t('initialization.depotInit.steamKitReady') : ''}
           </p>
         </div>
       )}
@@ -356,10 +358,10 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
         >
           <div className="flex items-center gap-2 mb-2">
             <Cloud className="w-5 h-5 icon-info" />
-            <h4 className="font-semibold text-themed-primary">Pre-created</h4>
+            <h4 className="font-semibold text-themed-primary">{t('initialization.depotInit.precreated')}</h4>
           </div>
           <p className="text-xs text-themed-secondary mb-3 flex-grow">
-            Download from GitHub. Quick setup (~30s).
+            {t('initialization.depotInit.precreatedDesc')}
           </p>
           <Button
             variant="filled"
@@ -370,7 +372,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
             fullWidth
           >
             {initializing && selectedMethod === 'cloud' && <Loader2 className="w-3 h-3 animate-spin mr-1" />}
-            {usingSteamAuth ? 'Unavailable' : initializing && selectedMethod === 'cloud' ? 'Downloading...' : 'Download'}
+            {usingSteamAuth ? t('initialization.depotInit.unavailable') : initializing && selectedMethod === 'cloud' ? t('initialization.depotInit.downloading') : t('initialization.depotInit.download')}
           </Button>
         </div>
 
@@ -384,10 +386,10 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
         >
           <div className="flex items-center gap-2 mb-2">
             <Database className="w-5 h-5 icon-success" />
-            <h4 className="font-semibold text-themed-primary">Generate Fresh</h4>
+            <h4 className="font-semibold text-themed-primary">{t('initialization.depotInit.generateFresh')}</h4>
           </div>
           <p className="text-xs text-themed-secondary mb-3 flex-grow">
-            Build from Steam. Takes 10-30 minutes.
+            {t('initialization.depotInit.generateDesc')}
           </p>
           <Button
             variant="filled"
@@ -398,7 +400,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
             fullWidth
           >
             {initializing && selectedMethod === 'generate' && <Loader2 className="w-3 h-3 animate-spin mr-1" />}
-            {initializing && selectedMethod === 'generate' ? 'Processing...' : 'Generate'}
+            {initializing && selectedMethod === 'generate' ? t('initialization.depotInit.processing') : t('initialization.depotInit.generate')}
           </Button>
         </div>
 
@@ -413,10 +415,10 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
           >
             <div className="flex items-center gap-2 mb-2">
               <Database className="w-5 h-5 icon-warning" />
-              <h4 className="font-semibold text-themed-primary">Continue</h4>
+              <h4 className="font-semibold text-themed-primary">{t('initialization.depotInit.continue')}</h4>
             </div>
             <p className="text-xs text-themed-secondary mb-3 flex-grow">
-              Incremental update. Fast (~1-2 min).
+              {t('initialization.depotInit.continueDesc')}
             </p>
             <Button
               variant="filled"
@@ -427,7 +429,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
               fullWidth
             >
               {initializing && selectedMethod === 'continue' && <Loader2 className="w-3 h-3 animate-spin mr-1" />}
-              {initializing && selectedMethod === 'continue' ? 'Updating...' : 'Update'}
+              {initializing && selectedMethod === 'continue' ? t('initialization.depotInit.updating') : t('initialization.depotInit.update')}
             </Button>
           </div>
         )}

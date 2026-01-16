@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Database, Loader2, CheckCircle, XCircle, FolderOpen, RefreshCw, Search } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
@@ -8,19 +9,6 @@ import FileBrowser from '@components/features/management/file-browser/FileBrowse
 import { storage } from '@utils/storage';
 
 type ImportType = 'develancache' | 'lancache-manager';
-
-const importTypeOptions: DropdownOption[] = [
-  {
-    value: 'develancache',
-    label: 'DeveLanCacheUI_Backend',
-    description: 'Import from DeveLanCacheUI_Backend SQLite database'
-  },
-  {
-    value: 'lancache-manager',
-    label: 'LancacheManager',
-    description: 'Import from LancacheManager database backup'
-  }
-];
 
 interface ImportHistoricalDataStepProps {
   onComplete: () => void;
@@ -57,6 +45,21 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
   onComplete,
   onSkip
 }) => {
+  const { t } = useTranslation();
+  
+  const importTypeOptions: DropdownOption[] = [
+    {
+      value: 'develancache',
+      label: 'DeveLanCacheUI_Backend',
+      description: t('initialization.importHistorical.deveLanCacheDesc')
+    },
+    {
+      value: 'lancache-manager',
+      label: 'LancacheManager',
+      description: t('initialization.importHistorical.lancacheManagerDesc')
+    }
+  ];
+  
   const [importType, setImportType] = useState<ImportType>(() => {
     const stored = storage.getItem('importType');
     return (stored === 'lancache-manager' ? stored : 'develancache') as ImportType;
@@ -126,7 +129,7 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
 
   const handleValidate = async () => {
     if (!connectionString.trim()) {
-      setValidationResult({ valid: false, message: 'Please enter a database path' });
+      setValidationResult({ valid: false, message: t('initialization.importHistorical.pleaseEnter') });
       return;
     }
 
@@ -141,7 +144,7 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
       const result = await ApiService.handleResponse<ValidationResult>(res);
       setValidationResult(result);
     } catch (error: unknown) {
-      setValidationResult({ valid: false, message: (error instanceof Error ? error.message : String(error)) || 'Failed to validate connection' });
+      setValidationResult({ valid: false, message: (error instanceof Error ? error.message : String(error)) || t('initialization.importHistorical.failedToValidate') });
     } finally {
       setValidating(false);
     }
@@ -170,7 +173,7 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
       setImportResult(result);
       setTimeout(() => onComplete(), 2000);
     } catch (error: unknown) {
-      setValidationResult({ valid: false, message: 'Import failed: ' + (error instanceof Error ? error.message : String(error)) });
+      setValidationResult({ valid: false, message: t('initialization.importHistorical.importFailed', { error: error instanceof Error ? error.message : String(error) }) });
     } finally {
       setImporting(false);
     }
@@ -205,15 +208,15 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
         >
           <Database className={`w-7 h-7 ${importType === 'develancache' ? 'icon-info' : 'icon-primary'}`} />
         </div>
-        <h3 className="text-lg font-semibold text-themed-primary mb-1">Import Historical Data</h3>
+        <h3 className="text-lg font-semibold text-themed-primary mb-1">{t('initialization.importHistorical.title')}</h3>
         <p className="text-sm text-themed-secondary max-w-md">
-          Import download history from external database systems
+          {t('initialization.importHistorical.subtitle')}
         </p>
       </div>
 
       {/* Skip Notice */}
       <div className="p-3 rounded-lg text-center text-sm bg-themed-info text-themed-info">
-        Most users can skip this step. Only use if you have an existing database from a previous installation.
+        {t('initialization.importHistorical.skipNotice')}
       </div>
 
       {/* Success Message */}
@@ -224,10 +227,10 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
             {importResult.message}
           </p>
           <div className="grid grid-cols-2 gap-2 text-sm text-themed-success">
-            <div>Total: <strong>{importResult.totalRecords.toLocaleString()}</strong></div>
-            <div>Imported: <strong>{importResult.imported.toLocaleString()}</strong></div>
-            <div>Skipped: <strong>{importResult.skipped.toLocaleString()}</strong></div>
-            <div>Errors: <strong>{importResult.errors.toLocaleString()}</strong></div>
+            <div>{t('initialization.importHistorical.total', { count: importResult.totalRecords.toLocaleString() })}</div>
+            <div>{t('initialization.importHistorical.imported', { count: importResult.imported.toLocaleString() })}</div>
+            <div>{t('initialization.importHistorical.skipped', { count: importResult.skipped.toLocaleString() })}</div>
+            <div>{t('initialization.importHistorical.errors', { count: importResult.errors.toLocaleString() })}</div>
           </div>
         </div>
       )}
@@ -235,7 +238,7 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
       {/* Import Type Dropdown */}
       <div>
         <label className="block text-sm font-medium text-themed-secondary mb-1.5">
-          Database Type
+          {t('initialization.importHistorical.databaseType')}
         </label>
         <EnhancedDropdown
           options={importTypeOptions}
@@ -258,7 +261,7 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
           disabled={importing || !!importResult}
         >
           <Search className="w-3 h-3 mr-1" />
-          Auto
+          {t('initialization.importHistorical.auto')}
         </Button>
         <Button
           onClick={() => setInputMode('browse')}
@@ -268,7 +271,7 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
           disabled={importing || !!importResult}
         >
           <FolderOpen className="w-3 h-3 mr-1" />
-          Browse
+          {t('initialization.importHistorical.browse')}
         </Button>
         <Button
           onClick={() => setInputMode('manual')}
@@ -277,7 +280,7 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
           color="blue"
           disabled={importing || !!importResult}
         >
-          Manual Path
+          {t('initialization.importHistorical.manualPath')}
         </Button>
       </div>
 
@@ -286,7 +289,7 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <p className="text-sm text-themed-secondary">
-              {autoSearching ? 'Searching for databases...' : `Found ${foundDatabases.length} database(s)`}
+              {autoSearching ? t('initialization.importHistorical.searching') : t('initialization.importHistorical.foundDatabases', { count: foundDatabases.length })}
             </p>
             <Button
               onClick={searchForDatabases}
@@ -305,7 +308,7 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
           {autoSearching ? (
             <div className="flex items-center justify-center py-8 rounded-lg bg-themed-tertiary">
               <Loader2 className="w-5 h-5 animate-spin text-themed-secondary mr-2" />
-              <span className="text-sm text-themed-secondary">Searching for databases...</span>
+              <span className="text-sm text-themed-secondary">{t('initialization.importHistorical.searchingStatus')}</span>
             </div>
           ) : foundDatabases.length > 0 ? (
             <div className="rounded-lg border overflow-hidden border-themed-secondary">
@@ -337,8 +340,8 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
           ) : (
             <div className="flex flex-col items-center justify-center py-6 rounded-lg bg-themed-tertiary">
               <Search className="w-8 h-8 text-themed-muted mb-2" />
-              <p className="text-sm text-themed-secondary font-medium">No database files found</p>
-              <p className="text-xs text-themed-muted mt-1">Try using Browse or Manual mode</p>
+              <p className="text-sm text-themed-secondary font-medium">{t('initialization.importHistorical.noDatabasesFound')}</p>
+              <p className="text-xs text-themed-muted mt-1">{t('initialization.importHistorical.tryOtherModes')}</p>
             </div>
           )}
         </div>
@@ -353,7 +356,7 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
       {inputMode === 'manual' && (
         <div>
           <label className="block text-sm font-medium text-themed-secondary mb-1.5">
-            Database File Path
+            {t('initialization.importHistorical.databasePath')}
           </label>
           <input
             type="text"
@@ -382,7 +385,7 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
       {/* Advanced Options */}
       <div className="p-4 rounded-lg space-y-3 bg-themed-tertiary">
         <div>
-          <label className="block text-sm font-medium text-themed-secondary mb-1.5">Batch Size</label>
+          <label className="block text-sm font-medium text-themed-secondary mb-1.5">{t('initialization.importHistorical.batchSize')}</label>
           <input
             type="number"
             value={batchSize}
@@ -398,11 +401,11 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
           <Checkbox
             checked={overwriteExisting}
             onChange={(e) => setOverwriteExisting(e.target.checked)}
-            label="Update existing records (merge mode)"
+            label={t('initialization.importHistorical.updateExisting')}
             disabled={importing || !!importResult}
           />
           <p className="text-xs text-themed-muted mt-1 ml-6">
-            {overwriteExisting ? 'Existing records will be updated.' : 'Only new records will be added.'}
+            {overwriteExisting ? t('initialization.importHistorical.updateExistingNote') : t('initialization.importHistorical.addNewOnly')}
           </p>
         </div>
       </div>
@@ -422,16 +425,16 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
           <div className={`text-sm ${validationResult.valid ? 'text-themed-success' : 'text-themed-error'}`}>
             <p>
               {validationResult.message}
-              {validationResult.recordCount != null && ` Found ${validationResult.recordCount.toLocaleString()} records.`}
+              {validationResult.recordCount != null && ` ${t('initialization.importHistorical.foundRecords', { count: validationResult.recordCount.toLocaleString() })}`}
             </p>
             {!validationResult.valid && validationResult.message.includes('DownloadEvents') && (
               <p className="mt-1 text-xs opacity-80">
-                Make sure to select a DeveLanCacheUI_Backend database for this import type.
+                {t('initialization.importHistorical.checkDeveLanCache')}
               </p>
             )}
             {!validationResult.valid && validationResult.message.includes('Downloads') && (
               <p className="mt-1 text-xs opacity-80">
-                Make sure to select a LancacheManager database for this import type.
+                {t('initialization.importHistorical.checkLancacheManager')}
               </p>
             )}
           </div>
@@ -448,7 +451,7 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
             className="flex-1"
           >
             {validating && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-            {validating ? 'Validating...' : 'Validate'}
+            {validating ? t('initialization.importHistorical.validating') : t('initialization.importHistorical.validate')}
           </Button>
 
           <Button
@@ -459,11 +462,11 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
             className="flex-1"
           >
             {importing && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-            {importing ? 'Importing...' : 'Import'}
+            {importing ? t('initialization.importHistorical.importing') : t('initialization.importHistorical.import')}
           </Button>
 
           <Button variant="default" onClick={onSkip} disabled={importing} className="flex-1">
-            Skip
+            {t('initialization.importHistorical.skip')}
           </Button>
         </div>
       )}

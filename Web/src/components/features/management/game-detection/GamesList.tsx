@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Search } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Pagination } from '@components/ui/Pagination';
@@ -29,6 +30,7 @@ const GamesList: React.FC<GamesListProps> = ({
   checkingPermissions,
   onRemoveGame
 }) => {
+  const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [expandedGameId, setExpandedGameId] = useState<number | null>(null);
@@ -93,7 +95,7 @@ const GamesList: React.FC<GamesListProps> = ({
           <Search className="input-icon absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-themed-muted" />
           <input
             type="text"
-            placeholder="Search by game name or AppID..."
+            placeholder={t('management.gameDetection.placeholders.searchGames')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-10 pr-4 py-2 rounded-lg border text-sm bg-themed-secondary border-themed-secondary text-themed-primary"
@@ -103,7 +105,7 @@ const GamesList: React.FC<GamesListProps> = ({
               onClick={() => setSearchQuery('')}
               className="absolute right-3 top-1/2 transform -translate-y-1/2 text-themed-muted hover:text-themed-primary text-xs"
             >
-              Clear
+              {t('common.clear')}
             </button>
           )}
         </div>
@@ -113,9 +115,9 @@ const GamesList: React.FC<GamesListProps> = ({
       {filteredAndSortedGames.length === 0 && (
         <div className="text-center py-8 text-themed-muted">
           <Search className="w-12 h-12 mx-auto mb-3 opacity-50" />
-          <div className="mb-2">No games found matching &ldquo;{searchQuery}&rdquo;</div>
+          <div className="mb-2">{t('management.gameDetection.noGamesMatching', { query: searchQuery })}</div>
           <Button variant="subtle" size="sm" onClick={() => setSearchQuery('')}>
-            Clear search
+            {t('management.gameDetection.clearSearch')}
           </Button>
         </div>
       )}
@@ -152,7 +154,7 @@ const GamesList: React.FC<GamesListProps> = ({
             totalItems={filteredAndSortedGames.length}
             itemsPerPage={ITEMS_PER_PAGE}
             onPageChange={setCurrentPage}
-            itemLabel="games"
+            itemLabel={t('management.gameDetection.gamesLabel')}
           />
         </>
       )}

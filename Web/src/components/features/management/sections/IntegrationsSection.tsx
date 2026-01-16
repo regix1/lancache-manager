@@ -1,4 +1,5 @@
 import React, { Suspense } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card } from '@components/ui/Card';
 import { type AuthMode } from '@services/auth.service';
 import SteamLoginManager from '../steam/SteamLoginManager';
@@ -20,6 +21,8 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
   onError,
   onSuccess
 }) => {
+  const { t } = useTranslation();
+
   return (
     <div
       className="management-section animate-fade-in"
@@ -30,10 +33,10 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
       {/* Section Header */}
       <div className="mb-6">
         <h2 className="text-xl font-semibold text-themed-primary mb-1">
-          Integration & Services
+          {t('management.sections.integrations.title')}
         </h2>
         <p className="text-themed-secondary text-sm">
-          Connect to Steam, configure Grafana endpoints, and manage external service integrations
+          {t('management.sections.integrations.subtitle')}
         </p>
       </div>
 
@@ -44,7 +47,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
           <div className="flex items-center gap-2 mb-2">
             <div className="w-1 h-5 rounded-full bg-[var(--theme-steam)]" />
             <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-              Steam Integration
+              {t('management.sections.integrations.steamIntegration')}
             </h3>
           </div>
 
@@ -63,7 +66,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
           <div className="flex items-center gap-2 mb-2">
             <div className="w-1 h-5 rounded-full bg-[var(--theme-primary)]" />
             <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-              Monitoring & Metrics
+              {t('management.sections.integrations.monitoringMetrics')}
             </h3>
           </div>
 
@@ -71,7 +74,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
             fallback={
               <Card>
                 <div className="flex items-center justify-center py-8">
-                  <div className="text-themed-muted">Loading endpoints...</div>
+                  <div className="text-themed-muted">{t('management.sections.integrations.loadingEndpoints')}</div>
                 </div>
               </Card>
             }

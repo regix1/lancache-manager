@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { HardDrive, Loader2, ChevronDown, ChevronUp, FolderOpen } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -33,6 +34,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
   onToggleDetails,
   onRemove
 }) => {
+  const { t } = useTranslation();
   const [showAllPaths, setShowAllPaths] = useState(false);
   const [showAllUrls, setShowAllUrls] = useState(false);
 
@@ -66,7 +68,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
               <strong className="text-themed-primary">
                 {service.cache_files_found.toLocaleString()}
               </strong>{' '}
-              files
+              {t('management.gameDetection.files')}
             </span>
             <span className="flex items-center gap-1">
               <HardDrive className="w-3 h-3" />
@@ -88,7 +90,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
             )}
           </div>
         </div>
-        <Tooltip content="Remove all cache files for this service">
+        <Tooltip content={t('management.gameDetection.removeServiceCache')}>
           <Button
             onClick={() => onRemove(service)}
             disabled={isRemoving || !isAuthenticated || cacheReadOnly || !dockerSocketAvailable || checkingPermissions}
@@ -98,13 +100,13 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
             loading={isRemoving}
             title={
               cacheReadOnly
-                ? 'Cache directory is mounted read-only'
+                ? t('management.gameDetection.cacheReadOnlyShort')
                 : !dockerSocketAvailable
-                  ? 'Docker socket required for log cleanup'
+                  ? t('management.gameDetection.dockerSocketRequired')
                   : undefined
             }
           >
-            {isRemoving ? 'Removing...' : 'Remove'}
+            {isRemoving ? t('management.gameDetection.removing') : t('common.remove')}
           </Button>
         </Tooltip>
       </div>
@@ -114,7 +116,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
         <div className="border-t px-3 py-4 flex items-center justify-center border-themed-secondary">
           <div className="flex items-center gap-2 text-themed-muted">
             <Loader2 className="w-4 h-4 animate-spin" />
-            <span className="text-sm">Loading details...</span>
+            <span className="text-sm">{t('management.gameDetection.loadingDetails')}</span>
           </div>
         </div>
       )}
@@ -127,7 +129,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <p className="text-xs text-themed-muted font-medium">
-                  Sample URLs ({service.sample_urls.length}):
+                  {t('management.gameDetection.sampleUrls', { count: service.sample_urls.length })}
                 </p>
                 {service.sample_urls.length > MAX_INITIAL_URLS && (
                   <Button
@@ -136,7 +138,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
                     onClick={() => setShowAllUrls(!showAllUrls)}
                     className="text-xs"
                   >
-                    {showAllUrls ? `Show less` : `Show all ${service.sample_urls.length}`}
+                    {showAllUrls ? t('management.gameDetection.showLess') : t('management.gameDetection.showAll', { count: service.sample_urls.length })}
                   </Button>
                 )}
               </div>
@@ -159,7 +161,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
               </div>
               {!showAllUrls && service.sample_urls.length > MAX_INITIAL_URLS && (
                 <p className="text-xs text-themed-muted mt-2 italic">
-                  Showing {MAX_INITIAL_URLS} of {service.sample_urls.length} URLs
+                  {t('management.gameDetection.showingUrls', { showing: MAX_INITIAL_URLS, total: service.sample_urls.length })}
                 </p>
               )}
             </div>
@@ -170,7 +172,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <p className="text-xs text-themed-muted font-medium">
-                  Cache File Locations ({service.cache_file_paths.length.toLocaleString()}):
+                  {t('management.gameDetection.cacheFileLocations', { count: service.cache_file_paths.length })}
                 </p>
                 {service.cache_file_paths.length > MAX_INITIAL_PATHS && (
                   <Button
@@ -180,8 +182,8 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
                     className="text-xs"
                   >
                     {showAllPaths
-                      ? `Show less`
-                      : `Show all ${service.cache_file_paths.length.toLocaleString()}`}
+                      ? t('management.gameDetection.showLess')
+                      : t('management.gameDetection.showAll', { count: service.cache_file_paths.length })}
                   </Button>
                 )}
               </div>
@@ -204,8 +206,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
               </div>
               {!showAllPaths && service.cache_file_paths.length > MAX_INITIAL_PATHS && (
                 <p className="text-xs text-themed-muted mt-2 italic">
-                  Showing {MAX_INITIAL_PATHS} of{' '}
-                  {service.cache_file_paths.length.toLocaleString()} paths
+                  {t('management.gameDetection.showingPaths', { showing: MAX_INITIAL_PATHS, total: service.cache_file_paths.length })}
                 </p>
               )}
             </div>

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import ThemeManager from '../theme/ThemeManager';
 
 interface PreferencesSectionProps {
@@ -8,6 +9,8 @@ interface PreferencesSectionProps {
 const PreferencesSection: React.FC<PreferencesSectionProps> = ({
   isAuthenticated
 }) => {
+  const { t } = useTranslation();
+
   return (
     <div
       className="management-section animate-fade-in"
@@ -18,10 +21,10 @@ const PreferencesSection: React.FC<PreferencesSectionProps> = ({
       {/* Section Header */}
       <div className="mb-6">
         <h2 className="text-xl font-semibold text-themed-primary mb-1">
-          Theme
+          {t('management.sections.preferences.title')}
         </h2>
         <p className="text-themed-secondary text-sm">
-          Customize themes and visual settings
+          {t('management.sections.preferences.subtitle')}
         </p>
       </div>
 

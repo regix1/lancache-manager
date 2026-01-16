@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { CalendarDays, Trash2, Calendar, Check, BarChart3 } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
@@ -20,6 +21,7 @@ interface EventModalProps {
 const COLOR_INDEXES = [1, 2, 3, 4, 5, 6, 7, 8];
 
 const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
+  const { t } = useTranslation();
   const { createEvent, updateEvent, deleteEvent } = useEvents();
   const { use24HourFormat, useLocalTimezone } = useTimezone();
   const { setTimeRange, setSelectedEventIds } = useTimeFilter();
@@ -72,7 +74,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
       minute: '2-digit',
       hour12: !use24HourFormat
     });
-    return `${dateStr} at ${timeStr}`;
+    return t('events.modal.dateAt', { date: dateStr, time: timeStr });
   };
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
@@ -80,7 +82,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
     setError(null);
 
     if (!name.trim()) {
-      setError('Event name is required');
+      setError(t('events.modal.errors.nameRequired'));
       return;
     }
 
@@ -88,7 +90,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
     const endTime = Math.floor(endDateTime.getTime() / 1000);
 
     if (endTime <= startTime) {
-      setError('End time must be after start time');
+      setError(t('events.modal.errors.endAfterStart'));
       return;
     }
 
@@ -109,7 +111,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
       }
       onSave();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save event');
+      setError(err instanceof Error ? err.message : t('events.modal.errors.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -127,7 +129,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
       await deleteEvent(event.id);
       onSave();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete event');
+      setError(err instanceof Error ? err.message : t('events.modal.errors.deleteFailed'));
       setShowDeleteConfirm(false);
     } finally {
       setDeleting(false);
@@ -155,7 +157,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
         title={
           <div className="flex items-center gap-2">
             <CalendarDays className="w-5 h-5 text-[var(--theme-primary)]" />
-            <span>{event ? 'Edit Event' : 'Create Event'}</span>
+            <span>{event ? t('events.modal.editTitle') : t('events.modal.createTitle')}</span>
           </div>
         }
         size="lg"
@@ -171,13 +173,13 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
           {/* Name */}
           <div>
             <label className="block text-sm font-medium text-[var(--theme-text-primary)] mb-1">
-              Event Name *
+              {t('events.modal.labels.name')} *
             </label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g., LAN Party 2024"
+              placeholder={t('events.modal.placeholders.name')}
               className="w-full px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] placeholder-[var(--theme-text-secondary)] focus:outline-none focus:border-[var(--theme-primary)]"
               autoFocus
             />
@@ -186,43 +188,43 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
           {/* Description */}
           <div>
             <label className="block text-sm font-medium text-[var(--theme-text-primary)] mb-1">
-              Description
+              {t('events.modal.labels.description')}
             </label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Optional description..."
+              placeholder={t('events.modal.placeholders.description')}
               rows={3}
               className="w-full px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] placeholder-[var(--theme-text-secondary)] focus:outline-none focus:border-[var(--theme-primary)] resize-none"
             />
           </div>
 
           {/* Date/Time */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="block text-sm font-medium text-[var(--theme-text-primary)] mb-1">
-                Start Date & Time *
+                {t('events.modal.labels.startDateTime')} *
               </label>
               <button
                 type="button"
                 onClick={() => setShowStartPicker(true)}
-                className="w-full px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] text-left hover:border-[var(--theme-primary)] focus:outline-none focus:border-[var(--theme-primary)] transition-colors flex items-center gap-2"
+                className="w-full min-w-0 px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] text-left hover:border-[var(--theme-primary)] focus:outline-none focus:border-[var(--theme-primary)] transition-colors flex items-center gap-2"
               >
                 <Calendar className="w-4 h-4 text-[var(--theme-text-secondary)] flex-shrink-0" />
-                <span className="truncate text-sm">{formatDateTime(startDateTime)}</span>
+                <span className="truncate text-sm min-w-0 flex-1">{formatDateTime(startDateTime)}</span>
               </button>
             </div>
             <div>
               <label className="block text-sm font-medium text-[var(--theme-text-primary)] mb-1">
-                End Date & Time *
+                {t('events.modal.labels.endDateTime')} *
               </label>
               <button
                 type="button"
                 onClick={() => setShowEndPicker(true)}
-                className="w-full px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] text-left hover:border-[var(--theme-primary)] focus:outline-none focus:border-[var(--theme-primary)] transition-colors flex items-center gap-2"
+                className="w-full min-w-0 px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] text-left hover:border-[var(--theme-primary)] focus:outline-none focus:border-[var(--theme-primary)] transition-colors flex items-center gap-2"
               >
                 <Calendar className="w-4 h-4 text-[var(--theme-text-secondary)] flex-shrink-0" />
-                <span className="truncate text-sm">{formatDateTime(endDateTime)}</span>
+                <span className="truncate text-sm min-w-0 flex-1">{formatDateTime(endDateTime)}</span>
               </button>
             </div>
           </div>
@@ -230,9 +232,9 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
           {/* Color */}
           <div>
             <label className="block text-sm font-medium text-[var(--theme-text-primary)] mb-2">
-              Color
+              {t('events.modal.labels.color')}
             </label>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {COLOR_INDEXES.map((idx) => {
                 const isSelected = colorIndex === idx;
                 return (
@@ -258,8 +260,8 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
           </div>
 
           {/* Actions */}
-          <div className="flex justify-between pt-4 border-t border-[var(--theme-border-primary)]">
-            <div className="flex gap-2">
+          <div className="flex flex-col gap-3 pt-4 border-t border-[var(--theme-border-primary)] sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap gap-2">
               {event && (
                 <>
                   <Button
@@ -269,7 +271,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
                     onClick={handleDeleteClick}
                     leftSection={<Trash2 className="w-4 h-4" />}
                   >
-                    Delete
+                    {t('events.modal.actions.delete')}
                   </Button>
                   <Button
                     type="button"
@@ -277,19 +279,19 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
                     onClick={handleViewOnDashboard}
                     leftSection={<BarChart3 className="w-4 h-4" />}
                   >
-                    View Stats
+                    {t('events.modal.actions.viewStats')}
                   </Button>
                 </>
               )}
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2 sm:justify-end">
               <Button
                 type="button"
                 variant="outline"
                 onClick={onClose}
                 disabled={saving || deleting}
               >
-                Cancel
+                {t('actions.cancel')}
               </Button>
               <Button
                 type="submit"
@@ -297,7 +299,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
                 color="blue"
                 loading={saving}
               >
-                {event ? 'Save Changes' : 'Create Event'}
+                {event ? t('events.modal.actions.saveChanges') : t('events.modal.actions.create')}
               </Button>
             </div>
           </div>
@@ -317,7 +319,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
               }
             }}
             onClose={() => setShowStartPicker(false)}
-            title="Select Start Date & Time"
+            title={t('events.modal.selectStartDateTime')}
           />
         )}
 
@@ -327,7 +329,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
             value={endDateTime}
             onChange={setEndDateTime}
             onClose={() => setShowEndPicker(false)}
-            title="Select End Date & Time"
+            title={t('events.modal.selectEndDateTime')}
             minDate={startDateTime}
           />
         )}
@@ -340,17 +342,17 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
         title={
           <div className="flex items-center gap-2">
             <Trash2 className="w-5 h-5 text-[var(--theme-status-error)]" />
-            <span>Delete Event</span>
+            <span>{t('events.modal.deleteTitle')}</span>
           </div>
         }
         size="sm"
       >
         <div className="space-y-4">
           <p className="text-[var(--theme-text-secondary)]">
-            Are you sure you want to delete <strong className="text-[var(--theme-text-primary)]">"{event?.name}"</strong>?
+            {t('events.modal.deleteConfirm', { name: event?.name })}
           </p>
           <p className="text-sm text-[var(--theme-text-muted)]">
-            This action cannot be undone.
+            {t('events.modal.deleteWarning')}
           </p>
           <div className="flex justify-end gap-2 pt-4 border-t border-[var(--theme-border-primary)]">
             <Button
@@ -358,7 +360,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
               onClick={() => setShowDeleteConfirm(false)}
               disabled={deleting}
             >
-              Cancel
+              {t('actions.cancel')}
             </Button>
             <Button
               variant="filled"
@@ -366,7 +368,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
               onClick={handleDeleteConfirm}
               loading={deleting}
             >
-              Delete Event
+              {t('events.modal.actions.delete')}
             </Button>
           </div>
         </div>

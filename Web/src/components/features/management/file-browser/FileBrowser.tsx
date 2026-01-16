@@ -10,6 +10,7 @@ import {
   HardDrive,
   Database
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
@@ -105,6 +106,7 @@ const formatSize = (bytes: number): string => {
 };
 
 const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated, mockMode }) => {
+  const { t } = useTranslation();
   const [currentPath, setCurrentPath] = useState<string | null>(null);
   const [items, setItems] = useState<FileSystemItem[]>([]);
   const [parentPath, setParentPath] = useState<string | null>(null);
@@ -140,7 +142,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
       setParentPath(result.parentPath);
       setItems(result.items);
     } catch (err: unknown) {
-      setError((err instanceof Error ? err.message : String(err)) || 'Failed to load directory');
+      setError((err instanceof Error ? err.message : String(err)) || t('management.fileBrowser.failedToLoadDirectory'));
     } finally {
       setLoading(false);
     }
@@ -148,7 +150,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
 
   const handleItemClick = (item: FileSystemItem) => {
     if (!item.isAccessible) {
-      setError('Access denied to this location');
+      setError(t('management.fileBrowser.accessDenied'));
       return;
     }
 
@@ -192,10 +194,10 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
       setSearchResults(result.results);
 
       if (result.results.length === 0) {
-        setError('No database files found in this location');
+        setError(t('management.fileBrowser.noDatabaseFiles'));
       }
     } catch (err: unknown) {
-      setError((err instanceof Error ? err.message : String(err)) || 'Search failed');
+      setError((err instanceof Error ? err.message : String(err)) || t('management.fileBrowser.searchFailed'));
     } finally {
       setSearching(false);
     }
@@ -213,7 +215,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
           variant={isRootLevel && !currentPath ? 'filled' : 'default'}
           color="blue"
           disabled={loading || mockMode}
-          title="Home"
+          title={t('management.fileBrowser.home')}
         >
           <Home className="w-3.5 h-3.5" />
         </Button>
@@ -224,7 +226,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
             size="xs"
             variant="default"
             disabled={loading || mockMode}
-            title="Go back"
+            title={t('management.fileBrowser.goBack')}
           >
             <ArrowLeft className="w-3.5 h-3.5" />
           </Button>
@@ -244,7 +246,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
             size="xs"
             variant="default"
             disabled={searching || loading || mockMode}
-            title="Search for .db files"
+            title={t('management.fileBrowser.searchForDb')}
           >
             {searching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
           </Button>
@@ -288,7 +290,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
       {!loading && displayItems.length === 0 && !error && currentPath && (
         <div className="text-center py-10 rounded-lg bg-themed-tertiary">
           <Folder className="w-10 h-10 mx-auto mb-2 text-themed-muted opacity-50" />
-          <p className="text-sm text-themed-muted">No directories or .db files found</p>
+          <p className="text-sm text-themed-muted">{t('management.fileBrowser.noFilesFound')}</p>
         </div>
       )}
 
@@ -300,7 +302,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
               <Database className="w-5 h-5 icon-success" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs text-themed-muted mb-0.5">Selected database</p>
+              <p className="text-xs text-themed-muted mb-0.5">{t('management.fileBrowser.selectedDatabase')}</p>
               <p className="text-sm font-mono text-themed-primary truncate">{selectedFile}</p>
             </div>
             <Button
@@ -309,7 +311,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
               variant="filled"
               color="green"
             >
-              Use File
+              {t('management.fileBrowser.useFile')}
             </Button>
           </div>
         </div>
@@ -319,14 +321,14 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
       {searchResults.length > 0 && (
         <div className="flex items-center justify-between text-sm">
           <span className="text-themed-secondary">
-            Found <strong>{searchResults.length}</strong> database file(s)
+            {t('management.fileBrowser.foundFiles', { count: searchResults.length })}
           </span>
           <Button
             onClick={() => setSearchResults([])}
             size="xs"
             variant="default"
           >
-            Clear
+            {t('common.clear')}
           </Button>
         </div>
       )}
