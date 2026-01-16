@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Globe, MapPin } from 'lucide-react';
+import { Clock, Globe, MapPin } from 'lucide-react';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import preferencesService from '@services/preferences.service';
 import { useTimezone } from '@contexts/TimezoneContext';
@@ -10,7 +10,11 @@ import { getEffectiveTimezone, getTimeInTimezone } from '@utils/timezone';
 
 type TimeSettingValue = 'server-24h' | 'server-12h' | 'local-24h' | 'local-12h';
 
-const TimezoneSelector: React.FC = () => {
+interface TimezoneSelectorProps {
+  iconOnly?: boolean;
+}
+
+const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false }) => {
   const { t } = useTranslation();
   const { useLocalTimezone, use24HourFormat, setPendingTimeSetting } = useTimezone();
   const { authMode } = useAuth();
@@ -191,6 +195,9 @@ const TimezoneSelector: React.FC = () => {
       onChange={handleTimeSettingChange}
       compactMode={true}
       customTriggerLabel={currentTime}
+      iconOnly={iconOnly}
+      triggerIcon={Clock}
+      triggerAriaLabel={t('common.timezoneSelector.title')}
       dropdownWidth="w-72"
       alignRight={true}
       maxHeight="400px"

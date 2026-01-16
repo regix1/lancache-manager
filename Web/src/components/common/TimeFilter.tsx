@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useLayoutEffect, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
-import { Clock, Calendar, Radio, Info, ChevronDown, Check, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Clock, Calendar, Radio, Info, ChevronDown, Check, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
 import { useTimeFilter, type TimeRange } from '@contexts/TimeFilterContext';
 import { useEvents } from '@contexts/EventContext';
 import DateRangePicker from './DateRangePicker';
@@ -10,9 +10,10 @@ import { getEventColorVar } from '@utils/eventColors';
 
 interface TimeFilterProps {
   disabled?: boolean;
+  iconOnly?: boolean;
 }
 
-const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
+const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = false }) => {
   const { t } = useTranslation();
   const {
     timeRange,
@@ -316,18 +317,27 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
             type="button"
             onClick={() => !disabled && setIsOpen(!isOpen)}
             disabled={disabled}
+            aria-label={t('common.timeFilter.title')}
             className={`ed-trigger w-full px-3 py-2 sm:px-3 sm:py-2 rounded-lg border text-left flex items-center justify-between text-sm bg-[var(--theme-card-bg)] text-[var(--theme-text-primary)] ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${isOpen ? 'border-[var(--theme-border-focus)]' : 'border-[var(--theme-border-primary)]'}`}
           >
-            <div className="flex items-center gap-1.5 flex-1 truncate">
-              {selectedTimeOption?.icon && (
-                <selectedTimeOption.icon className="flex-shrink-0 text-[var(--theme-primary)]" size={16} />
+            <div className={`flex items-center flex-1 truncate ${iconOnly ? 'justify-center' : 'gap-1.5'}`}>
+              {iconOnly ? (
+                <Filter className="flex-shrink-0 text-[var(--theme-primary)]" size={16} />
+              ) : (
+                <>
+                  {selectedTimeOption?.icon && (
+                    <selectedTimeOption.icon className="flex-shrink-0 text-[var(--theme-primary)]" size={16} />
+                  )}
+                  <span className="font-medium">{getTimeRangeTriggerLabel()}</span>
+                </>
               )}
-              <span className="font-medium">{getTimeRangeTriggerLabel()}</span>
             </div>
-            <ChevronDown
-              size={16}
-              className={`flex-shrink-0 transition-transform duration-200 text-[var(--theme-text-primary)] ${isOpen ? 'rotate-180' : ''}`}
-            />
+            {!iconOnly && (
+              <ChevronDown
+                size={16}
+                className={`flex-shrink-0 transition-transform duration-200 text-[var(--theme-text-primary)] ${isOpen ? 'rotate-180' : ''}`}
+              />
+            )}
           </button>
 
           {/* Dropdown - rendered via portal to escape stacking context */}

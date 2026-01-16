@@ -195,18 +195,10 @@ export function GameSelectionModal({
       title={t('prefill.gameSelection.title')}
       size="lg"
     >
-      <div className="flex flex-col h-[60vh]">
+      <div className="flex flex-col h-[70vh] sm:h-[60vh]">
         {/* Search and actions */}
-        <div className="flex gap-2 mb-3">
-          <Button
-            variant={showImport ? 'filled' : 'outline'}
-            size="sm"
-            onClick={() => setShowImport(!showImport)}
-          >
-            <Import className="h-4 w-4" />
-            {t('prefill.gameSelection.importAppIds')}
-          </Button>
-          <div className="relative flex-1">
+        <div className="flex flex-col gap-3 mb-3">
+          <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--theme-text-muted)]" />
             <input
               type="text"
@@ -216,23 +208,35 @@ export function GameSelectionModal({
               className="w-full pl-9 pr-3 py-2 text-sm rounded-lg smooth-transition bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-primary)] outline-none focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-primary)]/20"
             />
           </div>
-          {cachedCount > 0 && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <Button
-              variant={hideCached ? 'filled' : 'outline'}
+              variant={showImport ? 'filled' : 'outline'}
               size="sm"
-              onClick={() => setHideCached(!hideCached)}
-              title={hideCached ? t('prefill.gameSelection.showCachedTitle') : t('prefill.gameSelection.hideCachedTitle')}
+              onClick={() => setShowImport(!showImport)}
+              fullWidth
             >
-              {hideCached ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-              {hideCached ? t('prefill.gameSelection.showCached') : t('prefill.gameSelection.hideCached')}
+              <Import className="h-4 w-4" />
+              {t('prefill.gameSelection.importAppIds')}
             </Button>
-          )}
-          <Button variant="outline" size="sm" onClick={selectAll}>
-            {t('common.selectAll')}
-          </Button>
-          <Button variant="outline" size="sm" onClick={selectNone}>
-            {t('common.clear')}
-          </Button>
+            {cachedCount > 0 && (
+              <Button
+                variant={hideCached ? 'filled' : 'outline'}
+                size="sm"
+                onClick={() => setHideCached(!hideCached)}
+                title={hideCached ? t('prefill.gameSelection.showCachedTitle') : t('prefill.gameSelection.hideCachedTitle')}
+                fullWidth
+              >
+                {hideCached ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                {hideCached ? t('prefill.gameSelection.showCached') : t('prefill.gameSelection.hideCached')}
+              </Button>
+            )}
+            <Button variant="outline" size="sm" onClick={selectAll} fullWidth>
+              {t('common.selectAll')}
+            </Button>
+            <Button variant="outline" size="sm" onClick={selectNone} fullWidth>
+              {t('common.clear')}
+            </Button>
+          </div>
         </div>
 
         {/* Import Section - Expandable */}
@@ -250,7 +254,7 @@ export function GameSelectionModal({
               placeholder={t('prefill.placeholders.bulkInput')}
               className="w-full px-3 py-2 text-sm rounded-lg resize-none smooth-transition bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-primary)] outline-none min-h-[70px] focus:border-[var(--theme-primary)]"
             />
-            <div className="flex items-center gap-2 mt-2">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 mt-2">
               <Button 
                 variant="filled" 
                 size="sm" 
@@ -272,7 +276,7 @@ export function GameSelectionModal({
                 {t('common.cancel')}
               </Button>
               {importResult && (
-                <span className="text-xs ml-auto text-[var(--theme-text-muted)]">
+                <span className="text-xs sm:ml-auto text-[var(--theme-text-muted)]">
                   {importResult.added > 0 && (
                     <span className="text-[var(--theme-success)]">
                       {t('prefill.gameSelection.importAdded', { count: importResult.added })}
@@ -300,18 +304,18 @@ export function GameSelectionModal({
         )}
 
         {/* Selection count */}
-        <div className="text-sm mb-2 text-[var(--theme-text-muted)]">
+        <div className="text-sm mb-2 text-[var(--theme-text-muted)] flex flex-wrap items-center gap-2">
           <span className="text-[var(--theme-primary)] font-semibold">{localSelected.size}</span>
-          {' '}{t('prefill.gameSelection.ofGamesSelected', { total: games.length, count: games.length })}
+          <span>{t('prefill.gameSelection.ofGamesSelected', { total: games.length, count: games.length })}</span>
           {cachedCount > 0 && (
-            <span className="ml-2">
-              <Database className="inline h-3.5 w-3.5 mr-1 text-[var(--theme-success)]" />
+            <span className="inline-flex items-center gap-1">
+              <Database className="inline h-3.5 w-3.5 text-[var(--theme-success)]" />
               <span className="text-[var(--theme-success)]">{t('prefill.gameSelection.cached', { count: cachedCount })}</span>
             </span>
           )}
           {(search || hideCached) && (
             <span className="text-[var(--theme-text-muted)]">
-              {' '}({t('prefill.gameSelection.showing', { count: filteredGames.length })}{search ? ` ${t('prefill.gameSelection.matching', { query: search })}` : ''}{hideCached ? `, ${t('prefill.gameSelection.hidingCached')}` : ''})
+              ({t('prefill.gameSelection.showing', { count: filteredGames.length })}{search ? ` ${t('prefill.gameSelection.matching', { query: search })}` : ''}{hideCached ? `, ${t('prefill.gameSelection.hidingCached')}` : ''})
             </span>
           )}
         </div>
@@ -422,11 +426,11 @@ export function GameSelectionModal({
         </div>
 
         {/* Actions */}
-        <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-[var(--theme-border-secondary)]">
-          <Button variant="outline" onClick={onClose}>
+        <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 mt-4 pt-4 border-t border-[var(--theme-border-secondary)]">
+          <Button variant="outline" onClick={onClose} className="w-full sm:w-auto">
             {t('common.cancel')}
           </Button>
-          <Button variant="filled" onClick={handleSave} disabled={isSaving}>
+          <Button variant="filled" onClick={handleSave} disabled={isSaving} className="w-full sm:w-auto">
             {isSaving ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (

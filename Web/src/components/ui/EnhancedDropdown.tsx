@@ -115,6 +115,9 @@ interface EnhancedDropdownProps {
   disabled?: boolean;
   compactMode?: boolean;
   customTriggerLabel?: string;
+  triggerIcon?: React.ComponentType<IconComponentProps>;
+  triggerAriaLabel?: string;
+  iconOnly?: boolean;
   prefix?: string;
   dropdownWidth?: string;
   alignRight?: boolean;
@@ -134,6 +137,9 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
   disabled = false,
   compactMode = false,
   customTriggerLabel,
+  triggerIcon: TriggerIconOverride,
+  triggerAriaLabel,
+  iconOnly = false,
   prefix,
   dropdownWidth,
   alignRight = false,
@@ -285,6 +291,8 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
     : selectedOption
     ? (prefix ? `${prefix} ` : '') + (compactMode && selectedOption.shortLabel ? selectedOption.shortLabel : selectedOption.label)
     : (placeholder || t('ui.dropdown.selectOption'));
+  const TriggerIcon = TriggerIconOverride ?? selectedOption?.icon;
+  const resolvedAriaLabel = triggerAriaLabel || displayLabel;
 
   return (
     <div className={`relative ${className}`}>
@@ -293,20 +301,25 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         type="button"
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
+        aria-label={resolvedAriaLabel}
         className={`ed-trigger w-full px-3 py-2 rounded-lg border text-left flex items-center justify-between text-sm themed-card text-themed-primary ${
           isOpen ? 'border-themed-focus' : 'border-themed-primary'
         } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
       >
-        <div className="flex items-center gap-1.5 flex-1 truncate">
-          {selectedOption?.icon && (
-            <selectedOption.icon className="flex-shrink-0 text-[var(--theme-primary)]" size={16} />
+        <div className={`flex items-center flex-1 truncate ${iconOnly ? 'justify-center' : 'gap-1.5'}`}>
+          {TriggerIcon && (
+            <TriggerIcon className="flex-shrink-0 text-[var(--theme-primary)]" size={16} />
           )}
-          <span className={compactMode ? 'font-medium' : 'truncate'}>{displayLabel}</span>
+          {!iconOnly && (
+            <span className={compactMode ? 'font-medium' : 'truncate'}>{displayLabel}</span>
+          )}
         </div>
-        <ChevronDown
-          size={16}
-          className={`flex-shrink-0 transition-transform duration-200 text-themed-primary ${isOpen ? 'rotate-180' : ''}`}
-        />
+        {!iconOnly && (
+          <ChevronDown
+            size={16}
+            className={`flex-shrink-0 transition-transform duration-200 text-themed-primary ${isOpen ? 'rotate-180' : ''}`}
+          />
+        )}
       </button>
 
       {/* Dropdown - rendered via portal to escape stacking context */}

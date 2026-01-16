@@ -191,10 +191,10 @@ const Header: React.FC<HeaderProps> = ({
 
               {/* Right: Controls in a row - constrained width to prevent overflow */}
               <div className="flex items-center gap-0.5 xs:gap-1 flex-1 justify-end min-w-0 [&_.ed-trigger]:text-xs [&_.ed-trigger]:py-1.5 [&_.ed-trigger]:px-2">
-                <LanguageSelector />
-                <TimezoneSelector />
-                <RefreshRateSelector disabled={mockMode} />
-                <TimeFilter disabled={mockMode} />
+                <LanguageSelector iconOnly={true} />
+                <TimezoneSelector iconOnly={true} />
+                <RefreshRateSelector disabled={mockMode} iconOnly={true} />
+                <TimeFilter disabled={mockMode} iconOnly={true} />
               </div>
             </div>
 

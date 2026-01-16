@@ -635,7 +635,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         <div className="xl:col-span-2 space-y-4">
           {/* Authentication Card */}
           <Card padding="md">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex items-center gap-3">
                 <div
                   className={`w-10 h-10 rounded-lg flex items-center justify-center ${
@@ -663,7 +663,11 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
               </div>
 
               {!signalR.isLoggedIn && (
-                <Button variant="filled" onClick={handleOpenAuthModal} className="flex-shrink-0">
+                <Button
+                  variant="filled"
+                  onClick={handleOpenAuthModal}
+                  className="flex-shrink-0 w-full sm:w-auto"
+                >
                   <SteamIcon size={18} />
                   {t('prefill.auth.loginToSteam')}
                 </Button>

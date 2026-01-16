@@ -32,7 +32,11 @@ const getLanguageShortLabel = (code: string) => {
   return LANGUAGE_LABELS[code]?.shortLabel ?? code.split('-')[0].toUpperCase();
 };
 
-const LanguageSelector: React.FC = () => {
+interface LanguageSelectorProps {
+  iconOnly?: boolean;
+}
+
+const LanguageSelector: React.FC<LanguageSelectorProps> = ({ iconOnly = false }) => {
   const { t, i18n: i18nInstance } = useTranslation();
   const supportedLanguages = useMemo(() => getSupportedLanguages(), []);
   const currentLanguage = normalizeLanguage(
@@ -63,6 +67,8 @@ const LanguageSelector: React.FC = () => {
       onChange={handleChange}
       compactMode={true}
       customTriggerLabel={triggerLabel}
+      iconOnly={iconOnly}
+      triggerAriaLabel={t('common.languageSelector.title')}
       dropdownTitle={t('common.languageSelector.title')}
       dropdownWidth="w-48"
       alignRight={true}

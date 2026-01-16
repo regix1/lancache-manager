@@ -8,9 +8,10 @@ import { Tooltip } from '@components/ui/Tooltip';
 
 interface RefreshRateSelectorProps {
   disabled?: boolean;
+  iconOnly?: boolean;
 }
 
-const RefreshRateSelector: React.FC<RefreshRateSelectorProps> = ({ disabled = false }) => {
+const RefreshRateSelector: React.FC<RefreshRateSelectorProps> = ({ disabled = false, iconOnly = false }) => {
   const { t } = useTranslation();
   const { refreshRate, setRefreshRate, isControlledByAdmin } = useRefreshRate();
 
@@ -78,9 +79,9 @@ const RefreshRateSelector: React.FC<RefreshRateSelectorProps> = ({ disabled = fa
 
     return (
       <Tooltip content={t('tooltips.refreshRateControlled')}>
-        <div className="flex items-center gap-1.5 px-2 py-1 rounded text-sm cursor-not-allowed opacity-75">
+        <div className="flex items-center justify-center gap-1.5 px-2 py-1 rounded text-sm cursor-not-allowed opacity-75">
           <Lock className="w-3.5 h-3.5 text-themed-muted" />
-          <span className="text-themed-secondary">{displayLabel}</span>
+          {!iconOnly && <span className="text-themed-secondary">{displayLabel}</span>}
         </div>
       </Tooltip>
     );
@@ -100,6 +101,8 @@ const RefreshRateSelector: React.FC<RefreshRateSelectorProps> = ({ disabled = fa
       footerNote={t('common.refreshRate.footerNote')}
       footerIcon={Lightbulb}
       cleanStyle={true}
+      iconOnly={iconOnly}
+      triggerAriaLabel={t('common.refreshRate.title')}
     />
   );
 };
