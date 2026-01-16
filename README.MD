@@ -259,6 +259,20 @@ services:
       # Example: http://localhost:3000,https://mysite.com
       # - Security__AllowedOrigins=
 
+      # Allowed file browser root paths (comma-separated)
+      # Example: /data,/mnt
+      # - Security__AllowedBrowsePaths=
+
+      #---------------------------------------------------------------------------
+      # API Options
+      #---------------------------------------------------------------------------
+
+      # Max number of clients returned in a single stats request
+      # - ApiOptions__MaxClientsPerRequest=1000
+
+      # Default limit for clients when no limit is provided
+      # - ApiOptions__DefaultClientsLimit=100
+
       #---------------------------------------------------------------------------
       # Nginx Log Rotation (auto-detects LANCache container)
       #---------------------------------------------------------------------------
@@ -315,6 +329,19 @@ services:
       # Example: If docker-compose.yml is at /srv/lancache/docker-compose.yml
       # and you have ./data:/data, set this to /srv/lancache/data
       # - Prefill__HostDataPath=/srv/lancache/data
+
+      # Use TCP mode for prefill daemon communication
+      # Default: true on Windows, false on Linux
+      # - Prefill__UseTcp=true
+
+      # TCP port inside the prefill container
+      # - Prefill__TcpPort=4379
+
+      # TCP port exposed on the host for prefill containers
+      # - Prefill__HostTcpPort=4379
+
+      # TCP host used by the prefill daemon
+      # - Prefill__TcpHost=127.0.0.1
 
       # Network configuration for prefill containers (AUTO-DETECTED)
       # The app auto-detects your lancache-dns setup:
@@ -396,6 +423,7 @@ services:
 | `Security__RequireAuthForMetrics` | false | Require API key for `/metrics` endpoint. |
 | `Security__ProtectSwagger` | true | Require auth for Swagger API docs in production. |
 | `Security__AllowedOrigins` | (empty) | Comma-separated CORS allow list. Empty allows all. |
+| `Security__AllowedBrowsePaths` | (empty) | Comma-separated list of allowed file browser roots. |
 
 #### Access Levels
 
@@ -435,6 +463,13 @@ Guests can view dashboards, downloads, and events but cannot modify settings or 
 |----------|---------|-------------|
 | `CacheClear__DeleteMode` | preserve | `preserve` keeps directory structure, `full` removes everything. |
 
+### API Options
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ApiOptions__MaxClientsPerRequest` | 1000 | Max clients returned in a single stats request. |
+| `ApiOptions__DefaultClientsLimit` | 100 | Default client limit when none is provided. |
+
 ### Steam Prefill
 
 | Variable | Default | Description |
@@ -445,6 +480,10 @@ Guests can view dashboards, downloads, and events but cannot modify settings or 
 | `Prefill__HostDataPath` | (auto) | Host path mapping to `/data`. Set only if auto-detection fails. |
 | `Prefill__LancacheDnsIp` | (auto) | IP of your lancache-dns container. Auto-detected if lancache-dns is running. |
 | `Prefill__NetworkMode` | (auto) | Network mode for prefill containers: `host`, `bridge`, or a network name. Auto-detected from lancache-dns. |
+| `Prefill__UseTcp` | (auto) | Use TCP for daemon communication. Defaults to true on Windows. |
+| `Prefill__TcpPort` | 4379 | TCP port inside the prefill container. |
+| `Prefill__HostTcpPort` | 4379 | TCP port exposed on the host for prefill containers. |
+| `Prefill__TcpHost` | 127.0.0.1 | TCP host used by the prefill daemon. |
 
 -----
 
@@ -937,7 +976,7 @@ Web/src/i18n/locales/
 ### Guidelines
 
 - **Keep JSON keys unchanged** - Only translate the string values
-- **Preserve placeholders** - Keep `{{variable}}` placeholders intact (e.g., `{{count}}`, `{{name}}`)
+- **Preserve placeholders** - Keep `{{variable}}` placeholders intact (e.g., `{{name}}`)
 - **Maintain formatting** - Preserve any HTML tags like `<strong>` if present
 - **Test your translation** - Run the app locally to verify your translations display correctly
 
@@ -962,12 +1001,6 @@ Web/src/i18n/locales/
   }
 }
 ```
-
-### Questions about translations
-
-If you have questions about contributing translations or need clarification on any strings, feel free to [open an issue](https://github.com/regix1/lancache-manager/issues) or reach out on the [LanCache.NET Discord](https://discord.com/invite/BKnBS4u).
-
------
 
 <a id="need-help"></a>
 ## Need Help?
