@@ -963,7 +963,7 @@ Web/src/i18n/locales/
 }
 ```
 
-### Need Help?
+### Questions about translations
 
 If you have questions about contributing translations or need clarification on any strings, feel free to [open an issue](https://github.com/regix1/lancache-manager/issues) or reach out on the [LanCache.NET Discord](https://discord.com/invite/BKnBS4u).
 
