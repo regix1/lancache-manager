@@ -162,6 +162,12 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
             </div>
           )}
 
+          {diagnostics.internetConnectivityIpv6 === false && (
+            <div className="ml-6 text-xs p-2 rounded bg-[var(--theme-info-bg)] text-[var(--theme-info-text)]">
+              {t('prefill.network.ipv6UnsupportedHint')}
+            </div>
+          )}
+
           {/* Internet Error Details */}
           {!diagnostics.internetConnectivity && diagnostics.internetConnectivityError && (
             <div className="ml-6 text-xs p-2 rounded bg-[var(--theme-error-bg)] text-[var(--theme-error-text)]">

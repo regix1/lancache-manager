@@ -15,7 +15,6 @@ public class CacheClearingService : IHostedService
 {
     private readonly ILogger<CacheClearingService> _logger;
     private readonly IHubContext<DownloadHub> _hubContext;
-    private readonly IConfiguration _configuration;
     private readonly IPathResolver _pathResolver;
     private readonly StateRepository _stateService;
     private readonly ProcessManager _processManager;
@@ -38,15 +37,13 @@ public class CacheClearingService : IHostedService
     {
         _logger = logger;
         _hubContext = hubContext;
-        _configuration = configuration;
         _pathResolver = pathResolver;
         _stateService = stateService;
         _processManager = processManager;
         _rustProcessHelper = rustProcessHelper;
         _datasourceService = datasourceService;
 
-        // Read delete mode from configuration
-        _deleteMode = configuration.GetValue<string>("CacheClear:DeleteMode", "preserve") ?? "preserve";
+        _deleteMode = "preserve";
 
         // Use DatasourceService for default cache path
         var defaultDatasource = _datasourceService.GetDefaultDatasource();

@@ -299,16 +299,6 @@ services:
       # - Optimizations__EnableGarbageCollectionManagement=false
 
       #---------------------------------------------------------------------------
-      # Cache Clearing
-      #---------------------------------------------------------------------------
-
-      # Default mode for cache clearing operations
-      # "preserve" = keep directory structure, only delete files (safer)
-      # "full" = delete everything including directories (faster, more thorough)
-      # Can be changed in Management UI during runtime
-      # - CacheClear__DeleteMode=preserve
-
-      #---------------------------------------------------------------------------
       # Steam Prefill (auto-detects host paths from container mounts)
       # Pre-download games to your cache before LAN parties
       # Powered by: https://github.com/tpill90/steam-lancache-prefill
@@ -462,7 +452,6 @@ Guests can view dashboards, downloads, and events but cannot modify settings or 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CacheClear__DeleteMode` | preserve | `preserve` keeps directory structure, `full` removes everything. |
 
 ### API Options
 
