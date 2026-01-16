@@ -482,6 +482,21 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             title: t('prefill.confirm.forceTitle'),
             message: t('prefill.confirm.forceMessage')
           };
+        case 'prefill-recent':
+          return {
+            title: t('prefill.confirm.recentTitle'),
+            message: t('prefill.confirm.recentMessage')
+          };
+        case 'prefill-recent-purchased':
+          return {
+            title: t('prefill.confirm.recentPurchasedTitle'),
+            message: t('prefill.confirm.recentPurchasedMessage')
+          };
+        case 'prefill-top':
+          return {
+            title: t('prefill.confirm.topTitle'),
+            message: t('prefill.confirm.topMessage')
+          };
         case 'clear-cache-data':
           return {
             title: t('prefill.confirm.clearDbTitle'),
@@ -496,7 +511,15 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
   const handleCommandClick = useCallback(
     (command: CommandType) => {
-      const requiresConfirmation = ['prefill', 'prefill-all', 'prefill-force', 'clear-cache-data'].includes(command);
+      const requiresConfirmation = [
+        'prefill',
+        'prefill-all',
+        'prefill-recent',
+        'prefill-recent-purchased',
+        'prefill-top',
+        'prefill-force',
+        'clear-cache-data'
+      ].includes(command);
 
       if (requiresConfirmation) {
         setPendingConfirmCommand(command);
