@@ -177,6 +177,45 @@ public class SelectedAppsStatus
     public string? Message { get; set; }
 }
 
+public class CacheStatusResult
+{
+    [JsonPropertyName("apps")]
+    public List<AppCacheStatus> Apps { get; set; } = new();
+
+    [JsonPropertyName("message")]
+    public string? Message { get; set; }
+}
+
+public class AppCacheStatus
+{
+    [JsonPropertyName("appId")]
+    public uint AppId { get; set; }
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("isUpToDate")]
+    public bool IsUpToDate { get; set; }
+
+    [JsonPropertyName("downloadSize")]
+    public long DownloadSize { get; set; }
+
+    [JsonPropertyName("outdatedDepots")]
+    public List<OutdatedDepot> OutdatedDepots { get; set; } = new();
+}
+
+public class OutdatedDepot
+{
+    [JsonPropertyName("depotId")]
+    public uint DepotId { get; set; }
+
+    [JsonPropertyName("cachedManifest")]
+    public ulong CachedManifest { get; set; }
+
+    [JsonPropertyName("currentManifest")]
+    public ulong CurrentManifest { get; set; }
+}
+
 /// <summary>
 /// Input for cached depot manifest info to send to daemon.
 /// Format matches daemon's CachedDepotInput class.

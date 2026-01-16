@@ -711,6 +711,36 @@ public sealed class TcpDaemonClient : IDaemonClient
         return new SelectedAppsStatus { Message = response.Message };
     }
 
+    public async Task<CacheStatusResult> CheckCacheStatusAsync(
+        List<CachedDepotInput> cachedDepots,
+        CancellationToken cancellationToken = default)
+    {
+        if (cachedDepots == null || cachedDepots.Count == 0)
+        {
+            return new CacheStatusResult { Message = "No cached depots provided" };
+        }
+
+        var parameters = new Dictionary<string, string>
+        {
+            ["cachedDepots"] = JsonSerializer.Serialize(cachedDepots, JsonOptions)
+        };
+
+        var response = await SendCommandAsync("check-cache-status", parameters,
+            timeout: TimeSpan.FromMinutes(10),
+            cancellationToken: cancellationToken);
+
+        if (!response.Success)
+            throw new InvalidOperationException(response.Error ?? "Failed to check cache status");
+
+        if (response.Data is JsonElement element)
+        {
+            return JsonSerializer.Deserialize<CacheStatusResult>(element.GetRawText(), JsonOptions)
+                   ?? new CacheStatusResult { Message = "Failed to parse result" };
+        }
+
+        return new CacheStatusResult { Message = response.Message };
+    }
+
     public async Task ShutdownAsync(CancellationToken cancellationToken = default)
     {
         await SendCommandAsync("shutdown", timeout: TimeSpan.FromSeconds(30), cancellationToken: cancellationToken);

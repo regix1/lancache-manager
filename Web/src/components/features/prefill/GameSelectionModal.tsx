@@ -341,7 +341,11 @@ export function GameSelectionModal({
               {/* Selected games section - sticky at top */}
               {sortedGames.some(g => localSelected.has(g.appId)) && (
                 <div
-                  className="flex-shrink-0 max-h-[40%] flex flex-col"
+                  className={`flex flex-col ${
+                    sortedGames.some(g => !localSelected.has(g.appId))
+                      ? 'flex-shrink-0 max-h-[40%]'
+                      : 'flex-1 min-h-0'
+                  }`}
                 >
                   <div
                     className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0 bg-[color-mix(in_srgb,var(--theme-primary)_15%,var(--theme-bg-tertiary))] text-[var(--theme-primary)] border-b border-[var(--theme-border-secondary)]"

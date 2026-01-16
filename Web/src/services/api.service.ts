@@ -1448,6 +1448,29 @@ class ApiService {
     }
   }
 
+  // Check cache status for apps via daemon (verifies Steam manifests)
+  static async getPrefillCacheStatus(
+    sessionId: string,
+    appIds: number[],
+    signal?: AbortSignal
+  ): Promise<PrefillCacheStatusDto> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/prefill-daemon/sessions/${sessionId}/cache-status`,
+        this.getFetchOptions({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ appIds }),
+          signal
+        })
+      );
+      return await this.handleResponse<PrefillCacheStatusDto>(res);
+    } catch (error: unknown) {
+      if (!isAbortError(error)) console.error('getPrefillCacheStatus error:', error);
+      throw error;
+    }
+  }
+
   // Check which apps are cached
   
 
@@ -1575,6 +1598,12 @@ export interface CachedAppDto {
   totalBytes: number;
   cachedAtUtc: string;
   cachedBy?: string;
+}
+
+export interface PrefillCacheStatusDto {
+  upToDateAppIds: number[];
+  outdatedAppIds: number[];
+  message?: string;
 }
 
 

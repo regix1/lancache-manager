@@ -230,11 +230,23 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
               setOwnedGames(games || []);
               addLog('info', t('prefill.log.foundGames', { count: games?.length || 0 }));
 
-              // Get cached apps via ApiService
+              // Get cached apps via ApiService and verify against Steam manifests
               const cachedApps = await ApiService.getPrefillCachedApps();
-              setCachedAppIds(cachedApps.map(a => a.appId));
-              if (cachedApps.length > 0) {
-                addLog('info', t('prefill.log.gamesCached', { count: cachedApps.length }));
+              let cachedIds = cachedApps.map(a => a.appId);
+
+              if (cachedIds.length > 0) {
+                try {
+                  const cacheStatus = await ApiService.getPrefillCacheStatus(signalR.session.id, cachedIds);
+                  cachedIds = cacheStatus?.upToDateAppIds?.length ? cacheStatus.upToDateAppIds : [];
+                } catch (cacheStatusError) {
+                  console.warn('Failed to check cache status, clearing cached list:', cacheStatusError);
+                  cachedIds = [];
+                }
+              }
+
+              setCachedAppIds(cachedIds);
+              if (cachedIds.length > 0) {
+                addLog('info', t('prefill.log.gamesCached', { count: cachedIds.length }));
               }
             } catch (err) {
               console.error('Failed to load games:', err);

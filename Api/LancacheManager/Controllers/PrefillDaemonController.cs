@@ -295,6 +295,55 @@ public class PrefillDaemonController : ControllerBase
     }
 
     /// <summary>
+    /// Checks cache status for cached apps (verifies Steam manifests).
+    /// </summary>
+    [HttpPost("sessions/{sessionId}/cache-status")]
+    [RequirePrefillAccess]
+    public async Task<ActionResult<CacheStatusResponse>> GetCacheStatus(string sessionId, [FromBody] CacheStatusRequest request)
+    {
+        var deviceId = GetDeviceId()!;
+
+        var session = _daemonService.GetSession(sessionId);
+        if (session == null)
+        {
+            return NotFound();
+        }
+
+        if (session.UserId != deviceId)
+        {
+            return Forbid();
+        }
+
+        if (request.AppIds == null || request.AppIds.Count == 0)
+        {
+            return BadRequest(ApiResponse.Error("No app IDs provided"));
+        }
+
+        try
+        {
+            var status = await _daemonService.GetCacheStatusAsync(sessionId, request.AppIds);
+            var upToDate = status.Apps.Where(a => a.IsUpToDate).Select(a => a.AppId).ToList();
+            var outdated = status.Apps.Where(a => !a.IsUpToDate).Select(a => a.AppId).ToList();
+
+            return Ok(new CacheStatusResponse
+            {
+                UpToDateAppIds = upToDate,
+                OutdatedAppIds = outdated,
+                Message = status.Message
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ApiResponse.Error(ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting cache status for session {SessionId}", sessionId);
+            return StatusCode(500, ApiResponse.Error(ex.Message));
+        }
+    }
+
+    /// <summary>
     /// Sets selected apps for prefill
     /// </summary>
     [HttpPost("sessions/{sessionId}/selected-apps")]
@@ -440,6 +489,18 @@ public class PrefillDaemonController : ControllerBase
     public class SetSelectedAppsRequest
     {
         public List<uint>? AppIds { get; set; }
+    }
+
+    public class CacheStatusRequest
+    {
+        public List<uint>? AppIds { get; set; }
+    }
+
+    public class CacheStatusResponse
+    {
+        public List<uint> UpToDateAppIds { get; set; } = new();
+        public List<uint> OutdatedAppIds { get; set; } = new();
+        public string? Message { get; set; }
     }
 
     public class StartPrefillRequest

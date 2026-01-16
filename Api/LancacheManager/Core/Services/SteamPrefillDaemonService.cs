@@ -803,6 +803,40 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
     }
 
     /// <summary>
+    /// Checks cache status by comparing cached depots against Steam manifests.
+    /// </summary>
+    public async Task<CacheStatusResult> GetCacheStatusAsync(
+        string sessionId,
+        List<uint> appIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_sessions.TryGetValue(sessionId, out var session))
+        {
+            throw new KeyNotFoundException($"Session not found: {sessionId}");
+        }
+
+        if (appIds == null || appIds.Count == 0)
+        {
+            return new CacheStatusResult { Apps = new List<AppCacheStatus>(), Message = "No app IDs provided" };
+        }
+
+        var cachedData = await _cacheService.GetCachedDepotsForAppsAsync(appIds);
+        if (cachedData.Count == 0)
+        {
+            return new CacheStatusResult { Apps = new List<AppCacheStatus>(), Message = "No cached depots found" };
+        }
+
+        var cachedDepots = cachedData.Select(d => new CachedDepotInput
+        {
+            AppId = d.AppId,
+            DepotId = d.DepotId,
+            ManifestId = d.ManifestId
+        }).ToList();
+
+        return await session.Client.CheckCacheStatusAsync(cachedDepots, cancellationToken);
+    }
+
+    /// <summary>
     /// Sets selected apps for prefill
     /// </summary>
     public async Task SetSelectedAppsAsync(string sessionId, List<uint> appIds, CancellationToken cancellationToken = default)

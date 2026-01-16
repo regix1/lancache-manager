@@ -104,6 +104,13 @@ public interface IDaemonClient : IDisposable
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Check cache status by comparing cached depots against Steam manifests.
+    /// </summary>
+    Task<CacheStatusResult> CheckCacheStatusAsync(
+        List<CachedDepotInput> cachedDepots,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Shutdown daemon.
     /// </summary>
     Task ShutdownAsync(CancellationToken cancellationToken = default);
