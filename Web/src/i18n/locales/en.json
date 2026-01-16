@@ -2905,7 +2905,8 @@
       "seconds": "{{seconds}}s"
     },
     "completion": {
-      "title": "Download Completed"
+      "title": "Download Completed",
+      "message": "Prefill completed in {{duration}}"
     },
     "sections": {
       "gameSelection": "Game Selection",
@@ -3027,6 +3028,10 @@
       "yesContinue": "Yes, Continue"
     },
     "errors": {
+      "notAuthenticated": "Not authenticated",
+      "failedConnect": "Failed to connect to server",
+      "failedEstablishConnection": "Failed to establish connection",
+      "failedCreateSession": "Failed to create session",
       "httpStatus": "HTTP {{status}}",
       "requestFailed": "Prefill request failed",
       "sessionExpired": "Session expired",
@@ -3062,7 +3067,28 @@
       "failedCancelPrefill": "Failed to cancel prefill",
       "selectedGames": "Selected {{count}} game for prefill",
       "selectedGames_plural": "Selected {{count}} games for prefill",
-      "failedSaveSelection": "Failed to save game selection"
+      "failedSaveSelection": "Failed to save game selection",
+      "sessionEnded": "Session ended: {{reason}}",
+      "sessionTerminated": "Session terminated: {{reason}}",
+      "statusMessage": "Status: {{message}}",
+      "prefillStarted": "Prefill operation started",
+      "prefillCompleted": "Prefill completed in {{duration}}",
+      "prefillCancelled": "Prefill operation cancelled",
+      "connectionLostReconnecting": "Connection lost, reconnecting...",
+      "reconnected": "Reconnected to server",
+      "prefillCompletedWhileDisconnected": "Prefill completed while disconnected ({{duration}})",
+      "reconnectingExistingSession": "Reconnecting to existing session...",
+      "sessionDetail": "Session: {{id}}",
+      "reconnectedExistingSession": "Reconnected to existing session",
+      "containerDetail": "Container: {{name}}",
+      "sessionExpiresIn": "Session expires in {{time}}",
+      "alreadyLoggedIn": "Already logged in to Steam",
+      "loginToSteamPrompt": "Click \"Login to Steam\" to authenticate",
+      "prefillCompletedWhileAway": "Prefill completed while away ({{duration}})",
+      "creatingSession": "Creating prefill session...",
+      "connectedExistingSession": "Connected to existing session",
+      "sessionCreated": "Session created successfully",
+      "loginToSteamBeforePrefill": "Click \"Login to Steam\" to authenticate before using prefill commands"
     },
     "gameSelection": {
       "title": "Select Games to Prefill",

@@ -2,8 +2,9 @@ import { useRef, useState, useCallback, useEffect } from 'react';
 import { HubConnection, HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
 import { SIGNALR_BASE } from '@utils/constants';
 import authService from '@services/auth.service';
-import { formatDuration, type SteamAuthState, type PrefillSessionDto } from '../types';
+import { formatDuration, formatTimeRemaining, type SteamAuthState, type PrefillSessionDto } from '../types';
 import type { LogEntryType } from '../ActivityLog';
+import i18n from '../../../../i18n';
 
 interface PrefillProgress {
   state: string;
@@ -86,6 +87,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     onAuthStateChanged,
     clearAllPrefillStorage
   } = options;
+  const t = i18n.t.bind(i18n);
 
   // Connection refs
   const hubConnection = useRef<HubConnection | null>(null);
@@ -133,20 +135,10 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     setBackgroundCompletionRef.current = setBackgroundCompletion;
   }, [setBackgroundCompletion]);
 
-  const formatTimeRemaining = useCallback((seconds: number): string => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    }
-    return `${minutes}:${secs.toString().padStart(2, '0')}`;
-  }, []);
-
   const connectToHub = useCallback(async (): Promise<HubConnection | null> => {
     const deviceId = authService.getDeviceId();
     if (!deviceId) {
-      setError('Not authenticated');
+      setError(t('prefill.errors.notAuthenticated'));
       return null;
     }
 
@@ -207,7 +199,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
 
       // Handle session ended (sent to session owner)
       connection.on('SessionEnded', (_sessionId: string, reason: string) => {
-        addLog('warning', `Session ended: ${reason}`);
+        addLog('warning', t('prefill.log.sessionEnded', { reason }));
         setSession(null);
         setIsLoggedIn(false);
         setIsPrefillActive(false);
@@ -224,7 +216,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         const currentSession = sessionRef.current;
         if (currentSession && _event.sessionId === currentSession.id) {
           // Our session was terminated externally (e.g., by admin)
-          addLog('warning', `Session terminated: ${_event.reason}`);
+          addLog('warning', t('prefill.log.sessionTerminated', { reason: _event.reason }));
           setSession(null);
           setIsLoggedIn(false);
           setIsPrefillActive(false);
@@ -343,7 +335,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
       // Handle status changes
       connection.on('StatusChanged', (_sessionId: string, status: { status: string; message: string }) => {
         if (status.message) {
-          addLog('info', `Status: ${status.message}`);
+          addLog('info', t('prefill.log.statusMessage', { message: status.message }));
         }
       });
 
@@ -358,7 +350,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
 
         if (state === 'started') {
           setIsPrefillActive(true);
-          addLog('download', 'Prefill operation started');
+          addLog('download', t('prefill.log.prefillStarted'));
           prefillDurationRef.current = 0;
           prefillStartTimeRef.current = Date.now();
           isReceivingProgressRef.current = true;
@@ -378,7 +370,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
           setIsPrefillActive(false);
           const duration = durationSeconds ?? 0;
           const formattedDuration = formatDuration(duration);
-          addLog('success', `Prefill completed in ${formattedDuration}`);
+          addLog('success', t('prefill.log.prefillCompleted', { duration: formattedDuration }));
           isCancelling.current = false;
           isReceivingProgressRef.current = false;
 
@@ -392,13 +384,13 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
 
           setBackgroundCompletionRef.current({
             completedAt: new Date().toISOString(),
-            message: `Prefill completed in ${formattedDuration}`,
+            message: t('prefill.completion.message', { duration: formattedDuration }),
             duration: duration
           });
           try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
         } else if (state === 'failed') {
           setIsPrefillActive(false);
-          addLog('error', 'Prefill operation failed');
+          addLog('error', t('prefill.log.prefillFailed'));
           isCancelling.current = false;
           isReceivingProgressRef.current = false;
           setPrefillProgress(null);
@@ -406,7 +398,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
           try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
         } else if (state === 'cancelled') {
           setIsPrefillActive(false);
-          addLog('info', 'Prefill operation cancelled');
+          addLog('info', t('prefill.log.prefillCancelled'));
           isCancelling.current = false;
           isReceivingProgressRef.current = false;
           setPrefillProgress(null);
@@ -445,11 +437,11 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
       });
 
       connection.onreconnecting(() => {
-        addLog('warning', 'Connection lost, reconnecting...');
+        addLog('warning', t('prefill.log.connectionLostReconnecting'));
       });
 
       connection.onreconnected(async () => {
-        addLog('success', 'Reconnected to server');
+        addLog('success', t('prefill.log.reconnected'));
         const currentSession = sessionRef.current;
         if (currentSession) {
           try {
@@ -468,10 +460,10 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
                 const formattedDuration = formatDuration(lastResult.durationSeconds);
                 setBackgroundCompletion({
                   completedAt: lastResult.completedAt,
-                  message: `Prefill completed in ${formattedDuration}`,
+                  message: t('prefill.completion.message', { duration: formattedDuration }),
                   duration: lastResult.durationSeconds
                 });
-                addLog('success', `Prefill completed while disconnected (${formattedDuration})`);
+                addLog('success', t('prefill.log.prefillCompletedWhileDisconnected', { duration: formattedDuration }));
               }
             }
             try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
@@ -487,11 +479,11 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
       return connection;
     } catch (err) {
       console.error('Failed to connect to hub:', err);
-      setError('Failed to connect to server');
+      setError(t('prefill.errors.failedConnect'));
       setIsConnecting(false);
       return null;
     }
-  }, [addLog, onAuthStateChanged, onSessionEnd, clearBackgroundCompletion, setBackgroundCompletion, isCompletionDismissed, clearAllPrefillStorage]);
+  }, [addLog, onAuthStateChanged, onSessionEnd, clearBackgroundCompletion, setBackgroundCompletion, isCompletionDismissed, clearAllPrefillStorage, t]);
 
   const initializeSession = useCallback(async () => {
     if (initializationAttempted.current) return;
@@ -510,20 +502,20 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
       const activeSession = existingSessions?.find((s) => s.status === 'Active');
 
       if (activeSession) {
-        addLog('info', 'Reconnecting to existing session...', `Session: ${activeSession.id}`);
+        addLog('info', t('prefill.log.reconnectingExistingSession'), t('prefill.log.sessionDetail', { id: activeSession.id }));
         await connection.invoke('SubscribeToSession', activeSession.id);
 
         setSession(activeSession);
         setTimeRemaining(activeSession.timeRemainingSeconds);
         setIsLoggedIn(activeSession.authState === 'Authenticated');
 
-        addLog('success', 'Reconnected to existing session', `Container: ${activeSession.containerName}`);
-        addLog('info', `Session expires in ${formatTimeRemaining(activeSession.timeRemainingSeconds)}`);
+        addLog('success', t('prefill.log.reconnectedExistingSession'), t('prefill.log.containerDetail', { name: activeSession.containerName }));
+        addLog('info', t('prefill.log.sessionExpiresIn', { time: formatTimeRemaining(activeSession.timeRemainingSeconds) }));
 
         if (activeSession.authState === 'Authenticated') {
-          addLog('info', 'Already logged in to Steam');
+          addLog('info', t('prefill.log.alreadyLoggedIn'));
         } else {
-          addLog('info', 'Click "Login to Steam" to authenticate');
+          addLog('info', t('prefill.log.loginToSteamPrompt'));
         }
 
         // Check for missed completions
@@ -543,10 +535,10 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
                 const formattedDuration = formatDuration(lastResult.durationSeconds);
                 setBackgroundCompletion({
                   completedAt: lastResult.completedAt,
-                  message: `Prefill completed in ${formattedDuration}`,
+                  message: t('prefill.completion.message', { duration: formattedDuration }),
                   duration: lastResult.durationSeconds
                 });
-                addLog('success', `Prefill completed while away (${formattedDuration})`);
+                addLog('success', t('prefill.log.prefillCompletedWhileAway', { duration: formattedDuration }));
               }
             }
           }
@@ -569,7 +561,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     } finally {
       setIsInitializing(false);
     }
-  }, [connectToHub, addLog, formatTimeRemaining, setBackgroundCompletion, isCompletionDismissed, clearAllPrefillStorage]);
+  }, [connectToHub, addLog, setBackgroundCompletion, isCompletionDismissed, clearAllPrefillStorage, t]);
 
   const createSession = useCallback(async (clearLogs: () => void) => {
     setIsCreating(true);
@@ -583,10 +575,10 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
       }
 
       if (!connection) {
-        throw new Error('Failed to establish connection');
+        throw new Error(t('prefill.errors.failedEstablishConnection'));
       }
 
-      addLog('info', 'Creating prefill session...');
+      addLog('info', t('prefill.log.creatingSession'));
 
       const sessionDto = await connection.invoke<PrefillSessionDto>('CreateSession');
       setSession(sessionDto);
@@ -596,24 +588,24 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
       setIsLoggedIn(isExistingSession);
 
       if (isExistingSession) {
-        addLog('success', 'Connected to existing session', `Container: ${sessionDto.containerName}`);
-        addLog('info', 'Already logged in to Steam');
+        addLog('success', t('prefill.log.connectedExistingSession'), t('prefill.log.containerDetail', { name: sessionDto.containerName }));
+        addLog('info', t('prefill.log.alreadyLoggedIn'));
       } else {
-        addLog('success', 'Session created successfully', `Container: ${sessionDto.containerName}`);
-        addLog('info', 'Click "Login to Steam" to authenticate before using prefill commands');
+        addLog('success', t('prefill.log.sessionCreated'), t('prefill.log.containerDetail', { name: sessionDto.containerName }));
+        addLog('info', t('prefill.log.loginToSteamBeforePrefill'));
       }
-      addLog('info', `Session expires in ${formatTimeRemaining(sessionDto.timeRemainingSeconds)}`);
+      addLog('info', t('prefill.log.sessionExpiresIn', { time: formatTimeRemaining(sessionDto.timeRemainingSeconds) }));
 
       await connection.invoke('SubscribeToSession', sessionDto.id);
       setIsCreating(false);
     } catch (err) {
       console.error('Failed to create session:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Failed to create session';
+      const errorMessage = err instanceof Error ? err.message : t('prefill.errors.failedCreateSession');
       setError(errorMessage);
       addLog('error', errorMessage);
       setIsCreating(false);
     }
-  }, [connectToHub, formatTimeRemaining, addLog]);
+  }, [connectToHub, addLog, t]);
 
   // Initialize on mount
   useEffect(() => {

@@ -282,9 +282,9 @@ services:
       # Requires docker.sock volume mount
       # - NginxLogRotation__Enabled=true
 
-      # Name of the LANCache container (leave empty for auto-detection)
+      # Name of the LANCache container (auto for auto-detection)
       # Auto-detection finds containers with "lancache" in the name
-      # - NginxLogRotation__ContainerName=
+      # - NginxLogRotation__ContainerName=auto
 
       # How often to check for log rotation needs (in hours)
       # - NginxLogRotation__ScheduleHours=24
@@ -324,15 +324,15 @@ services:
       # Must be inside /data for Docker sibling container access
       # - Prefill__DaemonBasePath=/data/prefill-sessions
 
-      # Host path that maps to /data in this container
+      # Host path that maps to /data in this container (auto for auto-detection)
       # Auto-detected from container mounts. Only set if auto-detection fails.
       # Example: If docker-compose.yml is at /srv/lancache/docker-compose.yml
       # and you have ./data:/data, set this to /srv/lancache/data
-      # - Prefill__HostDataPath=/srv/lancache/data
+      # - Prefill__HostDataPath=auto
 
       # Use TCP mode for prefill daemon communication
-      # Default: true on Windows, false on Linux
-      # - Prefill__UseTcp=true
+      # Options: true, false, or auto (auto = true on Windows, false on Linux)
+      # - Prefill__UseTcp=auto
 
       # TCP port inside the prefill container
       # - Prefill__TcpPort=4379
@@ -350,12 +350,12 @@ services:
       # Only set these if auto-detection fails or you have a custom setup.
 
       # Network mode for prefill containers
-      # Options: "host", "bridge", or a custom Docker network name
-      # - Prefill__NetworkMode=host
+      # Options: "host", "bridge", a custom Docker network name, or "auto"
+      # - Prefill__NetworkMode=auto
 
-      # Explicit lancache-dns IP (only needed if auto-detection fails)
+      # Explicit lancache-dns IP (auto for auto-detection)
       # Find with: docker inspect lancache-dns | grep IPAddress
-      # - Prefill__LancacheDnsIp=192.168.1.10
+      # - Prefill__LancacheDnsIp=auto
 
       #=========================================================================
       # ADVANCED - Multiple Datasources (Optional)
@@ -448,7 +448,7 @@ Guests can view dashboards, downloads, and events but cannot modify settings or 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NginxLogRotation__Enabled` | true | Signal nginx to reopen logs after manipulation. |
-| `NginxLogRotation__ContainerName` | (auto) | LANCache container name. Leave empty for auto-detection. |
+| `NginxLogRotation__ContainerName` | auto | LANCache container name (`auto` for auto-detection). |
 | `NginxLogRotation__ScheduleHours` | 24 | How often to check for rotation needs. |
 
 ### Optimization
@@ -477,10 +477,10 @@ Guests can view dashboards, downloads, and events but cannot modify settings or 
 | `Prefill__DockerImage` | ghcr.io/regix1/steam-prefill-daemon:latest | Docker image for prefill containers. |
 | `Prefill__SessionTimeoutMinutes` | 120 | Inactive session cleanup timeout. |
 | `Prefill__DaemonBasePath` | /data/prefill-sessions | Session data storage path. |
-| `Prefill__HostDataPath` | (auto) | Host path mapping to `/data`. Set only if auto-detection fails. |
-| `Prefill__LancacheDnsIp` | (auto) | IP of your lancache-dns container. Auto-detected if lancache-dns is running. |
-| `Prefill__NetworkMode` | (auto) | Network mode for prefill containers: `host`, `bridge`, or a network name. Auto-detected from lancache-dns. |
-| `Prefill__UseTcp` | (auto) | Use TCP for daemon communication. Defaults to true on Windows. |
+| `Prefill__HostDataPath` | auto | Host path mapping to `/data` (`auto` for auto-detection). |
+| `Prefill__LancacheDnsIp` | auto | IP of your lancache-dns container (`auto` for auto-detection). |
+| `Prefill__NetworkMode` | auto | Network mode for prefill containers: `host`, `bridge`, a network name, or `auto`. |
+| `Prefill__UseTcp` | auto | Use TCP for daemon communication (`true`, `false`, or `auto`). Auto defaults to true on Windows and false on Linux. |
 | `Prefill__TcpPort` | 4379 | TCP port inside the prefill container. |
 | `Prefill__HostTcpPort` | 4379 | TCP port exposed on the host for prefill containers. |
 | `Prefill__TcpHost` | 127.0.0.1 | TCP host used by the prefill daemon. |

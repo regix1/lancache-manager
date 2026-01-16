@@ -109,9 +109,9 @@ services:
       # Requires docker.sock volume mount
       # - NginxLogRotation__Enabled=true
 
-      # Name of the LANCache container (leave empty for auto-detection)
+      # Name of the LANCache container (auto for auto-detection)
       # Auto-detection finds containers with "lancache" in the name
-      # - NginxLogRotation__ContainerName=
+      # - NginxLogRotation__ContainerName=auto
 
       # How often to check for log rotation needs (in hours)
       # - NginxLogRotation__ScheduleHours=24
@@ -151,15 +151,15 @@ services:
       # Must be inside /data for Docker sibling container access
       # - Prefill__DaemonBasePath=/data/prefill-sessions
 
-      # Host path that maps to /data in this container
+      # Host path that maps to /data in this container (auto for auto-detection)
       # Auto-detected from container mounts. Only set if auto-detection fails.
       # Example: If docker-compose.yml is at /srv/lancache/docker-compose.yml
       # and you have ./data:/data, set this to /srv/lancache/data
-      # - Prefill__HostDataPath=/srv/lancache/data
+      # - Prefill__HostDataPath=auto
 
       # Use TCP mode for prefill daemon communication
-      # Default: true on Windows, false on Linux
-      # - Prefill__UseTcp=true
+      # Options: true, false, or auto (auto = true on Windows, false on Linux)
+      # - Prefill__UseTcp=auto
 
       # TCP port inside the prefill container
       # - Prefill__TcpPort=4379
@@ -177,12 +177,12 @@ services:
       # Only set these if auto-detection fails or you have a custom setup.
 
       # Network mode for prefill containers
-      # Options: "host", "bridge", or a custom Docker network name
-      # - Prefill__NetworkMode=host
+      # Options: "host", "bridge", a custom Docker network name, or "auto"
+      # - Prefill__NetworkMode=auto
 
-      # Explicit lancache-dns IP (only needed if auto-detection fails)
+      # Explicit lancache-dns IP (auto for auto-detection)
       # Find with: docker inspect lancache-dns | grep IPAddress
-      # - Prefill__LancacheDnsIp=192.168.1.10
+      # - Prefill__LancacheDnsIp=auto
 
       #=========================================================================
       # ADVANCED - Multiple Datasources (Optional)

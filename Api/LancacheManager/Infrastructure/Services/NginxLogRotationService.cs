@@ -55,7 +55,9 @@ public class NginxLogRotationService
 
             // Try to auto-detect container name if not explicitly configured
             var configuredName = _configuration.GetValue<string>("NginxLogRotation:ContainerName");
-            var (containerName, detectionError) = !string.IsNullOrEmpty(configuredName)
+            var (containerName, detectionError) =
+                !string.IsNullOrEmpty(configuredName) &&
+                !string.Equals(configuredName, "auto", StringComparison.OrdinalIgnoreCase)
                 ? (configuredName, (string?)null)
                 : await DetectMonolithicContainerAsync();
 

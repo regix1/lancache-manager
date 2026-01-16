@@ -1739,10 +1739,20 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
     private bool ShouldUseTcpMode()
     {
-        var configured = _configuration.GetValue<bool?>("Prefill:UseTcp");
-        if (configured.HasValue)
+        var configured = _configuration["Prefill:UseTcp"];
+        if (!string.IsNullOrWhiteSpace(configured))
         {
-            return configured.Value;
+            if (string.Equals(configured, "auto", StringComparison.OrdinalIgnoreCase))
+            {
+                return OperatingSystem.IsWindows();
+            }
+
+            if (bool.TryParse(configured, out var parsed))
+            {
+                return parsed;
+            }
+
+            _logger.LogWarning("Invalid Prefill:UseTcp value '{Value}', falling back to auto.", configured);
         }
 
         return OperatingSystem.IsWindows();
@@ -1784,7 +1794,8 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
 
         // Check for explicit configuration first
         var configuredPath = _configuration["Prefill:HostDataPath"];
-        if (!string.IsNullOrEmpty(configuredPath))
+        if (!string.IsNullOrEmpty(configuredPath) &&
+            !string.Equals(configuredPath, "auto", StringComparison.OrdinalIgnoreCase))
         {
             _cachedHostDataPath = _pathResolver.ResolvePath(configuredPath);
             return _cachedHostDataPath;
@@ -1902,7 +1913,8 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     {
         // Check explicit configuration first
         var configuredIp = _configuration["Prefill:LancacheDnsIp"];
-        if (!string.IsNullOrEmpty(configuredIp))
+        if (!string.IsNullOrEmpty(configuredIp) &&
+            !string.Equals(configuredIp, "auto", StringComparison.OrdinalIgnoreCase))
         {
             return configuredIp;
         }
@@ -1969,7 +1981,8 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     {
         // Check explicit configuration first
         var networkMode = _configuration["Prefill:NetworkMode"];
-        if (!string.IsNullOrEmpty(networkMode))
+        if (!string.IsNullOrEmpty(networkMode) &&
+            !string.Equals(networkMode, "auto", StringComparison.OrdinalIgnoreCase))
         {
             _logger.LogInformation("Using explicit Prefill:NetworkMode configuration: {NetworkMode}", networkMode);
             return networkMode.Equals("host", StringComparison.OrdinalIgnoreCase);
@@ -2024,7 +2037,13 @@ public class SteamPrefillDaemonService : IHostedService, IDisposable
     /// </summary>
     private string? GetNetworkMode()
     {
-        return _configuration["Prefill:NetworkMode"];
+        var networkMode = _configuration["Prefill:NetworkMode"];
+        if (string.Equals(networkMode, "auto", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return networkMode;
     }
 
     /// <summary>
