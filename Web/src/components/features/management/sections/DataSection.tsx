@@ -92,6 +92,13 @@ const DataSection: React.FC<DataSectionProps> = ({
       affectedPages: t('management.sections.data.tables.cachedGameDetections.affectedPages')
     },
     {
+      name: 'CachedServiceDetections',
+      label: t('management.sections.data.tables.cachedServiceDetections.label'),
+      description: t('management.sections.data.tables.cachedServiceDetections.description'),
+      details: t('management.sections.data.tables.cachedServiceDetections.details'),
+      affectedPages: t('management.sections.data.tables.cachedServiceDetections.affectedPages')
+    },
+    {
       name: 'CachedCorruptionDetections',
       label: t('management.sections.data.tables.cachedCorruptionDetections.label'),
       description: t('management.sections.data.tables.cachedCorruptionDetections.description'),
@@ -127,6 +134,13 @@ const DataSection: React.FC<DataSectionProps> = ({
       affectedPages: t('management.sections.data.tables.prefillSessions.affectedPages')
     },
     {
+      name: 'PrefillCachedDepots',
+      label: t('management.sections.data.tables.prefillCachedDepots.label'),
+      description: t('management.sections.data.tables.prefillCachedDepots.description'),
+      details: t('management.sections.data.tables.prefillCachedDepots.details'),
+      affectedPages: t('management.sections.data.tables.prefillCachedDepots.affectedPages')
+    },
+    {
       name: 'BannedSteamUsers',
       label: t('management.sections.data.tables.bannedSteamUsers.label'),
       description: t('management.sections.data.tables.bannedSteamUsers.description'),
@@ -146,6 +160,13 @@ const DataSection: React.FC<DataSectionProps> = ({
       description: t('management.sections.data.tables.userPreferences.description'),
       details: t('management.sections.data.tables.userPreferences.details'),
       affectedPages: t('management.sections.data.tables.userPreferences.affectedPages')
+    },
+    {
+      name: 'CacheSnapshots',
+      label: t('management.sections.data.tables.cacheSnapshots.label'),
+      description: t('management.sections.data.tables.cacheSnapshots.description'),
+      details: t('management.sections.data.tables.cacheSnapshots.details'),
+      affectedPages: t('management.sections.data.tables.cacheSnapshots.affectedPages')
     }
   ];
 

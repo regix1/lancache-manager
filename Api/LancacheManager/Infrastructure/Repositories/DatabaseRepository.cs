@@ -299,7 +299,7 @@ public class DatabaseRepository : IDatabaseRepository
             });
 
             // Validate table names to prevent SQL injection
-            var validTables = new HashSet<string> { "LogEntries", "Downloads", "ClientStats", "ServiceStats", "SteamDepotMappings", "CachedGameDetections", "CachedCorruptionDetections", "ClientGroups", "UserSessions", "UserPreferences", "Events", "EventDownloads", "PrefillSessions", "BannedSteamUsers" };
+            var validTables = new HashSet<string> { "LogEntries", "Downloads", "ClientStats", "ServiceStats", "SteamDepotMappings", "CachedGameDetections", "CachedServiceDetections", "CachedCorruptionDetections", "ClientGroups", "UserSessions", "UserPreferences", "Events", "EventDownloads", "PrefillSessions", "PrefillCachedDepots", "BannedSteamUsers", "CacheSnapshots" };
             var tablesToClear = tableNames.Where(t => validTables.Contains(t)).ToList();
 
             if (tablesToClear.Count == 0)
@@ -328,6 +328,7 @@ public class DatabaseRepository : IDatabaseRepository
                     "ServiceStats" => await context.ServiceStats.CountAsync(),
                     "SteamDepotMappings" => await context.SteamDepotMappings.CountAsync(),
                     "CachedGameDetections" => await context.CachedGameDetections.CountAsync(),
+                    "CachedServiceDetections" => await context.CachedServiceDetections.CountAsync(),
                     "CachedCorruptionDetections" => await context.CachedCorruptionDetections.CountAsync(),
                     "ClientGroups" => await context.ClientGroups.CountAsync(),
                     "UserSessions" => await context.UserSessions.CountAsync(),
@@ -335,7 +336,9 @@ public class DatabaseRepository : IDatabaseRepository
                     "Events" => await context.Events.CountAsync(),
                     "EventDownloads" => await context.EventDownloads.CountAsync(),
                     "PrefillSessions" => await context.PrefillSessions.CountAsync(),
+                    "PrefillCachedDepots" => await context.PrefillCachedDepots.CountAsync(),
                     "BannedSteamUsers" => await context.BannedSteamUsers.CountAsync(),
+                    "CacheSnapshots" => await context.CacheSnapshots.CountAsync(),
                     _ => 0
                 };
                 totalRows += count;
@@ -765,6 +768,54 @@ public class DatabaseRepository : IDatabaseRepository
                         await _hubContext.Clients.All.SendAsync("BannedSteamUsersCleared", new
                         {
                             message = "All banned Steam users have been cleared",
+                            timestamp = DateTime.UtcNow
+                        });
+                        break;
+
+                    case "CachedServiceDetections":
+                        // Use ExecuteDeleteAsync for direct deletion
+                        var serviceDetectionsCount = await context.CachedServiceDetections.ExecuteDeleteAsync();
+                        _logger.LogInformation($"Cleared {serviceDetectionsCount:N0} cached service detections");
+                        deletedRows += serviceDetectionsCount;
+
+                        await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+                        {
+                            isProcessing = true,
+                            percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
+                            status = "deleting",
+                            message = $"Cleared service detection cache ({serviceDetectionsCount:N0} rows)",
+                            timestamp = DateTime.UtcNow
+                        });
+                        break;
+
+                    case "PrefillCachedDepots":
+                        // Use ExecuteDeleteAsync for direct deletion
+                        var prefillCachedDepotsCount = await context.PrefillCachedDepots.ExecuteDeleteAsync();
+                        _logger.LogInformation($"Cleared {prefillCachedDepotsCount:N0} prefill cached depots");
+                        deletedRows += prefillCachedDepotsCount;
+
+                        await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+                        {
+                            isProcessing = true,
+                            percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
+                            status = "deleting",
+                            message = $"Cleared prefill cache status ({prefillCachedDepotsCount:N0} rows)",
+                            timestamp = DateTime.UtcNow
+                        });
+                        break;
+
+                    case "CacheSnapshots":
+                        // Use ExecuteDeleteAsync for direct deletion
+                        var cacheSnapshotsCount = await context.CacheSnapshots.ExecuteDeleteAsync();
+                        _logger.LogInformation($"Cleared {cacheSnapshotsCount:N0} cache snapshots");
+                        deletedRows += cacheSnapshotsCount;
+
+                        await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+                        {
+                            isProcessing = true,
+                            percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
+                            status = "deleting",
+                            message = $"Cleared cache size history ({cacheSnapshotsCount:N0} rows)",
                             timestamp = DateTime.UtcNow
                         });
                         break;

@@ -1432,6 +1432,24 @@
             "description": "Per-session user interface preferences",
             "details": "Theme selections and UI customization settings linked to sessions",
             "affectedPages": "Theme and UI settings reset to defaults"
+          },
+          "cachedServiceDetections": {
+            "label": "Service Detection Cache",
+            "description": "Cached results from service detection scans",
+            "details": "Pre-computed service detections (Steam, Epic, etc.) from cache files",
+            "affectedPages": "Cache tab • Service detection cards"
+          },
+          "prefillCachedDepots": {
+            "label": "Prefill Cache Status",
+            "description": "Tracks which game depots are already cached",
+            "details": "Stores depot IDs verified against Steam manifests to skip re-downloading cached games",
+            "affectedPages": "Prefill • Game selection badges"
+          },
+          "cacheSnapshots": {
+            "label": "Cache Size History",
+            "description": "Historical snapshots of cache storage usage",
+            "details": "Periodic records of cache size for growth charts and analytics",
+            "affectedPages": "Dashboard • Cache growth charts"
           }
         }
       },
