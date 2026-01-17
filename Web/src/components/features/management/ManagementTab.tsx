@@ -11,6 +11,7 @@ import type {
 import { useAuth } from '@contexts/AuthContext';
 import { useSteamAuth } from '@contexts/SteamAuthContext';
 import operationStateService from '@services/operationState.service';
+import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 
 // Import navigation and sections
@@ -132,7 +133,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
   useEffect(() => {
     const checkOptimizations = async () => {
       try {
-        const response = await fetch('/api/gc/settings');
+        const response = await fetch('/api/gc/settings', ApiService.getFetchOptions());
         setOptimizationsEnabled(response.ok);
       } catch {
         setOptimizationsEnabled(false);
@@ -146,7 +147,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
   useEffect(() => {
     const checkLogRotation = async () => {
       try {
-        const response = await fetch('/api/system/log-rotation/status');
+        const response = await fetch('/api/system/log-rotation/status', ApiService.getFetchOptions());
         if (response.ok) {
           const data = await response.json();
           setLogRotationEnabled(data.enabled === true);

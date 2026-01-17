@@ -158,7 +158,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       try {
         const response = await fetch(
           `/api/user-preferences/session/${encodeURIComponent(sessionId)}`,
-          { headers: ApiService.getHeaders() }
+          ApiService.getFetchOptions()
         );
 
         if (response.ok) {
@@ -200,9 +200,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         if (showLoading) {
           setLoading(true);
         }
-        const response = await fetch(`/api/sessions?page=${page}&pageSize=${pageSize}`, {
-          headers: ApiService.getHeaders()
-        });
+        const response = await fetch(
+          `/api/sessions?page=${page}&pageSize=${pageSize}`,
+          ApiService.getFetchOptions()
+        );
 
         if (response.ok) {
           const data = await response.json();
@@ -306,10 +307,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       setRevokingSession(pendingRevokeSession.id);
       const endpoint = `/api/sessions/${encodeURIComponent(pendingRevokeSession.id)}?action=revoke`;
 
-      const response = await fetch(endpoint, {
-        method: 'DELETE',
-        headers: ApiService.getHeaders()
-      });
+      const response = await fetch(endpoint, ApiService.getFetchOptions({
+        method: 'DELETE'
+      }));
 
       if (response.ok) {
         if (isOwnSession) {
@@ -354,10 +354,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       setDeletingSession(pendingDeleteSession.id);
       const endpoint = `/api/sessions/${encodeURIComponent(pendingDeleteSession.id)}?action=delete`;
 
-      const response = await fetch(endpoint, {
-        method: 'DELETE',
-        headers: ApiService.getHeaders()
-      });
+      const response = await fetch(endpoint, ApiService.getFetchOptions({
+        method: 'DELETE'
+      }));
 
       if (response.ok) {
         if (isOwnSession) {
@@ -391,7 +390,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     try {
       const response = await fetch(
         `/api/user-preferences/session/${encodeURIComponent(session.id)}`,
-        { headers: ApiService.getHeaders() }
+        ApiService.getFetchOptions()
       );
 
       if (response.ok) {
@@ -443,14 +442,13 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       setSavingPreferences(true);
       const response = await fetch(
         `/api/user-preferences/session/${encodeURIComponent(editingSession.id)}`,
-        {
+        ApiService.getFetchOptions({
           method: 'PUT',
           headers: {
-            'Content-Type': 'application/json',
-            ...ApiService.getHeaders()
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify(editingPreferences)
-        }
+        })
       );
 
       if (response.ok) {
@@ -504,14 +502,16 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         }
 
         if (editingSession.type === 'guest') {
-          await fetch(`/api/sessions/${encodeURIComponent(editingSession.id)}/refresh-rate`, {
-            method: 'PATCH',
-            headers: {
-              'Content-Type': 'application/json',
-              ...ApiService.getHeaders()
-            },
-            body: JSON.stringify({ refreshRate: editingPreferences.refreshRate || '' })
-          });
+          await fetch(
+            `/api/sessions/${encodeURIComponent(editingSession.id)}/refresh-rate`,
+            ApiService.getFetchOptions({
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ refreshRate: editingPreferences.refreshRate || '' })
+            })
+          );
         }
 
         setEditingSession(null);
@@ -548,14 +548,13 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       setUpdatingPrefill(true);
       const response = await fetch(
         `/api/auth/guest/prefill/toggle/${encodeURIComponent(session.deviceId || session.id)}`,
-        {
+        ApiService.getFetchOptions({
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            ...ApiService.getHeaders()
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify({ enabled })
-        }
+        })
       );
 
       if (response.ok) {

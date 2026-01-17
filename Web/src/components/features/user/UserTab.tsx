@@ -25,9 +25,7 @@ const UserTab: React.FC = () => {
 
   const loadGuestDuration = async () => {
     try {
-      const response = await fetch('/api/auth/guest/config', {
-        headers: ApiService.getHeaders()
-      });
+      const response = await fetch('/api/auth/guest/config', ApiService.getFetchOptions());
       if (response.ok) {
         const data = await response.json();
         setGuestDurationHours(data.durationHours || 6);
@@ -59,14 +57,13 @@ const UserTab: React.FC = () => {
     try {
       setUpdatingGuestLock(true);
       const newLockState = value ? value === 'locked' : !guestModeLocked;
-      const response = await fetch('/api/auth/guest/config/lock', {
+      const response = await fetch('/api/auth/guest/config/lock', ApiService.getFetchOptions({
         method: 'POST',
         headers: {
-          ...ApiService.getHeaders(),
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ isLocked: newLockState })
-      });
+      }));
 
       if (response.ok) {
         setGuestModeLocked(newLockState);
@@ -103,9 +100,7 @@ const UserTab: React.FC = () => {
 
   const loadDefaultGuestTheme = async () => {
     try {
-      const response = await fetch('/api/themes/preferences/guest', {
-        headers: ApiService.getHeaders()
-      });
+      const response = await fetch('/api/themes/preferences/guest', ApiService.getFetchOptions());
       if (response.ok) {
         const data = await response.json();
         setDefaultGuestTheme(data.themeId || 'dark-default');
@@ -118,14 +113,13 @@ const UserTab: React.FC = () => {
   const handleUpdateGuestTheme = async (newThemeId: string) => {
     try {
       setUpdatingGuestTheme(true);
-      const response = await fetch('/api/themes/preferences/guest', {
+      const response = await fetch('/api/themes/preferences/guest', ApiService.getFetchOptions({
         method: 'PUT',
         headers: {
-          'Content-Type': 'application/json',
-          ...ApiService.getHeaders()
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ themeId: newThemeId })
-      });
+      }));
 
       if (response.ok) {
         setDefaultGuestTheme(newThemeId);
@@ -142,9 +136,7 @@ const UserTab: React.FC = () => {
 
   const loadDefaultGuestRefreshRate = async () => {
     try {
-      const response = await fetch('/api/system/default-guest-refresh-rate', {
-        headers: ApiService.getHeaders()
-      });
+      const response = await fetch('/api/system/default-guest-refresh-rate', ApiService.getFetchOptions());
       if (response.ok) {
         const data = await response.json();
         setDefaultGuestRefreshRate(data.refreshRate || 'STANDARD');
@@ -157,14 +149,13 @@ const UserTab: React.FC = () => {
   const handleUpdateGuestRefreshRate = async (newRate: string) => {
     try {
       setUpdatingGuestRefreshRate(true);
-      const response = await fetch('/api/system/default-guest-refresh-rate', {
+      const response = await fetch('/api/system/default-guest-refresh-rate', ApiService.getFetchOptions({
         method: 'PATCH',
         headers: {
-          'Content-Type': 'application/json',
-          ...ApiService.getHeaders()
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ refreshRate: newRate })
-      });
+      }));
 
       if (response.ok) {
         setDefaultGuestRefreshRate(newRate);

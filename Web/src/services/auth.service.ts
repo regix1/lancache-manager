@@ -164,6 +164,7 @@ class AuthService {
         // Still need to fetch hasData and hasEverBeenSetup for guest mode eligibility
         try {
           const response = await fetch(`${API_URL}/api/auth/status`, {
+            credentials: 'include',
             headers: this.getAuthHeaders()
           });
           const result = response.ok ? await response.json() : {};
@@ -201,6 +202,7 @@ class AuthService {
 
       // Standard authentication check
       const response = await fetch(`${API_URL}/api/auth/status`, {
+        credentials: 'include',
         headers: this.getAuthHeaders()
       });
 
@@ -303,6 +305,7 @@ class AuthService {
     try {
       const response = await fetch(`${API_URL}/api/devices`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json'
         },
@@ -356,6 +359,7 @@ class AuthService {
       // Uses device ID from X-Device-Id header instead of URL parameter
       const response = await fetch(`${API_URL}/api/sessions/current`, {
         method: 'DELETE',
+        credentials: 'include',
         headers: this.getAuthHeaders()
       });
 
@@ -392,6 +396,7 @@ class AuthService {
       // RESTful endpoint: POST /api/api-keys/regenerate
       const response = await fetch(`${API_URL}/api/api-keys/regenerate`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
           ...this.getAuthHeaders()

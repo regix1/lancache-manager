@@ -75,16 +75,16 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     const newUse24Hour = format.endsWith('24h');
 
     const [localResponse, formatResponse] = await Promise.all([
-      fetch('/api/system/default-guest-preferences/useLocalTimezone', {
+      fetch('/api/system/default-guest-preferences/useLocalTimezone', ApiService.getFetchOptions({
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...ApiService.getHeaders() },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ value: newUseLocal })
-      }),
-      fetch('/api/system/default-guest-preferences/use24HourFormat', {
+      })),
+      fetch('/api/system/default-guest-preferences/use24HourFormat', ApiService.getFetchOptions({
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...ApiService.getHeaders() },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ value: newUse24Hour })
-      })
+      }))
     ]);
 
     if (localResponse.ok && formatResponse.ok) {
@@ -154,9 +154,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   const loadDefaultGuestPreferences = async () => {
     try {
       setLoadingDefaultPrefs(true);
-      const response = await fetch('/api/system/default-guest-preferences', {
-        headers: ApiService.getHeaders()
-      });
+      const response = await fetch('/api/system/default-guest-preferences', ApiService.getFetchOptions());
       if (response.ok) {
         const data = await response.json();
         setDefaultGuestPreferences({
@@ -179,14 +177,13 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   const handleUpdateDefaultGuestPref = async (key: string, value: boolean) => {
     try {
       setUpdatingDefaultPref(key);
-      const response = await fetch(`/api/system/default-guest-preferences/${key}`, {
+      const response = await fetch(`/api/system/default-guest-preferences/${key}`, ApiService.getFetchOptions({
         method: 'PATCH',
         headers: {
-          'Content-Type': 'application/json',
-          ...ApiService.getHeaders()
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ value })
-      });
+      }));
 
       if (response.ok) {
         setDefaultGuestPreferences((prev) => ({
@@ -231,14 +228,13 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   const handleAllowedFormatsChange = async (formats: string[]) => {
     try {
       setUpdatingAllowedFormats(true);
-      const response = await fetch('/api/system/default-guest-preferences/allowed-time-formats', {
+      const response = await fetch('/api/system/default-guest-preferences/allowed-time-formats', ApiService.getFetchOptions({
         method: 'PATCH',
         headers: {
-          'Content-Type': 'application/json',
-          ...ApiService.getHeaders()
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ formats })
-      });
+      }));
 
       if (response.ok) {
         // If current default is no longer in allowed list, update to first allowed format
@@ -266,9 +262,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   const loadPrefillConfig = async () => {
     try {
       setLoadingPrefillConfig(true);
-      const response = await fetch('/api/auth/guest/prefill/config', {
-        headers: ApiService.getHeaders()
-      });
+      const response = await fetch('/api/auth/guest/prefill/config', ApiService.getFetchOptions());
       if (response.ok) {
         const data = await response.json();
         setPrefillConfig({
@@ -286,14 +280,13 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   const updatePrefillConfig = async (enabledByDefault: boolean, durationHours: number) => {
     try {
       setUpdatingPrefillConfig(true);
-      const response = await fetch('/api/auth/guest/prefill/config', {
+      const response = await fetch('/api/auth/guest/prefill/config', ApiService.getFetchOptions({
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          ...ApiService.getHeaders()
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ enabledByDefault, durationHours })
-      });
+      }));
 
       if (response.ok) {
         const data = await response.json();

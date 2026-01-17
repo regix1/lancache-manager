@@ -7,6 +7,7 @@ import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDr
 import { formatDateTime } from '@utils/formatters';
 import { RefreshCw, Clock, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { LoadingState } from '@components/ui/ManagerCard';
+import ApiService from '@services/api.service';
 
 interface LogRotationStatus {
   enabled: boolean;
@@ -48,7 +49,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
 
   const fetchStatus = useCallback(async () => {
     try {
-      const response = await fetch('/api/system/log-rotation/status');
+      const response = await fetch('/api/system/log-rotation/status', ApiService.getFetchOptions());
       if (response.ok) {
         const data = await response.json();
         setStatus(data);
@@ -67,11 +68,11 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
     setIsUpdatingSchedule(true);
 
     try {
-      const response = await fetch('/api/system/log-rotation/schedule', {
+      const response = await fetch('/api/system/log-rotation/schedule', ApiService.getFetchOptions({
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ scheduleHours: hours })
-      });
+      }));
 
       const data = await response.json();
 
@@ -99,9 +100,9 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
 
     setIsRotating(true);
     try {
-      const response = await fetch('/api/system/log-rotation/trigger', {
+      const response = await fetch('/api/system/log-rotation/trigger', ApiService.getFetchOptions({
         method: 'POST'
-      });
+      }));
 
       const data = await response.json();
 

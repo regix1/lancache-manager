@@ -5,7 +5,7 @@ import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { API_BASE } from '@utils/constants';
-import authService from '@services/auth.service';
+import ApiService from '@services/api.service';
 
 interface GcSettings {
   aggressiveness: string;
@@ -29,9 +29,7 @@ interface GcManagerProps {
 // Fetch GC settings
 const fetchGcSettings = async (): Promise<GcSettings> => {
   try {
-    const response = await fetch(`${API_BASE}/gc/settings`, {
-      headers: authService.getAuthHeaders()
-    });
+    const response = await fetch(`${API_BASE}/gc/settings`, ApiService.getFetchOptions());
     if (response.ok) {
       const data = await response.json();
       return data;
@@ -144,14 +142,11 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
   const saveSettings = async () => {
     setSaving(true);
     try {
-      const response = await fetch(`${API_BASE}/gc/settings`, {
+      const response = await fetch(`${API_BASE}/gc/settings`, ApiService.getFetchOptions({
         method: 'PUT',
-        headers: {
-          ...authService.getAuthHeaders(),
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings)
-      });
+      }));
 
       if (response.ok) {
         const data = await response.json();
@@ -183,10 +178,9 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
     setTriggering(true);
     setTriggerResult(null);
     try {
-      const response = await fetch(`${API_BASE}/gc/trigger`, {
-        method: 'POST',
-        headers: authService.getAuthHeaders()
-      });
+      const response = await fetch(`${API_BASE}/gc/trigger`, ApiService.getFetchOptions({
+        method: 'POST'
+      }));
 
       if (response.ok) {
         const data: GcTriggerResult = await response.json();
