@@ -8,6 +8,8 @@ namespace LancacheManager.Infrastructure.Repositories;
 
 public class EventsRepository : IEventsRepository
 {
+    private const string PrefillToken = "prefill";
+
     private readonly AppDbContext _context;
     private readonly ILogger<EventsRepository> _logger;
 
@@ -167,6 +169,8 @@ public class EventsRepository : IEventsRepository
                 .AsNoTracking()
                 .Where(ed => ed.EventId == eventId)
                 .Select(ed => ed.Download)
+                .Where(d => d.ClientIp == null || d.ClientIp.ToLower() != PrefillToken)
+                .Where(d => d.Datasource == null || d.Datasource.ToLower() != PrefillToken)
                 .OrderByDescending(d => d.StartTimeUtc)
                 .ToListAsync(cancellationToken);
         }
@@ -176,6 +180,8 @@ public class EventsRepository : IEventsRepository
             downloads = await _context.Downloads
                 .AsNoTracking()
                 .Where(d => d.StartTimeUtc >= evt.StartTimeUtc && d.StartTimeUtc <= evt.EndTimeUtc)
+                .Where(d => d.ClientIp == null || d.ClientIp.ToLower() != PrefillToken)
+                .Where(d => d.Datasource == null || d.Datasource.ToLower() != PrefillToken)
                 .OrderByDescending(d => d.StartTimeUtc)
                 .ToListAsync(cancellationToken);
         }

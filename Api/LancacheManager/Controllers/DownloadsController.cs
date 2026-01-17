@@ -17,6 +17,8 @@ namespace LancacheManager.Controllers;
 [Route("api/downloads")]
 public class DownloadsController : ControllerBase
 {
+    private const string PrefillToken = "prefill";
+
     private readonly AppDbContext _context;
     private readonly StatsRepository _statsService;
     private readonly IStateRepository _stateRepository;
@@ -84,6 +86,8 @@ public class DownloadsController : ControllerBase
                             .AsNoTracking()
                             .Where(d => taggedDownloadIds.Contains(d.Id))
                             .Where(d => excludedClientIps.Count == 0 || !excludedClientIps.Contains(d.ClientIp))
+                            .Where(d => d.ClientIp != PrefillToken && d.ClientIp != "Prefill")
+                            .Where(d => d.Datasource != PrefillToken && d.Datasource != "Prefill")
                             .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
                             .OrderByDescending(d => d.StartTimeUtc)
                             .Take(count)
@@ -94,6 +98,8 @@ public class DownloadsController : ControllerBase
                         downloads = await _context.Downloads
                             .AsNoTracking()
                             .Where(d => excludedClientIps.Count == 0 || !excludedClientIps.Contains(d.ClientIp))
+                            .Where(d => d.ClientIp != PrefillToken && d.ClientIp != "Prefill")
+                            .Where(d => d.Datasource != PrefillToken && d.Datasource != "Prefill")
                             .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
                             .OrderByDescending(d => d.StartTimeUtc)
                             .Take(count)
@@ -107,6 +113,11 @@ public class DownloadsController : ControllerBase
                         .Where(d => !excludedClientIps.Contains(d.ClientIp))
                         .ToList();
                 }
+
+                downloads = downloads
+                    .Where(d => !string.Equals(d.ClientIp, PrefillToken, StringComparison.OrdinalIgnoreCase))
+                    .Where(d => !string.Equals(d.Datasource, PrefillToken, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
 
                 foreach (var download in downloads)
                     {
@@ -152,7 +163,7 @@ public class DownloadsController : ControllerBase
         {
             var download = await _context.Downloads
                 .AsNoTracking()
-                .FirstOrDefaultAsync(d => d.Id == id);
+                .FirstOrDefaultAsync(d => d.Id == id && d.ClientIp != PrefillToken && d.ClientIp != "Prefill");
 
             if (download == null)
             {
@@ -161,6 +172,12 @@ public class DownloadsController : ControllerBase
 
             var excludedClientIps = _stateRepository.GetExcludedClientIps();
             if (excludedClientIps.Contains(download.ClientIp))
+            {
+                return NotFound(ApiResponse.NotFound("Download"));
+            }
+
+            if (string.Equals(download.ClientIp, PrefillToken, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(download.Datasource, PrefillToken, StringComparison.OrdinalIgnoreCase))
             {
                 return NotFound(ApiResponse.NotFound("Download"));
             }
@@ -279,6 +296,8 @@ public class DownloadsController : ControllerBase
             var downloads = await _context.Downloads
                 .AsNoTracking()
                 .Where(d => excludedClientIps.Count == 0 || !excludedClientIps.Contains(d.ClientIp))
+                .Where(d => d.ClientIp != PrefillToken && d.ClientIp != "Prefill")
+                .Where(d => d.Datasource != PrefillToken && d.Datasource != "Prefill")
                 .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
                 .OrderByDescending(d => d.StartTimeUtc)
                 .Take(count)

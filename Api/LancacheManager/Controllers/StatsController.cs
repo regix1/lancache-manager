@@ -23,6 +23,8 @@ namespace LancacheManager.Controllers;
 [RequireGuestSession]
 public class StatsController : ControllerBase
 {
+    private const string PrefillToken = "prefill";
+
     private readonly AppDbContext _context;
     private readonly StatsRepository _statsService;
     private readonly IClientGroupsRepository _clientGroupsRepository;
@@ -94,6 +96,8 @@ public class StatsController : ControllerBase
 
     private static IQueryable<Download> ApplyExcludedClientFilter(IQueryable<Download> query, List<string> excludedClientIps)
     {
+        query = ApplyPrefillFilter(query);
+
         if (excludedClientIps.Count == 0)
         {
             return query;
@@ -108,12 +112,21 @@ public class StatsController : ControllerBase
     /// </summary>
     private static IQueryable<Download> ApplyHiddenClientFilter(IQueryable<Download> query, List<string> hiddenClientIps)
     {
+        query = ApplyPrefillFilter(query);
+
         if (hiddenClientIps.Count == 0)
         {
             return query;
         }
 
         return query.Where(d => !hiddenClientIps.Contains(d.ClientIp));
+    }
+
+    private static IQueryable<Download> ApplyPrefillFilter(IQueryable<Download> query)
+    {
+        return query
+            .Where(d => d.ClientIp == null || d.ClientIp.ToLower() != PrefillToken)
+            .Where(d => d.Datasource == null || d.Datasource.ToLower() != PrefillToken);
     }
 
     /// <summary>

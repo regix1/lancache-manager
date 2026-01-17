@@ -13,6 +13,8 @@ namespace LancacheManager.Infrastructure.Repositories;
 /// </summary>
 public class StatsRepository : IStatsRepository
 {
+    private const string PrefillToken = "prefill";
+
     private readonly AppDbContext _context;
     private readonly ILogger<StatsRepository> _logger;
 
@@ -27,7 +29,7 @@ public class StatsRepository : IStatsRepository
     /// </summary>
     public async Task<List<ServiceStats>> GetServiceStatsAsync(CancellationToken cancellationToken = default)
     {
-        var stats = await _context.Downloads
+        var stats = await ApplyPrefillFilter(_context.Downloads)
             .AsNoTracking()
             .GroupBy(d => d.Service)
             .Select(g => new ServiceStats
@@ -58,7 +60,7 @@ public class StatsRepository : IStatsRepository
     {
         // Fetch downloads with client info and end time for duration calculation
         // NOTE: Using EndTime - StartTime instead of querying LogEntries for performance
-        var downloads = await _context.Downloads
+        var downloads = await ApplyPrefillFilter(_context.Downloads)
             .AsNoTracking()
             .Select(d => new
             {
@@ -108,7 +110,7 @@ public class StatsRepository : IStatsRepository
     /// </summary>
     public async Task<List<Download>> GetLatestDownloadsAsync(int limit = int.MaxValue, CancellationToken cancellationToken = default)
     {
-        var downloads = await _context.Downloads.AsNoTracking()
+        var downloads = await ApplyPrefillFilter(_context.Downloads.AsNoTracking())
             .Where(d => !d.GameAppId.HasValue || d.GameAppId.Value != 0)
             .OrderByDescending(d => d.StartTimeUtc)
             .Take(limit)
@@ -145,7 +147,7 @@ public class StatsRepository : IStatsRepository
     {
         var cutoff = TimeUtils.GetCutoffTime(period, DateTime.UtcNow);
 
-        var downloads = await _context.Downloads
+        var downloads = await ApplyPrefillFilter(_context.Downloads)
             .AsNoTracking()
             .Where(d => d.StartTimeUtc >= cutoff && !string.IsNullOrEmpty(d.GameName))
             .Select(d => new { d.GameName, d.GameAppId, d.CacheHitBytes, d.CacheMissBytes, d.ClientIp })
@@ -174,5 +176,12 @@ public class StatsRepository : IStatsRepository
         };
 
         return sortedStats.Take(limit).ToList();
+    }
+
+    private static IQueryable<Download> ApplyPrefillFilter(IQueryable<Download> query)
+    {
+        return query
+            .Where(d => d.ClientIp == null || d.ClientIp.ToLower() != PrefillToken)
+            .Where(d => d.Datasource == null || d.Datasource.ToLower() != PrefillToken);
     }
 }
