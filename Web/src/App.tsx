@@ -20,6 +20,7 @@ import { PrefillProvider } from '@contexts/PrefillContext';
 import { AuthProvider, useAuth } from '@contexts/AuthContext';
 import { SteamWebApiStatusProvider, useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 import { TimezoneProvider } from '@contexts/TimezoneContext';
+import { DockerSocketProvider, useDockerSocket } from '@contexts/DockerSocketContext';
 import { TimezoneAwareWrapper } from '@components/common/TimezoneAwareWrapper';
 import Header from '@components/layout/Header';
 import Navigation from '@components/layout/Navigation';
@@ -80,6 +81,7 @@ const AppContent: React.FC = () => {
   const { isAuthenticated, authMode, isLoading: checkingAuth, refreshAuth, prefillEnabled, isBanned } = useAuth();
   const { status: steamApiStatus, refresh: refreshSteamWebApiStatus } = useSteamWebApiStatus();
   const { refreshSteamAuth } = useSteamAuth();
+  const { isDockerAvailable } = useDockerSocket();
   const [depotInitialized, setDepotInitialized] = useState<boolean | null>(null);
   const [checkingDepotStatus, setCheckingDepotStatus] = useState(true);
   const [showApiKeyRegenerationModal, setShowApiKeyRegenerationModal] = useState(false);
@@ -582,7 +584,41 @@ const AppContent: React.FC = () => {
 
     return (
       <>
-        {activeTab === 'prefill' && isBanned ? (
+        {activeTab === 'prefill' && !isDockerAvailable ? (
+          <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 animate-fadeIn">
+            <div className="rounded-lg p-6 bg-[color-mix(in_srgb,var(--theme-warning)_15%,transparent)] border border-[color-mix(in_srgb,var(--theme-warning)_30%,transparent)]">
+              <div className="min-w-0">
+                <p className="font-medium text-[var(--theme-warning-text)] mb-2">
+                  {t('app.prefill.dockerNotAvailable.title')}
+                </p>
+                <p className="text-sm mb-3 text-themed-secondary">
+                  {t('app.prefill.dockerNotAvailable.description')}
+                </p>
+                
+                {/* Linux instructions */}
+                <div className="mb-3">
+                  <p className="text-sm font-medium text-themed-primary mb-2">
+                    {t('app.prefill.dockerNotAvailable.helpLinux')}
+                  </p>
+                  <pre className="px-3 py-2 rounded text-xs overflow-x-auto break-all whitespace-pre-wrap bg-themed-tertiary">
+                    /var/run/docker.sock:/var/run/docker.sock:ro
+                  </pre>
+                </div>
+
+                {/* Windows instructions */}
+                <div className="mb-3">
+                  <p className="text-sm font-medium text-themed-primary mb-2">
+                    {t('app.prefill.dockerNotAvailable.helpWindows')}
+                  </p>
+                </div>
+
+                <p className="text-sm text-themed-muted">
+                  {t('app.prefill.dockerNotAvailable.helpGeneric')}
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : activeTab === 'prefill' && isBanned ? (
           <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6">
             <div className="rounded-xl p-6 text-center bg-themed-error border border-[var(--theme-error)]">
               <div className="flex flex-col items-center gap-4">
@@ -757,7 +793,7 @@ const AppContent: React.FC = () => {
         <Header
           connectionStatus={connectionStatus as 'connected' | 'disconnected' | 'reconnecting'}
         />
-        <Navigation activeTab={activeTab} setActiveTab={setActiveTab} authMode={authMode} prefillEnabled={prefillEnabled} isBanned={isBanned} />
+        <Navigation activeTab={activeTab} setActiveTab={setActiveTab} authMode={authMode} prefillEnabled={prefillEnabled} isBanned={isBanned} dockerAvailable={isDockerAvailable} />
         {/* Only show Universal Notification Bar to authenticated users */}
         {authMode === 'authenticated' && <UniversalNotificationBar />}
         <main className="container mx-auto px-4 py-6 flex-grow">{renderContent()}</main>
@@ -774,9 +810,10 @@ const App: React.FC = () => {
         <TimeFilterProvider>
           <SignalRProvider>
             <AuthProvider>
-              <RefreshRateProvider>
-                <TimezoneProvider>
-                  <SteamWebApiStatusProvider>
+              <DockerSocketProvider>
+                <RefreshRateProvider>
+                  <TimezoneProvider>
+                    <SteamWebApiStatusProvider>
                     <GuestConfigProvider>
                       <SetupStatusProvider>
                         <SteamAuthProvider>
@@ -805,8 +842,9 @@ const App: React.FC = () => {
                       </SetupStatusProvider>
                     </GuestConfigProvider>
                   </SteamWebApiStatusProvider>
-                </TimezoneProvider>
-              </RefreshRateProvider>
+                  </TimezoneProvider>
+                </RefreshRateProvider>
+              </DockerSocketProvider>
             </AuthProvider>
           </SignalRProvider>
         </TimeFilterProvider>

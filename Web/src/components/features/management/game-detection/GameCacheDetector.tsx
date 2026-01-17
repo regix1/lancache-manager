@@ -10,6 +10,7 @@ import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { useNotifications } from '@contexts/NotificationsContext';
+import { useDockerSocket } from '@contexts/DockerSocketContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import {
   ManagerCardHeader,
@@ -37,6 +38,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 }) => {
   const { t } = useTranslation();
   const { addNotification, updateNotification, notifications } = useNotifications();
+  const { isDockerAvailable } = useDockerSocket();
 
   // Derive game detection state from notifications (standardized pattern)
   const activeGameDetectionNotification = notifications.find(
@@ -56,7 +58,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [gameToRemove, setGameToRemove] = useState<GameCacheInfo | null>(null);
   const [serviceToRemove, setServiceToRemove] = useState<ServiceCacheInfo | null>(null);
   const [cacheReadOnly, setCacheReadOnly] = useState(false);
-  const [dockerSocketAvailable, setDockerSocketAvailable] = useState(true);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [hasProcessedLogs, setHasProcessedLogs] = useState(false);
   const [checkingLogs, setCheckingLogs] = useState(true);
@@ -175,11 +176,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       setCheckingPermissions(true);
       const data = await ApiService.getDirectoryPermissions();
       setCacheReadOnly(data.cache.readOnly);
-      setDockerSocketAvailable(data.dockerSocket?.available ?? true);
     } catch (err) {
       console.error('Failed to check directory permissions:', err);
       setCacheReadOnly(false); // Assume writable on error
-      setDockerSocketAvailable(true); // Assume available on error
     } finally {
       setCheckingPermissions(false);
     }
@@ -759,7 +758,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                     notifications={notifications}
                     isAuthenticated={isAuthenticated}
                     cacheReadOnly={cacheReadOnly}
-                    dockerSocketAvailable={dockerSocketAvailable}
+                    dockerSocketAvailable={isDockerAvailable}
                     checkingPermissions={checkingPermissions}
                     onRemoveService={handleServiceRemoveClick}
                   />
@@ -782,7 +781,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                     notifications={notifications}
                     isAuthenticated={isAuthenticated}
                     cacheReadOnly={cacheReadOnly}
-                    dockerSocketAvailable={dockerSocketAvailable}
+                    dockerSocketAvailable={isDockerAvailable}
                     checkingPermissions={checkingPermissions}
                     onRemoveGame={handleRemoveClick}
                   />

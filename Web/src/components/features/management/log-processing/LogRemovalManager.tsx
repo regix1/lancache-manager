@@ -4,6 +4,7 @@ import { FileText, AlertTriangle, RefreshCw, Loader2, Trash2 } from 'lucide-reac
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useNotifications } from '@contexts/NotificationsContext';
+import { useDockerSocket } from '@contexts/DockerSocketContext';
 import { Card } from '@components/ui/Card';
 import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { Button } from '@components/ui/Button';
@@ -81,6 +82,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
 }) => {
   const { t } = useTranslation();
   const { notifications } = useNotifications();
+  const { isDockerAvailable } = useDockerSocket();
 
   // State
   const [datasourceCounts, setDatasourceCounts] = useState<DatasourceServiceCounts[]>([]);
@@ -93,7 +95,6 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [hasInitiallyLoaded, setHasInitiallyLoaded] = useState(false);
   const [logsReadOnly, setLogsReadOnly] = useState(false);
-  const [dockerSocketAvailable, setDockerSocketAvailable] = useState(true);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [startingServiceRemoval, setStartingServiceRemoval] = useState<string | null>(null);
 
@@ -137,11 +138,9 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
       setCheckingPermissions(true);
       const data = await ApiService.getDirectoryPermissions();
       setLogsReadOnly(data.logs.readOnly);
-      setDockerSocketAvailable(data.dockerSocket?.available ?? true);
     } catch (err) {
       console.error('Failed to check directory permissions:', err);
       setLogsReadOnly(false);
-      setDockerSocketAvailable(true);
     } finally {
       setCheckingPermissions(false);
     }
@@ -231,7 +230,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
     Object.values(ds.serviceCounts).some(count => count > 0)
   );
 
-  const isReadOnly = logsReadOnly || !dockerSocketAvailable;
+  const isReadOnly = logsReadOnly || !isDockerAvailable;
 
   // Help content
   const helpContent = (
@@ -296,7 +295,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
         )}
 
         {/* Docker Socket Warning */}
-        {!dockerSocketAvailable && !logsReadOnly && (
+        {!isDockerAvailable && !logsReadOnly && (
           <Alert color="orange" className="mb-6">
             <div className="min-w-0">
               <p className="font-medium">{t('management.logRemoval.alerts.dockerSocket.title')}</p>
@@ -379,7 +378,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
                                 !!deletingLogFile ||
                                 authMode !== 'authenticated' ||
                                 !ds.logsWritable ||
-                                !dockerSocketAvailable ||
+                                !isDockerAvailable ||
                                 checkingPermissions
                               }
                               loading={deletingLogFile === ds.datasource}
@@ -404,7 +403,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
                                     !!startingServiceRemoval ||
                                     authMode !== 'authenticated' ||
                                     !ds.logsWritable ||
-                                    !dockerSocketAvailable ||
+                                    !isDockerAvailable ||
                                     checkingPermissions
                                   }
                                   onClick={() => handleRemoveServiceLogs(ds.datasource, service)}

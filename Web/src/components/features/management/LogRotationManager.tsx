@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useDockerSocket } from '@contexts/DockerSocketContext';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
@@ -28,6 +29,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
   onSuccess
 }) => {
   const { t } = useTranslation();
+  const { isDockerAvailable } = useDockerSocket();
 
   const SCHEDULE_OPTIONS: DropdownOption[] = [
     { value: '0', label: t('management.logRotation.schedule.disabled'), description: t('management.logRotation.schedule.disabledDesc') },
@@ -182,6 +184,22 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Docker Socket Warning */}
+      {!isDockerAvailable && (
+        <Alert color="orange">
+          <div className="min-w-0">
+            <p className="font-medium">{t('management.logRotation.dockerSocketUnavailable')}</p>
+            <p className="text-sm mt-1">
+              {t('management.logRotation.dockerSocketDescription')}
+            </p>
+            <p className="text-sm mt-2">{t('management.logRotation.addDockerVolume')}</p>
+            <code className="block bg-themed-tertiary px-2 py-1 rounded text-xs mt-1 break-all">
+              /var/run/docker.sock:/var/run/docker.sock:ro
+            </code>
+          </div>
+        </Alert>
+      )}
 
       {/* Status Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

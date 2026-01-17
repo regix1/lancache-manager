@@ -22,6 +22,13 @@
       }
     },
     "prefill": {
+      "dockerNotAvailable": {
+        "title": "Docker Not Available",
+        "description": "The Prefill feature requires Docker access to create and manage containers.",
+        "helpLinux": "On Linux, add the following volume mount to your docker-compose.yml or Docker run command and restart the container:",
+        "helpWindows": "On Windows, ensure Docker Desktop is running and the LanCache Manager container has access to the Docker daemon.",
+        "helpGeneric": "Please ensure Docker is properly configured and the LanCache Manager container has access to create containers."
+      },
       "accessDenied": {
         "title": "Access Denied",
         "description": "Your account has been banned from using the Prefill feature.",
@@ -2480,6 +2487,9 @@
       "unableToLoad": "Unable to load log rotation status",
       "disabled": "Log rotation is disabled",
       "addEnvVar": "Add the following environment variable to your docker-compose.yml:",
+      "dockerSocketUnavailable": "Docker socket not mounted",
+      "dockerSocketDescription": "Log rotation requires Docker socket access to signal nginx.",
+      "addDockerVolume": "Add the following volume mount to your docker-compose.yml:",
       "rotationSchedule": "Rotation Schedule",
       "runsAutomatically": "Runs automatically at startup and on schedule",
       "enableScheduled": "Enable scheduled rotation to run automatically",

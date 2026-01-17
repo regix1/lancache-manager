@@ -9,10 +9,11 @@ interface NavigationProps {
   authMode?: AuthMode;
   prefillEnabled?: boolean;
   isBanned?: boolean;
+  dockerAvailable?: boolean;
 }
 
 const Navigation: React.FC<NavigationProps> = React.memo(
-  ({ activeTab, setActiveTab, authMode = 'unauthenticated', prefillEnabled = false, isBanned = false }) => {
+  ({ activeTab, setActiveTab, authMode = 'unauthenticated', prefillEnabled = false, isBanned = false, dockerAvailable = false }) => {
     const { t } = useTranslation();
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [menuHeight, setMenuHeight] = useState(0);
@@ -47,9 +48,10 @@ const Navigation: React.FC<NavigationProps> = React.memo(
         if (tab.guestOnly) {
           return authMode === 'guest';
         }
-        // Prefill tab: show to authenticated users OR guests with prefill permission, but hide if banned
+        // Prefill tab: show to authenticated users OR guests with prefill permission, but hide if banned or Docker not available
         if ('requiresPrefill' in tab && tab.requiresPrefill) {
           if (isBanned) return false;
+          if (!dockerAvailable) return false; // Hide if Docker socket not mounted
           return authMode === 'authenticated' || prefillEnabled;
         }
         // Show public tabs to everyone
@@ -59,7 +61,7 @@ const Navigation: React.FC<NavigationProps> = React.memo(
       // Sort by appropriate order based on auth mode
       const orderKey = authMode === 'authenticated' ? 'authOrder' : 'guestOrder';
       return filtered.sort((a, b) => a[orderKey] - b[orderKey]);
-    }, [authMode, prefillEnabled, isBanned, t]);
+    }, [authMode, prefillEnabled, isBanned, dockerAvailable, t]);
 
     const TabButton: React.FC<{
       tab: (typeof tabs)[0];

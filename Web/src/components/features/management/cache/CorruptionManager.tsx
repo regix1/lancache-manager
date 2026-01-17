@@ -9,6 +9,7 @@ import {
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useSignalR } from '@contexts/SignalRContext';
+import { useDockerSocket } from '@contexts/DockerSocketContext';
 import type {
   CorruptionRemovalCompleteEvent
 } from '@contexts/SignalRContext/types';
@@ -45,6 +46,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   const { t } = useTranslation();
   const { notifications, addNotification } = useNotifications();
   const signalR = useSignalR();
+  const { isDockerAvailable } = useDockerSocket();
 
   // Derive corruption detection scan state from notifications (standardized pattern like GameCacheDetector)
   const activeCorruptionDetectionNotification = notifications.find(
@@ -69,7 +71,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   const [hasInitiallyLoaded, setHasInitiallyLoaded] = useState(false);
   const [logsReadOnly, setLogsReadOnly] = useState(false);
   const [cacheReadOnly, setCacheReadOnly] = useState(false);
-  const [dockerSocketAvailable, setDockerSocketAvailable] = useState(true);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [startingCorruptionRemoval, setStartingCorruptionRemoval] = useState<string | null>(null);
   const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
@@ -247,12 +248,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
       const data = await ApiService.getDirectoryPermissions();
       setLogsReadOnly(data.logs.readOnly);
       setCacheReadOnly(data.cache.readOnly);
-      setDockerSocketAvailable(data.dockerSocket?.available ?? true);
     } catch (err) {
       console.error('Failed to check directory permissions:', err);
       setLogsReadOnly(false);
       setCacheReadOnly(false);
-      setDockerSocketAvailable(true);
     } finally {
       setCheckingPermissions(false);
     }
@@ -422,7 +421,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
         )}
 
         {/* Docker Socket Warning */}
-        {!dockerSocketAvailable && !isReadOnly && (
+        {!isDockerAvailable && !isReadOnly && (
           <Alert color="orange" className="mb-6">
             <div className="min-w-0">
               <p className="font-medium">{t('management.corruption.alerts.dockerSocketUnavailable')}</p>
@@ -438,7 +437,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
         )}
 
         {/* Content */}
-        {isReadOnly || !dockerSocketAvailable ? (
+        {isReadOnly || !isDockerAvailable ? (
           <ReadOnlyBadge message={isReadOnly ? t('management.corruption.readOnly') : t('management.corruption.dockerSocketRequired')} />
         ) : (
           <>
@@ -504,7 +503,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
                             authMode !== 'authenticated' ||
                             logsReadOnly ||
                             cacheReadOnly ||
-                            !dockerSocketAvailable ||
+                            !isDockerAvailable ||
                             checkingPermissions
                           }
                           variant="filled"
