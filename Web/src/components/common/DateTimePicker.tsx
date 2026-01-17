@@ -149,11 +149,16 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
     }
   };
 
+  const clampToMinDate = (date: Date): Date => {
+    if (!minDate) return date;
+    return date < minDate ? new Date(minDate) : date;
+  };
+
   const handleApply = () => {
     if (selectedDate) {
       const finalDate = new Date(selectedDate);
       finalDate.setHours(hours, minutes, 0, 0);
-      onChange(finalDate);
+      onChange(clampToMinDate(finalDate));
     }
     onClose();
   };
@@ -567,11 +572,12 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
             onClick={() => {
               const now = new Date();
               now.setSeconds(0, 0);
-              setSelectedDate(now);
-              setHours(now.getHours());
-              setMinutes(now.getMinutes());
-              setAmPm(now.getHours() >= 12 ? 'PM' : 'AM');
-              setCurrentMonth(new Date(now.getFullYear(), now.getMonth(), 1));
+              const clampedNow = clampToMinDate(now);
+              setSelectedDate(clampedNow);
+              setHours(clampedNow.getHours());
+              setMinutes(clampedNow.getMinutes());
+              setAmPm(clampedNow.getHours() >= 12 ? 'PM' : 'AM');
+              setCurrentMonth(new Date(clampedNow.getFullYear(), clampedNow.getMonth(), 1));
             }}
             fullWidth
           >

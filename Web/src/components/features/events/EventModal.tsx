@@ -6,7 +6,7 @@ import { Button } from '@components/ui/Button';
 import { useEvents } from '@contexts/EventContext';
 import { useTimezone } from '@contexts/TimezoneContext';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
-import { getEffectiveTimezone } from '@utils/timezone';
+import { getEffectiveTimezone, getDateInTimezone } from '@utils/timezone';
 import { getEventColorVar } from '@utils/eventColors';
 import DateTimePicker from '@components/common/DateTimePicker';
 import type { Event, CreateEventRequest, UpdateEventRequest } from '../../../types';
@@ -31,6 +31,9 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
   const [error, setError] = useState<string | null>(null);
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
+  const timezone = getEffectiveTimezone(useLocalTimezone);
+  const todayParts = getDateInTimezone(new Date(), timezone);
+  const todayMinDate = new Date(todayParts.year, todayParts.month, todayParts.day, 0, 0, 0, 0);
 
   // Form state - using Date objects now
   const [name, setName] = useState(event?.name || '');
@@ -60,7 +63,6 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
 
   // Format date/time for display
   const formatDateTime = (date: Date): string => {
-    const timezone = getEffectiveTimezone(useLocalTimezone);
     const dateStr = date.toLocaleDateString(undefined, {
       timeZone: timezone,
       weekday: 'short',
@@ -77,12 +79,28 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
     return t('events.modal.dateAt', { date: dateStr, time: timeStr });
   };
 
+  const isBeforeToday = (date: Date): boolean => {
+    const dateParts = getDateInTimezone(date, timezone);
+    if (dateParts.year !== todayParts.year) {
+      return dateParts.year < todayParts.year;
+    }
+    if (dateParts.month !== todayParts.month) {
+      return dateParts.month < todayParts.month;
+    }
+    return dateParts.day < todayParts.day;
+  };
+
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
     if (!name.trim()) {
       setError(t('events.modal.errors.nameRequired'));
+      return;
+    }
+
+    if (isBeforeToday(startDateTime)) {
+      setError(t('events.modal.errors.startInPast'));
       return;
     }
 
@@ -115,7 +133,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
     } finally {
       setSaving(false);
     }
-  }, [name, description, startDateTime, endDateTime, colorIndex, event, createEvent, updateEvent, onSave]);
+  }, [name, description, startDateTime, endDateTime, colorIndex, event, createEvent, updateEvent, onSave, t, timezone, todayParts]);
 
   const handleDeleteClick = useCallback(() => {
     setShowDeleteConfirm(true);
@@ -320,6 +338,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
             }}
             onClose={() => setShowStartPicker(false)}
             title={t('events.modal.selectStartDateTime')}
+            minDate={todayMinDate}
           />
         )}
 
@@ -330,7 +349,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
             onChange={setEndDateTime}
             onClose={() => setShowEndPicker(false)}
             title={t('events.modal.selectEndDateTime')}
-            minDate={startDateTime}
+            minDate={startDateTime > todayMinDate ? startDateTime : todayMinDate}
           />
         )}
       </Modal>

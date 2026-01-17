@@ -147,12 +147,33 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
     const now = new Date();
     const timezone = getEffectiveTimezone(useLocalTimezone);
     const todayParts = getDateInTimezone(now, timezone);
+    const dayParts = getDateInTimezone(
+      new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day),
+      timezone
+    );
 
     return (
-      currentMonth.getFullYear() === todayParts.year &&
-      currentMonth.getMonth() === todayParts.month &&
-      day === todayParts.day
+      dayParts.year === todayParts.year &&
+      dayParts.month === todayParts.month &&
+      dayParts.day === todayParts.day
     );
+  };
+
+  const isPastDay = (day: number): boolean => {
+    const timezone = getEffectiveTimezone(useLocalTimezone);
+    const todayParts = getDateInTimezone(new Date(), timezone);
+    const dayParts = getDateInTimezone(
+      new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day),
+      timezone
+    );
+
+    if (dayParts.year !== todayParts.year) {
+      return dayParts.year < todayParts.year;
+    }
+    if (dayParts.month !== todayParts.month) {
+      return dayParts.month < todayParts.month;
+    }
+    return dayParts.day < todayParts.day;
   };
 
   const changeMonth = (increment: number) => {
@@ -484,13 +505,18 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                 }
 
                 const today = isToday(day);
+                const pastDay = isPastDay(day);
                 const eventCount = getEventCountForDay(day);
 
                 return (
                   <div
                     key={day}
-                    onClick={() => onDayClick(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day))}
-                    className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} p-1.5 sm:p-2 rounded-lg border transition-all duration-200 cursor-pointer group`}
+                    onClick={() => {
+                      if (!pastDay) {
+                        onDayClick(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day));
+                      }
+                    }}
+                    className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} p-1.5 sm:p-2 rounded-lg border transition-all duration-200 ${pastDay ? 'cursor-not-allowed opacity-60' : 'cursor-pointer group'}`}
                     style={{
                       backgroundColor: today
                         ? 'color-mix(in srgb, var(--theme-primary) 8%, transparent)'
@@ -499,13 +525,13 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                       borderWidth: today ? '2px' : '1px'
                     }}
                     onMouseEnter={(e) => {
-                      if (!today) {
+                      if (!today && !pastDay) {
                         e.currentTarget.style.borderColor = 'var(--theme-primary)';
                         e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)';
                       }
                     }}
                     onMouseLeave={(e) => {
-                      if (!today) {
+                      if (!today && !pastDay) {
                         e.currentTarget.style.borderColor = 'var(--theme-border-secondary)';
                         e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)';
                       }
@@ -515,10 +541,10 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                     <div className="flex items-center justify-between mb-1">
                       <span
                         className={`text-sm font-semibold w-6 h-6 flex items-center justify-center rounded-full transition-colors ${
-                          today ? '' : 'group-hover:bg-[var(--theme-bg-hover)]'
+                          today ? '' : pastDay ? '' : 'group-hover:bg-[var(--theme-bg-hover)]'
                         }`}
                         style={{
-                          color: today ? 'var(--theme-primary)' : 'var(--theme-text-primary)',
+                          color: today ? 'var(--theme-primary)' : pastDay ? 'var(--theme-text-muted)' : 'var(--theme-text-primary)',
                           backgroundColor: today ? 'color-mix(in srgb, var(--theme-primary) 15%, transparent)' : 'transparent'
                         }}
                       >
