@@ -41,7 +41,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     cachedAppIds: number[];
     hasData: boolean;
   } | null>(null);
-  const gamesCacheWindowMs = 60 * 1000;
+  const gamesCacheWindowMs = 5 * 60 * 1000;
 
   // Use context for log entries (persists across tab switches)
   const {
