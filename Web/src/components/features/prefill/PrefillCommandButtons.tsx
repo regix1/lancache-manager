@@ -18,6 +18,7 @@ interface PrefillCommandButtonsProps {
   isLoggedIn: boolean;
   isExecuting: boolean;
   isPrefillActive: boolean;
+  isSessionActive: boolean;
   isUserAuthenticated: boolean;
   selectedAppIds: number[];
   selectedOS: string[];
@@ -31,6 +32,7 @@ export function PrefillCommandButtons({
   isLoggedIn,
   isExecuting,
   isPrefillActive,
+  isSessionActive,
   isUserAuthenticated,
   selectedAppIds,
   selectedOS,
@@ -48,7 +50,11 @@ export function PrefillCommandButtons({
     // Disable prefill buttons while a prefill is in progress
     const isPrefillCommand = cmd.id.startsWith('prefill');
     const isDisabled =
-      isExecuting || !isLoggedIn || (isPrefillSelected && noGamesSelected) || (isPrefillCommand && isPrefillActive);
+      isExecuting ||
+      !isSessionActive ||
+      !isLoggedIn ||
+      (isPrefillSelected && noGamesSelected) ||
+      (isPrefillCommand && isPrefillActive);
 
     // Dynamic label for prefill selected
     const label =
@@ -127,7 +133,7 @@ export function PrefillCommandButtons({
                 }))}
                 values={selectedOS}
                 onChange={onSelectedOSChange}
-                disabled={isExecuting || !isLoggedIn}
+                disabled={isExecuting || !isLoggedIn || !isSessionActive}
                 minSelections={1}
                 placeholder={t('prefill.placeholders.selectPlatforms')}
               />
@@ -146,7 +152,7 @@ export function PrefillCommandButtons({
                 }))}
                 value={maxConcurrency}
                 onChange={onMaxConcurrencyChange}
-                disabled={isExecuting || !isLoggedIn}
+                disabled={isExecuting || !isLoggedIn || !isSessionActive}
               />
             </div>
           </div>

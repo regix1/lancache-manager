@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from '../../ui/Card';
 import { Button } from '../../ui/Button';
@@ -33,6 +33,7 @@ import {
 
 export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const { t } = useTranslation();
+  const hasExpiredRef = useRef(false);
 
   // Use context for log entries (persists across tab switches)
   const {
@@ -145,6 +146,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   // Timer for session countdown
   useEffect(() => {
     if (!signalR.session || signalR.session.status !== 'Active') return;
+    hasExpiredRef.current = false;
 
     const interval = setInterval(() => {
       const remaining = Math.max(
@@ -153,14 +155,17 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       );
       signalR.setTimeRemaining(remaining);
 
-      if (remaining <= 0) {
+      if (remaining <= 0 && !hasExpiredRef.current) {
+        hasExpiredRef.current = true;
         signalR.setError(t('prefill.errors.sessionExpired'));
-        handleEndSession();
+        signalR.setTimeRemaining(0);
+        signalR.setIsLoggedIn(false);
+        signalR.setSession(prev => prev ? { ...prev, status: 'Expired' } : prev);
       }
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [signalR.session]);
+  }, [signalR.session, signalR.setSession, signalR.setIsLoggedIn, signalR.setTimeRemaining, signalR.setError, t]);
 
   // Helper to call prefill REST API
   const callPrefillApi = useCallback(
@@ -208,6 +213,11 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const executeCommand = useCallback(
     async (commandType: CommandType) => {
       if (!signalR.session || !signalR.hubConnection.current) return;
+      if (signalR.session.status !== 'Active' || signalR.timeRemaining <= 0) {
+        signalR.setError(t('prefill.errors.sessionExpired'));
+        addLog('warning', t('prefill.errors.sessionExpired'));
+        return;
+      }
 
       setIsExecuting(true);
 
@@ -345,7 +355,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         setIsExecuting(false);
       }
     },
-    [signalR.session, signalR.hubConnection, signalR.expectedAppCountRef, callPrefillApi, selectedAppIds, addLog]
+    [signalR.session, signalR.hubConnection, signalR.expectedAppCountRef, signalR.timeRemaining, signalR.setError, callPrefillApi, selectedAppIds, addLog, t]
   );
 
   const handleEndSession = useCallback(async () => {
@@ -547,6 +557,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   }, []);
 
   const isLoadingSession = signalR.isInitializing || signalR.isCreating;
+  const isSessionActive = !!signalR.session && signalR.session.status === 'Active' && signalR.timeRemaining > 0;
+  const isSessionExpired = !!signalR.session && !isSessionActive;
 
   // No session state - show start screen
   if (!signalR.session && !isLoadingSession) {
@@ -574,6 +586,19 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     const status = signalR.isCreating ? 'creating' : 'checking';
     return <PrefillLoadingState status={status} />;
   }
+
+  const handleStartNewSession = useCallback(() => {
+    setShowAuthModal(false);
+    setShowGameSelection(false);
+    setOwnedGames([]);
+    setCachedAppIds([]);
+    setSelectedAppIds([]);
+    signalR.setError(null);
+    signalR.setSession(null);
+    signalR.setIsLoggedIn(false);
+    signalR.setTimeRemaining(0);
+    signalR.createSession(clearLogs);
+  }, [signalR, clearLogs]);
 
   // Active session - full interface
   return (
@@ -607,6 +632,31 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         onCancel={handleCancelConfirm}
         getConfirmationMessage={getConfirmationMessage}
       />
+
+      {/* Session Expired Notice */}
+      {isSessionExpired && (
+        <div className="p-4 rounded-lg flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-[color-mix(in_srgb,var(--theme-warning)_15%,transparent)] border border-[color-mix(in_srgb,var(--theme-warning)_30%,transparent)]">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 flex-shrink-0 text-[var(--theme-warning)]" />
+            <div>
+              <p className="font-medium text-sm text-[var(--theme-warning-text)]">
+                {t('prefill.sessionExpired.title')}
+              </p>
+              <p className="text-sm text-themed-muted">
+                {t('prefill.sessionExpired.message')}
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="filled"
+            color="blue"
+            onClick={handleStartNewSession}
+            className="flex-shrink-0"
+          >
+            {t('prefill.sessionExpired.startNew')}
+          </Button>
+        </div>
+      )}
 
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-lg bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)]">
@@ -644,15 +694,17 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           </div>
 
           {/* End Session Button */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleEndSession}
-            className="flex-shrink-0 border-[color-mix(in_srgb,var(--theme-error)_40%,transparent)] text-[var(--theme-error)]"
-          >
-            <X className="h-4 w-4" />
-            <span className="hidden sm:inline">{t('prefill.endSession')}</span>
-          </Button>
+          {!isSessionExpired && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleEndSession}
+              className="flex-shrink-0 border-[color-mix(in_srgb,var(--theme-error)_40%,transparent)] text-[var(--theme-error)]"
+            >
+              <X className="h-4 w-4" />
+              <span className="hidden sm:inline">{t('prefill.endSession')}</span>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -697,7 +749,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                 </div>
               </div>
 
-              {!signalR.isLoggedIn && (
+              {!signalR.isLoggedIn && !isSessionExpired && (
                 <Button
                   variant="filled"
                   onClick={handleOpenAuthModal}
@@ -719,7 +771,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           )}
 
           {/* Download Progress Card */}
-          {signalR.prefillProgress && (
+          {signalR.prefillProgress && isSessionActive && (
             <PrefillProgressCard progress={signalR.prefillProgress} onCancel={handleCancelPrefill} />
           )}
 
@@ -728,6 +780,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             isLoggedIn={signalR.isLoggedIn}
             isExecuting={isExecuting}
             isPrefillActive={signalR.isPrefillActive}
+            isSessionActive={isSessionActive}
             isUserAuthenticated={isUserAuthenticated}
             selectedAppIds={selectedAppIds}
             selectedOS={selectedOS}

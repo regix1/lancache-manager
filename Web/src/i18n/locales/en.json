@@ -3057,6 +3057,11 @@
       "sessionExpired": "Session expired",
       "unableEstimateSize": "Unable to estimate size"
     },
+    "sessionExpired": {
+      "title": "Session expired",
+      "message": "This prefill session has expired. Start a new session to continue using Steam prefill.",
+      "startNew": "Start new session"
+    },
     "log": {
       "loginSuccess": "Successfully logged in to Steam",
       "credentialsRequired": "Steam credentials required",
