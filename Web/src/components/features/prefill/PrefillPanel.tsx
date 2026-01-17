@@ -560,6 +560,19 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const isSessionActive = !!signalR.session && signalR.session.status === 'Active' && signalR.timeRemaining > 0;
   const isSessionExpired = !!signalR.session && !isSessionActive;
 
+  const handleStartNewSession = useCallback(() => {
+    setShowAuthModal(false);
+    setShowGameSelection(false);
+    setOwnedGames([]);
+    setCachedAppIds([]);
+    setSelectedAppIds([]);
+    signalR.setError(null);
+    signalR.setSession(null);
+    signalR.setIsLoggedIn(false);
+    signalR.setTimeRemaining(0);
+    signalR.createSession(clearLogs);
+  }, [signalR, clearLogs]);
+
   // No session state - show start screen
   if (!signalR.session && !isLoadingSession) {
     return (
@@ -586,19 +599,6 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     const status = signalR.isCreating ? 'creating' : 'checking';
     return <PrefillLoadingState status={status} />;
   }
-
-  const handleStartNewSession = useCallback(() => {
-    setShowAuthModal(false);
-    setShowGameSelection(false);
-    setOwnedGames([]);
-    setCachedAppIds([]);
-    setSelectedAppIds([]);
-    signalR.setError(null);
-    signalR.setSession(null);
-    signalR.setIsLoggedIn(false);
-    signalR.setTimeRemaining(0);
-    signalR.createSession(clearLogs);
-  }, [signalR, clearLogs]);
 
   // Active session - full interface
   return (
