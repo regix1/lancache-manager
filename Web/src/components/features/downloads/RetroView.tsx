@@ -54,6 +54,92 @@ interface RetroViewProps {
 
 const STORAGE_KEY = 'retro-view-column-widths';
 
+const GRID_GAP = 8;
+const GRID_PADDING = 32;
+const GRID_FIXED_ADDITIONS = 60; // app +40, overall +20 in grid template
+const RESIZE_MIN_WIDTH = 60;
+const COLUMN_FIT_FLOOR = 40;
+
+const MIN_COLUMN_WIDTHS: ColumnWidths = {
+  timestamp: 80,
+  app: 100,
+  datasource: 70,
+  events: 50,
+  depot: 40,
+  client: 60,
+  speed: 50,
+  cacheHit: 80,
+  cacheMiss: 0,
+  overall: 50
+};
+
+const getVisibleColumns = (showDatasource: boolean): (keyof ColumnWidths)[] => {
+  return showDatasource
+    ? ['timestamp', 'app', 'datasource', 'events', 'depot', 'client', 'speed', 'cacheHit', 'overall']
+    : ['timestamp', 'app', 'events', 'depot', 'client', 'speed', 'cacheHit', 'overall'];
+};
+
+const getAvailableGridWidth = (containerWidth: number, showDatasource: boolean): number => {
+  const columnCount = showDatasource ? 9 : 8;
+  const gapCount = columnCount - 1;
+  return containerWidth - GRID_PADDING - (gapCount * GRID_GAP) - GRID_FIXED_ADDITIONS;
+};
+
+const fitWidthsToContainer = (
+  widths: ColumnWidths,
+  containerWidth: number,
+  showDatasource: boolean,
+  lockedMinWidths?: Partial<ColumnWidths>
+): ColumnWidths => {
+  const availableWidth = getAvailableGridWidth(containerWidth, showDatasource);
+  if (!Number.isFinite(availableWidth) || availableWidth <= 0) {
+    return widths;
+  }
+
+  const columns = getVisibleColumns(showDatasource);
+  const minWidths: ColumnWidths = { ...MIN_COLUMN_WIDTHS };
+  if (lockedMinWidths) {
+    Object.entries(lockedMinWidths).forEach(([column, value]) => {
+      const key = column as keyof ColumnWidths;
+      minWidths[key] = Math.max(minWidths[key], value ?? 0);
+    });
+  }
+
+  const normalized: ColumnWidths = { ...widths, cacheMiss: 0 };
+  columns.forEach((column) => {
+    normalized[column] = Math.max(minWidths[column], normalized[column]);
+  });
+
+  const totalWidth = columns.reduce((sum, column) => sum + normalized[column], 0);
+  if (totalWidth <= availableWidth) {
+    return normalized;
+  }
+
+  const totalMin = columns.reduce((sum, column) => sum + minWidths[column], 0);
+  if (totalMin >= availableWidth) {
+    const scale = availableWidth / totalMin;
+    const scaled: ColumnWidths = { ...normalized, cacheMiss: 0 };
+    columns.forEach((column) => {
+      scaled[column] = Math.max(COLUMN_FIT_FLOOR, Math.floor(minWidths[column] * scale));
+    });
+    return scaled;
+  }
+
+  const extra = availableWidth - totalMin;
+  const flexTotal = columns.reduce(
+    (sum, column) => sum + Math.max(0, normalized[column] - minWidths[column]),
+    0
+  );
+  const fitted: ColumnWidths = { ...normalized, cacheMiss: 0 };
+  columns.forEach((column) => {
+    const flex = Math.max(0, normalized[column] - minWidths[column]);
+    const share = flexTotal > 0 ? (flex / flexTotal) * extra : 0;
+    fitted[column] = Math.floor(minWidths[column] + share);
+  });
+
+  return fitted;
+};
+
 const getServiceIcon = (service: string, size: number = 24) => {
   const serviceLower = service.toLowerCase();
 
@@ -544,7 +630,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
       const diff = moveEvent.clientX - startX;
-      const newWidth = Math.max(60, startWidth + diff); // Minimum 60px
+      const newWidth = Math.max(RESIZE_MIN_WIDTH, startWidth + diff);
 
       setColumnWidths(prev => ({
         ...prev,
@@ -677,83 +763,9 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
 
     document.body.removeChild(measureSpan);
 
-    // Calculate total measured width and available space
     const containerWidth = containerRef.current.clientWidth;
-    const GRID_GAP = 8;
-    const PADDING = 32;
-    const NUM_COLUMNS = isDatasourceShown ? 9 : 8;
-    const NUM_GAPS = NUM_COLUMNS - 1;
-    const FIXED_ADDITIONS = 40 + 20; // app+40, overall+20 in grid template
-
-    const availableWidth = containerWidth - PADDING - (NUM_GAPS * GRID_GAP) - FIXED_ADDITIONS;
-
-    // Sum up all measured widths (excluding cacheMiss which is combined)
-    let totalMeasured = measuredWidths.timestamp + measuredWidths.app + measuredWidths.events +
-      measuredWidths.depot + measuredWidths.client + measuredWidths.speed +
-      measuredWidths.cacheHit + measuredWidths.overall;
-
-    if (isDatasourceShown) {
-      totalMeasured += measuredWidths.datasource;
-    }
-
-    // Define minimum widths for each column
-    const minWidths = {
-      timestamp: 80,
-      app: 100,
-      datasource: 70,
-      events: 50,
-      depot: 40,
-      client: 60,
-      speed: 50,
-      cacheHit: 80,
-      cacheMiss: 0,
-      overall: 50
-    };
-
-    // Priority-based scaling: timestamp and app are prioritized (never shrunk)
-    // Other columns shrink to fit remaining space
-    if (totalMeasured <= availableWidth) {
-      // Everything fits - use measured widths
-      setColumnWidths({
-        timestamp: measuredWidths.timestamp,
-        app: measuredWidths.app,
-        datasource: measuredWidths.datasource,
-        events: measuredWidths.events,
-        depot: measuredWidths.depot,
-        client: measuredWidths.client,
-        speed: measuredWidths.speed,
-        cacheHit: measuredWidths.cacheHit,
-        cacheMiss: 0,
-        overall: measuredWidths.overall
-      });
-    } else {
-      // Need to shrink - prioritize timestamp and app, shrink others
-      const priorityWidth = measuredWidths.timestamp + measuredWidths.app;
-      const remainingAvailable = availableWidth - priorityWidth;
-
-      // Calculate total width of non-priority columns
-      let otherColumnsTotal = measuredWidths.events + measuredWidths.depot +
-        measuredWidths.client + measuredWidths.speed + measuredWidths.cacheHit + measuredWidths.overall;
-      if (isDatasourceShown) {
-        otherColumnsTotal += measuredWidths.datasource;
-      }
-
-      // Scale factor for non-priority columns only
-      const otherScaleFactor = remainingAvailable > 0 ? Math.min(1, remainingAvailable / otherColumnsTotal) : 0.5;
-
-      setColumnWidths({
-        timestamp: measuredWidths.timestamp, // Keep full size
-        app: measuredWidths.app, // Keep full size
-        datasource: Math.max(minWidths.datasource, Math.floor(measuredWidths.datasource * otherScaleFactor)),
-        events: Math.max(minWidths.events, Math.floor(measuredWidths.events * otherScaleFactor)),
-        depot: Math.max(minWidths.depot, Math.floor(measuredWidths.depot * otherScaleFactor)),
-        client: Math.max(minWidths.client, Math.floor(measuredWidths.client * otherScaleFactor)),
-        speed: Math.max(minWidths.speed, Math.floor(measuredWidths.speed * otherScaleFactor)),
-        cacheHit: Math.max(minWidths.cacheHit, Math.floor(measuredWidths.cacheHit * otherScaleFactor)),
-        cacheMiss: 0,
-        overall: Math.max(minWidths.overall, Math.floor(measuredWidths.overall * otherScaleFactor))
-      });
-    }
+    const fittedWidths = fitWidthsToContainer(measuredWidths, containerWidth, isDatasourceShown);
+    setColumnWidths(fittedWidths);
   }, [items, sortOrder, hasMultipleDatasources, showDatasourceLabels, smartDefaultWidths, t]);
 
   // Auto-fit a single column by measuring actual data content (not truncated DOM text)
@@ -766,6 +778,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
     // Create a temporary span to measure text width
     const measureSpan = document.createElement('span');
     measureSpan.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;';
+    measureSpan.style.letterSpacing = 'normal';
     document.body.appendChild(measureSpan);
 
     // Use the actual data to measure full text widths (not truncated DOM)
@@ -827,6 +840,21 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
           maxWidth = Math.max(maxWidth, measureSpan.offsetWidth + 32);
         });
         break;
+      case 'cacheHit':
+        measureSpan.style.font = '400 10px system-ui, -apple-system, sans-serif';
+        grouped.forEach((data) => {
+          const totalBytes = data.totalBytes || 0;
+          const hitPercent = totalBytes > 0 ? (data.cacheHitBytes / totalBytes) * 100 : 0;
+          const missPercent = totalBytes > 0 ? (data.cacheMissBytes / totalBytes) * 100 : 0;
+          const hitLabel = `${formatBytes(data.cacheHitBytes)} (${formatPercent(hitPercent)})`;
+          const missLabel = `${formatBytes(data.cacheMissBytes)} (${formatPercent(missPercent)})`;
+          measureSpan.textContent = hitLabel;
+          const hitWidth = measureSpan.offsetWidth;
+          measureSpan.textContent = missLabel;
+          const missWidth = measureSpan.offsetWidth;
+          maxWidth = Math.max(maxWidth, hitWidth + missWidth + 8 + 32);
+        });
+        break;
 
       default:
         // For other columns, use smart defaults
@@ -835,6 +863,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
 
     // Also measure header
     measureSpan.style.font = '600 11px system-ui, -apple-system, sans-serif';
+    measureSpan.style.letterSpacing = '0.025em';
     const headerLabels: Record<string, string> = {
       timestamp: t('downloads.tab.retro.headers.timestamp'),
       app: t('downloads.tab.retro.headers.app'),
@@ -852,12 +881,24 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
 
     document.body.removeChild(measureSpan);
 
-    // Update the column width - NO constraint, let it expand fully
-    setColumnWidths(prev => ({
-      ...prev,
-      [column]: Math.max(60, Math.ceil(maxWidth)) // Ensure minimum of 60px
-    }));
-  }, [smartDefaultWidths, items, sortOrder, t]);
+    const requiredWidth = Math.max(RESIZE_MIN_WIDTH, Math.ceil(maxWidth));
+
+    setColumnWidths((prev) => {
+      const nextWidths: ColumnWidths = {
+        ...prev,
+        [column]: requiredWidth
+      };
+
+      const containerWidth = containerRef.current?.clientWidth;
+      if (!containerWidth) {
+        return nextWidths;
+      }
+
+      const isDatasourceShown = hasMultipleDatasources && showDatasourceLabels;
+      const lockedMinWidths = { [column]: requiredWidth } as Partial<ColumnWidths>;
+      return fitWidthsToContainer(nextWidths, containerWidth, isDatasourceShown, lockedMinWidths);
+    });
+  }, [smartDefaultWidths, items, sortOrder, t, hasMultipleDatasources, showDatasourceLabels]);
 
   // Expose resetWidths to parent via ref
   useImperativeHandle(ref, () => ({
@@ -900,20 +941,58 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
     }
   }, [groupedItems, fetchAssociations]);
 
-  // Helper to get aggregated events for a depot group
-  const getGroupEvents = useCallback((downloadIds: number[]): EventSummary[] => {
-    const eventsMap = new Map<number, EventSummary>();
-    downloadIds.forEach(id => {
-      const associations = getAssociations(id);
-      associations.events.forEach(event => {
-        // Dedupe events by ID
-        if (!eventsMap.has(event.id)) {
-          eventsMap.set(event.id, event);
-        }
+  // Pre-compute row data with events to avoid recalculating during render
+  // This memoization prevents expensive event lookups on every render
+  const rowsWithEvents = useMemo(() => {
+    return groupedItems.map((data) => {
+      // Aggregate events for this depot group
+      const eventsMap = new Map<number, EventSummary>();
+      data.downloadIds.forEach(id => {
+        const associations = getAssociations(id);
+        associations.events.forEach(event => {
+          if (!eventsMap.has(event.id)) {
+            eventsMap.set(event.id, event);
+          }
+        });
       });
+      const events = Array.from(eventsMap.values());
+
+      // Pre-calculate derived values
+      const totalBytes = data.totalBytes || 0;
+      const cacheHitBytes = data.cacheHitBytes || 0;
+      const cacheMissBytes = data.cacheMissBytes || 0;
+      const hitPercent = totalBytes > 0 ? (cacheHitBytes / totalBytes) * 100 : 0;
+      const timeRange = formatTimeRange(data.startTimeUtc, data.endTimeUtc);
+
+      // Get accent color
+      let accentColor: string;
+      if (hitPercent >= 90) accentColor = 'var(--theme-success)';
+      else if (hitPercent >= 50) accentColor = 'var(--theme-warning)';
+      else accentColor = 'var(--theme-error)';
+
+      // Check if has game image
+      const serviceLower = data.service.toLowerCase();
+      const isSteam = serviceLower === 'steam';
+      const hasGameImage = !aestheticMode && isSteam &&
+        data.gameAppId &&
+        data.gameName &&
+        data.gameName !== 'Unknown Steam Game' &&
+        !data.gameName.match(/^Steam App \d+$/) &&
+        !imageErrors.has(String(data.gameAppId));
+
+      return {
+        ...data,
+        events,
+        totalBytes,
+        cacheHitBytes,
+        cacheMissBytes,
+        hitPercent,
+        timeRange,
+        accentColor,
+        hasGameImage,
+      };
     });
-    return Array.from(eventsMap.values());
-  }, [getAssociations]);
+  }, [groupedItems, getAssociations, aestheticMode, imageErrors]);
 
   // Generate grid template from column widths
   // Use pixel values for precise control during resize, with 1fr on the last column to fill remaining space
@@ -923,139 +1002,121 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
     ? `${columnWidths.timestamp}px ${columnWidths.app + 40}px ${columnWidths.datasource}px ${columnWidths.events}px ${columnWidths.depot}px ${columnWidths.client}px ${columnWidths.speed}px ${columnWidths.cacheHit + columnWidths.cacheMiss}px minmax(${columnWidths.overall + 20}px, 1fr)`
     : `${columnWidths.timestamp}px ${columnWidths.app + 40}px ${columnWidths.events}px ${columnWidths.depot}px ${columnWidths.client}px ${columnWidths.speed}px ${columnWidths.cacheHit + columnWidths.cacheMiss}px minmax(${columnWidths.overall + 20}px, 1fr)`;
 
-  // Get efficiency-based accent color
-  const getAccentColor = (hitPercent: number) => {
-    if (hitPercent >= 90) return 'var(--theme-success)';
-    if (hitPercent >= 50) return 'var(--theme-warning)';
-    return 'var(--theme-error)';
-  };
+  // Memoize grid template to prevent recalculation
+  const gridTemplateMemo = useMemo(() => gridTemplate, [gridTemplate]);
 
   return (
       <div ref={containerRef} className="rounded-lg border border-[var(--theme-border-primary)] overflow-hidden retro-table-container bg-[var(--theme-card-bg)]">
-      {/* Keyframe styles for animations */}
+      {/* Keyframe styles for animations - only float animation for empty state */}
       <style>{`
         @keyframes float {
           0%, 100% { transform: translateY(0); }
           50% { transform: translateY(-8px); }
-        }
-        @keyframes rowEntrance {
-          from {
-            opacity: 0;
-            transform: translateX(-8px);
-          }
-          to {
-            opacity: 1;
-            transform: translateX(0);
-          }
-        }
-        .row-animate {
-          animation: rowEntrance 0.3s ease-out forwards;
-          opacity: 0;
         }
       `}</style>
 
       {/* Desktop Table Header - only rendered on desktop via JS conditional */}
       {isDesktop && (
         <div
-          className="grid pl-4 pr-4 py-3 text-xs font-semibold uppercase tracking-wide border-b select-none sticky top-0 z-20 bg-[var(--theme-bg-tertiary)] border-[var(--theme-border-secondary)] text-[var(--theme-text-secondary)] min-w-fit"
-          style={{ gridTemplateColumns: gridTemplate }}
+          className="grid pl-4 pr-4 py-3 items-center text-xs leading-none font-semibold uppercase tracking-wide border-b select-none sticky top-0 z-20 bg-[var(--theme-bg-tertiary)] border-[var(--theme-border-secondary)] text-[var(--theme-text-secondary)] min-w-fit"
+          style={{ gridTemplateColumns: gridTemplateMemo }}
         >
-          <div className="relative px-2" data-header>
-            {t('downloads.tab.retro.headers.timestamp')}
+          <div className="relative px-2 flex items-center h-full min-w-0" data-header>
+            <span className="min-w-0 flex-1 truncate">
+              {t('downloads.tab.retro.headers.timestamp')}
+            </span>
             <ResizeHandle
               onMouseDown={(e) => handleMouseDown('timestamp', e)}
               onDoubleClick={() => handleAutoFitColumn('timestamp')}
             />
           </div>
-          <div className="relative px-2" data-header>
-            {t('downloads.tab.retro.headers.app')}
+          <div className="relative px-2 flex items-center h-full min-w-0" data-header>
+            <span className="min-w-0 flex-1 truncate">
+              {t('downloads.tab.retro.headers.app')}
+            </span>
             <ResizeHandle
               onMouseDown={(e) => handleMouseDown('app', e)}
               onDoubleClick={() => handleAutoFitColumn('app')}
             />
           </div>
           {showDatasourceColumn && (
-            <div className="relative px-2 text-center" data-header>
-              {t('downloads.tab.retro.headers.source')}
+            <div className="relative px-2 text-center flex items-center justify-center h-full min-w-0" data-header>
+              <span className="min-w-0 flex-1 truncate text-center">
+                {t('downloads.tab.retro.headers.source')}
+              </span>
               <ResizeHandle
                 onMouseDown={(e) => handleMouseDown('datasource', e)}
                 onDoubleClick={() => handleAutoFitColumn('datasource')}
               />
             </div>
           )}
-          <div className="relative px-2 text-center" data-header>
-            {t('downloads.tab.retro.headers.events')}
+          <div className="relative px-2 text-center flex items-center justify-center h-full min-w-0" data-header>
+            <span className="min-w-0 flex-1 truncate text-center">
+              {t('downloads.tab.retro.headers.events')}
+            </span>
             <ResizeHandle
               onMouseDown={(e) => handleMouseDown('events', e)}
               onDoubleClick={() => handleAutoFitColumn('events')}
             />
           </div>
-          <div className="relative px-2 text-center" data-header>
-            {t('downloads.tab.retro.headers.depot')}
+          <div className="relative px-2 text-center flex items-center justify-center h-full min-w-0" data-header>
+            <span className="min-w-0 flex-1 truncate text-center">
+              {t('downloads.tab.retro.headers.depot')}
+            </span>
             <ResizeHandle
               onMouseDown={(e) => handleMouseDown('depot', e)}
               onDoubleClick={() => handleAutoFitColumn('depot')}
             />
           </div>
-          <div className="relative px-2 text-center" data-header>
-            {t('downloads.tab.retro.headers.client')}
+          <div className="relative px-2 text-center flex items-center justify-center h-full min-w-0" data-header>
+            <span className="min-w-0 flex-1 truncate text-center">
+              {t('downloads.tab.retro.headers.client')}
+            </span>
             <ResizeHandle
               onMouseDown={(e) => handleMouseDown('client', e)}
               onDoubleClick={() => handleAutoFitColumn('client')}
             />
           </div>
-          <div className="relative px-2 text-center" data-header>
-            {t('downloads.tab.retro.headers.avgSpeed')}
+          <div className="relative px-2 text-center flex items-center justify-center h-full min-w-0" data-header>
+            <span className="min-w-0 flex-1 truncate text-center">
+              {t('downloads.tab.retro.headers.avgSpeed')}
+            </span>
             <ResizeHandle
               onMouseDown={(e) => handleMouseDown('speed', e)}
               onDoubleClick={() => handleAutoFitColumn('speed')}
             />
           </div>
-          <div className="relative px-2 text-center" data-header>
-            {t('downloads.tab.retro.headers.cachePerformance')}
+          <div className="relative px-2 text-center flex items-center justify-center h-full min-w-0" data-header>
+            <span className="min-w-0 flex-1 truncate text-center">
+              {t('downloads.tab.retro.headers.cachePerformance')}
+            </span>
             <ResizeHandle
               onMouseDown={(e) => handleMouseDown('cacheHit', e)}
               onDoubleClick={() => handleAutoFitColumn('cacheHit')}
             />
           </div>
-          <div className="relative px-2 text-center" data-header>
-            {t('downloads.tab.retro.headers.efficiency')}
+          <div className="relative px-2 text-center flex items-center justify-center h-full min-w-0" data-header>
+            <span className="min-w-0 flex-1 truncate text-center">
+              {t('downloads.tab.retro.headers.efficiency')}
+            </span>
           </div>
         </div>
       )}
 
       {/* Table Body */}
       <div>
-        {groupedItems.map((data, index) => {
-          const serviceLower = data.service.toLowerCase();
-          const isSteam = serviceLower === 'steam';
-          const hasGameImage = !aestheticMode && isSteam &&
-            data.gameAppId &&
-            data.gameName &&
-            data.gameName !== 'Unknown Steam Game' &&
-            !data.gameName.match(/^Steam App \d+$/) &&
-            !imageErrors.has(String(data.gameAppId));
-
-          const totalBytes = data.totalBytes || 0;
-          const cacheHitBytes = data.cacheHitBytes || 0;
-          const cacheMissBytes = data.cacheMissBytes || 0;
-          const hitPercent = totalBytes > 0 ? (cacheHitBytes / totalBytes) * 100 : 0;
-
-          // Format time range with consistent year display
-          // (if either date is from a different year, both show the year)
-          const timeRange = formatTimeRange(data.startTimeUtc, data.endTimeUtc);
-
-          const accentColor = getAccentColor(hitPercent);
+        {rowsWithEvents.map((data) => {
+          // All values are pre-computed in rowsWithEvents useMemo
+          const { totalBytes, cacheHitBytes, cacheMissBytes, hitPercent, timeRange, accentColor, hasGameImage, events } = data;
 
           return (
             <div
               key={data.id}
-              className="row-animate transition-all duration-200 hover:bg-[var(--theme-bg-tertiary)]/50 group relative border-b border-[var(--theme-border-secondary)]"
-              style={{ animationDelay: `${index * 30}ms` }}
+              className="hover:bg-[var(--theme-bg-tertiary)]/50 group relative border-b border-[var(--theme-border-secondary)]"
             >
               {/* Left accent border based on efficiency */}
               <div
-                className="absolute left-0 top-0 bottom-0 w-1 transition-all duration-200 group-hover:w-1.5 opacity-70"
+                className="absolute left-0 top-0 bottom-0 w-1 opacity-70"
                 style={{ backgroundColor: accentColor }}
               />
 
@@ -1064,21 +1125,21 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                 /* Desktop Layout */
                 <div
                   className="grid pl-4 pr-4 py-3 items-center"
-                  style={{ gridTemplateColumns: gridTemplate }}
+                  style={{ gridTemplateColumns: gridTemplateMemo }}
                   data-row
                 >
                   {/* Timestamp */}
-                  <div className="px-2 text-xs text-[var(--theme-text-secondary)] overflow-hidden whitespace-nowrap" data-cell>
+                  <div className="px-2 min-w-0 text-xs text-[var(--theme-text-secondary)] overflow-hidden whitespace-nowrap" data-cell>
                     <span className="block truncate" title={timeRange}>{timeRange}</span>
                   </div>
 
                   {/* App - with game image (responsive to column width) */}
-                  <div className="px-2 flex items-center gap-2 overflow-hidden" data-cell>
+                  <div className="px-2 min-w-0 flex items-center gap-2 overflow-hidden" data-cell>
                     {hasGameImage && data.gameAppId ? (
                       <img
                         src={`${API_BASE}/game-images/${data.gameAppId}/header`}
                         alt={data.gameName || t('downloads.tab.retro.gameFallback')}
-                        className="min-w-[60px] max-w-[120px] w-2/5 h-auto aspect-[120/45] rounded object-cover flex-shrink transition-transform group-hover:scale-[1.02]"
+                        className="min-w-[60px] max-w-[120px] w-2/5 h-auto aspect-[120/45] rounded object-cover flex-shrink"
                         loading="lazy"
                         onError={() => handleImageError(String(data.gameAppId))}
                       />
@@ -1093,7 +1154,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                         {data.gameName || data.service}
                       </span>
                       {data.requestCount > 1 && (
-                        <span className="text-xs text-[var(--theme-text-muted)]">
+                        <span className="text-xs text-[var(--theme-text-muted)] truncate">
                           {t('downloads.tab.retro.clientCount', { count: data.clientsSet.size })} ·{' '}
                           {t('downloads.tab.retro.requestCount', { count: data.requestCount })}
                         </span>
@@ -1103,7 +1164,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
 
                   {/* Datasource - only shown when multiple datasources exist */}
                   {showDatasourceColumn && (
-                    <div className="px-2 overflow-hidden text-center" data-cell>
+                    <div className="px-2 min-w-0 overflow-hidden text-center" data-cell>
                       <span
                         className="px-1.5 py-0.5 text-xs font-medium rounded inline-block truncate max-w-full bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]"
                         title={data.datasource}
@@ -1114,19 +1175,16 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                   )}
 
                   {/* Events - shows event badges for associated downloads */}
-                  <div className="px-2 overflow-hidden flex justify-center" data-cell>
-                    {(() => {
-                      const events = getGroupEvents(data.downloadIds);
-                      return events.length > 0 ? (
-                        <DownloadBadges events={events} maxVisible={2} size="sm" />
-                      ) : (
-                        <span className="text-xs text-[var(--theme-text-muted)]">—</span>
-                      );
-                    })()}
+                  <div className="px-2 min-w-0 overflow-hidden flex justify-center" data-cell>
+                    {events.length > 0 ? (
+                      <DownloadBadges events={events} maxVisible={2} size="sm" />
+                    ) : (
+                      <span className="text-xs text-[var(--theme-text-muted)]">—</span>
+                    )}
                   </div>
 
                   {/* Depot */}
-                  <div className="px-2 overflow-hidden text-center" data-cell>
+                  <div className="px-2 min-w-0 overflow-hidden text-center" data-cell>
                     {data.depotId ? (
                       <a
                         href={`https://steamdb.info/depot/${data.depotId}/`}
@@ -1144,7 +1202,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                   </div>
 
                   {/* Client IP */}
-                  <div className="px-2 text-sm font-mono text-[var(--theme-text-primary)] overflow-hidden text-center" data-cell>
+                  <div className="px-2 min-w-0 text-sm font-mono text-[var(--theme-text-primary)] overflow-hidden text-center" data-cell>
                     {data.clientsSet.size > 1 ? (
                       <span
                         className="truncate block"
@@ -1153,18 +1211,20 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                         {t('downloads.tab.retro.clientCount', { count: data.clientsSet.size })}
                       </span>
                     ) : (
-                      <ClientIpDisplay clientIp={data.clientIp} />
+                      <span className="block truncate">
+                        <ClientIpDisplay clientIp={data.clientIp} className="inline" />
+                      </span>
                     )}
                   </div>
 
                   {/* Avg Speed */}
-                  <div className="px-2 text-sm text-[var(--theme-text-primary)] overflow-hidden flex items-center justify-center gap-1" data-cell>
+                  <div className="px-2 min-w-0 text-sm text-[var(--theme-text-primary)] overflow-hidden flex items-center justify-center gap-1" data-cell>
                     <Zap size={12} className="text-[var(--theme-warning)] opacity-70" />
                     <span className="truncate">{formatSpeed(data.averageBytesPerSecond)}</span>
                   </div>
 
                   {/* Combined Cache Performance Bar */}
-                  <div className="px-2 overflow-hidden flex justify-center" data-cell>
+                  <div className="px-2 min-w-0 overflow-hidden flex justify-center" data-cell>
                     <CombinedProgressBar
                       hitBytes={cacheHitBytes}
                       missBytes={cacheMissBytes}
@@ -1173,7 +1233,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                   </div>
 
                   {/* Circular Efficiency Gauge */}
-                  <div className="px-2 flex justify-center" data-cell>
+                  <div className="px-2 min-w-0 flex justify-center" data-cell>
                     <EfficiencyGauge percent={hitPercent} />
                   </div>
                 </div>
@@ -1266,7 +1326,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
         })}
       </div>
 
-      {groupedItems.length === 0 && <EmptyState />}
+      {rowsWithEvents.length === 0 && <EmptyState />}
       </div>
   );
 });

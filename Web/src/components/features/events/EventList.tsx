@@ -42,20 +42,18 @@ const groupDownloadsByGame = (downloads: Download[], unknownLabel: string) => {
 interface EventCardProps {
   event: Event;
   status: 'active' | 'upcoming' | 'past';
-  index: number;
   isExpanded: boolean;
   cacheEntry: EventDownloadsCache[number] | undefined;
-  onExpandClick: () => void;
-  onEditClick: () => void;
-  onViewStatsClick: () => void;
+  onExpandClick: (eventId: number) => void;
+  onEditClick: (event: Event) => void;
+  onViewStatsClick: (event: Event) => void;
   formatDateTime: (dateStr: string) => string;
   formatDuration: (startStr: string, endStr: string) => string;
 }
 
-const EventCard: React.FC<EventCardProps> = ({
+const EventCard = React.memo(({
   event,
   status,
-  index,
   isExpanded,
   cacheEntry,
   onExpandClick,
@@ -63,25 +61,37 @@ const EventCard: React.FC<EventCardProps> = ({
   onViewStatsClick,
   formatDateTime,
   formatDuration
-}) => {
+}: EventCardProps) => {
   const { t } = useTranslation();
   const downloads = cacheEntry?.downloads || [];
-  const isLoading = cacheEntry?.loading || false;
-  const groupedDownloads = groupDownloadsByGame(downloads, t('events.list.unknownGame'));
+  const isLoading = isExpanded && (cacheEntry?.loading || false);
+  const groupedDownloads = useMemo(() => {
+    if (!isExpanded || downloads.length === 0) {
+      return [];
+    }
+    return groupDownloadsByGame(downloads, t('events.list.unknownGame'));
+  }, [downloads, isExpanded, t]);
+  const formattedStart = useMemo(
+    () => formatDateTime(event.startTimeUtc),
+    [formatDateTime, event.startTimeUtc]
+  );
+  const formattedDuration = useMemo(
+    () => formatDuration(event.startTimeUtc, event.endTimeUtc),
+    [formatDuration, event.startTimeUtc, event.endTimeUtc]
+  );
 
   const colorVar = getEventColorVar(event.colorIndex);
 
   return (
     <div
-      className="rounded-lg border transition-all duration-200 overflow-hidden cursor-pointer"
+      className="rounded-lg border overflow-hidden cursor-pointer"
       style={{
         backgroundColor: 'var(--theme-bg-secondary)',
         borderColor: isExpanded ? colorVar : (status === 'active' ? colorVar : 'var(--theme-border-primary)'),
         borderWidth: status === 'active' || isExpanded ? '2px' : '1px',
-        opacity: status === 'past' ? 0.65 : 1,
-        animationDelay: `${index * 50}ms`
+        opacity: status === 'past' ? 0.65 : 1
       }}
-      onClick={onExpandClick}
+      onClick={() => onExpandClick(event.id)}
     >
       {/* Active indicator bar */}
       {status === 'active' && (
@@ -100,7 +110,7 @@ const EventCard: React.FC<EventCardProps> = ({
             <div className="flex items-center gap-2.5 mb-2">
               {/* Expand arrow */}
               <ChevronRight
-                className={`w-4 h-4 flex-shrink-0 transition-transform duration-200 text-[var(--theme-text-secondary)] ${isExpanded ? 'rotate-90' : ''}`}
+                className={`w-4 h-4 flex-shrink-0 text-[var(--theme-text-secondary)] ${isExpanded ? 'rotate-90' : ''}`}
               />
 
               {/* Event color badge - pill style */}
@@ -134,11 +144,11 @@ const EventCard: React.FC<EventCardProps> = ({
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 ml-6">
               <div className="flex items-center gap-1.5 text-xs text-[var(--theme-text-muted)]">
                 <Calendar className="w-3.5 h-3.5" />
-                <span>{formatDateTime(event.startTimeUtc)}</span>
+                <span>{formattedStart}</span>
               </div>
               <div className="flex items-center gap-1.5 text-xs text-[var(--theme-text-muted)]">
                 <Clock className="w-3.5 h-3.5" />
-                <span>{formatDuration(event.startTimeUtc, event.endTimeUtc)}</span>
+                <span>{formattedDuration}</span>
               </div>
             </div>
           </div>
@@ -149,9 +159,9 @@ const EventCard: React.FC<EventCardProps> = ({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onViewStatsClick();
+                  onViewStatsClick(event);
                 }}
-                className="w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200 hover:bg-[var(--theme-bg-hover)] bg-[var(--theme-bg-tertiary)]"
+                className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[var(--theme-bg-hover)] bg-[var(--theme-bg-tertiary)]"
               >
                 <BarChart3 className="w-4 h-4 text-[var(--theme-text-secondary)]" />
               </button>
@@ -160,9 +170,9 @@ const EventCard: React.FC<EventCardProps> = ({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onEditClick();
+                  onEditClick(event);
                 }}
-                className="w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200 hover:bg-[var(--theme-bg-hover)] bg-[var(--theme-bg-tertiary)]"
+                className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[var(--theme-bg-hover)] bg-[var(--theme-bg-tertiary)]"
               >
                 <Pencil className="w-4 h-4 text-[var(--theme-text-secondary)]" />
               </button>
@@ -229,7 +239,9 @@ const EventCard: React.FC<EventCardProps> = ({
       )}
     </div>
   );
-};
+});
+
+EventCard.displayName = 'EventCard';
 
 interface EventListProps {
   events: Event[];
@@ -418,17 +430,16 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
             pulse
           />
           <div className="space-y-3">
-            {groupedEvents.active.map((event, index) => (
+            {groupedEvents.active.map((event) => (
               <EventCard
                 key={event.id}
                 event={event}
                 status="active"
-                index={index}
                 isExpanded={expandedEventId === event.id}
                 cacheEntry={downloadsCache[event.id]}
-                onExpandClick={() => handleExpandClick(event.id)}
-                onEditClick={() => onEventClick(event)}
-                onViewStatsClick={() => handleViewStats(event)}
+                onExpandClick={handleExpandClick}
+                onEditClick={onEventClick}
+                onViewStatsClick={handleViewStats}
                 formatDateTime={formatDateTime}
                 formatDuration={formatDuration}
               />
@@ -447,17 +458,16 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
             color="var(--theme-primary)"
           />
           <div className="space-y-3">
-            {groupedEvents.upcoming.map((event, index) => (
+            {groupedEvents.upcoming.map((event) => (
               <EventCard
                 key={event.id}
                 event={event}
                 status="upcoming"
-                index={index}
                 isExpanded={expandedEventId === event.id}
                 cacheEntry={downloadsCache[event.id]}
-                onExpandClick={() => handleExpandClick(event.id)}
-                onEditClick={() => onEventClick(event)}
-                onViewStatsClick={() => handleViewStats(event)}
+                onExpandClick={handleExpandClick}
+                onEditClick={onEventClick}
+                onViewStatsClick={handleViewStats}
                 formatDateTime={formatDateTime}
                 formatDuration={formatDuration}
               />
@@ -476,17 +486,16 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
             color="var(--theme-text-muted)"
           />
           <div className="space-y-3">
-            {groupedEvents.past.map((event, index) => (
+            {groupedEvents.past.map((event) => (
               <EventCard
                 key={event.id}
                 event={event}
                 status="past"
-                index={index}
                 isExpanded={expandedEventId === event.id}
                 cacheEntry={downloadsCache[event.id]}
-                onExpandClick={() => handleExpandClick(event.id)}
-                onEditClick={() => onEventClick(event)}
-                onViewStatsClick={() => handleViewStats(event)}
+                onExpandClick={handleExpandClick}
+                onEditClick={onEventClick}
+                onViewStatsClick={handleViewStats}
                 formatDateTime={formatDateTime}
                 formatDuration={formatDuration}
               />

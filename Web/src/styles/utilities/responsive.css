@@ -170,10 +170,11 @@
     -webkit-overflow-scrolling: touch;
   }
 
-  /* On narrow desktop screens (1024px-1400px), ensure table has minimum width for proper columns */
+  /* Allow grid to shrink to viewport while still expanding to content */
   .retro-table-container table,
   .retro-table-container > div {
-    min-width: 1200px;
+    min-width: 100%;
+    width: max-content;
   }
 
   /* Show horizontal scroll indicator on desktop */

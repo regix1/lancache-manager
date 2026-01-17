@@ -891,9 +891,9 @@ const Dashboard: React.FC = () => {
             <div
               key={card.key}
               data-card-key={card.key}
-              className={`relative group transition-all duration-200 h-full edit-mode-card ${
+              className={`relative group h-full edit-mode-card ${
                 isDragMode && draggedCard === card.key ? 'scale-105 shadow-lg card-selected' : ''
-              } ${isDragMode && dragOverCard === card.key ? 'transform translate-y-1' : ''}`}
+              } ${isDragMode && dragOverCard === card.key ? 'translate-y-1' : ''}`}
               style={{
                 boxShadow: dragOverCard === card.key ? `0 0 0 2px var(--theme-primary)` : 'none',
                 cursor: isEditMode ? 'pointer' : (draggedCard === card.key ? 'grabbing' : 'default'),

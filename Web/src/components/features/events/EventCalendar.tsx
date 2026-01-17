@@ -9,6 +9,7 @@ import { getEffectiveTimezone, getDateInTimezone } from '@utils/timezone';
 import { getEventColorVar } from '@utils/eventColors';
 import { Tooltip } from '@components/ui/Tooltip';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
+import { useMediaQuery } from '@hooks/useMediaQuery';
 import CalendarSettingsPopover from './CalendarSettingsPopover';
 import type { Event } from '../../../types';
 
@@ -40,6 +41,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
   const { t } = useTranslation();
   const { useLocalTimezone } = useTimezone();
   const { settings } = useCalendarSettings();
+  const isMobile = useMediaQuery('(max-width: 640px)');
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [expandedDay, setExpandedDay] = useState<{ day: number; weekIndex: number } | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -600,6 +602,9 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                 if (settings.compactMode) {
                   return '5px'; // Just colored lines in compact mode
                 }
+                if (isMobile) {
+                  return eventCount <= 3 ? '20px' : '16px';
+                }
                 return eventCount <= 3 ? '24px' : '18px'; // Bigger events in normal mode
               };
 
@@ -613,11 +618,15 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                 if (settings.compactMode) {
                   return '0px'; // No text in compact mode
                 }
+                if (isMobile) {
+                  return eventCount <= 3 ? '11px' : '10px';
+                }
                 return eventCount <= 3 ? '13px' : '11px'; // Bigger text
               };
 
               const getPaddingTop = () => {
                 if (settings.compactMode) return '32px';
+                if (isMobile) return eventCount <= 3 ? '34px' : '30px';
                 return eventCount <= 3 ? '42px' : '36px'; // More space for bigger cells
               };
 
@@ -650,6 +659,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                   {visibleEvents.map((spanEvent, eventIndex) => {
                     const colorVar = getEventColorVar(spanEvent.event.colorIndex);
                     const isEnded = hasEventEnded(spanEvent.event);
+                    const isSingleDayMobile = isMobile && !settings.compactMode && spanEvent.span === 1;
 
                     // Daily mode: render individual bars for each day
                     if (settings.eventDisplayStyle === 'daily') {
@@ -678,12 +688,12 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                                 display: 'flex',
                                 alignItems: 'center',
                                 height: getEventHeight(),
-                                fontSize: getFontSize(),
+                                fontSize: isSingleDayMobile ? '10px' : getFontSize(),
                                 lineHeight: '1',
                                 textAlign: 'left',
-                                paddingLeft: settings.compactMode ? '0' : '8px',
-                                paddingRight: settings.compactMode ? '0' : '6px',
-                                borderRadius: '4px',
+                                paddingLeft: settings.compactMode ? '0' : (isSingleDayMobile ? '4px' : '8px'),
+                                paddingRight: settings.compactMode ? '0' : (isSingleDayMobile ? '4px' : '6px'),
+                                borderRadius: isSingleDayMobile ? '3px' : '4px',
                                 background: settings.compactMode
                                   ? (settings.eventOpacity === 'solid'
                                       ? (isEnded ? `color-mix(in srgb, ${colorVar} 60%, transparent)` : colorVar)
@@ -734,18 +744,18 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
                             display: 'flex',
                             alignItems: 'center',
                             height: getEventHeight(),
-                            fontSize: getFontSize(),
+                            fontSize: isSingleDayMobile ? '10px' : getFontSize(),
                             lineHeight: '1',
                             textAlign: 'left',
-                            paddingLeft: settings.compactMode ? '0' : (spanEvent.isStart ? '8px' : '6px'),
-                            paddingRight: settings.compactMode ? '0' : '6px',
+                            paddingLeft: settings.compactMode ? '0' : (spanEvent.isStart ? (isSingleDayMobile ? '4px' : '8px') : '6px'),
+                            paddingRight: settings.compactMode ? '0' : (isSingleDayMobile ? '4px' : '6px'),
                             borderRadius: settings.compactMode ? '2px' : (
                               spanEvent.isStart && spanEvent.isEnd
-                                ? '4px'
+                                ? (isSingleDayMobile ? '3px' : '4px')
                                 : spanEvent.isStart
-                                  ? '4px 0 0 4px'
+                                  ? (isSingleDayMobile ? '3px 0 0 3px' : '4px 0 0 4px')
                                   : spanEvent.isEnd
-                                    ? '0 4px 4px 0'
+                                    ? (isSingleDayMobile ? '0 3px 3px 0' : '0 4px 4px 0')
                                     : '0'
                             ),
                             background: settings.compactMode

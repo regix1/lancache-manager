@@ -170,7 +170,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
         <img
           src={`${API_BASE}/game-images/${steamAppId}/header`}
           alt={primaryName || group.name}
-          className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
+          className="h-full w-full object-cover"
           loading="lazy"
           onError={() => handleImageError(steamAppId)}
         />
@@ -241,8 +241,8 @@ const GroupCard: React.FC<GroupCardProps> = ({
       >
         <div className="flex items-start gap-3 sm:gap-4">
           <ChevronRight
-            size={18}
-            className={`mt-0.5 sm:mt-1 text-[var(--theme-primary)] transition-all duration-300 flex-shrink-0 ${isExpanded ? 'rotate-90' : ''}`}
+          size={18}
+          className={`mt-0.5 sm:mt-1 text-[var(--theme-primary)] transition-transform duration-200 flex-shrink-0 ${isExpanded ? 'rotate-90' : ''}`}
             style={{ opacity: isExpanded ? 1 : 0.6 }}
           />
           <div className="flex-1 min-w-0">
@@ -369,21 +369,21 @@ const GroupCard: React.FC<GroupCardProps> = ({
   return (
     <div
       ref={cardRef}
-      className={`rounded-lg border overflow-hidden shadow-sm transition-all duration-300 ${
-        isExpanded ? 'ring-2 border-[var(--theme-primary)]' : 'hover:shadow-md border-[var(--theme-border-primary)]'
+      className={`rounded-lg border overflow-hidden shadow-sm ${
+        isExpanded ? 'ring-2 border-[var(--theme-primary)]' : 'border-[var(--theme-border-primary)]'
       }`}
     >
       {fullHeightBanners ? (
         <div
           onClick={() => onItemClick(group.id)}
-          className="w-full text-left cursor-pointer bg-[var(--theme-bg-secondary)] transition-all duration-300 hover:bg-[var(--theme-bg-tertiary)]"
+          className="w-full text-left cursor-pointer bg-[var(--theme-bg-secondary)] hover:bg-[var(--theme-bg-tertiary)]"
         >
           {cardContent}
         </div>
       ) : (
         <button
           onClick={() => onItemClick(group.id)}
-          className="w-full text-left transition-all duration-300 hover:bg-[var(--theme-bg-tertiary)] bg-[var(--theme-bg-secondary)]"
+          className="w-full text-left hover:bg-[var(--theme-bg-tertiary)] bg-[var(--theme-bg-secondary)]"
         >
           {cardContent}
         </button>
