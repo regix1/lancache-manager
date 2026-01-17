@@ -100,6 +100,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
   const currentAnimationAppIdRef = useRef(0);
   const cachedAnimationQueueRef = useRef<CachedAnimationItem[]>([]);
   const isProcessingAnimationRef = useRef(false);
+  const connectInFlightRef = useRef<Promise<HubConnection | null> | null>(null);
 
   // Completion tracking refs
   const expectedAppCountRef = useRef(0);
@@ -136,32 +137,42 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
   }, [setBackgroundCompletion]);
 
   const connectToHub = useCallback(async (): Promise<HubConnection | null> => {
-    const deviceId = authService.getDeviceId();
+    // Serialize concurrent connection attempts - only one connection should be created
+    if (connectInFlightRef.current) {
+      console.log('[usePrefillSignalR] connectToHub: waiting for in-flight connection');
+      return await connectInFlightRef.current;
+    }
+
+    const connectPromise = (async (): Promise<HubConnection | null> => {
+      const deviceId = authService.getDeviceId();
     if (!deviceId) {
       setError(t('prefill.errors.notAuthenticated'));
       return null;
     }
 
-    // Reuse existing connection if already connected
-    if (hubConnection.current?.state === 'Connected') {
-      return hubConnection.current;
-    }
-
-    // Stop any existing connection before creating a new one
-    if (hubConnection.current) {
-      try {
-        await hubConnection.current.stop();
-      } catch {
-        // Ignore errors stopping old connection
+      // Reuse existing connection if already connected
+      if (hubConnection.current?.state === 'Connected') {
+        console.log('[usePrefillSignalR] connectToHub: reusing existing connected connection');
+        return hubConnection.current;
       }
-      hubConnection.current = null;
-    }
 
-    setIsConnecting(true);
-    setError(null);
+      // Stop any existing connection before creating a new one
+      if (hubConnection.current) {
+        console.log('[usePrefillSignalR] connectToHub: stopping old connection');
+        try {
+          await hubConnection.current.stop();
+        } catch {
+          // Ignore errors stopping old connection
+        }
+        hubConnection.current = null;
+      }
 
-    try {
-      const connection = new HubConnectionBuilder()
+      console.log('[usePrefillSignalR] connectToHub: creating NEW connection');
+      setIsConnecting(true);
+      setError(null);
+
+      try {
+        const connection = new HubConnectionBuilder()
         .withUrl(`${SIGNALR_BASE}/prefill-daemon?deviceId=${encodeURIComponent(deviceId)}`)
         .withAutomaticReconnect()
         .configureLogging(LogLevel.Information)
@@ -186,7 +197,9 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
       });
 
       // Handle auth state changes from backend
+      console.log('[usePrefillSignalR] Registering AuthStateChanged handler on connection');
       connection.on('AuthStateChanged', (_sessionId: string, newState: SteamAuthState) => {
+        console.log('[usePrefillSignalR] AuthStateChanged received:', newState);
         onAuthStateChanged(newState);
       });
 
@@ -333,7 +346,9 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
       });
 
       // Handle status changes
+      console.log('[usePrefillSignalR] Registering StatusChanged handler on connection');
       connection.on('StatusChanged', (_sessionId: string, status: { status: string; message: string }) => {
+        console.log('[usePrefillSignalR] StatusChanged received:', status);
         if (status.message) {
           addLog('info', t('prefill.log.statusMessage', { message: status.message }));
         }
@@ -474,6 +489,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
       });
 
       await connection.start();
+      console.log('[usePrefillSignalR] Connection started successfully, connectionId:', connection.connectionId);
       hubConnection.current = connection;
       setIsConnecting(false);
       return connection;
@@ -483,6 +499,12 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
       setIsConnecting(false);
       return null;
     }
+    })();
+
+    connectInFlightRef.current = connectPromise;
+    const result = await connectPromise;
+    connectInFlightRef.current = null;
+    return result;
   }, [addLog, onAuthStateChanged, onSessionEnd, clearBackgroundCompletion, setBackgroundCompletion, isCompletionDismissed, clearAllPrefillStorage, t]);
 
   const initializeSession = useCallback(async () => {

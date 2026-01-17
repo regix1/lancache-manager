@@ -34,6 +34,14 @@ import {
 export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const { t } = useTranslation();
   const hasExpiredRef = useRef(false);
+  const gamesCacheRef = useRef<{
+    sessionId: string | null;
+    fetchedAt: number;
+    ownedGames: OwnedGame[];
+    cachedAppIds: number[];
+    hasData: boolean;
+  } | null>(null);
+  const gamesCacheWindowMs = 60 * 1000;
 
   // Use context for log entries (persists across tab switches)
   const {
@@ -61,6 +69,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const [showGameSelection, setShowGameSelection] = useState(false);
   const [isLoadingGames, setIsLoadingGames] = useState(false);
   const [cachedAppIds, setCachedAppIds] = useState<number[]>([]);
+  const [isUsingGamesCache, setIsUsingGamesCache] = useState(false);
 
   // Prefill settings state
   const [selectedOS, setSelectedOS] = useState<string[]>(['windows', 'linux', 'macos']);
@@ -210,6 +219,75 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     [selectedOS, maxConcurrency, signalR.isCancelling]
   );
 
+  const loadGames = useCallback(
+    async (force = false) => {
+      if (!signalR.session) return;
+
+      setIsLoadingGames(true);
+      try {
+        const gamesCache = gamesCacheRef.current;
+        const isCacheFresh = !force
+          && gamesCache
+          && gamesCache.hasData
+          && gamesCache.sessionId === signalR.session.id
+          && Date.now() - gamesCache.fetchedAt < gamesCacheWindowMs;
+
+        if (isCacheFresh) {
+          setOwnedGames(gamesCache.ownedGames);
+          setCachedAppIds(gamesCache.cachedAppIds);
+          setIsUsingGamesCache(true);
+          return;
+        }
+
+        setIsUsingGamesCache(false);
+
+        // Fetch owned games via direct API call
+        const gamesResponse = await fetch(
+          `${API_BASE}/prefill-daemon/sessions/${signalR.session.id}/games`,
+          { headers: authService.getAuthHeaders() }
+        );
+        if (!gamesResponse.ok) {
+          throw new Error(`Failed to get games: HTTP ${gamesResponse.status}`);
+        }
+        const games = await gamesResponse.json();
+        setOwnedGames(games || []);
+        addLog('info', t('prefill.log.foundGames', { count: games?.length || 0 }));
+
+        // Get cached apps via ApiService and verify against Steam manifests
+        const cachedApps = await ApiService.getPrefillCachedApps();
+        let cachedIds = cachedApps.map(a => a.appId);
+
+        if (cachedIds.length > 0) {
+          try {
+            const cacheStatus = await ApiService.getPrefillCacheStatus(signalR.session.id, cachedIds);
+            cachedIds = cacheStatus?.upToDateAppIds?.length ? cacheStatus.upToDateAppIds : [];
+          } catch (cacheStatusError) {
+            console.warn('Failed to check cache status, clearing cached list:', cacheStatusError);
+            cachedIds = [];
+          }
+        }
+
+        setCachedAppIds(cachedIds);
+        gamesCacheRef.current = {
+          sessionId: signalR.session.id,
+          fetchedAt: Date.now(),
+          ownedGames: games || [],
+          cachedAppIds: cachedIds,
+          hasData: true
+        };
+        if (cachedIds.length > 0) {
+          addLog('info', t('prefill.log.gamesCached', { count: cachedIds.length }));
+        }
+      } catch (err) {
+        console.error('Failed to load games:', err);
+        addLog('error', t('prefill.log.failedLoadLibrary'));
+      } finally {
+        setIsLoadingGames(false);
+      }
+    },
+    [signalR.session, addLog, t]
+  );
+
   const executeCommand = useCallback(
     async (commandType: CommandType) => {
       if (!signalR.session || !signalR.hubConnection.current) return;
@@ -224,46 +302,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       try {
         switch (commandType) {
           case 'select-apps': {
-            setIsLoadingGames(true);
             setShowGameSelection(true);
-
-            try {
-              // Fetch owned games via direct API call
-              const gamesResponse = await fetch(
-                `${API_BASE}/prefill-daemon/sessions/${signalR.session.id}/games`,
-                { headers: authService.getAuthHeaders() }
-              );
-              if (!gamesResponse.ok) {
-                throw new Error(`Failed to get games: HTTP ${gamesResponse.status}`);
-              }
-              const games = await gamesResponse.json();
-              setOwnedGames(games || []);
-              addLog('info', t('prefill.log.foundGames', { count: games?.length || 0 }));
-
-              // Get cached apps via ApiService and verify against Steam manifests
-              const cachedApps = await ApiService.getPrefillCachedApps();
-              let cachedIds = cachedApps.map(a => a.appId);
-
-              if (cachedIds.length > 0) {
-                try {
-                  const cacheStatus = await ApiService.getPrefillCacheStatus(signalR.session.id, cachedIds);
-                  cachedIds = cacheStatus?.upToDateAppIds?.length ? cacheStatus.upToDateAppIds : [];
-                } catch (cacheStatusError) {
-                  console.warn('Failed to check cache status, clearing cached list:', cacheStatusError);
-                  cachedIds = [];
-                }
-              }
-
-              setCachedAppIds(cachedIds);
-              if (cachedIds.length > 0) {
-                addLog('info', t('prefill.log.gamesCached', { count: cachedIds.length }));
-              }
-            } catch (err) {
-              console.error('Failed to load games:', err);
-              addLog('error', t('prefill.log.failedLoadLibrary'));
-            } finally {
-              setIsLoadingGames(false);
-            }
+            await loadGames();
             break;
           }
           case 'prefill': {
@@ -355,7 +395,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         setIsExecuting(false);
       }
     },
-    [signalR.session, signalR.hubConnection, signalR.expectedAppCountRef, signalR.timeRemaining, signalR.setError, callPrefillApi, selectedAppIds, addLog, t]
+    [signalR.session, signalR.hubConnection, signalR.expectedAppCountRef, signalR.timeRemaining, signalR.setError, callPrefillApi, selectedAppIds, addLog, t, loadGames]
   );
 
   const handleEndSession = useCallback(async () => {
@@ -566,6 +606,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     setOwnedGames([]);
     setCachedAppIds([]);
     setSelectedAppIds([]);
+    setIsUsingGamesCache(false);
+    gamesCacheRef.current = null;
     signalR.setError(null);
     signalR.setSession(null);
     signalR.setIsLoggedIn(false);
@@ -622,6 +664,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         onSave={handleSaveGameSelection}
         isLoading={isLoadingGames}
         cachedAppIds={cachedAppIds}
+        isUsingCache={isUsingGamesCache}
+        onRescan={() => loadGames(true)}
       />
 
       {/* Large Prefill Confirmation Dialog */}

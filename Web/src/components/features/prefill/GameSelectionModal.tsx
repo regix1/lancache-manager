@@ -18,6 +18,8 @@ interface GameSelectionModalProps {
   onSave: (selectedIds: number[]) => Promise<void>;
   isLoading?: boolean;
   cachedAppIds?: number[];
+  isUsingCache?: boolean;
+  onRescan?: () => Promise<void>;
 }
 
 export function GameSelectionModal({
@@ -27,7 +29,9 @@ export function GameSelectionModal({
   selectedAppIds,
   onSave,
   isLoading = false,
-  cachedAppIds = []
+  cachedAppIds = [],
+  isUsingCache = false,
+  onRescan
 }: GameSelectionModalProps) {
   const { t } = useTranslation();
   const [search, setSearch] = useState('');
@@ -188,6 +192,11 @@ export function GameSelectionModal({
     }
   }, [localSelected, onSave, onClose]);
 
+  const handleRescan = useCallback(async () => {
+    if (!onRescan) return;
+    await onRescan();
+  }, [onRescan]);
+
   return (
     <Modal
       opened={opened}
@@ -208,6 +217,25 @@ export function GameSelectionModal({
               className="w-full pl-9 pr-3 py-2 text-sm rounded-lg smooth-transition bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-primary)] outline-none focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-primary)]/20"
             />
           </div>
+          {isUsingCache && (
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-3 py-2 rounded-lg text-xs bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)]">
+              <div className="flex items-center gap-2 text-[var(--theme-text-muted)]">
+                <Database className="h-3.5 w-3.5 text-[var(--theme-success)]" />
+                <span>{t('prefill.gameSelection.usingCached')}</span>
+              </div>
+              {onRescan && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRescan}
+                  disabled={isLoading}
+                  className="h-7 px-2 text-xs"
+                >
+                  {t('prefill.gameSelection.rescan')}
+                </Button>
+              )}
+            </div>
+          )}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <Button
               variant={showImport ? 'filled' : 'outline'}

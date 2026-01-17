@@ -3122,6 +3122,8 @@
       "hideCached": "Hide Cached",
       "showCachedTitle": "Show cached games",
       "hideCachedTitle": "Hide cached games",
+      "usingCached": "Using cached results (last scan < 1 min ago)",
+      "rescan": "Rescan",
       "importHelp": "Paste Steam App IDs from SteamPrefill or any comma-separated list",
       "import": "Import",
       "importAdded": "+{{count}} added",
