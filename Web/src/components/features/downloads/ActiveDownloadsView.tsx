@@ -462,7 +462,7 @@ const ActiveDownloadsView: React.FC = () => {
         {viewMode === 'games' ? (
           games.map((game: GameSpeedInfo, index: number) => (
             <div
-              key={game.depotId}
+              key={`${game.depotId}-${game.clientIp ?? 'unknown'}`}
               className={`download-item ${index === 0 ? 'top' : ''}`}
             >
               <div className="download-avatar">
@@ -489,6 +489,14 @@ const ActiveDownloadsView: React.FC = () => {
                   <span className="meta-item">
                     {t('downloads.active.requests', { count: game.requestCount })}
                   </span>
+                  {game.clientIp && (
+                    <>
+                      <span className="meta-divider">•</span>
+                      <span className="meta-item">
+                        <ClientIpDisplay clientIp={game.clientIp} />
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
 

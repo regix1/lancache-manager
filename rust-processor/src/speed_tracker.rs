@@ -36,6 +36,7 @@ struct GameSpeedInfo {
     game_name: Option<String>,
     game_app_id: Option<u32>,
     service: String,
+    client_ip: String,
     bytes_per_second: f64,
     total_bytes: i64,
     request_count: usize,
@@ -331,22 +332,22 @@ impl SpeedTracker {
             .cloned()
             .collect();
 
-        // Group by depot for game speeds
-        let mut depot_groups: HashMap<u32, Vec<SpeedLogEntry>> = HashMap::new();
+        // Group by depot + client for game speeds
+        let mut depot_groups: HashMap<(u32, String), Vec<SpeedLogEntry>> = HashMap::new();
         for entry in &window_entries {
             if let Some(depot_id) = entry.depot_id {
-                depot_groups.entry(depot_id).or_default().push(entry.clone());
+                depot_groups.entry((depot_id, entry.client_ip.clone())).or_default().push(entry.clone());
             }
         }
 
         // Collect depot IDs first, then lookup game info
-        let depot_ids: Vec<u32> = depot_groups.keys().copied().collect();
-        for depot_id in depot_ids {
+        let depot_ids: Vec<u32> = depot_groups.keys().map(|(depot_id, _)| *depot_id).collect();
+        for depot_id in depot_ids.into_iter().collect::<std::collections::HashSet<_>>() {
             self.lookup_depot(depot_id); // Pre-populate cache
         }
 
         let mut game_speeds: Vec<GameSpeedInfo> = depot_groups.into_iter()
-            .map(|(depot_id, entries)| {
+            .map(|((depot_id, client_ip), entries)| {
                 let total_bytes: i64 = entries.iter().map(|e| e.bytes_sent).sum();
                 let cache_hit_bytes: i64 = entries.iter().filter(|e| e.is_cache_hit).map(|e| e.bytes_sent).sum();
                 let cache_miss_bytes = total_bytes - cache_hit_bytes;
@@ -366,6 +367,7 @@ impl SpeedTracker {
                     game_name,
                     game_app_id,
                     service,
+                    client_ip,
                     bytes_per_second: total_bytes as f64 / WINDOW_SECONDS as f64,
                     total_bytes,
                     request_count: entries.len(),

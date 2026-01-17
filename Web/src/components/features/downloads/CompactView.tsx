@@ -326,6 +326,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                 const startIndex = (currentPage - 1) * SESSIONS_PER_PAGE;
                 const endIndex = startIndex + SESSIONS_PER_PAGE;
                 const paginatedDownloads = sortedDownloads.slice(startIndex, endIndex);
+                const excludedSessions = Math.max(0, sortedDownloads.length - group.count);
 
                 const handlePageChange = (newPage: number) => {
                   setGroupPages((prev) => ({ ...prev, [group.id]: newPage }));
@@ -367,7 +368,12 @@ const GroupRow: React.FC<GroupRowProps> = ({
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-xs text-themed-muted">
-                        {t('downloads.tab.compact.labels.sessions', { count: group.downloads.length })}
+                        {t('downloads.tab.compact.labels.sessions', { count: group.count })}
+                        {excludedSessions > 0 && (
+                          <span className="ml-1 text-[10px] text-themed-muted">
+                            {t('downloads.tab.compact.labels.excluded', { count: excludedSessions })}
+                          </span>
+                        )}
                       </span>
                       {/* Inline pagination */}
                       {totalPages > 1 && (

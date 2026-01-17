@@ -695,7 +695,6 @@ const DownloadsTab: React.FC = () => {
       }
 
       groups[groupKey].downloads.push(download);
-      // Track total downloaded across all sessions
       groups[groupKey].totalBytes += download.totalBytes || 0;
       groups[groupKey].totalDownloaded += download.totalBytes || 0;
       groups[groupKey].cacheHitBytes += download.cacheHitBytes || 0;
@@ -891,8 +890,8 @@ const DownloadsTab: React.FC = () => {
           return aEffLow - bEffLow;
         case 'sessions':
           // Sort by number of download sessions (most first)
-          const aSessions = 'downloads' in a ? a.downloads.length : 1;
-          const bSessions = 'downloads' in b ? b.downloads.length : 1;
+          const aSessions = 'downloads' in a ? a.count : 1;
+          const bSessions = 'downloads' in b ? b.count : 1;
           return bSessions - aSessions;
         case 'alphabetical':
           // Sort by name alphabetically

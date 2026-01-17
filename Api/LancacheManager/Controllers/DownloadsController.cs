@@ -19,15 +19,18 @@ public class DownloadsController : ControllerBase
 {
     private readonly AppDbContext _context;
     private readonly StatsRepository _statsService;
+    private readonly IStateRepository _stateRepository;
     private readonly ILogger<DownloadsController> _logger;
 
     public DownloadsController(
         AppDbContext context,
         StatsRepository statsService,
+        IStateRepository stateRepository,
         ILogger<DownloadsController> logger)
     {
         _context = context;
         _statsService = statsService;
+        _stateRepository = stateRepository;
         _logger = logger;
     }
 
@@ -42,6 +45,7 @@ public class DownloadsController : ControllerBase
         var eventIdList = eventId.HasValue
             ? new List<int> { eventId.Value }
             : new List<int>();
+        var excludedClientIps = _stateRepository.GetExcludedClientIps();
 
         for (int retry = 0; retry < maxRetries; retry++)
         {
@@ -79,6 +83,7 @@ public class DownloadsController : ControllerBase
                         downloads = await _context.Downloads
                             .AsNoTracking()
                             .Where(d => taggedDownloadIds.Contains(d.Id))
+                            .Where(d => excludedClientIps.Count == 0 || !excludedClientIps.Contains(d.ClientIp))
                             .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
                             .OrderByDescending(d => d.StartTimeUtc)
                             .Take(count)
@@ -88,6 +93,7 @@ public class DownloadsController : ControllerBase
                     {
                         downloads = await _context.Downloads
                             .AsNoTracking()
+                            .Where(d => excludedClientIps.Count == 0 || !excludedClientIps.Contains(d.ClientIp))
                             .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
                             .OrderByDescending(d => d.StartTimeUtc)
                             .Take(count)
@@ -146,13 +152,18 @@ public class DownloadsController : ControllerBase
                 return NotFound(ApiResponse.NotFound("Download"));
             }
 
+            var excludedClientIps = _stateRepository.GetExcludedClientIps();
+            if (excludedClientIps.Contains(download.ClientIp))
+            {
+                return NotFound(ApiResponse.NotFound("Download"));
+            }
+
             // Fix timezone
             download.StartTimeUtc = download.StartTimeUtc.AsUtc();
             if (download.EndTimeUtc != default)
             {
                 download.EndTimeUtc = download.EndTimeUtc.AsUtc();
             }
-
             // Get events for this download
             var eventDownloads = await _context.EventDownloads
                 .AsNoTracking()
@@ -249,6 +260,7 @@ public class DownloadsController : ControllerBase
     {
         try
         {
+            var excludedClientIps = _stateRepository.GetExcludedClientIps();
             var startDate = startTime.HasValue
                 ? DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime
                 : DateTime.MinValue;
@@ -259,6 +271,7 @@ public class DownloadsController : ControllerBase
             // Get downloads
             var downloads = await _context.Downloads
                 .AsNoTracking()
+                .Where(d => excludedClientIps.Count == 0 || !excludedClientIps.Contains(d.ClientIp))
                 .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
                 .OrderByDescending(d => d.StartTimeUtc)
                 .Take(count)
@@ -297,7 +310,6 @@ public class DownloadsController : ControllerBase
                 {
                     d.EndTimeUtc = d.EndTimeUtc.AsUtc();
                 }
-
                 eventsLookup.TryGetValue(d.Id, out var downloadEvents);
 
                 return new

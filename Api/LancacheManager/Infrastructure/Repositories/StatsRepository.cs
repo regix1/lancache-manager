@@ -108,8 +108,7 @@ public class StatsRepository : IStatsRepository
     /// </summary>
     public async Task<List<Download>> GetLatestDownloadsAsync(int limit = int.MaxValue, CancellationToken cancellationToken = default)
     {
-        var downloads = await _context.Downloads
-            .AsNoTracking()
+        var downloads = await _context.Downloads.AsNoTracking()
             .Where(d => !d.GameAppId.HasValue || d.GameAppId.Value != 0)
             .OrderByDescending(d => d.StartTimeUtc)
             .Take(limit)

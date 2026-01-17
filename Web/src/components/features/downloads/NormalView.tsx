@@ -548,6 +548,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                 const startIndex = (currentPage - 1) * SESSIONS_PER_PAGE;
                 const endIndex = startIndex + SESSIONS_PER_PAGE;
                 const paginatedDownloads = group.downloads.slice(startIndex, endIndex);
+                const excludedSessions = Math.max(0, group.downloads.length - group.count);
 
                 const handlePageChange = (newPage: number) => {
                   setGroupPages((prev) => ({ ...prev, [group.id]: newPage }));
@@ -592,7 +593,12 @@ const GroupCard: React.FC<GroupCardProps> = ({
                         {t('downloads.tab.normal.sessions.title')}
                       </h4>
                       <span className="text-xs font-semibold bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] px-3 py-1.5 rounded-full">
-                        {t('downloads.tab.normal.sessions.count', { count: group.downloads.length })}
+                        {t('downloads.tab.normal.sessions.count', { count: group.count })}
+                        {excludedSessions > 0 && (
+                          <span className="ml-1 text-[10px] text-themed-muted">
+                            {t('downloads.tab.normal.sessions.excluded', { count: excludedSessions })}
+                          </span>
+                        )}
                         {totalPages > 1 &&
                           ` • ${t('downloads.tab.normal.sessions.page', {
                             current: currentPage,
@@ -620,6 +626,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                           (sum, d) => sum + (d.cacheHitBytes || 0),
                           0
                         );
+                        const clientSessionCount = clientDownloads.length;
 
                         return (
                           <div key={clientIp} className="space-y-2">
@@ -631,7 +638,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                   className="font-mono text-sm font-bold text-[var(--theme-text-primary)]"
                                 />
                                 <span className="text-xs text-themed-muted">
-                                  ({t('downloads.tab.normal.sessions.count', { count: clientDownloads.length })})
+                                  ({t('downloads.tab.normal.sessions.count', { count: clientSessionCount })})
                                 </span>
                               </div>
                               <div className="flex items-center gap-3">

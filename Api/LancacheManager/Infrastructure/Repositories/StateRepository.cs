@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using LancacheManager.Core.Interfaces.Repositories;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces.Services;
+using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Repositories;
 
@@ -99,6 +100,9 @@ public class StateRepository : IStateRepository
         // Client IPs to exclude from stats calculations
         public List<string> ExcludedClientIps { get; set; } = new();
 
+        // Client IP exclusion rules (mode controls stats-only vs hide)
+        public List<ClientExclusionRule> ExcludedClientRules { get; set; } = new();
+
         // LEGACY: SteamAuth has been migrated to separate file (data/steam_auth/credentials.json)
         // This property is kept temporarily for backward compatibility during migration
         public SteamAuthState? SteamAuth { get; set; }
@@ -166,6 +170,9 @@ public class StateRepository : IStateRepository
 
         // Client IPs to exclude from stats calculations
         public List<string> ExcludedClientIps { get; set; } = new();
+
+        // Client IP exclusion rules (mode controls stats-only vs hide)
+        public List<ClientExclusionRule> ExcludedClientRules { get; set; } = new();
 
         // LEGACY: SteamAuth migrated to separate file - kept for reading old state.json during migration
         // JsonIgnore(Condition = WhenWritingNull) excludes it when saving (always null after migration)
@@ -895,6 +902,7 @@ public class StateRepository : IStateRepository
             RequireAuthForMetrics = persisted.RequireAuthForMetrics,
             // Client IPs excluded from stats
             ExcludedClientIps = persisted.ExcludedClientIps ?? new List<string>(),
+            ExcludedClientRules = ResolveExcludedClientRules(persisted),
             // LEGACY: Only load SteamAuth if present (for migration from old state.json)
             SteamAuth = persisted.SteamAuth != null ? new SteamAuthState
             {
@@ -953,8 +961,9 @@ public class StateRepository : IStateRepository
             LastSessionReplacement = state.LastSessionReplacement,
             // Metrics authentication toggle
             RequireAuthForMetrics = state.RequireAuthForMetrics,
-            // Client IPs excluded from stats
-            ExcludedClientIps = state.ExcludedClientIps ?? new List<string>(),
+            // Client IPs excluded from stats (legacy)
+            ExcludedClientIps = BuildExcludedIpList(state.ExcludedClientRules, state.ExcludedClientIps),
+            ExcludedClientRules = state.ExcludedClientRules ?? new List<ClientExclusionRule>(),
             // LEGACY: Only persist SteamAuth if not null (will be null after migration)
             // JsonIgnore(WhenWritingNull) on property will exclude from JSON when null
             SteamAuth = state.SteamAuth != null ? new SteamAuthState
@@ -1182,17 +1191,158 @@ public class StateRepository : IStateRepository
     }
 
     // Stats Exclusion Methods
+    /// <summary>
+    /// Gets IPs that should be excluded from statistics calculations (both hide and exclude modes).
+    /// Note: For query filtering, use GetHiddenClientIps() instead to only filter hide mode.
+    /// </summary>
     public List<string> GetExcludedClientIps()
     {
         var state = GetState();
-        return state.ExcludedClientIps != null
-            ? new List<string>(state.ExcludedClientIps)
-            : new List<string>();
+        var rules = ResolveExcludedClientRules(state);
+        return rules
+            .Where(rule => IsStatsExcludedMode(rule.Mode))
+            .Select(rule => rule.Ip)
+            .Distinct()
+            .ToList();
+    }
+
+    /// <summary>
+    /// Gets IPs that should be excluded from calculations but NOT hidden (exclude mode only).
+    /// These IPs should be included in queries but excluded from SUM/COUNT aggregations.
+    /// </summary>
+    public List<string> GetStatsExcludedOnlyClientIps()
+    {
+        return new List<string>();
     }
 
     public void SetExcludedClientIps(List<string> ips)
     {
-        UpdateState(state => state.ExcludedClientIps = ips ?? new List<string>());
+        UpdateState(state =>
+        {
+            var normalizedIps = ips ?? new List<string>();
+            state.ExcludedClientIps = normalizedIps;
+            state.ExcludedClientRules = normalizedIps
+                .Select(ip => new ClientExclusionRule { Ip = ip, Mode = ClientExclusionModes.Hide })
+                .ToList();
+        });
+    }
+
+    public List<ClientExclusionRule> GetExcludedClientRules()
+    {
+        var state = GetState();
+        return ResolveExcludedClientRules(state)
+            .Select(rule => new ClientExclusionRule { Ip = rule.Ip, Mode = NormalizeMode(rule.Mode) })
+            .ToList();
+    }
+
+    public void SetExcludedClientRules(List<ClientExclusionRule> rules)
+    {
+        UpdateState(state =>
+        {
+            var normalized = rules.Count == 0
+                ? new List<ClientExclusionRule>()
+                : NormalizeRules(rules, state.ExcludedClientIps);
+            state.ExcludedClientRules = normalized;
+            state.ExcludedClientIps = normalized.Select(rule => rule.Ip).ToList();
+        });
+    }
+
+    public List<string> GetHiddenClientIps()
+    {
+        return GetExcludedClientIps();
+    }
+
+    private static List<ClientExclusionRule> ResolveExcludedClientRules(PersistedState persisted)
+    {
+        if (persisted.ExcludedClientRules != null && persisted.ExcludedClientRules.Count > 0)
+        {
+            return NormalizeRules(persisted.ExcludedClientRules, persisted.ExcludedClientIps);
+        }
+
+        return NormalizeRules(null, persisted.ExcludedClientIps);
+    }
+
+    private static List<ClientExclusionRule> ResolveExcludedClientRules(AppState state)
+    {
+        if (state.ExcludedClientRules != null && state.ExcludedClientRules.Count > 0)
+        {
+            return NormalizeRules(state.ExcludedClientRules, state.ExcludedClientIps);
+        }
+
+        return NormalizeRules(null, state.ExcludedClientIps);
+    }
+
+    private static List<string> BuildExcludedIpList(List<ClientExclusionRule>? rules, List<string>? fallback)
+    {
+        if (rules != null && rules.Count > 0)
+        {
+            return rules.Select(rule => rule.Ip).Distinct().ToList();
+        }
+
+        return fallback ?? new List<string>();
+    }
+
+    private static List<ClientExclusionRule> NormalizeRules(List<ClientExclusionRule>? rules, List<string>? fallbackIps)
+    {
+        var normalized = new List<ClientExclusionRule>();
+        if (rules != null && rules.Count > 0)
+        {
+            foreach (var rule in rules)
+            {
+                var ip = rule.Ip?.Trim();
+                if (string.IsNullOrWhiteSpace(ip))
+                {
+                    continue;
+                }
+
+                var mode = NormalizeMode(rule.Mode);
+                if (normalized.Any(r => r.Ip == ip))
+                {
+                    continue;
+                }
+
+                normalized.Add(new ClientExclusionRule { Ip = ip, Mode = mode });
+            }
+
+            return normalized;
+        }
+
+        if (fallbackIps != null && fallbackIps.Count > 0)
+        {
+            foreach (var ip in fallbackIps)
+            {
+                var trimmed = ip?.Trim();
+                if (string.IsNullOrWhiteSpace(trimmed))
+                {
+                    continue;
+                }
+
+                if (normalized.Any(r => r.Ip == trimmed))
+                {
+                    continue;
+                }
+
+                normalized.Add(new ClientExclusionRule { Ip = trimmed, Mode = ClientExclusionModes.Hide });
+            }
+        }
+
+        return normalized;
+    }
+
+    private static bool IsHiddenMode(string? mode)
+    {
+        return NormalizeMode(mode) == ClientExclusionModes.Hide;
+    }
+
+    private static bool IsStatsExcludedMode(string? mode)
+    {
+        var normalized = NormalizeMode(mode);
+        return normalized == ClientExclusionModes.Hide || normalized == ClientExclusionModes.Exclude;
+    }
+
+    private static string NormalizeMode(string? mode)
+    {
+        return ClientExclusionModes.Hide;
     }
 
     // Guest Prefill Permission Methods

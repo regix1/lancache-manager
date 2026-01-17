@@ -1070,6 +1070,7 @@
       "hitRate": "{{percent}}% hit",
       "requests": "{{count}} request",
       "requests_plural": "{{count}} requests",
+      "excluded": "Excluded",
       "speed": "Speed",
       "gamesCount": "{{count}} game",
       "gamesCount_plural": "{{count}} games",
@@ -1187,6 +1188,7 @@
           "store": "Store",
           "storeTitle": "View in Steam Store",
           "sessions": "Sessions ({{count}})",
+          "excluded": "{{count}} excluded",
           "zeroBytes": "0 B"
         },
         "pagination": {
@@ -1226,6 +1228,7 @@
           "title": "Download Sessions",
           "count": "{{count}} session",
           "count_plural": "{{count}} sessions",
+          "excluded": "{{count}} excluded",
           "page": "Page {{current}}/{{total}}"
         },
         "pagination": {
@@ -1497,7 +1500,7 @@
         "withoutNicknamesDesc": "These client IPs don't have nicknames assigned. Click \"Add Nickname\" above to give them friendly names.",
         "clickAddNicknameTooltip": "Click \"Add Nickname\" to name this IP",
         "excludeFromStats": "Exclude From Stats",
-        "excludedIpsDesc": "Excluded IPs are ignored in dashboard metrics, top clients, service stats, hourly activity, cache growth, and sparklines.",
+        "excludedIpsDesc": "Excluded clients are hidden from all pages and stats.",
         "authenticateToManage": "Authenticate to manage excluded IPs.",
         "pickFromKnownClients": "Pick From Known Clients",
         "selectClients": "Select clients",

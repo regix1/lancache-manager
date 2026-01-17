@@ -26,6 +26,11 @@ public class GameSpeedInfo
     public string Service { get; set; } = string.Empty;
 
     /// <summary>
+    /// Client IP address for this speed entry
+    /// </summary>
+    public string ClientIp { get; set; } = string.Empty;
+
+    /// <summary>
     /// Current download speed in bytes per second
     /// </summary>
     public double BytesPerSecond { get; set; }
@@ -54,6 +59,7 @@ public class GameSpeedInfo
     /// Cache hit percentage in the current window
     /// </summary>
     public double CacheHitPercent => TotalBytes > 0 ? (double)CacheHitBytes / TotalBytes * 100 : 0;
+
 }
 
 /// <summary>
@@ -90,6 +96,7 @@ public class ClientSpeedInfo
     /// Cache miss bytes in the current window
     /// </summary>
     public long CacheMissBytes { get; set; }
+
 }
 
 /// <summary>

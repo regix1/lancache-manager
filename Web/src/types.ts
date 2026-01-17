@@ -411,6 +411,7 @@ export interface GameSpeedInfo {
   gameName?: string;
   gameAppId?: number;
   service: string;
+  clientIp?: string;
   bytesPerSecond: number;
   totalBytes: number;
   requestCount: number;

@@ -102,6 +102,86 @@ public class StatsController : ControllerBase
         return query.Where(d => !excludedClientIps.Contains(d.ClientIp));
     }
 
+    /// <summary>
+    /// Filters out hidden IPs (complete removal from queries).
+    /// Use this for queries where hidden IPs should not appear at all.
+    /// </summary>
+    private static IQueryable<Download> ApplyHiddenClientFilter(IQueryable<Download> query, List<string> hiddenClientIps)
+    {
+        if (hiddenClientIps.Count == 0)
+        {
+            return query;
+        }
+
+        return query.Where(d => !hiddenClientIps.Contains(d.ClientIp));
+    }
+
+    /// <summary>
+    /// Calculates sum of cache hit bytes excluding stats-excluded IPs.
+    /// Used for calculations where excluded IPs should be visible but not counted.
+    /// </summary>
+    private static async Task<long> SumCacheHitBytesExcludingAsync(
+        IQueryable<Download> query,
+        List<string> statsExcludedIps)
+    {
+        if (statsExcludedIps.Count == 0)
+        {
+            return await query.SumAsync(d => (long?)d.CacheHitBytes) ?? 0L;
+        }
+
+        // Sum all values, then subtract excluded values
+        var total = await query.SumAsync(d => (long?)d.CacheHitBytes) ?? 0L;
+        var excluded = await query
+            .Where(d => statsExcludedIps.Contains(d.ClientIp))
+            .SumAsync(d => (long?)d.CacheHitBytes) ?? 0L;
+        
+        return total - excluded;
+    }
+
+    /// <summary>
+    /// Calculates sum of cache miss bytes excluding stats-excluded IPs.
+    /// Used for calculations where excluded IPs should be visible but not counted.
+    /// </summary>
+    private static async Task<long> SumCacheMissBytesExcludingAsync(
+        IQueryable<Download> query,
+        List<string> statsExcludedIps)
+    {
+        if (statsExcludedIps.Count == 0)
+        {
+            return await query.SumAsync(d => (long?)d.CacheMissBytes) ?? 0L;
+        }
+
+        // Sum all values, then subtract excluded values
+        var total = await query.SumAsync(d => (long?)d.CacheMissBytes) ?? 0L;
+        var excluded = await query
+            .Where(d => statsExcludedIps.Contains(d.ClientIp))
+            .SumAsync(d => (long?)d.CacheMissBytes) ?? 0L;
+        
+        return total - excluded;
+    }
+
+    /// <summary>
+    /// Counts downloads excluding stats-excluded IPs.
+    /// Used for calculations where excluded IPs should be visible but not counted.
+    /// </summary>
+    private static async Task<int> CountExcludingAsync(
+        IQueryable<Download> query,
+        List<string> statsExcludedIps)
+    {
+        if (statsExcludedIps.Count == 0)
+        {
+            return await query.CountAsync();
+        }
+
+        // Count all, then subtract excluded count
+        var total = await query.CountAsync();
+        var excluded = await query
+            .Where(d => statsExcludedIps.Contains(d.ClientIp))
+            .CountAsync();
+        
+        return total - excluded;
+    }
+
     private static List<string> NormalizeClientIps(IEnumerable<string>? ips, out List<string> invalidIps)
     {
         invalidIps = new List<string>();
@@ -136,6 +216,7 @@ public class StatsController : ControllerBase
         return normalized;
     }
 
+
     [HttpGet("clients")]
     [OutputCache(PolicyName = "stats-short")]
     public async Task<IActionResult> GetClients(
@@ -162,8 +243,9 @@ public class StatsController : ControllerBase
             HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
             query = ApplyEventFilter(query, eventIdList, eventDownloadIds);
 
-            var excludedClientIps = includeExcluded ? new List<string>() : _stateRepository.GetExcludedClientIps();
-            query = ApplyExcludedClientFilter(query, excludedClientIps);
+            // Filter out hidden IPs completely, but include excluded IPs so they can be shown with a badge.
+            var hiddenClientIps = includeExcluded ? new List<string>() : _stateRepository.GetHiddenClientIps();
+            query = ApplyHiddenClientFilter(query, hiddenClientIps);
 
             if (startTime.HasValue)
             {
@@ -297,7 +379,10 @@ public class StatsController : ControllerBase
     public IActionResult GetExcludedClients()
     {
         var excludedIps = _stateRepository.GetExcludedClientIps();
-        return Ok(new StatsExclusionsResponse { Ips = excludedIps });
+        return Ok(new StatsExclusionsResponse
+        {
+            Ips = excludedIps
+        });
     }
 
     [HttpPut("exclusions")]
@@ -309,14 +394,17 @@ public class StatsController : ControllerBase
         {
             return BadRequest(new
             {
-                error = "Invalid IP address",
-                message = "One or more IPs are not valid. Please correct them and try again.",
-                invalidIps
+                error = "Invalid exclusion rules",
+                message = "One or more exclusions are not valid. Please correct them and try again.",
+                invalidIps,
             });
         }
 
         _stateRepository.SetExcludedClientIps(normalizedIps);
-        return Ok(new StatsExclusionsResponse { Ips = normalizedIps });
+        return Ok(new StatsExclusionsResponse
+        {
+            Ips = normalizedIps
+        });
     }
 
     /// <summary>
@@ -370,9 +458,11 @@ public class StatsController : ControllerBase
 
             // ALWAYS query Downloads table directly to ensure consistency with dashboard stats
             // Previously used cached ServiceStats table which caused fluctuating values
+            // Filter out hidden IPs completely, but include excluded IPs (they'll be excluded from calculations)
             var query = _context.Downloads.AsNoTracking();
-            var excludedClientIps = _stateRepository.GetExcludedClientIps();
-            query = ApplyExcludedClientFilter(query, excludedClientIps);
+            var hiddenClientIps = _stateRepository.GetHiddenClientIps();
+            var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
+            query = ApplyHiddenClientFilter(query, hiddenClientIps);
 
             // Apply event filter if provided (filters to only tagged downloads)
             HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
@@ -400,8 +490,11 @@ public class StatsController : ControllerBase
             }
             // No filter = all data (consistent with dashboard)
 
-            // Aggregate by service from Downloads table
-            var serviceStats = await query
+            // Aggregate by service from Downloads table (exclude stats-excluded IPs from calculations)
+            var serviceStatsQuery = statsExcludedOnlyIps.Count > 0
+                ? query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
+                : query;
+            var serviceStats = await serviceStatsQuery
                 .GroupBy(d => d.Service)
                 .Select(g => new ServiceStats
                 {
@@ -439,7 +532,8 @@ public class StatsController : ControllerBase
     {
         // Parse event IDs
         var eventIdList = ParseEventId(eventId);
-        var excludedClientIps = _stateRepository.GetExcludedClientIps();
+        var hiddenClientIps = _stateRepository.GetHiddenClientIps();
+        var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
 
         // Use Unix timestamps if provided, otherwise return ALL data (no time filter)
         // This ensures consistency: frontend always provides timestamps for time-filtered queries
@@ -460,8 +554,8 @@ public class StatsController : ControllerBase
         // This ensures consistency - mixing cached ServiceStats with live Downloads caused fluctuating values
 
         // Build the base query for period-specific metrics
-        var downloadsQuery = _context.Downloads.AsNoTracking();
-        downloadsQuery = ApplyExcludedClientFilter(downloadsQuery, excludedClientIps);
+        // Filter out hidden IPs completely, but include excluded IPs (they'll be excluded from calculations)
+        var downloadsQuery = ApplyHiddenClientFilter(_context.Downloads.AsNoTracking(), hiddenClientIps);
 
         // Apply event filter if provided (filters to only tagged downloads)
         HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
@@ -478,52 +572,98 @@ public class StatsController : ControllerBase
 
         // Calculate ALL-TIME totals from Downloads table directly (no cache)
         // Note: All-time totals should NOT be filtered by event - they represent overall system stats
-        var allTimeQuery = ApplyExcludedClientFilter(_context.Downloads.AsNoTracking(), excludedClientIps);
-        var totalHitBytesTask = allTimeQuery.SumAsync(d => (long?)d.CacheHitBytes);
-        var totalMissBytesTask = allTimeQuery.SumAsync(d => (long?)d.CacheMissBytes);
+        // Filter out hidden IPs, but exclude stats-excluded IPs from calculations
+        var allTimeQuery = ApplyHiddenClientFilter(_context.Downloads.AsNoTracking(), hiddenClientIps);
+        var totalHitBytesTask = SumCacheHitBytesExcludingAsync(allTimeQuery, statsExcludedOnlyIps);
+        var totalMissBytesTask = SumCacheMissBytesExcludingAsync(allTimeQuery, statsExcludedOnlyIps);
 
-        // Calculate PERIOD-specific metrics
-        var periodHitBytesTask = downloadsQuery.SumAsync(d => (long?)d.CacheHitBytes);
-        var periodMissBytesTask = downloadsQuery.SumAsync(d => (long?)d.CacheMissBytes);
-        var periodDownloadCountTask = downloadsQuery.CountAsync();
+        // Calculate PERIOD-specific metrics (exclude stats-excluded IPs from calculations)
+        var periodHitBytesTask = SumCacheHitBytesExcludingAsync(downloadsQuery, statsExcludedOnlyIps);
+        var periodMissBytesTask = SumCacheMissBytesExcludingAsync(downloadsQuery, statsExcludedOnlyIps);
+        var periodDownloadCountTask = CountExcludingAsync(downloadsQuery, statsExcludedOnlyIps);
 
         // Get top service from Downloads table (not cached ServiceStats)
-        var topServiceTask = ApplyExcludedClientFilter(_context.Downloads.AsNoTracking(), excludedClientIps)
+        // Exclude stats-excluded IPs from the sum calculation
+        var topServiceQuery = ApplyHiddenClientFilter(_context.Downloads.AsNoTracking(), hiddenClientIps);
+        var topServiceGroups = await topServiceQuery
             .GroupBy(d => d.Service)
-            .Select(g => new { Service = g.Key, TotalBytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes) })
+            .Select(g => new { Service = g.Key, TotalBytes = g.Sum(d => (long?)(d.CacheHitBytes + d.CacheMissBytes)) ?? 0L })
+            .ToListAsync();
+        
+        // Subtract excluded IPs from each service's total
+        if (statsExcludedOnlyIps.Count > 0)
+        {
+            var excludedServiceGroups = await topServiceQuery
+                .Where(d => statsExcludedOnlyIps.Contains(d.ClientIp))
+                .GroupBy(d => d.Service)
+                .Select(g => new { Service = g.Key, TotalBytes = g.Sum(d => (long?)(d.CacheHitBytes + d.CacheMissBytes)) ?? 0L })
+                .ToListAsync();
+            
+            var excludedByService = excludedServiceGroups.ToDictionary(g => g.Service, g => g.TotalBytes);
+            topServiceGroups = topServiceGroups
+                .Select(g => new { 
+                    g.Service, 
+                    TotalBytes = excludedByService.TryGetValue(g.Service, out var excludedBytes) 
+                        ? g.TotalBytes - excludedBytes 
+                        : g.TotalBytes 
+                })
+                .ToList();
+        }
+        
+        var topService = topServiceGroups
             .OrderByDescending(s => s.TotalBytes)
-            .FirstOrDefaultAsync();
+            .FirstOrDefault();
 
-        // Active downloads and unique clients
-        var activeDownloadsTask = ApplyExcludedClientFilter(_context.Downloads.AsNoTracking(), excludedClientIps)
-            .Where(d => d.IsActive && d.EndTimeUtc > DateTime.UtcNow.AddMinutes(-5))
-            .CountAsync();
+        // Active downloads and unique clients (exclude stats-excluded IPs from counts)
+        var activeDownloadsQuery = ApplyHiddenClientFilter(_context.Downloads.AsNoTracking(), hiddenClientIps)
+            .Where(d => d.IsActive && d.EndTimeUtc > DateTime.UtcNow.AddMinutes(-5));
+        var activeDownloadsTask = CountExcludingAsync(activeDownloadsQuery, statsExcludedOnlyIps);
 
-        var uniqueClientsQuery = cutoffTime.HasValue || endDateTime.HasValue
-            ? downloadsQuery.Select(d => d.ClientIp).Distinct().CountAsync()
-            : ApplyExcludedClientFilter(_context.Downloads.AsNoTracking(), excludedClientIps).Select(d => d.ClientIp).Distinct().CountAsync();
+        // Unique clients: count distinct IPs, excluding stats-excluded IPs
+        Task<int> uniqueClientsQuery;
+        if (cutoffTime.HasValue || endDateTime.HasValue)
+        {
+            // For period queries, count distinct IPs excluding stats-excluded
+            var allIps = await downloadsQuery.Select(d => d.ClientIp).Distinct().ToListAsync();
+            var excludedCount = statsExcludedOnlyIps.Count > 0 
+                ? allIps.Count(ip => statsExcludedOnlyIps.Contains(ip))
+                : 0;
+            uniqueClientsQuery = Task.FromResult(allIps.Count - excludedCount);
+        }
+        else
+        {
+            // For all-time, count distinct IPs excluding stats-excluded
+            var allIps = await ApplyHiddenClientFilter(_context.Downloads.AsNoTracking(), hiddenClientIps)
+                .Select(d => d.ClientIp)
+                .Distinct()
+                .ToListAsync();
+            var excludedCount = statsExcludedOnlyIps.Count > 0 
+                ? allIps.Count(ip => statsExcludedOnlyIps.Contains(ip))
+                : 0;
+            uniqueClientsQuery = Task.FromResult(allIps.Count - excludedCount);
+        }
 
         // Await all tasks in parallel
         await Task.WhenAll(
             totalHitBytesTask, totalMissBytesTask,
             periodHitBytesTask, periodMissBytesTask, periodDownloadCountTask,
-            topServiceTask, activeDownloadsTask, uniqueClientsQuery);
+            activeDownloadsTask, uniqueClientsQuery);
 
         // All-time metrics (from Downloads table directly)
-        var totalBandwidthSaved = totalHitBytesTask.Result ?? 0L;
-        var totalAddedToCache = totalMissBytesTask.Result ?? 0L;
+        var totalBandwidthSaved = await totalHitBytesTask;
+        var totalAddedToCache = await totalMissBytesTask;
         var totalServed = totalBandwidthSaved + totalAddedToCache;
         var cacheHitRatio = totalServed > 0
             ? (double)totalBandwidthSaved / totalServed
             : 0;
-        var topService = topServiceTask.Result?.Service ?? "none";
+        var topServiceName = topService?.Service ?? "none";
 
         // Period-specific metrics
-        var periodHitBytes = periodHitBytesTask.Result ?? 0L;
-        var periodMissBytes = periodMissBytesTask.Result ?? 0L;
-        var periodDownloadCount = periodDownloadCountTask.Result;
-        var activeDownloads = activeDownloadsTask.Result;
-        var uniqueClientsCount = uniqueClientsQuery.Result;
+        var periodHitBytes = await periodHitBytesTask;
+        var periodMissBytes = await periodMissBytesTask;
+        var periodDownloadCount = await periodDownloadCountTask;
+        var activeDownloads = await activeDownloadsTask;
+        var uniqueClientsCount = await uniqueClientsQuery;
 
         var periodTotal = periodHitBytes + periodMissBytes;
         var periodHitRatio = periodTotal > 0
@@ -553,7 +693,7 @@ public class StatsController : ControllerBase
             // Current status
             ActiveDownloads = activeDownloads,
             UniqueClients = uniqueClientsCount,
-            TopService = topService,
+            TopService = topServiceName,
 
             // Period-specific metrics
             Period = new DashboardPeriodStats
@@ -603,9 +743,11 @@ public class StatsController : ControllerBase
             var eventIdList = ParseEventId(eventId);
 
             // Build query with optional time filtering
+            // Filter out hidden IPs completely, but include excluded IPs (they'll be excluded from calculations)
             var query = _context.Downloads.AsNoTracking();
-            var excludedClientIps = _stateRepository.GetExcludedClientIps();
-            query = ApplyExcludedClientFilter(query, excludedClientIps);
+            var hiddenClientIps = _stateRepository.GetHiddenClientIps();
+            var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
+            query = ApplyHiddenClientFilter(query, hiddenClientIps);
 
             // Apply event filter if provided (filters to only tagged downloads)
             HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
@@ -657,7 +799,8 @@ public class StatsController : ControllerBase
             }
 
             // Query downloads and group by local time hour (StartTimeLocal is already in configured timezone)
-            var hourlyData = await query
+            // Exclude stats-excluded IPs from calculations
+            var hourlyDataAll = await query
                 .GroupBy(d => d.StartTimeLocal.Hour)
                 .Select(g => new HourlyActivityItem
                 {
@@ -668,6 +811,38 @@ public class StatsController : ControllerBase
                     CacheMissBytes = g.Sum(d => d.CacheMissBytes)
                 })
                 .ToListAsync();
+
+            // Subtract excluded IPs from calculations if any
+            List<HourlyActivityItem> hourlyData;
+            if (statsExcludedOnlyIps.Count > 0)
+            {
+                var excludedHourlyData = await query
+                    .Where(d => statsExcludedOnlyIps.Contains(d.ClientIp))
+                    .GroupBy(d => d.StartTimeLocal.Hour)
+                    .Select(g => new HourlyActivityItem
+                    {
+                        Hour = g.Key,
+                        Downloads = g.Count(),
+                        BytesServed = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
+                        CacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                        CacheMissBytes = g.Sum(d => d.CacheMissBytes)
+                    })
+                    .ToListAsync();
+
+                var excludedByHour = excludedHourlyData.ToDictionary(h => h.Hour);
+                hourlyData = hourlyDataAll.Select(h => new HourlyActivityItem
+                {
+                    Hour = h.Hour,
+                    Downloads = excludedByHour.TryGetValue(h.Hour, out var excl) ? h.Downloads - excl.Downloads : h.Downloads,
+                    BytesServed = excludedByHour.TryGetValue(h.Hour, out var excl2) ? h.BytesServed - excl2.BytesServed : h.BytesServed,
+                    CacheHitBytes = excludedByHour.TryGetValue(h.Hour, out var excl3) ? h.CacheHitBytes - excl3.CacheHitBytes : h.CacheHitBytes,
+                    CacheMissBytes = excludedByHour.TryGetValue(h.Hour, out var excl4) ? h.CacheMissBytes - excl4.CacheMissBytes : h.CacheMissBytes
+                }).ToList();
+            }
+            else
+            {
+                hourlyData = hourlyDataAll;
+            }
 
             // Fill in missing hours with zeros and calculate averages
             var allHours = Enumerable.Range(0, 24)
@@ -724,7 +899,8 @@ public class StatsController : ControllerBase
         {
             // Parse event IDs
             var eventIdList = ParseEventId(eventId);
-            var excludedClientIps = _stateRepository.GetExcludedClientIps();
+            var hiddenClientIps = _stateRepository.GetHiddenClientIps();
+            var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
 
             DateTime? cutoffTime = startTime.HasValue
                 ? DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime
@@ -739,15 +915,14 @@ public class StatsController : ControllerBase
             long totalCapacity = 0;
 
             // Try to get cache info from the system controller's cache service
-            // For now, we'll calculate from downloads data
-            var totalCacheMiss = await ApplyExcludedClientFilter(_context.Downloads.AsNoTracking(), excludedClientIps)
-                .SumAsync(d => (long?)d.CacheMissBytes) ?? 0;
+            // For now, we'll calculate from downloads data (exclude stats-excluded IPs from calculations)
+            var allTimeQuery = ApplyHiddenClientFilter(_context.Downloads.AsNoTracking(), hiddenClientIps);
+            var totalCacheMiss = await SumCacheMissBytesExcludingAsync(allTimeQuery, statsExcludedOnlyIps);
 
             currentCacheSize = totalCacheMiss; // Approximation: total cache misses = data added to cache
 
-            // Build base query with time filtering
-            var baseQuery = _context.Downloads.AsNoTracking();
-            baseQuery = ApplyExcludedClientFilter(baseQuery, excludedClientIps);
+            // Build base query with time filtering (filter out hidden IPs, exclude stats-excluded from calculations)
+            var baseQuery = ApplyHiddenClientFilter(_context.Downloads.AsNoTracking(), hiddenClientIps);
 
             // Apply event filter if provided (filters to only tagged downloads)
             HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
@@ -763,12 +938,13 @@ public class StatsController : ControllerBase
             }
 
             // Get daily cache growth data points
+            // Exclude stats-excluded IPs from calculations
             List<CacheGrowthDataPoint> dataPoints;
 
             if (intervalMinutes >= 1440) // Daily or larger
             {
                 // Group by date
-                dataPoints = await baseQuery
+                var allDataPoints = await baseQuery
                     .GroupBy(d => d.StartTimeUtc.Date)
                     .OrderBy(g => g.Key)
                     .Select(g => new CacheGrowthDataPoint
@@ -778,11 +954,35 @@ public class StatsController : ControllerBase
                         GrowthFromPrevious = g.Sum(d => d.CacheMissBytes)
                     })
                     .ToListAsync();
+
+                // Subtract excluded IPs if any
+                if (statsExcludedOnlyIps.Count > 0)
+                {
+                    var excludedDataPoints = await baseQuery
+                        .Where(d => statsExcludedOnlyIps.Contains(d.ClientIp))
+                        .GroupBy(d => d.StartTimeUtc.Date)
+                        .Select(g => new { Date = g.Key, Growth = g.Sum(d => d.CacheMissBytes) })
+                        .ToListAsync();
+
+                    var excludedByDate = excludedDataPoints.ToDictionary(d => d.Date, d => d.Growth);
+                    dataPoints = allDataPoints.Select(dp => new CacheGrowthDataPoint
+                    {
+                        Timestamp = dp.Timestamp,
+                        CumulativeCacheMissBytes = 0,
+                        GrowthFromPrevious = excludedByDate.TryGetValue(dp.Timestamp.Date, out var excl) 
+                            ? dp.GrowthFromPrevious - excl 
+                            : dp.GrowthFromPrevious
+                    }).ToList();
+                }
+                else
+                {
+                    dataPoints = allDataPoints;
+                }
             }
             else
             {
                 // Group by hour for smaller intervals
-                var hourlyData = await baseQuery
+                var allHourlyData = await baseQuery
                     .GroupBy(d => new { d.StartTimeUtc.Date, d.StartTimeUtc.Hour })
                     .OrderBy(g => g.Key.Date).ThenBy(g => g.Key.Hour)
                     .Select(g => new CacheGrowthDataPoint
@@ -793,7 +993,32 @@ public class StatsController : ControllerBase
                     })
                     .ToListAsync();
 
-                dataPoints = hourlyData;
+                // Subtract excluded IPs if any
+                if (statsExcludedOnlyIps.Count > 0)
+                {
+                    var excludedHourlyData = await baseQuery
+                        .Where(d => statsExcludedOnlyIps.Contains(d.ClientIp))
+                        .GroupBy(d => new { d.StartTimeUtc.Date, d.StartTimeUtc.Hour })
+                        .Select(g => new { Date = g.Key.Date, Hour = g.Key.Hour, Growth = g.Sum(d => d.CacheMissBytes) })
+                        .ToListAsync();
+
+                    var excludedByDateTime = excludedHourlyData.ToDictionary(
+                        d => d.Date.AddHours(d.Hour), 
+                        d => d.Growth);
+
+                    dataPoints = allHourlyData.Select(dp => new CacheGrowthDataPoint
+                    {
+                        Timestamp = dp.Timestamp,
+                        CumulativeCacheMissBytes = 0,
+                        GrowthFromPrevious = excludedByDateTime.TryGetValue(dp.Timestamp, out var excl) 
+                            ? dp.GrowthFromPrevious - excl 
+                            : dp.GrowthFromPrevious
+                    }).ToList();
+                }
+                else
+                {
+                    dataPoints = allHourlyData;
+                }
             }
 
             // Calculate cumulative values
@@ -863,8 +1088,9 @@ public class StatsController : ControllerBase
             if (actualCacheSize.HasValue && actualCacheSize.Value > 0)
             {
                 // Total cumulative downloads (all data ever added to cache)
-                var cumulativeDownloads = await ApplyExcludedClientFilter(_context.Downloads.AsNoTracking(), excludedClientIps)
-                    .SumAsync(d => (long?)d.CacheMissBytes) ?? 0;
+                // Exclude stats-excluded IPs from calculations
+                var allTimeQueryForCumulative = ApplyHiddenClientFilter(_context.Downloads.AsNoTracking(), hiddenClientIps);
+                var cumulativeDownloads = await SumCacheMissBytesExcludingAsync(allTimeQueryForCumulative, statsExcludedOnlyIps);
 
                 // If actual cache is smaller than cumulative downloads, data was deleted
                 if (actualCacheSize.Value < cumulativeDownloads)
@@ -955,9 +1181,11 @@ public class StatsController : ControllerBase
             var eventIdList = ParseEventId(eventId);
 
             // Build query with optional time filtering
+            // Filter out hidden IPs completely, but include excluded IPs (they'll be excluded from calculations)
             var query = _context.Downloads.AsNoTracking();
-            var excludedClientIps = _stateRepository.GetExcludedClientIps();
-            query = ApplyExcludedClientFilter(query, excludedClientIps);
+            var hiddenClientIps = _stateRepository.GetHiddenClientIps();
+            var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
+            query = ApplyHiddenClientFilter(query, hiddenClientIps);
 
             // Apply event filter if provided (filters to only tagged downloads)
             HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
@@ -974,8 +1202,8 @@ public class StatsController : ControllerBase
                 query = query.Where(d => d.StartTimeUtc <= endDateTime);
             }
 
-            // Query downloads grouped by date
-            var dailyData = await query
+            // Query downloads grouped by date (exclude stats-excluded IPs from calculations)
+            var dailyDataAll = await query
                 .GroupBy(d => d.StartTimeUtc.Date)
                 .OrderBy(g => g.Key)
                 .Select(g => new
@@ -985,6 +1213,25 @@ public class StatsController : ControllerBase
                     CacheMissBytes = g.Sum(d => d.CacheMissBytes)
                 })
                 .ToListAsync();
+
+            // Subtract excluded IPs from calculations if any
+            var dailyData = dailyDataAll;
+            if (statsExcludedOnlyIps.Count > 0)
+            {
+                var excludedDailyData = await query
+                    .Where(d => statsExcludedOnlyIps.Contains(d.ClientIp))
+                    .GroupBy(d => d.StartTimeUtc.Date)
+                    .Select(g => new { Date = g.Key, CacheHitBytes = g.Sum(d => d.CacheHitBytes), CacheMissBytes = g.Sum(d => d.CacheMissBytes) })
+                    .ToListAsync();
+
+                var excludedByDate = excludedDailyData.ToDictionary(d => d.Date);
+                dailyData = dailyDataAll.Select(d => new
+                {
+                    d.Date,
+                    CacheHitBytes = excludedByDate.TryGetValue(d.Date, out var excl) ? d.CacheHitBytes - excl.CacheHitBytes : d.CacheHitBytes,
+                    CacheMissBytes = excludedByDate.TryGetValue(d.Date, out var excl2) ? d.CacheMissBytes - excl2.CacheMissBytes : d.CacheMissBytes
+                }).ToList();
+            }
 
             // Build sparkline data for each metric
             var bandwidthSavedData = dailyData.Select(d => (double)d.CacheHitBytes).ToList();

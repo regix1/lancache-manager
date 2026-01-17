@@ -1,3 +1,4 @@
+using LancacheManager.Models;
 using static LancacheManager.Infrastructure.Repositories.StateRepository;
 
 namespace LancacheManager.Core.Interfaces.Repositories;
@@ -90,4 +91,8 @@ public interface IStateRepository
     // Stats Exclusion Methods
     List<string> GetExcludedClientIps();
     void SetExcludedClientIps(List<string> ips);
+    List<ClientExclusionRule> GetExcludedClientRules();
+    void SetExcludedClientRules(List<ClientExclusionRule> rules);
+    List<string> GetHiddenClientIps();
+    List<string> GetStatsExcludedOnlyClientIps();
 }

@@ -81,8 +81,9 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
     setLoadingExcluded(true);
     try {
       const response = await ApiService.getStatsExclusions();
-      setExcludedIps(response.ips);
-      setSavedExcludedIps(response.ips);
+      const ips = response.ips || [];
+      setExcludedIps(ips);
+      setSavedExcludedIps(ips);
     } catch (err) {
       onError(err instanceof Error ? err.message : t('management.sections.clients.errors.failedToLoadExcluded'));
     } finally {
@@ -164,8 +165,9 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
     setSavingExcluded(true);
     try {
       const response = await ApiService.updateStatsExclusions(excludedIps);
-      setExcludedIps(response.ips);
-      setSavedExcludedIps(response.ips);
+      const ips = response.ips || [];
+      setExcludedIps(ips);
+      setSavedExcludedIps(ips);
       onSuccess(t('management.sections.clients.excludedIpsUpdated'));
       await refreshStats(true);
     } catch (err) {
@@ -498,6 +500,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
             ) : (
               <>
                 <div className="space-y-3">
+
                   <div className="text-xs text-themed-muted uppercase tracking-wide font-semibold">
                     {t('management.sections.clients.pickFromKnownClients')}
                   </div>
@@ -575,23 +578,31 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                     {t('management.sections.clients.noExcludedIps')}
                   </div>
                 ) : (
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-col gap-2">
                     {excludedIps.map(ip => (
                       <div
                         key={ip}
-                        className="flex items-center gap-2 px-2 py-1 rounded text-sm bg-themed-tertiary text-themed-secondary"
+                        className="flex items-center justify-between p-3 rounded-lg bg-themed-tertiary"
                       >
-                        <span className="font-mono">
-                          <ClientIpDisplay clientIp={ip} showTooltip={false} />
-                        </span>
-                        <button
-                          className="p-0.5 rounded text-themed-muted delete-hover"
-                          onClick={() => handleRemoveExcluded(ip)}
-                          disabled={savingExcluded}
-                          title={t('management.sections.clients.removeIp')}
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
+                        <div className="flex items-center gap-3">
+                          <div className="font-mono text-themed-secondary font-medium">
+                            <ClientIpDisplay clientIp={ip} showTooltip={false} />
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <Button
+                            variant="subtle"
+                            size="sm"
+                            color="red"
+                            className="text-themed-muted hover:text-red-500"
+                            onClick={() => handleRemoveExcluded(ip)}
+                            disabled={savingExcluded}
+                            title={t('management.sections.clients.removeIp')}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   </div>

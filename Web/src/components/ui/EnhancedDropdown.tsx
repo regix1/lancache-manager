@@ -7,7 +7,8 @@ import { Tooltip } from './Tooltip';
 import { getEventColorVar } from '@utils/eventColors';
 
 interface DropdownPosition {
-  top: number;
+  top?: number;
+  bottom?: number;
   left: number;
   width: number;
 }
@@ -190,16 +191,20 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       const left = Math.min(Math.max(desiredLeft, VIEWPORT_PADDING_PX), maxLeft);
 
       // Calculate vertical position
-      const top = shouldOpenUpward
-        ? rect.top - dropdownHeight - 8
-        : rect.bottom + 4;
+      const top = shouldOpenUpward ? undefined : rect.bottom + 4;
+      const bottom = shouldOpenUpward ? window.innerHeight - rect.top + 8 : undefined;
 
-      return { top, left, width: rect.width, shouldOpenUpward };
+      return { top, bottom, left, width: rect.width, shouldOpenUpward };
     };
 
     const pos = calculatePosition();
     if (pos) {
-      setDropdownPosition({ top: pos.top, left: pos.left, width: pos.width });
+      setDropdownPosition({ 
+        top: pos.top, 
+        bottom: pos.bottom,
+        left: pos.left, 
+        width: pos.width 
+      });
       setDropdownStyle({
         animation: `${pos.shouldOpenUpward ? 'dropdownSlideUp' : 'dropdownSlideDown'} 0.15s cubic-bezier(0.16, 1, 0.3, 1)`
       });
@@ -329,6 +334,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
           className={`ed-dropdown fixed rounded-lg border border-themed-primary overflow-hidden bg-themed-secondary max-w-[calc(100vw-32px)] shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3),0_8px_10px_-6px_rgba(0,0,0,0.2)] z-[50000] ${dropdownWidth?.trim().startsWith('w-') ? dropdownWidth : ''}`}
           style={{
             top: dropdownPosition.top,
+            bottom: dropdownPosition.bottom,
             left: dropdownPosition.left,
             ...(dropdownWidth && !dropdownWidth.trim().startsWith('w-')
               ? { width: dropdownWidth }

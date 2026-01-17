@@ -1,4 +1,5 @@
 using LancacheManager.Models;
+using LancacheManager.Core.Interfaces.Repositories;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Security;
@@ -14,15 +15,18 @@ public class SpeedsController : ControllerBase
 {
     private readonly RustSpeedTrackerService _speedTrackerService;
     private readonly IDbContextFactory<AppDbContext> _contextFactory;
+    private readonly IStateRepository _stateRepository;
     private readonly ILogger<SpeedsController> _logger;
 
     public SpeedsController(
         RustSpeedTrackerService speedTrackerService,
         IDbContextFactory<AppDbContext> contextFactory,
+        IStateRepository stateRepository,
         ILogger<SpeedsController> logger)
     {
         _speedTrackerService = speedTrackerService;
         _contextFactory = contextFactory;
+        _stateRepository = stateRepository;
         _logger = logger;
     }
 
@@ -34,7 +38,35 @@ public class SpeedsController : ControllerBase
     public ActionResult<DownloadSpeedSnapshot> GetCurrentSpeeds()
     {
         var snapshot = _speedTrackerService.GetCurrentSnapshot();
-        return Ok(snapshot);
+
+        var excludedClientIps = _stateRepository.GetExcludedClientIps();
+        if (excludedClientIps.Count == 0)
+        {
+            return Ok(snapshot);
+        }
+
+        var filteredClients = snapshot.ClientSpeeds
+            .Where(c => !excludedClientIps.Contains(c.ClientIp))
+            .ToList();
+
+        var filteredGames = snapshot.GameSpeeds
+            .Where(g => string.IsNullOrWhiteSpace(g.ClientIp) || !excludedClientIps.Contains(g.ClientIp))
+            .ToList();
+
+        var totalBytesPerSecond = filteredClients.Sum(c => c.BytesPerSecond);
+        var entriesInWindow = filteredGames.Sum(g => g.RequestCount);
+
+        var filteredSnapshot = new DownloadSpeedSnapshot
+        {
+            TimestampUtc = snapshot.TimestampUtc,
+            WindowSeconds = snapshot.WindowSeconds,
+            TotalBytesPerSecond = totalBytesPerSecond,
+            EntriesInWindow = entriesInWindow,
+            GameSpeeds = filteredGames,
+            ClientSpeeds = filteredClients
+        };
+
+        return Ok(filteredSnapshot);
     }
 
     /// <summary>
@@ -52,10 +84,12 @@ public class SpeedsController : ControllerBase
         var periodStart = periodEnd.AddMinutes(-minutes);
 
         await using var context = await _contextFactory.CreateDbContextAsync();
+        var excludedClientIps = _stateRepository.GetExcludedClientIps();
 
         // Query downloads within the time period
         var downloads = await context.Downloads
             .Where(d => d.EndTimeUtc >= periodStart && d.StartTimeUtc <= periodEnd)
+            .Where(d => excludedClientIps.Count == 0 || !excludedClientIps.Contains(d.ClientIp))
             .ToListAsync();
 
         if (downloads.Count == 0)
@@ -83,4 +117,5 @@ public class SpeedsController : ControllerBase
             TotalSessions = downloadsWithData.Count
         });
     }
+
 }
