@@ -85,9 +85,6 @@ public class DownloadsController : ControllerBase
                         downloads = await _context.Downloads
                             .AsNoTracking()
                             .Where(d => taggedDownloadIds.Contains(d.Id))
-                            .Where(d => excludedClientIps.Count == 0 || !excludedClientIps.Contains(d.ClientIp))
-                            .Where(d => d.ClientIp != PrefillToken && d.ClientIp != "Prefill")
-                            .Where(d => d.Datasource != PrefillToken && d.Datasource != "Prefill")
                             .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
                             .OrderByDescending(d => d.StartTimeUtc)
                             .Take(count)
@@ -97,9 +94,6 @@ public class DownloadsController : ControllerBase
                     {
                         downloads = await _context.Downloads
                             .AsNoTracking()
-                            .Where(d => excludedClientIps.Count == 0 || !excludedClientIps.Contains(d.ClientIp))
-                            .Where(d => d.ClientIp != PrefillToken && d.ClientIp != "Prefill")
-                            .Where(d => d.Datasource != PrefillToken && d.Datasource != "Prefill")
                             .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
                             .OrderByDescending(d => d.StartTimeUtc)
                             .Take(count)
@@ -107,6 +101,17 @@ public class DownloadsController : ControllerBase
                     }
 
                     // Fix timezone: Ensure UTC DateTime values are marked as UTC for proper JSON serialization
+                    foreach (var download in downloads)
+                    {
+                        download.StartTimeUtc = download.StartTimeUtc.AsUtc();
+                        if (download.EndTimeUtc != default(DateTime))
+                        {
+                            download.EndTimeUtc = download.EndTimeUtc.AsUtc();
+                        }
+                    }
+                }
+
+                // Apply exclusion filter to ALL downloads (both cached and direct query paths)
                 if (excludedClientIps.Count > 0)
                 {
                     downloads = downloads
@@ -114,20 +119,11 @@ public class DownloadsController : ControllerBase
                         .ToList();
                 }
 
+                // Filter out prefill sessions (safety net - StatsRepository already filters, but direct queries may not)
                 downloads = downloads
                     .Where(d => !string.Equals(d.ClientIp, PrefillToken, StringComparison.OrdinalIgnoreCase))
                     .Where(d => !string.Equals(d.Datasource, PrefillToken, StringComparison.OrdinalIgnoreCase))
                     .ToList();
-
-                foreach (var download in downloads)
-                    {
-                        download.StartTimeUtc = download.StartTimeUtc.AsUtc();
-                            if (download.EndTimeUtc != default(DateTime))
-                        {
-                            download.EndTimeUtc = download.EndTimeUtc.AsUtc();
-                        }
-                    }
-                }
 
                 // Return just the array - frontend will use array.length for actual count
                 return Ok(downloads);
