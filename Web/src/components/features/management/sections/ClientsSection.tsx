@@ -9,6 +9,7 @@ import { Pagination } from '@components/ui/Pagination';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
 import { useClientGroups } from '@contexts/ClientGroupContext';
 import { useStats } from '@contexts/StatsContext';
+import { useDownloads } from '@contexts/DownloadsContext';
 import ApiService from '@services/api.service';
 import { Plus, Users, Trash2, Edit2, X, Loader2, User, AlertTriangle } from 'lucide-react';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
@@ -38,6 +39,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
     removeMember
   } = useClientGroups();
   const { refreshStats } = useStats();
+  const { refreshDownloads } = useDownloads();
 
   // Fetch ALL client IPs without time filtering - management sections should not be affected by time filters
   const [allClientIps, setAllClientIps] = useState<string[]>([]);
@@ -170,6 +172,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
       setSavedExcludedIps(ips);
       onSuccess(t('management.sections.clients.excludedIpsUpdated'));
       await refreshStats(true);
+      await refreshDownloads();
     } catch (err) {
       onError(err instanceof Error ? err.message : t('management.sections.clients.errors.failedToUpdateExcluded'));
     } finally {

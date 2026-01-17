@@ -7,6 +7,7 @@ using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -32,6 +33,7 @@ public class StatsController : ControllerBase
     private readonly IStateRepository _stateRepository;
     private readonly ILogger<StatsController> _logger;
     private readonly IOptions<ApiOptions> _apiOptions;
+    private readonly IHubContext<LancacheManager.Hubs.DownloadHub> _downloadHubContext;
 
     public StatsController(
         AppDbContext context,
@@ -40,7 +42,8 @@ public class StatsController : ControllerBase
         CacheSnapshotService cacheSnapshotService,
         IStateRepository stateRepository,
         ILogger<StatsController> logger,
-        IOptions<ApiOptions> apiOptions)
+        IOptions<ApiOptions> apiOptions,
+        IHubContext<LancacheManager.Hubs.DownloadHub> downloadHubContext)
     {
         _context = context;
         _statsService = statsService;
@@ -49,6 +52,7 @@ public class StatsController : ControllerBase
         _stateRepository = stateRepository;
         _logger = logger;
         _apiOptions = apiOptions;
+        _downloadHubContext = downloadHubContext;
     }
 
     /// <summary>
@@ -400,7 +404,7 @@ public class StatsController : ControllerBase
 
     [HttpPut("exclusions")]
     [RequireAuth]
-    public IActionResult UpdateExcludedClients([FromBody] UpdateStatsExclusionsRequest request)
+    public async Task<IActionResult> UpdateExcludedClients([FromBody] UpdateStatsExclusionsRequest request)
     {
         var normalizedIps = NormalizeClientIps(request.Ips, out var invalidIps);
         if (invalidIps.Count > 0)
@@ -414,6 +418,11 @@ public class StatsController : ControllerBase
         }
 
         _stateRepository.SetExcludedClientIps(normalizedIps);
+        // Notify clients to refresh downloads/stats since exclusions affect all tabs
+        await _downloadHubContext.Clients.All.SendAsync("DownloadsRefresh", new
+        {
+            reason = "exclusions-updated"
+        });
         return Ok(new StatsExclusionsResponse
         {
             Ips = normalizedIps
