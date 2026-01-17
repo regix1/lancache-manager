@@ -120,10 +120,10 @@ const GroupRow: React.FC<GroupRowProps> = ({
   return (
     <div
       ref={rowRef}
-      className={`rounded-lg transition-colors duration-200 ${
+      className={`rounded-lg transition-colors duration-200 border ${
         isExpanded
-          ? 'bg-[var(--theme-bg-secondary)]'
-          : 'hover:bg-[var(--theme-bg-tertiary)]/30'
+          ? 'bg-[var(--theme-bg-secondary)] border-[var(--theme-primary)]'
+          : 'hover:bg-[var(--theme-bg-tertiary)] border-transparent'
       }`}
     >
       <button
@@ -250,7 +250,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
 
       {isExpanded && (
         <div
-          className="px-3 pb-4"
+          className="px-3 pb-3 pt-2 border-t border-[var(--theme-border-secondary)]"
           onClick={(event) => event.stopPropagation()}
         >
           {/* Compact layout: stacked on mobile, side-by-side on desktop */}
@@ -260,15 +260,15 @@ const GroupRow: React.FC<GroupRowProps> = ({
               <div className="flex-shrink-0">
                 {aestheticMode || imageErrors.has(String(primaryDownload.gameAppId)) ? (
                   <div
-                    className="w-full sm:w-[120px] h-[60px] sm:h-[56px] rounded border flex items-center justify-center bg-[var(--theme-bg-tertiary)] border-[var(--theme-border-primary)]"
+                    className="w-full sm:w-[100px] h-[50px] sm:h-[46px] rounded border flex items-center justify-center bg-[var(--theme-bg-tertiary)] border-[var(--theme-border-secondary)]"
                   >
-                    <SteamIcon size={28} className="text-[var(--theme-steam)] opacity-60" />
+                    <SteamIcon size={24} className="text-[var(--theme-steam)] opacity-60" />
                   </div>
                 ) : (
                   <img
                     src={`${API_BASE}/game-images/${primaryDownload.gameAppId}/header`}
                     alt={primaryDownload.gameName || group.name}
-                    className="w-full sm:w-[120px] h-[60px] sm:h-[56px] rounded object-cover"
+                    className="w-full sm:w-[100px] h-[50px] sm:h-[46px] rounded object-cover border border-[var(--theme-border-secondary)]"
                     loading="lazy"
                     onError={() => handleImageError(String(primaryDownload.gameAppId))}
                   />
@@ -278,38 +278,33 @@ const GroupRow: React.FC<GroupRowProps> = ({
 
             {/* Stats and info */}
             <div className="flex-1 min-w-0">
-              {/* Stats - grid on mobile, flex on desktop */}
-              <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-x-3 gap-y-2 text-xs text-themed-muted mb-2">
-                <span>
-                  <span className="text-themed-secondary">{t('downloads.tab.compact.labels.hit')}</span>{' '}
-                  <span className="text-[var(--theme-text-primary)]">
-                    {group.cacheHitBytes > 0 ? formatBytes(group.cacheHitBytes) : t('downloads.tab.compact.labels.zeroBytes')}
+              {/* Compact stats row */}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs mb-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[var(--theme-text-muted)]">{t('downloads.tab.compact.labels.hit')}</span>
+                  <span className="font-semibold text-[var(--theme-success-text)]">
+                    {group.cacheHitBytes > 0 ? formatBytes(group.cacheHitBytes) : '—'}
                   </span>
-                </span>
-                <span>
-                  <span className="text-themed-secondary">{t('downloads.tab.compact.labels.miss')}</span>{' '}
-                  <span className="text-[var(--theme-text-primary)]">
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[var(--theme-text-muted)]">{t('downloads.tab.compact.labels.miss')}</span>
+                  <span className="font-medium text-[var(--theme-text-secondary)]">
                     {formatBytes(group.cacheMissBytes || 0)}
                   </span>
-                </span>
-                <span>
-                  <span className="text-themed-secondary">{t('downloads.tab.compact.labels.first')}</span>{' '}
-                  {formatRelativeTime(group.firstSeen)}
-                </span>
-                <span>
-                  <span className="text-themed-secondary">{t('downloads.tab.compact.labels.last')}</span>{' '}
-                  {formatRelativeTime(group.lastSeen)}
-                </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[var(--theme-text-muted)]">{t('downloads.tab.compact.labels.last')}</span>
+                  <span className="text-[var(--theme-text-secondary)]">{formatRelativeTime(group.lastSeen)}</span>
+                </div>
                 {storeLink && (
                   <a
                     href={storeLink}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={(event) => event.stopPropagation()}
-                    className="inline-flex items-center gap-1 text-[var(--theme-primary)] hover:text-[var(--theme-primary-hover)] transition-colors col-span-2 sm:col-span-1"
-                    title={t('downloads.tab.compact.labels.storeTitle')}
+                    className="inline-flex items-center gap-1 text-[var(--theme-primary)] hover:underline transition-colors"
                   >
-                    <ExternalLink size={11} />
+                    <ExternalLink size={10} />
                     <span>{t('downloads.tab.compact.labels.store')}</span>
                   </a>
                 )}
@@ -366,18 +361,18 @@ const GroupRow: React.FC<GroupRowProps> = ({
 
                 return (
                   <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs text-themed-muted">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] uppercase tracking-wide font-semibold text-[var(--theme-text-muted)]">
                         {t('downloads.tab.compact.labels.sessions', { count: group.count })}
                         {excludedSessions > 0 && (
-                          <span className="ml-1 text-[10px] text-themed-muted">
-                            {t('downloads.tab.compact.labels.excluded', { count: excludedSessions })}
+                          <span className="ml-1 opacity-60">
+                            ({t('downloads.tab.compact.labels.excluded', { count: excludedSessions })})
                           </span>
                         )}
                       </span>
                       {/* Inline pagination */}
                       {totalPages > 1 && (
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-0.5">
                           <Tooltip content={t('downloads.tab.compact.pagination.previous')}>
                             <button
                               onClick={() => handlePageChange(currentPage - 1)}
@@ -386,12 +381,12 @@ const GroupRow: React.FC<GroupRowProps> = ({
                               onPointerCancel={handlePointerHoldEnd}
                               onLostPointerCapture={stopHoldTimer}
                               disabled={currentPage === 1}
-                              className="p-0.5 rounded transition-colors disabled:opacity-30 hover:bg-[var(--theme-bg-tertiary)]"
+                              className="p-0.5 rounded transition-colors disabled:opacity-30 hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)]"
                             >
-                              <ChevronLeft size={14} />
+                              <ChevronLeft size={12} />
                             </button>
                           </Tooltip>
-                          <span className="text-xs text-themed-muted font-mono min-w-[40px] text-center">
+                          <span className="text-[10px] text-[var(--theme-text-muted)] font-mono min-w-[28px] text-center">
                             {currentPage}/{totalPages}
                           </span>
                           <Tooltip content={t('downloads.tab.compact.pagination.next')}>
@@ -402,9 +397,9 @@ const GroupRow: React.FC<GroupRowProps> = ({
                               onPointerCancel={handlePointerHoldEnd}
                               onLostPointerCapture={stopHoldTimer}
                               disabled={currentPage === totalPages}
-                              className="p-0.5 rounded transition-colors disabled:opacity-30 hover:bg-[var(--theme-bg-tertiary)]"
+                              className="p-0.5 rounded transition-colors disabled:opacity-30 hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)]"
                             >
-                              <ChevronRight size={14} />
+                              <ChevronRight size={12} />
                             </button>
                           </Tooltip>
                         </div>
@@ -412,8 +407,8 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     </div>
 
                     {/* Sessions table */}
-                    <div className="rounded border border-[var(--theme-border-secondary)] overflow-hidden">
-                      {paginatedDownloads.map((download, idx) => {
+                    <div className="rounded-md border border-[var(--theme-border-secondary)] overflow-hidden divide-y divide-[var(--theme-border-secondary)]">
+                      {paginatedDownloads.map((download) => {
                         const totalBytes = download.totalBytes || 0;
                         const cachePercent =
                           totalBytes > 0 ? ((download.cacheHitBytes || 0) / totalBytes) * 100 : 0;
@@ -422,36 +417,34 @@ const GroupRow: React.FC<GroupRowProps> = ({
                         return (
                           <div
                             key={download.id}
-                            className={`text-xs px-2 py-1.5 ${
-                              idx % 2 === 0 ? 'bg-[var(--theme-bg-tertiary)]/30' : ''
-                            }`}
+                            className="text-xs px-2.5 py-2 hover:bg-[var(--theme-bg-tertiary)] transition-colors"
                           >
                             {/* Mobile: Stacked layout */}
                             <div className="sm:hidden">
                               <div className="flex items-center justify-between">
                                 <ClientIpDisplay
                                   clientIp={download.clientIp}
-                                  className="font-mono text-[var(--theme-text-primary)]"
+                                  className="font-mono text-[var(--theme-text-primary)] text-[11px]"
                                 />
                                 <div className="flex items-center gap-2">
-                                  <span className="font-medium text-[var(--theme-text-primary)] font-mono">
+                                  <span className="font-semibold text-[var(--theme-text-primary)] font-mono">
                                     {formatBytes(totalBytes)}
                                   </span>
                                   {download.cacheHitBytes > 0 ? (
-                                    <span className="cache-hit font-medium font-mono">
+                                    <span className="font-semibold font-mono text-[var(--theme-success-text)]">
                                       {formatPercent(cachePercent)}
                                     </span>
                                   ) : (
-                                    <span className="font-medium font-mono text-[var(--theme-error-text)]">
-                                      0%
+                                    <span className="font-medium font-mono text-[var(--theme-text-muted)]">
+                                      —
                                     </span>
                                   )}
                                 </div>
                               </div>
                               <div className="flex items-center justify-between mt-1">
-                                <div className="text-themed-muted">
+                                <span className="text-[var(--theme-text-muted)]">
                                   {formatRelativeTime(download.startTimeUtc)}
-                                </div>
+                                </span>
                                 {associations.events.length > 0 && (
                                   <DownloadBadges
                                     events={associations.events}
@@ -467,9 +460,9 @@ const GroupRow: React.FC<GroupRowProps> = ({
                               <div className="flex items-center gap-3">
                                 <ClientIpDisplay
                                   clientIp={download.clientIp}
-                                  className="font-mono text-[var(--theme-text-primary)]"
+                                  className="font-mono text-[var(--theme-text-primary)] text-[11px]"
                                 />
-                                <span className="text-themed-muted">
+                                <span className="text-[var(--theme-text-muted)]">
                                   {formatRelativeTime(download.startTimeUtc)}
                                 </span>
                                 {associations.events.length > 0 && (
@@ -480,19 +473,17 @@ const GroupRow: React.FC<GroupRowProps> = ({
                                   />
                                 )}
                               </div>
-                              <div className="flex items-center gap-3">
-                                <span className="font-medium text-[var(--theme-text-primary)] font-mono text-right min-w-[65px]">
+                              <div className="flex items-center gap-4">
+                                <span className="font-semibold text-[var(--theme-text-primary)] font-mono text-right min-w-[60px]">
                                   {formatBytes(totalBytes)}
                                 </span>
                                 {download.cacheHitBytes > 0 ? (
-                                  <span className="cache-hit font-medium font-mono text-right min-w-[40px]">
+                                  <span className="font-semibold font-mono text-right min-w-[36px] text-[var(--theme-success-text)]">
                                     {formatPercent(cachePercent)}
                                   </span>
                                 ) : (
-                                  <span
-                                    className="font-medium font-mono text-right min-w-[40px] text-[var(--theme-error-text)]"
-                                  >
-                                    0%
+                                  <span className="font-medium font-mono text-right min-w-[36px] text-[var(--theme-text-muted)]">
+                                    —
                                   </span>
                                 )}
                               </div>

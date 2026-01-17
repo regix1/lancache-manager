@@ -376,14 +376,14 @@ const GroupCard: React.FC<GroupCardProps> = ({
       {fullHeightBanners ? (
         <div
           onClick={() => onItemClick(group.id)}
-          className="w-full text-left cursor-pointer bg-[var(--theme-bg-secondary)] transition-all duration-300 hover:bg-[var(--theme-bg-tertiary)]/30"
+          className="w-full text-left cursor-pointer bg-[var(--theme-bg-secondary)] transition-all duration-300 hover:bg-[var(--theme-bg-tertiary)]"
         >
           {cardContent}
         </div>
       ) : (
         <button
           onClick={() => onItemClick(group.id)}
-          className="w-full text-left transition-all duration-300 hover:bg-[var(--theme-bg-tertiary)]/30 bg-[var(--theme-bg-secondary)]"
+          className="w-full text-left transition-all duration-300 hover:bg-[var(--theme-bg-tertiary)] bg-[var(--theme-bg-secondary)]"
         >
           {cardContent}
         </button>
@@ -391,150 +391,97 @@ const GroupCard: React.FC<GroupCardProps> = ({
 
       {isExpanded && (
         <div
-          className="border-t border-[var(--theme-primary)] bg-gradient-to-b from-[var(--theme-bg-secondary)] to-[var(--theme-bg-primary)] px-4 pb-4 pt-4 sm:px-6 sm:pb-6 sm:pt-5 animate-[expandDown_0.4s_cubic-bezier(0.4,0,0.2,1)]"
+          className="border-t border-[var(--theme-primary)] bg-[var(--theme-bg-secondary)] px-4 pb-4 pt-4 sm:px-6 sm:pb-6 sm:pt-5 animate-[expandDown_0.4s_cubic-bezier(0.4,0,0.2,1)]"
           onClick={(event) => event.stopPropagation()}
         >
-          <div className="flex flex-col gap-4 sm:gap-6">
-            {/* Quick Actions Bar */}
-            {storeLink && (
-              <div className="flex justify-end">
-                <a
-                  href={storeLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 text-sm px-4 py-2 rounded-lg font-semibold transition-all duration-200 shadow-sm hover:shadow-md bg-[var(--theme-primary)] text-[var(--theme-button-text)]"
-                  title={t('downloads.tab.normal.store.title')}
-                >
-                  <ExternalLink size={18} />
-                  <span>{t('downloads.tab.normal.store.label')}</span>
-                </a>
-              </div>
-            )}
-
-            {/* Summary Stats Banner */}
-            <div
-              className="rounded-xl border border-[var(--theme-border-secondary)] p-3 sm:p-4 bg-[var(--theme-bg-tertiary)]/50"
-            >
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-                <div className="text-center">
-                  <div className="text-xs text-themed-muted mb-1 font-medium">
-                    {t('downloads.tab.normal.stats.totalDownloaded')}
-                  </div>
-                  <div className="text-lg font-bold text-[var(--theme-text-primary)]">
-                    {formatBytes(group.totalBytes)}
-                  </div>
-                </div>
-                <div className="text-center">
-                  <div className="text-xs text-themed-muted mb-1 font-medium">
-                    {t('downloads.tab.normal.stats.cacheSaved')}
-                  </div>
-                  <div className="text-lg font-bold text-[var(--theme-success-text)]">
-                    {group.cacheHitBytes > 0 ? formatBytes(group.cacheHitBytes) : t('downloads.tab.normal.stats.none')}
-                  </div>
-                </div>
-                <div className="text-center">
-                  <div className="text-xs text-themed-muted mb-1 font-medium">
-                    {t('downloads.tab.normal.stats.efficiency')}
-                  </div>
-                  <div className="text-lg font-bold cache-hit">
-                    {hitPercent > 0 ? formatPercent(hitPercent) : t('downloads.tab.normal.stats.none')}
-                  </div>
-                </div>
-                <div className="text-center">
-                  <div className="text-xs text-themed-muted mb-1 font-medium">
-                    {t('downloads.tab.normal.stats.downloads')}
-                  </div>
-                  <div className="text-lg font-bold text-[var(--theme-text-primary)]">
-                    {group.count}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Detailed Statistics */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
-              {/* Cache Performance Card */}
-              <div
-                className="rounded-xl border border-[var(--theme-border-primary)] p-4 sm:p-5 bg-[var(--theme-bg-secondary)]"
-              >
-                <h4
-                  className="text-base font-bold text-[var(--theme-text-primary)] mb-4 pb-2 border-b border-[var(--theme-border-secondary)]"
-                >
-                  Cache Performance
+          <div className="flex flex-col gap-6">
+            
+            {/* Stats Overview Section */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-bold text-[var(--theme-text-primary)] uppercase tracking-wider opacity-80">
+                  {t('downloads.tab.normal.stats.title', 'Analytics Overview')}
                 </h4>
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-themed-muted font-medium">
-                      {t('downloads.tab.normal.stats.cacheHit')}
-                    </span>
-                    <span className="text-sm font-bold text-[var(--theme-success-text)]">
-                      {group.cacheHitBytes > 0 ? formatBytes(group.cacheHitBytes) : t('downloads.tab.normal.stats.none')}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-themed-muted font-medium">
-                      {t('downloads.tab.normal.stats.cacheMiss')}
-                    </span>
-                    <span className="text-sm font-semibold text-[var(--theme-text-secondary)]">
-                      {formatBytes(group.cacheMissBytes || 0)}
-                    </span>
-                  </div>
-                  <div
-                    className="flex justify-between items-center pt-2 border-t border-[var(--theme-border-secondary)]"
+                {storeLink && (
+                  <a
+                    href={storeLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--theme-primary)] hover:text-[var(--theme-primary-hover)] transition-colors"
                   >
-                    <span className="text-sm text-themed-muted font-medium">
-                      {t('downloads.tab.normal.stats.efficiencyRate')}
-                    </span>
-                    <span className="text-base font-bold cache-hit">
-                      {hitPercent > 0 ? formatPercent(hitPercent) : t('downloads.tab.normal.stats.notAvailable')}
-                    </span>
-                  </div>
-                </div>
+                    <span>{t('downloads.tab.normal.store.label')}</span>
+                    <ExternalLink size={12} />
+                  </a>
+                )}
               </div>
 
-              {/* Activity Card */}
-              <div
-                className="rounded-xl border border-[var(--theme-border-primary)] p-4 sm:p-5 bg-[var(--theme-bg-secondary)]"
-              >
-                <h4
-                  className="text-base font-bold text-[var(--theme-text-primary)] mb-4 pb-2 border-b border-[var(--theme-border-secondary)]"
-                >
-                  Activity Timeline
-                </h4>
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-themed-muted font-medium">
-                      {t('downloads.tab.normal.stats.downloadSessions')}
-                    </span>
-                    <span className="text-sm font-bold text-[var(--theme-text-primary)]">
-                      {group.count}
-                    </span>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Efficiency & Savings */}
+                <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)]">
+                  <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
+                    Efficiency
+                  </h5>
+                  <div className="flex flex-col gap-4">
+                    <div className="flex items-baseline justify-between">
+                      <span className="text-sm text-[var(--theme-text-secondary)]">{t('downloads.tab.normal.stats.efficiencyRate')}</span>
+                      <span className={`text-xl font-bold ${hitPercent > 0 ? 'cache-hit' : 'text-[var(--theme-text-secondary)]'}`}>
+                        {hitPercent > 0 ? formatPercent(hitPercent) : '—'}
+                      </span>
+                    </div>
+                    <div className="w-full bg-[var(--theme-bg-primary)] rounded-full h-1.5 overflow-hidden">
+                      <div 
+                        className="h-full bg-[var(--theme-success)] transition-all duration-500"
+                        style={{ width: `${hitPercent}%` }}
+                      />
+                    </div>
+                    <div className="flex items-baseline justify-between pt-2 border-t border-[var(--theme-border-secondary)]">
+                      <span className="text-xs text-[var(--theme-text-muted)]">{t('downloads.tab.normal.stats.cacheSaved')}</span>
+                      <span className="text-sm font-bold text-[var(--theme-success-text)]">
+                         {group.cacheHitBytes > 0 ? formatBytes(group.cacheHitBytes) : '—'}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-themed-muted font-medium">
-                      {t('downloads.tab.normal.stats.uniqueClients')}
-                    </span>
-                    <span className="text-sm font-bold text-[var(--theme-text-primary)]">
-                      {group.clientsSet.size}
-                    </span>
+                </div>
+
+                {/* Data Volume */}
+                <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)]">
+                  <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
+                    Data Volume
+                  </h5>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[var(--theme-text-secondary)]">{t('downloads.tab.normal.stats.totalDownloaded')}</span>
+                      <span className="text-base font-bold text-[var(--theme-text-primary)]">{formatBytes(group.totalBytes)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[var(--theme-text-secondary)]">{t('downloads.tab.normal.stats.cacheMiss')}</span>
+                      <span className="text-sm font-medium text-[var(--theme-text-muted)]">{formatBytes(group.cacheMissBytes || 0)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[var(--theme-text-secondary)]">{t('downloads.tab.normal.stats.cacheHit')}</span>
+                      <span className="text-sm font-medium text-[var(--theme-success-text)]">{formatBytes(group.cacheHitBytes)}</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-themed-muted font-medium">
-                      {t('downloads.tab.normal.stats.firstSeen')}
-                    </span>
-                    <span className="text-sm font-semibold text-[var(--theme-text-secondary)]">
-                      {formatRelativeTime(group.firstSeen)}
-                    </span>
-                  </div>
-                  <div
-                    className="flex justify-between items-center pt-2 border-t border-[var(--theme-border-secondary)]"
-                  >
-                    <span className="text-sm text-themed-muted font-medium">
-                      {t('downloads.tab.normal.stats.lastActivity')}
-                    </span>
-                    <span className="text-sm font-bold text-[var(--theme-text-primary)]">
-                      {formatRelativeTime(group.lastSeen)}
-                    </span>
+                </div>
+
+                {/* Activity Summary */}
+                <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)]">
+                  <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
+                    Activity
+                  </h5>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[var(--theme-text-secondary)]">{t('downloads.tab.normal.stats.downloadSessions')}</span>
+                      <span className="text-base font-bold text-[var(--theme-text-primary)]">{group.count}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[var(--theme-text-secondary)]">{t('downloads.tab.normal.stats.uniqueClients')}</span>
+                      <span className="text-sm font-medium text-[var(--theme-text-primary)]">{group.clientsSet.size}</span>
+                    </div>
+                    <div className="flex items-center justify-between pt-2 border-t border-[var(--theme-border-secondary)]">
+                      <span className="text-xs text-[var(--theme-text-muted)]">{t('downloads.tab.normal.stats.lastActivity')}</span>
+                      <span className="text-xs font-medium text-[var(--theme-text-secondary)]">{formatRelativeTime(group.lastSeen)}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -587,27 +534,27 @@ const GroupCard: React.FC<GroupCardProps> = ({
                 };
 
                 return (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-base font-bold text-[var(--theme-text-primary)]">
+                  <div className="mt-2">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-sm font-bold text-[var(--theme-text-primary)] uppercase tracking-wider opacity-80">
                         {t('downloads.tab.normal.sessions.title')}
                       </h4>
-                      <span className="text-xs font-semibold bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] px-3 py-1.5 rounded-full">
-                        {t('downloads.tab.normal.sessions.count', { count: group.count })}
+                      <div className="flex items-center gap-3">
                         {excludedSessions > 0 && (
-                          <span className="ml-1 text-[10px] text-themed-muted">
+                          <span className="text-xs text-[var(--theme-text-muted)] italic">
                             {t('downloads.tab.normal.sessions.excluded', { count: excludedSessions })}
                           </span>
                         )}
-                        {totalPages > 1 &&
-                          ` • ${t('downloads.tab.normal.sessions.page', {
-                            current: currentPage,
-                            total: totalPages
-                          })}`}
-                      </span>
+                        {totalPages > 1 && (
+                          <span className="text-xs font-mono text-[var(--theme-text-muted)]">
+                            {currentPage} / {totalPages}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    {/* Group sessions by client IP - with min height to prevent layout shift */}
-                    <div className="min-h-[600px]">
+                    
+                    {/* Group sessions by client IP */}
+                    <div className="space-y-4">
                       {Object.entries(
                         paginatedDownloads.reduce(
                           (acc, d) => {
@@ -626,127 +573,98 @@ const GroupCard: React.FC<GroupCardProps> = ({
                           (sum, d) => sum + (d.cacheHitBytes || 0),
                           0
                         );
-                        const clientSessionCount = clientDownloads.length;
-
+                        
                         return (
-                          <div key={clientIp} className="space-y-2">
-                            {/* Client IP Header with totals */}
-                            <div className="flex items-center justify-between p-3 rounded-lg bg-[var(--theme-bg-tertiary)]/50">
+                          <div key={clientIp} className="rounded-lg border border-[var(--theme-border-secondary)] overflow-hidden">
+                            {/* Client Header */}
+                            <div className="bg-[var(--theme-bg-tertiary)] px-4 py-2 flex items-center justify-between border-b border-[var(--theme-border-secondary)]">
                               <div className="flex items-center gap-2">
                                 <ClientIpDisplay
                                   clientIp={clientIp}
-                                  className="font-mono text-sm font-bold text-[var(--theme-text-primary)]"
+                                  className="font-mono text-xs font-bold text-[var(--theme-text-primary)]"
                                 />
-                                <span className="text-xs text-themed-muted">
-                                  ({t('downloads.tab.normal.sessions.count', { count: clientSessionCount })})
+                                <span className="text-[10px] uppercase tracking-wide text-[var(--theme-text-muted)] font-semibold px-1.5 py-0.5 rounded bg-[var(--theme-bg-primary)]">
+                                  {clientDownloads.length} sessions
                                 </span>
                               </div>
-                              <div className="flex items-center gap-3">
-                                <span className="text-sm font-bold text-[var(--theme-text-primary)]">
-                                  {formatBytes(clientTotal)}
+                              <div className="flex items-center gap-3 text-xs">
+                                <span className="font-medium text-[var(--theme-text-secondary)]">
+                                  Total: <span className="text-[var(--theme-text-primary)] font-bold">{formatBytes(clientTotal)}</span>
                                 </span>
                                 {clientCacheHit > 0 && (
-                                  <span className="text-xs px-2 py-1 rounded-full bg-[var(--theme-success-bg)] text-[var(--theme-success-text)] font-semibold">
-                                    {formatPercent(
-                                      clientTotal > 0 ? (clientCacheHit / clientTotal) * 100 : 0
-                                    )}
+                                  <span className="font-medium text-[var(--theme-success-text)]">
+                                    Saved: <span className="font-bold">{formatBytes(clientCacheHit)}</span>
                                   </span>
                                 )}
                               </div>
                             </div>
-                            {/* Individual sessions for this client */}
-                            {clientDownloads.map((download) => {
-                              const totalBytes = download.totalBytes || 0;
-                              const cachePercent =
-                                totalBytes > 0
-                                  ? ((download.cacheHitBytes || 0) / totalBytes) * 100
-                                  : 0;
-                              const associations = getAssociations(download.id);
+                            
+                            {/* Sessions Table-like list */}
+                            <div className="divide-y divide-[var(--theme-border-secondary)]">
+                              {clientDownloads.map((download) => {
+                                const totalBytes = download.totalBytes || 0;
+                                const cachePercent =
+                                  totalBytes > 0
+                                    ? ((download.cacheHitBytes || 0) / totalBytes) * 100
+                                    : 0;
+                                const associations = getAssociations(download.id);
 
-                              return (
-                                <div
-                                  key={download.id}
-                                  className="rounded-lg border border-[var(--theme-border-secondary)] p-4 hover:bg-[var(--theme-bg-tertiary)]/30 transition-all duration-200 ml-4"
-                                >
-                                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-center">
-                                    {/* Time Info */}
-                                    <div>
-                                      <div className="text-xs text-themed-muted mb-1 font-medium">
-                                        {t('downloads.tab.normal.timeline.title')}
-                                      </div>
-                                      <div className="flex flex-col gap-1 text-xs">
-                                        <span className="flex items-center gap-1.5 text-[var(--theme-text-secondary)]">
-                                          <Clock size={12} />
-                                          {t('downloads.tab.normal.timeline.started', {
-                                            time: formatRelativeTime(download.startTimeUtc)
-                                          })}
-                                        </span>
-                                        {download.endTimeUtc ? (
-                                          <span className="flex items-center gap-1.5 text-[var(--theme-success-text)]">
-                                            <CheckCircle size={12} />
-                                            {t('downloads.tab.normal.timeline.completed', {
-                                              time: formatRelativeTime(download.endTimeUtc)
-                                            })}
+                                return (
+                                  <div
+                                    key={download.id}
+                                    className="px-4 py-3 hover:bg-[var(--theme-bg-tertiary)] transition-colors"
+                                  >
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                      {/* Time & Events */}
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2 mb-1">
+                                          {download.endTimeUtc ? (
+                                            <CheckCircle size={14} className="text-[var(--theme-success-text)]" />
+                                          ) : (
+                                            <AlertCircle size={14} className="text-[var(--theme-info-text)]" />
+                                          )}
+                                          <span className="text-sm text-[var(--theme-text-primary)]">
+                                            {formatRelativeTime(download.startTimeUtc)}
                                           </span>
-                                        ) : (
-                                          <span className="flex items-center gap-1.5 text-[var(--theme-info-text)]">
-                                            <AlertCircle size={12} />
-                                            {t('downloads.tab.normal.timeline.inProgress')}
-                                          </span>
-                                        )}
-                                        {download.depotId && (
-                                          <span className="flex items-center gap-1.5 text-[var(--theme-text-muted)] font-mono">
-                                            {t('downloads.tab.normal.timeline.depot', { depotId: download.depotId })}
-                                          </span>
+                                          {download.depotId && (
+                                            <span className="text-xs font-mono text-[var(--theme-text-muted)] bg-[var(--theme-bg-tertiary)] px-1.5 rounded">
+                                              {download.depotId}
+                                            </span>
+                                          )}
+                                        </div>
+                                        {associations.events.length > 0 && (
+                                          <div className="mt-1">
+                                            <DownloadBadges
+                                              events={associations.events}
+                                              maxVisible={3}
+                                              size="sm"
+                                            />
+                                          </div>
                                         )}
                                       </div>
-                                    </div>
 
-                                    {/* Size & Cache */}
-                                    <div className="flex items-center justify-between lg:justify-end gap-4">
-                                      <div>
-                                        <div className="text-xs text-themed-muted mb-1 font-medium">
-                                          {t('downloads.tab.normal.size')}
+                                      {/* Stats */}
+                                      <div className="flex items-center gap-4 sm:gap-6 text-sm">
+                                        <div className="flex flex-col items-end">
+                                          <span className="text-[10px] uppercase text-[var(--theme-text-muted)] font-semibold">Size</span>
+                                          <span className="font-medium text-[var(--theme-text-primary)]">{formatBytes(totalBytes)}</span>
                                         </div>
-                                        <span className="text-base font-bold text-[var(--theme-text-primary)]">
-                                          {formatBytes(totalBytes)}
-                                        </span>
+                                        <div className="flex flex-col items-end w-20">
+                                          <span className="text-[10px] uppercase text-[var(--theme-text-muted)] font-semibold">Cache</span>
+                                          {download.cacheHitBytes > 0 ? (
+                                            <div className="flex items-center gap-1.5">
+                                              <span className="font-bold text-[var(--theme-success-text)]">{formatPercent(cachePercent)}</span>
+                                            </div>
+                                          ) : (
+                                            <span className="text-[var(--theme-text-muted)]">—</span>
+                                          )}
+                                        </div>
                                       </div>
-                                      {download.cacheHitBytes > 0 ? (
-                                        <div className="text-center">
-                                          <div className="text-xs text-themed-muted mb-1 font-medium">
-                                            {t('downloads.tab.normal.cache')}
-                                          </div>
-                                          <span className="cache-hit font-bold text-sm px-3 py-1.5 rounded-full bg-[var(--theme-success-bg)] inline-block">
-                                            {formatPercent(cachePercent)}
-                                          </span>
-                                        </div>
-                                      ) : (
-                                        <div className="text-center">
-                                          <div className="text-xs text-themed-muted mb-1 font-medium">
-                                            {t('downloads.tab.normal.cache')}
-                                          </div>
-                                          <span className="text-xs px-3 py-1.5 rounded-full bg-[var(--theme-bg-tertiary)] text-themed-muted inline-block font-medium">
-                                            {t('downloads.tab.normal.noHits')}
-                                          </span>
-                                        </div>
-                                      )}
                                     </div>
                                   </div>
-
-                                  {/* Events Section */}
-                                  {associations.events.length > 0 && (
-                                    <div className="mt-3 pt-3 border-t border-[var(--theme-border-secondary)] flex items-center gap-2">
-                                      <DownloadBadges
-                                        events={associations.events}
-                                        maxVisible={5}
-                                        size="sm"
-                                      />
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
+                                );
+                              })}
+                            </div>
                           </div>
                         );
                       })}
@@ -754,9 +672,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
 
                     {/* Pagination Controls */}
                     {totalPages > 1 && (
-                      <div
-                        className="flex items-center justify-center gap-2 pt-3 border-t border-[var(--theme-border-secondary)]"
-                      >
+                      <div className="flex items-center justify-center gap-2 mt-4 pt-2">
                         <Tooltip content={t('downloads.tab.normal.pagination.previous')}>
                           <button
                             onClick={() => handlePageChange(currentPage - 1)}
@@ -765,16 +681,14 @@ const GroupCard: React.FC<GroupCardProps> = ({
                             onPointerCancel={handlePointerHoldEnd}
                             onLostPointerCapture={stopHoldTimer}
                             disabled={currentPage === 1}
-                            className="p-1.5 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--theme-bg-tertiary)]/80 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)]"
+                            className="p-1.5 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)]"
                           >
-                            <ChevronLeft size={14} />
+                            <ChevronLeft size={16} />
                           </button>
                         </Tooltip>
 
-                        <span
-                          className="text-xs text-[var(--theme-text-secondary)] font-medium font-mono px-2 min-w-[50px] text-center"
-                        >
-                          {currentPage} / {totalPages}
+                        <span className="text-xs text-[var(--theme-text-secondary)] font-medium font-mono px-2">
+                          {currentPage} of {totalPages}
                         </span>
 
                         <Tooltip content={t('downloads.tab.normal.pagination.next')}>
@@ -785,9 +699,9 @@ const GroupCard: React.FC<GroupCardProps> = ({
                             onPointerCancel={handlePointerHoldEnd}
                             onLostPointerCapture={stopHoldTimer}
                             disabled={currentPage === totalPages}
-                            className="p-1.5 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--theme-bg-tertiary)]/80 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)]"
+                            className="p-1.5 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)]"
                           >
-                            <ChevronRight size={14} />
+                            <ChevronRight size={16} />
                           </button>
                         </Tooltip>
                       </div>
