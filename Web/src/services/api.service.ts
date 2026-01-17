@@ -209,7 +209,8 @@ class ApiService {
     count: number | 'unlimited' = 'unlimited',
     startTime?: number,
     endTime?: number,
-    eventIds?: number[]
+    eventIds?: number[],
+    cacheBust?: number
   ): Promise<Download[]> {
     try {
       const actualCount = count === 'unlimited' ? 2147483647 : count;
@@ -219,6 +220,9 @@ class ApiService {
       // Pass event ID for filtering (backend expects single eventId parameter)
       if (eventIds && eventIds.length > 0) {
         url += `&eventId=${eventIds[0]}`;
+      }
+      if (cacheBust) {
+        url += `&cacheBust=${cacheBust}`;
       }
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<Download[]>(res);

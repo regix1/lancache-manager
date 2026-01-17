@@ -147,7 +147,8 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
         'unlimited',
         startTime,
         endTime,
-        eventIds
+        eventIds,
+        forceRefresh ? Date.now() : undefined
       );
 
       clearTimeout(timeoutId);
@@ -206,7 +207,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   }, []);
 
   const refreshDownloads = useCallback(async () => {
-    await fetchDownloads({ showLoading: true });
+    await fetchDownloads({ showLoading: true, forceRefresh: true });
   }, [fetchDownloads]);
 
   // ============================================
