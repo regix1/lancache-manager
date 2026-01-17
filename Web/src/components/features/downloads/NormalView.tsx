@@ -124,7 +124,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const placeholderBaseClasses = 'min-h-[130px] sm:min-h-[130px]';
   const placeholderIconSize = fullHeightBanners ? 80 : 72;
   const bannerWrapperClasses = fullHeightBanners
-    ? 'w-full h-[130px] sm:w-[280px] sm:h-[130px]'
+    ? 'w-full h-[130px] sm:w-[280px] sm:h-full'
     : 'w-full h-[130px] sm:w-[280px] sm:h-[130px] sm:self-start';
 
   React.useEffect(() => {
@@ -228,7 +228,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
       className={`flex flex-col ${fullHeightBanners ? 'sm:flex-row sm:items-stretch' : 'sm:flex-row'}`}
     >
       {bannerContent && (
-        <div className={`flex-shrink-0 overflow-hidden ${bannerWrapperClasses}`}>
+        <div className={`flex-shrink-0 overflow-hidden ${bannerWrapperClasses} sm:border-r sm:border-[var(--theme-border-secondary)]`}>
           {bannerContent}
         </div>
       )}
