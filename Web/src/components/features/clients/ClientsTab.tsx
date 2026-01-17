@@ -222,7 +222,7 @@ const ClientsTab: React.FC = () => {
   }, [clientStats, sortBy, sortDirection]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fadeIn">
       <h2 className="text-xl sm:text-2xl font-bold text-themed-primary tracking-tight hidden md:block">
         {t('clients.title')}
       </h2>

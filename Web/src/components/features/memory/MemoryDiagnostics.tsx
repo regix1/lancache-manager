@@ -77,7 +77,7 @@ const MemoryDiagnostics: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen p-6 bg-themed-primary">
+    <div className="min-h-screen p-6 bg-themed-primary animate-fadeIn">
       <h1 className="text-3xl font-bold mb-6 pb-3 border-b-2 text-themed-primary border-themed">
         {t('memory.title')}
       </h1>

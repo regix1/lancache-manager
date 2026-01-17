@@ -312,7 +312,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
   };
 
   return (
-    <div className="management-tab-container">
+    <div className="management-tab-container animate-fadeIn">
       {/* Navigation Tabs */}
       <ManagementNav
         activeSection={activeSection}
