@@ -101,7 +101,14 @@ public class DownloadsController : ControllerBase
                     }
 
                     // Fix timezone: Ensure UTC DateTime values are marked as UTC for proper JSON serialization
-                    foreach (var download in downloads)
+                if (excludedClientIps.Count > 0)
+                {
+                    downloads = downloads
+                        .Where(d => !excludedClientIps.Contains(d.ClientIp))
+                        .ToList();
+                }
+
+                foreach (var download in downloads)
                     {
                         download.StartTimeUtc = download.StartTimeUtc.AsUtc();
                             if (download.EndTimeUtc != default(DateTime))
