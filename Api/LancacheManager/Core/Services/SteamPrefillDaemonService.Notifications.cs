@@ -116,11 +116,8 @@ public partial class SteamPrefillDaemonService
 
     private async Task NotifyAuthStateChangeAsync(DaemonSession session)
     {
-        _logger.LogInformation("NotifyAuthStateChangeAsync: Sending AuthStateChanged ({State}) to {Count} connections for session {SessionId}",
-            session.AuthState, session.SubscribedConnections.Count, session.Id);
         foreach (var connectionId in session.SubscribedConnections.ToList())
         {
-            _logger.LogDebug("NotifyAuthStateChangeAsync: Sending to connection {ConnectionId}", connectionId);
             try
             {
                 await _hubContext.Clients.Client(connectionId)
@@ -153,11 +150,8 @@ public partial class SteamPrefillDaemonService
 
     private async Task NotifyStatusChangeAsync(DaemonSession session, DaemonStatus status)
     {
-        _logger.LogInformation("NotifyStatusChangeAsync: Sending StatusChanged ({Status}) to {Count} connections for session {SessionId}",
-            status.Status, session.SubscribedConnections.Count, session.Id);
         foreach (var connectionId in session.SubscribedConnections.ToList())
         {
-            _logger.LogDebug("NotifyStatusChangeAsync: Sending to connection {ConnectionId}", connectionId);
             try
             {
                 await _hubContext.Clients.Client(connectionId)

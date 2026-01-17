@@ -139,7 +139,6 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
   const connectToHub = useCallback(async (): Promise<HubConnection | null> => {
     // Serialize concurrent connection attempts - only one connection should be created
     if (connectInFlightRef.current) {
-      console.log('[usePrefillSignalR] connectToHub: waiting for in-flight connection');
       return await connectInFlightRef.current;
     }
 
@@ -152,13 +151,11 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
 
       // Reuse existing connection if already connected
       if (hubConnection.current?.state === 'Connected') {
-        console.log('[usePrefillSignalR] connectToHub: reusing existing connected connection');
         return hubConnection.current;
       }
 
       // Stop any existing connection before creating a new one
       if (hubConnection.current) {
-        console.log('[usePrefillSignalR] connectToHub: stopping old connection');
         try {
           await hubConnection.current.stop();
         } catch {
@@ -167,7 +164,6 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         hubConnection.current = null;
       }
 
-      console.log('[usePrefillSignalR] connectToHub: creating NEW connection');
       setIsConnecting(true);
       setError(null);
 
@@ -197,9 +193,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
       });
 
       // Handle auth state changes from backend
-      console.log('[usePrefillSignalR] Registering AuthStateChanged handler on connection');
       connection.on('AuthStateChanged', (_sessionId: string, newState: SteamAuthState) => {
-        console.log('[usePrefillSignalR] AuthStateChanged received:', newState);
         onAuthStateChanged(newState);
       });
 
@@ -346,9 +340,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
       });
 
       // Handle status changes
-      console.log('[usePrefillSignalR] Registering StatusChanged handler on connection');
       connection.on('StatusChanged', (_sessionId: string, status: { status: string; message: string }) => {
-        console.log('[usePrefillSignalR] StatusChanged received:', status);
         if (status.message) {
           addLog('info', t('prefill.log.statusMessage', { message: status.message }));
         }
@@ -489,7 +481,6 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
       });
 
       await connection.start();
-      console.log('[usePrefillSignalR] Connection started successfully, connectionId:', connection.connectionId);
       hubConnection.current = connection;
       setIsConnecting(false);
       return connection;

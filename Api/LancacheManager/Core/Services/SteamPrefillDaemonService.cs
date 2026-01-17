@@ -1181,9 +1181,7 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
     {
         if (_sessions.TryGetValue(sessionId, out var session))
         {
-            var wasAdded = session.SubscribedConnections.Add(connectionId);
-            _logger.LogInformation("AddSubscriber: Connection {ConnectionId} {Action} to session {SessionId}. Total subscribers: {Count}",
-                connectionId, wasAdded ? "added" : "already existed", sessionId, session.SubscribedConnections.Count);
+            session.SubscribedConnections.Add(connectionId);
         }
     }
 
