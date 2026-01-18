@@ -6,6 +6,7 @@ using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Core.Interfaces.Repositories;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Controllers;
@@ -218,6 +219,7 @@ public class SessionsController : ControllerBase
     /// RESTful: POST is proper method for creating resources
     /// </summary>
     [HttpPost]
+    [EnableRateLimiting("auth")]
     public async Task<IActionResult> CreateSession([FromQuery] string? type, [FromBody] CreateSessionRequest request)
     {
         // Block session creation during database reset operations
