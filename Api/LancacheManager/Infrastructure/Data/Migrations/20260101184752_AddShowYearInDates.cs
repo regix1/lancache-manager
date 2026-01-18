@@ -10,10 +10,15 @@ namespace LancacheManager.Infrastructure.Data.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            // Column is added by DatabaseSchemaFixer before migrations run.
-            // This migration is now a no-op to prevent duplicate column errors.
-            // SQLite doesn't support "ADD COLUMN IF NOT EXISTS" so we handle it
-            // in the pre-migration fixer which can properly check existence.
+            // Add the ShowYearInDates column to UserPreferences
+            // Note: DatabaseSchemaFixer.ApplyPostMigrationFixesAsync() will handle existing databases
+            // that already ran this migration when it was a no-op
+            migrationBuilder.AddColumn<bool>(
+                name: "ShowYearInDates",
+                table: "UserPreferences",
+                type: "INTEGER",
+                nullable: false,
+                defaultValue: false);
         }
 
         /// <inheritdoc />

@@ -476,13 +476,14 @@ using (var scope = app.Services.CreateScope())
     {
         logger.LogInformation("Checking database migrations...");
 
-        // Fix schema issues before migrations (SQLite doesn't support ADD COLUMN IF NOT EXISTS)
-        await LancacheManager.Infrastructure.Data.DatabaseSchemaFixer.ApplyPreMigrationFixesAsync(dbContext, logger);
-
         // This will create the database if it doesn't exist and apply all pending migrations
         await dbContext.Database.MigrateAsync();
 
         logger.LogInformation("Database migrations applied successfully");
+
+        // Fix schema issues for existing databases that ran older no-op migrations
+        // (SQLite doesn't support ADD COLUMN IF NOT EXISTS, so we check and add if missing)
+        await LancacheManager.Infrastructure.Data.DatabaseSchemaFixer.ApplyPostMigrationFixesAsync(dbContext, logger);
 
         // Verify connection
         var canConnect = await dbContext.Database.CanConnectAsync();

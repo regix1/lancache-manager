@@ -10,23 +10,29 @@ namespace LancacheManager.Infrastructure.Data;
 public static class DatabaseSchemaFixer
 {
     /// <summary>
-    /// Applies schema fixes before migrations run.
-    /// Call this before DbContext.Database.MigrateAsync().
+    /// Applies schema fixes AFTER migrations run.
+    /// This handles existing databases that ran older versions of migrations (e.g., no-op migrations).
+    /// Call this AFTER DbContext.Database.MigrateAsync().
     /// </summary>
-    public static async Task ApplyPreMigrationFixesAsync(DbContext dbContext, ILogger logger)
+    public static async Task ApplyPostMigrationFixesAsync(DbContext dbContext, ILogger logger)
     {
         var connection = dbContext.Database.GetDbConnection();
-        await connection.OpenAsync();
+        
+        // Connection should already be open from migrations, but ensure it is
+        if (connection.State != System.Data.ConnectionState.Open)
+        {
+            await connection.OpenAsync();
+        }
 
         try
         {
-            // Fix: Empty AddShowYearInDates migration (20260101184752)
+            // Fix: ShowYearInDates column may be missing if database ran the old no-op migration
+            // For fresh installs, the migration now properly adds it
             await AddColumnIfNotExistsAsync(connection, "UserPreferences", "ShowYearInDates", "INTEGER NOT NULL DEFAULT 0", logger);
         }
         catch (Exception ex)
         {
-            // Table might not exist yet (fresh install) - migrations will create it
-            logger.LogDebug(ex, "Pre-migration schema check skipped (table may not exist yet)");
+            logger.LogWarning(ex, "Post-migration schema fix failed - this may cause issues");
         }
     }
 
