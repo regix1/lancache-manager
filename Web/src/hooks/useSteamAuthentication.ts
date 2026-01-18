@@ -123,9 +123,9 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
     }
 
     try {
-      const response = await fetch('/api/steam-auth/login', {
+      const response = await fetch('/api/steam-auth/login', ApiService.getFetchOptions({
         method: 'POST',
-        headers: ApiService.getHeaders({ 'Content-Type': 'application/json' }),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           username,
           password,
@@ -136,7 +136,7 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
           autoStartPicsRebuild: autoStartPics
         }),
         signal: controller.signal
-      });
+      }));
 
       let result;
       try {

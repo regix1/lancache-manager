@@ -58,11 +58,17 @@ builder.Services.AddSession(options =>
     options.Cookie.HttpOnly = true; // Prevent JavaScript access (XSS protection)
     // Option A: cookie-based auth for images/guests. Requires HTTPS when cross-site.
     // SameSite=None allows cookies to be sent with image requests across origins.
-    options.Cookie.SecurePolicy = CookieSecurePolicy.Always; // Required for SameSite=None
+    options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
     options.Cookie.SameSite = SameSiteMode.None;
     options.Cookie.Name = "LancacheManager.Session"; // Custom cookie name
     options.Cookie.IsEssential = true; // Required for GDPR compliance
     options.Cookie.MaxAge = TimeSpan.FromDays(30); // Cookie persists for 30 days (survives browser restarts)
+});
+builder.Services.Configure<CookiePolicyOptions>(options =>
+{
+    options.MinimumSameSitePolicy = SameSiteMode.Unspecified;
+    options.OnAppendCookie = context => AdjustSameSite(context.Context, context.CookieOptions);
+    options.OnDeleteCookie = context => AdjustSameSite(context.Context, context.CookieOptions);
 });
 builder.Services.AddSwaggerGen(c =>
 {
@@ -541,6 +547,8 @@ app.UseRouting();
 // Rate limiting - must be after routing to access endpoint metadata
 app.UseRateLimiter();
 
+app.UseCookiePolicy();
+
 // Enable session middleware (must be before authentication middleware)
 app.UseSession();
 
@@ -647,6 +655,14 @@ _ = Task.Run(async () =>
 });
 
 app.Run();
+
+static void AdjustSameSite(HttpContext context, CookieOptions options)
+{
+    if (options.SameSite == SameSiteMode.None && !context.Request.IsHttps)
+    {
+        options.SameSite = SameSiteMode.Lax;
+    }
+}
 
 // Helper function to find project root for Data Protection setup (before DI is available)
 static string FindProjectRootForDataProtection()

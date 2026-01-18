@@ -45,9 +45,7 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
 
   const fetchSteamAuth = async () => {
     try {
-      const response = await fetch('/api/steam-auth/status', {
-        headers: ApiService.getHeaders()
-      });
+      const response = await fetch('/api/steam-auth/status', ApiService.getFetchOptions());
       if (response.ok) {
         const authState: SteamAuthenticationState = await response.json();
         setSteamAuthMode(authState.mode);

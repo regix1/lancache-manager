@@ -15,7 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
 import themeService from '@services/theme.service';
-import authService from '@services/auth.service';
+import ApiService from '@services/api.service';
 import { API_BASE } from '@utils/constants';
 
 interface ColorPreview {
@@ -212,11 +212,10 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch(`${API_BASE}/themes/upload`, {
+      const response = await fetch(`${API_BASE}/themes/upload`, ApiService.getFetchOptions({
         method: 'POST',
-        headers: authService.getAuthHeaders(),
         body: formData
-      });
+      }));
 
       if (!response.ok) {
         const error = await response.json();
@@ -319,11 +318,10 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch(`${API_BASE}/themes/upload`, {
+      const response = await fetch(`${API_BASE}/themes/upload`, ApiService.getFetchOptions({
         method: 'POST',
-        headers: authService.getAuthHeaders(),
         body: formData
-      });
+      }));
 
       if (!response.ok) {
         const error = await response.json();

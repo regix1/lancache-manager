@@ -56,14 +56,13 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
 
     try {
       // Save anonymous mode to backend
-      const response = await fetch('/api/steam-auth/mode', {
+      const response = await fetch('/api/steam-auth/mode', ApiService.getFetchOptions({
         method: 'PUT',
         headers: {
-          ...ApiService.getHeaders(),
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ mode: 'anonymous' })
-      });
+      }));
 
       if (response.ok) {
         onComplete(false);

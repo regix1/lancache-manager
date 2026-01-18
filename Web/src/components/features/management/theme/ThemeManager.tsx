@@ -19,6 +19,7 @@ import { useTranslation } from 'react-i18next';
 import themeService from '@services/theme.service';
 import preferencesService from '@services/preferences.service';
 import authService from '@services/auth.service';
+import ApiService from '@services/api.service';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -243,11 +244,10 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch(`${API_BASE}/themes/upload`, {
+      const response = await fetch(`${API_BASE}/themes/upload`, ApiService.getFetchOptions({
         method: 'POST',
-        headers: authService.getAuthHeaders(),
         body: formData
-      });
+      }));
 
       if (!response.ok) throw new Error('Failed to update theme');
 
@@ -316,11 +316,10 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch(`${API_BASE}/themes/upload`, {
+      const response = await fetch(`${API_BASE}/themes/upload`, ApiService.getFetchOptions({
         method: 'POST',
-        headers: authService.getAuthHeaders(),
         body: formData
-      });
+      }));
 
       if (!response.ok) throw new Error('Failed to create theme');
 
@@ -350,10 +349,9 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/themes/${themePendingDeletion.id}`, {
-        method: 'DELETE',
-        headers: authService.getAuthHeaders()
-      });
+      const response = await fetch(`${API_BASE}/themes/${themePendingDeletion.id}`, ApiService.getFetchOptions({
+        method: 'DELETE'
+      }));
 
       // Handle 404 gracefully - theme might already be deleted
       if (!response.ok && response.status !== 404) {
@@ -395,10 +393,9 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       const customThemes = themes.filter((t) => !isSystemTheme(t.meta.id));
 
       for (const theme of customThemes) {
-        await fetch(`${API_BASE}/themes/${theme.meta.id}`, {
-          method: 'DELETE',
-          headers: authService.getAuthHeaders()
-        });
+        await fetch(`${API_BASE}/themes/${theme.meta.id}`, ApiService.getFetchOptions({
+          method: 'DELETE'
+        }));
       }
 
       await themeService.setTheme('dark-default');
@@ -462,11 +459,10 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch(`${API_BASE}/themes/upload`, {
+      const response = await fetch(`${API_BASE}/themes/upload`, ApiService.getFetchOptions({
         method: 'POST',
-        headers: authService.getAuthHeaders(),
         body: formData
-      });
+      }));
 
       if (!response.ok) {
         const error = await response.json();

@@ -38,9 +38,7 @@ export const useDefaultGuestPreferences = () => {
 
   const loadPreferences = useCallback(async () => {
     try {
-      const response = await fetch('/api/system/default-guest-preferences', {
-        headers: ApiService.getHeaders()
-      });
+      const response = await fetch('/api/system/default-guest-preferences', ApiService.getFetchOptions());
       if (response.ok) {
         const data = await response.json();
         cachedPrefs = {

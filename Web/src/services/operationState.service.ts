@@ -48,6 +48,7 @@ class OperationStateService {
       try {
         const response = await this.fetchWithRetry(`${API_URL}/api/operation-state`, {
           method: 'POST',
+          credentials: 'include',
           headers: {
             'Content-Type': 'application/json',
             ...authService.getAuthHeaders()

@@ -91,10 +91,9 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
 
     setLoading(true);
     try {
-      const response = await fetch('/api/steam-auth', {
-        method: 'DELETE',
-        headers: ApiService.getHeaders()
-      });
+      const response = await fetch('/api/steam-auth', ApiService.getFetchOptions({
+        method: 'DELETE'
+      }));
 
       if (response.ok) {
         // Update context directly - no need to refresh from backend

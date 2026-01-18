@@ -21,10 +21,9 @@ const BulkActions: React.FC<BulkActionsProps> = ({ onSessionsChange }) => {
   const handleBulkResetToDefaults = async () => {
     try {
       setBulkActionInProgress('reset');
-      const response = await fetch('/api/sessions/bulk/reset-to-defaults', {
-        method: 'POST',
-        headers: ApiService.getHeaders()
-      });
+      const response = await fetch('/api/sessions/bulk/reset-to-defaults', ApiService.getFetchOptions({
+        method: 'POST'
+      }));
 
       if (response.ok) {
         const data = await response.json();
@@ -44,10 +43,9 @@ const BulkActions: React.FC<BulkActionsProps> = ({ onSessionsChange }) => {
   const handleClearAllGuests = async () => {
     try {
       setBulkActionInProgress('clear');
-      const response = await fetch('/api/sessions/bulk/clear-guests', {
-        method: 'DELETE',
-        headers: ApiService.getHeaders()
-      });
+      const response = await fetch('/api/sessions/bulk/clear-guests', ApiService.getFetchOptions({
+        method: 'DELETE'
+      }));
 
       if (response.ok) {
         const data = await response.json();

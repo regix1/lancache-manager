@@ -36,14 +36,13 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
     setTestResult(null);
 
     try {
-      const response = await fetch('/api/steam-api-keys/test', {
+      const response = await fetch('/api/steam-api-keys/test', ApiService.getFetchOptions({
         method: 'POST',
         headers: {
-          ...ApiService.getHeaders(),
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ apiKey: apiKey.trim() })
-      });
+      }));
 
       const data = await response.json();
 
@@ -77,14 +76,13 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
     setSaving(true);
 
     try {
-      const response = await fetch('/api/steam-api-keys', {
+      const response = await fetch('/api/steam-api-keys', ApiService.getFetchOptions({
         method: 'POST',
         headers: {
-          ...ApiService.getHeaders(),
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ apiKey: apiKey.trim() })
-      });
+      }));
 
       const data = await response.json();
 

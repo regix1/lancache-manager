@@ -6,6 +6,7 @@ import { Button } from '@components/ui/Button';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
+import ApiService from '@services/api.service';
 
 const GrafanaEndpoints: React.FC = () => {
   const { t } = useTranslation();
@@ -36,8 +37,8 @@ const GrafanaEndpoints: React.FC = () => {
     const loadStatus = async () => {
       try {
         const [securityRes, intervalRes] = await Promise.all([
-          fetch('/api/metrics/security'),
-          fetch('/api/metrics/interval')
+          fetch('/api/metrics/security', ApiService.getFetchOptions()),
+          fetch('/api/metrics/interval', ApiService.getFetchOptions())
         ]);
         if (securityRes.ok) {
           const securityData = await securityRes.json();
@@ -57,11 +58,11 @@ const GrafanaEndpoints: React.FC = () => {
   const handleDataRefreshChange = async (value: string) => {
     setDataRefreshRate(value);
     try {
-      await fetch('/api/metrics/interval', {
+      await fetch('/api/metrics/interval', ApiService.getFetchOptions({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ interval: parseInt(value, 10) })
-      });
+      }));
     } catch (error) {
       console.error('Failed to update data refresh rate:', error);
     }
@@ -77,11 +78,11 @@ const GrafanaEndpoints: React.FC = () => {
     const newValue = value ? value === 'secured' : !metricsSecured;
     setMetricsSecured(newValue); // Optimistic update
     try {
-      const response = await fetch('/api/metrics/security', {
+      const response = await fetch('/api/metrics/security', ApiService.getFetchOptions({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: newValue })
-      });
+      }));
       if (response.ok) {
         const data = await response.json();
         setMetricsSecured(data.requiresAuthentication);

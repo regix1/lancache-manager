@@ -183,9 +183,7 @@ const AppContent: React.FC = () => {
 
     const checkCachedViabilityState = async () => {
       try {
-        const response = await fetch('/api/system/state', {
-          headers: ApiService.getHeaders()
-        });
+        const response = await fetch('/api/system/state', ApiService.getFetchOptions());
         if (response.ok) {
           const state = await response.json();
 
@@ -409,9 +407,7 @@ const AppContent: React.FC = () => {
     const checkDepotStatus = async () => {
       try {
         setCheckingDepotStatus(true);
-        const response = await fetch('/api/depots/status', {
-          headers: ApiService.getHeaders()
-        });
+        const response = await fetch('/api/depots/status', ApiService.getFetchOptions());
         if (response.ok) {
           const data = await response.json();
           const hasData =
@@ -451,9 +447,7 @@ const AppContent: React.FC = () => {
 
     // Double-check that depot is actually initialized before updating state
     try {
-      const response = await fetch('/api/depots/status', {
-        headers: ApiService.getHeaders()
-      });
+      const response = await fetch('/api/depots/status', ApiService.getFetchOptions());
       if (response.ok) {
         const data = await response.json();
         const hasData =

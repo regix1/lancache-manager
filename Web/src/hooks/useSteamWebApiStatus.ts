@@ -26,9 +26,10 @@ export const useSteamWebApiStatus = () => {
       }
       setError(null);
 
-      const response = await fetch(`/api/steam-api-keys/status?forceRefresh=${forceRefresh}`, {
-        headers: ApiService.getHeaders()
-      });
+      const response = await fetch(
+        `/api/steam-api-keys/status?forceRefresh=${forceRefresh}`,
+        ApiService.getFetchOptions()
+      );
 
       if (!response.ok) {
         throw new Error('Failed to fetch Steam Web API status');

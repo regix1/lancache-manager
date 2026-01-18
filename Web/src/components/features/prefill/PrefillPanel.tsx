@@ -202,6 +202,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
       const response = await fetch(`${API_BASE}/prefill-daemon/sessions/${sessionId}/prefill`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
           ...authService.getAuthHeaders()
@@ -244,7 +245,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         // Fetch owned games via direct API call
         const gamesResponse = await fetch(
           `${API_BASE}/prefill-daemon/sessions/${signalR.session.id}/games`,
-          { headers: authService.getAuthHeaders() }
+          { credentials: 'include', headers: authService.getAuthHeaders() }
         );
         if (!gamesResponse.ok) {
           throw new Error(`Failed to get games: HTTP ${gamesResponse.status}`);
@@ -451,6 +452,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           `${API_BASE}/prefill-daemon/sessions/${signalR.session.id}/selected-apps`,
           {
             method: 'POST',
+            credentials: 'include',
             headers: {
               'Content-Type': 'application/json',
               ...authService.getAuthHeaders()

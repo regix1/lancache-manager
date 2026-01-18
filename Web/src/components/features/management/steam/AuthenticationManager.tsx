@@ -249,15 +249,13 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
       // First, clear ALL Steam auth (PICS login AND Web API key)
       try {
         // Clear Steam PICS authentication
-        await fetch('/api/steam-auth', {
-          method: 'DELETE',
-          headers: ApiService.getHeaders()
-        });
+        await fetch('/api/steam-auth', ApiService.getFetchOptions({
+          method: 'DELETE'
+        }));
         // Clear Steam Web API key
-        await fetch('/api/steam-api-keys/current', {
-          method: 'DELETE',
-          headers: ApiService.getHeaders()
-        });
+        await fetch('/api/steam-api-keys/current', ApiService.getFetchOptions({
+          method: 'DELETE'
+        }));
         // Update frontend state immediately
         setSteamAuthMode('anonymous');
         setUsername('');

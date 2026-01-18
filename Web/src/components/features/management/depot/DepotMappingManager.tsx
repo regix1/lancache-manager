@@ -227,20 +227,20 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       autoSwitchAttemptedRef.current = true;
 
       // Call API to switch to GitHub mode
-      fetch('/api/depots/rebuild/config/mode', {
+      fetch('/api/depots/rebuild/config/mode', ApiService.getFetchOptions({
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify('github')
-      })
+      }))
         .then((response) => {
           if (response.ok) {
             console.log('[DepotMapping] Successfully set scan mode to GitHub');
             // Also set interval to 30 minutes (0.5 hours) for GitHub mode
-            return fetch('/api/depots/rebuild/config/interval', {
+            return fetch('/api/depots/rebuild/config/interval', ApiService.getFetchOptions({
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(0.5)
-            });
+            }));
           } else if (response.status === 401) {
             console.warn('[DepotMapping] Not authorized to switch scan mode - skipping auto-switch');
             // Reset flag so it can be retried when user authenticates
@@ -543,10 +543,9 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       const useIncrementalScan = depotSource === 'incremental';
       if (hasJsonFile && !hasDatabaseMappings && useIncrementalScan) {
         // console.log('[DepotMapping] Importing JSON file to database before incremental scan');
-        await fetch('/api/depots/import?source=local', {
-          method: 'POST',
-          headers: ApiService.getHeaders()
-        });
+        await fetch('/api/depots/import?source=local', ApiService.getFetchOptions({
+          method: 'POST'
+        }));
         onSuccess?.(
           'Imported depot mappings to database - depot count will update after scan completes'
         );
@@ -826,14 +825,11 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                     onChange={async (value) => {
                       const newInterval = Number(value);
                       try {
-                        await fetch('/api/depots/rebuild/config/interval', {
+                        await fetch('/api/depots/rebuild/config/interval', ApiService.getFetchOptions({
                           method: 'PUT',
-                          headers: {
-                            ...ApiService.getHeaders(),
-                            'Content-Type': 'application/json'
-                          },
+                          headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify(newInterval)
-                        });
+                        }));
 
                         // Refresh the progress data after updating the interval
                         refreshProgress();
@@ -886,27 +882,21 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
                     // If switching FROM GitHub to another mode, reset interval to 1 hour
                     if (wasGithubMode && value !== 'github') {
-                      await fetch('/api/depots/rebuild/config/interval', {
+                      await fetch('/api/depots/rebuild/config/interval', ApiService.getFetchOptions({
                         method: 'PUT',
-                        headers: {
-                          ...ApiService.getHeaders(),
-                          'Content-Type': 'application/json'
-                        },
+                        headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(1)
-                      });
+                      }));
                     }
 
                     // If GitHub is selected, force 30-minute interval
                     if (value === 'github') {
                       // Set interval to 0.5 hours (30 minutes)
-                      await fetch('/api/depots/rebuild/config/interval', {
+                      await fetch('/api/depots/rebuild/config/interval', ApiService.getFetchOptions({
                         method: 'PUT',
-                        headers: {
-                          ...ApiService.getHeaders(),
-                          'Content-Type': 'application/json'
-                        },
+                        headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(0.5)
-                      });
+                      }));
 
                       // IMPORTANT: Also update the "Apply Now Source" to match
                       // When user selects GitHub schedule, they likely want GitHub for manual apply too
@@ -917,14 +907,11 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                     // Set scan mode
                     const incremental =
                       value === 'incremental' ? true : value === 'github' ? 'github' : false;
-                    await fetch('/api/depots/rebuild/config/mode', {
+                    await fetch('/api/depots/rebuild/config/mode', ApiService.getFetchOptions({
                       method: 'PUT',
-                      headers: {
-                        ...ApiService.getHeaders(),
-                        'Content-Type': 'application/json'
-                      },
+                      headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify(incremental)
-                    });
+                    }));
 
                     // Refresh the progress data after updating the scan mode
                     refreshProgress();

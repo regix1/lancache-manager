@@ -219,6 +219,7 @@ class ThemeService {
             // Handle null/empty value by fetching default guest theme (async, non-blocking)
             if (!value) {
               fetch(`${API_BASE}/themes/preferences/guest`, {
+                credentials: 'include',
                 headers: authService.getAuthHeaders()
               })
                 .then(response => {
@@ -1312,6 +1313,7 @@ class ThemeService {
         // Null means use default guest theme - fetch it from the API
         try {
           const response = await fetch(`${API_BASE}/themes/preferences/guest`, {
+            credentials: 'include',
             headers: authService.getAuthHeaders()
           });
           if (response.ok) {

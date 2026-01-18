@@ -112,10 +112,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         const authRequired = authCheck.requiresAuth;
         setAuthDisabled(!authRequired);
 
-        const setupResponse = await fetch('/api/system/setup', {
-          credentials: 'include',
-          headers: ApiService.getHeaders()
-        });
+        const setupResponse = await fetch('/api/system/setup', ApiService.getFetchOptions());
         const setupData = await setupResponse.json();
 
         if (setupData.isCompleted && authCheck.isAuthenticated) {
@@ -177,10 +174,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   const checkDataAvailability = async () => {
     setCheckingDataAvailability(true);
     try {
-      const setupResponse = await fetch('/api/system/setup', {
-        credentials: 'include',
-        headers: ApiService.getHeaders()
-      });
+      const setupResponse = await fetch('/api/system/setup', ApiService.getFetchOptions());
       if (setupResponse.ok) {
         const setupData = await setupResponse.json();
         const hasData = setupData.isSetupCompleted || setupData.hasProcessedLogs || false;
@@ -211,11 +205,11 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
 
   const markSetupCompleted = async () => {
     try {
-      await fetch('/api/system/setup', {
+      await fetch('/api/system/setup', ApiService.getFetchOptions({
         method: 'PATCH',
-        headers: ApiService.getHeaders({ 'Content-Type': 'application/json' }),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ completed: true })
-      });
+      }));
     } catch (error) {
       console.warn('Failed to mark setup as completed:', error);
     }
@@ -266,10 +260,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     await authService.startGuestMode();
     onAuthChanged?.();
 
-    const setupResponse = await fetch('/api/system/setup', {
-      credentials: 'include',
-      headers: ApiService.getHeaders()
-    });
+    const setupResponse = await fetch('/api/system/setup', ApiService.getFetchOptions());
     const setupData = await setupResponse.json();
 
     if (setupData.isSetupCompleted) {

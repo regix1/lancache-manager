@@ -37,10 +37,9 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
     setShowRemoveModal(false);
 
     try {
-      const response = await fetch('/api/steam-api-keys/current', {
-        method: 'DELETE',
-        headers: ApiService.getHeaders()
-      });
+      const response = await fetch('/api/steam-api-keys/current', ApiService.getFetchOptions({
+        method: 'DELETE'
+      }));
 
       const data = await response.json();
 
