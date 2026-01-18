@@ -156,7 +156,8 @@ class AuthService {
   async checkAuth(): Promise<AuthCheckResponse> {
     try {
       // Check if guest mode is active first (before making any network calls)
-      if (this.isGuestModeActive()) {
+      // If an API key is present, always attempt a full auth check instead.
+      if (this.isGuestModeActive() && !this.apiKey) {
         this.authMode = 'guest';
         this.isAuthenticated = false;
         this.authChecked = true;
@@ -165,7 +166,8 @@ class AuthService {
         try {
           const response = await fetch(`${API_URL}/api/auth/status`, {
             credentials: 'include',
-            headers: this.getAuthHeaders()
+            headers: this.getAuthHeaders(),
+            cache: 'no-store'
           });
           const result = response.ok ? await response.json() : {};
 
@@ -203,7 +205,8 @@ class AuthService {
       // Standard authentication check
       const response = await fetch(`${API_URL}/api/auth/status`, {
         credentials: 'include',
-        headers: this.getAuthHeaders()
+        headers: this.getAuthHeaders(),
+        cache: 'no-store'
       });
 
       // Handle 401 Unauthorized - device was revoked or removed from database
