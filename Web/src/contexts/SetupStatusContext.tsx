@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useAuth } from '@contexts/AuthContext';
+import ApiService from '@services/api.service';
+import { API_BASE } from '@utils/constants';
 
 export interface SetupStatus {
   isCompleted: boolean;
@@ -36,22 +38,22 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
   const fetchSetupStatus = async () => {
     try {
       // This is a public endpoint - no auth required
-      const response = await fetch('/api/system/setup', {
-        credentials: 'include'
-      });
+      const response = await fetch(`${API_BASE}/system/setup`, ApiService.getFetchOptions());
       if (response.ok) {
         const data = await response.json();
+        const isCompleted =
+          data.isCompleted === true ||
+          data.setupCompleted === true ||
+          data.isSetupCompleted === true;
         setSetupStatus({
-          isCompleted: data.isCompleted === true,
+          isCompleted,
           hasProcessedLogs: data.hasProcessedLogs === true,
-          isSetupCompleted: data.isSetupCompleted || false
+          isSetupCompleted: isCompleted
         });
-        setIsLoading(false);
-      } else {
-        setIsLoading(false);
       }
     } catch (error) {
       console.error('[SetupStatus] Failed to fetch setup status:', error);
+    } finally {
       setIsLoading(false);
     }
   };
