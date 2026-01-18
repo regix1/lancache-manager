@@ -232,14 +232,11 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     try {
       const result = await authService.register(apiKey, null);
       if (result.success) {
-        const authCheck = await authService.checkAuth();
-        if (authCheck.isAuthenticated) {
-          onAuthChanged?.();
-          await checkPicsDataStatus();
-          setCurrentStep('import-historical-data');
-        } else {
-          setAuthError(t('modals.auth.errors.verificationFailed'));
-        }
+        // Registration succeeded - authService already set isAuthenticated=true
+        // No need to double-check with checkAuth() which can cause race conditions
+        onAuthChanged?.();
+        await checkPicsDataStatus();
+        setCurrentStep('import-historical-data');
       } else {
         setAuthError(result.message);
       }

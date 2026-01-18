@@ -182,7 +182,6 @@ class ApiService {
     return {
       ...options,
       credentials: 'include', // Important: include HttpOnly session cookies
-      cache: 'no-store', // Prevent browser from caching API responses
       headers: {
         ...this.getHeaders(),
         ...(options.headers || {})
