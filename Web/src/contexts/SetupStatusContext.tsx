@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useAuth } from '@contexts/AuthContext';
-import authService from '@services/auth.service';
 
 export interface SetupStatus {
   isCompleted: boolean;
@@ -32,14 +31,13 @@ interface SetupStatusProviderProps {
 export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ children }) => {
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const { isAuthenticated, authMode, isLoading: authLoading } = useAuth();
-  const hasAccess = isAuthenticated || authMode === 'guest';
+  const { isLoading: authLoading } = useAuth();
 
   const fetchSetupStatus = async () => {
     try {
+      // This is a public endpoint - no auth required
       const response = await fetch('/api/system/setup', {
-        credentials: 'include',
-        headers: authService.getAuthHeaders()
+        credentials: 'include'
       });
       if (response.ok) {
         const data = await response.json();
@@ -74,16 +72,16 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
     );
   };
 
-  // Initial fetch
+  // Initial fetch - setup status is public so we can check before auth
   useEffect(() => {
-    // Avoid 401 spam before auth/guest session exists.
-    if (authLoading || !hasAccess) {
-      setIsLoading(false);
+    // Wait for auth loading to settle, but don't require auth for setup check
+    // The /api/system/setup endpoint is public so we can determine if setup wizard is needed
+    if (authLoading) {
       return;
     }
 
     fetchSetupStatus();
-  }, [authLoading, hasAccess]);
+  }, [authLoading]);
 
   return (
     <SetupStatusContext.Provider

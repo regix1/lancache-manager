@@ -38,6 +38,12 @@ public partial class SteamKit2Service
             return;
         }
 
+        // Skip if setup hasn't been completed yet (fresh install)
+        if (!_stateService.GetSetupCompleted())
+        {
+            return;
+        }
+
         // Skip if interval is 0 (disabled)
         if (_crawlInterval.TotalHours == 0)
         {

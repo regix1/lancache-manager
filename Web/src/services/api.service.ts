@@ -170,7 +170,7 @@ class ApiService {
   }
 
   // Helper to add auth headers to all requests
-  static getHeaders(additionalHeaders: Record<string, string> = {}): HeadersInit {
+  private static getHeaders(additionalHeaders: Record<string, string> = {}): HeadersInit {
     return {
       ...authService.getAuthHeaders(),
       ...additionalHeaders

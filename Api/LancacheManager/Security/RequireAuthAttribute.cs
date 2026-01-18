@@ -122,6 +122,8 @@ public class AuthenticationMiddleware
             return true;
         if (HttpMethods.IsGet(method) && path.StartsWith("/api/game-images/", StringComparison.OrdinalIgnoreCase))
             return true;
+        if (HttpMethods.IsGet(method) && path.Equals("/api/system/setup", StringComparison.OrdinalIgnoreCase))
+            return true;
 
         // Device registration (authenticated mode bootstrap)
         if (HttpMethods.IsPost(method) && path.Equals("/api/devices", StringComparison.OrdinalIgnoreCase))
