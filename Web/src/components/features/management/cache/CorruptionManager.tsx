@@ -24,8 +24,7 @@ import {
   ManagerCardHeader,
   LoadingState,
   EmptyState,
-  ReadOnlyBadge,
-  ScanningState
+  ReadOnlyBadge
 } from '@components/ui/ManagerCard';
 import { useFormattedDateTime } from '@/hooks/useFormattedDateTime';
 import type { CorruptedChunkDetail } from '@/types';
@@ -397,7 +396,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
 
         {/* Scanning Status */}
         {isScanning && (
-          <ScanningState message={t('management.corruption.scanningMessage')} />
+          <LoadingState message={t('management.corruption.scanningMessage')} />
         )}
 
         {/* Read-Only Warning */}
@@ -525,12 +524,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
                     {expandedCorruptionService === service && (
                       <div className="border-t px-3 py-3 border-themed-secondary">
                         {loadingDetails === service ? (
-                          <div className="flex items-center justify-center py-4 gap-2">
-                            <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
-                            <span className="text-sm text-themed-secondary">
-                              {t('management.corruption.loadingDetails')}
-                            </span>
-                          </div>
+                          <LoadingState message={t('management.corruption.loadingDetails')} />
                         ) : corruptionDetails[service] && corruptionDetails[service].length > 0 ? (
                           <div className="space-y-2 max-h-96 overflow-y-auto">
                             {corruptionDetails[service].map((chunk, idx) => (
