@@ -105,8 +105,8 @@ public class NginxLogRotationService
     }
 
     /// <summary>
-    /// Auto-detect the monolithic container by looking for containers with nginx
-    /// and matching volume mounts for /data/logs and /data/cache
+    /// Auto-detect the monolithic container by matching name/image hints,
+    /// with nginx checks as a fallback when there are multiple candidates.
     /// </summary>
     /// <returns>A tuple of (container name, error message). If container is found, error is null.</returns>
     private async Task<(string? ContainerName, string? Error)> DetectMonolithicContainerAsync()
@@ -125,11 +125,11 @@ public class NginxLogRotationService
                 return (null, error);
             }
 
-            // Get all running containers with nginx
+            // Get all running containers with names and images
             var processStartInfo = new ProcessStartInfo
             {
                 FileName = "docker",
-                Arguments = "ps --filter status=running --format \"{{.Names}}\"",
+                Arguments = "ps --filter status=running --format \"{{.Names}}|{{.Image}}\"",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -156,40 +156,109 @@ public class NginxLogRotationService
                 return (null, $"Docker command failed: {errorMsg}");
             }
 
-            var containers = stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            static bool LooksLikeLancache(string value)
+            {
+                if (string.IsNullOrWhiteSpace(value)) return false;
+                var lower = value.ToLowerInvariant();
+                return lower.Contains("lancache") || lower.Contains("monolithic");
+            }
 
-            // Look for containers with "monolithic", "lancache", or "nginx" in the name
+            static bool LooksLikeMonolithic(string value)
+            {
+                if (string.IsNullOrWhiteSpace(value)) return false;
+                return value.ToLowerInvariant().Contains("monolithic");
+            }
+
+            static bool LooksLikeNonCache(string value)
+            {
+                if (string.IsNullOrWhiteSpace(value)) return false;
+                var lower = value.ToLowerInvariant();
+                return lower.Contains("dns") || lower.Contains("manager");
+            }
+
+            var containers = stdout
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => line.Trim())
+                .Where(line => !string.IsNullOrEmpty(line))
+                .Select(line =>
+                {
+                    var parts = line.Split('|', 2);
+                    var name = parts[0].Trim();
+                    var image = parts.Length > 1 ? parts[1].Trim() : string.Empty;
+                    return (Name: name, Image: image);
+                })
+                .Where(container => !string.IsNullOrEmpty(container.Name))
+                .ToList();
+
+            var candidates = containers
+                .Where(container => LooksLikeLancache(container.Name) || LooksLikeLancache(container.Image))
+                .Where(container => !LooksLikeNonCache(container.Name) && !LooksLikeNonCache(container.Image))
+                .ToList();
+
+            var monolithicCandidates = candidates
+                .Where(container => LooksLikeMonolithic(container.Name) || LooksLikeMonolithic(container.Image))
+                .ToList();
+
+            if (monolithicCandidates.Count == 1)
+            {
+                var match = monolithicCandidates[0];
+                _logger.LogInformation("Auto-detected monolithic container: {ContainerName}", match.Name);
+                return (match.Name, null);
+            }
+
+            if (monolithicCandidates.Count > 1)
+            {
+                foreach (var candidate in monolithicCandidates)
+                {
+                    var hasNginx = await CheckContainerHasNginxAsync(candidate.Name);
+                    if (hasNginx)
+                    {
+                        _logger.LogInformation("Auto-detected monolithic container: {ContainerName}", candidate.Name);
+                        return (candidate.Name, null);
+                    }
+                }
+
+                var fallbackName = monolithicCandidates[0].Name;
+                _logger.LogWarning("Multiple monolithic containers matched; using {ContainerName} without nginx validation.", fallbackName);
+                return (fallbackName, null);
+            }
+
+            if (candidates.Count == 1)
+            {
+                var match = candidates[0];
+                _logger.LogInformation("Auto-detected monolithic container: {ContainerName}", match.Name);
+                return (match.Name, null);
+            }
+
+            if (candidates.Count > 1)
+            {
+                foreach (var candidate in candidates)
+                {
+                    var hasNginx = await CheckContainerHasNginxAsync(candidate.Name);
+                    if (hasNginx)
+                    {
+                        _logger.LogInformation("Auto-detected monolithic container: {ContainerName}", candidate.Name);
+                        return (candidate.Name, null);
+                    }
+                }
+
+                var fallbackName = candidates[0].Name;
+                _logger.LogWarning("Multiple containers matched lancache; using {ContainerName} without nginx validation.", fallbackName);
+                return (fallbackName, null);
+            }
+
+            // Fall back to any container with nginx installed
             foreach (var container in containers)
             {
-                var containerName = container.Trim();
-                if (string.IsNullOrEmpty(containerName)) continue;
-
-                // Check if this container has nginx
-                var hasNginx = await CheckContainerHasNginxAsync(containerName);
+                var hasNginx = await CheckContainerHasNginxAsync(container.Name);
                 if (!hasNginx) continue;
 
                 // Found a container with nginx
-                var nameLower = containerName.ToLowerInvariant();
-                if (nameLower.Contains("monolithic") || nameLower.Contains("lancache"))
-                {
-                    _logger.LogInformation("Auto-detected monolithic container: {ContainerName}", containerName);
-                    return (containerName, null);
-                }
+                _logger.LogInformation("Found container with nginx: {ContainerName}", container.Name);
+                return (container.Name, null);
             }
 
-            // If no name match, try the first container with nginx (last resort)
-            foreach (var container in containers)
-            {
-                var containerName = container.Trim();
-                if (string.IsNullOrEmpty(containerName)) continue;
-
-                var hasNginx = await CheckContainerHasNginxAsync(containerName);
-                if (hasNginx)
-                {
-                    _logger.LogInformation("Found container with nginx (no name match): {ContainerName}", containerName);
-                    return (containerName, null);
-                }
-            }
+            // No suitable container found
 
             _logger.LogWarning("No suitable container found for nginx log rotation");
             return (null, "No container with nginx found");
