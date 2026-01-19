@@ -1281,60 +1281,101 @@ public class StatsController : ControllerBase
         }
     }
 
-    // Helper method to build sparkline metric with trend calculation
-    // Uses linear regression on ALL provided data to calculate trend and predictions
-    // Time filtering is handled by the API endpoint - we use whatever data we're given
+    // Simple linear regression to get slope and intercept
+    private static (double slope, double intercept, bool valid) LinearRegression(IReadOnlyList<double> data)
+    {
+        int n = data.Count;
+        if (n < 2) return (0, 0, false);
+
+        double sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+        for (int i = 0; i < n; i++)
+        {
+            sumX += i;
+            sumY += data[i];
+            sumXY += i * data[i];
+            sumX2 += i * i;
+        }
+
+        double denom = n * sumX2 - sumX * sumX;
+        if (Math.Abs(denom) < 0.0001) return (0, 0, false);
+
+        double slope = (n * sumXY - sumX * sumY) / denom;
+        double intercept = (sumY - slope * sumX) / n;
+        return (slope, intercept, true);
+    }
+
     private static SparklineMetric BuildSparklineMetric(List<double> data)
     {
-        const int PREDICTION_DAYS = 3;
+        // Trim trailing zeros
+        var trimmed = data.ToList();
+        while (trimmed.Count > 1 && trimmed.Last() == 0)
+            trimmed.RemoveAt(trimmed.Count - 1);
 
-        // Trim trailing zeros (incomplete current period)
-        var trimmedData = data.ToList();
-        while (trimmedData.Count > 1 && trimmedData.Last() == 0)
+        if (trimmed.Count < 2)
+            return new SparklineMetric { Data = data, PredictedData = [], Trend = "stable", PercentChange = 0 };
+
+        var (slope, intercept, valid) = LinearRegression(trimmed);
+        if (!valid)
+            return new SparklineMetric { Data = data, PredictedData = [], Trend = "stable", PercentChange = 0 };
+
+        // Generate 3 predicted points
+        int n = trimmed.Count;
+        var predicted = new List<double>
         {
-            trimmedData.RemoveAt(trimmedData.Count - 1);
-        }
+            Math.Max(0, slope * n + intercept),
+            Math.Max(0, slope * (n + 1) + intercept),
+            Math.Max(0, slope * (n + 2) + intercept)
+        };
 
-        if (trimmedData.Count < 3)
-        {
-            return new SparklineMetric { Data = data, PredictedData = new List<double>(), Trend = "stable", PercentChange = 0 };
-        }
+        // Percent change = slope * 3 days / current trendline value
+        double currentValue = slope * (n - 1) + intercept;
+        double pct = Math.Abs(currentValue) > 0.001 ? (slope * 3 / Math.Abs(currentValue)) * 100 : 0;
+        pct = Math.Clamp(pct, -500, 500);
 
-        var forecast = SparklineTrendMath.ComputeMetricForecast(trimmedData, PREDICTION_DAYS);
+        string trend = pct > 5 ? "up" : pct < -5 ? "down" : "stable";
+
         return new SparklineMetric
         {
             Data = data,
-            PredictedData = forecast.PredictedData,
-            Trend = forecast.Trend,
-            PercentChange = forecast.PercentChange
+            PredictedData = predicted,
+            Trend = trend,
+            PercentChange = Math.Round(pct, 1)
         };
     }
 
-    // Helper method for ratio metrics (like cache hit ratio)
-    // Shows point difference (e.g., 80% -> 85% = +5 pts)
     private static SparklineMetric BuildSparklineMetricForRatio(List<double> data)
     {
-        const int PREDICTION_DAYS = 3;
+        // Trim trailing zeros
+        var trimmed = data.ToList();
+        while (trimmed.Count > 1 && trimmed.Last() == 0)
+            trimmed.RemoveAt(trimmed.Count - 1);
 
-        // Trim trailing zeros (incomplete current period)
-        var trimmedData = data.ToList();
-        while (trimmedData.Count > 1 && trimmedData.Last() == 0)
+        if (trimmed.Count < 2)
+            return new SparklineMetric { Data = data, PredictedData = [], Trend = "stable", PercentChange = 0, IsAbsoluteChange = true };
+
+        var (slope, intercept, valid) = LinearRegression(trimmed);
+        if (!valid)
+            return new SparklineMetric { Data = data, PredictedData = [], Trend = "stable", PercentChange = 0, IsAbsoluteChange = true };
+
+        // Generate 3 predicted points (clamped 0-100 for ratios)
+        int n = trimmed.Count;
+        var predicted = new List<double>
         {
-            trimmedData.RemoveAt(trimmedData.Count - 1);
-        }
+            Math.Clamp(slope * n + intercept, 0, 100),
+            Math.Clamp(slope * (n + 1) + intercept, 0, 100),
+            Math.Clamp(slope * (n + 2) + intercept, 0, 100)
+        };
 
-        if (trimmedData.Count < 3)
-        {
-            return new SparklineMetric { Data = data, PredictedData = new List<double>(), Trend = "stable", PercentChange = 0, IsAbsoluteChange = true };
-        }
+        // Point change = slope * 3 days
+        double pts = Math.Clamp(slope * 3, -100, 100);
+        string trend = pts > 2 ? "up" : pts < -2 ? "down" : "stable";
 
-        var forecast = SparklineTrendMath.ComputeRatioForecast(trimmedData, PREDICTION_DAYS);
         return new SparklineMetric
         {
             Data = data,
-            PredictedData = forecast.PredictedData,
-            Trend = forecast.Trend,
-            PercentChange = forecast.PercentChange,
+            PredictedData = predicted,
+            Trend = trend,
+            PercentChange = Math.Round(pts, 1),
             IsAbsoluteChange = true
         };
     }
