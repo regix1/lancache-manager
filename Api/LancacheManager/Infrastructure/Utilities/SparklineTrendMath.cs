@@ -60,19 +60,23 @@ internal static class SparklineTrendMath
 
         var predictedData = BuildPredictedData(predictionDays, data.Count, slope, intercept, 0, null);
 
-        // Use last actual data point as baseline (current value)
-        double lastActualValue = data[^1];
-        double predictedEndValue = predictedData.Count > 0 ? predictedData[^1] : lastActualValue;
+        // Use trendline values for comparison (not actual values which have variance)
+        // This makes the percentage match the visual slope of the prediction line
+        double trendlineNow = slope * (data.Count - 1) + intercept;
+        double trendlineEnd = predictedData.Count > 0 ? predictedData[^1] : trendlineNow;
 
-        // Calculate percent change from current to predicted future
+        // Ensure trendlineNow is positive for percentage calculation
+        trendlineNow = Math.Max(0, trendlineNow);
+
+        // Calculate percent change along the trendline
         double percentChange;
-        if (Math.Abs(lastActualValue) < BaselineEpsilon)
+        if (trendlineNow < BaselineEpsilon)
         {
-            percentChange = predictedEndValue > 0 ? 100 : (predictedEndValue < 0 ? -100 : 0);
+            percentChange = trendlineEnd > 0 ? 100 : 0;
         }
         else
         {
-            percentChange = ((predictedEndValue - lastActualValue) / Math.Abs(lastActualValue)) * 100;
+            percentChange = ((trendlineEnd - trendlineNow) / trendlineNow) * 100;
         }
 
         percentChange = Math.Max(-PercentCap, Math.Min(PercentCap, percentChange));
@@ -98,12 +102,14 @@ internal static class SparklineTrendMath
 
         var predictedData = BuildPredictedData(predictionDays, data.Count, slope, intercept, 0, 100);
 
-        // Use last actual data point as baseline (current ratio)
-        double lastActualValue = Math.Max(0, Math.Min(100, data[^1]));
-        double predictedEndValue = predictedData.Count > 0 ? predictedData[^1] : lastActualValue;
+        // Use trendline values for comparison (not actual values which have variance)
+        // This makes the point change match the visual slope of the prediction line
+        double trendlineNow = slope * (data.Count - 1) + intercept;
+        trendlineNow = Math.Max(0, Math.Min(100, trendlineNow));
+        double trendlineEnd = predictedData.Count > 0 ? predictedData[^1] : trendlineNow;
 
-        // For ratios, use absolute point change from current to predicted
-        var absoluteChange = predictedEndValue - lastActualValue;
+        // For ratios, use absolute point change along the trendline
+        var absoluteChange = trendlineEnd - trendlineNow;
         absoluteChange = Math.Max(-RatioCap, Math.Min(RatioCap, absoluteChange));
 
         string trend = "stable";
