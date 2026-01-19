@@ -1282,54 +1282,68 @@ public class StatsController : ControllerBase
     }
 
     // Helper method to build sparkline metric with trend calculation
-    // Uses last-vs-previous comparison for simple, intuitive trend indication
-    // Requires at least 2 data points for comparison
-    // Thresholds: 1% for trend determination, capped at ±500%
+    // Uses linear regression to calculate trend direction and magnitude
+    // This smooths out daily volatility while showing actual trend
+    // Requires at least 3 data points for meaningful regression
     private static SparklineMetric BuildSparklineMetric(List<double> data)
     {
-        // Keep original data for sparkline display (shows full time window including zero days)
-        // Only trim trailing zeros for trend calculation (incomplete current period)
+        // Trim trailing zeros for trend calculation (incomplete current period)
         var trimmedForTrend = data.ToList();
         while (trimmedForTrend.Count > 1 && trimmedForTrend.Last() == 0)
         {
             trimmedForTrend.RemoveAt(trimmedForTrend.Count - 1);
         }
 
-        // Require at least 2 data points for trend calculation
-        if (trimmedForTrend.Count < 2)
+        // Require at least 3 data points for meaningful linear regression
+        if (trimmedForTrend.Count < 3)
         {
             return new SparklineMetric { Data = data, Trend = "stable", PercentChange = 0 };
         }
 
-        // Simple last-vs-previous comparison
-        var lastValue = trimmedForTrend.Last();
-        var previousValue = trimmedForTrend[trimmedForTrend.Count - 2];
-
-        // If no baseline, return stable
-        if (previousValue == 0 && lastValue == 0)
+        // Calculate linear regression (least squares method)
+        // y = slope * x + intercept
+        int n = trimmedForTrend.Count;
+        double sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+        
+        for (int i = 0; i < n; i++)
         {
-            return new SparklineMetric { Data = data, Trend = "stable", PercentChange = 0 };
+            sumX += i;
+            sumY += trimmedForTrend[i];
+            sumXY += i * trimmedForTrend[i];
+            sumX2 += i * i;
         }
 
-        // Calculate percent change
+        double slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+        double intercept = (sumY - slope * sumX) / n;
+
+        // Calculate predicted values at start and end of trendline
+        double startValue = intercept; // x = 0
+        double endValue = slope * (n - 1) + intercept; // x = n-1
+
+        // If start is near zero, use actual data average as baseline
+        if (Math.Abs(startValue) < 0.001)
+        {
+            startValue = trimmedForTrend.Average();
+        }
+
+        // Calculate percent change between trendline endpoints
         double percentChange;
-        if (previousValue == 0)
+        if (Math.Abs(startValue) < 0.001)
         {
-            // New activity appeared - cap at 100% to indicate growth
-            percentChange = lastValue > 0 ? 100 : 0;
+            percentChange = endValue > 0 ? 100 : (endValue < 0 ? -100 : 0);
         }
         else
         {
-            percentChange = ((lastValue - previousValue) / previousValue) * 100;
+            percentChange = ((endValue - startValue) / Math.Abs(startValue)) * 100;
         }
 
         // Cap at ±500%
         percentChange = Math.Max(-500, Math.Min(500, percentChange));
 
-        // Use 1% threshold for trend determination
+        // Determine trend direction (use 5% threshold for stability)
         string trend = "stable";
-        if (percentChange > 1) trend = "up";
-        else if (percentChange < -1) trend = "down";
+        if (percentChange > 5) trend = "up";
+        else if (percentChange < -5) trend = "down";
 
         return new SparklineMetric
         {
@@ -1339,39 +1353,54 @@ public class StatsController : ControllerBase
         };
     }
 
-    // Helper method for ratio metrics (like cache hit ratio) - uses absolute point change
+    // Helper method for ratio metrics (like cache hit ratio) - uses linear regression
     // For ratios that are already percentages, we show point difference (e.g., 80% -> 85% = +5 pts)
-    // Requires at least 2 data points for comparison
+    // Requires at least 3 data points for meaningful regression
     private static SparklineMetric BuildSparklineMetricForRatio(List<double> data)
     {
-        // Keep original data for sparkline display (shows full time window including zero days)
-        // Only trim trailing zeros for trend calculation (incomplete current period)
+        // Trim trailing zeros for trend calculation (incomplete current period)
         var trimmedForTrend = data.ToList();
         while (trimmedForTrend.Count > 1 && trimmedForTrend.Last() == 0)
         {
             trimmedForTrend.RemoveAt(trimmedForTrend.Count - 1);
         }
 
-        // Require at least 2 data points for trend calculation
-        if (trimmedForTrend.Count < 2)
+        // Require at least 3 data points for meaningful linear regression
+        if (trimmedForTrend.Count < 3)
         {
             return new SparklineMetric { Data = data, Trend = "stable", PercentChange = 0, IsAbsoluteChange = true };
         }
 
-        // Simple last-vs-previous comparison using absolute point change
-        var lastValue = trimmedForTrend.Last();
-        var previousValue = trimmedForTrend[trimmedForTrend.Count - 2];
+        // Calculate linear regression (least squares method)
+        int n = trimmedForTrend.Count;
+        double sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+        
+        for (int i = 0; i < n; i++)
+        {
+            sumX += i;
+            sumY += trimmedForTrend[i];
+            sumXY += i * trimmedForTrend[i];
+            sumX2 += i * i;
+        }
 
-        // Absolute point change (e.g., 80% -> 85% = +5 points)
-        var absoluteChange = lastValue - previousValue;
+        double slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+        double intercept = (sumY - slope * sumX) / n;
+
+        // Calculate predicted values at start and end of trendline
+        double startValue = intercept; // x = 0
+        double endValue = slope * (n - 1) + intercept; // x = n-1
+
+        // For ratios, use absolute point change between trendline endpoints
+        // e.g., trendline goes from 80% to 85% = +5 points
+        var absoluteChange = endValue - startValue;
 
         // Cap at ±100 points (max meaningful for 0-100 ratio)
         absoluteChange = Math.Max(-100, Math.Min(100, absoluteChange));
 
-        // Use 1 point threshold for trend determination
+        // Determine trend direction (use 2 point threshold for ratios)
         string trend = "stable";
-        if (absoluteChange > 1) trend = "up";
-        else if (absoluteChange < -1) trend = "down";
+        if (absoluteChange > 2) trend = "up";
+        else if (absoluteChange < -2) trend = "down";
 
         return new SparklineMetric
         {

@@ -1245,13 +1245,13 @@ public class SparklineMetric
 
     /// <summary>
     /// Trend direction: up, down, or stable.
-    /// Based on comparing last value to previous value.
+    /// Based on linear regression of the data points.
     /// </summary>
     public string Trend { get; set; } = "stable";
 
     /// <summary>
-    /// Change value comparing last to previous data point.
-    /// For regular metrics: percentage change (e.g., +25.5 means 25.5% increase).
+    /// Change value calculated using linear regression on the data points.
+    /// For regular metrics: percentage change between trendline start and end.
     /// For ratio metrics (IsAbsoluteChange=true): absolute point change (e.g., +5 means 5 points).
     /// </summary>
     public double PercentChange { get; set; }
