@@ -1284,29 +1284,6 @@ public class StatsController : ControllerBase
         }
     }
 
-    // Simple linear regression to get slope and intercept
-    private static (double slope, double intercept, bool valid) LinearRegression(IReadOnlyList<double> data)
-    {
-        int n = data.Count;
-        if (n < 2) return (0, 0, false);
-
-        double sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
-        for (int i = 0; i < n; i++)
-        {
-            sumX += i;
-            sumY += data[i];
-            sumXY += i * data[i];
-            sumX2 += i * i;
-        }
-
-        double denom = n * sumX2 - sumX * sumX;
-        if (Math.Abs(denom) < 0.0001) return (0, 0, false);
-
-        double slope = (n * sumXY - sumX * sumY) / denom;
-        double intercept = (sumY - slope * sumX) / n;
-        return (slope, intercept, true);
-    }
-
     private static SparklineMetric BuildSparklineMetric(List<double> data)
     {
         // Trim trailing zeros
@@ -1315,22 +1292,9 @@ public class StatsController : ControllerBase
             trimmed.RemoveAt(trimmed.Count - 1);
 
         if (trimmed.Count < 2)
-            return new SparklineMetric { Data = data, PredictedData = [], Trend = "stable" };
+            return new SparklineMetric { Data = trimmed, Trend = "stable" };
 
-        var (slope, intercept, valid) = LinearRegression(trimmed);
-        if (!valid)
-            return new SparklineMetric { Data = data, PredictedData = [], Trend = "stable" };
-
-        // Generate 3 predicted points
-        int n = trimmed.Count;
-        var predicted = new List<double>
-        {
-            Math.Max(0, slope * n + intercept),
-            Math.Max(0, slope * (n + 1) + intercept),
-            Math.Max(0, slope * (n + 2) + intercept)
-        };
-
-        // Trend based on last few points (more intuitive than regression slope)
+        // Trend based on last few points
         string trend = "stable";
         if (trimmed.Count >= 3)
         {
@@ -1340,7 +1304,7 @@ public class StatsController : ControllerBase
             trend = diff > 0.05 ? "up" : diff < -0.05 ? "down" : "stable";
         }
 
-        return new SparklineMetric { Data = data, PredictedData = predicted, Trend = trend };
+        return new SparklineMetric { Data = trimmed, Trend = trend };
     }
 
     private static SparklineMetric BuildSparklineMetricForRatio(List<double> data)
@@ -1351,20 +1315,7 @@ public class StatsController : ControllerBase
             trimmed.RemoveAt(trimmed.Count - 1);
 
         if (trimmed.Count < 2)
-            return new SparklineMetric { Data = data, PredictedData = [], Trend = "stable" };
-
-        var (slope, intercept, valid) = LinearRegression(trimmed);
-        if (!valid)
-            return new SparklineMetric { Data = data, PredictedData = [], Trend = "stable" };
-
-        // Generate 3 predicted points (clamped 0-100 for ratios)
-        int n = trimmed.Count;
-        var predicted = new List<double>
-        {
-            Math.Clamp(slope * n + intercept, 0, 100),
-            Math.Clamp(slope * (n + 1) + intercept, 0, 100),
-            Math.Clamp(slope * (n + 2) + intercept, 0, 100)
-        };
+            return new SparklineMetric { Data = trimmed, Trend = "stable" };
 
         // Trend based on last few points
         string trend = "stable";
@@ -1376,7 +1327,7 @@ public class StatsController : ControllerBase
             trend = diff > 2 ? "up" : diff < -2 ? "down" : "stable";
         }
 
-        return new SparklineMetric { Data = data, PredictedData = predicted, Trend = trend };
+        return new SparklineMetric { Data = trimmed, Trend = trend };
     }
 
     /// <summary>

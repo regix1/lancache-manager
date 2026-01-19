@@ -1,15 +1,13 @@
 import React, { useRef, useEffect, useMemo, memo, useState } from 'react';
-import { Chart, ChartConfiguration, ChartDataset, registerables } from 'chart.js';
+import { Chart, ChartConfiguration, registerables } from 'chart.js';
 
 // Register Chart.js components
 Chart.register(...registerables);
 
 interface SparklineProps {
-  /** Array of actual data points to display */
+  /** Array of data points to display */
   data: number[];
-  /** Array of predicted future data points (shown in different color) */
-  predictedData?: number[];
-  /** Color for the actual data line and fill (CSS color string) */
+  /** Color for the line and fill (CSS color string) */
   color?: string;
   /** Height of the sparkline in pixels (default: 32) */
   height?: number;
@@ -26,11 +24,9 @@ interface SparklineProps {
 /**
  * A minimal sparkline chart component using Chart.js
  * Displays a small inline chart with no axes, labels, or grid
- * Supports showing predicted future values in a faded style
  */
 const Sparkline: React.FC<SparklineProps> = memo(({
   data,
-  predictedData,
   color = 'var(--theme-primary)',
   height = 32,
   showArea = true,
@@ -82,12 +78,6 @@ const Sparkline: React.FC<SparklineProps> = memo(({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [color, themeVersion]);
 
-  // Resolve predicted color (use theme muted/secondary color)
-  const resolvedPredictedColor = useMemo(() => {
-    return resolveCssVar('var(--theme-text-muted)');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [themeVersion]);
-
   // Parse a color string to RGB components
   const parseColorToRgb = (colorStr: string): { r: number; g: number; b: number } | null => {
     if (colorStr.startsWith('rgba') || colorStr.startsWith('rgb')) {
@@ -124,23 +114,6 @@ const Sparkline: React.FC<SparklineProps> = memo(({
     };
   }, [resolvedColor]);
 
-  // Create gradient color object for predicted data (more faded)
-  const predictedGradientColor = useMemo(() => {
-    const rgb = parseColorToRgb(resolvedPredictedColor);
-    if (rgb) {
-      return {
-        solid: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.6)`,
-        transparent: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0)`,
-        fill: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.1)`,
-      };
-    }
-    return {
-      solid: resolvedPredictedColor,
-      transparent: 'transparent',
-      fill: resolvedPredictedColor,
-    };
-  }, [resolvedPredictedColor]);
-
   useEffect(() => {
     if (!canvasRef.current || data.length === 0) return;
 
@@ -153,20 +126,14 @@ const Sparkline: React.FC<SparklineProps> = memo(({
       chartRef.current = null;
     }
 
-    // Create gradient for area fill (actual data)
+    // Create gradient for area fill
     const gradient = ctx.createLinearGradient(0, 0, 0, height);
     gradient.addColorStop(0, gradientColor.fill);
     gradient.addColorStop(1, gradientColor.transparent);
 
-    // Create gradient for predicted area fill
-    const predictedGradient = ctx.createLinearGradient(0, 0, 0, height);
-    predictedGradient.addColorStop(0, predictedGradientColor.fill);
-    predictedGradient.addColorStop(1, predictedGradientColor.transparent);
-
-    // Combine actual and predicted data for calculating min/max
-    const allData = [...data, ...(predictedData || [])];
-    const minVal = Math.min(...allData);
-    const maxVal = Math.max(...allData);
+    // Calculate min/max for Y axis
+    const minVal = Math.min(...data);
+    const maxVal = Math.max(...data);
 
     let yMin: number;
     let yMax: number;
@@ -185,58 +152,23 @@ const Sparkline: React.FC<SparklineProps> = memo(({
       yMax = maxVal + range * 0.1;
     }
 
-    // Create labels for all data points (actual + predicted)
-    const totalPoints = data.length + (predictedData?.length || 0);
-    const labels = Array.from({ length: totalPoints }, (_, i) => i.toString());
+    // Create labels for data points
+    const labels = Array.from({ length: data.length }, (_, i) => i.toString());
 
-    // Build datasets
-    const datasets: ChartDataset<'line', (number | null)[]>[] = [];
-
-    // Actual data dataset - use null for predicted portion
-    const actualDataWithNulls: (number | null)[] = [
-      ...data,
-      ...(predictedData ? Array(predictedData.length).fill(null) : []),
-    ];
-    
-    datasets.push({
-      data: actualDataWithNulls,
-      borderColor: gradientColor.solid,
-      borderWidth: 2,
-      backgroundColor: showArea ? gradient : 'transparent',
-      fill: showArea,
-      tension: 0.4,
-      pointRadius: 0,
-      pointHoverRadius: 0,
-      spanGaps: false,
-    });
-
-    // Predicted data dataset - include last actual point for smooth connection
-    if (predictedData && predictedData.length > 0) {
-      const predictedDataWithConnection: (number | null)[] = [
-        ...Array(data.length - 1).fill(null),
-        data[data.length - 1], // Last actual point for connection
-        ...predictedData,
-      ];
-
-      datasets.push({
-        data: predictedDataWithConnection,
-        borderColor: predictedGradientColor.solid,
-        borderWidth: 2,
-        borderDash: [4, 4], // Dashed line for predicted
-        backgroundColor: showArea ? predictedGradient : 'transparent',
-        fill: showArea,
-        tension: 0.4,
-        pointRadius: 0,
-        pointHoverRadius: 0,
-        spanGaps: false,
-      });
-    }
-
-    const config: ChartConfiguration<'line', (number | null)[], string> = {
+    const config: ChartConfiguration<'line', number[], string> = {
       type: 'line',
       data: {
         labels,
-        datasets,
+        datasets: [{
+          data,
+          borderColor: gradientColor.solid,
+          borderWidth: 2,
+          backgroundColor: showArea ? gradient : 'transparent',
+          fill: showArea,
+          tension: 0.4,
+          pointRadius: 0,
+          pointHoverRadius: 0,
+        }],
       },
       options: {
         responsive: true,
@@ -281,7 +213,7 @@ const Sparkline: React.FC<SparklineProps> = memo(({
         chartRef.current = null;
       }
     };
-  }, [data, predictedData, gradientColor, predictedGradientColor, height, showArea, shouldAnimate]);
+  }, [data, gradientColor, height, showArea, shouldAnimate]);
 
   // Don't render if no data
   if (data.length === 0) {
@@ -293,7 +225,7 @@ const Sparkline: React.FC<SparklineProps> = memo(({
       className={`sparkline-container ${className}`}
       style={{ height }}
       role="img"
-      aria-label={ariaLabel || `Sparkline chart showing ${data.length} data points${predictedData ? ` and ${predictedData.length} predicted points` : ''}`}
+      aria-label={ariaLabel || `Sparkline chart showing ${data.length} data points`}
     >
       <canvas ref={canvasRef} />
     </div>

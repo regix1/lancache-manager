@@ -1243,14 +1243,8 @@ public class SparklineMetric
     public List<double> Data { get; set; } = new();
 
     /// <summary>
-    /// Predicted future data points based on linear regression.
-    /// These should be displayed in a different color to indicate they are projections.
-    /// </summary>
-    public List<double> PredictedData { get; set; } = new();
-
-    /// <summary>
     /// Trend direction: up, down, or stable.
-    /// Based on linear regression of the data points.
+    /// Based on comparing recent values to earlier values.
     /// </summary>
     public string Trend { get; set; } = "stable";
 }
