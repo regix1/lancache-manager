@@ -1324,10 +1324,6 @@ public class StatsController : ControllerBase
         double slope = (n * sumXY - sumX * sumY) / denominator;
         double intercept = (sumY - slope * sumX) / n;
 
-        // Calculate predicted values at start and end of trendline
-        double startValue = intercept; // x = 0
-        double endValue = slope * (n - 1) + intercept; // x = n-1
-
         // Generate predicted future values (continuing the trendline)
         var predictedData = new List<double>();
         for (int i = 0; i < PREDICTION_DAYS; i++)
@@ -1337,21 +1333,20 @@ public class StatsController : ControllerBase
             predictedData.Add(Math.Max(0, predictedValue));
         }
 
-        // If start is near zero, use actual data average as baseline
-        if (Math.Abs(startValue) < 0.001)
-        {
-            startValue = trimmedForTrend.Average();
-        }
+        // Get last actual value and last predicted value for percentage calculation
+        double lastActualValue = trimmedForTrend.Last();
+        double lastPredictedValue = predictedData.Last();
 
-        // Calculate percent change between trendline endpoints
+        // Calculate percent change from current to predicted future
         double percentChange;
-        if (Math.Abs(startValue) < 0.001)
+        if (Math.Abs(lastActualValue) < 0.001)
         {
-            percentChange = endValue > 0 ? 100 : (endValue < 0 ? -100 : 0);
+            // If current value is near zero, use a sensible default
+            percentChange = lastPredictedValue > 0 ? 100 : (lastPredictedValue < 0 ? -100 : 0);
         }
         else
         {
-            percentChange = ((endValue - startValue) / Math.Abs(startValue)) * 100;
+            percentChange = ((lastPredictedValue - lastActualValue) / Math.Abs(lastActualValue)) * 100;
         }
 
         // Cap at ±500%
@@ -1413,10 +1408,6 @@ public class StatsController : ControllerBase
         double slope = (n * sumXY - sumX * sumY) / denominator;
         double intercept = (sumY - slope * sumX) / n;
 
-        // Calculate predicted values at start and end of trendline
-        double startValue = intercept; // x = 0
-        double endValue = slope * (n - 1) + intercept; // x = n-1
-
         // Generate predicted future values (continuing the trendline)
         // For ratios, clamp between 0 and 100
         var predictedData = new List<double>();
@@ -1426,9 +1417,13 @@ public class StatsController : ControllerBase
             predictedData.Add(Math.Max(0, Math.Min(100, predictedValue)));
         }
 
-        // For ratios, use absolute point change between trendline endpoints
-        // e.g., trendline goes from 80% to 85% = +5 points
-        var absoluteChange = endValue - startValue;
+        // Get last actual value and last predicted value for point change calculation
+        double lastActualValue = trimmedForTrend.Last();
+        double lastPredictedValue = predictedData.Last();
+
+        // For ratios, use absolute point change from current to predicted
+        // e.g., current 80%, predicted 85% = +5 points
+        var absoluteChange = lastPredictedValue - lastActualValue;
 
         // Cap at ±100 points (max meaningful for 0-100 ratio)
         absoluteChange = Math.Max(-100, Math.Min(100, absoluteChange));

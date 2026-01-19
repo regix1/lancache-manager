@@ -435,20 +435,20 @@
     },
     "trends": {
       "bandwidthSaved": {
-        "term": "Trend",
-        "description": "Shows the overall trend direction based on daily data. ↑ trending upward; ↓ trending downward."
+        "term": "Prediction",
+        "description": "Shows predicted change based on trend analysis. ↑ expected to increase; ↓ expected to decrease. Dashed line shows forecast."
       },
       "addedToCache": {
-        "term": "Trend",
-        "description": "Shows the overall trend direction based on daily data. ↑ trending upward; ↓ trending downward."
+        "term": "Prediction",
+        "description": "Shows predicted change based on trend analysis. ↑ expected to increase; ↓ expected to decrease. Dashed line shows forecast."
       },
       "totalServed": {
-        "term": "Trend",
-        "description": "Shows the overall trend direction based on daily data. ↑ trending upward; ↓ trending downward."
+        "term": "Prediction",
+        "description": "Shows predicted change based on trend analysis. ↑ expected to increase; ↓ expected to decrease. Dashed line shows forecast."
       },
       "cacheHitRatio": {
-        "term": "Trend",
-        "description": "Shows the overall trend direction. ↑ improving; ↓ declining. Value shows change in percentage points."
+        "term": "Prediction",
+        "description": "Shows predicted change in percentage points. ↑ expected to improve; ↓ expected to decline. Dashed line shows forecast."
       }
     },
     "downloadsPanel": {
