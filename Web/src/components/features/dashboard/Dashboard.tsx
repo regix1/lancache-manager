@@ -125,38 +125,6 @@ const getStatTooltips = (t: (key: string) => string): Record<string, React.React
   )
 });
 
-// Trend help content for cards with sparklines
-const getTrendHelpContent = (t: (key: string) => string): Record<string, React.ReactNode> => ({
-  bandwidthSaved: (
-    <div className="space-y-1.5">
-      <HelpDefinition term={t('dashboard.trends.bandwidthSaved.term')} termColor="green">
-        {t('dashboard.trends.bandwidthSaved.description')}
-      </HelpDefinition>
-    </div>
-  ),
-  addedToCache: (
-    <div className="space-y-1.5">
-      <HelpDefinition term={t('dashboard.trends.addedToCache.term')} termColor="green">
-        {t('dashboard.trends.addedToCache.description')}
-      </HelpDefinition>
-    </div>
-  ),
-  totalServed: (
-    <div className="space-y-1.5">
-      <HelpDefinition term={t('dashboard.trends.totalServed.term')} termColor="green">
-        {t('dashboard.trends.totalServed.description')}
-      </HelpDefinition>
-    </div>
-  ),
-  cacheHitRatio: (
-    <div className="space-y-1.5">
-      <HelpDefinition term={t('dashboard.trends.cacheHitRatio.term')} termColor="green">
-        {t('dashboard.trends.cacheHitRatio.description')}
-      </HelpDefinition>
-    </div>
-  ),
-});
-
 const Dashboard: React.FC = () => {
   const { t } = useTranslation();
   const { cacheInfo, clientStats, serviceStats, dashboardStats, loading } = useStats();
@@ -166,7 +134,6 @@ const Dashboard: React.FC = () => {
   const signalR = useSignalR();
   const { getRefreshInterval } = useRefreshRate();
   const statTooltips = useMemo(() => getStatTooltips(t), [t]);
-  const trendHelpContent = useMemo(() => getTrendHelpContent(t), [t]);
 
   // Track if initial card animations have completed - prevents re-animation on reorder
   const initialAnimationCompleteRef = useRef(false);
@@ -990,18 +957,6 @@ const Dashboard: React.FC = () => {
                   card.key === 'addedToCache' ? sparklineData?.addedToCache?.trend :
                   undefined
                 }
-                percentChange={
-                  card.key === 'bandwidthSaved' ? sparklineData?.bandwidthSaved?.percentChange :
-                  card.key === 'cacheHitRatio' ? sparklineData?.cacheHitRatio?.percentChange :
-                  card.key === 'totalServed' ? sparklineData?.totalServed?.percentChange :
-                  card.key === 'addedToCache' ? sparklineData?.addedToCache?.percentChange :
-                  undefined
-                }
-                isAbsoluteChange={
-                  card.key === 'cacheHitRatio' ? sparklineData?.cacheHitRatio?.isAbsoluteChange :
-                  undefined
-                }
-                trendHelp={trendHelpContent[card.key]}
                 staggerIndex={initialAnimationComplete ? undefined : visualIndex}
               />
 

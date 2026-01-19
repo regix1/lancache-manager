@@ -1312,11 +1312,11 @@ public class StatsController : ControllerBase
             trimmed.RemoveAt(trimmed.Count - 1);
 
         if (trimmed.Count < 2)
-            return new SparklineMetric { Data = data, PredictedData = [], Trend = "stable", PercentChange = 0 };
+            return new SparklineMetric { Data = data, PredictedData = [], Trend = "stable" };
 
         var (slope, intercept, valid) = LinearRegression(trimmed);
         if (!valid)
-            return new SparklineMetric { Data = data, PredictedData = [], Trend = "stable", PercentChange = 0 };
+            return new SparklineMetric { Data = data, PredictedData = [], Trend = "stable" };
 
         // Generate 3 predicted points
         int n = trimmed.Count;
@@ -1327,20 +1327,17 @@ public class StatsController : ControllerBase
             Math.Max(0, slope * (n + 2) + intercept)
         };
 
-        // Percent change = slope * 3 days / average value (more stable than current value)
-        double avg = trimmed.Average();
-        double pct = avg > 0.001 ? (slope * 3 / avg) * 100 : 0;
-        pct = Math.Clamp(pct, -99, 99);
-
-        string trend = pct > 5 ? "up" : pct < -5 ? "down" : "stable";
-
-        return new SparklineMetric
+        // Trend based on last few points (more intuitive than regression slope)
+        string trend = "stable";
+        if (trimmed.Count >= 3)
         {
-            Data = data,
-            PredictedData = predicted,
-            Trend = trend,
-            PercentChange = Math.Round(pct, 1)
-        };
+            double recent = trimmed.TakeLast(3).Average();
+            double earlier = trimmed.Take(Math.Max(1, trimmed.Count - 3)).Average();
+            double diff = (recent - earlier) / Math.Max(earlier, 0.001);
+            trend = diff > 0.05 ? "up" : diff < -0.05 ? "down" : "stable";
+        }
+
+        return new SparklineMetric { Data = data, PredictedData = predicted, Trend = trend };
     }
 
     private static SparklineMetric BuildSparklineMetricForRatio(List<double> data)
@@ -1351,11 +1348,11 @@ public class StatsController : ControllerBase
             trimmed.RemoveAt(trimmed.Count - 1);
 
         if (trimmed.Count < 2)
-            return new SparklineMetric { Data = data, PredictedData = [], Trend = "stable", PercentChange = 0, IsAbsoluteChange = true };
+            return new SparklineMetric { Data = data, PredictedData = [], Trend = "stable" };
 
         var (slope, intercept, valid) = LinearRegression(trimmed);
         if (!valid)
-            return new SparklineMetric { Data = data, PredictedData = [], Trend = "stable", PercentChange = 0, IsAbsoluteChange = true };
+            return new SparklineMetric { Data = data, PredictedData = [], Trend = "stable" };
 
         // Generate 3 predicted points (clamped 0-100 for ratios)
         int n = trimmed.Count;
@@ -1366,18 +1363,17 @@ public class StatsController : ControllerBase
             Math.Clamp(slope * (n + 2) + intercept, 0, 100)
         };
 
-        // Point change = slope * 3 days
-        double pts = Math.Clamp(slope * 3, -100, 100);
-        string trend = pts > 2 ? "up" : pts < -2 ? "down" : "stable";
-
-        return new SparklineMetric
+        // Trend based on last few points
+        string trend = "stable";
+        if (trimmed.Count >= 3)
         {
-            Data = data,
-            PredictedData = predicted,
-            Trend = trend,
-            PercentChange = Math.Round(pts, 1),
-            IsAbsoluteChange = true
-        };
+            double recent = trimmed.TakeLast(3).Average();
+            double earlier = trimmed.Take(Math.Max(1, trimmed.Count - 3)).Average();
+            double diff = recent - earlier; // Point difference for ratios
+            trend = diff > 2 ? "up" : diff < -2 ? "down" : "stable";
+        }
+
+        return new SparklineMetric { Data = data, PredictedData = predicted, Trend = trend };
     }
 
     /// <summary>

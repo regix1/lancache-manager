@@ -433,24 +433,6 @@
         "description": "Percent of data served from cache; higher ratios mean better efficiency."
       }
     },
-    "trends": {
-      "bandwidthSaved": {
-        "term": "Prediction",
-        "description": "Shows predicted change over the next 3 days based on the trendline. ↑ expected to increase; ↓ expected to decrease. Dashed line shows forecast."
-      },
-      "addedToCache": {
-        "term": "Prediction",
-        "description": "Shows predicted change over the next 3 days based on the trendline. ↑ expected to increase; ↓ expected to decrease. Dashed line shows forecast."
-      },
-      "totalServed": {
-        "term": "Prediction",
-        "description": "Shows predicted change over the next 3 days based on the trendline. ↑ expected to increase; ↓ expected to decrease. Dashed line shows forecast."
-      },
-      "cacheHitRatio": {
-        "term": "Prediction",
-        "description": "Shows predicted change in percentage points over the next 3 days. ↑ expected to improve; ↓ expected to decline. Dashed line shows forecast."
-      }
-    },
     "downloadsPanel": {
       "title": "Downloads",
       "recent": "Recent",

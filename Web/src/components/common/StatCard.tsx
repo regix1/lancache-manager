@@ -16,14 +16,10 @@ interface StatCardProps {
   color: StatCardColor;
   // Sparkline props
   sparklineData?: number[];
-  predictedSparklineData?: number[]; // Predicted future data points
+  predictedSparklineData?: number[];
   sparklineColor?: string;
   // Trend props
   trend?: 'up' | 'down' | 'stable';
-  percentChange?: number;
-  isAbsoluteChange?: boolean; // When true, show "pts" instead of "%"
-  // Trend help content for HelpPopover (shown next to percentage)
-  trendHelp?: React.ReactNode;
   // Tooltip shown next to title (help icon)
   tooltip?: React.ReactNode;
   // Animation props
@@ -57,9 +53,6 @@ const StatCard: React.FC<StatCardProps> = ({
   predictedSparklineData,
   sparklineColor,
   trend,
-  percentChange,
-  isAbsoluteChange,
-  trendHelp,
   tooltip,
   animateValue = false,
   glassmorphism = false,
@@ -133,15 +126,9 @@ const StatCard: React.FC<StatCardProps> = ({
             >
               {title}
             </p>
-            {(tooltip || trendHelp) && (
+            {tooltip && (
               <HelpPopover width={260}>
-                <div className="space-y-2">
-                  {tooltip}
-                  {tooltip && trendHelp && (
-                    <div className="border-t border-themed-primary pt-2 mt-2" />
-                  )}
-                  {trendHelp}
-                </div>
+                {tooltip}
               </HelpPopover>
             )}
           </div>
@@ -162,11 +149,10 @@ const StatCard: React.FC<StatCardProps> = ({
               </p>
             )}
 
-            {/* Trend indicator - only show when backend determines trend is up/down */}
-            {trend && trend !== 'stable' && TrendIcon && percentChange !== undefined && (
-              <div className={`flex items-center gap-0.5 text-xs font-medium ${trendClass}`}>
-                <TrendIcon className="w-3 h-3" />
-                <span>{Math.abs(percentChange).toFixed(1)}{isAbsoluteChange ? 'pts' : '%'}</span>
+            {/* Trend indicator - just show arrow, no percentage */}
+            {trend && trend !== 'stable' && TrendIcon && (
+              <div className={`flex items-center text-xs font-medium ${trendClass}`}>
+                <TrendIcon className="w-4 h-4" />
               </div>
             )}
           </div>
