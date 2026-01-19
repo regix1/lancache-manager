@@ -59,18 +59,20 @@ internal static class SparklineTrendMath
         }
 
         var predictedData = BuildPredictedData(predictionDays, data.Count, slope, intercept, 0, null);
-        double trendlineEnd = slope * (data.Count - 1) + intercept;
-        double baselineValue = Math.Max(0, trendlineEnd);
-        double predictedEndValue = predictedData.Count > 0 ? predictedData[^1] : baselineValue;
 
+        // Use last actual data point as baseline (current value)
+        double lastActualValue = data[^1];
+        double predictedEndValue = predictedData.Count > 0 ? predictedData[^1] : lastActualValue;
+
+        // Calculate percent change from current to predicted future
         double percentChange;
-        if (Math.Abs(baselineValue) < BaselineEpsilon)
+        if (Math.Abs(lastActualValue) < BaselineEpsilon)
         {
             percentChange = predictedEndValue > 0 ? 100 : (predictedEndValue < 0 ? -100 : 0);
         }
         else
         {
-            percentChange = ((predictedEndValue - baselineValue) / Math.Abs(baselineValue)) * 100;
+            percentChange = ((predictedEndValue - lastActualValue) / Math.Abs(lastActualValue)) * 100;
         }
 
         percentChange = Math.Max(-PercentCap, Math.Min(PercentCap, percentChange));
@@ -95,11 +97,13 @@ internal static class SparklineTrendMath
         }
 
         var predictedData = BuildPredictedData(predictionDays, data.Count, slope, intercept, 0, 100);
-        double trendlineEnd = slope * (data.Count - 1) + intercept;
-        double baselineValue = Math.Max(0, Math.Min(100, trendlineEnd));
-        double predictedEndValue = predictedData.Count > 0 ? predictedData[^1] : baselineValue;
 
-        var absoluteChange = predictedEndValue - baselineValue;
+        // Use last actual data point as baseline (current ratio)
+        double lastActualValue = Math.Max(0, Math.Min(100, data[^1]));
+        double predictedEndValue = predictedData.Count > 0 ? predictedData[^1] : lastActualValue;
+
+        // For ratios, use absolute point change from current to predicted
+        var absoluteChange = predictedEndValue - lastActualValue;
         absoluteChange = Math.Max(-RatioCap, Math.Min(RatioCap, absoluteChange));
 
         string trend = "stable";

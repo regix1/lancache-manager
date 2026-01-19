@@ -1268,7 +1268,7 @@ public class StatsController : ControllerBase
             return Ok(new SparklineDataResponse
             {
                 BandwidthSaved = BuildSparklineMetric(bandwidthSavedData),
-                CacheHitRatio = BuildSparklineMetricForRatio(cacheHitRatioData), // Use absolute change for ratios
+                CacheHitRatio = BuildSparklineMetricForRatio(cacheHitRatioData),
                 TotalServed = BuildSparklineMetric(totalServedData),
                 AddedToCache = BuildSparklineMetric(addedToCacheData),
                 Period = startTime.HasValue ? "filtered" : "all"
@@ -1282,27 +1282,25 @@ public class StatsController : ControllerBase
     }
 
     // Helper method to build sparkline metric with trend calculation
-    // Uses linear regression to calculate trend direction, magnitude, and future predictions
-    // Percent change is based on trendline end -> predicted end (3 days ahead)
-    // Requires at least 3 data points for meaningful regression
+    // Uses linear regression on ALL provided data to calculate trend and predictions
+    // Time filtering is handled by the API endpoint - we use whatever data we're given
     private static SparklineMetric BuildSparklineMetric(List<double> data)
     {
-        const int PREDICTION_DAYS = 3; // Number of future days to predict
+        const int PREDICTION_DAYS = 3;
 
-        // Trim trailing zeros for trend calculation (incomplete current period)
-        var trimmedForTrend = data.ToList();
-        while (trimmedForTrend.Count > 1 && trimmedForTrend.Last() == 0)
+        // Trim trailing zeros (incomplete current period)
+        var trimmedData = data.ToList();
+        while (trimmedData.Count > 1 && trimmedData.Last() == 0)
         {
-            trimmedForTrend.RemoveAt(trimmedForTrend.Count - 1);
+            trimmedData.RemoveAt(trimmedData.Count - 1);
         }
 
-        // Require at least 3 data points for meaningful linear regression
-        if (trimmedForTrend.Count < 3)
+        if (trimmedData.Count < 3)
         {
             return new SparklineMetric { Data = data, PredictedData = new List<double>(), Trend = "stable", PercentChange = 0 };
         }
 
-        var forecast = SparklineTrendMath.ComputeMetricForecast(trimmedForTrend, PREDICTION_DAYS);
+        var forecast = SparklineTrendMath.ComputeMetricForecast(trimmedData, PREDICTION_DAYS);
         return new SparklineMetric
         {
             Data = data,
@@ -1312,28 +1310,25 @@ public class StatsController : ControllerBase
         };
     }
 
-    // Helper method for ratio metrics (like cache hit ratio) - uses linear regression
-    // For ratios that are already percentages, we show point difference (e.g., 80% -> 85% = +5 pts)
-    // Point change is based on trendline end -> predicted end (3 days ahead)
-    // Requires at least 3 data points for meaningful regression
+    // Helper method for ratio metrics (like cache hit ratio)
+    // Shows point difference (e.g., 80% -> 85% = +5 pts)
     private static SparklineMetric BuildSparklineMetricForRatio(List<double> data)
     {
-        const int PREDICTION_DAYS = 3; // Number of future days to predict
+        const int PREDICTION_DAYS = 3;
 
-        // Trim trailing zeros for trend calculation (incomplete current period)
-        var trimmedForTrend = data.ToList();
-        while (trimmedForTrend.Count > 1 && trimmedForTrend.Last() == 0)
+        // Trim trailing zeros (incomplete current period)
+        var trimmedData = data.ToList();
+        while (trimmedData.Count > 1 && trimmedData.Last() == 0)
         {
-            trimmedForTrend.RemoveAt(trimmedForTrend.Count - 1);
+            trimmedData.RemoveAt(trimmedData.Count - 1);
         }
 
-        // Require at least 3 data points for meaningful linear regression
-        if (trimmedForTrend.Count < 3)
+        if (trimmedData.Count < 3)
         {
             return new SparklineMetric { Data = data, PredictedData = new List<double>(), Trend = "stable", PercentChange = 0, IsAbsoluteChange = true };
         }
 
-        var forecast = SparklineTrendMath.ComputeRatioForecast(trimmedForTrend, PREDICTION_DAYS);
+        var forecast = SparklineTrendMath.ComputeRatioForecast(trimmedData, PREDICTION_DAYS);
         return new SparklineMetric
         {
             Data = data,
