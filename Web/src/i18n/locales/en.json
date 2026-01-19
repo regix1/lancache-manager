@@ -436,19 +436,19 @@
     "trends": {
       "bandwidthSaved": {
         "term": "Trend",
-        "description": "↑ means more saved recently; ↓ means less saved recently, compared to earlier in the selected time range."
+        "description": "↑ means more saved than the previous day; ↓ means less saved than the previous day."
       },
       "addedToCache": {
         "term": "Trend",
-        "description": "↑ means more cached recently; ↓ means less cached recently, compared to earlier in the selected time range."
+        "description": "↑ means more cached than the previous day; ↓ means less cached than the previous day."
       },
       "totalServed": {
         "term": "Trend",
-        "description": "↑ means more served recently; ↓ means less served recently, compared to earlier in the selected time range."
+        "description": "↑ means more served than the previous day; ↓ means less served than the previous day."
       },
       "cacheHitRatio": {
         "term": "Trend",
-        "description": "↑ improving; ↓ declining. Shows change in percentage points."
+        "description": "↑ improving; ↓ declining. Shows change in percentage points compared to the previous day."
       }
     },
     "downloadsPanel": {

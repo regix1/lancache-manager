@@ -990,6 +990,10 @@ const Dashboard: React.FC = () => {
                   card.key === 'addedToCache' ? sparklineData?.addedToCache?.percentChange :
                   undefined
                 }
+                isAbsoluteChange={
+                  card.key === 'cacheHitRatio' ? sparklineData?.cacheHitRatio?.isAbsoluteChange :
+                  undefined
+                }
                 trendHelp={trendHelpContent[card.key]}
                 staggerIndex={initialAnimationComplete ? undefined : visualIndex}
               />

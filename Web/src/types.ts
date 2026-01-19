@@ -178,6 +178,7 @@ export interface SparklineMetric {
   data: number[];
   trend: 'up' | 'down' | 'stable';
   percentChange: number;
+  isAbsoluteChange?: boolean; // When true, percentChange is absolute points (not percentage)
 }
 
 export interface SparklineDataResponse {

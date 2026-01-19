@@ -1282,119 +1282,103 @@ public class StatsController : ControllerBase
     }
 
     // Helper method to build sparkline metric with trend calculation
-    // Uses period-over-period comparison (recent half avg vs older half avg) for meaningful trends
-    // Smooths out volatility by using averages instead of single data points
-    // Caps percentage at ±999% to avoid absurd display values
+    // Uses last-vs-previous comparison for simple, intuitive trend indication
+    // Requires at least 2 data points for comparison
+    // Thresholds: 1% for trend determination, capped at ±500%
     private static SparklineMetric BuildSparklineMetric(List<double> data)
     {
-        if (data.Count < 2)
+        // Keep original data for sparkline display (shows full time window including zero days)
+        // Only trim trailing zeros for trend calculation (incomplete current period)
+        var trimmedForTrend = data.ToList();
+        while (trimmedForTrend.Count > 1 && trimmedForTrend.Last() == 0)
+        {
+            trimmedForTrend.RemoveAt(trimmedForTrend.Count - 1);
+        }
+
+        // Require at least 2 data points for trend calculation
+        if (trimmedForTrend.Count < 2)
         {
             return new SparklineMetric { Data = data, Trend = "stable", PercentChange = 0 };
         }
 
-        // Remove trailing zeros (incomplete current period) for trend calculation
-        var trimmedData = data.ToList();
-        while (trimmedData.Count > 1 && trimmedData.Last() == 0)
-        {
-            trimmedData.RemoveAt(trimmedData.Count - 1);
-        }
+        // Simple last-vs-previous comparison
+        var lastValue = trimmedForTrend.Last();
+        var previousValue = trimmedForTrend[trimmedForTrend.Count - 2];
 
-        if (trimmedData.Count < 2)
+        // If no baseline, return stable
+        if (previousValue == 0 && lastValue == 0)
         {
             return new SparklineMetric { Data = data, Trend = "stable", PercentChange = 0 };
         }
 
-        // Period-over-period comparison: split data into two halves and compare averages
-        // This approach is recommended by analytics tools (Amazon QuickSight, Tableau, etc.)
-        // and smooths out volatility from single-point comparisons
-        var midpoint = trimmedData.Count / 2;
-        var olderHalf = trimmedData.Take(midpoint).ToList();
-        var recentHalf = trimmedData.Skip(midpoint).ToList();
-
-        var olderAvg = olderHalf.Count > 0 ? olderHalf.Average() : 0;
-        var recentAvg = recentHalf.Count > 0 ? recentHalf.Average() : 0;
-
-        // If no baseline data in both periods, stable
-        if (olderAvg == 0 && recentAvg == 0)
-        {
-            return new SparklineMetric { Data = data, Trend = "stable", PercentChange = 0 };
-        }
-
-        // Calculate percent change between period averages
+        // Calculate percent change
         double percentChange;
-        if (olderAvg == 0)
+        if (previousValue == 0)
         {
-            // New activity appeared - cap at 100% to indicate growth without extreme values
-            percentChange = recentAvg > 0 ? 100 : 0;
+            // New activity appeared - cap at 100% to indicate growth
+            percentChange = lastValue > 0 ? 100 : 0;
         }
         else
         {
-            percentChange = ((recentAvg - olderAvg) / olderAvg) * 100;
+            percentChange = ((lastValue - previousValue) / previousValue) * 100;
         }
 
-        // Cap percentage at reasonable bounds (±999%) to avoid absurd display values
-        // Per KPI best practices: bounds should be reasonable and contextual
-        percentChange = Math.Max(-999, Math.Min(999, percentChange));
+        // Cap at ±500%
+        percentChange = Math.Max(-500, Math.Min(500, percentChange));
 
-        // Use a 5% threshold for trend determination (more stable than 1%)
+        // Use 1% threshold for trend determination
         string trend = "stable";
-        if (percentChange > 5) trend = "up";
-        else if (percentChange < -5) trend = "down";
+        if (percentChange > 1) trend = "up";
+        else if (percentChange < -1) trend = "down";
 
         return new SparklineMetric
         {
-            Data = data,
+            Data = data, // Return original data for sparkline (full time window)
             Trend = trend,
             PercentChange = Math.Round(percentChange, 1)
         };
     }
 
-    // Helper method for ratio metrics (like cache hit ratio) - uses absolute change, not percent change
-    // For ratios that are already percentages, showing "percent of percent" is confusing
-    // Uses period-over-period comparison with averages for stability
+    // Helper method for ratio metrics (like cache hit ratio) - uses absolute point change
+    // For ratios that are already percentages, we show point difference (e.g., 80% -> 85% = +5 pts)
+    // Requires at least 2 data points for comparison
     private static SparklineMetric BuildSparklineMetricForRatio(List<double> data)
     {
-        if (data.Count < 2)
+        // Keep original data for sparkline display (shows full time window including zero days)
+        // Only trim trailing zeros for trend calculation (incomplete current period)
+        var trimmedForTrend = data.ToList();
+        while (trimmedForTrend.Count > 1 && trimmedForTrend.Last() == 0)
         {
-            return new SparklineMetric { Data = data, Trend = "stable", PercentChange = 0 };
+            trimmedForTrend.RemoveAt(trimmedForTrend.Count - 1);
         }
 
-        // Remove trailing zeros (incomplete current period) for trend calculation
-        var trimmedData = data.ToList();
-        while (trimmedData.Count > 1 && trimmedData.Last() == 0)
+        // Require at least 2 data points for trend calculation
+        if (trimmedForTrend.Count < 2)
         {
-            trimmedData.RemoveAt(trimmedData.Count - 1);
+            return new SparklineMetric { Data = data, Trend = "stable", PercentChange = 0, IsAbsoluteChange = true };
         }
 
-        if (trimmedData.Count < 2)
-        {
-            return new SparklineMetric { Data = data, Trend = "stable", PercentChange = 0 };
-        }
+        // Simple last-vs-previous comparison using absolute point change
+        var lastValue = trimmedForTrend.Last();
+        var previousValue = trimmedForTrend[trimmedForTrend.Count - 2];
 
-        // Period-over-period comparison: split data into two halves and compare averages
-        var midpoint = trimmedData.Count / 2;
-        var olderHalf = trimmedData.Take(midpoint).ToList();
-        var recentHalf = trimmedData.Skip(midpoint).ToList();
+        // Absolute point change (e.g., 80% -> 85% = +5 points)
+        var absoluteChange = lastValue - previousValue;
 
-        var olderAvg = olderHalf.Count > 0 ? olderHalf.Average() : 0;
-        var recentAvg = recentHalf.Count > 0 ? recentHalf.Average() : 0;
-
-        // For ratios, use absolute point change between period averages
-        // e.g., older avg 20% -> recent avg 80% = +60 points
-        var absoluteChange = recentAvg - olderAvg;
-
-        // Cap at reasonable bounds for ratio changes (ratios are 0-100, so ±100 is max meaningful)
+        // Cap at ±100 points (max meaningful for 0-100 ratio)
         absoluteChange = Math.Max(-100, Math.Min(100, absoluteChange));
 
+        // Use 1 point threshold for trend determination
         string trend = "stable";
-        if (absoluteChange > 2) trend = "up";
-        else if (absoluteChange < -2) trend = "down";
+        if (absoluteChange > 1) trend = "up";
+        else if (absoluteChange < -1) trend = "down";
 
         return new SparklineMetric
         {
-            Data = data,
+            Data = data, // Return original data for sparkline (full time window)
             Trend = trend,
-            PercentChange = Math.Round(absoluteChange, 1) // This is absolute points, not percent
+            PercentChange = Math.Round(absoluteChange, 1),
+            IsAbsoluteChange = true // Flag to tell UI this is points, not percent
         };
     }
 

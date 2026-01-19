@@ -1238,19 +1238,29 @@ public class SparklineDataResponse
 public class SparklineMetric
 {
     /// <summary>
-    /// Data points for the sparkline (values only, ordered by time)
+    /// Data points for the sparkline (values only, ordered by time).
+    /// Trailing zeros are removed to avoid showing incomplete periods.
     /// </summary>
     public List<double> Data { get; set; } = new();
 
     /// <summary>
-    /// Trend direction: up, down, or stable
+    /// Trend direction: up, down, or stable.
+    /// Based on comparing last value to previous value.
     /// </summary>
     public string Trend { get; set; } = "stable";
 
     /// <summary>
-    /// Percentage change from first to last data point
+    /// Change value comparing last to previous data point.
+    /// For regular metrics: percentage change (e.g., +25.5 means 25.5% increase).
+    /// For ratio metrics (IsAbsoluteChange=true): absolute point change (e.g., +5 means 5 points).
     /// </summary>
     public double PercentChange { get; set; }
+
+    /// <summary>
+    /// When true, PercentChange represents absolute points (not percentage).
+    /// Used for ratio metrics like cache hit ratio where showing "percent of percent" is confusing.
+    /// </summary>
+    public bool IsAbsoluteChange { get; set; }
 }
 
 // ============================================================
