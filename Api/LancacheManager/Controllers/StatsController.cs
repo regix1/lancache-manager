@@ -1283,6 +1283,7 @@ public class StatsController : ControllerBase
 
     // Helper method to build sparkline metric with trend calculation
     // Uses linear regression to calculate trend direction, magnitude, and future predictions
+    // Percent change is based on trendline end -> predicted end (3 days ahead)
     // Requires at least 3 data points for meaningful regression
     private static SparklineMetric BuildSparklineMetric(List<double> data)
     {
@@ -1301,73 +1302,19 @@ public class StatsController : ControllerBase
             return new SparklineMetric { Data = data, PredictedData = new List<double>(), Trend = "stable", PercentChange = 0 };
         }
 
-        // Calculate linear regression (least squares method)
-        // y = slope * x + intercept
-        int n = trimmedForTrend.Count;
-        double sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
-        
-        for (int i = 0; i < n; i++)
-        {
-            sumX += i;
-            sumY += trimmedForTrend[i];
-            sumXY += i * trimmedForTrend[i];
-            sumX2 += i * i;
-        }
-
-        double denominator = n * sumX2 - sumX * sumX;
-        if (Math.Abs(denominator) < 0.0001)
-        {
-            // Flat line - no trend
-            return new SparklineMetric { Data = data, PredictedData = new List<double>(), Trend = "stable", PercentChange = 0 };
-        }
-
-        double slope = (n * sumXY - sumX * sumY) / denominator;
-        double intercept = (sumY - slope * sumX) / n;
-
-        // Generate predicted future values (continuing the trendline)
-        var predictedData = new List<double>();
-        for (int i = 0; i < PREDICTION_DAYS; i++)
-        {
-            double predictedValue = slope * (n + i) + intercept;
-            // Don't predict negative values for metrics that can't be negative
-            predictedData.Add(Math.Max(0, predictedValue));
-        }
-
-        // Get last actual value and last predicted value for percentage calculation
-        double lastActualValue = trimmedForTrend.Last();
-        double lastPredictedValue = predictedData.Last();
-
-        // Calculate percent change from current to predicted future
-        double percentChange;
-        if (Math.Abs(lastActualValue) < 0.001)
-        {
-            // If current value is near zero, use a sensible default
-            percentChange = lastPredictedValue > 0 ? 100 : (lastPredictedValue < 0 ? -100 : 0);
-        }
-        else
-        {
-            percentChange = ((lastPredictedValue - lastActualValue) / Math.Abs(lastActualValue)) * 100;
-        }
-
-        // Cap at ±500%
-        percentChange = Math.Max(-500, Math.Min(500, percentChange));
-
-        // Determine trend direction (use 5% threshold for stability)
-        string trend = "stable";
-        if (percentChange > 5) trend = "up";
-        else if (percentChange < -5) trend = "down";
-
+        var forecast = SparklineTrendMath.ComputeMetricForecast(trimmedForTrend, PREDICTION_DAYS);
         return new SparklineMetric
         {
             Data = data,
-            PredictedData = predictedData,
-            Trend = trend,
-            PercentChange = Math.Round(percentChange, 1)
+            PredictedData = forecast.PredictedData,
+            Trend = forecast.Trend,
+            PercentChange = forecast.PercentChange
         };
     }
 
     // Helper method for ratio metrics (like cache hit ratio) - uses linear regression
     // For ratios that are already percentages, we show point difference (e.g., 80% -> 85% = +5 pts)
+    // Point change is based on trendline end -> predicted end (3 days ahead)
     // Requires at least 3 data points for meaningful regression
     private static SparklineMetric BuildSparklineMetricForRatio(List<double> data)
     {
@@ -1386,59 +1333,13 @@ public class StatsController : ControllerBase
             return new SparklineMetric { Data = data, PredictedData = new List<double>(), Trend = "stable", PercentChange = 0, IsAbsoluteChange = true };
         }
 
-        // Calculate linear regression (least squares method)
-        int n = trimmedForTrend.Count;
-        double sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
-        
-        for (int i = 0; i < n; i++)
-        {
-            sumX += i;
-            sumY += trimmedForTrend[i];
-            sumXY += i * trimmedForTrend[i];
-            sumX2 += i * i;
-        }
-
-        double denominator = n * sumX2 - sumX * sumX;
-        if (Math.Abs(denominator) < 0.0001)
-        {
-            // Flat line - no trend
-            return new SparklineMetric { Data = data, PredictedData = new List<double>(), Trend = "stable", PercentChange = 0, IsAbsoluteChange = true };
-        }
-
-        double slope = (n * sumXY - sumX * sumY) / denominator;
-        double intercept = (sumY - slope * sumX) / n;
-
-        // Generate predicted future values (continuing the trendline)
-        // For ratios, clamp between 0 and 100
-        var predictedData = new List<double>();
-        for (int i = 0; i < PREDICTION_DAYS; i++)
-        {
-            double predictedValue = slope * (n + i) + intercept;
-            predictedData.Add(Math.Max(0, Math.Min(100, predictedValue)));
-        }
-
-        // Get last actual value and last predicted value for point change calculation
-        double lastActualValue = trimmedForTrend.Last();
-        double lastPredictedValue = predictedData.Last();
-
-        // For ratios, use absolute point change from current to predicted
-        // e.g., current 80%, predicted 85% = +5 points
-        var absoluteChange = lastPredictedValue - lastActualValue;
-
-        // Cap at ±100 points (max meaningful for 0-100 ratio)
-        absoluteChange = Math.Max(-100, Math.Min(100, absoluteChange));
-
-        // Determine trend direction (use 2 point threshold for ratios)
-        string trend = "stable";
-        if (absoluteChange > 2) trend = "up";
-        else if (absoluteChange < -2) trend = "down";
-
+        var forecast = SparklineTrendMath.ComputeRatioForecast(trimmedForTrend, PREDICTION_DAYS);
         return new SparklineMetric
         {
             Data = data,
-            PredictedData = predictedData,
-            Trend = trend,
-            PercentChange = Math.Round(absoluteChange, 1),
+            PredictedData = forecast.PredictedData,
+            Trend = forecast.Trend,
+            PercentChange = forecast.PercentChange,
             IsAbsoluteChange = true
         };
     }

@@ -1256,8 +1256,8 @@ public class SparklineMetric
 
     /// <summary>
     /// Change value calculated using linear regression on the data points.
-    /// For regular metrics: percentage change between trendline start and end.
-    /// For ratio metrics (IsAbsoluteChange=true): absolute point change (e.g., +5 means 5 points).
+    /// For regular metrics: percentage change from trendline end to predicted end (3 days ahead).
+    /// For ratio metrics (IsAbsoluteChange=true): absolute point change over the same forecast window.
     /// </summary>
     public double PercentChange { get; set; }
 
