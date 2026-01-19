@@ -1327,10 +1327,10 @@ public class StatsController : ControllerBase
             Math.Max(0, slope * (n + 2) + intercept)
         };
 
-        // Percent change = slope * 3 days / current trendline value
-        double currentValue = slope * (n - 1) + intercept;
-        double pct = Math.Abs(currentValue) > 0.001 ? (slope * 3 / Math.Abs(currentValue)) * 100 : 0;
-        pct = Math.Clamp(pct, -500, 500);
+        // Percent change = slope * 3 days / average value (more stable than current value)
+        double avg = trimmed.Average();
+        double pct = avg > 0.001 ? (slope * 3 / avg) * 100 : 0;
+        pct = Math.Clamp(pct, -99, 99);
 
         string trend = pct > 5 ? "up" : pct < -5 ? "down" : "stable";
 
