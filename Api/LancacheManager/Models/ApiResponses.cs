@@ -1253,19 +1253,6 @@ public class SparklineMetric
     /// Based on linear regression of the data points.
     /// </summary>
     public string Trend { get; set; } = "stable";
-
-    /// <summary>
-    /// Change value calculated using linear regression on the data points.
-    /// For regular metrics: percentage change from trendline end to predicted end (3 days ahead).
-    /// For ratio metrics (IsAbsoluteChange=true): absolute point change over the same forecast window.
-    /// </summary>
-    public double PercentChange { get; set; }
-
-    /// <summary>
-    /// When true, PercentChange represents absolute points (not percentage).
-    /// Used for ratio metrics like cache hit ratio where showing "percent of percent" is confusing.
-    /// </summary>
-    public bool IsAbsoluteChange { get; set; }
 }
 
 // ============================================================

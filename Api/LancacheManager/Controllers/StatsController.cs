@@ -1203,13 +1203,11 @@ public class StatsController : ControllerBase
             var eventIdList = ParseEventId(eventId);
 
             // Build query with optional time filtering
-            // Filter out hidden IPs completely, but include excluded IPs (they'll be excluded from calculations)
             var query = _context.Downloads.AsNoTracking();
             var hiddenClientIps = _stateRepository.GetHiddenClientIps();
             var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
             query = ApplyHiddenClientFilter(query, hiddenClientIps);
 
-            // Apply event filter if provided (filters to only tagged downloads)
             HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
             query = ApplyEventFilter(query, eventIdList, eventDownloadIds);
 
@@ -1224,42 +1222,47 @@ public class StatsController : ControllerBase
                 query = query.Where(d => d.StartTimeUtc <= endDateTime);
             }
 
-            // Query downloads grouped by date (exclude stats-excluded IPs from calculations)
-            var dailyDataAll = await query
-                .GroupBy(d => d.StartTimeUtc.Date)
+            // Determine bucket size based on time range
+            // <2h: 15min, <13h: 30min, <25h: 1h, else: 1 day
+            int bucketMinutes = 1440; // default: 1 day
+            if (startTime.HasValue && endTime.HasValue)
+            {
+                var rangeHours = (endTime.Value - startTime.Value) / 3600.0;
+                if (rangeHours <= 2) bucketMinutes = 15;
+                else if (rangeHours <= 13) bucketMinutes = 30;
+                else if (rangeHours <= 25) bucketMinutes = 60;
+            }
+
+            // Fetch raw data and group in memory for flexible bucketing
+            var rawData = await query
+                .Select(d => new { d.StartTimeUtc, d.CacheHitBytes, d.CacheMissBytes, d.ClientIp })
+                .ToListAsync();
+
+            // Filter out excluded IPs
+            var filteredData = statsExcludedOnlyIps.Count > 0
+                ? rawData.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp)).ToList()
+                : rawData;
+
+            // Group by bucket
+            var bucketedData = filteredData
+                .GroupBy(d => {
+                    var totalMinutes = (long)(d.StartTimeUtc - DateTime.UnixEpoch).TotalMinutes;
+                    return totalMinutes / bucketMinutes * bucketMinutes;
+                })
                 .OrderBy(g => g.Key)
                 .Select(g => new
                 {
-                    Date = g.Key,
+                    Bucket = g.Key,
                     CacheHitBytes = g.Sum(d => d.CacheHitBytes),
                     CacheMissBytes = g.Sum(d => d.CacheMissBytes)
                 })
-                .ToListAsync();
-
-            // Subtract excluded IPs from calculations if any
-            var dailyData = dailyDataAll;
-            if (statsExcludedOnlyIps.Count > 0)
-            {
-                var excludedDailyData = await query
-                    .Where(d => statsExcludedOnlyIps.Contains(d.ClientIp))
-                    .GroupBy(d => d.StartTimeUtc.Date)
-                    .Select(g => new { Date = g.Key, CacheHitBytes = g.Sum(d => d.CacheHitBytes), CacheMissBytes = g.Sum(d => d.CacheMissBytes) })
-                    .ToListAsync();
-
-                var excludedByDate = excludedDailyData.ToDictionary(d => d.Date);
-                dailyData = dailyDataAll.Select(d => new
-                {
-                    d.Date,
-                    CacheHitBytes = excludedByDate.TryGetValue(d.Date, out var excl) ? d.CacheHitBytes - excl.CacheHitBytes : d.CacheHitBytes,
-                    CacheMissBytes = excludedByDate.TryGetValue(d.Date, out var excl2) ? d.CacheMissBytes - excl2.CacheMissBytes : d.CacheMissBytes
-                }).ToList();
-            }
+                .ToList();
 
             // Build sparkline data for each metric
-            var bandwidthSavedData = dailyData.Select(d => (double)d.CacheHitBytes).ToList();
-            var addedToCacheData = dailyData.Select(d => (double)d.CacheMissBytes).ToList();
-            var totalServedData = dailyData.Select(d => (double)(d.CacheHitBytes + d.CacheMissBytes)).ToList();
-            var cacheHitRatioData = dailyData.Select(d =>
+            var bandwidthSavedData = bucketedData.Select(d => (double)d.CacheHitBytes).ToList();
+            var addedToCacheData = bucketedData.Select(d => (double)d.CacheMissBytes).ToList();
+            var totalServedData = bucketedData.Select(d => (double)(d.CacheHitBytes + d.CacheMissBytes)).ToList();
+            var cacheHitRatioData = bucketedData.Select(d =>
             {
                 var total = d.CacheHitBytes + d.CacheMissBytes;
                 return total > 0 ? (d.CacheHitBytes * 100.0) / total : 0.0;

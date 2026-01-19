@@ -178,8 +178,6 @@ export interface SparklineMetric {
   data: number[];
   predictedData?: number[]; // Future predicted values based on linear regression
   trend: 'up' | 'down' | 'stable';
-  percentChange: number;
-  isAbsoluteChange?: boolean; // When true, percentChange is absolute points (not percentage)
 }
 
 export interface SparklineDataResponse {
