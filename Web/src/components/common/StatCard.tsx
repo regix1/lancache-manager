@@ -16,6 +16,7 @@ interface StatCardProps {
   color: StatCardColor;
   // Sparkline props
   sparklineData?: number[];
+  predictedSparklineData?: number[]; // Predicted future data points
   sparklineColor?: string;
   // Trend props
   trend?: 'up' | 'down' | 'stable';
@@ -53,6 +54,7 @@ const StatCard: React.FC<StatCardProps> = ({
   icon: Icon,
   color,
   sparklineData,
+  predictedSparklineData,
   sparklineColor,
   trend,
   percentChange,
@@ -190,6 +192,7 @@ const StatCard: React.FC<StatCardProps> = ({
         {sparklineData && sparklineData.length >= 1 ? (
           <Sparkline
             data={sparklineData.length === 1 ? [sparklineData[0], sparklineData[0]] : sparklineData}
+            predictedData={predictedSparklineData}
             color={resolvedSparklineColor}
             height={32}
             showArea={true}

@@ -976,6 +976,13 @@ const Dashboard: React.FC = () => {
                   card.key === 'addedToCache' ? sparklineData?.addedToCache?.data :
                   undefined
                 }
+                predictedSparklineData={
+                  card.key === 'bandwidthSaved' ? sparklineData?.bandwidthSaved?.predictedData :
+                  card.key === 'cacheHitRatio' ? sparklineData?.cacheHitRatio?.predictedData :
+                  card.key === 'totalServed' ? sparklineData?.totalServed?.predictedData :
+                  card.key === 'addedToCache' ? sparklineData?.addedToCache?.predictedData :
+                  undefined
+                }
                 trend={
                   card.key === 'bandwidthSaved' ? sparklineData?.bandwidthSaved?.trend :
                   card.key === 'cacheHitRatio' ? sparklineData?.cacheHitRatio?.trend :

@@ -1238,10 +1238,15 @@ public class SparklineDataResponse
 public class SparklineMetric
 {
     /// <summary>
-    /// Data points for the sparkline (values only, ordered by time).
-    /// Trailing zeros are removed to avoid showing incomplete periods.
+    /// Actual data points for the sparkline (values only, ordered by time).
     /// </summary>
     public List<double> Data { get; set; } = new();
+
+    /// <summary>
+    /// Predicted future data points based on linear regression.
+    /// These should be displayed in a different color to indicate they are projections.
+    /// </summary>
+    public List<double> PredictedData { get; set; } = new();
 
     /// <summary>
     /// Trend direction: up, down, or stable.

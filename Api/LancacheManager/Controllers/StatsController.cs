@@ -1282,11 +1282,12 @@ public class StatsController : ControllerBase
     }
 
     // Helper method to build sparkline metric with trend calculation
-    // Uses linear regression to calculate trend direction and magnitude
-    // This smooths out daily volatility while showing actual trend
+    // Uses linear regression to calculate trend direction, magnitude, and future predictions
     // Requires at least 3 data points for meaningful regression
     private static SparklineMetric BuildSparklineMetric(List<double> data)
     {
+        const int PREDICTION_DAYS = 3; // Number of future days to predict
+
         // Trim trailing zeros for trend calculation (incomplete current period)
         var trimmedForTrend = data.ToList();
         while (trimmedForTrend.Count > 1 && trimmedForTrend.Last() == 0)
@@ -1297,7 +1298,7 @@ public class StatsController : ControllerBase
         // Require at least 3 data points for meaningful linear regression
         if (trimmedForTrend.Count < 3)
         {
-            return new SparklineMetric { Data = data, Trend = "stable", PercentChange = 0 };
+            return new SparklineMetric { Data = data, PredictedData = new List<double>(), Trend = "stable", PercentChange = 0 };
         }
 
         // Calculate linear regression (least squares method)
@@ -1313,12 +1314,28 @@ public class StatsController : ControllerBase
             sumX2 += i * i;
         }
 
-        double slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+        double denominator = n * sumX2 - sumX * sumX;
+        if (Math.Abs(denominator) < 0.0001)
+        {
+            // Flat line - no trend
+            return new SparklineMetric { Data = data, PredictedData = new List<double>(), Trend = "stable", PercentChange = 0 };
+        }
+
+        double slope = (n * sumXY - sumX * sumY) / denominator;
         double intercept = (sumY - slope * sumX) / n;
 
         // Calculate predicted values at start and end of trendline
         double startValue = intercept; // x = 0
         double endValue = slope * (n - 1) + intercept; // x = n-1
+
+        // Generate predicted future values (continuing the trendline)
+        var predictedData = new List<double>();
+        for (int i = 0; i < PREDICTION_DAYS; i++)
+        {
+            double predictedValue = slope * (n + i) + intercept;
+            // Don't predict negative values for metrics that can't be negative
+            predictedData.Add(Math.Max(0, predictedValue));
+        }
 
         // If start is near zero, use actual data average as baseline
         if (Math.Abs(startValue) < 0.001)
@@ -1347,7 +1364,8 @@ public class StatsController : ControllerBase
 
         return new SparklineMetric
         {
-            Data = data, // Return original data for sparkline (full time window)
+            Data = data,
+            PredictedData = predictedData,
             Trend = trend,
             PercentChange = Math.Round(percentChange, 1)
         };
@@ -1358,6 +1376,8 @@ public class StatsController : ControllerBase
     // Requires at least 3 data points for meaningful regression
     private static SparklineMetric BuildSparklineMetricForRatio(List<double> data)
     {
+        const int PREDICTION_DAYS = 3; // Number of future days to predict
+
         // Trim trailing zeros for trend calculation (incomplete current period)
         var trimmedForTrend = data.ToList();
         while (trimmedForTrend.Count > 1 && trimmedForTrend.Last() == 0)
@@ -1368,7 +1388,7 @@ public class StatsController : ControllerBase
         // Require at least 3 data points for meaningful linear regression
         if (trimmedForTrend.Count < 3)
         {
-            return new SparklineMetric { Data = data, Trend = "stable", PercentChange = 0, IsAbsoluteChange = true };
+            return new SparklineMetric { Data = data, PredictedData = new List<double>(), Trend = "stable", PercentChange = 0, IsAbsoluteChange = true };
         }
 
         // Calculate linear regression (least squares method)
@@ -1383,12 +1403,28 @@ public class StatsController : ControllerBase
             sumX2 += i * i;
         }
 
-        double slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+        double denominator = n * sumX2 - sumX * sumX;
+        if (Math.Abs(denominator) < 0.0001)
+        {
+            // Flat line - no trend
+            return new SparklineMetric { Data = data, PredictedData = new List<double>(), Trend = "stable", PercentChange = 0, IsAbsoluteChange = true };
+        }
+
+        double slope = (n * sumXY - sumX * sumY) / denominator;
         double intercept = (sumY - slope * sumX) / n;
 
         // Calculate predicted values at start and end of trendline
         double startValue = intercept; // x = 0
         double endValue = slope * (n - 1) + intercept; // x = n-1
+
+        // Generate predicted future values (continuing the trendline)
+        // For ratios, clamp between 0 and 100
+        var predictedData = new List<double>();
+        for (int i = 0; i < PREDICTION_DAYS; i++)
+        {
+            double predictedValue = slope * (n + i) + intercept;
+            predictedData.Add(Math.Max(0, Math.Min(100, predictedValue)));
+        }
 
         // For ratios, use absolute point change between trendline endpoints
         // e.g., trendline goes from 80% to 85% = +5 points
@@ -1404,10 +1440,11 @@ public class StatsController : ControllerBase
 
         return new SparklineMetric
         {
-            Data = data, // Return original data for sparkline (full time window)
+            Data = data,
+            PredictedData = predictedData,
             Trend = trend,
             PercentChange = Math.Round(absoluteChange, 1),
-            IsAbsoluteChange = true // Flag to tell UI this is points, not percent
+            IsAbsoluteChange = true
         };
     }
 

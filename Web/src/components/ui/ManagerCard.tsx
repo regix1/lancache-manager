@@ -267,24 +267,3 @@ export const ReadOnlyBadge: React.FC<ReadOnlyBadgeProps> = ({
   );
 };
 
-// ============================================================================
-// SCANNING STATE (for background operations)
-// ============================================================================
-
-interface ScanningStateProps {
-  message: string;
-}
-
-/**
- * Standardized scanning/processing state alert
- */
-export const ScanningState: React.FC<ScanningStateProps> = ({ message }) => {
-  return (
-    <div className="flex items-center gap-2 p-3 rounded-lg mb-4 bg-[var(--theme-info-bg)] border border-[var(--theme-info)]">
-      <Loader2 className="w-4 h-4 animate-spin text-themed-info" />
-      <span className="text-sm text-themed-info">
-        {message}
-      </span>
-    </div>
-  );
-};
