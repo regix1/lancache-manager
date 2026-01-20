@@ -220,6 +220,10 @@ services:
       # Path to LANCache cache directory (inside the container)
       - LanCache__CachePath=/cache
 
+      # Path to lancache .env file (for reading CACHE_DISK_SIZE when Docker socket unavailable)
+      # If not set, auto-searches: /srv/lancache/.env, /opt/lancache/.env, /lancache/.env
+      # - LanCache__EnvFilePath=/lancache/.env
+
       #=========================================================================
       # OPTIONAL - Defaults work for most users (auto-detected or sensible defaults)
       #=========================================================================
@@ -402,6 +406,7 @@ services:
 |----------|---------|-------------|
 | `LanCache__LogPath` | - | Path to the LANCache access log file. |
 | `LanCache__CachePath` | - | Path to the LANCache cache directory. |
+| `LanCache__EnvFilePath` | (auto) | Path to lancache `.env` file for reading `CACHE_DISK_SIZE`. Auto-searches common paths if not set. |
 | `LanCache__AutoDiscoverDatasources` | false | Auto-detect datasources from matching subdirectories. |
 
 ### Security

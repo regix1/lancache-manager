@@ -38,6 +38,7 @@ public class CacheManagementService
     private long? _cachedConfiguredCacheSize;
     private DateTime _configuredCacheSizeLastChecked = DateTime.MinValue;
     private readonly TimeSpan _configuredCacheSizeCacheTime = TimeSpan.FromMinutes(5);
+    private bool _hasLoggedConfiguredCacheSize = false;
 
     public CacheManagementService(
         IConfiguration configuration,
@@ -254,8 +255,12 @@ public class CacheManagementService
                     var parsedSize = ParseCacheSize(value);
                     if (parsedSize > 0)
                     {
-                        _logger.LogInformation("Configured cache size: {Value} ({FormattedSize}) from container {ContainerName}",
-                            value, FormatBytes(parsedSize), lancacheContainer.Names.FirstOrDefault()?.TrimStart('/'));
+                        if (!_hasLoggedConfiguredCacheSize)
+                        {
+                            _logger.LogInformation("Configured cache size: {Value} ({FormattedSize}) from container {ContainerName}",
+                                value, FormatBytes(parsedSize), lancacheContainer.Names.FirstOrDefault()?.TrimStart('/'));
+                            _hasLoggedConfiguredCacheSize = true;
+                        }
                         return parsedSize;
                     }
                 }
@@ -327,8 +332,12 @@ public class CacheManagementService
                     var parsedSize = ParseCacheSize(value);
                     if (parsedSize > 0)
                     {
-                        _logger.LogInformation("Configured cache size: {Value} ({FormattedSize}) from .env file: {Path}",
-                            value, FormatBytes(parsedSize), envFilePath);
+                        if (!_hasLoggedConfiguredCacheSize)
+                        {
+                            _logger.LogInformation("Configured cache size: {Value} ({FormattedSize}) from .env file: {Path}",
+                                value, FormatBytes(parsedSize), envFilePath);
+                            _hasLoggedConfiguredCacheSize = true;
+                        }
                         return parsedSize;
                     }
                 }
