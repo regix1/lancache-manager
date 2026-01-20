@@ -390,6 +390,8 @@
       "activeClients": "Active Clients",
       "cacheHitRatio": "Cache Hit Ratio",
       "driveCapacity": "Drive capacity",
+      "configuredSize": "Configured size",
+      "driveCapacityValue": "Drive: {{size}}",
       "disabled": "Disabled",
       "liveDataOnly": "Live data only",
       "inPeriod": "in period",
@@ -402,7 +404,7 @@
     "statCards": {
       "totalCache": {
         "term": "What it shows",
-        "description": "Total cache capacity configured for this instance, based on your cache drive size."
+        "description": "Cache size limit - either from CACHE_DISK_SIZE in your .env file, or the full drive capacity if not configured."
       },
       "usedSpace": {
         "term": "What it shows",
@@ -607,6 +609,7 @@
       "full": "Full",
       "empty": "Empty",
       "used": "{{percent}}% used",
+      "overLimit": "{{percent}}% (evicting)",
       "stable": "Stable",
       "cacheClearedNote": "Cache cleared • Showing new downloads",
       "someDeleted": "Some cache data was deleted",

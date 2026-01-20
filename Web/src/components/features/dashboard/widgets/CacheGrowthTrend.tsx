@@ -116,9 +116,14 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
   const cacheWasCleared = data?.cacheWasCleared ?? false;
 
   // Usage percentage (from props - real cache info)
+  // Note: Can exceed 100% temporarily during nginx cache eviction
   const usagePercent = totalCacheSize > 0
     ? (usedCacheSize / totalCacheSize) * 100
     : 0;
+  
+  // Cap at 100% for progress bar display, but track if we're over
+  const isOverLimit = usagePercent > 100;
+  const displayPercent = Math.min(usagePercent, 100);
 
   // Get trend color
   const getTrendColor = (): string => {
@@ -244,13 +249,15 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
               <div
                 className="widget-progress-fill"
                 style={{
-                  width: `${usagePercent}%`,
+                  width: `${displayPercent}%`,
                   backgroundColor:
-                    usagePercent >= 90
-                      ? 'var(--theme-error)'
-                      : usagePercent >= 75
-                        ? 'var(--theme-warning)'
-                        : 'var(--theme-primary)',
+                    isOverLimit
+                      ? 'var(--theme-error)'  // Over configured limit (during eviction)
+                      : usagePercent >= 90
+                        ? 'var(--theme-error)'
+                        : usagePercent >= 75
+                          ? 'var(--theme-warning)'
+                          : 'var(--theme-primary)',
                 }}
               />
             </div>
@@ -312,9 +319,11 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
                 ? t('widgets.cacheGrowthTrend.days', { count: daysUntilFull })
                 : daysUntilFull === 0
                   ? t('widgets.cacheGrowthTrend.full')
-                  : usagePercent > 0
-                    ? t('widgets.cacheGrowthTrend.used', { percent: usagePercent.toFixed(1) })
-                    : t('widgets.cacheGrowthTrend.empty')}
+                  : isOverLimit
+                    ? t('widgets.cacheGrowthTrend.overLimit', { percent: usagePercent.toFixed(1) })
+                    : usagePercent > 0
+                      ? t('widgets.cacheGrowthTrend.used', { percent: usagePercent.toFixed(1) })
+                      : t('widgets.cacheGrowthTrend.empty')}
           </div>
         </div>
       </div>

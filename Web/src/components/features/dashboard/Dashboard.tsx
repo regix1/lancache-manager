@@ -505,7 +505,9 @@ const Dashboard: React.FC = () => {
         key: 'totalCache',
         title: t('dashboard.cards.totalCache'),
         value: cacheInfo ? formatBytes(cacheInfo.totalCacheSize) : '0 B',
-        subtitle: t('dashboard.cards.driveCapacity'),
+        subtitle: cacheInfo?.configuredCacheSize && cacheInfo.configuredCacheSize > 0
+          ? t('dashboard.cards.driveCapacityValue', { size: formatBytes(cacheInfo.driveCapacity) })
+          : t('dashboard.cards.driveCapacity'),
         icon: Database,
         color: 'blue' as const,
         visible: cardVisibility.totalCache,

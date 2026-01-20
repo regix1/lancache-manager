@@ -90,7 +90,9 @@ class MockDataService {
 
     // Generate cache info
     const cacheInfo = {
-      totalCacheSize: 2000000000000, // 2TB
+      totalCacheSize: 2000000000000, // 2TB (configured size)
+      configuredCacheSize: 2000000000000, // 2TB
+      driveCapacity: 4000000000000, // 4TB (physical drive)
       usedCacheSize: 1450000000000, // 1.45TB
       freeCacheSize: 550000000000,
       usagePercent: 72.5,

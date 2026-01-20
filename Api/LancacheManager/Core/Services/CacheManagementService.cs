@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Docker.DotNet;
+using Docker.DotNet.Models;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces.Services;
@@ -20,6 +22,7 @@ public class CacheManagementService
     private readonly NginxLogRotationService _nginxLogRotationService;
     private readonly IHubContext<DownloadHub> _hubContext;
     private readonly DatasourceService _datasourceService;
+    private readonly DockerClient? _dockerClient;
 
     // Legacy single-path fields (for backward compatibility)
     private readonly string _cachePath;
@@ -29,6 +32,11 @@ public class CacheManagementService
     private readonly SemaphoreSlim _cacheLock = new SemaphoreSlim(1, 1);
     private DateTime? _lastLogWarningTime; // Track last time we logged a warning
     private readonly TimeSpan _logWarningThrottle = TimeSpan.FromMinutes(5); // Only log warnings every 5 minutes
+    
+    // Cache the configured cache size to avoid repeated Docker API calls
+    private long? _cachedConfiguredCacheSize;
+    private DateTime _configuredCacheSizeLastChecked = DateTime.MinValue;
+    private readonly TimeSpan _configuredCacheSizeCacheTime = TimeSpan.FromMinutes(5);
 
     public CacheManagementService(
         IConfiguration configuration,
@@ -87,6 +95,24 @@ public class CacheManagementService
             }
         }
 
+        // Initialize Docker client for reading container configuration
+        try
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                var dockerUri = new Uri("unix:///var/run/docker.sock");
+                if (File.Exists("/var/run/docker.sock"))
+                {
+                    _dockerClient = new DockerClientConfiguration(dockerUri).CreateClient();
+                    _logger.LogDebug("Docker client initialized for reading lancache container configuration");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Docker client not available - will fall back to .env file for cache size configuration");
+        }
+
         _logger.LogInformation("CacheManagementService initialized with {Count} datasource(s)", _datasourceService.DatasourceCount);
     }
 
@@ -108,10 +134,19 @@ public class CacheManagementService
             if (Directory.Exists(mountPoint))
             {
                 var driveInfo = new DriveInfo(mountPoint);
-                info.TotalCacheSize = driveInfo.TotalSize;
+                info.DriveCapacity = driveInfo.TotalSize;
                 info.FreeCacheSize = driveInfo.AvailableFreeSpace;
-                info.UsedCacheSize = info.TotalCacheSize - info.FreeCacheSize;
-
+                
+                // Try to read configured cache size from lancache .env file
+                info.ConfiguredCacheSize = GetConfiguredCacheSize();
+                
+                // Use configured size if available, otherwise use drive capacity
+                info.TotalCacheSize = info.ConfiguredCacheSize > 0 
+                    ? info.ConfiguredCacheSize 
+                    : info.DriveCapacity;
+                
+                // Calculate used space - this is always based on actual drive usage
+                info.UsedCacheSize = info.DriveCapacity - info.FreeCacheSize;
             }
             else
             {
@@ -124,6 +159,209 @@ public class CacheManagementService
         }
 
         return info;
+    }
+    
+    /// <summary>
+    /// Gets the configured cache size, first from Docker container environment, 
+    /// then falling back to .env file. Caches result for 5 minutes.
+    /// Supports formats like "4000g", "500G", "2t", "1.5T", etc.
+    /// </summary>
+    private long GetConfiguredCacheSize()
+    {
+        // Return cached value if still valid
+        if (_cachedConfiguredCacheSize.HasValue && 
+            DateTime.UtcNow - _configuredCacheSizeLastChecked < _configuredCacheSizeCacheTime)
+        {
+            return _cachedConfiguredCacheSize.Value;
+        }
+        
+        long configuredSize = 0;
+        
+        // Method 1: Try to read from Docker container environment
+        configuredSize = GetConfiguredCacheSizeFromDocker();
+        
+        // Method 2: Fall back to .env file
+        if (configuredSize == 0)
+        {
+            configuredSize = GetConfiguredCacheSizeFromEnvFile();
+        }
+        
+        // Cache the result
+        _cachedConfiguredCacheSize = configuredSize;
+        _configuredCacheSizeLastChecked = DateTime.UtcNow;
+        
+        return configuredSize;
+    }
+    
+    /// <summary>
+    /// Reads CACHE_DISK_SIZE from the lancache-monolithic container environment variables.
+    /// </summary>
+    private long GetConfiguredCacheSizeFromDocker()
+    {
+        if (_dockerClient == null)
+            return 0;
+            
+        try
+        {
+            // Get running containers
+            var containers = _dockerClient.Containers.ListContainersAsync(
+                new ContainersListParameters { All = false }).GetAwaiter().GetResult();
+            
+            // Look for lancache-monolithic container by name or image
+            var lancacheContainer = containers.FirstOrDefault(c =>
+                c.Names.Any(n => 
+                    n.Contains("monolithic", StringComparison.OrdinalIgnoreCase) ||
+                    n.Contains("lancache", StringComparison.OrdinalIgnoreCase)) ||
+                (c.Image?.Contains("lancachenet/monolithic", StringComparison.OrdinalIgnoreCase) ?? false));
+            
+            if (lancacheContainer != null)
+            {
+                // Inspect the container to get environment variables
+                var inspect = _dockerClient.Containers.InspectContainerAsync(lancacheContainer.ID).GetAwaiter().GetResult();
+                
+                var cacheDiskSizeEnv = inspect.Config.Env?
+                    .FirstOrDefault(e => e.StartsWith("CACHE_DISK_SIZE=", StringComparison.OrdinalIgnoreCase));
+                
+                if (!string.IsNullOrEmpty(cacheDiskSizeEnv))
+                {
+                    var value = cacheDiskSizeEnv.Substring("CACHE_DISK_SIZE=".Length);
+                    var parsedSize = ParseCacheSize(value);
+                    if (parsedSize > 0)
+                    {
+                        _logger.LogDebug("Read CACHE_DISK_SIZE={Value} ({Bytes} bytes) from container {ContainerName}",
+                            value, parsedSize, lancacheContainer.Names.FirstOrDefault());
+                        return parsedSize;
+                    }
+                }
+                else
+                {
+                    _logger.LogDebug("CACHE_DISK_SIZE not set in lancache container environment");
+                }
+            }
+            else
+            {
+                _logger.LogDebug("No lancache-monolithic container found");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Error reading CACHE_DISK_SIZE from Docker container");
+        }
+        
+        return 0;
+    }
+    
+    /// <summary>
+    /// Reads the CACHE_DISK_SIZE setting from the lancache .env file.
+    /// </summary>
+    private long GetConfiguredCacheSizeFromEnvFile()
+    {
+        try
+        {
+            // Check for configured .env file path, or use common locations
+            var envFilePath = _configuration["LanCache:EnvFilePath"];
+            
+            if (string.IsNullOrEmpty(envFilePath))
+            {
+                // Try common locations relative to cache path
+                var possiblePaths = new[]
+                {
+                    "/srv/lancache/.env",
+                    "/opt/lancache/.env", 
+                    "/lancache/.env",
+                    Path.Combine(Path.GetDirectoryName(_cachePath) ?? "", ".env"),
+                    Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(_cachePath) ?? "") ?? "", ".env")
+                };
+                
+                foreach (var path in possiblePaths)
+                {
+                    if (File.Exists(path))
+                    {
+                        envFilePath = path;
+                        _logger.LogDebug("Found lancache .env file at: {Path}", path);
+                        break;
+                    }
+                }
+            }
+            
+            if (string.IsNullOrEmpty(envFilePath) || !File.Exists(envFilePath))
+            {
+                _logger.LogDebug("No lancache .env file found");
+                return 0;
+            }
+            
+            // Read and parse the .env file
+            var lines = File.ReadAllLines(envFilePath);
+            foreach (var line in lines)
+            {
+                var trimmedLine = line.Trim();
+                if (trimmedLine.StartsWith("CACHE_DISK_SIZE=", StringComparison.OrdinalIgnoreCase))
+                {
+                    var value = trimmedLine.Substring("CACHE_DISK_SIZE=".Length).Trim();
+                    var parsedSize = ParseCacheSize(value);
+                    if (parsedSize > 0)
+                    {
+                        _logger.LogDebug("Read CACHE_DISK_SIZE={Value} ({Bytes} bytes) from .env file", value, parsedSize);
+                        return parsedSize;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error reading configured cache size from .env file");
+        }
+        
+        return 0;
+    }
+    
+    /// <summary>
+    /// Parses cache size strings like "4000g", "500G", "2t", "1.5T", "500m", etc.
+    /// Returns size in bytes.
+    /// </summary>
+    private long ParseCacheSize(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return 0;
+            
+        value = value.Trim().ToLowerInvariant();
+        
+        // Remove any quotes
+        value = value.Trim('"', '\'');
+        
+        // Try to parse the numeric part and unit
+        var numericPart = "";
+        var unit = "";
+        
+        for (int i = 0; i < value.Length; i++)
+        {
+            if (char.IsDigit(value[i]) || value[i] == '.')
+            {
+                numericPart += value[i];
+            }
+            else
+            {
+                unit = value.Substring(i).Trim();
+                break;
+            }
+        }
+        
+        if (!double.TryParse(numericPart, out var numericValue))
+        {
+            _logger.LogWarning("Could not parse cache size value: {Value}", value);
+            return 0;
+        }
+        
+        // Convert to bytes based on unit
+        return unit switch
+        {
+            "t" or "tb" => (long)(numericValue * 1024L * 1024L * 1024L * 1024L),
+            "g" or "gb" => (long)(numericValue * 1024L * 1024L * 1024L),
+            "m" or "mb" => (long)(numericValue * 1024L * 1024L),
+            "k" or "kb" => (long)(numericValue * 1024L),
+            "" or "b" => (long)numericValue,
+            _ => (long)numericValue // Assume bytes if unknown unit
+        };
     }
 
     private string GetMountPoint(string path)

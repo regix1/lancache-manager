@@ -4,6 +4,8 @@ import type { ReactNode } from 'react';
 
 export interface CacheInfo {
   totalCacheSize: number;
+  configuredCacheSize: number;
+  driveCapacity: number;
   usedCacheSize: number;
   freeCacheSize: number;
   usagePercent: number;
