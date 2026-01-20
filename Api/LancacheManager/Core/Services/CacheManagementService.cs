@@ -6,6 +6,7 @@ using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces.Services;
 using LancacheManager.Infrastructure.Utilities;
+using static LancacheManager.Infrastructure.Utilities.FormattingUtils;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.SignalR;
 
@@ -253,8 +254,8 @@ public class CacheManagementService
                     var parsedSize = ParseCacheSize(value);
                     if (parsedSize > 0)
                     {
-                        _logger.LogDebug("Read CACHE_DISK_SIZE={Value} ({Bytes} bytes) from container {ContainerName}",
-                            value, parsedSize, lancacheContainer.Names.FirstOrDefault());
+                        _logger.LogInformation("Configured cache size: {Value} ({FormattedSize}) from container {ContainerName}",
+                            value, FormatBytes(parsedSize), lancacheContainer.Names.FirstOrDefault()?.TrimStart('/'));
                         return parsedSize;
                     }
                 }
@@ -326,7 +327,8 @@ public class CacheManagementService
                     var parsedSize = ParseCacheSize(value);
                     if (parsedSize > 0)
                     {
-                        _logger.LogDebug("Read CACHE_DISK_SIZE={Value} ({Bytes} bytes) from .env file", value, parsedSize);
+                        _logger.LogInformation("Configured cache size: {Value} ({FormattedSize}) from .env file: {Path}",
+                            value, FormatBytes(parsedSize), envFilePath);
                         return parsedSize;
                     }
                 }
@@ -391,7 +393,7 @@ public class CacheManagementService
             _ => (long)numericValue // Assume bytes if unknown unit
         };
     }
-
+    
     private string GetMountPoint(string path)
     {
         try
