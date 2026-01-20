@@ -207,12 +207,37 @@ public class CacheManagementService
             var containers = _dockerClient.Containers.ListContainersAsync(
                 new ContainersListParameters { All = false }).GetAwaiter().GetResult();
             
-            // Look for lancache-monolithic container by name or image
+            // Priority 1: Find by lancachenet/monolithic image (most reliable)
             var lancacheContainer = containers.FirstOrDefault(c =>
-                c.Names.Any(n => 
-                    n.Contains("monolithic", StringComparison.OrdinalIgnoreCase) ||
-                    n.Contains("lancache", StringComparison.OrdinalIgnoreCase)) ||
-                (c.Image?.Contains("lancachenet/monolithic", StringComparison.OrdinalIgnoreCase) ?? false));
+                c.Image?.Contains("lancachenet/monolithic", StringComparison.OrdinalIgnoreCase) ?? false);
+            
+            // Priority 2: Find by "monolithic" in container name
+            lancacheContainer ??= containers.FirstOrDefault(c =>
+                c.Names.Any(n => n.Contains("monolithic", StringComparison.OrdinalIgnoreCase)));
+            
+            // Priority 3: Scan all containers with "lancache" in name (but not dns/sniproxy)
+            // and find one that has CACHE_DISK_SIZE set
+            if (lancacheContainer == null)
+            {
+                var lancacheContainers = containers.Where(c =>
+                    c.Names.Any(n => 
+                        n.Contains("lancache", StringComparison.OrdinalIgnoreCase) &&
+                        !n.Contains("dns", StringComparison.OrdinalIgnoreCase) &&
+                        !n.Contains("sniproxy", StringComparison.OrdinalIgnoreCase)));
+                
+                foreach (var container in lancacheContainers)
+                {
+                    var inspect = _dockerClient.Containers.InspectContainerAsync(container.ID).GetAwaiter().GetResult();
+                    var envVar = inspect.Config.Env?
+                        .FirstOrDefault(e => e.StartsWith("CACHE_DISK_SIZE=", StringComparison.OrdinalIgnoreCase));
+                    
+                    if (!string.IsNullOrEmpty(envVar))
+                    {
+                        lancacheContainer = container;
+                        break;
+                    }
+                }
+            }
             
             if (lancacheContainer != null)
             {
@@ -346,7 +371,10 @@ public class CacheManagementService
             }
         }
         
-        if (!double.TryParse(numericPart, out var numericValue))
+        // Use InvariantCulture to parse decimal values like "1.5T" correctly
+        // regardless of the system's locale (e.g., German locales use comma as decimal separator)
+        if (!double.TryParse(numericPart, System.Globalization.NumberStyles.Float, 
+            System.Globalization.CultureInfo.InvariantCulture, out var numericValue))
         {
             _logger.LogWarning("Could not parse cache size value: {Value}", value);
             return 0;
