@@ -227,11 +227,6 @@ services:
       # Internal port binding (do not change unless you know what you're doing)
       - ASPNETCORE_URLS=http://+:80
 
-      # Auto-detect datasources by scanning for matching subdirectories
-      # Scans /cache and /logs for folders that exist in both locations
-      # Example: /cache/steam + /logs/steam -> creates "Steam" datasource
-      # - LanCache__AutoDiscoverDatasources=true
-
       #---------------------------------------------------------------------------
       # Security Settings
       #---------------------------------------------------------------------------
@@ -369,6 +364,11 @@ services:
       # With additional volume mounts:
       # - /mnt/steam-drive/cache:/steam-cache:ro
       # - /mnt/steam-drive/logs:/steam-logs:ro
+
+      # Auto-detect datasources by scanning for matching subdirectories
+      # Scans /cache and /logs for folders that exist in both locations
+      # Example: /cache/steam + /logs/steam -> creates "Steam" datasource
+      # - LanCache__AutoDiscoverDatasources=true
 ```
 
 > [!NOTE]
