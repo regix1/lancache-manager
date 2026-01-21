@@ -301,12 +301,17 @@ public class WindowsPathResolver : IPathResolver
             // The second check catches permission mismatches where the container can create
             // new files but cannot modify files owned by another user.
 
-            // First, try to find and test against an existing file in the directory
+            // First, try to find and test against an existing file in the directory tree
+            // Cache directories have hierarchical structure (e.g., /cache/steam/...) so we need to search recursively
             try
             {
-                var existingFiles = Directory.GetFiles(directoryPath, "*", SearchOption.TopDirectoryOnly)
-                    .Take(5) // Check up to 5 files to find one we can test
+                // Use EnumerateFiles with AllDirectories but take only first few files found
+                // This is lazy-evaluated so it won't scan the entire tree
+                var existingFiles = Directory.EnumerateFiles(directoryPath, "*", SearchOption.AllDirectories)
+                    .Take(10) // Check up to 10 files to find one we can test
                     .ToList();
+
+                _logger.LogDebug("Found {Count} files to test in {Path}", existingFiles.Count, directoryPath);
 
                 foreach (var existingFile in existingFiles)
                 {
@@ -323,18 +328,25 @@ public class WindowsPathResolver : IPathResolver
                     catch (UnauthorizedAccessException)
                     {
                         // Cannot modify this existing file - permission issue
-                        _logger.LogDebug("Cannot modify existing file (permission denied): {Path}", existingFile);
+                        _logger.LogWarning("Cannot modify existing file (permission denied): {Path}. This indicates permission mismatch.", existingFile);
                         return false;
                     }
-                    catch (IOException)
+                    catch (IOException ex)
                     {
                         // File might be locked, try the next one
+                        _logger.LogDebug(ex, "File locked or inaccessible, trying next: {Path}", existingFile);
                         continue;
                     }
                 }
 
                 // No existing files found or all were locked, fall back to create test
-                _logger.LogDebug("No existing files found in {Path}, falling back to create test", directoryPath);
+                _logger.LogDebug("No testable files found in {Path}, falling back to create test", directoryPath);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                // Can't even enumerate files - definitely no write access
+                _logger.LogWarning(ex, "Cannot enumerate files in directory (permission denied): {Path}", directoryPath);
+                return false;
             }
             catch (Exception ex)
             {
