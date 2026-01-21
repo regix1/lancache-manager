@@ -18,8 +18,6 @@ export interface EventFrameProps {
   badgeText?: string;
   showBadge?: boolean;
   tokens?: EventFrameTokens;
-  /** @deprecated No longer used - kept for API compatibility */
-  trackScroll?: boolean;
   className?: string;
 }
 
