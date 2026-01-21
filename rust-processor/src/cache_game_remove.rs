@@ -197,13 +197,14 @@ fn delete_game_from_database(db_path: &Path, game_app_id: u32) -> Result<usize> 
 fn remove_cache_files_for_game(
     cache_dir: &Path,
     url_data: &HashMap<String, (String, i64, HashSet<u32>)>,
-) -> Result<(usize, u64, HashSet<PathBuf>)> {
+) -> Result<(usize, u64, HashSet<PathBuf>, usize)> {  // Returns (deleted, bytes, dirs, permission_errors)
     use rayon::prelude::*;
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
     use std::sync::Mutex;
 
     let deleted_files = AtomicUsize::new(0);
     let bytes_freed = AtomicU64::new(0);
+    let permission_errors = AtomicUsize::new(0);
     let parent_dirs = Mutex::new(HashSet::new());
     let slice_size: i64 = 1_048_576; // 1MB
 
@@ -256,23 +257,33 @@ fn remove_cache_files_for_game(
             }
 
             // Delete the file
-            if fs::remove_file(path).is_ok() {
-                let count = deleted_files.fetch_add(1, Ordering::Relaxed) + 1;
+            match fs::remove_file(path) {
+                Ok(_) => {
+                    let count = deleted_files.fetch_add(1, Ordering::Relaxed) + 1;
 
-                // Track parent directory for cleanup
-                if let Some(parent) = path.parent() {
-                    let mut dirs = parent_dirs.lock().unwrap();
-                    dirs.insert(parent.to_path_buf());
+                    // Track parent directory for cleanup
+                    if let Some(parent) = path.parent() {
+                        let mut dirs = parent_dirs.lock().unwrap();
+                        dirs.insert(parent.to_path_buf());
+                    }
+
+                    // Progress reporting every 100 files
+                    if count % 100 == 0 {
+                        let bytes = bytes_freed.load(Ordering::Relaxed);
+                        eprintln!(
+                            "  Deleted {} cache files... ({:.2} MB freed)",
+                            count,
+                            bytes as f64 / 1_048_576.0
+                        );
+                    }
                 }
-
-                // Progress reporting every 100 files
-                if count % 100 == 0 {
-                    let bytes = bytes_freed.load(Ordering::Relaxed);
-                    eprintln!(
-                        "  Deleted {} cache files... ({:.2} MB freed)",
-                        count,
-                        bytes as f64 / 1_048_576.0
-                    );
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::PermissionDenied {
+                        let err_count = permission_errors.fetch_add(1, Ordering::Relaxed) + 1;
+                        if err_count <= 5 {
+                            eprintln!("  ERROR: Permission denied deleting {}: {}", path.display(), e);
+                        }
+                    }
                 }
             }
         }
@@ -281,8 +292,16 @@ fn remove_cache_files_for_game(
     let final_deleted = deleted_files.load(Ordering::Relaxed);
     let final_bytes = bytes_freed.load(Ordering::Relaxed);
     let final_dirs = parent_dirs.into_inner().unwrap();
+    let final_permission_errors = permission_errors.load(Ordering::Relaxed);
 
-    Ok((final_deleted, final_bytes, final_dirs))
+    if final_permission_errors > 5 {
+        eprintln!("  ... and {} more permission errors", final_permission_errors - 5);
+    }
+    if final_permission_errors > 0 {
+        eprintln!("  Total permission errors: {}", final_permission_errors);
+    }
+
+    Ok((final_deleted, final_bytes, final_dirs, final_permission_errors))
 }
 
 fn cleanup_empty_directories(cache_dir: &Path, dirs_to_check: HashSet<PathBuf>) -> usize {
@@ -323,9 +342,9 @@ fn remove_log_entries_for_game(
     log_dir: &Path,
     urls_to_remove: &HashSet<String>,
     valid_depot_ids: &HashSet<u32>,
-) -> Result<u64> {
+) -> Result<(u64, usize)> {  // Returns (lines_removed, permission_errors)
     use rayon::prelude::*;
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
     eprintln!("Filtering log files to remove game entries...");
 
@@ -333,6 +352,7 @@ fn remove_log_entries_for_game(
     let log_files = log_discovery::discover_log_files(log_dir, "access.log")?;
 
     let total_lines_removed = AtomicU64::new(0);
+    let permission_errors = AtomicUsize::new(0);
 
     // Process log files in parallel for faster removal
     log_files.par_iter().enumerate().for_each(|(file_index, log_file)| {
@@ -440,14 +460,22 @@ fn remove_log_entries_for_game(
                 total_lines_removed.fetch_add(lines_removed, Ordering::Relaxed);
             }
             Err(e) => {
-                eprintln!("  WARNING: Skipping file {}: {}", log_file.path.display(), e);
+                // Check if this is a permission error
+                let error_str = e.to_string();
+                if error_str.contains("Permission denied") || error_str.contains("os error 13") {
+                    permission_errors.fetch_add(1, Ordering::Relaxed);
+                    eprintln!("  ERROR: Permission denied for file {}: {}", log_file.path.display(), e);
+                } else {
+                    eprintln!("  WARNING: Skipping file {}: {}", log_file.path.display(), e);
+                }
             }
         }
     });
 
     let final_removed = total_lines_removed.load(Ordering::Relaxed);
-    eprintln!("Total log entries removed: {}", final_removed);
-    Ok(final_removed)
+    let final_permission_errors = permission_errors.load(Ordering::Relaxed);
+    eprintln!("Total log entries removed: {}, permission errors: {}", final_removed, final_permission_errors);
+    Ok((final_removed, final_permission_errors))
 }
 
 fn main() -> Result<()> {
@@ -525,7 +553,7 @@ fn main() -> Result<()> {
     eprintln!("Found {} unique URLs for '{}'", url_data.len(), game_name);
     eprintln!("\nRemoving cache files...");
 
-    let (deleted_files, bytes_freed, parent_dirs) = remove_cache_files_for_game(&cache_dir, &url_data)?;
+    let (deleted_files, bytes_freed, parent_dirs, cache_permission_errors) = remove_cache_files_for_game(&cache_dir, &url_data)?;
 
     eprintln!("\nCleaning up empty directories...");
     let empty_dirs_removed = cleanup_empty_directories(&cache_dir, parent_dirs);
@@ -533,9 +561,38 @@ fn main() -> Result<()> {
     // Remove log entries for this game
     eprintln!("\nRemoving log entries...");
     let urls_to_remove: HashSet<String> = url_data.keys().cloned().collect();
-    let log_entries_removed = remove_log_entries_for_game(&log_dir, &urls_to_remove, &valid_depot_ids)?;
+    let (log_entries_removed, log_permission_errors) = remove_log_entries_for_game(&log_dir, &urls_to_remove, &valid_depot_ids)?;
 
-    // Delete database records for this game
+    // CRITICAL: Check for permission errors before deleting database records
+    // This prevents the DB/filesystem mismatch that causes DbUpdateConcurrencyException
+    let total_permission_errors = cache_permission_errors + log_permission_errors;
+    if total_permission_errors > 0 {
+        let error_msg = format!(
+            "ABORTED: Cannot delete database records because {} file(s) could not be modified due to permission errors. \
+            This is likely caused by incorrect PUID/PGID settings in your docker-compose.yml. \
+            The lancache container usually runs as UID/GID 33:33 (www-data). \
+            Cache permission errors: {}, Log permission errors: {}",
+            total_permission_errors, cache_permission_errors, log_permission_errors
+        );
+        eprintln!("\n{}", error_msg);
+        
+        // Still write report but with error status
+        let report = RemovalReport {
+            game_app_id,
+            game_name,
+            cache_files_deleted: deleted_files,
+            total_bytes_freed: bytes_freed,
+            empty_dirs_removed,
+            log_entries_removed,
+            depot_ids: vec![],
+        };
+        let json = serde_json::to_string_pretty(&report)?;
+        fs::write(&output_json, json)?;
+        
+        anyhow::bail!("{}", error_msg);
+    }
+
+    // Delete database records for this game (only if no permission errors)
     eprintln!("\nRemoving database records...");
     let _db_records_deleted = delete_game_from_database(&db_path, game_app_id)?;
 

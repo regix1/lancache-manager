@@ -262,6 +262,7 @@ fn remove_service_from_logs(
 
     let mut total_lines_processed: u64 = 0;
     let mut total_lines_removed: u64 = 0;
+    let mut permission_errors: usize = 0;
 
     // Process each log file
     for (file_index, log_file) in log_files.iter().enumerate() {
@@ -401,7 +402,7 @@ fn remove_service_from_logs(
             Ok((lines_processed, lines_removed))
         })();
 
-        // If this file failed (e.g., corrupted gzip), log warning and skip it
+        // If this file failed, check if it's a permission error
         match file_result {
             Ok((lines_processed, lines_removed)) => {
                 eprintln!("  Lines processed: {}", lines_processed);
@@ -411,7 +412,14 @@ fn remove_service_from_logs(
                 total_lines_removed += lines_removed;
             }
             Err(e) => {
-                eprintln!("WARNING: Skipping corrupted file {}: {}", log_file.path.display(), e);
+                // Check if this is a permission error
+                let error_str = e.to_string();
+                if error_str.contains("Permission denied") || error_str.contains("os error 13") {
+                    permission_errors += 1;
+                    eprintln!("ERROR: Permission denied for file {}: {}", log_file.path.display(), e);
+                } else {
+                    eprintln!("WARNING: Skipping corrupted file {}: {}", log_file.path.display(), e);
+                }
                 eprintln!("  Continuing with remaining files...");
                 continue;
             }
@@ -419,6 +427,34 @@ fn remove_service_from_logs(
     }
 
     let elapsed = start_time.elapsed();
+
+    // CRITICAL: Check for permission errors and fail if any occurred
+    // This prevents the UI from showing success when files couldn't be modified
+    if permission_errors > 0 {
+        let error_msg = format!(
+            "FAILED: {} log file(s) could not be modified due to permission errors. \
+            This is likely caused by incorrect PUID/PGID settings in your docker-compose.yml. \
+            The lancache container usually runs as UID/GID 33:33 (www-data).",
+            permission_errors
+        );
+        eprintln!("\n{}", error_msg);
+        
+        let progress = ProgressData::new(
+            false,
+            0.0,
+            "failed".to_string(),
+            error_msg.clone(),
+            total_lines_processed,
+            total_lines_removed,
+            log_files.len(),
+            None,
+            ds_name,
+        );
+        write_progress(progress_path, &progress)?;
+        
+        anyhow::bail!("{}", error_msg);
+    }
+
     eprintln!("\nLog filtering completed!");
     eprintln!("  Files processed: {}", log_files.len());
     eprintln!("  Lines processed: {}", total_lines_processed);

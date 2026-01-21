@@ -72,12 +72,13 @@ fn remove_cache_files_for_service(
     cache_dir: &Path,
     service: &str,
     urls: &HashSet<String>,
-) -> Result<(usize, u64)> {
+) -> Result<(usize, u64, usize)> {  // Returns (deleted_count, bytes_freed, permission_errors)
     eprintln!("Removing cache files for service '{}'...", service);
 
     let service_lower = service.to_lowercase();
     let mut deleted_count = 0;
     let mut bytes_freed: u64 = 0;
+    let mut permission_errors = 0;
     let slice_size: i64 = 1_048_576; // 1MB
 
     for url in urls {
@@ -98,7 +99,16 @@ fn remove_cache_files_for_service(
                             deleted_count, bytes_freed as f64 / 1_048_576.0);
                     }
                 }
-                Err(e) => eprintln!("  Warning: Failed to delete {}: {}", cache_path_no_range.display(), e),
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::PermissionDenied {
+                        permission_errors += 1;
+                        if permission_errors <= 5 {
+                            eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path_no_range.display(), e);
+                        }
+                    } else {
+                        eprintln!("  Warning: Failed to delete {}: {}", cache_path_no_range.display(), e);
+                    }
+                }
             }
         } else {
             // Try chunked format (check first 100 chunks)
@@ -123,22 +133,35 @@ fn remove_cache_files_for_service(
                                 deleted_count, bytes_freed as f64 / 1_048_576.0);
                         }
                     }
-                    Err(e) => eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e),
+                    Err(e) => {
+                        if e.kind() == std::io::ErrorKind::PermissionDenied {
+                            permission_errors += 1;
+                            if permission_errors <= 5 {
+                                eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path.display(), e);
+                            }
+                        } else {
+                            eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e);
+                        }
+                    }
                 }
             }
         }
     }
 
-    eprintln!("Deleted {} cache files ({:.2} GB freed)", deleted_count, bytes_freed as f64 / 1_073_741_824.0);
+    if permission_errors > 5 {
+        eprintln!("  ... and {} more permission errors", permission_errors - 5);
+    }
+    eprintln!("Deleted {} cache files ({:.2} GB freed), {} permission errors", 
+        deleted_count, bytes_freed as f64 / 1_073_741_824.0, permission_errors);
 
-    Ok((deleted_count, bytes_freed))
+    Ok((deleted_count, bytes_freed, permission_errors))
 }
 
 fn remove_log_entries_for_service(
     log_dir: &Path,
     service: &str,
     urls: &HashSet<String>,
-) -> Result<u64> {
+) -> Result<(u64, usize)> {  // Returns (lines_removed, permission_errors)
     eprintln!("Filtering log files to remove service entries...");
 
     let parser = LogParser::new(chrono_tz::UTC);
@@ -146,6 +169,7 @@ fn remove_log_entries_for_service(
     let service_lower = service.to_lowercase();
 
     let mut total_lines_removed: u64 = 0;
+    let mut permission_errors: usize = 0;
 
     for (file_index, log_file) in log_files.iter().enumerate() {
         eprintln!("  Processing file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
@@ -236,13 +260,20 @@ fn remove_log_entries_for_service(
                 total_lines_removed += lines_removed;
             }
             Err(e) => {
-                eprintln!("  WARNING: Skipping file {}: {}", log_file.path.display(), e);
+                // Check if this is a permission error
+                let error_str = e.to_string();
+                if error_str.contains("Permission denied") || error_str.contains("os error 13") {
+                    permission_errors += 1;
+                    eprintln!("  ERROR: Permission denied for file {}: {}", log_file.path.display(), e);
+                } else {
+                    eprintln!("  WARNING: Skipping file {}: {}", log_file.path.display(), e);
+                }
             }
         }
     }
 
-    eprintln!("Total log entries removed: {}", total_lines_removed);
-    Ok(total_lines_removed)
+    eprintln!("Total log entries removed: {}, permission errors: {}", total_lines_removed, permission_errors);
+    Ok((total_lines_removed, permission_errors))
 }
 
 fn delete_service_from_database(db_path: &Path, service: &str) -> Result<usize> {
@@ -309,13 +340,29 @@ fn main() -> Result<()> {
 
     // Step 2: Remove cache files
     write_progress(&progress_path, "removing_cache", &format!("Removing cache files for {} URLs", urls.len()))?;
-    let (cache_files_deleted, total_bytes_freed) = remove_cache_files_for_service(&cache_dir, service, &urls)?;
+    let (cache_files_deleted, total_bytes_freed, cache_permission_errors) = remove_cache_files_for_service(&cache_dir, service, &urls)?;
 
     // Step 3: Remove log entries
     write_progress(&progress_path, "removing_logs", "Removing log entries")?;
-    let log_entries_removed = remove_log_entries_for_service(&log_dir, service, &urls)?;
+    let (log_entries_removed, log_permission_errors) = remove_log_entries_for_service(&log_dir, service, &urls)?;
 
-    // Step 4: Delete database records
+    // CRITICAL: Check for permission errors before deleting database records
+    // This prevents the DB/filesystem mismatch that causes DbUpdateConcurrencyException
+    let total_permission_errors = cache_permission_errors + log_permission_errors;
+    if total_permission_errors > 0 {
+        let error_msg = format!(
+            "ABORTED: Cannot delete database records because {} file(s) could not be modified due to permission errors. \
+            This is likely caused by incorrect PUID/PGID settings in your docker-compose.yml. \
+            The lancache container usually runs as UID/GID 33:33 (www-data). \
+            Cache permission errors: {}, Log permission errors: {}",
+            total_permission_errors, cache_permission_errors, log_permission_errors
+        );
+        eprintln!("\n{}", error_msg);
+        write_progress(&progress_path, "failed", &error_msg)?;
+        std::process::exit(1);
+    }
+
+    // Step 4: Delete database records (only if no permission errors)
     write_progress(&progress_path, "removing_database", "Deleting database records")?;
     let database_entries_deleted = delete_service_from_database(&db_path, service)?;
 
