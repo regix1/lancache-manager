@@ -281,6 +281,20 @@ public class CacheController : ControllerBase
     [RequireAuth]
     public async Task<IActionResult> ClearAllCache()
     {
+        // CRITICAL: Check write permissions BEFORE starting the operation
+        // This prevents operations from failing partway through due to permission issues
+        var cacheWritable = _pathResolver.IsCacheDirectoryWritable();
+
+        if (!cacheWritable)
+        {
+            var errorMessage = "Cannot clear cache: cache directory is read-only. " +
+                "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
+                "The lancache container usually runs as UID/GID 33:33 (www-data).";
+
+            _logger.LogWarning("[ClearAllCache] Permission check failed: {Error}", errorMessage);
+            return BadRequest(new ErrorResponse { Error = errorMessage });
+        }
+
         var operationId = await _cacheClearingService.StartCacheClearAsync();
         _logger.LogInformation("Started cache clear operation for all datasources: {OperationId}", operationId);
 
@@ -300,6 +314,30 @@ public class CacheController : ControllerBase
     [RequireAuth]
     public async Task<IActionResult> ClearDatasourceCache(string name)
     {
+        // Get the datasource to check its specific permissions
+        var datasourceService = HttpContext.RequestServices.GetRequiredService<DatasourceService>();
+        var datasource = datasourceService.GetDatasources()
+            .FirstOrDefault(d => d.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+
+        if (datasource == null)
+        {
+            return NotFound(new NotFoundResponse { Error = $"Datasource '{name}' not found" });
+        }
+
+        // CRITICAL: Check write permissions BEFORE starting the operation
+        // Use fresh check for the specific datasource's cache directory
+        var cacheWritable = _pathResolver.IsDirectoryWritable(datasource.CachePath);
+
+        if (!cacheWritable)
+        {
+            var errorMessage = $"Cannot clear cache for datasource '{name}': cache directory is read-only. " +
+                "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
+                "The lancache container usually runs as UID/GID 33:33 (www-data).";
+
+            _logger.LogWarning("[ClearDatasourceCache] Permission check failed for {Datasource}: {Error}", name, errorMessage);
+            return BadRequest(new ErrorResponse { Error = errorMessage });
+        }
+
         var operationId = await _cacheClearingService.StartCacheClearAsync(name);
         _logger.LogInformation("Started cache clear operation for datasource {Datasource}: {OperationId}", name, operationId);
 
@@ -468,6 +506,26 @@ public class CacheController : ControllerBase
         var logsPath = _pathResolver.GetLogsDirectory();
         var dbPath = _pathResolver.GetDatabasePath();
 
+        // CRITICAL: Check write permissions BEFORE starting the operation
+        // This prevents the DB/filesystem state mismatch when PUID/PGID is wrong
+        var cacheWritable = _pathResolver.IsCacheDirectoryWritable();
+        var logsWritable = _pathResolver.IsLogsDirectoryWritable();
+
+        if (!cacheWritable || !logsWritable)
+        {
+            var errors = new List<string>();
+            if (!cacheWritable) errors.Add("cache directory is read-only");
+            if (!logsWritable) errors.Add("logs directory is read-only");
+
+            var errorMessage = $"Cannot remove corrupted chunks: {string.Join(" and ", errors)}. " +
+                "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
+                "The lancache container usually runs as UID/GID 33:33 (www-data).";
+
+            _logger.LogWarning("[CorruptionRemoval] Permission check failed for service {Service}: {Error}", service, errorMessage);
+
+            return BadRequest(new ErrorResponse { Error = errorMessage });
+        }
+
         var operationId = Guid.NewGuid().ToString();
 
         // Start tracking this removal operation
@@ -597,6 +655,25 @@ public class CacheController : ControllerBase
     [RequireAuth]
     public IActionResult ClearServiceCache(string name)
     {
+        // CRITICAL: Check write permissions BEFORE starting the operation
+        // This prevents operations from failing partway through due to permission issues
+        var cacheWritable = _pathResolver.IsCacheDirectoryWritable();
+        var logsWritable = _pathResolver.IsLogsDirectoryWritable();
+
+        if (!cacheWritable || !logsWritable)
+        {
+            var errors = new List<string>();
+            if (!cacheWritable) errors.Add("cache directory is read-only");
+            if (!logsWritable) errors.Add("logs directory is read-only");
+
+            var errorMessage = $"Cannot remove service from cache: {string.Join(" and ", errors)}. " +
+                "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
+                "The lancache container usually runs as UID/GID 33:33 (www-data).";
+
+            _logger.LogWarning("[ClearServiceCache] Permission check failed for service {Service}: {Error}", name, errorMessage);
+            return BadRequest(new ErrorResponse { Error = errorMessage });
+        }
+
         _logger.LogInformation("Starting background service removal for: {Service}", name);
 
         // Start tracking this removal operation

@@ -153,6 +153,45 @@ public class CacheClearingService : IHostedService
                 .Where(ds => ds.Enabled && !string.IsNullOrEmpty(ds.CachePath))
                 .ToList();
 
+            // CRITICAL: Check write permissions BEFORE proceeding
+            // This prevents operations from failing partway through due to permission issues
+            var writableDatasources = allDatasources
+                .Where(ds => _pathResolver.IsDirectoryWritable(ds.CachePath))
+                .ToList();
+
+            if (writableDatasources.Count == 0 && allDatasources.Count > 0)
+            {
+                var errorMessage = "Cannot clear cache: all cache directories are read-only. " +
+                    "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
+                    "The lancache container usually runs as UID/GID 33:33 (www-data).";
+
+                _logger.LogWarning("[CacheClear] Permission check failed: {Error}", errorMessage);
+                operation.Status = ClearStatus.Failed;
+                operation.Error = errorMessage;
+                operation.EndTime = DateTime.UtcNow;
+                await NotifyProgress(operation);
+
+                await _hubContext.Clients.All.SendAsync("CacheClearComplete", new
+                {
+                    success = false,
+                    message = errorMessage,
+                    error = errorMessage,
+                    timestamp = DateTime.UtcNow
+                });
+
+                SaveOperationToState(operation);
+                return;
+            }
+
+            // Log if some datasources are read-only (partial operation warning)
+            var readOnlyCount = allDatasources.Count - writableDatasources.Count;
+            if (readOnlyCount > 0)
+            {
+                _logger.LogWarning(
+                    "[CacheClear] {ReadOnlyCount} of {TotalCount} datasources are read-only and will be skipped",
+                    readOnlyCount, allDatasources.Count);
+            }
+
             List<ResolvedDatasource> datasources;
             if (!string.IsNullOrEmpty(operation.DatasourceName))
             {

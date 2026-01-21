@@ -497,8 +497,11 @@ fn main() -> Result<()> {
 
             // Step 3: Delete ALL cache file chunks from disk
             // IMPORTANT: Use same logic as game_cache_remover - try no-range format first!
+            // Track permission errors separately - these indicate PUID/PGID mismatch
             eprintln!("Step 3: Deleting cache files...");
             let mut deleted_count = 0;
+            let mut permission_errors = 0;
+            let mut other_errors = 0;
             let slice_size: i64 = 1_048_576; // 1MB
 
             for (url, response_size) in &corrupted_urls_with_sizes {
@@ -514,7 +517,18 @@ fn main() -> Result<()> {
                                 eprintln!("  Deleted {} cache files...", deleted_count);
                             }
                         }
-                        Err(e) => eprintln!("  Warning: Failed to delete {}: {}", cache_path_no_range.display(), e),
+                        Err(e) => {
+                            // Check if this is a permission error
+                            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                                permission_errors += 1;
+                                if permission_errors <= 5 {
+                                    eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path_no_range.display(), e);
+                                }
+                            } else {
+                                other_errors += 1;
+                                eprintln!("  Warning: Failed to delete {}: {}", cache_path_no_range.display(), e);
+                            }
+                        }
                     }
                 } else {
                     // FALLBACK: Try the chunked format with bytes range
@@ -525,7 +539,17 @@ fn main() -> Result<()> {
                         if cache_path.exists() {
                             match std::fs::remove_file(&cache_path) {
                                 Ok(_) => deleted_count += 1,
-                                Err(e) => eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e),
+                                Err(e) => {
+                                    if e.kind() == std::io::ErrorKind::PermissionDenied {
+                                        permission_errors += 1;
+                                        if permission_errors <= 5 {
+                                            eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path.display(), e);
+                                        }
+                                    } else {
+                                        other_errors += 1;
+                                        eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e);
+                                    }
+                                }
                             }
                         }
                     } else {
@@ -544,7 +568,17 @@ fn main() -> Result<()> {
                                             eprintln!("  Deleted {} cache files...", deleted_count);
                                         }
                                     }
-                                    Err(e) => eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e),
+                                    Err(e) => {
+                                        if e.kind() == std::io::ErrorKind::PermissionDenied {
+                                            permission_errors += 1;
+                                            if permission_errors <= 5 {
+                                                eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path.display(), e);
+                                            }
+                                        } else {
+                                            other_errors += 1;
+                                            eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e);
+                                        }
+                                    }
                                 }
                             }
 
@@ -555,9 +589,33 @@ fn main() -> Result<()> {
             }
 
             eprintln!("Deleted {} cache files", deleted_count);
+            if permission_errors > 0 {
+                eprintln!("ERROR: {} files could not be deleted due to permission errors", permission_errors);
+                if permission_errors > 5 {
+                    eprintln!("  (only first 5 errors shown)");
+                }
+            }
+            if other_errors > 0 {
+                eprintln!("WARNING: {} files could not be deleted due to other errors", other_errors);
+            }
             eprintln!("Removed {} total log lines across {} files", total_lines_removed, log_files.len());
 
+            // CRITICAL: If we had permission errors, do NOT delete database records
+            // This prevents the DB/filesystem state mismatch that causes issues
+            if permission_errors > 0 {
+                let error_msg = format!(
+                    "ABORTED: Cannot delete database records because {} cache files could not be deleted due to permission errors. \
+                    This is likely caused by incorrect PUID/PGID settings. The lancache container typically runs as UID/GID 33:33 (www-data). \
+                    Please check your docker-compose.yml and ensure PUID and PGID match the cache file ownership.",
+                    permission_errors
+                );
+                eprintln!("\n{}", error_msg);
+                write_progress(&progress_path, "failed", &error_msg)?;
+                std::process::exit(1);
+            }
+
             // Step 4: Delete database records for corrupted downloads
+            // Only reached if ALL file deletions succeeded (no permission errors)
             eprintln!("Step 4: Deleting database records...");
             write_progress(&progress_path, "removing_database", "Deleting database records for corrupted chunks")?;
 

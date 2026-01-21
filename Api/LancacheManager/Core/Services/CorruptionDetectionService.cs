@@ -251,25 +251,37 @@ public class CorruptionDetectionService
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
 
-        // Clear existing cached corruption data
-        dbContext.CachedCorruptionDetections.RemoveRange(dbContext.CachedCorruptionDetections);
-        await dbContext.SaveChangesAsync();
-
-        // Add new corruption data
-        var now = DateTime.UtcNow;
-        foreach (var kvp in corruptionCounts)
+        // Use a transaction for atomicity - delete and insert as a single unit
+        await using var transaction = await dbContext.Database.BeginTransactionAsync();
+        try
         {
-            dbContext.CachedCorruptionDetections.Add(new CachedCorruptionDetection
-            {
-                ServiceName = kvp.Key,
-                CorruptedChunkCount = kvp.Value,
-                LastDetectedUtc = now,
-                CreatedAtUtc = now
-            });
-        }
+            // Use ExecuteDeleteAsync for bulk delete - avoids tracking and concurrency issues
+            // This is immune to DbUpdateConcurrencyException since it doesn't track entities
+            await dbContext.CachedCorruptionDetections.ExecuteDeleteAsync();
 
-        await dbContext.SaveChangesAsync();
-        _logger.LogInformation("[CorruptionDetection] Saved {Count} corruption records to database", corruptionCounts.Count);
+            // Add new corruption data
+            var now = DateTime.UtcNow;
+            foreach (var kvp in corruptionCounts)
+            {
+                dbContext.CachedCorruptionDetections.Add(new CachedCorruptionDetection
+                {
+                    ServiceName = kvp.Key,
+                    CorruptedChunkCount = kvp.Value,
+                    LastDetectedUtc = now,
+                    CreatedAtUtc = now
+                });
+            }
+
+            await dbContext.SaveChangesAsync();
+            await transaction.CommitAsync();
+            _logger.LogInformation("[CorruptionDetection] Saved {Count} corruption records to database", corruptionCounts.Count);
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync();
+            _logger.LogError(ex, "[CorruptionDetection] Failed to save corruption records to database, rolling back");
+            throw;
+        }
     }
 
     /// <summary>
@@ -323,8 +335,8 @@ public class CorruptionDetectionService
     public async Task InvalidateCacheAsync()
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-        dbContext.CachedCorruptionDetections.RemoveRange(dbContext.CachedCorruptionDetections);
-        await dbContext.SaveChangesAsync();
+        // Use ExecuteDeleteAsync for bulk delete - avoids tracking and concurrency issues
+        await dbContext.CachedCorruptionDetections.ExecuteDeleteAsync();
         _logger.LogInformation("[CorruptionDetection] Cache invalidated");
     }
 

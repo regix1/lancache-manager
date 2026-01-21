@@ -807,18 +807,24 @@ public class CacheManagementService
                 var logDir = datasource.LogPath;
                 var cacheDir = datasource.CachePath;
 
-                // Check write permissions for this datasource
-                if (!datasource.CacheWritable)
+                // CRITICAL: Check write permissions FRESH for each datasource (not cached values)
+                // This prevents DB/filesystem mismatch when PUID/PGID was changed after startup
+                var cacheWritable = _pathResolver.IsDirectoryWritable(cacheDir);
+                var logsWritable = _pathResolver.IsDirectoryWritable(logDir);
+
+                if (!cacheWritable)
                 {
-                    _logger.LogWarning("[CorruptionDetection] Cache is read-only for datasource '{Name}': {Path}, skipping",
+                    _logger.LogWarning("[CorruptionDetection] Cache is read-only for datasource '{Name}': {Path}, skipping. " +
+                        "This may be caused by incorrect PUID/PGID settings.",
                         datasource.Name, cacheDir);
                     skippedCount++;
                     continue;
                 }
 
-                if (!datasource.LogsWritable)
+                if (!logsWritable)
                 {
-                    _logger.LogWarning("[CorruptionDetection] Logs are read-only for datasource '{Name}': {Path}, skipping",
+                    _logger.LogWarning("[CorruptionDetection] Logs are read-only for datasource '{Name}': {Path}, skipping. " +
+                        "This may be caused by incorrect PUID/PGID settings.",
                         datasource.Name, logDir);
                     skippedCount++;
                     continue;

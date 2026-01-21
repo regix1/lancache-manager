@@ -512,6 +512,32 @@ public class LogsController : ControllerBase
             return BadRequest(new ConflictResponse { Error = "Service name is required" });
         }
 
+        // CRITICAL: Check write permissions BEFORE starting the operation
+        // This removes logs from all datasources, so we need at least one writable datasource
+        var datasources = _datasourceService.GetDatasources();
+        var writableDatasources = datasources
+            .Where(ds => _pathResolver.IsDirectoryWritable(ds.LogPath))
+            .ToList();
+
+        if (writableDatasources.Count == 0)
+        {
+            var errorMessage = "Cannot remove service logs: all logs directories are read-only. " +
+                "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
+                "The lancache container usually runs as UID/GID 33:33 (www-data).";
+
+            _logger.LogWarning("[RemoveServiceLogs] Permission check failed for service {Service}: {Error}", service, errorMessage);
+            return BadRequest(new ErrorResponse { Error = errorMessage });
+        }
+
+        // Log if some datasources are read-only (partial operation warning)
+        var readOnlyCount = datasources.Count - writableDatasources.Count;
+        if (readOnlyCount > 0)
+        {
+            _logger.LogWarning(
+                "[RemoveServiceLogs] {ReadOnlyCount} of {TotalCount} datasources are read-only and will be skipped for service {Service}",
+                readOnlyCount, datasources.Count, service);
+        }
+
         // StartServiceRemovalAsync returns bool but runs async - operation started if true
         var started = await _rustLogRemovalService.StartServiceRemovalAsync(service);
 

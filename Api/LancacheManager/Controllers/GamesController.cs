@@ -49,6 +49,25 @@ public class GamesController : ControllerBase
     [RequireAuth]
     public async Task<IActionResult> RemoveGameFromCache(int appId)
     {
+        // CRITICAL: Check write permissions BEFORE starting the operation
+        // This prevents operations from failing partway through due to permission issues
+        var cacheWritable = _pathResolver.IsCacheDirectoryWritable();
+        var logsWritable = _pathResolver.IsLogsDirectoryWritable();
+
+        if (!cacheWritable || !logsWritable)
+        {
+            var errors = new List<string>();
+            if (!cacheWritable) errors.Add("cache directory is read-only");
+            if (!logsWritable) errors.Add("logs directory is read-only");
+
+            var errorMessage = $"Cannot remove game from cache: {string.Join(" and ", errors)}. " +
+                "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
+                "The lancache container usually runs as UID/GID 33:33 (www-data).";
+
+            _logger.LogWarning("[RemoveGameFromCache] Permission check failed for AppId {AppId}: {Error}", appId, errorMessage);
+            return BadRequest(new ErrorResponse { Error = errorMessage });
+        }
+
         _logger.LogInformation("Starting background game removal for AppId: {AppId}", appId);
 
         // Get game name for tracking
