@@ -195,7 +195,6 @@ services:
 
       # Optional: Docker socket for nginx log rotation and Steam Prefill
       # Required for: signaling nginx to reopen logs, spawning prefill containers
-      # Remove :ro if using Steam Prefill (needs read-write for container management)
       - /var/run/docker.sock:/var/run/docker.sock
 
     environment:
@@ -377,7 +376,7 @@ services:
 ```
 
 > [!NOTE]
-> Remove `:ro` from the cache volume if you want cache clearing and game removal. The Docker socket is optional, but it is required for nginx log rotation and Steam Prefill. If you use Steam Prefill, the socket must be mounted read-write.
+> Remove `:ro` from the cache volume if you want cache clearing and game removal. The Docker socket is optional but required for nginx log rotation and Steam Prefill.
 
 -----
 
@@ -516,7 +515,7 @@ The Prefill tab helps you download games to your cache before your LAN party sta
 
 ### Requirements
 
-- Docker socket mounted without `:ro`
+- Docker socket mounted
 - Authenticated as admin
 - Lancache-dns container running, or manual DNS configuration
 
@@ -871,7 +870,7 @@ ls -n /path/to/cache
 
 ### Prefill Not Working
 
-1. Ensure the Docker socket is mounted without `:ro`
+1. Ensure the Docker socket is mounted
 2. Confirm you are authenticated as admin
 3. Check container logs for network diagnostics output (look for `═══ PREFILL CONTAINER NETWORK DIAGNOSTICS ═══`)
 4. **Container has no internet access:** The prefill container cannot reach Steam. Common fixes:

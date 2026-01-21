@@ -118,10 +118,10 @@ public class NginxLogRotationService
             // Check if docker socket is accessible
             if (!File.Exists("/var/run/docker.sock"))
             {
-                var error = "Docker socket not mounted. Add /var/run/docker.sock:/var/run/docker.sock:ro to your volumes.";
+                var error = "Docker socket not mounted. Add /var/run/docker.sock:/var/run/docker.sock to your volumes.";
                 _logger.LogWarning("Docker socket not found at /var/run/docker.sock. " +
                     "Mount the docker socket to enable nginx log rotation: " +
-                    "volumes: - /var/run/docker.sock:/var/run/docker.sock:ro");
+                    "volumes: - /var/run/docker.sock:/var/run/docker.sock");
                 return (null, error);
             }
 

@@ -196,7 +196,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
             </p>
             <p className="text-sm mt-2">{t('management.logRotation.addDockerVolume')}</p>
             <code className="block bg-themed-tertiary px-2 py-1 rounded text-xs mt-1 break-all">
-              /var/run/docker.sock:/var/run/docker.sock:ro
+              /var/run/docker.sock:/var/run/docker.sock
             </code>
           </div>
         </Alert>

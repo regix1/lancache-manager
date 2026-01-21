@@ -595,7 +595,7 @@ const AppContent: React.FC = () => {
                     {t('app.prefill.dockerNotAvailable.helpLinux')}
                   </p>
                   <pre className="px-3 py-2 rounded text-xs overflow-x-auto break-all whitespace-pre-wrap bg-themed-tertiary">
-                    /var/run/docker.sock:/var/run/docker.sock:ro
+                    /var/run/docker.sock:/var/run/docker.sock
                   </pre>
                 </div>
 
