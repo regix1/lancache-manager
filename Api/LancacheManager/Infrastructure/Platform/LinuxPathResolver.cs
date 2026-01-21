@@ -419,6 +419,57 @@ public class LinuxPathResolver : IPathResolver
     /// </summary>
     private bool TestWriteAccess(string directoryPath)
     {
+        // CRITICAL: We need to test TWO things:
+        // 1. Can we create new files in the directory? (directory write access)
+        // 2. Can we modify EXISTING files? (file ownership/permission check)
+        //
+        // The second check catches PUID/PGID mismatches where the container can create
+        // new files (owned by its UID) but cannot modify files owned by the lancache user.
+
+        // First, try to find and test against an existing file in the directory
+        // This catches the PUID/PGID mismatch scenario
+        try
+        {
+            var existingFiles = Directory.GetFiles(directoryPath, "*", SearchOption.TopDirectoryOnly)
+                .Take(5) // Check up to 5 files to find one we can test
+                .ToList();
+
+            foreach (var existingFile in existingFiles)
+            {
+                try
+                {
+                    // Try to open the file for write access WITHOUT modifying it
+                    // FileShare.ReadWrite allows other processes to continue accessing it
+                    using (var fs = new FileStream(existingFile, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
+                    {
+                        // Successfully opened for write - we have permission
+                        _logger.LogDebug("Existing file write test passed for: {Path}", existingFile);
+                        return true;
+                    }
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    // Cannot modify this existing file - likely PUID/PGID mismatch
+                    _logger.LogDebug("Cannot modify existing file (permission denied): {Path}", existingFile);
+                    return false;
+                }
+                catch (IOException)
+                {
+                    // File might be locked, try the next one
+                    continue;
+                }
+            }
+
+            // No existing files found or all were locked, fall back to create test
+            _logger.LogDebug("No existing files found in {Path}, falling back to create test", directoryPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Error checking existing files in {Path}, falling back to create test", directoryPath);
+        }
+
+        // Fallback: Test if we can at least create new files
+        // This is less accurate but better than nothing when directory is empty
         var testFilePath = Path.Combine(directoryPath, $".write_test_{Guid.NewGuid()}.tmp");
 
         try
