@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Key, User, Info, AlertTriangle } from 'lucide-react';
 import { Card } from '@components/ui/Card';
+import HighlightGlow from '@components/ui/HighlightGlow';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
@@ -19,13 +20,15 @@ interface SteamLoginManagerProps {
   mockMode: boolean;
   onError?: (message: string) => void;
   onSuccess?: (message: string) => void;
+  highlight?: boolean;
 }
 
 const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
   authMode,
   mockMode,
   onError,
-  onSuccess
+  onSuccess,
+  highlight
 }) => {
   const { t } = useTranslation();
   const {
@@ -126,7 +129,8 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
 
   return (
     <>
-      <Card>
+      <HighlightGlow enabled={highlight}>
+        <Card>
         <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-blue">
             <Key className="w-5 h-5 icon-blue" />
@@ -287,7 +291,8 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
             </Alert>
           </div>
         )}
-      </Card>
+        </Card>
+      </HighlightGlow>
 
       {/* Authentication Modal */}
       <SteamAuthModal

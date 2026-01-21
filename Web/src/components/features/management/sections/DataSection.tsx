@@ -24,6 +24,7 @@ interface DataSectionProps {
   onError: (message: string) => void;
   onSuccess: (message: string) => void;
   onDataRefresh: () => void;
+  onNavigateToSteamApi?: () => void;
 }
 
 const DataSection: React.FC<DataSectionProps> = ({
@@ -34,7 +35,8 @@ const DataSection: React.FC<DataSectionProps> = ({
   isProcessingLogs,
   onError,
   onSuccess,
-  onDataRefresh
+  onDataRefresh,
+  onNavigateToSteamApi
 }) => {
   const { t } = useTranslation();
 
@@ -266,6 +268,7 @@ const DataSection: React.FC<DataSectionProps> = ({
           onError={onError}
           onSuccess={onSuccess}
           onDataRefresh={onDataRefresh}
+          onNavigateToSteamApi={onNavigateToSteamApi}
         />
       </div>
 

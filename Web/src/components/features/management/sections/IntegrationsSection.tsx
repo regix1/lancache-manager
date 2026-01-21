@@ -12,6 +12,7 @@ interface IntegrationsSectionProps {
   mockMode: boolean;
   onError: (message: string) => void;
   onSuccess: (message: string) => void;
+  highlightSteamApi?: boolean;
 }
 
 const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
@@ -19,7 +20,8 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
   steamAuthMode,
   mockMode,
   onError,
-  onSuccess
+  onSuccess,
+  highlightSteamApi
 }) => {
   const { t } = useTranslation();
 
@@ -56,9 +58,10 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
             mockMode={mockMode}
             onError={onError}
             onSuccess={onSuccess}
+            highlight={highlightSteamApi}
           />
 
-          <SteamWebApiStatus steamAuthMode={steamAuthMode} />
+          <SteamWebApiStatus steamAuthMode={steamAuthMode} highlight={highlightSteamApi} />
         </div>
 
         {/* Monitoring & Metrics Column */}

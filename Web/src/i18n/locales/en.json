@@ -2116,6 +2116,7 @@
     "depotMapping": {
       "title": "Depot Mapping",
       "subtitle": "Automatically identifies Steam games from depot IDs",
+      "configureSteamApi": "Configure Steam API",
       "downloadingFromGitHub": "Downloading Depot Mappings from GitHub...",
       "downloadingDescription": "Fetching pre-created depot mappings (290k+ depots). This may take a few moments.",
       "githubDownloadComplete": "GitHub Data Downloaded - Applying Mappings",

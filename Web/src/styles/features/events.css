@@ -30,47 +30,62 @@
   }
 }
 
-/* Content wrapper */
-.event-frame-content {
+/* Wrapper - contains everything and provides positioning context */
+.event-frame-wrapper {
+  position: relative;
   margin-top: var(--event-frame-top-margin, 16px);
 }
 
-/* Frame overlay rendered via portal */
-.event-frame-overlay {
+/* Content wrapper */
+.event-frame-content {
+  position: relative;
+  z-index: 1;
+}
+
+/* SVG border - positioned absolutely to surround content */
+.event-frame-svg {
   position: absolute;
-  top: var(--event-frame-top);
-  left: var(--event-frame-left);
-  width: var(--event-frame-width);
-  height: var(--event-frame-height);
-  border-radius: var(--event-frame-radius, 12px);
+  top: calc(-1 * var(--event-frame-offset, 10px));
+  left: calc(-1 * var(--event-frame-offset, 10px));
+  right: calc(-1 * var(--event-frame-offset, 10px));
+  bottom: calc(-1 * var(--event-frame-offset, 10px));
+  width: calc(100% + var(--event-frame-offset, 10px) * 2);
+  height: calc(100% + var(--event-frame-offset, 10px) * 2);
   pointer-events: none;
-  z-index: 40;
+  z-index: 0;
+  overflow: visible;
+}
+
+/* Active state - show animation */
+.event-frame-wrapper.event-frame-active .event-frame-svg {
   animation: eventBorderBreathing 3s ease-in-out infinite;
 }
 
-/* SVG border elements */
-.event-frame-svg {
-  position: absolute;
-  inset: 0;
-}
-
+/* SVG stroke styling */
 .event-frame-stroke {
   stroke: var(--event-frame-color, currentColor);
   stroke-width: var(--event-frame-stroke-width, 2px);
   stroke-dasharray: var(--event-frame-dash-array, 10 6);
   stroke-linecap: round;
+  /* Use calc for width/height to account for stroke */
+  width: calc(100% - var(--event-frame-stroke-width, 2px));
+  height: calc(100% - var(--event-frame-stroke-width, 2px));
+}
+
+.event-frame-wrapper.event-frame-active .event-frame-stroke {
   animation: eventBorderDash 8s linear infinite;
 }
 
 /* Event badge container positioning */
 .event-frame-badge-container {
   position: absolute;
-  top: calc(-1 * var(--event-frame-badge-offset, 12px));
+  top: calc(-1 * var(--event-frame-offset, 10px) - var(--event-frame-badge-offset, 12px));
   left: 50%;
   transform: translateX(-50%);
   pointer-events: none;
   max-width: calc(100% - 24px);
   white-space: nowrap;
+  z-index: 2;
 }
 
 .event-frame-badge-bg {
@@ -91,8 +106,10 @@
   font-weight: 600;
   color: var(--event-frame-color, currentColor);
   border: var(--event-frame-badge-border-width, 2px) dashed var(--event-frame-color, currentColor);
+}
+
+.event-frame-wrapper.event-frame-active .event-frame-badge {
   animation: eventBorderBreathing 3s ease-in-out infinite;
-  max-width: 100%;
 }
 
 .event-frame-badge-dot {
@@ -114,14 +131,21 @@
   opacity: 0.7;
 }
 
+/* Parent overflow fix - ensure frame extends outside content boundaries */
+.management-section:has(.event-frame-active),
+.themed-card:has(.event-frame-active),
+.glass-card:has(.event-frame-active) {
+  overflow: visible !important;
+}
+
 /* Mobile perf: lower animation cost on coarse pointers */
 @media (hover: none) and (pointer: coarse) {
-  .event-frame-overlay,
-  .event-frame-badge {
+  .event-frame-wrapper.event-frame-active .event-frame-svg,
+  .event-frame-wrapper.event-frame-active .event-frame-badge {
     animation: eventBorderBreathingLite 3s ease-in-out infinite;
   }
 
-  .event-frame-stroke {
+  .event-frame-wrapper.event-frame-active .event-frame-stroke {
     animation: none;
   }
 
@@ -132,9 +156,9 @@
 
 /* Reduced motion support */
 @media (prefers-reduced-motion: reduce) {
-  .event-frame-overlay,
-  .event-frame-stroke,
-  .event-frame-badge,
+  .event-frame-wrapper.event-frame-active .event-frame-svg,
+  .event-frame-wrapper.event-frame-active .event-frame-stroke,
+  .event-frame-wrapper.event-frame-active .event-frame-badge,
   .event-frame-badge-dot {
     animation: none !important;
   }

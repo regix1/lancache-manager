@@ -6,6 +6,7 @@ import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
 import { Alert } from '@components/ui/Alert';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
+import HighlightGlow from '@components/ui/HighlightGlow';
 import SteamWebApiKeyModal from '@components/modals/setup/SteamWebApiKeyModal';
 import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 import { usePicsProgress } from '@contexts/PicsProgressContext';
@@ -14,9 +15,10 @@ import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 
 interface SteamWebApiStatusProps {
   steamAuthMode?: 'anonymous' | 'authenticated';
+  highlight?: boolean;
 }
 
-const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _steamAuthMode }) => {
+const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _steamAuthMode, highlight }) => {
   const { t } = useTranslation();
   const { status, loading, refresh, updateStatus } = useSteamWebApiStatus();
   const { updateProgress } = usePicsProgress();
@@ -157,9 +159,10 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
 
   return (
     <>
-      <Card>
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-cyan">
+      <HighlightGlow enabled={highlight}>
+        <Card>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-cyan">
             <Globe className="w-5 h-5 icon-cyan" />
           </div>
           <h3 className="text-lg font-semibold text-themed-primary">{t('management.steamWebApi.title')}</h3>
@@ -286,13 +289,14 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
           </div>
         )}
 
-        {/* Last Checked */}
-        {!loading && status && (
-          <p className="text-xs text-themed-muted mt-3 text-center">
-            {t('management.steamWebApi.lastChecked')}: {formattedLastChecked}
-          </p>
-        )}
-      </Card>
+          {/* Last Checked */}
+          {!loading && status && (
+            <p className="text-xs text-themed-muted mt-3 text-center">
+              {t('management.steamWebApi.lastChecked')}: {formattedLastChecked}
+            </p>
+          )}
+        </Card>
+      </HighlightGlow>
 
       {/* Configuration Modal */}
       <SteamWebApiKeyModal

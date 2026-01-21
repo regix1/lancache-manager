@@ -51,6 +51,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
   const [optimizationsEnabled, setOptimizationsEnabled] = useState(false);
   const [logRotationEnabled, setLogRotationEnabled] = useState(false);
   const [gameCacheRefreshKey, setGameCacheRefreshKey] = useState(0);
+  const [highlightSteamApi, setHighlightSteamApi] = useState(false);
 
   // Derive log processing state from notifications for DepotMappingManager
   const activeProcessingNotification = notifications.find(
@@ -209,6 +210,16 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
     setActiveSection(section);
   }, []);
 
+  // Handle navigation to Steam API section with highlight
+  const handleNavigateToSteamApi = useCallback(() => {
+    setActiveSection('integrations');
+    setHighlightSteamApi(true);
+    // Clear highlight after animation completes
+    setTimeout(() => {
+      setHighlightSteamApi(false);
+    }, 2000);
+  }, []);
+
   // Render the active section
   const renderActiveSection = () => {
     // Settings section is always available
@@ -246,6 +257,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
             mockMode={mockMode}
             onError={addError}
             onSuccess={setSuccess}
+            highlightSteamApi={highlightSteamApi}
           />
         );
 
@@ -275,6 +287,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
             onError={addError}
             onSuccess={setSuccess}
             onDataRefresh={refreshStatsAndGameCache}
+            onNavigateToSteamApi={handleNavigateToSteamApi}
           />
         );
 

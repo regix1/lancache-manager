@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Database, Clock, Zap, AlertCircle, Loader2 } from 'lucide-react';
+import { Database, Clock, Zap, AlertCircle, Loader2, ExternalLink } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -25,6 +25,7 @@ interface DepotMappingManagerProps {
   onError?: (message: string) => void;
   onSuccess?: (message: string) => void;
   onDataRefresh?: () => void;
+  onNavigateToSteamApi?: () => void;
 }
 
 type DepotSource = 'incremental' | 'full' | 'github';
@@ -38,7 +39,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
   isProcessingLogs,
   onError,
   onSuccess,
-  onDataRefresh
+  onDataRefresh,
+  onNavigateToSteamApi
 }) => {
   const { t } = useTranslation();
   const { notifications } = useNotifications();
@@ -647,6 +649,18 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                 {t('management.depotMapping.help.note')}
               </HelpNote>
             </HelpPopover>
+          }
+          actions={
+            onNavigateToSteamApi && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onNavigateToSteamApi}
+                rightSection={<ExternalLink className="w-3.5 h-3.5" />}
+              >
+                {t('management.depotMapping.configureSteamApi')}
+              </Button>
+            )
           }
         />
 

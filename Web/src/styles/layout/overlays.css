@@ -101,6 +101,17 @@
     z-index: 99999 !important;
   }
 
+  /* Highlight glow wrapper - applies glow directly to the wrapper element */
+  .highlight-glow-wrapper {
+    position: relative;
+    border-radius: inherit;
+  }
+
+  .highlight-glow-wrapper.highlight-glow-active > .themed-card,
+  .highlight-glow-wrapper.highlight-glow-active > .glass-card {
+    animation: highlightGlowPulse calc(var(--glow-duration, 2000ms) / 2) ease-in-out 2;
+  }
+
   /* ===== END UNIVERSAL OVERLAY FIXES ===== */
 
   .smooth-transition {
