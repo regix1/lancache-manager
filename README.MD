@@ -300,7 +300,8 @@ services:
       #---------------------------------------------------------------------------
       # Steam Prefill (auto-detects host paths from container mounts)
       # Pre-download games to your cache before LAN parties
-      # Powered by: https://github.com/tpill90/steam-lancache-prefill
+      # Powered by: https://github.com/regix1/steam-prefill-daemon
+      # (Fork of https://github.com/tpill90/steam-lancache-prefill)
       #---------------------------------------------------------------------------
 
       # Docker image for per-user prefill containers
@@ -511,7 +512,7 @@ The admin panel (requires authentication). Process logs, clear cache, download d
 <a id="steam-prefill"></a>
 ## Steam Prefill
 
-The Prefill tab helps you download games to your cache before your LAN party starts. It is powered by [steam-lancache-prefill](https://github.com/tpill90/steam-lancache-prefill) by [@tpill90](https://github.com/tpill90).
+The Prefill tab helps you download games to your cache before your LAN party starts. It is powered by [steam-prefill-daemon](https://github.com/regix1/steam-prefill-daemon), a fork of [steam-lancache-prefill](https://github.com/tpill90/steam-lancache-prefill) by [@tpill90](https://github.com/tpill90).
 
 ### Requirements
 

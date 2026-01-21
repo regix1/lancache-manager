@@ -127,7 +127,8 @@ services:
       #---------------------------------------------------------------------------
       # Steam Prefill (auto-detects host paths from container mounts)
       # Pre-download games to your cache before LAN parties
-      # Powered by: https://github.com/tpill90/steam-lancache-prefill
+      # Powered by: https://github.com/regix1/steam-prefill-daemon
+      # (Fork of https://github.com/tpill90/steam-lancache-prefill)
       #---------------------------------------------------------------------------
 
       # Docker image for per-user prefill containers
