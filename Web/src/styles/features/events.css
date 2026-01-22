@@ -1,26 +1,41 @@
 /* ==============================================
  * COMPONENTS - Event frame (active event border)
- * Uses inline SVG for precise dashes with rounded corners
+ * Solid border with pulsing glow + live badge
  * ============================================== */
 
-/* Breathing animation for event frames */
-@keyframes eventBorderBreathing {
+@keyframes eventFrameBorderPulse {
   0%, 100% {
-    opacity: 0.6;
-    filter: brightness(1);
+    opacity: 0.25;
+    box-shadow: 0 0 8px var(--event-frame-color, var(--theme-primary));
   }
   50% {
-    opacity: 1;
-    filter: brightness(1.2);
+    opacity: 0.55;
+    box-shadow: 0 0 14px var(--event-frame-color, var(--theme-primary));
   }
 }
 
-@keyframes eventBorderBreathingLite {
+@keyframes eventFrameLiveDotPulse {
   0%, 100% {
-    opacity: 0.6;
+    transform: scale(1);
+    box-shadow: 0 0 6px var(--theme-error);
   }
   50% {
-    opacity: 1;
+    transform: scale(1.08);
+    box-shadow: 0 0 10px var(--theme-error);
+  }
+}
+
+@keyframes eventFrameLiveRing {
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  70% {
+    opacity: 0.2;
+  }
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
   }
 }
 
@@ -36,29 +51,33 @@
   z-index: 1;
 }
 
-/* SVG-based dashed border for precise rounded corners */
+/* Solid border with soft pulsing glow */
 .event-frame-border {
   position: absolute;
-  top: var(--event-frame-offset-negative, -10px);
-  left: var(--event-frame-offset-negative, -10px);
+  inset: var(--event-frame-offset-negative, -10px);
+  border-radius: var(--event-frame-border-radius, 22px);
+  border: var(--event-frame-stroke-width, 2px) solid var(--event-frame-color, var(--theme-primary));
   pointer-events: none;
   z-index: 0;
-  display: block;
-  animation: eventBorderBreathing 3s ease-in-out infinite;
+  box-sizing: border-box;
 }
 
-.event-frame-border-rect {
-  fill: none;
-  stroke: var(--event-frame-color, currentColor);
-  stroke-width: var(--event-frame-stroke-width, 2px);
-  stroke-dasharray: var(--event-frame-dash-length, 11px) var(--event-frame-dash-gap, 6px);
-  vector-effect: non-scaling-stroke;
+.event-frame-border::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: var(--event-frame-stroke-width, 2px) solid transparent;
+  box-sizing: border-box;
+  opacity: 0.25;
+  box-shadow: 0 0 8px var(--event-frame-color, var(--theme-primary));
+  animation: eventFrameBorderPulse var(--event-frame-border-pulse-duration, 3.2s) ease-in-out infinite;
+  will-change: opacity, box-shadow;
 }
 
 /* Event badge container positioning */
 .event-frame-badge-container {
   position: absolute;
-  /* Uses precomputed negative offset to avoid calc() multiplication */
   top: calc(var(--event-frame-offset-negative, -10px) - var(--event-frame-badge-offset, 12px));
   left: 50%;
   transform: translateX(-50%);
@@ -69,10 +88,7 @@
 }
 
 .event-frame-badge-bg {
-  position: absolute;
-  inset: -4px;
-  border-radius: 9999px;
-  background-color: var(--event-frame-badge-bg, var(--theme-bg-primary));
+  display: none;
 }
 
 .event-frame-badge {
@@ -84,19 +100,34 @@
   border-radius: 9999px;
   font-size: var(--event-frame-badge-font-size, 0.75rem);
   font-weight: 600;
-  color: var(--event-frame-color, currentColor);
-  border: var(--event-frame-badge-border-width, 2px) dashed var(--event-frame-color, currentColor);
-}
-
-.event-frame-wrapper.event-frame-active .event-frame-badge {
-  animation: eventBorderBreathing 3s ease-in-out infinite;
+  color: #ffffff;
+  background: var(--event-frame-color, var(--theme-primary));
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  letter-spacing: 0.02em;
 }
 
 .event-frame-badge-dot {
+  position: relative;
   width: var(--event-frame-badge-dot-size, 0.5rem);
   height: var(--event-frame-badge-dot-size, 0.5rem);
   border-radius: 9999px;
-  background-color: var(--event-frame-color, currentColor);
+  background-color: var(--theme-error);
+  box-shadow: 0 0 6px var(--theme-error);
+  flex: 0 0 auto;
+}
+
+.event-frame-live-dot {
+  animation: eventFrameLiveDotPulse 1.6s ease-in-out infinite;
+}
+
+.event-frame-live-dot::after {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border-radius: 9999px;
+  border: 2px solid var(--theme-error);
+  opacity: 0;
+  animation: eventFrameLiveRing 1.6s ease-out infinite;
 }
 
 .event-frame-badge-name {
@@ -108,7 +139,8 @@
 
 .event-frame-badge-tag {
   font-size: 0.625rem;
-  opacity: 0.7;
+  opacity: 1;
+  text-transform: uppercase;
 }
 
 /* Parent overflow fix - ensure frame extends outside content boundaries */
@@ -120,21 +152,28 @@
 
 /* Mobile perf: lower animation cost on coarse pointers */
 @media (hover: none) and (pointer: coarse) {
-  .event-frame-border,
-  .event-frame-wrapper.event-frame-active .event-frame-badge {
-    animation: eventBorderBreathingLite 3s ease-in-out infinite;
+  .event-frame-wrapper {
+    --event-frame-border-pulse-duration: 4.4s;
   }
 
-  .event-frame-badge-dot {
+  .event-frame-border::after {
+    animation-duration: 4.4s;
+  }
+
+  .event-frame-live-dot {
+    animation: none !important;
+  }
+
+  .event-frame-live-dot::after {
     animation: none !important;
   }
 }
 
 /* Reduced motion support */
 @media (prefers-reduced-motion: reduce) {
-  .event-frame-border,
-  .event-frame-wrapper.event-frame-active .event-frame-badge,
-  .event-frame-badge-dot {
+  .event-frame-border::after,
+  .event-frame-live-dot,
+  .event-frame-live-dot::after {
     animation: none !important;
   }
 }
