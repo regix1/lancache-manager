@@ -10,6 +10,8 @@ public class LinuxPathResolver : IPathResolver
     private readonly ILogger<LinuxPathResolver> _logger;
     private readonly string _basePath;
 
+
+
     public LinuxPathResolver(ILogger<LinuxPathResolver> logger)
     {
         _logger = logger;
@@ -304,17 +306,18 @@ public class LinuxPathResolver : IPathResolver
             }
 
             // Check /proc/mounts for read-only mount flag (Linux-specific optimization)
+            // IMPORTANT: Only short-circuit on READ-ONLY mounts. For read-write mounts,
+            // we MUST still run TestWriteAccess to verify actual permissions (PUID/PGID).
             var isReadOnlyMount = CheckLinuxReadOnlyMount(directoryPath);
-            if (isReadOnlyMount.HasValue)
+            if (isReadOnlyMount.HasValue && isReadOnlyMount.Value)
             {
-                if (isReadOnlyMount.Value)
-                {
-                    _logger.LogDebug("Directory is mounted read-only (from /proc/mounts): {Path}", directoryPath);
-                }
-                return !isReadOnlyMount.Value;
+                // Mount is definitely read-only - no need to test further
+                _logger.LogDebug("Directory is mounted read-only (from /proc/mounts): {Path}", directoryPath);
+                return false;
             }
 
-            // Fall back to test file method if /proc/mounts check failed
+            // Mount is read-write (or unknown) - test actual write permissions
+            // This is critical for detecting PUID/PGID mismatches
             return TestWriteAccess(directoryPath);
         }
         catch (Exception ex)
@@ -419,59 +422,65 @@ public class LinuxPathResolver : IPathResolver
     /// </summary>
     private bool TestWriteAccess(string directoryPath)
     {
-        // CRITICAL: We need to test TWO things:
-        // 1. Can we create new files in the directory? (directory write access)
-        // 2. Can we modify EXISTING files? (file ownership/permission check)
-        //
-        // The second check catches PUID/PGID mismatches where the container can create
-        // new files (owned by its UID) but cannot modify files owned by the lancache user.
+        // Strategy: Test ACTUAL write access by opening existing files for write.
+        // This is more reliable than UID/GID comparison because it:
+        // - Works on all architectures (ARM64, x86_64)
+        // - Handles ACLs, group permissions, and root correctly
+        // - Tests real write ability, not just ownership
 
-        // First, try to find and test against an existing file in the directory tree
-        // This catches the PUID/PGID mismatch scenario
-        // Cache directories have hierarchical structure (e.g., /cache/steam/...) so we need to search recursively
+        // Step 1: Try to find and test existing files in the directory tree
+        // Cache directories have hierarchical structure (e.g., /cache/steam/...) so search recursively
         try
         {
-            // Use EnumerateFiles with AllDirectories but take only first few files found
-            // This is lazy-evaluated so it won't scan the entire tree
             var existingFiles = Directory.EnumerateFiles(directoryPath, "*", SearchOption.AllDirectories)
-                .Take(10) // Check up to 10 files to find one we can test
+                .Take(20) // Check up to 20 files for a representative sample
                 .ToList();
 
             _logger.LogDebug("Found {Count} files to test in {Path}", existingFiles.Count, directoryPath);
 
-            foreach (var existingFile in existingFiles)
+            if (existingFiles.Count > 0)
             {
-                try
+                foreach (var existingFile in existingFiles)
                 {
-                    // Try to open the file for write access WITHOUT modifying it
-                    // FileShare.ReadWrite allows other processes to continue accessing it
-                    using (var fs = new FileStream(existingFile, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
+                    try
                     {
-                        // Successfully opened for write - we have permission
-                        _logger.LogDebug("Existing file write test passed for: {Path}", existingFile);
-                        return true;
+                        // Try to open the file for write access WITHOUT modifying it
+                        // FileShare.ReadWrite allows other processes to continue accessing it
+                        using (var fs = new FileStream(existingFile, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
+                        {
+                            // Successfully opened for write - we have permission
+                            _logger.LogDebug("Write access confirmed for file: {Path}", existingFile);
+                            return true;
+                        }
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        // Cannot modify this file - permission issue (likely PUID/PGID mismatch)
+                        _logger.LogWarning(
+                            "Permission denied on existing file: {Path}. " +
+                            "This typically indicates PUID/PGID mismatch - update docker-compose.yml to match lancache container ownership.",
+                            existingFile);
+                        return false;
+                    }
+                    catch (IOException ex)
+                    {
+                        // File might be locked, try the next one
+                        _logger.LogDebug(ex, "File locked or inaccessible, trying next: {Path}", existingFile);
+                        continue;
                     }
                 }
-                catch (UnauthorizedAccessException)
-                {
-                    // Cannot modify this existing file - likely PUID/PGID mismatch
-                    _logger.LogWarning("Cannot modify existing file (permission denied): {Path}. This indicates PUID/PGID mismatch.", existingFile);
-                    return false;
-                }
-                catch (IOException ex)
-                {
-                    // File might be locked, try the next one
-                    _logger.LogDebug(ex, "File locked or inaccessible, trying next: {Path}", existingFile);
-                    continue;
-                }
-            }
 
-            // No existing files found or all were locked, fall back to create test
-            _logger.LogDebug("No testable files found in {Path}, falling back to create test", directoryPath);
+                // All files were locked/inaccessible, fall back to create test
+                _logger.LogDebug("All existing files locked in {Path}, falling back to create test", directoryPath);
+            }
+            else
+            {
+                _logger.LogDebug("No existing files found in {Path}, using create test only", directoryPath);
+            }
         }
         catch (UnauthorizedAccessException ex)
         {
-            // Can't even enumerate files - definitely no write access
+            // Can't even enumerate files - definitely no access
             _logger.LogWarning(ex, "Cannot enumerate files in directory (permission denied): {Path}", directoryPath);
             return false;
         }
@@ -480,19 +489,20 @@ public class LinuxPathResolver : IPathResolver
             _logger.LogDebug(ex, "Error checking existing files in {Path}, falling back to create test", directoryPath);
         }
 
-        // Fallback: Test if we can at least create new files
-        // This is less accurate but better than nothing when directory is empty
-        var testFilePath = Path.Combine(directoryPath, $".write_test_{Guid.NewGuid()}.tmp");
+        // Step 2: Fallback - test if we can create/delete files in the directory
+        // This is needed for empty directories and validates directory-level write access
+        var testFilePath = Path.Combine(directoryPath, $".lancache_permcheck_{Guid.NewGuid():N}");
 
         try
         {
-            File.WriteAllText(testFilePath, "write test");
+            File.WriteAllText(testFilePath, "permission check");
             File.Delete(testFilePath);
+            _logger.LogDebug("Create/delete test passed in {Path}", directoryPath);
             return true;
         }
         catch (UnauthorizedAccessException)
         {
-            _logger.LogDebug("Directory is read-only: {Path}", directoryPath);
+            _logger.LogDebug("Directory is read-only (cannot create files): {Path}", directoryPath);
             return false;
         }
         catch (IOException)
