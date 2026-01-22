@@ -1,6 +1,6 @@
 /* ==============================================
  * COMPONENTS - Event frame (active event border)
- * Uses pure CSS (no SVG) for mobile Safari compatibility
+ * Uses inline SVG for precise dashes with rounded corners
  * ============================================== */
 
 /* Breathing animation for event frames */
@@ -36,18 +36,23 @@
   z-index: 1;
 }
 
-/* CSS-based dashed border using ::before pseudo-element
-   This replaces the SVG approach for better mobile Safari compatibility */
-.event-frame-wrapper.event-frame-active::before {
-  content: "";
+/* SVG-based dashed border for precise rounded corners */
+.event-frame-border {
   position: absolute;
-  /* Use precomputed negative offset to avoid calc() multiplication */
-  inset: var(--event-frame-offset-negative, -10px);
-  border: 2px dashed var(--event-frame-color, currentColor);
-  border-radius: var(--event-frame-border-radius, 22px);
+  top: var(--event-frame-offset-negative, -10px);
+  left: var(--event-frame-offset-negative, -10px);
   pointer-events: none;
   z-index: 0;
+  display: block;
   animation: eventBorderBreathing 3s ease-in-out infinite;
+}
+
+.event-frame-border-rect {
+  fill: none;
+  stroke: var(--event-frame-color, currentColor);
+  stroke-width: var(--event-frame-stroke-width, 2px);
+  stroke-dasharray: var(--event-frame-dash-length, 11px) var(--event-frame-dash-gap, 6px);
+  vector-effect: non-scaling-stroke;
 }
 
 /* Event badge container positioning */
@@ -115,7 +120,7 @@
 
 /* Mobile perf: lower animation cost on coarse pointers */
 @media (hover: none) and (pointer: coarse) {
-  .event-frame-wrapper.event-frame-active::before,
+  .event-frame-border,
   .event-frame-wrapper.event-frame-active .event-frame-badge {
     animation: eventBorderBreathingLite 3s ease-in-out infinite;
   }
@@ -127,7 +132,7 @@
 
 /* Reduced motion support */
 @media (prefers-reduced-motion: reduce) {
-  .event-frame-wrapper.event-frame-active::before,
+  .event-frame-border,
   .event-frame-wrapper.event-frame-active .event-frame-badge,
   .event-frame-badge-dot {
     animation: none !important;
