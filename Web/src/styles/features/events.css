@@ -100,9 +100,10 @@
   border-radius: 9999px;
   font-size: var(--event-frame-badge-font-size, 0.75rem);
   font-weight: 600;
-  color: #ffffff;
-  background: var(--event-frame-color, var(--theme-primary));
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  color: var(--event-frame-color, var(--theme-primary));
+  background: var(--theme-bg-primary);
+  border: 1px solid var(--event-frame-color, var(--theme-primary));
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   letter-spacing: 0.02em;
 }
 
@@ -141,6 +142,62 @@
   font-size: 0.625rem;
   opacity: 1;
   text-transform: uppercase;
+}
+
+/* Interactive badge (when multiple events) */
+.event-frame-badge-interactive {
+  cursor: pointer;
+  pointer-events: auto;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.event-frame-badge-interactive:hover {
+  transform: scale(1.02);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+
+/* Tooltip for multiple events */
+.event-frame-tooltip {
+  min-width: 160px;
+  max-width: 280px;
+}
+
+.event-frame-tooltip-title {
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.7;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.375rem;
+  border-bottom: 1px solid var(--theme-border);
+}
+
+.event-frame-tooltip-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.event-frame-tooltip-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.event-frame-tooltip-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+
+.event-frame-tooltip-name {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Parent overflow fix - ensure frame extends outside content boundaries */

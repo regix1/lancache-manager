@@ -1,5 +1,13 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
+import { Tooltip } from '@components/ui/Tooltip';
+import { getEventColorVar } from '@utils/eventColors';
+
+export interface EventFrameEvent {
+  id: number;
+  name: string;
+  colorIndex: number;
+}
 
 export interface EventFrameTokens {
   offset?: number;
@@ -19,6 +27,8 @@ export interface EventFrameProps {
   showBadge?: boolean;
   tokens?: EventFrameTokens;
   className?: string;
+  /** All active events - used to show tooltip with full list when multiple events are active */
+  allEvents?: EventFrameEvent[];
 }
 
 const defaultTokens: Required<EventFrameTokens> = {
@@ -42,7 +52,8 @@ const EventFrame: React.FC<EventFrameProps> = ({
   badgeText,
   showBadge = true,
   tokens,
-  className
+  className,
+  allEvents = []
 }) => {
   const { t } = useTranslation();
   const mergedTokens = { ...defaultTokens, ...tokens };
@@ -53,6 +64,7 @@ const EventFrame: React.FC<EventFrameProps> = ({
 
   const shouldShowBadge = showBadge && Boolean(label);
   const resolvedBadgeText = badgeText ?? t('eventFrame.badge');
+  const hasMultipleEvents = allEvents.length > 1;
 
   // Precompute values for CSS - avoids calc() multiplication which iOS Safari doesn't support
   const wrapperStyle = {
@@ -87,13 +99,46 @@ const EventFrame: React.FC<EventFrameProps> = ({
       {shouldShowBadge && (
         <div className="event-frame-badge-container">
           <div className="event-frame-badge-bg" />
-          <div className="event-frame-badge">
-            <span className="event-frame-badge-dot event-frame-live-dot" />
-            <span className="event-frame-badge-name">{label}</span>
-            {resolvedBadgeText && (
-              <span className="event-frame-badge-tag">{resolvedBadgeText}</span>
-            )}
-          </div>
+          {hasMultipleEvents ? (
+            <Tooltip
+              position="bottom"
+              offset={8}
+              content={
+                <div className="event-frame-tooltip">
+                  <div className="event-frame-tooltip-title">
+                    {t('eventFrame.activeEvents')}
+                  </div>
+                  <div className="event-frame-tooltip-list">
+                    {allEvents.map((event) => (
+                      <div key={event.id} className="event-frame-tooltip-item">
+                        <span
+                          className="event-frame-tooltip-dot"
+                          style={{ backgroundColor: getEventColorVar(event.colorIndex) }}
+                        />
+                        <span className="event-frame-tooltip-name">{event.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              }
+            >
+              <div className="event-frame-badge event-frame-badge-interactive">
+                <span className="event-frame-badge-dot event-frame-live-dot" />
+                <span className="event-frame-badge-name">{label}</span>
+                {resolvedBadgeText && (
+                  <span className="event-frame-badge-tag">{resolvedBadgeText}</span>
+                )}
+              </div>
+            </Tooltip>
+          ) : (
+            <div className="event-frame-badge">
+              <span className="event-frame-badge-dot event-frame-live-dot" />
+              <span className="event-frame-badge-name">{label}</span>
+              {resolvedBadgeText && (
+                <span className="event-frame-badge-tag">{resolvedBadgeText}</span>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
