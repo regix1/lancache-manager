@@ -32,7 +32,7 @@ const defaultTokens: Required<EventFrameTokens> = {
 
 /**
  * Renders a non-intrusive animated frame around content.
- * Uses CSS-based positioning (no portal) - the frame follows the element naturally.
+ * Uses pure CSS pseudo-element for the border (no SVG) for better mobile Safari compatibility.
  */
 const EventFrame: React.FC<EventFrameProps> = ({
   children,
@@ -64,15 +64,13 @@ const EventFrame: React.FC<EventFrameProps> = ({
   const shouldShowBadge = showBadge && Boolean(label);
   const resolvedBadgeText = badgeText ?? t('eventFrame.badge');
 
+  // Precompute values for CSS - avoids calc() multiplication which iOS Safari doesn't support
   const wrapperStyle = {
     '--event-frame-color': color,
     '--event-frame-offset': `${mergedTokens.offset}px`,
-    // Precomputed values to avoid calc() multiplication (not supported on iOS Safari)
     '--event-frame-offset-negative': `-${mergedTokens.offset}px`,
-    '--event-frame-offset-double': `${mergedTokens.offset * 2}px`,
-    '--event-frame-radius': `${mergedTokens.radius}px`,
+    '--event-frame-border-radius': `${mergedTokens.radius + mergedTokens.offset}px`,
     '--event-frame-stroke-width': `${mergedTokens.strokeWidth}px`,
-    '--event-frame-dash-array': mergedTokens.dashArray,
     '--event-frame-top-margin': `${mergedTokens.topMargin}px`,
     '--event-frame-badge-offset': `${mergedTokens.badgeOffset}px`
   } as React.CSSProperties;
@@ -86,23 +84,7 @@ const EventFrame: React.FC<EventFrameProps> = ({
         {children}
       </div>
 
-      {/* SVG border - positioned absolutely within wrapper */}
-      <svg
-        className="event-frame-svg"
-        aria-hidden="true"
-        preserveAspectRatio="none"
-        width="100%"
-        height="100%"
-      >
-        <rect
-          className="event-frame-stroke"
-          x={mergedTokens.strokeWidth / 2}
-          y={mergedTokens.strokeWidth / 2}
-          rx={mergedTokens.radius}
-          ry={mergedTokens.radius}
-          fill="none"
-        />
-      </svg>
+      {/* Border is now rendered via CSS ::before pseudo-element for mobile compatibility */}
 
       {/* Badge positioned at top center of frame */}
       {shouldShowBadge && (

@@ -1,5 +1,6 @@
 /* ==============================================
  * COMPONENTS - Event frame (active event border)
+ * Uses pure CSS (no SVG) for mobile Safari compatibility
  * ============================================== */
 
 /* Breathing animation for event frames */
@@ -23,13 +24,6 @@
   }
 }
 
-/* Moving dashes animation for SVG borders */
-@keyframes eventBorderDash {
-  to {
-    stroke-dashoffset: -16;
-  }
-}
-
 /* Wrapper - contains everything and provides positioning context */
 .event-frame-wrapper {
   position: relative;
@@ -42,40 +36,18 @@
   z-index: 1;
 }
 
-/* SVG border - positioned absolutely to surround content */
-/* Uses precomputed negative/double offset values to avoid calc() multiplication
-   which is not supported on iOS Safari */
-.event-frame-svg {
+/* CSS-based dashed border using ::before pseudo-element
+   This replaces the SVG approach for better mobile Safari compatibility */
+.event-frame-wrapper.event-frame-active::before {
+  content: "";
   position: absolute;
-  top: var(--event-frame-offset-negative, -10px);
-  left: var(--event-frame-offset-negative, -10px);
-  right: var(--event-frame-offset-negative, -10px);
-  bottom: var(--event-frame-offset-negative, -10px);
-  width: calc(100% + var(--event-frame-offset-double, 20px));
-  height: calc(100% + var(--event-frame-offset-double, 20px));
+  /* Use precomputed negative offset to avoid calc() multiplication */
+  inset: var(--event-frame-offset-negative, -10px);
+  border: 2px dashed var(--event-frame-color, currentColor);
+  border-radius: var(--event-frame-border-radius, 22px);
   pointer-events: none;
   z-index: 0;
-  overflow: visible;
-}
-
-/* Active state - show animation */
-.event-frame-wrapper.event-frame-active .event-frame-svg {
   animation: eventBorderBreathing 3s ease-in-out infinite;
-}
-
-/* SVG stroke styling */
-.event-frame-stroke {
-  stroke: var(--event-frame-color, currentColor);
-  stroke-width: var(--event-frame-stroke-width, 2px);
-  stroke-dasharray: var(--event-frame-dash-array, 10 6);
-  stroke-linecap: round;
-  /* Use calc for width/height to account for stroke */
-  width: calc(100% - var(--event-frame-stroke-width, 2px));
-  height: calc(100% - var(--event-frame-stroke-width, 2px));
-}
-
-.event-frame-wrapper.event-frame-active .event-frame-stroke {
-  animation: eventBorderDash 8s linear infinite;
 }
 
 /* Event badge container positioning */
@@ -143,13 +115,9 @@
 
 /* Mobile perf: lower animation cost on coarse pointers */
 @media (hover: none) and (pointer: coarse) {
-  .event-frame-wrapper.event-frame-active .event-frame-svg,
+  .event-frame-wrapper.event-frame-active::before,
   .event-frame-wrapper.event-frame-active .event-frame-badge {
     animation: eventBorderBreathingLite 3s ease-in-out infinite;
-  }
-
-  .event-frame-wrapper.event-frame-active .event-frame-stroke {
-    animation: none;
   }
 
   .event-frame-badge-dot {
@@ -159,8 +127,7 @@
 
 /* Reduced motion support */
 @media (prefers-reduced-motion: reduce) {
-  .event-frame-wrapper.event-frame-active .event-frame-svg,
-  .event-frame-wrapper.event-frame-active .event-frame-stroke,
+  .event-frame-wrapper.event-frame-active::before,
   .event-frame-wrapper.event-frame-active .event-frame-badge,
   .event-frame-badge-dot {
     animation: none !important;
