@@ -545,6 +545,7 @@ public class LinuxPathResolver : IPathResolver
                 {
                     try
                     {
+                        _logger.LogDebug("Testing write access on existing file: {Path}", existingFile);
                         // Try to open the file for write access WITHOUT modifying it
                         // FileShare.None is the definitive access check for write permission
                         using (var fs = new FileStream(existingFile, FileMode.Open, FileAccess.Write, FileShare.None))
@@ -576,10 +577,20 @@ public class LinuxPathResolver : IPathResolver
             }
             else
             {
-                _logger.LogDebug("No existing files found in {Path}, checking ownership before create test", directoryPath);
+                _logger.LogDebug("No existing files found in {Path}; taking empty-directory path", directoryPath);
+                _logger.LogDebug("Checking ownership before create test for {Path}", directoryPath);
 
                 if (TryGetPathOwnerUid(directoryPath, out var ownerUid))
                 {
+                    var processUidDisplay = processUid.HasValue
+                        ? processUid.Value.ToString(CultureInfo.InvariantCulture)
+                        : "n/a";
+                    _logger.LogDebug(
+                        "Ownership check for {Path}: owner UID {OwnerUid}, process UID {ProcessUid}",
+                        directoryPath,
+                        ownerUid,
+                        processUidDisplay);
+
                     if (processUid.HasValue)
                     {
                         if (ownerUid != processUid.Value)
