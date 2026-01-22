@@ -17,7 +17,8 @@ import {
   ChevronDown,
   ChevronUp,
   Gamepad2,
-  XCircle
+  XCircle,
+  Activity
 } from 'lucide-react';
 import { Card, CardContent } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -27,6 +28,7 @@ import { Tooltip } from '@components/ui/Tooltip';
 import { Pagination } from '@components/ui/Pagination';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { Checkbox } from '@components/ui/Checkbox';
+import { AccordionSection } from '@components/ui/AccordionSection';
 import ApiService, {
   PrefillSessionDto,
   DaemonSessionDto,
@@ -38,6 +40,7 @@ import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useSignalR } from '@contexts/SignalRContext';
 import { cleanIpAddress } from '@components/features/user/types';
 import type { DaemonSessionCreatedEvent, DaemonSessionUpdatedEvent, DaemonSessionTerminatedEvent, PrefillHistoryUpdatedEvent } from '@contexts/SignalRContext/types';
+import './PrefillSessionsSection.css';
 
 interface PrefillSessionsSectionProps {
   isAuthenticated: boolean;
@@ -62,46 +65,40 @@ const formatBytes = (bytes: number): string => {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 };
 
-// Prefill history status badge - derives effective status from status + completedAtUtc
+// Prefill history status badge
 const HistoryStatusBadge: React.FC<{ status: string; completedAtUtc?: string }> = ({ status, completedAtUtc }) => {
   const { t } = useTranslation();
-  
-  // Derive the effective status: if completedAtUtc is set but status is still InProgress,
-  // the download actually completed (race condition with status update)
+
   const getEffectiveStatus = () => {
     const normalizedStatus = status.toLowerCase();
-
-    // If completedAtUtc is set but status is still InProgress, treat as Completed
     if (completedAtUtc && normalizedStatus === 'inprogress') {
       return 'completed';
     }
-
     return normalizedStatus;
   };
 
   const effectiveStatus = getEffectiveStatus();
 
-  const getStatusStyle = () => {
+  const getStatusConfig = () => {
     switch (effectiveStatus) {
       case 'completed':
-        return { bg: 'var(--theme-icon-green)', text: '#fff' };
+        return { className: 'prefill-status-badge prefill-status-completed' };
       case 'inprogress':
-        return { bg: 'var(--theme-primary)', text: '#fff' };
+        return { className: 'prefill-status-badge prefill-status-progress' };
       case 'failed':
       case 'error':
-        return { bg: 'var(--theme-icon-red)', text: '#fff' };
+        return { className: 'prefill-status-badge prefill-status-failed' };
       case 'cancelled':
-        return { bg: 'var(--theme-icon-orange)', text: '#fff' };
+        return { className: 'prefill-status-badge prefill-status-cancelled' };
       case 'cached':
-        return { bg: 'var(--theme-text-muted)', text: '#fff' };
+        return { className: 'prefill-status-badge prefill-status-cached' };
       default:
-        return { bg: 'var(--theme-bg-tertiary)', text: 'var(--theme-text-secondary)' };
+        return { className: 'prefill-status-badge prefill-status-default' };
     }
   };
 
-  const colors = getStatusStyle();
-  
-  // Display capitalized version
+  const config = getStatusConfig();
+
   const getDisplayStatus = () => {
     switch (effectiveStatus) {
       case 'completed': return t('management.prefillSessions.historyStatusBadges.completed');
@@ -115,10 +112,7 @@ const HistoryStatusBadge: React.FC<{ status: string; completedAtUtc?: string }> 
   };
 
   return (
-    <span
-      className="px-1.5 py-0.5 rounded text-[10px] font-medium"
-      style={{ backgroundColor: colors.bg, color: colors.text }}
-    >
+    <span className={config.className}>
       {getDisplayStatus()}
     </span>
   );
@@ -127,45 +121,456 @@ const HistoryStatusBadge: React.FC<{ status: string; completedAtUtc?: string }> 
 // Status badge component
 const StatusBadge: React.FC<{ status: string; isLive?: boolean }> = ({ status, isLive }) => {
   const { t } = useTranslation();
-  
-  const getStatusColor = (status: string) => {
+
+  const getStatusClass = (status: string) => {
     switch (status.toLowerCase()) {
       case 'active':
       case 'authenticated':
-        return { bg: 'var(--theme-icon-green)', text: '#fff' };
+        return 'prefill-session-badge prefill-session-active';
       case 'pendingauth':
       case 'awaitingcredential':
-        return { bg: 'var(--theme-icon-orange)', text: '#fff' };
+        return 'prefill-session-badge prefill-session-pending';
       case 'terminated':
       case 'expired':
-        return { bg: 'var(--theme-icon-red)', text: '#fff' };
+        return 'prefill-session-badge prefill-session-terminated';
       case 'orphaned':
-        return { bg: 'var(--theme-icon-purple)', text: '#fff' };
+        return 'prefill-session-badge prefill-session-orphaned';
       case 'cleaned':
-        return { bg: 'var(--theme-text-muted)', text: '#fff' };
+        return 'prefill-session-badge prefill-session-cleaned';
       default:
-        return { bg: 'var(--theme-bg-tertiary)', text: 'var(--theme-text-secondary)' };
+        return 'prefill-session-badge prefill-session-default';
     }
   };
 
-  const colors = getStatusColor(status);
-
   return (
-    <div className="flex items-center gap-1.5">
-      <span
-        className="px-2 py-0.5 rounded text-xs font-medium"
-        style={{ backgroundColor: colors.bg, color: colors.text }}
-      >
+    <div className="flex items-center gap-1.5 flex-wrap">
+      <span className={getStatusClass(status)}>
         {status}
       </span>
       {isLive && (
         <Tooltip content={t('management.prefillSessions.tooltips.sessionActive')}>
-          <span
-            className="px-1.5 py-0.5 rounded text-xs font-medium flex items-center gap-1 icon-bg-green icon-green"
-          >
-            <Play className="w-3 h-3" />
+          <span className="prefill-live-badge">
+            <span className="prefill-live-indicator" />
             {t('management.prefillSessions.statusBadges.live')}
           </span>
+        </Tooltip>
+      )}
+    </div>
+  );
+};
+
+// Summary stat card component
+const StatCard: React.FC<{
+  icon: React.ReactNode;
+  value: number;
+  label: string;
+  iconBgClass: string;
+}> = ({ icon, value, label, iconBgClass }) => (
+  <div className="prefill-stat-card">
+    <div className={`prefill-stat-icon ${iconBgClass}`}>
+      {icon}
+    </div>
+    <div className="prefill-stat-content">
+      <div className="prefill-stat-value">{value}</div>
+      <div className="prefill-stat-label">{label}</div>
+    </div>
+  </div>
+);
+
+// Session card component for both live and historical sessions
+const SessionCard: React.FC<{
+  session: DaemonSessionDto | PrefillSessionDto;
+  isLive: boolean;
+  isAuthenticated: boolean;
+  historyData: PrefillHistoryEntryDto[];
+  isHistoryExpanded: boolean;
+  isLoadingHistory: boolean;
+  onToggleHistory: () => void;
+  onTerminate?: () => void;
+  onBan?: () => void;
+  isTerminating?: boolean;
+  isBanning?: boolean;
+  historyPage: number;
+  onHistoryPageChange: (page: number) => void;
+}> = ({
+  session,
+  isLive,
+  isAuthenticated,
+  historyData,
+  isHistoryExpanded,
+  isLoadingHistory,
+  onToggleHistory,
+  onTerminate,
+  onBan,
+  isTerminating,
+  isBanning,
+  historyPage,
+  onHistoryPageChange
+}) => {
+  const { t } = useTranslation();
+  const historyPageSize = 5;
+
+  // Normalize session data between DaemonSessionDto and PrefillSessionDto
+  const isDaemonSession = 'id' in session && !('sessionId' in session);
+  const status = session.status;
+  const isPrefilling = isDaemonSession ? (session as DaemonSessionDto).isPrefilling : false;
+  const steamUsername = isDaemonSession ? (session as DaemonSessionDto).steamUsername : (session as PrefillSessionDto).steamUsername;
+  const containerName = isDaemonSession ? (session as DaemonSessionDto).containerName : (session as PrefillSessionDto).containerName;
+  const createdAt = isDaemonSession ? (session as DaemonSessionDto).createdAt : (session as PrefillSessionDto).createdAtUtc;
+  const endedAt = isDaemonSession ? undefined : (session as PrefillSessionDto).endedAtUtc;
+  const ipAddress = isDaemonSession ? (session as DaemonSessionDto).ipAddress : undefined;
+  const operatingSystem = isDaemonSession ? (session as DaemonSessionDto).operatingSystem : undefined;
+  const browser = isDaemonSession ? (session as DaemonSessionDto).browser : undefined;
+  const currentAppName = isDaemonSession ? (session as DaemonSessionDto).currentAppName : undefined;
+  const totalBytesTransferred = isDaemonSession ? (session as DaemonSessionDto).totalBytesTransferred : undefined;
+  const isAuthenticated_ = isDaemonSession
+    ? (session as DaemonSessionDto).authState === 'Authenticated'
+    : (session as PrefillSessionDto).isAuthenticated;
+
+  const totalBytesFromHistory = historyData
+    ? historyData.reduce((sum, e) => sum + Math.max(e.bytesDownloaded, e.totalBytes || 0), 0)
+    : 0;
+  const gamesCount = historyData?.length || 0;
+
+  const totalPages = historyData ? Math.ceil(historyData.length / historyPageSize) : 0;
+  const startIdx = (historyPage - 1) * historyPageSize;
+  const paginatedEntries = historyData?.slice(startIdx, startIdx + historyPageSize) || [];
+
+  return (
+    <Card className="prefill-session-card">
+      <CardContent className="p-0">
+        {/* Main session info */}
+        <div className="prefill-session-content">
+          {/* Left side: Status indicator and session info */}
+          <div className="prefill-session-main">
+            {/* Status indicator */}
+            <div className={`prefill-session-indicator ${
+              isPrefilling ? 'prefill-indicator-downloading' :
+              isLive ? 'prefill-indicator-active' :
+              status === 'Terminated' ? 'prefill-indicator-terminated' :
+              'prefill-indicator-default'
+            }`}>
+              {isPrefilling ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : isLive ? (
+                <Play className="w-5 h-5" />
+              ) : status === 'Terminated' ? (
+                <StopCircle className="w-5 h-5" />
+              ) : (
+                <Container className="w-5 h-5" />
+              )}
+            </div>
+
+            {/* Session details */}
+            <div className="prefill-session-details">
+              {/* Header: Username and status */}
+              <div className="prefill-session-header">
+                {steamUsername ? (
+                  <span className="prefill-session-username">
+                    <User className="w-3.5 h-3.5" />
+                    {steamUsername}
+                  </span>
+                ) : (
+                  <span className="prefill-session-no-user">
+                    {isAuthenticated_
+                      ? t('management.prefillSessions.labels.unauthorizedAccount')
+                      : t('management.prefillSessions.labels.notLoggedInSession')}
+                  </span>
+                )}
+                <StatusBadge status={status} isLive={isLive} />
+                {!isDaemonSession && (session as PrefillSessionDto).isAuthenticated && (
+                  <Tooltip content={t('management.prefillSessions.tooltips.steamAuthenticated')}>
+                    <CheckCircle className="w-4 h-4 icon-green flex-shrink-0" />
+                  </Tooltip>
+                )}
+              </div>
+
+              {/* Prefilling status */}
+              {isPrefilling && (
+                <div className="prefill-downloading-status">
+                  <Activity className="w-4 h-4" />
+                  <span className="prefill-downloading-name">
+                    {currentAppName || t('management.prefillSessions.labels.loading')}
+                  </span>
+                  {(totalBytesTransferred ?? 0) > 0 && (
+                    <span className="prefill-downloading-size">
+                      {formatBytes(totalBytesTransferred!)}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Container name */}
+              {containerName && (
+                <div className="prefill-session-container">
+                  <Container className="w-3 h-3 flex-shrink-0" />
+                  <span className="font-mono truncate">{containerName}</span>
+                </div>
+              )}
+
+              {/* Metadata row */}
+              <div className="prefill-session-meta">
+                <span className="prefill-meta-item">
+                  <Clock className="w-3 h-3" />
+                  <FormattedTimestamp timestamp={createdAt} />
+                </span>
+                {endedAt && (
+                  <span className="prefill-meta-item">
+                    → <FormattedTimestamp timestamp={endedAt} />
+                  </span>
+                )}
+                {ipAddress && (
+                  <span className="prefill-meta-item hidden sm:flex">
+                    <Network className="w-3 h-3" />
+                    <span className="font-mono">{cleanIpAddress(ipAddress)}</span>
+                  </span>
+                )}
+                {(operatingSystem || browser) && (
+                  <span className="prefill-meta-item hidden md:flex">
+                    <Monitor className="w-3 h-3" />
+                    {operatingSystem || browser}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Right side: Stats and actions */}
+          <div className="prefill-session-actions">
+            {/* Stats badges */}
+            {(gamesCount > 0 || totalBytesFromHistory > 0 || (!isPrefilling && (totalBytesTransferred ?? 0) > 0)) && (
+              <div className="prefill-session-stats">
+                {gamesCount > 0 && (
+                  <Tooltip content={t('management.prefillSessions.tooltips.gamesPrefilled', { count: gamesCount })}>
+                    <span className="prefill-stat-badge prefill-stat-games">
+                      <Gamepad2 className="w-3.5 h-3.5" />
+                      <span>{gamesCount}</span>
+                    </span>
+                  </Tooltip>
+                )}
+                {(totalBytesFromHistory > 0 || (!isPrefilling && (totalBytesTransferred ?? 0) > 0)) && (
+                  <Tooltip content={t('management.prefillSessions.tooltips.totalDataDownloaded')}>
+                    <span className="prefill-stat-badge prefill-stat-bytes">
+                      {formatBytes(totalBytesFromHistory || totalBytesTransferred || 0)}
+                    </span>
+                  </Tooltip>
+                )}
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div className="prefill-action-buttons">
+              <Button
+                variant="subtle"
+                size="sm"
+                onClick={onToggleHistory}
+                className="prefill-expand-btn"
+              >
+                {isLoadingHistory ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : isHistoryExpanded ? (
+                  <ChevronUp className="w-4 h-4" />
+                ) : (
+                  <ChevronDown className="w-4 h-4" />
+                )}
+              </Button>
+
+              {isAuthenticated && isLive && (
+                <>
+                  {steamUsername && onBan && (
+                    <Tooltip content={t('management.prefillSessions.tooltips.banUser')}>
+                      <Button
+                        variant="subtle"
+                        size="sm"
+                        color="red"
+                        onClick={onBan}
+                        disabled={isBanning}
+                      >
+                        {isBanning ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Ban className="w-4 h-4" />
+                        )}
+                      </Button>
+                    </Tooltip>
+                  )}
+                  {onTerminate && (
+                    <Tooltip content={t('management.prefillSessions.tooltips.terminateSession')}>
+                      <Button
+                        variant="subtle"
+                        size="sm"
+                        color="red"
+                        onClick={onTerminate}
+                        disabled={isTerminating}
+                      >
+                        {isTerminating ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <StopCircle className="w-4 h-4" />
+                        )}
+                      </Button>
+                    </Tooltip>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Expandable history section */}
+        {isHistoryExpanded && (
+          <div className="prefill-history-section">
+            <div className="prefill-history-header">
+              <Gamepad2 className="w-4 h-4 text-themed-muted" />
+              <span>{t('management.prefillSessions.labels.prefillHistory')}</span>
+            </div>
+
+            {isLoadingHistory ? (
+              <div className="prefill-history-loading">
+                <Loader2 className="w-4 h-4 animate-spin text-themed-muted" />
+                <span>{t('management.prefillSessions.labels.loadingHistory')}</span>
+              </div>
+            ) : !historyData || historyData.length === 0 ? (
+              <div className="prefill-history-empty">
+                {isLive
+                  ? t('management.prefillSessions.labels.noPrefillHistoryYet')
+                  : t('management.prefillSessions.labels.noPrefillHistoryRecorded')}
+              </div>
+            ) : (
+              <>
+                {/* Summary stats */}
+                <div className="prefill-history-summary">
+                  <span>{t('management.prefillSessions.labels.gamesPrefilled', { count: historyData.length })}</span>
+                  {totalBytesFromHistory > 0 && (
+                    <span>{t('management.prefillSessions.labels.total', { bytes: formatBytes(totalBytesFromHistory) })}</span>
+                  )}
+                </div>
+
+                {/* History entries */}
+                <div className="prefill-history-list">
+                  {paginatedEntries.map(entry => (
+                    <div key={entry.id} className="prefill-history-entry">
+                      <div className="prefill-history-entry-main">
+                        <Gamepad2 className="w-4 h-4 text-themed-muted flex-shrink-0" />
+                        <div className="prefill-history-entry-content">
+                          <div className="prefill-history-entry-header">
+                            <span className="prefill-history-entry-name">
+                              {entry.appName || `App ${entry.appId}`}
+                            </span>
+                            <HistoryStatusBadge status={entry.status} completedAtUtc={entry.completedAtUtc} />
+                          </div>
+                          <div className="prefill-history-entry-meta">
+                            <span>Started: <FormattedTimestamp timestamp={entry.startedAtUtc} /></span>
+                            {entry.completedAtUtc && (
+                              <span>Completed: <FormattedTimestamp timestamp={entry.completedAtUtc} /></span>
+                            )}
+                            {(entry.bytesDownloaded > 0 || entry.totalBytes > 0) && (
+                              <span>
+                                {entry.totalBytes > 0 && entry.bytesDownloaded !== entry.totalBytes && entry.status.toLowerCase() !== 'cached'
+                                  ? `${formatBytes(entry.bytesDownloaded)} / ${formatBytes(entry.totalBytes)}`
+                                  : formatBytes(entry.bytesDownloaded || entry.totalBytes)}
+                              </span>
+                            )}
+                          </div>
+                          {entry.errorMessage && (
+                            <div className="prefill-history-entry-error">
+                              <XCircle className="w-3 h-3" />
+                              <span>{entry.errorMessage}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <div className="prefill-history-pagination">
+                    <Pagination
+                      currentPage={historyPage}
+                      totalPages={totalPages}
+                      totalItems={historyData.length}
+                      itemsPerPage={historyPageSize}
+                      onPageChange={onHistoryPageChange}
+                      itemLabel={t('management.prefillSessions.labels.games')}
+                      compact
+                    />
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
+// Banned user card component
+const BannedUserCard: React.FC<{
+  ban: BannedSteamUserDto;
+  isAuthenticated: boolean;
+  onLiftBan: () => void;
+  isLifting: boolean;
+}> = ({ ban, isAuthenticated, onLiftBan, isLifting }) => {
+  const { t } = useTranslation();
+
+  return (
+    <div className="prefill-ban-card">
+      <div className={`prefill-ban-icon ${ban.isActive ? 'prefill-ban-active' : 'prefill-ban-lifted'}`}>
+        <Ban className="w-4 h-4" />
+      </div>
+      <div className="prefill-ban-content">
+        <div className="prefill-ban-header">
+          <span className="prefill-ban-username">
+            {ban.username || t('management.prefillSessions.bannedUsers.unknown')}
+          </span>
+          <span className={`prefill-ban-status ${ban.isActive ? 'active' : 'lifted'}`}>
+            {ban.isActive
+              ? t('management.prefillSessions.bannedUsers.active')
+              : t('management.prefillSessions.bannedUsers.lifted')}
+          </span>
+        </div>
+        <div className="prefill-ban-meta">
+          <span>
+            {t('management.prefillSessions.bannedUsers.banned', { time: '' })}
+            <FormattedTimestamp timestamp={ban.bannedAtUtc} />
+          </span>
+          {ban.banReason && (
+            <span className="prefill-ban-reason">
+              {t('management.prefillSessions.bannedUsers.reason', { reason: ban.banReason })}
+            </span>
+          )}
+          {ban.expiresAtUtc && (
+            <span>
+              {t('management.prefillSessions.bannedUsers.expires', { time: '' })}
+              <FormattedTimestamp timestamp={ban.expiresAtUtc} />
+            </span>
+          )}
+          {ban.isLifted && ban.liftedAtUtc && (
+            <span>
+              {t('management.prefillSessions.bannedUsers.liftedAt', { time: '' })}
+              <FormattedTimestamp timestamp={ban.liftedAtUtc} />
+            </span>
+          )}
+        </div>
+      </div>
+      {isAuthenticated && ban.isActive && (
+        <Tooltip content={t('management.prefillSessions.tooltips.liftBan')}>
+          <Button
+            variant="subtle"
+            size="sm"
+            onClick={onLiftBan}
+            disabled={isLifting}
+            className="prefill-ban-action"
+          >
+            {isLifting ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Shield className="w-4 h-4" />
+            )}
+          </Button>
         </Tooltip>
       )}
     </div>
@@ -179,6 +584,11 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
 }) => {
   const { t } = useTranslation();
   const { on, off } = useSignalR();
+
+  // Accordion states
+  const [liveSessionsExpanded, setLiveSessionsExpanded] = useState(true);
+  const [historyExpanded, setHistoryExpanded] = useState(true);
+  const [bansExpanded, setBansExpanded] = useState(true);
 
   // Sessions state
   const [sessions, setSessions] = useState<PrefillSessionDto[]>([]);
@@ -210,9 +620,8 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   const [historyData, setHistoryData] = useState<Record<string, PrefillHistoryEntryDto[]>>({});
   const [loadingHistory, setLoadingHistory] = useState<Set<string>>(new Set());
   const [historyPage, setHistoryPage] = useState<Record<string, number>>({});
-  const historyPageSize = 5;
 
-  // Load sessions and pre-fetch history for summary badges
+  // Load sessions and pre-fetch history
   const loadSessions = useCallback(async () => {
     setLoadingSessions(true);
     try {
@@ -224,8 +633,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       setTotalCount(sessionsRes.totalCount);
       setActiveSessions(activeRes);
 
-      // Pre-fetch history for all sessions to show summary badges immediately
-      // Fetch in parallel but don't block the UI
+      // Pre-fetch history for all sessions
       const historyPromises = sessionsRes.sessions.map(async (session) => {
         try {
           const history = await ApiService.getPrefillSessionHistory(session.sessionId);
@@ -235,7 +643,6 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         }
       });
 
-      // Also fetch history for active sessions
       const activeHistoryPromises = activeRes.map(async (session) => {
         try {
           const history = await ApiService.getPrefillSessionHistory(session.id);
@@ -245,7 +652,6 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         }
       });
 
-      // Combine results without blocking
       Promise.all([...historyPromises, ...activeHistoryPromises]).then((results) => {
         const newHistoryData: Record<string, PrefillHistoryEntryDto[]> = {};
         results.forEach(({ sessionId, history }) => {
@@ -298,7 +704,6 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         next.delete(sessionId);
       } else {
         next.add(sessionId);
-        // Load history if not already loaded
         if (!historyData[sessionId]) {
           loadHistory(sessionId);
         }
@@ -316,11 +721,10 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     loadBans();
   }, [loadBans]);
 
-  // SignalR subscriptions for real-time updates
+  // SignalR subscriptions
   useEffect(() => {
     const handleSessionCreated = (session: DaemonSessionCreatedEvent) => {
       setActiveSessions(prev => {
-        // Check if session already exists
         if (prev.some(s => s.id === session.id)) return prev;
         return [...prev, session as DaemonSessionDto];
       });
@@ -334,7 +738,6 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
 
     const handleSessionTerminated = async (event: DaemonSessionTerminatedEvent) => {
       setActiveSessions(prev => prev.filter(s => s.id !== event.sessionId));
-      // Reload sessions to show the terminated session in history
       try {
         const [sessionsRes, activeRes] = await Promise.all([
           ApiService.getPrefillSessions(1, 20),
@@ -349,7 +752,6 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     };
 
     const handlePrefillHistoryUpdated = async (event: PrefillHistoryUpdatedEvent) => {
-      // Reload history for this session
       try {
         const history = await ApiService.getPrefillSessionHistory(event.sessionId);
         setHistoryData(prev => ({ ...prev, [event.sessionId]: history }));
@@ -371,7 +773,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     };
   }, [on, off]);
 
-  // Terminate a single session
+  // Action handlers
   const handleTerminateSession = async (sessionId: string) => {
     setTerminatingSession(sessionId);
     try {
@@ -385,7 +787,6 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     }
   };
 
-  // Terminate all sessions
   const handleTerminateAll = async () => {
     setTerminatingAll(true);
     try {
@@ -400,7 +801,6 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     }
   };
 
-  // Ban user by session
   const handleBanBySession = async () => {
     if (!banConfirm) return;
     setBanningSession(banConfirm.sessionId);
@@ -416,7 +816,6 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     }
   };
 
-  // Lift a ban
   const handleLiftBan = async (banId: number) => {
     setLiftingBan(banId);
     try {
@@ -432,32 +831,31 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   };
 
   const totalPages = Math.ceil(totalCount / pageSize);
+  const activeBansCount = bans.filter(b => b.isActive).length;
 
   return (
     <div
-      className="management-section animate-fade-in"
+      className="management-section prefill-sessions-section animate-fade-in"
       role="tabpanel"
       id="panel-prefill-sessions"
       aria-labelledby="tab-prefill-sessions"
     >
       {/* Section Header */}
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold text-themed-primary mb-1">
-            {t('management.prefillSessions.title')}
-          </h2>
-          <p className="text-themed-secondary text-sm">
-            {t('management.prefillSessions.subtitle')}
-          </p>
+      <div className="prefill-section-header">
+        <div className="prefill-section-title">
+          <h2>{t('management.prefillSessions.title')}</h2>
+          <p>{t('management.prefillSessions.subtitle')}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="prefill-header-actions">
           <Button
             variant="subtle"
             size="sm"
             onClick={() => { loadSessions(); loadBans(); }}
             disabled={loadingSessions || loadingBans}
+            className="prefill-refresh-btn"
           >
             <RefreshCw className={`w-4 h-4 ${loadingSessions || loadingBans ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">{t('common.refresh')}</span>
           </Button>
           {isAuthenticated && activeSessions.length > 0 && (
             <Button
@@ -468,363 +866,91 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               disabled={terminatingAll}
             >
               <StopCircle className="w-4 h-4" />
-              {t('management.prefillSessions.endAll', { count: activeSessions.length })}
+              <span className="hidden sm:inline">
+                {t('management.prefillSessions.endAll', { count: activeSessions.length })}
+              </span>
+              <span className="sm:hidden">{activeSessions.length}</span>
             </Button>
           )}
         </div>
       </div>
 
-      {/* Active Sessions Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <Card>
-          <CardContent className="py-4 flex items-center gap-4">
-            <div className="w-12 h-12 rounded-lg flex items-center justify-center icon-bg-green">
-              <Play className="w-6 h-6 icon-green" />
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-themed-primary">{activeSessions.length}</div>
-              <div className="text-sm text-themed-muted">{t('management.prefillSessions.activeSessions')}</div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="py-4 flex items-center gap-4">
-            <div className="w-12 h-12 rounded-lg flex items-center justify-center icon-bg-blue">
-              <Container className="w-6 h-6 icon-primary" />
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-themed-primary">{totalCount}</div>
-              <div className="text-sm text-themed-muted">{t('management.prefillSessions.totalSessions')}</div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="py-4 flex items-center gap-4">
-            <div className="w-12 h-12 rounded-lg flex items-center justify-center icon-bg-red">
-              <Ban className="w-6 h-6 icon-red" />
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-themed-primary">
-                {bans.filter(b => b.isActive).length}
-              </div>
-              <div className="text-sm text-themed-muted">{t('management.prefillSessions.activeBans')}</div>
-            </div>
-          </CardContent>
-        </Card>
+      {/* Summary Stats */}
+      <div className="prefill-stats-grid">
+        <StatCard
+          icon={<Play className="w-5 h-5 icon-green" />}
+          value={activeSessions.length}
+          label={t('management.prefillSessions.activeSessions')}
+          iconBgClass="icon-bg-green"
+        />
+        <StatCard
+          icon={<Container className="w-5 h-5 icon-primary" />}
+          value={totalCount}
+          label={t('management.prefillSessions.totalSessions')}
+          iconBgClass="icon-bg-blue"
+        />
+        <StatCard
+          icon={<Ban className="w-5 h-5 icon-red" />}
+          value={activeBansCount}
+          label={t('management.prefillSessions.activeBans')}
+          iconBgClass="icon-bg-red"
+        />
       </div>
 
-      {/* Live Sessions */}
-      <div className="mb-8">
-        <div className="flex items-center gap-2 mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-green)]" />
-          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            {t('management.prefillSessions.liveSessions', { count: activeSessions.length })}
-          </h3>
-        </div>
-
+      {/* Live Sessions Accordion */}
+      <AccordionSection
+        title={t('management.prefillSessions.liveSessions', { count: activeSessions.length })}
+        count={activeSessions.length}
+        icon={Play}
+        iconColor="var(--theme-icon-green)"
+        isExpanded={liveSessionsExpanded}
+        onToggle={() => setLiveSessionsExpanded(!liveSessionsExpanded)}
+      >
         {loadingSessions ? (
-          <Card>
-            <CardContent className="py-8 flex items-center justify-center">
-              <Loader2 className="w-6 h-6 animate-spin text-themed-muted" />
-              <span className="ml-2 text-themed-muted">{t('management.prefillSessions.loadingSessions')}</span>
-            </CardContent>
-          </Card>
+          <div className="prefill-loading-state">
+            <Loader2 className="w-6 h-6 animate-spin text-themed-muted" />
+            <span>{t('management.prefillSessions.loadingSessions')}</span>
+          </div>
         ) : activeSessions.length === 0 ? (
-          <Card>
-            <CardContent className="py-8 text-center text-themed-muted">
-              <Container className="w-12 h-12 mx-auto mb-3 opacity-50" />
-              <p className="mb-2">{t('management.prefillSessions.noActiveSessions')}</p>
-              <p className="text-sm">
-                {t('management.prefillSessions.noActiveSessionsDesc')}
-              </p>
-            </CardContent>
-          </Card>
+          <div className="prefill-empty-state">
+            <Container className="w-12 h-12 opacity-50" />
+            <p className="prefill-empty-title">{t('management.prefillSessions.noActiveSessions')}</p>
+            <p className="prefill-empty-desc">{t('management.prefillSessions.noActiveSessionsDesc')}</p>
+          </div>
         ) : (
-          <div className="grid gap-3">
-            {activeSessions.map(session => {
-              const sessionHistory = historyData[session.id];
-              const totalBytesFromHistory = sessionHistory
-                ? sessionHistory.reduce((sum, e) => sum + Math.max(e.bytesDownloaded, e.totalBytes || 0), 0)
-                : 0;
-              const gamesCount = sessionHistory?.length || 0;
-
-              return (
-              <Card key={session.id}>
-                <CardContent className="py-4">
-                  {/* Main content row */}
-                  <div className="flex items-start justify-between gap-4">
-                    {/* Left: User info and session details */}
-                    <div className="flex items-start gap-3 flex-1 min-w-0">
-                      {/* Status indicator with pulsing animation for active */}
-                      <div
-                        className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                          session.isPrefilling
-                            ? 'icon-bg-blue'
-                            : 'icon-bg-green'
-                        }`}
-                      >
-                        {session.isPrefilling ? (
-                          <Loader2 className="w-5 h-5 animate-spin icon-primary" />
-                        ) : (
-                          <Play className="w-5 h-5 icon-green" />
-                        )}
-                      </div>
-
-                      <div className="flex-1 min-w-0">
-                        {/* Primary: Steam username or auth status */}
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {session.steamUsername ? (
-                            <span className="text-sm font-semibold text-themed-primary flex items-center gap-1.5">
-                              <User className="w-3.5 h-3.5 service-steam" />
-                              {session.steamUsername}
-                            </span>
-                          ) : (
-                            <span className="text-sm text-themed-muted">
-                              {session.authState === 'Authenticated'
-                                ? t('management.prefillSessions.labels.unauthorizedAccount')
-                                : t('management.prefillSessions.labels.notLoggedInSession')}
-                            </span>
-                          )}
-                          <StatusBadge status={session.status} isLive />
-                        </div>
-
-                        {/* Prefilling status - shown prominently when active */}
-                        {session.isPrefilling && (
-                          <div className="flex items-center gap-2 mt-2 px-2 py-1.5 rounded-md bg-themed-tertiary">
-                            <span className="text-sm font-medium icon-primary">
-                              {session.currentAppName || t('management.prefillSessions.labels.loading')}
-                            </span>
-                            {(session.totalBytesTransferred ?? 0) > 0 && (
-                              <span className="text-xs text-themed-muted">
-                                {formatBytes(session.totalBytesTransferred!)}
-                              </span>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Secondary: Container name */}
-                        <div className="flex items-center gap-1.5 mt-1.5 text-xs text-themed-muted">
-                          <Container className="w-3 h-3 flex-shrink-0" />
-                          <span className="font-mono break-all">
-                            {session.containerName}
-                          </span>
-                        </div>
-
-                        {/* Compact info row */}
-                        <div className="flex items-center gap-3 mt-1.5 text-xs text-themed-muted flex-wrap">
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
-                            <FormattedTimestamp timestamp={session.createdAt} />
-                          </span>
-                          {session.ipAddress && (
-                            <span className="flex items-center gap-1">
-                              <Network className="w-3 h-3" />
-                              <span className="font-mono">{cleanIpAddress(session.ipAddress)}</span>
-                            </span>
-                          )}
-                          {(session.operatingSystem || session.browser) && (
-                            <span className="flex items-center gap-1">
-                              <Monitor className="w-3 h-3" />
-                              {session.operatingSystem || session.browser}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Right: Stats and actions */}
-                    <div className="flex items-center gap-3 flex-shrink-0">
-                      {/* Stats badges */}
-                      {(gamesCount > 0 || totalBytesFromHistory > 0 || (!session.isPrefilling && (session.totalBytesTransferred ?? 0) > 0)) && (
-                        <div className="flex items-center gap-2">
-                          {gamesCount > 0 && (
-                            <Tooltip content={t('management.prefillSessions.tooltips.gamesPrefilled', { count: gamesCount })}>
-                              <span className="px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 icon-bg-blue icon-primary">
-                                <Gamepad2 className="w-3.5 h-3.5" />
-                                {gamesCount}
-                              </span>
-                            </Tooltip>
-                          )}
-                          {(totalBytesFromHistory > 0 || (!session.isPrefilling && (session.totalBytesTransferred ?? 0) > 0)) && (
-                            <Tooltip content={t('management.prefillSessions.tooltips.totalDataDownloaded')}>
-                              <span className="px-2 py-1 rounded-md text-xs font-medium icon-bg-green icon-green">
-                                {formatBytes(totalBytesFromHistory || session.totalBytesTransferred || 0)}
-                              </span>
-                            </Tooltip>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Action buttons */}
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="subtle"
-                          size="sm"
-                          onClick={() => toggleHistory(session.id)}
-                        >
-                          {loadingHistory.has(session.id) ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : expandedHistory.has(session.id) ? (
-                            <ChevronUp className="w-4 h-4" />
-                          ) : (
-                            <ChevronDown className="w-4 h-4" />
-                          )}
-                        </Button>
-                        {isAuthenticated && (
-                          <>
-                            <Tooltip content={t('management.prefillSessions.tooltips.banUser')}>
-                            <Button
-                              variant="subtle"
-                              size="sm"
-                              color="red"
-                              onClick={() => setBanConfirm({ sessionId: session.id, reason: '' })}
-                              disabled={banningSession === session.id}
-                            >
-                              {banningSession === session.id ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              ) : (
-                                <Ban className="w-4 h-4" />
-                              )}
-                            </Button>
-                          </Tooltip>
-                          <Tooltip content={t('management.prefillSessions.tooltips.terminateSession')}>
-                            <Button
-                              variant="subtle"
-                              size="sm"
-                              color="red"
-                              onClick={() => handleTerminateSession(session.id)}
-                              disabled={terminatingSession === session.id}
-                            >
-                              {terminatingSession === session.id ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              ) : (
-                                <StopCircle className="w-4 h-4" />
-                              )}
-                            </Button>
-                          </Tooltip>
-                        </>
-                      )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Expandable prefill history */}
-                  {expandedHistory.has(session.id) && (
-                    <div
-                      className="mt-4 pt-4 border-t border-themed-primary"
-                    >
-                      <div className="flex items-center gap-2 mb-3">
-                        <Gamepad2 className="w-4 h-4 text-themed-muted" />
-                        <span className="text-sm font-medium text-themed-secondary">{t('management.prefillSessions.labels.prefillHistory')}</span>
-                      </div>
-
-                      {loadingHistory.has(session.id) ? (
-                        <div className="flex items-center gap-2 py-4 justify-center">
-                          <Loader2 className="w-4 h-4 animate-spin text-themed-muted" />
-                          <span className="text-sm text-themed-muted">{t('management.prefillSessions.labels.loadingHistory')}</span>
-                        </div>
-                      ) : !historyData[session.id] || historyData[session.id].length === 0 ? (
-                        <div className="text-center py-4 text-sm text-themed-muted">
-                          {t('management.prefillSessions.labels.noPrefillHistoryYet')}
-                        </div>
-                      ) : (() => {
-                        const allEntries = historyData[session.id];
-                        const currentPage = historyPage[session.id] || 1;
-                        const totalPages = Math.ceil(allEntries.length / historyPageSize);
-                        const startIdx = (currentPage - 1) * historyPageSize;
-                        const paginatedEntries = allEntries.slice(startIdx, startIdx + historyPageSize);
-                        const totalBytes = allEntries.reduce((sum, e) => sum + Math.max(e.bytesDownloaded, e.totalBytes || 0), 0);
-
-                        return (
-                          <>
-                            {/* Summary stats */}
-                            <div className="flex items-center gap-4 mb-3 text-xs text-themed-muted">
-                              <span>{t('management.prefillSessions.labels.gamesPrefilled', { count: allEntries.length })}</span>
-                              {totalBytes > 0 && (
-                                <span>{t('management.prefillSessions.labels.total', { bytes: formatBytes(totalBytes) })}</span>
-                              )}
-                            </div>
-
-                            <div className="space-y-2">
-                              {paginatedEntries.map(entry => (
-                                <div
-                                  key={entry.id}
-                                  className="flex items-center justify-between gap-3 p-2 rounded bg-themed-tertiary"
-                                >
-                                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                                    <Gamepad2 className="w-4 h-4 text-themed-muted flex-shrink-0" />
-                                    <div className="min-w-0 flex-1">
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-sm font-medium text-themed-primary truncate">
-                                          {entry.appName || `App ${entry.appId}`}
-                                        </span>
-                                        <HistoryStatusBadge status={entry.status} completedAtUtc={entry.completedAtUtc} />
-                                      </div>
-                                      <div className="flex items-center gap-3 text-[10px] text-themed-muted mt-0.5">
-                                        <span>Started: <FormattedTimestamp timestamp={entry.startedAtUtc} /></span>
-                                        {entry.completedAtUtc && (
-                                          <span>Completed: <FormattedTimestamp timestamp={entry.completedAtUtc} /></span>
-                                        )}
-                                        {(entry.bytesDownloaded > 0 || entry.totalBytes > 0) && (
-                                          <span>
-                                            {entry.totalBytes > 0 && entry.bytesDownloaded !== entry.totalBytes && entry.status.toLowerCase() !== 'cached'
-                                              ? `${formatBytes(entry.bytesDownloaded)} / ${formatBytes(entry.totalBytes)}`
-                                              : formatBytes(entry.bytesDownloaded || entry.totalBytes)}
-                                          </span>
-                                        )}
-                                      </div>
-                                      {entry.errorMessage && (
-                                        <div className="flex items-center gap-1 mt-1 text-[10px] icon-red">
-                                          <XCircle className="w-3 h-3" />
-                                          <span className="truncate">{entry.errorMessage}</span>
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-
-                            {/* Pagination */}
-                            {totalPages > 1 && (
-                              <div className="mt-3 flex justify-center">
-                                <Pagination
-                                  currentPage={currentPage}
-                                  totalPages={totalPages}
-                                  totalItems={allEntries.length}
-                                  itemsPerPage={historyPageSize}
-                                  onPageChange={(newPage) => setHistoryPage(prev => ({ ...prev, [session.id]: newPage }))}
-                                  itemLabel={t('management.prefillSessions.labels.games')}
-                                  compact
-                                />
-                              </div>
-                            )}
-                          </>
-                        );
-                      })()}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-              );
-            })}
+          <div className="prefill-sessions-list">
+            {activeSessions.map(session => (
+              <SessionCard
+                key={session.id}
+                session={session}
+                isLive={true}
+                isAuthenticated={isAuthenticated}
+                historyData={historyData[session.id] || []}
+                isHistoryExpanded={expandedHistory.has(session.id)}
+                isLoadingHistory={loadingHistory.has(session.id)}
+                onToggleHistory={() => toggleHistory(session.id)}
+                onTerminate={() => handleTerminateSession(session.id)}
+                onBan={session.steamUsername ? () => setBanConfirm({ sessionId: session.id, reason: '' }) : undefined}
+                isTerminating={terminatingSession === session.id}
+                isBanning={banningSession === session.id}
+                historyPage={historyPage[session.id] || 1}
+                onHistoryPageChange={(p) => setHistoryPage(prev => ({ ...prev, [session.id]: p }))}
+              />
+            ))}
           </div>
         )}
-      </div>
+      </AccordionSection>
 
-      {/* Session History */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <div className="w-1 h-5 rounded-full bg-[var(--theme-primary)]" />
-            <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-              {t('management.prefillSessions.sessionHistory', { count: totalCount })}
-            </h3>
-          </div>
-
-          <div className="flex items-center gap-2">
+      {/* Session History Accordion */}
+      <AccordionSection
+        title={t('management.prefillSessions.sessionHistory', { count: totalCount })}
+        count={totalCount}
+        icon={Clock}
+        iconColor="var(--theme-primary)"
+        isExpanded={historyExpanded}
+        onToggle={() => setHistoryExpanded(!historyExpanded)}
+        badge={
+          <div className="prefill-filter-inline">
             <EnhancedDropdown
               options={[
                 { value: '', label: t('management.prefillSessions.statusFilters.all') },
@@ -837,285 +963,46 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               onChange={(value) => { setStatusFilter(value); setPage(1); }}
               placeholder={t('management.prefillSessions.statusFilters.all')}
               compactMode
-              className="min-w-[140px]"
-              dropdownWidth="160px"
+              className="min-w-[120px]"
+              dropdownWidth="140px"
             />
           </div>
-        </div>
-
+        }
+      >
         {loadingSessions ? (
-          <Card>
-            <CardContent className="py-8 flex items-center justify-center">
-              <Loader2 className="w-6 h-6 animate-spin text-themed-muted" />
-              <span className="ml-2 text-themed-muted">{t('management.prefillSessions.loading')}</span>
-            </CardContent>
-          </Card>
+          <div className="prefill-loading-state">
+            <Loader2 className="w-6 h-6 animate-spin text-themed-muted" />
+            <span>{t('management.prefillSessions.loading')}</span>
+          </div>
         ) : sessions.length === 0 ? (
-          <Card>
-            <CardContent className="py-8 text-center text-themed-muted">
-              <p>{t('management.prefillSessions.noSessionsFound')}</p>
-            </CardContent>
-          </Card>
+          <div className="prefill-empty-state">
+            <p>{t('management.prefillSessions.noSessionsFound')}</p>
+          </div>
         ) : (
           <>
-            <div className="space-y-3">
-              {sessions.map(session => {
-                const sessionHistory = historyData[session.sessionId];
-                const totalBytesFromHistory = sessionHistory
-                  ? sessionHistory.reduce((sum, e) => sum + Math.max(e.bytesDownloaded, e.totalBytes || 0), 0)
-                  : 0;
-                const gamesCount = sessionHistory?.length || 0;
-
-                return (
-                  <Card key={session.id}>
-                    <CardContent className="py-4">
-                      {/* Main content row */}
-                      <div className="flex items-start justify-between gap-4">
-                        {/* Left: User info and session details */}
-                        <div className="flex items-start gap-3 flex-1 min-w-0">
-                          {/* Status indicator icon */}
-                          <div
-                            className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                              session.isLive
-                                ? 'icon-bg-green'
-                                : session.status === 'Terminated'
-                                  ? 'icon-bg-red'
-                                  : 'bg-themed-tertiary'
-                            }`}
-                          >
-                            {session.isLive ? (
-                              <Play className="w-5 h-5 icon-green" />
-                            ) : session.status === 'Terminated' ? (
-                              <StopCircle className="w-5 h-5 icon-red" />
-                            ) : (
-                              <Container className="w-5 h-5 text-themed-muted" />
-                            )}
-                          </div>
-
-                          <div className="flex-1 min-w-0">
-                            {/* Primary: Steam username or auth status */}
-                            <div className="flex items-center gap-2 flex-wrap">
-                              {session.steamUsername ? (
-                                <span className="text-sm font-semibold text-themed-primary flex items-center gap-1.5">
-                                  <User className="w-3.5 h-3.5 service-steam" />
-                                  {session.steamUsername}
-                                </span>
-                              ) : (
-                                <span className="text-sm text-themed-muted">
-                                  {session.isAuthenticated
-                                    ? t('management.prefillSessions.labels.unauthorizedAccount')
-                                    : t('management.prefillSessions.labels.notLoggedInSession')}
-                                </span>
-                              )}
-                              <StatusBadge status={session.status} isLive={session.isLive} />
-                              {session.isAuthenticated && (
-                                <Tooltip content={t('management.prefillSessions.tooltips.steamAuthenticated')}>
-                                  <CheckCircle className="w-4 h-4 icon-green" />
-                                </Tooltip>
-                              )}
-                            </div>
-
-                            {/* Secondary: Container name */}
-                            {session.containerName && (
-                              <div className="flex items-center gap-1.5 mt-1 text-xs text-themed-muted">
-                                <Container className="w-3 h-3 flex-shrink-0" />
-                                <span className="font-mono break-all">
-                                  {session.containerName}
-                                </span>
-                              </div>
-                            )}
-
-                            {/* Timestamps row */}
-                            <div className="flex items-center gap-3 mt-1.5 text-xs text-themed-muted flex-wrap">
-                              <span className="flex items-center gap-1">
-                                <Clock className="w-3 h-3" />
-                                <FormattedTimestamp timestamp={session.createdAtUtc} />
-                              </span>
-                              {session.endedAtUtc && (
-                                <span className="flex items-center gap-1">
-                                  → <FormattedTimestamp timestamp={session.endedAtUtc} />
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Right: Stats and actions */}
-                        <div className="flex items-center gap-3 flex-shrink-0">
-                          {/* Stats badges */}
-                          {(gamesCount > 0 || totalBytesFromHistory > 0) && (
-                            <div className="flex items-center gap-2">
-                              {gamesCount > 0 && (
-                                <Tooltip content={t('management.prefillSessions.tooltips.gamesPrefilled', { count: gamesCount })}>
-                                  <span className="px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 icon-bg-blue icon-primary">
-                                    <Gamepad2 className="w-3.5 h-3.5" />
-                                    {gamesCount}
-                                  </span>
-                                </Tooltip>
-                              )}
-                              {totalBytesFromHistory > 0 && (
-                                <Tooltip content={t('management.prefillSessions.tooltips.totalDataDownloaded')}>
-                                  <span className="px-2 py-1 rounded-md text-xs font-medium icon-bg-green icon-green">
-                                    {formatBytes(totalBytesFromHistory)}
-                                  </span>
-                                </Tooltip>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Action buttons */}
-                          <div className="flex items-center gap-1">
-                            <Button
-                              variant="subtle"
-                              size="sm"
-                              onClick={() => toggleHistory(session.sessionId)}
-                            >
-                              {loadingHistory.has(session.sessionId) ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              ) : expandedHistory.has(session.sessionId) ? (
-                                <ChevronUp className="w-4 h-4" />
-                              ) : (
-                                <ChevronDown className="w-4 h-4" />
-                              )}
-                            </Button>
-
-                            {isAuthenticated && session.isLive && (
-                              <>
-                                {session.steamUsername && (
-                                  <Tooltip content={t('management.prefillSessions.tooltips.banUser')}>
-                                    <Button
-                                      variant="subtle"
-                                      size="sm"
-                                      color="red"
-                                      onClick={() => setBanConfirm({ sessionId: session.sessionId, reason: '' })}
-                                    >
-                                      <Ban className="w-4 h-4" />
-                                    </Button>
-                                  </Tooltip>
-                                )}
-                                <Tooltip content={t('management.prefillSessions.tooltips.terminateSession')}>
-                                  <Button
-                                    variant="subtle"
-                                    size="sm"
-                                    color="red"
-                                    onClick={() => handleTerminateSession(session.sessionId)}
-                                    disabled={terminatingSession === session.sessionId}
-                                  >
-                                    {terminatingSession === session.sessionId ? (
-                                      <Loader2 className="w-4 h-4 animate-spin" />
-                                    ) : (
-                                      <StopCircle className="w-4 h-4" />
-                                    )}
-                                  </Button>
-                                </Tooltip>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Expandable prefill history for session history */}
-                      {expandedHistory.has(session.sessionId) && (
-                        <div
-                          className="mt-4 pt-4 border-t border-themed-primary"
-                        >
-                          <div className="flex items-center gap-2 mb-3">
-                            <Gamepad2 className="w-4 h-4 text-themed-muted" />
-                            <span className="text-sm font-medium text-themed-secondary">{t('management.prefillSessions.labels.prefillHistory')}</span>
-                          </div>
-
-                          {loadingHistory.has(session.sessionId) ? (
-                            <div className="flex items-center gap-2 py-4 justify-center">
-                              <Loader2 className="w-4 h-4 animate-spin text-themed-muted" />
-                              <span className="text-sm text-themed-muted">{t('management.prefillSessions.labels.loadingHistory')}</span>
-                            </div>
-                          ) : !sessionHistory || sessionHistory.length === 0 ? (
-                            <div className="text-center py-4 text-sm text-themed-muted">
-                              {t('management.prefillSessions.labels.noPrefillHistoryRecorded')}
-                            </div>
-                          ) : (() => {
-                            const currentPage = historyPage[session.sessionId] || 1;
-                            const totalPages = Math.ceil(sessionHistory.length / historyPageSize);
-                            const startIdx = (currentPage - 1) * historyPageSize;
-                            const paginatedEntries = sessionHistory.slice(startIdx, startIdx + historyPageSize);
-
-                            return (
-                              <>
-                                {/* Summary stats */}
-                                <div className="flex items-center gap-4 mb-3 text-xs text-themed-muted">
-                                  <span>{t('management.prefillSessions.labels.gamesPrefilled', { count: sessionHistory.length })}</span>
-                                  {totalBytesFromHistory > 0 && (
-                                    <span>{t('management.prefillSessions.labels.total', { bytes: formatBytes(totalBytesFromHistory) })}</span>
-                                  )}
-                                </div>
-
-                                <div className="space-y-2">
-                                  {paginatedEntries.map(entry => (
-                                    <div
-                                      key={entry.id}
-                                      className="flex items-center justify-between gap-3 p-2 rounded bg-themed-tertiary"
-                                    >
-                                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                                        <Gamepad2 className="w-4 h-4 text-themed-muted flex-shrink-0" />
-                                        <div className="min-w-0 flex-1">
-                                          <div className="flex items-center gap-2">
-                                            <span className="text-sm font-medium text-themed-primary truncate">
-                                              {entry.appName || `App ${entry.appId}`}
-                                            </span>
-                                            <HistoryStatusBadge status={entry.status} completedAtUtc={entry.completedAtUtc} />
-                                          </div>
-                                          <div className="flex items-center gap-3 text-[10px] text-themed-muted mt-0.5">
-                                            <span>Started: <FormattedTimestamp timestamp={entry.startedAtUtc} /></span>
-                                            {entry.completedAtUtc && (
-                                              <span>Completed: <FormattedTimestamp timestamp={entry.completedAtUtc} /></span>
-                                            )}
-                                            {(entry.bytesDownloaded > 0 || entry.totalBytes > 0) && (
-                                              <span>
-                                                {entry.totalBytes > 0 && entry.bytesDownloaded !== entry.totalBytes
-                                                  ? `${formatBytes(entry.bytesDownloaded)} / ${formatBytes(entry.totalBytes)}`
-                                                  : formatBytes(entry.bytesDownloaded || entry.totalBytes)}
-                                              </span>
-                                            )}
-                                          </div>
-                                          {entry.errorMessage && (
-                                            <div className="flex items-center gap-1 mt-1 text-[10px] icon-red">
-                                              <XCircle className="w-3 h-3" />
-                                              <span className="truncate">{entry.errorMessage}</span>
-                                            </div>
-                                          )}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-
-                                {/* Pagination */}
-                                {totalPages > 1 && (
-                                  <div className="mt-3 flex justify-center">
-                                    <Pagination
-                                      currentPage={currentPage}
-                                      totalPages={totalPages}
-                                      totalItems={sessionHistory.length}
-                                      itemsPerPage={historyPageSize}
-                                      onPageChange={(newPage) => setHistoryPage(prev => ({ ...prev, [session.sessionId]: newPage }))}
-                                      itemLabel={t('management.prefillSessions.labels.games')}
-                                      compact
-                                    />
-                                  </div>
-                                )}
-                              </>
-                            );
-                          })()}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                );
-              })}
+            <div className="prefill-sessions-list">
+              {sessions.map(session => (
+                <SessionCard
+                  key={session.id}
+                  session={session}
+                  isLive={session.isLive}
+                  isAuthenticated={isAuthenticated}
+                  historyData={historyData[session.sessionId] || []}
+                  isHistoryExpanded={expandedHistory.has(session.sessionId)}
+                  isLoadingHistory={loadingHistory.has(session.sessionId)}
+                  onToggleHistory={() => toggleHistory(session.sessionId)}
+                  onTerminate={session.isLive ? () => handleTerminateSession(session.sessionId) : undefined}
+                  onBan={session.isLive && session.steamUsername ? () => setBanConfirm({ sessionId: session.sessionId, reason: '' }) : undefined}
+                  isTerminating={terminatingSession === session.sessionId}
+                  isBanning={banningSession === session.sessionId}
+                  historyPage={historyPage[session.sessionId] || 1}
+                  onHistoryPageChange={(p) => setHistoryPage(prev => ({ ...prev, [session.sessionId]: p }))}
+                />
+              ))}
             </div>
 
             {totalPages > 1 && (
-              <div className="mt-4 flex justify-center">
+              <div className="prefill-pagination">
                 <Pagination
                   currentPage={page}
                   totalPages={totalPages}
@@ -1128,125 +1015,49 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             )}
           </>
         )}
-      </div>
+      </AccordionSection>
 
-      {/* Banned Users */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-red)]" />
-            <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-              {t('management.prefillSessions.bannedUsers.title', { count: bans.filter(b => b.isActive).length })}
-            </h3>
-          </div>
-
+      {/* Banned Users Accordion */}
+      <AccordionSection
+        title={t('management.prefillSessions.bannedUsers.title', { count: activeBansCount })}
+        count={activeBansCount}
+        icon={Ban}
+        iconColor="var(--theme-icon-red)"
+        isExpanded={bansExpanded}
+        onToggle={() => setBansExpanded(!bansExpanded)}
+        badge={
           <Checkbox
             label={t('management.prefillSessions.bannedUsers.showLifted')}
             checked={includeLifted}
             onChange={(e) => setIncludeLifted(e.target.checked)}
           />
-        </div>
-
+        }
+      >
         {loadingBans ? (
-          <Card>
-            <CardContent className="py-8 flex items-center justify-center">
-              <Loader2 className="w-6 h-6 animate-spin text-themed-muted" />
-              <span className="ml-2 text-themed-muted">{t('management.prefillSessions.bannedUsers.loadingBans')}</span>
-            </CardContent>
-          </Card>
+          <div className="prefill-loading-state">
+            <Loader2 className="w-6 h-6 animate-spin text-themed-muted" />
+            <span>{t('management.prefillSessions.bannedUsers.loadingBans')}</span>
+          </div>
         ) : bans.length === 0 ? (
-          <Card>
-            <CardContent className="py-8 text-center text-themed-muted">
-              <Shield className="w-12 h-12 mx-auto mb-3 opacity-50" />
-              <p className="mb-2">{t('management.prefillSessions.bannedUsers.noBannedUsers')}</p>
-              <p className="text-sm">
-                {t('management.prefillSessions.bannedUsers.noBannedUsersDesc')}
-              </p>
-            </CardContent>
-          </Card>
+          <div className="prefill-empty-state">
+            <Shield className="w-12 h-12 opacity-50" />
+            <p className="prefill-empty-title">{t('management.prefillSessions.bannedUsers.noBannedUsers')}</p>
+            <p className="prefill-empty-desc">{t('management.prefillSessions.bannedUsers.noBannedUsersDesc')}</p>
+          </div>
         ) : (
-          <div className="space-y-2">
+          <div className="prefill-bans-list">
             {bans.map(ban => (
-              <Card key={ban.id}>
-                <CardContent className="py-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div
-                        className="w-8 h-8 rounded flex items-center justify-center"
-                        style={{
-                          backgroundColor: ban.isActive
-                            ? 'color-mix(in srgb, var(--theme-icon-red) 20%, transparent)'
-                            : 'var(--theme-bg-tertiary)'
-                        }}
-                      >
-                        <Ban
-                          className="w-4 h-4"
-                          style={{
-                            color: ban.isActive ? 'var(--theme-icon-red)' : 'var(--theme-text-muted)'
-                          }}
-                        />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-sm text-themed-primary">
-                            {ban.username || t('management.prefillSessions.bannedUsers.unknown')}
-                          </span>
-                          {ban.isActive ? (
-                            <span className="px-2 py-0.5 rounded text-xs font-medium bg-[var(--theme-icon-red)] text-white">
-                              {t('management.prefillSessions.bannedUsers.active')}
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded text-xs font-medium bg-[var(--theme-text-muted)] text-white">
-                              {t('management.prefillSessions.bannedUsers.lifted')}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3 text-xs text-themed-muted mt-1">
-                          <span>
-                            {t('management.prefillSessions.bannedUsers.banned', { time: '' })}<FormattedTimestamp timestamp={ban.bannedAtUtc} />
-                          </span>
-                          {ban.banReason && (
-                            <span className="truncate max-w-xs">
-                              {t('management.prefillSessions.bannedUsers.reason', { reason: ban.banReason })}
-                            </span>
-                          )}
-                          {ban.expiresAtUtc && (
-                            <span>
-                              {t('management.prefillSessions.bannedUsers.expires', { time: '' })}<FormattedTimestamp timestamp={ban.expiresAtUtc} />
-                            </span>
-                          )}
-                          {ban.isLifted && ban.liftedAtUtc && (
-                            <span>
-                              {t('management.prefillSessions.bannedUsers.liftedAt', { time: '' })}<FormattedTimestamp timestamp={ban.liftedAtUtc} />
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {isAuthenticated && ban.isActive && (
-                      <Tooltip content={t('management.prefillSessions.tooltips.liftBan')}>
-                        <Button
-                          variant="subtle"
-                          size="sm"
-                          onClick={() => setLiftBanConfirm(ban)}
-                          disabled={liftingBan === ban.id}
-                        >
-                          {liftingBan === ban.id ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <Shield className="w-4 h-4" />
-                          )}
-                        </Button>
-                      </Tooltip>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
+              <BannedUserCard
+                key={ban.id}
+                ban={ban}
+                isAuthenticated={isAuthenticated}
+                onLiftBan={() => setLiftBanConfirm(ban)}
+                isLifting={liftingBan === ban.id}
+              />
             ))}
           </div>
         )}
-      </div>
+      </AccordionSection>
 
       {/* Terminate All Confirmation Modal */}
       <Modal
@@ -1263,16 +1074,15 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
           <p className="text-themed-secondary">
             {t('management.prefillSessions.modals.terminateAll.message', { count: activeSessions.length })}
           </p>
-
           <Alert color="yellow">
             <p className="text-sm">{t('management.prefillSessions.modals.terminateAll.warning')}</p>
           </Alert>
-
-          <div className="flex justify-end gap-3 pt-2">
+          <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-2">
             <Button
               variant="default"
               onClick={() => setTerminateAllConfirm(false)}
               disabled={terminatingAll}
+              className="w-full sm:w-auto"
             >
               {t('management.prefillSessions.modals.terminateAll.cancel')}
             </Button>
@@ -1281,6 +1091,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               color="red"
               onClick={handleTerminateAll}
               loading={terminatingAll}
+              className="w-full sm:w-auto"
             >
               {t('management.prefillSessions.modals.terminateAll.confirm')}
             </Button>
@@ -1303,7 +1114,6 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
           <p className="text-themed-secondary">
             {t('management.prefillSessions.modals.ban.message')}
           </p>
-
           <div>
             <label className="block text-sm font-medium text-themed-secondary mb-1">
               {t('management.prefillSessions.modals.ban.reasonLabel')}
@@ -1313,21 +1123,18 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               value={banConfirm?.reason || ''}
               onChange={(e) => banConfirm && setBanConfirm({ ...banConfirm, reason: e.target.value })}
               placeholder={t('management.prefillSessions.modals.ban.reasonPlaceholder')}
-              className="w-full px-3 py-2 rounded text-sm bg-themed-tertiary text-themed-primary border border-themed-primary"
+              className="prefill-input"
             />
           </div>
-
           <Alert color="red">
-            <p className="text-sm">
-              {t('management.prefillSessions.modals.ban.warning')}
-            </p>
+            <p className="text-sm">{t('management.prefillSessions.modals.ban.warning')}</p>
           </Alert>
-
-          <div className="flex justify-end gap-3 pt-2">
+          <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-2">
             <Button
               variant="default"
               onClick={() => setBanConfirm(null)}
               disabled={banningSession !== null}
+              className="w-full sm:w-auto"
             >
               {t('management.prefillSessions.modals.ban.cancel')}
             </Button>
@@ -1336,6 +1143,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               color="red"
               onClick={handleBanBySession}
               loading={banningSession !== null}
+              className="w-full sm:w-auto"
             >
               {t('management.prefillSessions.modals.ban.confirm')}
             </Button>
@@ -1358,9 +1166,8 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
           <p className="text-themed-secondary">
             {t('management.prefillSessions.modals.liftBan.message')}
           </p>
-
           {liftBanConfirm && (
-            <div className="p-3 rounded bg-themed-tertiary">
+            <div className="p-3 rounded-lg bg-themed-tertiary">
               <div className="text-sm">
                 <span className="font-mono text-themed-primary">
                   {liftBanConfirm.username || t('management.prefillSessions.bannedUsers.unknown')}
@@ -1373,12 +1180,12 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               </div>
             </div>
           )}
-
-          <div className="flex justify-end gap-3 pt-2">
+          <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-2">
             <Button
               variant="default"
               onClick={() => setLiftBanConfirm(null)}
               disabled={liftingBan !== null}
+              className="w-full sm:w-auto"
             >
               {t('management.prefillSessions.modals.liftBan.cancel')}
             </Button>
@@ -1386,6 +1193,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               variant="filled"
               onClick={() => liftBanConfirm && handleLiftBan(liftBanConfirm.id)}
               loading={liftingBan !== null}
+              className="w-full sm:w-auto"
             >
               {t('management.prefillSessions.modals.liftBan.confirm')}
             </Button>
