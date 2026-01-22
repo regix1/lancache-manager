@@ -310,10 +310,11 @@ public class WindowsPathResolver : IPathResolver
                 {
                     foreach (var existingFile in existingFiles)
                     {
+                        _logger.LogDebug("Testing write access on existing file: {Path}", existingFile);
                         try
                         {
                             // Try to open the file for write access WITHOUT modifying it
-                            using (var fs = new FileStream(existingFile, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
+                            using (var fs = new FileStream(existingFile, FileMode.Open, FileAccess.Write, FileShare.None))
                             {
                                 // Successfully opened for write - we have permission
                                 _logger.LogDebug("Write access confirmed for file: {Path}", existingFile);

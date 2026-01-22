@@ -1,6 +1,3 @@
-using System.Diagnostics;
-using System.Globalization;
-using System.Runtime.InteropServices;
 using LancacheManager.Core.Interfaces.Services;
 
 namespace LancacheManager.Infrastructure.Platform;
@@ -419,103 +416,6 @@ public class LinuxPathResolver : IPathResolver
         }
     }
 
-    [DllImport("libc")]
-    private static extern uint getuid();
-
-    private uint? GetProcessUid()
-    {
-        var envUid = Environment.GetEnvironmentVariable("LANCACHE_PUID") ??
-                     Environment.GetEnvironmentVariable("PUID") ??
-                     Environment.GetEnvironmentVariable("UID");
-
-        if (uint.TryParse(envUid, NumberStyles.None, CultureInfo.InvariantCulture, out var parsedUid))
-        {
-            return parsedUid;
-        }
-
-        try
-        {
-            return getuid();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Failed to determine process UID");
-            return null;
-        }
-    }
-
-    private bool TryGetPathOwnerUid(string path, out uint ownerUid)
-    {
-        ownerUid = 0;
-
-        try
-        {
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = "stat",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            startInfo.ArgumentList.Add("-c");
-            startInfo.ArgumentList.Add("%u");
-            startInfo.ArgumentList.Add(path);
-
-            using var process = Process.Start(startInfo);
-            if (process == null)
-            {
-                return false;
-            }
-
-            var output = process.StandardOutput.ReadToEnd();
-            var error = process.StandardError.ReadToEnd();
-
-            if (!process.WaitForExit(2000))
-            {
-                try
-                {
-                    process.Kill();
-                }
-                catch
-                {
-                    // Ignore failures when killing a hung process
-                }
-
-                _logger.LogDebug("Timed out running stat for path: {Path}", path);
-                return false;
-            }
-
-            if (process.ExitCode != 0)
-            {
-                _logger.LogDebug("stat failed for {Path} (exit {Code}): {Error}", path, process.ExitCode, error);
-                return false;
-            }
-
-            var trimmed = output.Trim();
-            if (uint.TryParse(trimmed, NumberStyles.None, CultureInfo.InvariantCulture, out ownerUid))
-            {
-                return true;
-            }
-
-            _logger.LogDebug("Unable to parse stat output '{Output}' for {Path}", trimmed, path);
-            return false;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Failed to determine owner UID for {Path}", path);
-            return false;
-        }
-    }
-
-    private void LogPuidMismatch(uint ownerUid, uint processUid)
-    {
-        _logger.LogWarning(
-            "Directory is owned by UID {OwnerUid} but process runs as UID {ProcessUid}. " +
-            "Set PUID={Puid} in docker-compose.yml to match the lancache container.",
-            ownerUid, processUid, ownerUid);
-    }
-
     /// <summary>
     /// Tests write access by opening existing files first, then falling back to create/delete
     /// </summary>
@@ -529,8 +429,6 @@ public class LinuxPathResolver : IPathResolver
 
         // Step 1: Try to find and test existing files in the directory tree
         // Cache directories have hierarchical structure (e.g., /cache/steam/...) so search recursively
-        var processUid = GetProcessUid();
-
         try
         {
             var existingFiles = Directory.EnumerateFiles(directoryPath, "*", SearchOption.AllDirectories)
@@ -577,42 +475,7 @@ public class LinuxPathResolver : IPathResolver
             }
             else
             {
-                _logger.LogDebug("No existing files found in {Path}; taking empty-directory path", directoryPath);
-                _logger.LogDebug("Checking ownership before create test for {Path}", directoryPath);
-
-                if (TryGetPathOwnerUid(directoryPath, out var ownerUid))
-                {
-                    var processUidDisplay = processUid.HasValue
-                        ? processUid.Value.ToString(CultureInfo.InvariantCulture)
-                        : "n/a";
-                    _logger.LogDebug(
-                        "Ownership check for {Path}: owner UID {OwnerUid}, process UID {ProcessUid}",
-                        directoryPath,
-                        ownerUid,
-                        processUidDisplay);
-
-                    if (processUid.HasValue)
-                    {
-                        if (ownerUid != processUid.Value)
-                        {
-                            LogPuidMismatch(ownerUid, processUid.Value);
-                            return false;
-                        }
-
-                        if (ownerUid == processUid.Value)
-                        {
-                            _logger.LogDebug("Directory owner UID matches process UID {ProcessUid} for {Path}", processUid.Value, directoryPath);
-                        }
-                    }
-                    else
-                    {
-                        _logger.LogDebug("Process UID not available; skipping ownership check for {Path}", directoryPath);
-                    }
-                }
-                else
-                {
-                    _logger.LogDebug("Could not determine directory owner UID for {Path}; skipping ownership check", directoryPath);
-                }
+                _logger.LogDebug("No existing files found in {Path}, using create test", directoryPath);
             }
         }
         catch (UnauthorizedAccessException ex)
