@@ -182,10 +182,12 @@ const Navigation: React.FC<NavigationProps> = React.memo(
     );
   },
   (prevProps, nextProps) => {
-    // Only re-render if activeTab, authMode, or prefillEnabled changes
+    // Only re-render if activeTab, authMode, prefillEnabled, isBanned, or dockerAvailable changes
     return prevProps.activeTab === nextProps.activeTab &&
            prevProps.authMode === nextProps.authMode &&
-           prevProps.prefillEnabled === nextProps.prefillEnabled;
+           prevProps.prefillEnabled === nextProps.prefillEnabled &&
+           prevProps.isBanned === nextProps.isBanned &&
+           prevProps.dockerAvailable === nextProps.dockerAvailable;
   }
 );
 
