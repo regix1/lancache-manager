@@ -200,3 +200,12 @@ services:
       # Scans /cache and /logs for folders that exist in both locations
       # Example: /cache/steam + /logs/steam → creates "Steam" datasource
       # - LanCache__AutoDiscoverDatasources=true
+
+      #=========================================================================
+      # DEBUGGING - Enable verbose logging for troubleshooting
+      #=========================================================================
+
+      # Enable debug logging for platform-specific operations (path resolution,
+      # file system detection, Docker communication, etc.)
+      # Useful for diagnosing issues with volume mounts, permissions, or Docker socket
+      # - Logging__LogLevel__LancacheManager.Infrastructure.Platform=Debug

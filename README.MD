@@ -373,6 +373,13 @@ services:
       # Scans /cache and /logs for folders that exist in both locations
       # Example: /cache/steam + /logs/steam -> creates "Steam" datasource
       # - LanCache__AutoDiscoverDatasources=true
+
+      #=========================================================================
+      # DEBUGGING - Enable verbose logging for troubleshooting
+      #=========================================================================
+
+      # Enable debug logging for platform-specific operations
+      # - Logging__LogLevel__LancacheManager.Infrastructure.Platform=Debug
 ```
 
 > [!NOTE]
@@ -913,6 +920,35 @@ Explicit DNS IP (when auto-detection fails):
 environment:
   - Prefill__LancacheDnsIp=192.168.1.10
 ```
+
+### Debug Logging
+
+If you're experiencing issues with path resolution, file system detection, Docker communication, or other platform-specific operations, you can enable verbose debug logging:
+
+```yaml
+environment:
+  - Logging__LogLevel__LancacheManager.Infrastructure.Platform=Debug
+```
+
+**What it logs:**
+- Path resolution and validation (container vs host paths)
+- File system operations and permission checks
+- Docker socket communication and container detection
+- Volume mount detection and mapping
+- Platform-specific behavior (Linux vs Windows differences)
+
+**How to use:**
+1. Add the environment variable to your docker-compose.yml
+2. Restart the container: `docker compose up -d`
+3. Reproduce the issue
+4. View logs: `docker logs lancache-manager`
+5. Remove the variable when done (debug logging is verbose)
+
+This is especially helpful when:
+- Auto-detection of paths or Docker settings fails
+- Prefill containers aren't spawning correctly
+- Volume mounts don't seem to be recognized
+- You're running on an unusual platform or Docker setup
 
 -----
 
