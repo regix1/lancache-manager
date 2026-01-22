@@ -1,8 +1,13 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
-import { HubConnection, HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
+import { type HubConnection, HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
 import { SIGNALR_BASE } from '@utils/constants';
 import authService from '@services/auth.service';
-import { formatDuration, formatTimeRemaining, type SteamAuthState, type PrefillSessionDto } from '../types';
+import {
+  formatDuration,
+  formatTimeRemaining,
+  type SteamAuthState,
+  type PrefillSessionDto
+} from '../types';
 import type { LogEntryType } from '../ActivityLog';
 import i18n from '../../../../i18n';
 
@@ -22,7 +27,6 @@ interface CachedAnimationItem {
   appId: number;
   appName?: string;
   totalBytes: number;
-  progress: PrefillProgress & { totalApps?: number };
 }
 
 interface BackgroundCompletion {
@@ -95,7 +99,6 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
   const isCancelling = useRef(false);
 
   // Animation refs
-  const isReceivingProgressRef = useRef(false);
   const cachedAnimationCountRef = useRef(0);
   const currentAnimationAppIdRef = useRef(0);
   const cachedAnimationQueueRef = useRef<CachedAnimationItem[]>([]);
@@ -104,11 +107,6 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
 
   // Completion tracking refs
   const expectedAppCountRef = useRef(0);
-  const completedAppCountRef = useRef(0);
-  const prefillDurationRef = useRef(0);
-  const prefillStartTimeRef = useRef(0);
-  const hasShownCompletionRef = useRef(false);
-  const pendingCompletionRef = useRef<{ durationSeconds: number; completedApps: number } | null>(null);
 
   // Ref for setBackgroundCompletion (avoids stale closure)
   const setBackgroundCompletionRef = useRef(setBackgroundCompletion);
@@ -124,8 +122,50 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
   const [error, setError] = useState<string | null>(null);
   const [timeRemaining, setTimeRemaining] = useState<number>(0);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [isPrefillActive, setIsPrefillActive] = useState(false);
-  const [prefillProgress, setPrefillProgress] = useState<PrefillProgress | null>(null);
+  // Initialize isPrefillActive from sessionStorage to immediately show progress UI on page return
+  const [isPrefillActive, setIsPrefillActive] = useState<boolean>(() => {
+    try {
+      const inProgress = sessionStorage.getItem('prefill_in_progress');
+      if (inProgress) {
+        const parsed = JSON.parse(inProgress);
+        // Check if the stored progress is less than 2 hours old (reasonable prefill window)
+        const startedAt = new Date(parsed.startedAt).getTime();
+        if (Date.now() - startedAt < 2 * 60 * 60 * 1000) {
+          return true;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    return false;
+  });
+  // Initialize prefillProgress with a "reconnecting" state if we have stored progress
+  const [prefillProgress, setPrefillProgress] = useState<PrefillProgress | null>(() => {
+    try {
+      const inProgress = sessionStorage.getItem('prefill_in_progress');
+      if (inProgress) {
+        const parsed = JSON.parse(inProgress);
+        const startedAt = new Date(parsed.startedAt).getTime();
+        if (Date.now() - startedAt < 2 * 60 * 60 * 1000) {
+          // Return a placeholder progress to show "reconnecting" state
+          return {
+            state: 'reconnecting',
+            message: undefined,
+            currentAppId: 0,
+            currentAppName: undefined,
+            percentComplete: 0,
+            bytesDownloaded: 0,
+            totalBytes: 0,
+            bytesPerSecond: 0,
+            elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000)
+          };
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    return null;
+  });
 
   // Keep refs in sync
   useEffect(() => {
@@ -144,10 +184,10 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
 
     const connectPromise = (async (): Promise<HubConnection | null> => {
       const deviceId = authService.getDeviceId();
-    if (!deviceId) {
-      setError(t('prefill.errors.notAuthenticated'));
-      return null;
-    }
+      if (!deviceId) {
+        setError(t('prefill.errors.notAuthenticated'));
+        return null;
+      }
 
       // Reuse existing connection if already connected
       if (hubConnection.current?.state === 'Connected') {
@@ -169,334 +209,407 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
 
       try {
         const connection = new HubConnectionBuilder()
-        .withUrl(`${SIGNALR_BASE}/prefill-daemon?deviceId=${encodeURIComponent(deviceId)}`)
-        .withAutomaticReconnect()
-        .configureLogging(LogLevel.Information)
-        .build();
+          .withUrl(`${SIGNALR_BASE}/prefill-daemon?deviceId=${encodeURIComponent(deviceId)}`)
+          .withAutomaticReconnect()
+          .configureLogging(LogLevel.Information)
+          .build();
 
-      // Handle daemon output - parse and add to log
-      connection.on('TerminalOutput', (_sessionId: string, output: string) => {
-        const trimmed = output.trim();
-        if (!trimmed) return;
+        // Handle daemon output - parse and add to log
+        connection.on('TerminalOutput', (_sessionId: string, output: string) => {
+          const trimmed = output.trim();
+          if (!trimmed) return;
 
-        let type: LogEntryType = 'info';
-        if (trimmed.includes('Error') || trimmed.includes('error') || trimmed.includes('failed')) {
-          type = 'error';
-        } else if (trimmed.includes('Success') || trimmed.includes('Complete') || trimmed.includes('Done')) {
-          type = 'success';
-        } else if (trimmed.includes('Warning') || trimmed.includes('warn')) {
-          type = 'warning';
-        } else if (trimmed.includes('Download') || trimmed.includes('Prefill') || trimmed.includes('%')) {
-          type = 'download';
-        }
-        addLog(type, trimmed);
-      });
+          let type: LogEntryType = 'info';
+          if (
+            trimmed.includes('Error') ||
+            trimmed.includes('error') ||
+            trimmed.includes('failed')
+          ) {
+            type = 'error';
+          } else if (
+            trimmed.includes('Success') ||
+            trimmed.includes('Complete') ||
+            trimmed.includes('Done')
+          ) {
+            type = 'success';
+          } else if (trimmed.includes('Warning') || trimmed.includes('warn')) {
+            type = 'warning';
+          } else if (
+            trimmed.includes('Download') ||
+            trimmed.includes('Prefill') ||
+            trimmed.includes('%')
+          ) {
+            type = 'download';
+          }
+          addLog(type, trimmed);
+        });
 
-      // Handle auth state changes from backend
-      connection.on('AuthStateChanged', (_sessionId: string, newState: SteamAuthState) => {
-        onAuthStateChanged(newState);
-      });
+        // Handle auth state changes from backend
+        connection.on('AuthStateChanged', (_sessionId: string, newState: SteamAuthState) => {
+          onAuthStateChanged(newState);
+        });
 
-      // Handle session subscribed confirmation
-      connection.on('SessionSubscribed', (sessionDto: PrefillSessionDto) => {
-        setSession(sessionDto);
-        setTimeRemaining(sessionDto.timeRemainingSeconds);
-        setIsLoggedIn(sessionDto.authState === 'Authenticated');
-      });
+        // Handle session subscribed confirmation
+        connection.on('SessionSubscribed', (sessionDto: PrefillSessionDto) => {
+          setSession(sessionDto);
+          setTimeRemaining(sessionDto.timeRemainingSeconds);
+          setIsLoggedIn(sessionDto.authState === 'Authenticated');
+        });
 
-      // Handle session ended (sent to session owner)
-      connection.on('SessionEnded', (_sessionId: string, reason: string) => {
-        addLog('warning', t('prefill.log.sessionEnded', { reason }));
-        setSession(null);
-        setIsLoggedIn(false);
-        setIsPrefillActive(false);
-        setPrefillProgress(null);
-        // Clear all prefill-related storage when session ends
-        clearAllPrefillStorage();
-        onSessionEnd?.();
-      });
-
-      // Handle daemon session terminated (broadcast to all clients)
-      // This is used by admin pages; for the prefill panel, SessionEnded handles our session
-      connection.on('DaemonSessionTerminated', (_event: { sessionId: string; reason: string }) => {
-        // Check if this termination is for our current session
-        const currentSession = sessionRef.current;
-        if (currentSession && _event.sessionId === currentSession.id) {
-          // Our session was terminated externally (e.g., by admin)
-          addLog('warning', t('prefill.log.sessionTerminated', { reason: _event.reason }));
+        // Handle session ended (sent to session owner)
+        connection.on('SessionEnded', (_sessionId: string, reason: string) => {
+          addLog('warning', t('prefill.log.sessionEnded', { reason }));
           setSession(null);
           setIsLoggedIn(false);
           setIsPrefillActive(false);
           setPrefillProgress(null);
+          // Clear all prefill-related storage when session ends
           clearAllPrefillStorage();
           onSessionEnd?.();
-        }
-      });
+        });
 
-      // Handle prefill progress updates
-      connection.on('PrefillProgress', (_sessionId: string, progress: PrefillProgress & { totalApps: number }) => {
-        const isFinalState = progress.state === 'completed' || progress.state === 'failed' ||
-                           progress.state === 'cancelled' || progress.state === 'idle';
-
-        if (isFinalState) {
-          isCancelling.current = false;
-          isReceivingProgressRef.current = false;
-          setPrefillProgress(null);
-          return;
-        }
-
-        if (isCancelling.current) return;
-        isReceivingProgressRef.current = true;
-
-        if (progress.state === 'downloading') {
-          if (currentAnimationAppIdRef.current === 0 || currentAnimationAppIdRef.current === progress.currentAppId) {
-            setPrefillProgress(progress);
+        // Handle daemon session terminated (broadcast to all clients)
+        // This is used by admin pages; for the prefill panel, SessionEnded handles our session
+        connection.on(
+          'DaemonSessionTerminated',
+          (_event: { sessionId: string; reason: string }) => {
+            // Check if this termination is for our current session
+            const currentSession = sessionRef.current;
+            if (currentSession && _event.sessionId === currentSession.id) {
+              // Our session was terminated externally (e.g., by admin)
+              addLog('warning', t('prefill.log.sessionTerminated', { reason: _event.reason }));
+              setSession(null);
+              setIsLoggedIn(false);
+              setIsPrefillActive(false);
+              setPrefillProgress(null);
+              clearAllPrefillStorage();
+              onSessionEnd?.();
+            }
           }
-        } else if (progress.state === 'app_completed') {
-          currentAnimationAppIdRef.current = 0;
-          setPrefillProgress(prev => prev ? {
-            ...prev,
-            state: 'app_completed',
-            percentComplete: 100,
-            currentAppName: progress.currentAppName || prev.currentAppName
-          } : null);
-        } else if (progress.state === 'already_cached') {
-          if (expectedAppCountRef.current === 0 && progress.totalApps > 0) {
-            expectedAppCountRef.current = progress.totalApps;
-          }
-          if (progress.elapsedSeconds > 0) {
-            prefillDurationRef.current = progress.elapsedSeconds;
-          }
+        );
 
-          cachedAnimationCountRef.current++;
-          completedAppCountRef.current++;
-          cachedAnimationQueueRef.current.push({
-            appId: progress.currentAppId,
-            appName: progress.currentAppName,
-            totalBytes: progress.totalBytes || 0,
-            progress
-          });
+        // Handle prefill progress updates
+        connection.on(
+          'PrefillProgress',
+          (_sessionId: string, progress: PrefillProgress & { totalApps: number }) => {
+            const isFinalState =
+              progress.state === 'completed' ||
+              progress.state === 'failed' ||
+              progress.state === 'cancelled' ||
+              progress.state === 'idle';
 
-          const processAnimationQueue = () => {
-            if (isProcessingAnimationRef.current || cachedAnimationQueueRef.current.length === 0) return;
+            if (isFinalState) {
+              isCancelling.current = false;
+              setPrefillProgress(null);
+              return;
+            }
 
-            const item = cachedAnimationQueueRef.current.shift();
-            if (!item) return;
+            if (isCancelling.current) return;
 
-            isProcessingAnimationRef.current = true;
-            currentAnimationAppIdRef.current = item.appId;
-
-            const animationDuration = 2000;
-            const startTime = Date.now();
-
-            const animateProgress = () => {
-              const elapsed = Date.now() - startTime;
-              const percent = Math.min(100, (elapsed / animationDuration) * 100);
-
-              setPrefillProgress({
-                state: 'already_cached',
-                currentAppId: item.appId,
-                currentAppName: item.appName,
-                percentComplete: percent,
-                bytesDownloaded: Math.floor((percent / 100) * item.totalBytes),
-                totalBytes: item.totalBytes,
-                bytesPerSecond: 0,
-                elapsedSeconds: 0
+            if (progress.state === 'downloading') {
+              if (
+                currentAnimationAppIdRef.current === 0 ||
+                currentAnimationAppIdRef.current === progress.currentAppId
+              ) {
+                setPrefillProgress(progress);
+              }
+            } else if (progress.state === 'app_completed') {
+              currentAnimationAppIdRef.current = 0;
+              setPrefillProgress((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      state: 'app_completed',
+                      percentComplete: 100,
+                      currentAppName: progress.currentAppName || prev.currentAppName
+                    }
+                  : null
+              );
+            } else if (progress.state === 'already_cached') {
+              if (expectedAppCountRef.current === 0 && progress.totalApps > 0) {
+                expectedAppCountRef.current = progress.totalApps;
+              }
+              cachedAnimationCountRef.current++;
+              cachedAnimationQueueRef.current.push({
+                appId: progress.currentAppId,
+                appName: progress.currentAppName,
+                totalBytes: progress.totalBytes || 0
               });
 
-              if (elapsed < animationDuration) {
-                requestAnimationFrame(animateProgress);
-              } else {
-                setTimeout(() => {
-                  cachedAnimationCountRef.current--;
-                  isProcessingAnimationRef.current = false;
-                  currentAnimationAppIdRef.current = 0;
-                  // If queue is empty, clear progress (prefill may have already completed)
-                  if (cachedAnimationQueueRef.current.length === 0) {
-                    setPrefillProgress(null);
+              const processAnimationQueue = () => {
+                if (
+                  isProcessingAnimationRef.current ||
+                  cachedAnimationQueueRef.current.length === 0
+                )
+                  return;
+
+                const item = cachedAnimationQueueRef.current.shift();
+                if (!item) return;
+
+                isProcessingAnimationRef.current = true;
+                currentAnimationAppIdRef.current = item.appId;
+
+                const animationDuration = 2000;
+                const startTime = Date.now();
+
+                const animateProgress = () => {
+                  const elapsed = Date.now() - startTime;
+                  const percent = Math.min(100, (elapsed / animationDuration) * 100);
+
+                  setPrefillProgress({
+                    state: 'already_cached',
+                    currentAppId: item.appId,
+                    currentAppName: item.appName,
+                    percentComplete: percent,
+                    bytesDownloaded: Math.floor((percent / 100) * item.totalBytes),
+                    totalBytes: item.totalBytes,
+                    bytesPerSecond: 0,
+                    elapsedSeconds: 0
+                  });
+
+                  if (elapsed < animationDuration) {
+                    requestAnimationFrame(animateProgress);
                   } else {
-                    processAnimationQueue();
+                    setTimeout(() => {
+                      cachedAnimationCountRef.current--;
+                      isProcessingAnimationRef.current = false;
+                      currentAnimationAppIdRef.current = 0;
+                      // If queue is empty, clear progress (prefill may have already completed)
+                      if (cachedAnimationQueueRef.current.length === 0) {
+                        setPrefillProgress(null);
+                      } else {
+                        processAnimationQueue();
+                      }
+                    }, 100);
                   }
-                }, 100);
+                };
+
+                animateProgress();
+              };
+
+              processAnimationQueue();
+            } else if (
+              ['loading-metadata', 'metadata-loaded', 'starting', 'preparing'].includes(
+                progress.state
+              )
+            ) {
+              if (progress.message) {
+                addLog('info', progress.message);
               }
+              if (progress.message?.includes('0 games')) {
+                setPrefillProgress(null);
+                return;
+              }
+              setPrefillProgress({
+                ...progress,
+                percentComplete: 0,
+                bytesDownloaded: 0,
+                totalBytes: 0
+              });
+            } else if (['completed', 'failed', 'cancelled'].includes(progress.state)) {
+              setPrefillProgress(null);
+            }
+          }
+        );
+
+        // Handle status changes
+        connection.on(
+          'StatusChanged',
+          (_sessionId: string, status: { status: string; message: string }) => {
+            if (status.message) {
+              addLog('info', t('prefill.log.statusMessage', { message: status.message }));
+            }
+          }
+        );
+
+        // Handle prefill state changes
+        connection.on(
+          'PrefillStateChanged',
+          (_sessionId: string, state: string, durationSeconds?: number) => {
+            const resetAnimationState = () => {
+              cachedAnimationQueueRef.current = [];
+              isProcessingAnimationRef.current = false;
+              currentAnimationAppIdRef.current = 0;
+              cachedAnimationCountRef.current = 0;
             };
 
-            animateProgress();
-          };
+            if (state === 'started') {
+              setIsPrefillActive(true);
+              addLog('download', t('prefill.log.prefillStarted'));
+              cachedAnimationCountRef.current = 0;
+              resetAnimationState();
+              clearBackgroundCompletion();
+              try {
+                sessionStorage.setItem(
+                  'prefill_in_progress',
+                  JSON.stringify({
+                    startedAt: new Date().toISOString(),
+                    sessionId: _sessionId
+                  })
+                );
+              } catch {
+                /* ignore */
+              }
+            } else if (state === 'completed') {
+              setIsPrefillActive(false);
+              const duration = durationSeconds ?? 0;
+              const formattedDuration = formatDuration(duration);
+              addLog('success', t('prefill.log.prefillCompleted', { duration: formattedDuration }));
+              isCancelling.current = false;
 
-          processAnimationQueue();
-        } else if (['loading-metadata', 'metadata-loaded', 'starting', 'preparing'].includes(progress.state)) {
-          if (progress.message) {
-            addLog('info', progress.message);
-          }
-          if (progress.message?.includes('0 games')) {
-            setPrefillProgress(null);
-            return;
-          }
-          setPrefillProgress({ ...progress, percentComplete: 0, bytesDownloaded: 0, totalBytes: 0 });
-        } else if (['completed', 'failed', 'cancelled'].includes(progress.state)) {
-          setPrefillProgress(null);
-        }
-      });
+              // If there are pending cached animations, let them finish before clearing
+              const hasPendingAnimations =
+                cachedAnimationQueueRef.current.length > 0 || isProcessingAnimationRef.current;
+              if (!hasPendingAnimations) {
+                setPrefillProgress(null);
+                resetAnimationState();
+              }
+              // Note: Animation completion handler will clear progress when done
 
-      // Handle status changes
-      connection.on('StatusChanged', (_sessionId: string, status: { status: string; message: string }) => {
-        if (status.message) {
-          addLog('info', t('prefill.log.statusMessage', { message: status.message }));
-        }
-      });
+              setBackgroundCompletionRef.current({
+                completedAt: new Date().toISOString(),
+                message: t('prefill.completion.message', { duration: formattedDuration }),
+                duration: duration
+              });
+              try {
+                sessionStorage.removeItem('prefill_in_progress');
+              } catch {
+                /* ignore */
+              }
+            } else if (state === 'failed') {
+              setIsPrefillActive(false);
+              addLog('error', t('prefill.log.prefillFailed'));
+              isCancelling.current = false;
 
-      // Handle prefill state changes
-      connection.on('PrefillStateChanged', (_sessionId: string, state: string, durationSeconds?: number) => {
-        const resetAnimationState = () => {
-          cachedAnimationQueueRef.current = [];
-          isProcessingAnimationRef.current = false;
-          currentAnimationAppIdRef.current = 0;
-          cachedAnimationCountRef.current = 0;
-        };
+              setPrefillProgress(null);
+              resetAnimationState();
+              try {
+                sessionStorage.removeItem('prefill_in_progress');
+              } catch {
+                /* ignore */
+              }
+            } else if (state === 'cancelled') {
+              setIsPrefillActive(false);
+              addLog('info', t('prefill.log.prefillCancelled'));
+              isCancelling.current = false;
 
-        if (state === 'started') {
-          setIsPrefillActive(true);
-          addLog('download', t('prefill.log.prefillStarted'));
-          prefillDurationRef.current = 0;
-          prefillStartTimeRef.current = Date.now();
-          isReceivingProgressRef.current = true;
-          cachedAnimationCountRef.current = 0;
-          pendingCompletionRef.current = null;
-          completedAppCountRef.current = 0;
-          hasShownCompletionRef.current = false;
-          resetAnimationState();
-          clearBackgroundCompletion();
-          try {
-            sessionStorage.setItem('prefill_in_progress', JSON.stringify({
-              startedAt: new Date().toISOString(),
-              sessionId: _sessionId
-            }));
-          } catch { /* ignore */ }
-        } else if (state === 'completed') {
-          setIsPrefillActive(false);
-          const duration = durationSeconds ?? 0;
-          const formattedDuration = formatDuration(duration);
-          addLog('success', t('prefill.log.prefillCompleted', { duration: formattedDuration }));
-          isCancelling.current = false;
-          isReceivingProgressRef.current = false;
-
-          // If there are pending cached animations, let them finish before clearing
-          const hasPendingAnimations = cachedAnimationQueueRef.current.length > 0 || isProcessingAnimationRef.current;
-          if (!hasPendingAnimations) {
-            setPrefillProgress(null);
-            resetAnimationState();
-          }
-          // Note: Animation completion handler will clear progress when done
-
-          setBackgroundCompletionRef.current({
-            completedAt: new Date().toISOString(),
-            message: t('prefill.completion.message', { duration: formattedDuration }),
-            duration: duration
-          });
-          try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
-        } else if (state === 'failed') {
-          setIsPrefillActive(false);
-          addLog('error', t('prefill.log.prefillFailed'));
-          isCancelling.current = false;
-          isReceivingProgressRef.current = false;
-          setPrefillProgress(null);
-          resetAnimationState();
-          try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
-        } else if (state === 'cancelled') {
-          setIsPrefillActive(false);
-          addLog('info', t('prefill.log.prefillCancelled'));
-          isCancelling.current = false;
-          isReceivingProgressRef.current = false;
-          setPrefillProgress(null);
-          resetAnimationState();
-          try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
-        }
-      });
-
-      // Handle daemon session updates
-      connection.on('DaemonSessionCreated', (sessionDto: PrefillSessionDto) => {
-        setSession((currentSession) => {
-          if (currentSession && sessionDto.id === currentSession.id) {
-            setTimeRemaining(sessionDto.timeRemainingSeconds);
-            return sessionDto;
-          }
-          return currentSession;
-        });
-      });
-
-      connection.on('DaemonSessionUpdated', (sessionDto: PrefillSessionDto) => {
-        setSession((currentSession) => {
-          if (currentSession && sessionDto.id === currentSession.id) {
-            setTimeRemaining(sessionDto.timeRemainingSeconds);
-            return sessionDto;
-          }
-          return currentSession;
-        });
-      });
-
-      connection.on('PrefillHistoryUpdated', () => {
-        // Admin pages use this - PrefillPanel doesn't need it
-      });
-
-      connection.onclose(() => {
-        setIsConnecting(false);
-      });
-
-      connection.onreconnecting(() => {
-        addLog('warning', t('prefill.log.connectionLostReconnecting'));
-      });
-
-      connection.onreconnected(async () => {
-        addLog('success', t('prefill.log.reconnected'));
-        const currentSession = sessionRef.current;
-        if (currentSession) {
-          try {
-            await connection.invoke('SubscribeToSession', currentSession.id);
-            isReceivingProgressRef.current = false;
-
-            const lastResult = await connection.invoke('GetLastPrefillResult', currentSession.id) as {
-              status: string;
-              completedAt: string;
-              durationSeconds: number;
-            } | null;
-
-            if (lastResult && lastResult.status === 'completed') {
-              const completedTime = new Date(lastResult.completedAt).getTime();
-              if (Date.now() - completedTime < 5 * 60 * 1000 && !isCompletionDismissed(lastResult.completedAt)) {
-                const formattedDuration = formatDuration(lastResult.durationSeconds);
-                setBackgroundCompletion({
-                  completedAt: lastResult.completedAt,
-                  message: t('prefill.completion.message', { duration: formattedDuration }),
-                  duration: lastResult.durationSeconds
-                });
-                addLog('success', t('prefill.log.prefillCompletedWhileDisconnected', { duration: formattedDuration }));
+              setPrefillProgress(null);
+              resetAnimationState();
+              try {
+                sessionStorage.removeItem('prefill_in_progress');
+              } catch {
+                /* ignore */
               }
             }
-            try { sessionStorage.removeItem('prefill_in_progress'); } catch { /* ignore */ }
-          } catch (err) {
-            console.error('Failed to resubscribe:', err);
           }
-        }
-      });
+        );
 
-      await connection.start();
-      hubConnection.current = connection;
-      setIsConnecting(false);
-      return connection;
-    } catch (err) {
-      console.error('Failed to connect to hub:', err);
-      setError(t('prefill.errors.failedConnect'));
-      setIsConnecting(false);
-      return null;
-    }
+        // Handle daemon session updates
+        connection.on('DaemonSessionCreated', (sessionDto: PrefillSessionDto) => {
+          setSession((currentSession) => {
+            if (currentSession && sessionDto.id === currentSession.id) {
+              setTimeRemaining(sessionDto.timeRemainingSeconds);
+              return sessionDto;
+            }
+            return currentSession;
+          });
+        });
+
+        connection.on('DaemonSessionUpdated', (sessionDto: PrefillSessionDto) => {
+          setSession((currentSession) => {
+            if (currentSession && sessionDto.id === currentSession.id) {
+              setTimeRemaining(sessionDto.timeRemainingSeconds);
+              return sessionDto;
+            }
+            return currentSession;
+          });
+        });
+
+        connection.on('PrefillHistoryUpdated', () => {
+          // Admin pages use this - PrefillPanel doesn't need it
+        });
+
+        connection.onclose(() => {
+          setIsConnecting(false);
+        });
+
+        connection.onreconnecting(() => {
+          addLog('warning', t('prefill.log.connectionLostReconnecting'));
+        });
+
+        connection.onreconnected(async () => {
+          addLog('success', t('prefill.log.reconnected'));
+          const currentSession = sessionRef.current;
+          if (currentSession) {
+            try {
+              await connection.invoke('SubscribeToSession', currentSession.id);
+
+              const lastResult = (await connection.invoke(
+                'GetLastPrefillResult',
+                currentSession.id
+              )) as {
+                status: string;
+                completedAt: string;
+                durationSeconds: number;
+              } | null;
+
+              if (lastResult && lastResult.status === 'completed') {
+                const completedTime = new Date(lastResult.completedAt).getTime();
+                if (
+                  Date.now() - completedTime < 5 * 60 * 1000 &&
+                  !isCompletionDismissed(lastResult.completedAt)
+                ) {
+                  const formattedDuration = formatDuration(lastResult.durationSeconds);
+                  setBackgroundCompletion({
+                    completedAt: lastResult.completedAt,
+                    message: t('prefill.completion.message', { duration: formattedDuration }),
+                    duration: lastResult.durationSeconds
+                  });
+                  addLog(
+                    'success',
+                    t('prefill.log.prefillCompletedWhileDisconnected', {
+                      duration: formattedDuration
+                    })
+                  );
+                }
+              }
+              try {
+                sessionStorage.removeItem('prefill_in_progress');
+              } catch {
+                /* ignore */
+              }
+            } catch (err) {
+              console.error('Failed to resubscribe:', err);
+            }
+          }
+        });
+
+        await connection.start();
+        hubConnection.current = connection;
+        setIsConnecting(false);
+        return connection;
+      } catch (err) {
+        console.error('Failed to connect to hub:', err);
+        setError(t('prefill.errors.failedConnect'));
+        setIsConnecting(false);
+        return null;
+      }
     })();
 
     connectInFlightRef.current = connectPromise;
     const result = await connectPromise;
     connectInFlightRef.current = null;
     return result;
-  }, [addLog, onAuthStateChanged, onSessionEnd, clearBackgroundCompletion, setBackgroundCompletion, isCompletionDismissed, clearAllPrefillStorage, t]);
+  }, [
+    addLog,
+    onAuthStateChanged,
+    onSessionEnd,
+    clearBackgroundCompletion,
+    setBackgroundCompletion,
+    isCompletionDismissed,
+    clearAllPrefillStorage,
+    t
+  ]);
 
   const initializeSession = useCallback(async () => {
     if (initializationAttempted.current) return;
@@ -515,15 +628,28 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
       const activeSession = existingSessions?.find((s) => s.status === 'Active');
 
       if (activeSession) {
-        addLog('info', t('prefill.log.reconnectingExistingSession'), t('prefill.log.sessionDetail', { id: activeSession.id }));
+        addLog(
+          'info',
+          t('prefill.log.reconnectingExistingSession'),
+          t('prefill.log.sessionDetail', { id: activeSession.id })
+        );
         await connection.invoke('SubscribeToSession', activeSession.id);
 
         setSession(activeSession);
         setTimeRemaining(activeSession.timeRemainingSeconds);
         setIsLoggedIn(activeSession.authState === 'Authenticated');
 
-        addLog('success', t('prefill.log.reconnectedExistingSession'), t('prefill.log.containerDetail', { name: activeSession.containerName }));
-        addLog('info', t('prefill.log.sessionExpiresIn', { time: formatTimeRemaining(activeSession.timeRemainingSeconds) }));
+        addLog(
+          'success',
+          t('prefill.log.reconnectedExistingSession'),
+          t('prefill.log.containerDetail', { name: activeSession.containerName })
+        );
+        addLog(
+          'info',
+          t('prefill.log.sessionExpiresIn', {
+            time: formatTimeRemaining(activeSession.timeRemainingSeconds)
+          })
+        );
 
         if (activeSession.authState === 'Authenticated') {
           addLog('info', t('prefill.log.alreadyLoggedIn'));
@@ -533,8 +659,10 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
 
         // Check for missed completions
         try {
-          isReceivingProgressRef.current = false;
-          const lastResult = await connection.invoke('GetLastPrefillResult', activeSession.id) as {
+          const lastResult = (await connection.invoke(
+            'GetLastPrefillResult',
+            activeSession.id
+          )) as {
             status: string;
             completedAt: string;
             durationSeconds: number;
@@ -542,6 +670,15 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
 
           if (lastResult && lastResult.status === 'completed') {
             const completedTime = new Date(lastResult.completedAt).getTime();
+            // Prefill completed - clear the "reconnecting" progress state
+            setIsPrefillActive(false);
+            setPrefillProgress(null);
+            try {
+              sessionStorage.removeItem('prefill_in_progress');
+            } catch {
+              /* ignore */
+            }
+
             if (Date.now() - completedTime < 5 * 60 * 1000) {
               const currentBgCompletion = sessionStorage.getItem('prefill_background_completion');
               if (!currentBgCompletion && !isCompletionDismissed(lastResult.completedAt)) {
@@ -551,21 +688,44 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
                   message: t('prefill.completion.message', { duration: formattedDuration }),
                   duration: lastResult.durationSeconds
                 });
-                addLog('success', t('prefill.log.prefillCompletedWhileAway', { duration: formattedDuration }));
+                addLog(
+                  'success',
+                  t('prefill.log.prefillCompletedWhileAway', { duration: formattedDuration })
+                );
               }
             }
+          } else if (
+            lastResult &&
+            (lastResult.status === 'failed' || lastResult.status === 'cancelled')
+          ) {
+            // Prefill failed or cancelled - clear the "reconnecting" progress state
+            setIsPrefillActive(false);
+            setPrefillProgress(null);
+            try {
+              sessionStorage.removeItem('prefill_in_progress');
+            } catch {
+              /* ignore */
+            }
           }
+          // If lastResult is null or status is 'in_progress', the progress will be updated via SignalR events
         } catch {
           // Non-critical
         }
       } else {
-        // No active session found - check if there's stale storage data from a previous session
+        // No active session found - clear any "reconnecting" progress state
+        setIsPrefillActive(false);
+        setPrefillProgress(null);
+
+        // Also check if there's stale storage data from a previous session
         // This happens when the server was stopped/restarted and cleared sessions
-        const hasStaleData = sessionStorage.getItem('prefill_session_id') ||
-                           sessionStorage.getItem('prefill_activity_log') ||
-                           sessionStorage.getItem('prefill_in_progress');
+        const hasStaleData =
+          sessionStorage.getItem('prefill_session_id') ||
+          sessionStorage.getItem('prefill_activity_log') ||
+          sessionStorage.getItem('prefill_in_progress');
         if (hasStaleData) {
-          console.log('[usePrefillSignalR] No active session but found stale storage data, clearing...');
+          console.log(
+            '[usePrefillSignalR] No active session but found stale storage data, clearing...'
+          );
           clearAllPrefillStorage();
         }
       }
@@ -574,51 +734,75 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     } finally {
       setIsInitializing(false);
     }
-  }, [connectToHub, addLog, setBackgroundCompletion, isCompletionDismissed, clearAllPrefillStorage, t]);
+  }, [
+    connectToHub,
+    addLog,
+    setBackgroundCompletion,
+    isCompletionDismissed,
+    clearAllPrefillStorage,
+    t
+  ]);
 
-  const createSession = useCallback(async (clearLogs: () => void) => {
-    setIsCreating(true);
-    setError(null);
-    clearLogs();
+  const createSession = useCallback(
+    async (clearLogs: () => void) => {
+      setIsCreating(true);
+      setError(null);
+      clearLogs();
 
-    try {
-      let connection = hubConnection.current;
-      if (!connection || connection.state !== 'Connected') {
-        connection = await connectToHub();
+      try {
+        let connection = hubConnection.current;
+        if (!connection || connection.state !== 'Connected') {
+          connection = await connectToHub();
+        }
+
+        if (!connection) {
+          throw new Error(t('prefill.errors.failedEstablishConnection'));
+        }
+
+        addLog('info', t('prefill.log.creatingSession'));
+
+        const sessionDto = await connection.invoke<PrefillSessionDto>('CreateSession');
+        setSession(sessionDto);
+        setTimeRemaining(sessionDto.timeRemainingSeconds);
+
+        const isExistingSession = sessionDto.authState === 'Authenticated';
+        setIsLoggedIn(isExistingSession);
+
+        if (isExistingSession) {
+          addLog(
+            'success',
+            t('prefill.log.connectedExistingSession'),
+            t('prefill.log.containerDetail', { name: sessionDto.containerName })
+          );
+          addLog('info', t('prefill.log.alreadyLoggedIn'));
+        } else {
+          addLog(
+            'success',
+            t('prefill.log.sessionCreated'),
+            t('prefill.log.containerDetail', { name: sessionDto.containerName })
+          );
+          addLog('info', t('prefill.log.loginToSteamBeforePrefill'));
+        }
+        addLog(
+          'info',
+          t('prefill.log.sessionExpiresIn', {
+            time: formatTimeRemaining(sessionDto.timeRemainingSeconds)
+          })
+        );
+
+        await connection.invoke('SubscribeToSession', sessionDto.id);
+        setIsCreating(false);
+      } catch (err) {
+        console.error('Failed to create session:', err);
+        const errorMessage =
+          err instanceof Error ? err.message : t('prefill.errors.failedCreateSession');
+        setError(errorMessage);
+        addLog('error', errorMessage);
+        setIsCreating(false);
       }
-
-      if (!connection) {
-        throw new Error(t('prefill.errors.failedEstablishConnection'));
-      }
-
-      addLog('info', t('prefill.log.creatingSession'));
-
-      const sessionDto = await connection.invoke<PrefillSessionDto>('CreateSession');
-      setSession(sessionDto);
-      setTimeRemaining(sessionDto.timeRemainingSeconds);
-
-      const isExistingSession = sessionDto.authState === 'Authenticated';
-      setIsLoggedIn(isExistingSession);
-
-      if (isExistingSession) {
-        addLog('success', t('prefill.log.connectedExistingSession'), t('prefill.log.containerDetail', { name: sessionDto.containerName }));
-        addLog('info', t('prefill.log.alreadyLoggedIn'));
-      } else {
-        addLog('success', t('prefill.log.sessionCreated'), t('prefill.log.containerDetail', { name: sessionDto.containerName }));
-        addLog('info', t('prefill.log.loginToSteamBeforePrefill'));
-      }
-      addLog('info', t('prefill.log.sessionExpiresIn', { time: formatTimeRemaining(sessionDto.timeRemainingSeconds) }));
-
-      await connection.invoke('SubscribeToSession', sessionDto.id);
-      setIsCreating(false);
-    } catch (err) {
-      console.error('Failed to create session:', err);
-      const errorMessage = err instanceof Error ? err.message : t('prefill.errors.failedCreateSession');
-      setError(errorMessage);
-      addLog('error', errorMessage);
-      setIsCreating(false);
-    }
-  }, [connectToHub, addLog, t]);
+    },
+    [connectToHub, addLog, t]
+  );
 
   // Initialize on mount
   useEffect(() => {

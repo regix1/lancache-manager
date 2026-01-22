@@ -2913,6 +2913,8 @@
       "loadingNextGame": "Loading Next Game",
       "alreadyCached": "Already Cached",
       "downloading": "Downloading",
+      "reconnecting": "Reconnecting...",
+      "reconnectingMessage": "Prefill in progress. Reconnecting to get current status...",
       "appId": "App {{id}}",
       "complete": "Complete",
       "upToDate": "Up to Date",

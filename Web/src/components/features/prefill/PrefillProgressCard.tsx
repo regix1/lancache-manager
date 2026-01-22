@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { Card } from '../../ui/Card';
 import { Button } from '../../ui/Button';
-import { Download, XCircle } from 'lucide-react';
+import { Download, XCircle, Loader2 } from 'lucide-react';
 import { formatSpeed } from '@utils/formatters';
 import { formatBytes, formatTimeRemaining } from './types';
 
@@ -27,6 +27,8 @@ export function PrefillProgressCard({ progress, onCancel }: PrefillProgressCardP
 
   const getStateLabel = () => {
     switch (progress.state) {
+      case 'reconnecting':
+        return t('prefill.progress.reconnecting', 'Reconnecting...');
       case 'loading-metadata':
         return t('prefill.progress.loadingGameData');
       case 'metadata-loaded':
@@ -44,7 +46,11 @@ export function PrefillProgressCard({ progress, onCancel }: PrefillProgressCardP
     }
   };
 
-  const showAppInfo = progress.state === 'downloading' || progress.state === 'app_completed' || progress.state === 'already_cached';
+  const showAppInfo =
+    progress.state === 'downloading' ||
+    progress.state === 'app_completed' ||
+    progress.state === 'already_cached';
+  const isReconnecting = progress.state === 'reconnecting';
 
   return (
     <Card
@@ -55,13 +61,18 @@ export function PrefillProgressCard({ progress, onCancel }: PrefillProgressCardP
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[color-mix(in_srgb,var(--theme-primary)_15%,transparent)]">
-              <Download className="h-5 w-5 animate-pulse text-[var(--theme-primary)]" />
+              {isReconnecting ? (
+                <Loader2 className="h-5 w-5 animate-spin text-[var(--theme-primary)]" />
+              ) : (
+                <Download className="h-5 w-5 animate-pulse text-[var(--theme-primary)]" />
+              )}
             </div>
             <div>
               <p className="font-medium text-themed-primary">{getStateLabel()}</p>
               {showAppInfo && (
                 <p className="text-sm text-themed-muted truncate max-w-[300px]">
-                  {progress.currentAppName || t('prefill.progress.appId', { id: progress.currentAppId })}
+                  {progress.currentAppName ||
+                    t('prefill.progress.appId', { id: progress.currentAppId })}
                   {progress.state === 'app_completed' && ` - ${t('prefill.progress.complete')}`}
                   {progress.state === 'already_cached' && ` - ${t('prefill.progress.upToDate')}`}
                 </p>
@@ -76,7 +87,8 @@ export function PrefillProgressCard({ progress, onCancel }: PrefillProgressCardP
                   {formatSpeed(progress.bytesPerSecond)}
                 </p>
                 <p className="text-xs text-themed-muted">
-                  {formatTimeRemaining(Math.floor(progress.elapsedSeconds))} {t('prefill.progress.elapsed')}
+                  {formatTimeRemaining(Math.floor(progress.elapsedSeconds))}{' '}
+                  {t('prefill.progress.elapsed')}
                 </p>
               </div>
             )}
@@ -90,7 +102,9 @@ export function PrefillProgressCard({ progress, onCancel }: PrefillProgressCardP
         {/* Progress Bar */}
         <div className="space-y-2">
           <div className="h-3 rounded-full overflow-hidden bg-[var(--theme-progress-bg)]">
-            {progress.state === 'already_cached' ? (
+            {isReconnecting ? (
+              <div className="h-full rounded-full animate-pulse w-full opacity-50 bg-gradient-to-r from-[var(--theme-warning)] to-[var(--theme-primary)]" />
+            ) : progress.state === 'already_cached' ? (
               <div
                 key={`cached-${progress.currentAppId}`}
                 className="h-full rounded-full bg-[var(--theme-info)]"
@@ -107,7 +121,14 @@ export function PrefillProgressCard({ progress, onCancel }: PrefillProgressCardP
             )}
           </div>
 
-          {progress.state === 'downloading' ? (
+          {progress.state === 'reconnecting' ? (
+            <p className="text-sm text-themed-muted text-center">
+              {t(
+                'prefill.progress.reconnectingMessage',
+                'Prefill in progress. Reconnecting to get current status...'
+              )}
+            </p>
+          ) : progress.state === 'downloading' ? (
             <div className="flex items-center justify-between text-xs text-themed-muted">
               <span>
                 {formatBytes(progress.bytesDownloaded)} / {formatBytes(progress.totalBytes)}
@@ -124,7 +145,9 @@ export function PrefillProgressCard({ progress, onCancel }: PrefillProgressCardP
               </span>
             </div>
           ) : progress.state === 'app_completed' ? (
-            <p className="text-sm text-themed-muted text-center">{t('prefill.progress.loadingNextGame')}...</p>
+            <p className="text-sm text-themed-muted text-center">
+              {t('prefill.progress.loadingNextGame')}...
+            </p>
           ) : (
             <p className="text-sm text-themed-muted text-center">
               {progress.message || t('prefill.progress.preparingOperation')}

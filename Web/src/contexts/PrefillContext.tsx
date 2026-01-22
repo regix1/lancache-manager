@@ -1,6 +1,16 @@
-import React, { createContext, useContext, useState, useCallback, useRef, type ReactNode } from 'react';
-import type { LogEntry, LogEntryType } from '@components/features/prefill/ActivityLog';
-import { createLogEntry } from '@components/features/prefill/ActivityLog';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useRef,
+  type ReactNode
+} from 'react';
+import {
+  createLogEntry,
+  type LogEntry,
+  type LogEntryType
+} from '@components/features/prefill/ActivityLog';
 
 const STORAGE_KEY = 'prefill_activity_log';
 const BACKGROUND_COMPLETION_KEY = 'prefill_background_completion';
@@ -95,9 +105,8 @@ export const PrefillProvider: React.FC<PrefillProviderProps> = ({ children }) =>
       return null;
     }
   });
-  const [backgroundCompletion, setBackgroundCompletionState] = useState<BackgroundCompletion | null>(
-    () => restoreBackgroundCompletion()
-  );
+  const [backgroundCompletion, setBackgroundCompletionState] =
+    useState<BackgroundCompletion | null>(() => restoreBackgroundCompletion());
 
   // Use ref to track if we need to persist (prevents excessive writes)
   const pendingSaveRef = useRef<NodeJS.Timeout | null>(null);
@@ -113,13 +122,16 @@ export const PrefillProvider: React.FC<PrefillProviderProps> = ({ children }) =>
     }, 100);
   }, []);
 
-  const addLog = useCallback((type: LogEntryType, message: string, details?: string) => {
-    setLogEntries(prev => {
-      const newEntries = [...prev, createLogEntry(type, message, details)];
-      persistLogs(newEntries);
-      return newEntries;
-    });
-  }, [persistLogs]);
+  const addLog = useCallback(
+    (type: LogEntryType, message: string, details?: string) => {
+      setLogEntries((prev) => {
+        const newEntries = [...prev, createLogEntry(type, message, details)];
+        persistLogs(newEntries);
+        return newEntries;
+      });
+    },
+    [persistLogs]
+  );
 
   const clearLogs = useCallback(() => {
     setLogEntries([]);
@@ -175,10 +187,19 @@ export const PrefillProvider: React.FC<PrefillProviderProps> = ({ children }) =>
   }, [backgroundCompletion]);
 
   // Check if a completion with a specific timestamp has been dismissed
+  // Uses a 60-second window to account for client/server timestamp differences
   const isCompletionDismissed = useCallback((completedAt: string): boolean => {
     try {
       const dismissedAt = sessionStorage.getItem(DISMISSED_COMPLETION_KEY);
-      return dismissedAt === completedAt;
+      if (!dismissedAt) return false;
+
+      // Parse both timestamps and compare within a 60-second window
+      const dismissedTime = new Date(dismissedAt).getTime();
+      const completedTime = new Date(completedAt).getTime();
+
+      // If timestamps are within 60 seconds of each other, consider it dismissed
+      // This handles client/server timestamp differences
+      return Math.abs(dismissedTime - completedTime) < 60000;
     } catch {
       return false;
     }
