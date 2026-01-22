@@ -522,16 +522,24 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       return;
     }
 
+    // Set loading states IMMEDIATELY for visual feedback before any async work
     setActionLoading(true);
-    try {
-      // If GitHub is selected, download from GitHub
-      if (depotSource === 'github') {
-        await handleDownloadFromGitHub();
-        applyInProgressRef.current = false;
-        return;
-      }
 
-      setOperationType('scanning');
+    // If GitHub is selected, download from GitHub
+    if (depotSource === 'github') {
+      // handleDownloadFromGitHub sets its own operationType to 'downloading'
+      try {
+        await handleDownloadFromGitHub();
+      } finally {
+        applyInProgressRef.current = false;
+      }
+      return;
+    }
+
+    // For Steam scans, set operation type immediately (before async API calls)
+    setOperationType('scanning');
+
+    try {
 
       // Use Steam scan (incremental or full based on user selection)
       // Check if JSON file exists and needs to be imported to database
