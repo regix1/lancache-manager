@@ -67,6 +67,9 @@ const EventFrame: React.FC<EventFrameProps> = ({
   const wrapperStyle = {
     '--event-frame-color': color,
     '--event-frame-offset': `${mergedTokens.offset}px`,
+    // Precomputed values to avoid calc() multiplication (not supported on iOS Safari)
+    '--event-frame-offset-negative': `-${mergedTokens.offset}px`,
+    '--event-frame-offset-double': `${mergedTokens.offset * 2}px`,
     '--event-frame-radius': `${mergedTokens.radius}px`,
     '--event-frame-stroke-width': `${mergedTokens.strokeWidth}px`,
     '--event-frame-dash-array': mergedTokens.dashArray,
@@ -88,6 +91,8 @@ const EventFrame: React.FC<EventFrameProps> = ({
         className="event-frame-svg"
         aria-hidden="true"
         preserveAspectRatio="none"
+        width="100%"
+        height="100%"
       >
         <rect
           className="event-frame-stroke"

@@ -43,14 +43,16 @@
 }
 
 /* SVG border - positioned absolutely to surround content */
+/* Uses precomputed negative/double offset values to avoid calc() multiplication
+   which is not supported on iOS Safari */
 .event-frame-svg {
   position: absolute;
-  top: calc(-1 * var(--event-frame-offset, 10px));
-  left: calc(-1 * var(--event-frame-offset, 10px));
-  right: calc(-1 * var(--event-frame-offset, 10px));
-  bottom: calc(-1 * var(--event-frame-offset, 10px));
-  width: calc(100% + var(--event-frame-offset, 10px) * 2);
-  height: calc(100% + var(--event-frame-offset, 10px) * 2);
+  top: var(--event-frame-offset-negative, -10px);
+  left: var(--event-frame-offset-negative, -10px);
+  right: var(--event-frame-offset-negative, -10px);
+  bottom: var(--event-frame-offset-negative, -10px);
+  width: calc(100% + var(--event-frame-offset-double, 20px));
+  height: calc(100% + var(--event-frame-offset-double, 20px));
   pointer-events: none;
   z-index: 0;
   overflow: visible;
@@ -79,7 +81,8 @@
 /* Event badge container positioning */
 .event-frame-badge-container {
   position: absolute;
-  top: calc(-1 * var(--event-frame-offset, 10px) - var(--event-frame-badge-offset, 12px));
+  /* Uses precomputed negative offset to avoid calc() multiplication */
+  top: calc(var(--event-frame-offset-negative, -10px) - var(--event-frame-badge-offset, 12px));
   left: 50%;
   transform: translateX(-50%);
   pointer-events: none;
