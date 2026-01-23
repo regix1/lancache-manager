@@ -4,7 +4,6 @@ import {
   Database,
   Settings,
   Download as DownloadIcon,
-  Loader2,
   List,
   Grid3x3,
   Table,
