@@ -1,19 +1,18 @@
 using System.Text.Json;
 using LancacheManager.Models;
-using LancacheManager.Core.Interfaces.Repositories;
-using LancacheManager.Core.Interfaces.Services;
+using LancacheManager.Core.Interfaces;
 
-namespace LancacheManager.Infrastructure.Repositories;
+namespace LancacheManager.Infrastructure.Services;
 
-public class SettingsRepository : ISettingsRepository
+public class SettingsService : ISettingsService
 {
-    private readonly ILogger<SettingsRepository> _logger;
+    private readonly ILogger<SettingsService> _logger;
     private readonly IPathResolver _pathResolver;
     private readonly string _settingsFilePath;
     private GcSettings _currentSettings;
     private static readonly object _lock = new object();
 
-    public SettingsRepository(ILogger<SettingsRepository> logger, IPathResolver pathResolver)
+    public SettingsService(ILogger<SettingsService> logger, IPathResolver pathResolver)
     {
         _logger = logger;
         _pathResolver = pathResolver;

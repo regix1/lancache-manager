@@ -1,5 +1,5 @@
 using LancacheManager.Models;
-using LancacheManager.Infrastructure.Repositories;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
@@ -14,12 +14,12 @@ namespace LancacheManager.Controllers;
 [Route("api/database")]
 public class DatabaseController : ControllerBase
 {
-    private readonly DatabaseRepository _dbService;
+    private readonly DatabaseService _dbService;
     private readonly RustDatabaseResetService _rustDatabaseResetService;
     private readonly ILogger<DatabaseController> _logger;
 
     public DatabaseController(
-        DatabaseRepository dbService,
+        DatabaseService dbService,
         RustDatabaseResetService rustDatabaseResetService,
         ILogger<DatabaseController> logger)
     {
@@ -77,16 +77,16 @@ public class DatabaseController : ControllerBase
 
     /// <summary>
     /// GET /api/database/reset-status - Get status of database reset operation
-    /// Checks both Rust-based reset service and C# DatabaseRepository reset operations
+    /// Checks both Rust-based reset service and C# DatabaseService reset operations
     /// </summary>
     [HttpGet("reset-status")]
     [RequireGuestSession]
     public IActionResult GetDatabaseResetStatus()
     {
-        // Check C# DatabaseRepository reset operations first
+        // Check C# DatabaseService reset operations first
         if (_dbService.IsResetOperationRunning)
         {
-            var progress = DatabaseRepository.CurrentResetProgress;
+            var progress = DatabaseService.CurrentResetProgress;
             return Ok(new DatabaseResetStatusResponse
             {
                 IsProcessing = progress.IsProcessing,

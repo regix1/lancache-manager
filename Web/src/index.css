@@ -25,6 +25,7 @@
 @import './styles/features/user.css';
 @import './styles/features/edit-mode.css';
 @import './styles/features/events.css';
+@import './styles/features/downloads.css';
 
 @tailwind base;
 @tailwind components;

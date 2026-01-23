@@ -1,10 +1,10 @@
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Security;
-using LancacheManager.Infrastructure.Repositories;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Hubs;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.SignalR;
 using LancacheManager.Core.Services.SteamKit2;
 
 
@@ -22,22 +22,22 @@ public class ApiKeysController : ControllerBase
     private readonly DeviceAuthService _deviceAuthService;
     private readonly GuestSessionService _guestSessionService;
     private readonly SteamKit2Service _steamKit2Service;
-    private readonly SteamAuthRepository _steamAuthStorage;
-    private readonly StateRepository _stateService;
+    private readonly SteamAuthStorageService _steamAuthStorage;
+    private readonly StateService _stateService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<ApiKeysController> _logger;
-    private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly ISignalRNotificationService _notifications;
 
     public ApiKeysController(
         ApiKeyService apiKeyService,
         DeviceAuthService deviceAuthService,
         GuestSessionService guestSessionService,
         SteamKit2Service steamKit2Service,
-        SteamAuthRepository steamAuthStorage,
-        StateRepository stateService,
+        SteamAuthStorageService steamAuthStorage,
+        StateService stateService,
         IConfiguration configuration,
         ILogger<ApiKeysController> logger,
-        IHubContext<DownloadHub> hubContext)
+        ISignalRNotificationService notifications)
     {
         _apiKeyService = apiKeyService;
         _deviceAuthService = deviceAuthService;
@@ -47,7 +47,7 @@ public class ApiKeysController : ControllerBase
         _stateService = stateService;
         _configuration = configuration;
         _logger = logger;
-        _hubContext = hubContext;
+        _notifications = notifications;
     }
 
     /// <summary>
@@ -121,7 +121,7 @@ public class ApiKeysController : ControllerBase
         }
 
         // Broadcast to ALL users for instant logout
-        await _hubContext.Clients.All.SendAsync("UserSessionsCleared");
+        await _notifications.NotifyAllAsync(SignalREvents.UserSessionsCleared);
         _logger.LogInformation("Broadcasted UserSessionsCleared event");
 
         _logger.LogWarning(

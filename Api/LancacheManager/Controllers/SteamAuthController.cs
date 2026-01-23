@@ -1,7 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
-using LancacheManager.Infrastructure.Repositories;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -19,14 +19,14 @@ namespace LancacheManager.Controllers;
 public class SteamAuthController : ControllerBase
 {
     private readonly SteamKit2Service _steamKit2Service;
-    private readonly SteamAuthRepository _steamAuthStorage;
-    private readonly StateRepository _stateService;
+    private readonly SteamAuthStorageService _steamAuthStorage;
+    private readonly StateService _stateService;
     private readonly ILogger<SteamAuthController> _logger;
 
     public SteamAuthController(
         SteamKit2Service steamKit2Service,
-        SteamAuthRepository steamAuthStorage,
-        StateRepository stateService,
+        SteamAuthStorageService steamAuthStorage,
+        StateService stateService,
         ILogger<SteamAuthController> logger)
     {
         _steamKit2Service = steamKit2Service;

@@ -1,8 +1,10 @@
 using System.Text.Json.Serialization;
+using LancacheManager.Core.Interfaces;
+using LancacheManager.Infrastructure.Utilities;
 
 namespace LancacheManager.Models;
 
-public class ServiceStats
+public class ServiceStats : IUtcMarkable
 {
     public string Service { get; set; } = string.Empty;
     public long TotalCacheHitBytes { get; set; }
@@ -19,4 +21,9 @@ public class ServiceStats
 
     // Local timestamps - stored in the user's configured timezone for display
     public DateTime LastActivityLocal { get; set; }
+
+    public void MarkDateTimesAsUtc()
+    {
+        LastActivityUtc = LastActivityUtc.AsUtc();
+    }
 }

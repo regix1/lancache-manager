@@ -2,9 +2,8 @@ using System.Diagnostics;
 using System.Text.Json;
 using LancacheManager.Models;
 using LancacheManager.Hubs;
-using LancacheManager.Infrastructure.Services;
-using LancacheManager.Core.Interfaces.Services;
-using Microsoft.AspNetCore.SignalR;
+using LancacheManager.Core.Interfaces;
+using LancacheManager.Infrastructure.Services.Base;
 
 namespace LancacheManager.Core.Services;
 
@@ -12,27 +11,35 @@ namespace LancacheManager.Core.Services;
 /// Background service that runs the Rust speed tracker executable and broadcasts
 /// speed snapshots via SignalR. Uses Rust for faster log parsing.
 /// </summary>
-public class RustSpeedTrackerService : BackgroundService
+public class RustSpeedTrackerService : ScheduledBackgroundService
 {
     private readonly ILogger<RustSpeedTrackerService> _logger;
     private readonly IPathResolver _pathResolver;
     private readonly DatasourceService _datasourceService;
-    private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly ISignalRNotificationService _notifications;
+    private string? _rustExecutablePath;
     private Process? _rustProcess;
     private DownloadSpeedSnapshot _currentSnapshot = new() { WindowSeconds = 2 };
     private readonly object _snapshotLock = new();
     private bool _previousHadActivity = false;
 
+    protected override string ServiceName => "RustSpeedTrackerService";
+    protected override TimeSpan StartupDelay => TimeSpan.FromSeconds(5);
+    protected override TimeSpan Interval => TimeSpan.Zero;
+    protected override TimeSpan ErrorRetryDelay => TimeSpan.FromSeconds(5);
+
     public RustSpeedTrackerService(
         ILogger<RustSpeedTrackerService> logger,
+        IConfiguration configuration,
         IPathResolver pathResolver,
         DatasourceService datasourceService,
-        IHubContext<DownloadHub> hubContext)
+        ISignalRNotificationService notifications)
+        : base(logger, configuration)
     {
         _logger = logger;
         _pathResolver = pathResolver;
         _datasourceService = datasourceService;
-        _hubContext = hubContext;
+        _notifications = notifications;
     }
 
     /// <summary>
@@ -46,24 +53,39 @@ public class RustSpeedTrackerService : BackgroundService
         }
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override bool IsEnabled()
     {
-        // Wait for app startup
-        await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
-
         var datasources = _datasourceService.GetDatasources();
-        if (datasources.Count == 0)
+        var hasEnabledDatasource = false;
+        foreach (var datasource in datasources)
         {
-            _logger.LogWarning("No datasources configured, RustSpeedTrackerService will not run");
-            return;
+            if (datasource.Enabled)
+            {
+                hasEnabledDatasource = true;
+                break;
+            }
         }
 
-        var rustExecutablePath = _pathResolver.GetRustSpeedTrackerPath();
-        if (!File.Exists(rustExecutablePath))
+        if (!hasEnabledDatasource)
         {
-            _logger.LogWarning("Rust speed tracker not found at {Path}, speed tracking disabled", rustExecutablePath);
-            return;
+            _logger.LogWarning("No enabled datasources configured, RustSpeedTrackerService will not run");
+            return false;
         }
+
+        _rustExecutablePath = _pathResolver.GetRustSpeedTrackerPath();
+        if (!File.Exists(_rustExecutablePath))
+        {
+            _logger.LogWarning("Rust speed tracker not found at {Path}, speed tracking disabled", _rustExecutablePath);
+            return false;
+        }
+
+        return true;
+    }
+
+    protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
+    {
+        var datasources = _datasourceService.GetDatasources();
+        var rustExecutablePath = _rustExecutablePath ?? _pathResolver.GetRustSpeedTrackerPath();
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -81,8 +103,6 @@ public class RustSpeedTrackerService : BackgroundService
                 await Task.Delay(5000, stoppingToken);
             }
         }
-
-        _logger.LogInformation("RustSpeedTrackerService stopped");
     }
 
     private async Task RunSpeedTrackerAsync(
@@ -180,13 +200,13 @@ public class RustSpeedTrackerService : BackgroundService
                         // This ensures the frontend gets the "zero" state when downloads stop
                         if (hasActivity || _previousHadActivity)
                         {
-                            await _hubContext.Clients.All.SendAsync("DownloadSpeedUpdate", snapshot, stoppingToken);
+                            await _notifications.NotifyAllAsync(SignalREvents.DownloadSpeedUpdate, snapshot);
 
                             // Also send DownloadsRefresh when transitioning to no activity
                             // so the frontend refreshes the active downloads list
                             if (_previousHadActivity && !hasActivity)
                             {
-                                await _hubContext.Clients.All.SendAsync("DownloadsRefresh", stoppingToken);
+                                await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, null);
                             }
                         }
 

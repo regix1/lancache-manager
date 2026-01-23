@@ -121,11 +121,12 @@ const GroupCard: React.FC<GroupCardProps> = ({
     !aestheticMode &&
     (isSteam || isWsus || isRiot || isEpic || isEA || isBlizzard || isXbox || isOtherService);
   const hasSteamArtwork = showGameImage && steamAppId !== null && !imageErrors.has(steamAppId);
-  const placeholderBaseClasses = 'min-h-[130px] sm:min-h-[130px]';
+  // Mobile: use aspect-ratio for proper image display without cropping
+  // Desktop: use fixed width with full height for side-by-side layout
   const placeholderIconSize = fullHeightBanners ? 80 : 72;
   const bannerWrapperClasses = fullHeightBanners
-    ? 'w-full h-[130px] sm:w-[280px] sm:h-full'
-    : 'w-full h-[130px] sm:w-[280px] sm:h-[130px] sm:self-start';
+    ? 'download-banner-mobile sm:w-[280px] sm:aspect-auto sm:h-full'
+    : 'download-banner-mobile sm:w-[280px] sm:aspect-auto sm:h-[130px] sm:self-start';
 
   React.useEffect(() => {
     if (!enableScrollIntoView) return;
@@ -169,8 +170,10 @@ const GroupCard: React.FC<GroupCardProps> = ({
       bannerContent = (
         <img
           src={`${API_BASE}/game-images/${steamAppId}/header`}
+          srcSet={`${API_BASE}/game-images/${steamAppId}/header?type=capsule 616w, ${API_BASE}/game-images/${steamAppId}/header 460w`}
+          sizes="(max-width: 639px) 100vw, 280px"
           alt={primaryName || group.name}
-          className="h-full w-full object-cover"
+          className="download-banner-image"
           loading="lazy"
           onError={() => handleImageError(steamAppId)}
         />
@@ -178,7 +181,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
     } else {
       bannerContent = (
         <div
-          className={`flex h-full w-full flex-col items-center justify-center px-4 text-center ${placeholderBaseClasses}`}
+          className="download-banner-placeholder"
         >
           {isSteam ? (
             <SteamIcon
@@ -235,129 +238,191 @@ const GroupCard: React.FC<GroupCardProps> = ({
       <div
         className={`flex-1 ${
           fullHeightBanners
-            ? 'px-3 pt-3 pb-3 sm:px-3 sm:pt-3 sm:pb-3'
-            : 'px-4 pt-4 pb-4 sm:px-5 sm:pt-5 sm:pb-4'
+            ? 'px-3 py-3 sm:px-4 sm:py-3'
+            : 'px-3 py-3 sm:px-5 sm:py-4'
         }`}
       >
-        <div className="flex items-start gap-3 sm:gap-4">
-          <ChevronRight
-          size={18}
-          className={`mt-0.5 sm:mt-1 text-[var(--theme-primary)] transition-transform duration-200 flex-shrink-0 ${isExpanded ? 'rotate-90' : ''}`}
-            style={{ opacity: isExpanded ? 1 : 0.6 }}
-          />
-          <div className="flex-1 min-w-0">
-            {/* Title Row */}
-            <div
-              className={`flex flex-col sm:flex-row sm:items-center gap-2 ${fullHeightBanners ? 'sm:gap-2 mb-1.5 sm:mb-2' : 'sm:gap-3 mb-2 sm:mb-3'}`}
-            >
-              <div className="flex flex-wrap items-center gap-2">
+        {/* Mobile Layout - Clean and Spacious */}
+        <div className="sm:hidden">
+          <div className="flex items-start gap-2.5">
+            <ChevronRight
+              size={16}
+              className={`mt-1 text-[var(--theme-primary)] transition-transform duration-200 flex-shrink-0 ${isExpanded ? 'rotate-90' : ''}`}
+              style={{ opacity: isExpanded ? 1 : 0.6 }}
+            />
+            <div className="flex-1 min-w-0">
+              {/* Title Row - Service badge and game name */}
+              <div className="flex items-center gap-2 mb-2">
                 <span
-                  className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2 sm:px-2.5 py-0.5 sm:py-1 text-xs'} font-extrabold rounded-md shadow-sm`}
+                  className="px-2 py-0.5 text-[11px] font-extrabold rounded-md shadow-sm flex-shrink-0"
                   style={getServiceBadgeStyles(group.service)}
                 >
                   {group.service.toUpperCase()}
                 </span>
+                {group.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/)) && (
+                  <h3 className="text-sm font-bold text-[var(--theme-text-primary)] truncate">
+                    {group.name}
+                  </h3>
+                )}
               </div>
-              {group.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/)) && (
-                <h3
-                  className={`${fullHeightBanners ? 'text-base sm:text-lg' : 'text-lg sm:text-xl'} font-bold text-[var(--theme-text-primary)] truncate`}
-                >
-                  {group.name}
-                </h3>
-              )}
-              {hasMultipleDatasources && showDatasourceLabels && group.downloads[0]?.datasource && (
-                <Tooltip content={t('downloads.tab.normal.datasourceTooltip', { datasource: group.downloads[0].datasource })}>
-                  <span
-                    className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2 sm:px-2.5 py-0.5 sm:py-1 text-xs'} font-medium rounded-md flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]`}
-                  >
-                    {group.downloads[0].datasource}
+              
+              {/* Mobile Stats Row - Key info only */}
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-3">
+                  <span className="font-semibold text-[var(--theme-text-primary)]">
+                    {formatBytes(group.totalBytes)}
                   </span>
-                </Tooltip>
-              )}
-              {/* Event badges at group level */}
+                  {hitPercent > 0 ? (
+                    <span className="cache-hit font-semibold">
+                      {formatPercent(hitPercent)}
+                    </span>
+                  ) : (
+                    <span className="text-[var(--theme-text-muted)]">0%</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 text-[var(--theme-text-muted)]">
+                  {group.count > 1 && (
+                    <span>{group.count} req</span>
+                  )}
+                  <span className="flex items-center gap-1">
+                    <Clock size={10} />
+                    {formatRelativeTime(group.lastSeen)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Event badges - only show if present */}
               {groupEvents.length > 0 && (
-                <DownloadBadges
-                  events={groupEvents}
-                  maxVisible={2}
-                  size="sm"
-                />
-              )}
-              {group.count > 1 && (
-                <span
-                  className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2 sm:px-2.5 py-0.5 sm:py-1 text-xs'} font-semibold rounded-full bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] flex-shrink-0`}
-                >
-                  {group.clientsSet.size} client{group.clientsSet.size !== 1 ? 's' : ''} · {group.count} request{group.count !== 1 ? 's' : ''}
-                </span>
+                <div className="mt-2">
+                  <DownloadBadges
+                    events={groupEvents}
+                    maxVisible={2}
+                    size="sm"
+                  />
+                </div>
               )}
             </div>
+          </div>
+        </div>
 
-            {/* Stats Grid - Better aligned */}
-            <div
-              className={`grid grid-cols-2 ${fullHeightBanners ? 'gap-x-4 gap-y-1' : 'gap-x-4 sm:gap-x-8 gap-y-1.5 sm:gap-y-2'}`}
-            >
-              <div className="flex items-baseline gap-2">
+        {/* Desktop Layout - Full stats */}
+        <div className="hidden sm:block">
+          <div className="flex items-start gap-4">
+            <ChevronRight
+              size={18}
+              className={`mt-1 text-[var(--theme-primary)] transition-transform duration-200 flex-shrink-0 ${isExpanded ? 'rotate-90' : ''}`}
+              style={{ opacity: isExpanded ? 1 : 0.6 }}
+            />
+            <div className="flex-1 min-w-0">
+              {/* Title Row */}
+              <div
+                className={`flex flex-row items-center gap-3 ${fullHeightBanners ? 'mb-2' : 'mb-3'}`}
+              >
                 <span
-                  className={`${fullHeightBanners ? 'text-xs' : 'text-xs sm:text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[70px] sm:min-w-[80px]'}`}
+                  className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2.5 py-1 text-xs'} font-extrabold rounded-md shadow-sm`}
+                  style={getServiceBadgeStyles(group.service)}
                 >
-                  {t('downloads.tab.normal.stats.totalDownloaded')}
+                  {group.service.toUpperCase()}
                 </span>
-                <span
-                  className={`${fullHeightBanners ? 'text-xs sm:text-sm' : 'text-sm sm:text-base'} font-bold text-[var(--theme-text-primary)]`}
-                >
-                  {formatBytes(group.totalBytes)}
-                </span>
+                {group.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/)) && (
+                  <h3
+                    className={`${fullHeightBanners ? 'text-lg' : 'text-xl'} font-bold text-[var(--theme-text-primary)] truncate`}
+                  >
+                    {group.name}
+                  </h3>
+                )}
+                {hasMultipleDatasources && showDatasourceLabels && group.downloads[0]?.datasource && (
+                  <Tooltip content={t('downloads.tab.normal.datasourceTooltip', { datasource: group.downloads[0].datasource })}>
+                    <span
+                      className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2.5 py-1 text-xs'} font-medium rounded-md flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]`}
+                    >
+                      {group.downloads[0].datasource}
+                    </span>
+                  </Tooltip>
+                )}
+                {groupEvents.length > 0 && (
+                  <DownloadBadges
+                    events={groupEvents}
+                    maxVisible={2}
+                    size="sm"
+                  />
+                )}
+                {group.count > 1 && (
+                  <span
+                    className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2.5 py-1 text-xs'} font-semibold rounded-full bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] flex-shrink-0`}
+                  >
+                    {group.clientsSet.size} client{group.clientsSet.size !== 1 ? 's' : ''} · {group.count} request{group.count !== 1 ? 's' : ''}
+                  </span>
+                )}
               </div>
-              <div className="flex items-baseline gap-2">
-                <span
-                  className={`${fullHeightBanners ? 'text-xs' : 'text-xs sm:text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[70px] sm:min-w-[80px]'}`}
-                >
-                  Clients
-                </span>
-                <span
-                  className={`${fullHeightBanners ? 'text-xs sm:text-sm' : 'text-sm sm:text-base'} font-bold text-[var(--theme-text-primary)]`}
-                >
-                  {group.clientsSet.size}
-                </span>
-              </div>
-              <div className="flex items-baseline gap-2">
-                <span
-                  className={`${fullHeightBanners ? 'text-xs' : 'text-xs sm:text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[70px] sm:min-w-[80px]'}`}
-                >
-                  {t('downloads.tab.normal.stats.cacheSaved')}
-                </span>
-                <span
-                  className={`${fullHeightBanners ? 'text-xs sm:text-sm' : 'text-sm sm:text-base'} font-bold text-[var(--theme-success-text)]`}
-                >
-                  {formatBytes(group.cacheHitBytes)}
-                </span>
-              </div>
-              <div className="flex items-baseline gap-2">
-                <span
-                  className={`${fullHeightBanners ? 'text-xs' : 'text-xs sm:text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[70px] sm:min-w-[80px]'}`}
-                >
-                  Last Active
-                </span>
-                <span
-                  className={`text-xs ${fullHeightBanners ? '' : 'sm:text-sm'} font-medium text-[var(--theme-text-secondary)] inline-flex items-center gap-1.5`}
-                >
-                  <Clock size={12} className={fullHeightBanners ? '' : 'sm:hidden'} />
-                  {!fullHeightBanners && <Clock size={14} className="hidden sm:block" />}
-                  {formatRelativeTime(group.lastSeen)}
-                </span>
-              </div>
-              <div className="flex items-baseline gap-2">
-                <span
-                  className={`${fullHeightBanners ? 'text-xs' : 'text-xs sm:text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[70px] sm:min-w-[80px]'}`}
-                >
-                  {t('downloads.tab.normal.stats.efficiency')}
-                </span>
-                <span
-                  className={`text-xs ${fullHeightBanners ? '' : 'sm:text-sm'} font-bold inline-flex items-center gap-1.5 ${
-                    hitPercent > 0 ? 'cache-hit' : 'text-[var(--theme-text-secondary)]'
-                  }`}
-                >
-                  {hitPercent > 0 ? formatPercent(hitPercent) : t('downloads.tab.normal.stats.notAvailable')}
-                </span>
+
+              {/* Stats Grid */}
+              <div
+                className={`grid grid-cols-2 ${fullHeightBanners ? 'gap-x-4 gap-y-1' : 'gap-x-8 gap-y-2'}`}
+              >
+                <div className="flex items-baseline gap-2">
+                  <span
+                    className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[80px]'}`}
+                  >
+                    {t('downloads.tab.normal.stats.totalDownloaded')}
+                  </span>
+                  <span
+                    className={`${fullHeightBanners ? 'text-sm' : 'text-base'} font-bold text-[var(--theme-text-primary)]`}
+                  >
+                    {formatBytes(group.totalBytes)}
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span
+                    className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[80px]'}`}
+                  >
+                    Clients
+                  </span>
+                  <span
+                    className={`${fullHeightBanners ? 'text-sm' : 'text-base'} font-bold text-[var(--theme-text-primary)]`}
+                  >
+                    {group.clientsSet.size}
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span
+                    className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[80px]'}`}
+                  >
+                    {t('downloads.tab.normal.stats.cacheSaved')}
+                  </span>
+                  <span
+                    className={`${fullHeightBanners ? 'text-sm' : 'text-base'} font-bold text-[var(--theme-success-text)]`}
+                  >
+                    {formatBytes(group.cacheHitBytes)}
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span
+                    className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[80px]'}`}
+                  >
+                    Last Active
+                  </span>
+                  <span
+                    className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} font-medium text-[var(--theme-text-secondary)] inline-flex items-center gap-1.5`}
+                  >
+                    <Clock size={14} />
+                    {formatRelativeTime(group.lastSeen)}
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span
+                    className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[80px]'}`}
+                  >
+                    {t('downloads.tab.normal.stats.efficiency')}
+                  </span>
+                  <span
+                    className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} font-bold inline-flex items-center gap-1.5 ${
+                      hitPercent > 0 ? 'cache-hit' : 'text-[var(--theme-text-secondary)]'
+                    }`}
+                  >
+                    {hitPercent > 0 ? formatPercent(hitPercent) : t('downloads.tab.normal.stats.notAvailable')}
+                  </span>
+                </div>
               </div>
             </div>
           </div>

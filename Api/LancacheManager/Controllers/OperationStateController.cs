@@ -3,6 +3,7 @@ using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
+using OperationState = LancacheManager.Core.Services.OperationState;
 
 namespace LancacheManager.Controllers;
 

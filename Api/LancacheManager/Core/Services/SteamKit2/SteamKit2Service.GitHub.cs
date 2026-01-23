@@ -1,5 +1,5 @@
 using System.Text.Json;
-using Microsoft.AspNetCore.SignalR;
+using LancacheManager.Hubs;
 
 namespace LancacheManager.Core.Services.SteamKit2;
 
@@ -24,22 +24,12 @@ public partial class SteamKit2Service
             _logger.LogInformation("[GitHub Mode] Starting download of pre-created depot data from GitHub");
 
             // Send start notification via SignalR
-            _ = Task.Run(async () =>
+            _notifications.NotifyAllFireAndForget(SignalREvents.DepotMappingStarted, new
             {
-                try
-                {
-                    await _hubContext.Clients.All.SendAsync("DepotMappingStarted", new
-                    {
-                        scanMode = "github",
-                        message = "Downloading depot mappings from GitHub...",
-                        isLoggedOn = IsSteamAuthenticated,
-                        timestamp = DateTime.UtcNow
-                    });
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "[GitHub Mode] Failed to send DepotMappingStarted notification via SignalR");
-                }
+                scanMode = "github",
+                message = "Downloading depot mappings from GitHub...",
+                isLoggedOn = IsSteamAuthenticated,
+                timestamp = DateTime.UtcNow
             });
 
             const string githubUrl = "https://github.com/regix1/lancache-pics/releases/latest/download/pics_depot_mappings.json";
@@ -135,25 +125,18 @@ public partial class SteamKit2Service
             _logger.LogInformation("[GitHub Mode] Cleared cached viability check - system is now up to date with GitHub data");
 
             // Send completion notification via SignalR
-            try
+            var totalMappings = _depotToAppMappings.Count;
+            await _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete, new
             {
-                var totalMappings = _depotToAppMappings.Count;
-                await _hubContext.Clients.All.SendAsync("DepotMappingComplete", new
-                {
-                    success = true,
-                    scanMode = "github",
-                    message = "GitHub depot data imported successfully",
-                    totalMappings,
-                    isLoggedOn = IsSteamAuthenticated,
-                    timestamp = DateTime.UtcNow
-                });
+                success = true,
+                scanMode = "github",
+                message = "GitHub depot data imported successfully",
+                totalMappings,
+                isLoggedOn = IsSteamAuthenticated,
+                timestamp = DateTime.UtcNow
+            });
 
-                _logger.LogInformation("[GitHub Mode] DepotMappingComplete notification sent successfully");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[GitHub Mode] Failed to send DepotMappingComplete notification via SignalR");
-            }
+            _logger.LogInformation("[GitHub Mode] DepotMappingComplete notification sent successfully");
 
             return true;
         }
@@ -190,41 +173,27 @@ public partial class SteamKit2Service
 
     private async Task SendGitHubErrorNotification(string errorMessage)
     {
-        try
+        await _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete, new
         {
-            await _hubContext.Clients.All.SendAsync("DepotMappingComplete", new
-            {
-                success = false,
-                scanMode = "github",
-                message = $"[GitHub Mode] {errorMessage}",
-                error = errorMessage,
-                isLoggedOn = IsSteamAuthenticated,
-                timestamp = DateTime.UtcNow
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[GitHub Mode] Failed to send error notification via SignalR");
-        }
+            success = false,
+            scanMode = "github",
+            message = $"[GitHub Mode] {errorMessage}",
+            error = errorMessage,
+            isLoggedOn = IsSteamAuthenticated,
+            timestamp = DateTime.UtcNow
+        });
     }
 
     private async Task SendGitHubProgress(string message, int percentComplete)
     {
-        try
+        await _notifications.NotifyAllAsync(SignalREvents.DepotMappingProgress, new
         {
-            await _hubContext.Clients.All.SendAsync("DepotMappingProgress", new
-            {
-                status = message,
-                percentComplete,
-                scanMode = "github",
-                message,
-                isLoggedOn = IsSteamAuthenticated,
-                timestamp = DateTime.UtcNow
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[GitHub Mode] Failed to send progress notification via SignalR");
-        }
+            status = message,
+            percentComplete,
+            scanMode = "github",
+            message,
+            isLoggedOn = IsSteamAuthenticated,
+            timestamp = DateTime.UtcNow
+        });
     }
 }

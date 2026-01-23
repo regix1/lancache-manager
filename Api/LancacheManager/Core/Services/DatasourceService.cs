@@ -1,6 +1,6 @@
 using System.Globalization;
 using LancacheManager.Configuration;
-using LancacheManager.Core.Interfaces.Services;
+using LancacheManager.Core.Interfaces;
 
 namespace LancacheManager.Core.Services;
 

@@ -1,4 +1,4 @@
-namespace LancacheManager.Core.Interfaces.Services;
+namespace LancacheManager.Core.Interfaces;
 
 /// <summary>
 /// Interface for platform-specific memory management operations

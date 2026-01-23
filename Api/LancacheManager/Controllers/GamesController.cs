@@ -1,11 +1,10 @@
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
-using LancacheManager.Core.Interfaces.Services;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.SignalR;
 using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 
 namespace LancacheManager.Controllers;
@@ -21,7 +20,7 @@ public class GamesController : ControllerBase
     private readonly GameCacheDetectionService _gameCacheDetectionService;
     private readonly CacheManagementService _cacheManagementService;
     private readonly RemovalOperationTracker _removalTracker;
-    private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly ISignalRNotificationService _notifications;
     private readonly ILogger<GamesController> _logger;
     private readonly IPathResolver _pathResolver;
 
@@ -29,14 +28,14 @@ public class GamesController : ControllerBase
         GameCacheDetectionService gameCacheDetectionService,
         CacheManagementService cacheManagementService,
         RemovalOperationTracker removalTracker,
-        IHubContext<DownloadHub> hubContext,
+        ISignalRNotificationService notifications,
         ILogger<GamesController> logger,
         IPathResolver pathResolver)
     {
         _gameCacheDetectionService = gameCacheDetectionService;
         _cacheManagementService = cacheManagementService;
         _removalTracker = removalTracker;
-        _hubContext = hubContext;
+        _notifications = notifications;
         _logger = logger;
         _pathResolver = pathResolver;
     }
@@ -83,7 +82,7 @@ public class GamesController : ControllerBase
             try
             {
                 // Send progress update
-                await _hubContext.Clients.All.SendAsync("GameRemovalProgress",
+                await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
                     new GameRemovalProgress(appId, gameName, "removing_cache", $"Deleting cache files for {gameName}..."));
                 _removalTracker.UpdateGameRemoval(appId, "removing_cache", $"Deleting cache files for {gameName}...");
 
@@ -91,7 +90,7 @@ public class GamesController : ControllerBase
                 var report = await _cacheManagementService.RemoveGameFromCache((uint)appId);
 
                 // Send progress update
-                await _hubContext.Clients.All.SendAsync("GameRemovalProgress",
+                await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
                     new GameRemovalProgress(appId, gameName, "removing_database", "Updating database...", report.CacheFilesDeleted, (long)report.TotalBytesFreed));
                 _removalTracker.UpdateGameRemoval(appId, "removing_database", "Updating database...", report.CacheFilesDeleted, (long)report.TotalBytesFreed);
 
@@ -105,7 +104,7 @@ public class GamesController : ControllerBase
                 _removalTracker.CompleteGameRemoval(appId, true, report.CacheFilesDeleted, (long)report.TotalBytesFreed);
 
                 // Send SignalR notification on success
-                await _hubContext.Clients.All.SendAsync("GameRemovalComplete",
+                await _notifications.NotifyAllAsync(SignalREvents.GameRemovalComplete,
                     new GameRemovalComplete(true, appId, gameName, $"Successfully removed {gameName} from cache", report.CacheFilesDeleted, (long)report.TotalBytesFreed, report.LogEntriesRemoved));
             }
             catch (Exception ex)
@@ -116,7 +115,7 @@ public class GamesController : ControllerBase
                 _removalTracker.CompleteGameRemoval(appId, false, error: ex.Message);
 
                 // Send SignalR notification on failure
-                await _hubContext.Clients.All.SendAsync("GameRemovalComplete",
+                await _notifications.NotifyAllAsync(SignalREvents.GameRemovalComplete,
                     new GameRemovalComplete(false, appId, Message: $"Failed to remove game {appId}: {ex.Message}"));
             }
         });

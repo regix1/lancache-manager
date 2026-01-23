@@ -1,3 +1,6 @@
+using LancacheManager.Core.Interfaces;
+using LancacheManager.Infrastructure.Utilities;
+
 namespace LancacheManager.Models;
 
 /// <summary>
@@ -803,6 +806,25 @@ public class ErrorResponse
     public string? Message { get; set; }
 }
 
+/// <summary>
+/// Response for validation errors with multiple error messages
+/// Used by FluentValidation filter for consistent error responses
+/// </summary>
+public class ValidationErrorResponse
+{
+    public string Error { get; set; } = "Validation failed";
+    public List<ValidationFieldError> Errors { get; set; } = new();
+}
+
+/// <summary>
+/// Individual field validation error
+/// </summary>
+public class ValidationFieldError
+{
+    public string Field { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+}
+
 // ============================================================
 // Database Controller DTOs
 // ============================================================
@@ -1183,7 +1205,7 @@ public class CacheGrowthResponse
 /// <summary>
 /// Single data point for cache growth
 /// </summary>
-public class CacheGrowthDataPoint
+public class CacheGrowthDataPoint : IUtcMarkable
 {
     /// <summary>
     /// Timestamp for this data point
@@ -1199,6 +1221,11 @@ public class CacheGrowthDataPoint
     /// Growth from previous data point
     /// </summary>
     public long GrowthFromPrevious { get; set; }
+
+    public void MarkDateTimesAsUtc()
+    {
+        Timestamp = Timestamp.AsUtc();
+    }
 }
 
 /// <summary>

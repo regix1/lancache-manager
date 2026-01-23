@@ -1,6 +1,6 @@
 using System.Text.Json;
-using LancacheManager.Core.Interfaces.Services;
-using Microsoft.Extensions.Hosting;
+using LancacheManager.Core.Interfaces;
+using LancacheManager.Infrastructure.Services.Base;
 
 namespace LancacheManager.Infrastructure.Services;
 
@@ -8,7 +8,7 @@ namespace LancacheManager.Infrastructure.Services;
 /// Hosted service that runs nginx log rotation at startup and on a configurable schedule.
 /// This ensures logs are properly rotated even if the system was down during the scheduled time.
 /// </summary>
-public class NginxLogRotationHostedService : BackgroundService
+public class NginxLogRotationHostedService : ScheduledBackgroundService
 {
     private readonly NginxLogRotationService _rotationService;
     private readonly IConfiguration _configuration;
@@ -24,11 +24,16 @@ public class NginxLogRotationHostedService : BackgroundService
     private readonly object _statusLock = new();
     private CancellationTokenSource? _scheduleCts;
 
+    protected override string ServiceName => "NginxLogRotation";
+    protected override TimeSpan StartupDelay => TimeSpan.Zero;
+    protected override TimeSpan Interval => TimeSpan.Zero;
+
     public NginxLogRotationHostedService(
         NginxLogRotationService rotationService,
         IConfiguration configuration,
         ILogger<NginxLogRotationHostedService> logger,
         IPathResolver pathResolver)
+        : base(logger, configuration)
     {
         _rotationService = rotationService;
         _configuration = configuration;
@@ -139,16 +144,11 @@ public class NginxLogRotationHostedService : BackgroundService
         return await ExecuteRotationAsync("Manual trigger");
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override bool IsEnabled()
+        => _configuration.GetValue<bool>("NginxLogRotation:Enabled", false);
+
+    protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {
-        var enabled = _configuration.GetValue<bool>("NginxLogRotation:Enabled", false);
-
-        if (!enabled)
-        {
-            _logger.LogInformation("Nginx log rotation is disabled in configuration");
-            return;
-        }
-
         // Run rotation at startup to ensure clean slate
         _logger.LogInformation("Running nginx log rotation at startup...");
         await ExecuteRotationAsync("Startup");

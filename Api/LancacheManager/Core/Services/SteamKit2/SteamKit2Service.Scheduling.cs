@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.SignalR;
+using LancacheManager.Hubs;
 
 namespace LancacheManager.Core.Services.SteamKit2;
 
@@ -112,18 +112,11 @@ public partial class SteamKit2Service
                             _automaticScanSkipped = true;
 
                             // Send SignalR notification
-                            try
+                            await _notifications.NotifyAllAsync(SignalREvents.AutomaticScanSkipped, new
                             {
-                                await _hubContext.Clients.All.SendAsync("AutomaticScanSkipped", new
-                                {
-                                    message = "Scheduled scan skipped - full scan required",
-                                    timestamp = DateTime.UtcNow
-                                });
-                            }
-                            catch (Exception signalREx)
-                            {
-                                _logger.LogWarning(signalREx, "Failed to send AutomaticScanSkipped notification via SignalR");
-                            }
+                                message = "Scheduled scan skipped - full scan required",
+                                timestamp = DateTime.UtcNow
+                            });
 
                             return;
                         }

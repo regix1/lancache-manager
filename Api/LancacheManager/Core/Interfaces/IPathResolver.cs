@@ -1,4 +1,4 @@
-namespace LancacheManager.Core.Interfaces.Services;
+namespace LancacheManager.Core.Interfaces;
 
 /// <summary>
 /// Interface for platform-specific path resolution
@@ -127,6 +127,17 @@ public interface IPathResolver
     /// Gets the path to the database file
     /// </summary>
     string GetDatabasePath();
+
+    /// <summary>
+    /// Gets the path to the Data Protection keys directory
+    /// </summary>
+    string GetDataProtectionKeysPath();
+
+    /// <summary>
+    /// Gets the path to a settings file in the data directory
+    /// </summary>
+    /// <param name="settingsFileName">The name of the settings file</param>
+    string GetSettingsPath(string settingsFileName);
 
     /// <summary>
     /// Checks if a directory is writable

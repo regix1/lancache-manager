@@ -26,6 +26,8 @@ public class RequirePrefillAccessAttribute : ActionFilterAttribute
             return;
         }
 
+        var authHelper = httpContext.RequestServices.GetRequiredService<AuthenticationHelper>();
+
         // Prefer X-Device-Id header, but fall back to session DeviceId for browser guest flows.
         var deviceId = httpContext.Request.Headers["X-Device-Id"].FirstOrDefault();
         if (string.IsNullOrEmpty(deviceId))
@@ -68,8 +70,8 @@ public class RequirePrefillAccessAttribute : ActionFilterAttribute
         }
 
         // Check API key header
-        var apiKeyHeader = httpContext.Request.Headers["X-Api-Key"].FirstOrDefault();
-        if (!string.IsNullOrEmpty(apiKeyHeader) && apiKeyService.ValidateApiKey(apiKeyHeader))
+        var apiKeyResult = authHelper.ValidateApiKey(httpContext);
+        if (apiKeyResult.IsAuthenticated)
         {
             logger?.LogDebug("[RequirePrefillAccess] Authenticated via API key for device {DeviceId}", deviceId);
             base.OnActionExecuting(context);

@@ -1,4 +1,3 @@
-using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Infrastructure.Services;
 
 namespace LancacheManager.Core.Services;
@@ -14,7 +13,7 @@ public class LiveLogMonitorService : BackgroundService
     private readonly ILogger<LiveLogMonitorService> _logger;
     private readonly RustLogProcessorService _rustLogProcessorService;
     private readonly RustLogRemovalService _rustLogRemovalService;
-    private readonly StateRepository _stateService;
+    private readonly StateService _stateService;
     private readonly DatasourceService _datasourceService;
     private readonly Dictionary<string, long> _lastFileSizes = new(); // Per-datasource file sizes
     private bool _isProcessing = false;
@@ -65,7 +64,7 @@ public class LiveLogMonitorService : BackgroundService
         ILogger<LiveLogMonitorService> logger,
         RustLogProcessorService rustLogProcessorService,
         RustLogRemovalService rustLogRemovalService,
-        StateRepository stateService,
+        StateService stateService,
         DatasourceService datasourceService)
     {
         _logger = logger;

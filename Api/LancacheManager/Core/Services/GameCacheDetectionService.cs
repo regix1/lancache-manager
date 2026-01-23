@@ -3,10 +3,9 @@ using System.Diagnostics;
 using System.Text.Json;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
-using LancacheManager.Core.Interfaces.Services;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using LancacheManager.Core.Services.SteamKit2;
@@ -25,7 +24,7 @@ public class GameCacheDetectionService
     private readonly SteamKit2Service _steamKit2Service;
     private readonly ProcessManager _processManager;
     private readonly RustProcessHelper _rustProcessHelper;
-    private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly ISignalRNotificationService _notifications;
     private readonly DatasourceService _datasourceService;
     private readonly ConcurrentDictionary<string, DetectionOperation> _operations = new();
     private const string FailedDepotsStateKey = "failedDepotResolutions";
@@ -54,7 +53,7 @@ public class GameCacheDetectionService
         SteamKit2Service steamKit2Service,
         ProcessManager processManager,
         RustProcessHelper rustProcessHelper,
-        IHubContext<DownloadHub> hubContext,
+        ISignalRNotificationService notifications,
         DatasourceService datasourceService)
     {
         _logger = logger;
@@ -64,7 +63,7 @@ public class GameCacheDetectionService
         _steamKit2Service = steamKit2Service;
         _processManager = processManager;
         _rustProcessHelper = rustProcessHelper;
-        _hubContext = hubContext;
+        _notifications = notifications;
         _datasourceService = datasourceService;
 
         _logger.LogInformation("GameCacheDetectionService initialized with {Count} datasource(s)", _datasourceService.DatasourceCount);
@@ -106,7 +105,7 @@ public class GameCacheDetectionService
         // Send SignalR notification that detection started
         _ = Task.Run(async () =>
         {
-            await _hubContext.Clients.All.SendAsync("GameDetectionStarted", new
+            await _notifications.NotifyAllAsync(SignalREvents.GameDetectionStarted, new
             {
                 operationId,
                 scanType,
@@ -482,7 +481,7 @@ public class GameCacheDetectionService
                 totalGamesDetected, datasources.Count);
 
             // Send SignalR notification that detection completed successfully
-            await _hubContext.Clients.All.SendAsync("GameDetectionComplete", new
+            await _notifications.NotifyAllAsync(SignalREvents.GameDetectionComplete, new
             {
                 success = true,
                 operationId,
@@ -520,7 +519,7 @@ public class GameCacheDetectionService
             });
 
             // Send SignalR notification that detection failed
-            await _hubContext.Clients.All.SendAsync("GameDetectionComplete", new
+            await _notifications.NotifyAllAsync(SignalREvents.GameDetectionComplete, new
             {
                 success = false,
                 operationId,

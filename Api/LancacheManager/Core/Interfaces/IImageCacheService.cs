@@ -1,4 +1,4 @@
-namespace LancacheManager.Core.Interfaces.Services;
+namespace LancacheManager.Core.Interfaces;
 
 /// <summary>
 /// Service for caching game images locally to improve performance

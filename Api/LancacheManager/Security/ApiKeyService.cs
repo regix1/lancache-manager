@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
-using LancacheManager.Core.Interfaces.Services;
+using LancacheManager.Core.Interfaces;
 
 namespace LancacheManager.Security;
 

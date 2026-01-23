@@ -260,15 +260,17 @@ const GroupRow: React.FC<GroupRowProps> = ({
               <div className="flex-shrink-0">
                 {aestheticMode || imageErrors.has(String(primaryDownload.gameAppId)) ? (
                   <div
-                    className="w-full sm:w-[100px] h-[50px] sm:h-[46px] rounded border flex items-center justify-center bg-[var(--theme-bg-tertiary)] border-[var(--theme-border-secondary)]"
+                    className="compact-expanded-banner sm:w-[100px] sm:h-[46px] rounded border flex items-center justify-center bg-[var(--theme-bg-tertiary)] border-[var(--theme-border-secondary)]"
                   >
                     <SteamIcon size={24} className="text-[var(--theme-steam)] opacity-60" />
                   </div>
                 ) : (
                   <img
                     src={`${API_BASE}/game-images/${primaryDownload.gameAppId}/header`}
+                    srcSet={`${API_BASE}/game-images/${primaryDownload.gameAppId}/header?type=capsule 616w, ${API_BASE}/game-images/${primaryDownload.gameAppId}/header 460w`}
+                    sizes="(max-width: 639px) 100%, 100px"
                     alt={primaryDownload.gameName || group.name}
-                    className="w-full sm:w-[100px] h-[50px] sm:h-[46px] rounded object-cover border border-[var(--theme-border-secondary)]"
+                    className="compact-expanded-banner sm:w-[100px] sm:h-[46px] rounded object-cover border border-[var(--theme-border-secondary)]"
                     loading="lazy"
                     onError={() => handleImageError(String(primaryDownload.gameAppId))}
                   />

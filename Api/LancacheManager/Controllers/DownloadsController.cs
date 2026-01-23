@@ -1,8 +1,9 @@
 using LancacheManager.Models;
 using LancacheManager.Infrastructure.Data;
-using LancacheManager.Infrastructure.Repositories;
-using LancacheManager.Core.Interfaces.Repositories;
+using LancacheManager.Infrastructure.Services;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -20,14 +21,14 @@ public class DownloadsController : ControllerBase
     private const string PrefillToken = "prefill";
 
     private readonly AppDbContext _context;
-    private readonly StatsRepository _statsService;
-    private readonly IStateRepository _stateRepository;
+    private readonly StatsDataService _statsService;
+    private readonly IStateService _stateRepository;
     private readonly ILogger<DownloadsController> _logger;
 
     public DownloadsController(
         AppDbContext context,
-        StatsRepository statsService,
-        IStateRepository stateRepository,
+        StatsDataService statsService,
+        IStateService stateRepository,
         ILogger<DownloadsController> logger)
     {
         _context = context;
@@ -65,10 +66,10 @@ public class DownloadsController : ControllerBase
                     // With filtering, query database directly
                     // Database stores dates in UTC, so filter with UTC
                     var startDate = startTime.HasValue
-                        ? DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime
+                        ? startTime.Value.FromUnixSeconds()
                         : DateTime.MinValue;
                     var endDate = endTime.HasValue
-                        ? DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime
+                        ? endTime.Value.FromUnixSeconds()
                         : DateTime.UtcNow;
 
                     // Apply event filter if provided (filters to only tagged downloads)
@@ -100,15 +101,7 @@ public class DownloadsController : ControllerBase
                             .ToListAsync();
                     }
 
-                    // Fix timezone: Ensure UTC DateTime values are marked as UTC for proper JSON serialization
-                    foreach (var download in downloads)
-                    {
-                        download.StartTimeUtc = download.StartTimeUtc.AsUtc();
-                        if (download.EndTimeUtc != default(DateTime))
-                        {
-                            download.EndTimeUtc = download.EndTimeUtc.AsUtc();
-                        }
-                    }
+                    downloads.WithUtcMarking();
                 }
 
                 // Apply exclusion filter to ALL downloads (both cached and direct query paths)
@@ -119,7 +112,7 @@ public class DownloadsController : ControllerBase
                         .ToList();
                 }
 
-                // Filter out prefill sessions (safety net - StatsRepository already filters, but direct queries may not)
+                // Filter out prefill sessions (safety net - StatsDataService already filters, but direct queries may not)
                 downloads = downloads
                     .Where(d => !string.Equals(d.ClientIp, PrefillToken, StringComparison.OrdinalIgnoreCase))
                     .Where(d => !string.Equals(d.Datasource, PrefillToken, StringComparison.OrdinalIgnoreCase))
@@ -155,64 +148,48 @@ public class DownloadsController : ControllerBase
     [RequireGuestSession]
     public async Task<IActionResult> GetById(int id)
     {
-        try
+        var download = await _context.Downloads
+            .AsNoTracking()
+            .FirstOrDefaultAsync(d => d.Id == id && d.ClientIp != PrefillToken && d.ClientIp != "Prefill")
+            ?? throw new NotFoundException("Download");
+
+        var excludedClientIps = _stateRepository.GetExcludedClientIps();
+        if (excludedClientIps.Contains(download.ClientIp))
         {
-            var download = await _context.Downloads
-                .AsNoTracking()
-                .FirstOrDefaultAsync(d => d.Id == id && d.ClientIp != PrefillToken && d.ClientIp != "Prefill");
-
-            if (download == null)
-            {
-                return NotFound(ApiResponse.NotFound("Download"));
-            }
-
-            var excludedClientIps = _stateRepository.GetExcludedClientIps();
-            if (excludedClientIps.Contains(download.ClientIp))
-            {
-                return NotFound(ApiResponse.NotFound("Download"));
-            }
-
-            if (string.Equals(download.ClientIp, PrefillToken, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(download.Datasource, PrefillToken, StringComparison.OrdinalIgnoreCase))
-            {
-                return NotFound(ApiResponse.NotFound("Download"));
-            }
-
-            // Fix timezone
-            download.StartTimeUtc = download.StartTimeUtc.AsUtc();
-            if (download.EndTimeUtc != default)
-            {
-                download.EndTimeUtc = download.EndTimeUtc.AsUtc();
-            }
-            // Get events for this download
-            var eventDownloads = await _context.EventDownloads
-                .AsNoTracking()
-                .Include(ed => ed.Event)
-                .Where(ed => ed.DownloadId == id)
-                .ToListAsync();
-
-            var events = eventDownloads.Select(ed => new
-            {
-                ed.Event.Id,
-                ed.Event.Name,
-                ed.Event.ColorIndex,
-                ed.Event.StartTimeUtc,
-                ed.Event.EndTimeUtc,
-                ed.AutoTagged,
-                ed.TaggedAtUtc
-            }).ToList();
-
-            return Ok(new
-            {
-                download,
-                events
-            });
+            throw new NotFoundException("Download");
         }
-        catch (Exception ex)
+
+        if (string.Equals(download.ClientIp, PrefillToken, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(download.Datasource, PrefillToken, StringComparison.OrdinalIgnoreCase))
         {
-            _logger.LogError(ex, "Error getting download {Id}", id);
-            return StatusCode(500, ApiResponse.InternalError("getting download"));
+            throw new NotFoundException("Download");
         }
+
+        download.WithUtcMarking();
+
+        // Get events for this download
+        var eventDownloads = await _context.EventDownloads
+            .AsNoTracking()
+            .Include(ed => ed.Event)
+            .Where(ed => ed.DownloadId == id)
+            .ToListAsync();
+
+        var events = eventDownloads.Select(ed => new
+        {
+            ed.Event.Id,
+            ed.Event.Name,
+            ed.Event.ColorIndex,
+            ed.Event.StartTimeUtc,
+            ed.Event.EndTimeUtc,
+            ed.AutoTagged,
+            ed.TaggedAtUtc
+        }).ToList();
+
+        return Ok(new
+        {
+            download,
+            events
+        });
     }
 
     /// <summary>
@@ -231,40 +208,32 @@ public class DownloadsController : ControllerBase
         const int maxIds = 500;
         var downloadIds = request.DownloadIds.Take(maxIds).ToList();
 
-        try
-        {
-            // Get all events for these downloads in a single query
-            var eventDownloads = await _context.EventDownloads
-                .AsNoTracking()
-                .Include(ed => ed.Event)
-                .Where(ed => downloadIds.Contains(ed.DownloadId))
-                .ToListAsync();
+        // Get all events for these downloads in a single query
+        var eventDownloads = await _context.EventDownloads
+            .AsNoTracking()
+            .Include(ed => ed.Event)
+            .Where(ed => downloadIds.Contains(ed.DownloadId))
+            .ToListAsync();
 
-            // Group by download ID and return as dictionary
-            var result = downloadIds.ToDictionary(
-                id => id,
-                id => new
-                {
-                    events = eventDownloads
-                        .Where(ed => ed.DownloadId == id)
-                        .Select(ed => new
-                        {
-                            ed.Event.Id,
-                            ed.Event.Name,
-                            ed.Event.ColorIndex,
-                            ed.AutoTagged
-                        })
-                        .ToList()
-                }
-            );
+        // Group by download ID and return as dictionary
+        var result = downloadIds.ToDictionary(
+            id => id,
+            id => new
+            {
+                events = eventDownloads
+                    .Where(ed => ed.DownloadId == id)
+                    .Select(ed => new
+                    {
+                        ed.Event.Id,
+                        ed.Event.Name,
+                        ed.Event.ColorIndex,
+                        ed.AutoTagged
+                    })
+                    .ToList()
+            }
+        );
 
-            return Ok(result);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting batch download events for {Count} downloads", downloadIds.Count);
-            return Ok(new Dictionary<int, object>());
-        }
+        return Ok(result);
     }
 
     /// <summary>
@@ -278,76 +247,66 @@ public class DownloadsController : ControllerBase
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null)
     {
-        try
+        var excludedClientIps = _stateRepository.GetExcludedClientIps();
+        var startDate = startTime.HasValue
+            ? startTime.Value.FromUnixSeconds()
+            : DateTime.MinValue;
+        var endDate = endTime.HasValue
+            ? endTime.Value.FromUnixSeconds()
+            : DateTime.UtcNow;
+
+        // Get downloads
+        var downloads = await _context.Downloads
+            .AsNoTracking()
+            .Where(d => excludedClientIps.Count == 0 || !excludedClientIps.Contains(d.ClientIp))
+            .Where(d => d.ClientIp != PrefillToken && d.ClientIp != "Prefill")
+            .Where(d => d.Datasource != PrefillToken && d.Datasource != "Prefill")
+            .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
+            .OrderByDescending(d => d.StartTimeUtc)
+            .Take(count)
+            .ToListAsync();
+
+        if (downloads.Count == 0)
         {
-            var excludedClientIps = _stateRepository.GetExcludedClientIps();
-            var startDate = startTime.HasValue
-                ? DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime
-                : DateTime.MinValue;
-            var endDate = endTime.HasValue
-                ? DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime
-                : DateTime.UtcNow;
-
-            // Get downloads
-            var downloads = await _context.Downloads
-                .AsNoTracking()
-                .Where(d => excludedClientIps.Count == 0 || !excludedClientIps.Contains(d.ClientIp))
-                .Where(d => d.ClientIp != PrefillToken && d.ClientIp != "Prefill")
-                .Where(d => d.Datasource != PrefillToken && d.Datasource != "Prefill")
-                .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
-                .OrderByDescending(d => d.StartTimeUtc)
-                .Take(count)
-                .ToListAsync();
-
-            if (downloads.Count == 0)
-            {
-                return Ok(new List<object>());
-            }
-
-            var downloadIds = downloads.Select(d => d.Id).ToList();
-
-            // Get all events for these downloads
-            var eventDownloads = await _context.EventDownloads
-                .AsNoTracking()
-                .Include(ed => ed.Event)
-                .Where(ed => downloadIds.Contains(ed.DownloadId))
-                .ToListAsync();
-
-            // Group by download ID
-            var eventsLookup = eventDownloads
-                .GroupBy(ed => ed.DownloadId)
-                .ToDictionary(g => g.Key, g => g.Select(ed => new
-                {
-                    ed.Event.Id,
-                    ed.Event.Name,
-                    ed.Event.ColorIndex,
-                    ed.AutoTagged
-                }).ToList());
-
-            // Build response
-            var result = downloads.Select(d =>
-            {
-                d.StartTimeUtc = d.StartTimeUtc.AsUtc();
-                if (d.EndTimeUtc != default)
-                {
-                    d.EndTimeUtc = d.EndTimeUtc.AsUtc();
-                }
-                eventsLookup.TryGetValue(d.Id, out var downloadEvents);
-
-                return new
-                {
-                    download = d,
-                    events = downloadEvents ?? (object)Array.Empty<object>()
-                };
-            }).ToList();
-
-            return Ok(result);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting downloads with associations");
             return Ok(new List<object>());
         }
+
+        var downloadIds = downloads.Select(d => d.Id).ToList();
+
+        // Get all events for these downloads
+        var eventDownloads = await _context.EventDownloads
+            .AsNoTracking()
+            .Include(ed => ed.Event)
+            .Where(ed => downloadIds.Contains(ed.DownloadId))
+            .ToListAsync();
+
+        // Group by download ID
+        var eventsLookup = eventDownloads
+            .GroupBy(ed => ed.DownloadId)
+            .ToDictionary(g => g.Key, g => g.Select(ed => new
+            {
+                ed.Event.Id,
+                ed.Event.Name,
+                ed.Event.ColorIndex,
+                ed.AutoTagged
+            }).ToList());
+
+        // Mark timestamps as UTC
+        downloads.WithUtcMarking();
+
+        // Build response
+        var result = downloads.Select(d =>
+        {
+            eventsLookup.TryGetValue(d.Id, out var downloadEvents);
+
+            return new
+            {
+                download = d,
+                events = downloadEvents ?? (object)Array.Empty<object>()
+            };
+        }).ToList();
+
+        return Ok(result);
     }
 }
 

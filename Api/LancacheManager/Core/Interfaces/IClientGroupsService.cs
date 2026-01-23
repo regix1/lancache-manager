@@ -1,9 +1,14 @@
 using LancacheManager.Models;
 
-namespace LancacheManager.Core.Interfaces.Repositories;
+namespace LancacheManager.Core.Interfaces;
 
-public interface IClientGroupsRepository
+/// <summary>
+/// Service interface for client group management.
+/// Extends ICrudRepository for compatibility with CrudControllerBase.
+/// </summary>
+public interface IClientGroupsService : ICrudRepository<ClientGroup, int>
 {
+    // Entity-specific methods
     Task<List<ClientGroup>> GetAllGroupsAsync(CancellationToken cancellationToken = default);
     Task<ClientGroup?> GetGroupByIdAsync(int id, CancellationToken cancellationToken = default);
     Task<ClientGroup?> GetGroupByNicknameAsync(string nickname, CancellationToken cancellationToken = default);

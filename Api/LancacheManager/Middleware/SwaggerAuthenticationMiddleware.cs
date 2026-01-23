@@ -27,7 +27,7 @@ public class SwaggerAuthenticationMiddleware
         _environment = environment;
     }
 
-    public async Task InvokeAsync(HttpContext context, ApiKeyService apiKeyService, DeviceAuthService deviceAuthService)
+    public async Task InvokeAsync(HttpContext context, AuthenticationHelper authHelper)
     {
         // Check if this is a swagger request
         if (!context.Request.Path.StartsWithSegments("/swagger"))
@@ -51,29 +51,19 @@ public class SwaggerAuthenticationMiddleware
             return;
         }
 
-        // Swagger protection is enabled - require API key
-        var apiKey = context.Request.Headers["X-Api-Key"].FirstOrDefault();
-        
-        if (!string.IsNullOrEmpty(apiKey) && apiKeyService.ValidateApiKey(apiKey))
-        {
-            await _next(context);
-            return;
-        }
-
-        // Check for authenticated session
-        var deviceId = context.Session.GetString("DeviceId");
-        if (!string.IsNullOrEmpty(deviceId) && deviceAuthService.ValidateDevice(deviceId))
+        // Swagger protection is enabled - require authentication
+        var result = authHelper.ValidateAnyMethod(context);
+        if (result.IsAuthenticated)
         {
             await _next(context);
             return;
         }
 
         // Not authenticated - return 401
-        _logger.LogWarning("Unauthorized swagger access attempt from {IP}", 
+        _logger.LogWarning("Unauthorized swagger access attempt from {IP}",
             context.Connection.RemoteIpAddress);
-        
-        context.Response.StatusCode = 401;
-        context.Response.ContentType = "application/json";
-        await context.Response.WriteAsync("{\"error\":\"API key required to access Swagger documentation\"}");
+
+        await AuthenticationHelper.WriteErrorResponseAsync(
+            context, 401, "API key required to access Swagger documentation");
     }
 }

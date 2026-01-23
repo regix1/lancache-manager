@@ -1,6 +1,6 @@
 using LancacheManager.Models;
-using LancacheManager.Infrastructure.Repositories;
-using LancacheManager.Core.Interfaces.Services;
+using LancacheManager.Infrastructure.Services;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 
@@ -14,14 +14,14 @@ namespace LancacheManager.Controllers;
 [Route("api/gc")]
 public class GcController : ControllerBase
 {
-    private readonly SettingsRepository _gcSettingsService;
+    private readonly SettingsService _gcSettingsService;
     private readonly IMemoryManager _memoryManager;
     private readonly ILogger<GcController> _logger;
     private readonly IConfiguration _configuration;
     private static DateTime _lastGcTriggerTime = DateTime.MinValue;
     private static readonly object _gcTriggerLock = new object();
 
-    public GcController(SettingsRepository gcSettingsService, IMemoryManager memoryManager, ILogger<GcController> logger, IConfiguration configuration)
+    public GcController(SettingsService gcSettingsService, IMemoryManager memoryManager, ILogger<GcController> logger, IConfiguration configuration)
     {
         _gcSettingsService = gcSettingsService;
         _memoryManager = memoryManager;

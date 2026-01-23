@@ -89,21 +89,9 @@ public class PrefillDaemonController : ControllerBase
     {
         var deviceId = GetDeviceId()!;
 
-        try
-        {
-            _logger.LogInformation("Creating daemon session for device {DeviceId}", deviceId);
-            var session = await _daemonService.CreateSessionAsync(deviceId);
-            return CreatedAtAction(nameof(GetSession), new { sessionId = session.Id }, DaemonSessionDto.FromSession(session));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse.Error(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to create daemon session for device {DeviceId}", deviceId);
-            return StatusCode(500, ApiResponse.InternalError("creating daemon session"));
-        }
+        _logger.LogInformation("Creating daemon session for device {DeviceId}", deviceId);
+        var session = await _daemonService.CreateSessionAsync(deviceId);
+        return CreatedAtAction(nameof(GetSession), new { sessionId = session.Id }, DaemonSessionDto.FromSession(session));
     }
 
     /// <summary>
@@ -156,29 +144,21 @@ public class PrefillDaemonController : ControllerBase
             return Forbid();
         }
 
-        try
-        {
-            _logger.LogInformation("Starting login for session {SessionId}", sessionId);
-            var challenge = await _daemonService.StartLoginAsync(sessionId, TimeSpan.FromSeconds(30));
+        _logger.LogInformation("Starting login for session {SessionId}", sessionId);
+        var challenge = await _daemonService.StartLoginAsync(sessionId, TimeSpan.FromSeconds(30));
 
-            if (challenge == null)
+        if (challenge == null)
+        {
+            // No challenge means either already logged in or timeout
+            var status = await _daemonService.GetSessionStatusAsync(sessionId);
+            if (status?.Status == "logged-in")
             {
-                // No challenge means either already logged in or timeout
-                var status = await _daemonService.GetSessionStatusAsync(sessionId);
-                if (status?.Status == "logged-in")
-                {
-                    return Ok(new { message = "Already logged in", status = "logged-in" });
-                }
-                return BadRequest(ApiResponse.Error("Login timeout - daemon may not be ready"));
+                return Ok(new { message = "Already logged in", status = "logged-in" });
             }
+            return BadRequest(ApiResponse.Error("Login timeout - daemon may not be ready"));
+        }
 
-            return Ok(challenge);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error starting login for session {SessionId}", sessionId);
-            return StatusCode(500, ApiResponse.Error(ex.Message));
-        }
+        return Ok(challenge);
     }
 
     /// <summary>
@@ -206,20 +186,12 @@ public class PrefillDaemonController : ControllerBase
             return BadRequest(ApiResponse.Required("Challenge and credential"));
         }
 
-        try
-        {
-            _logger.LogInformation("Providing {CredentialType} credential for session {SessionId}",
-                request.Challenge.CredentialType, sessionId);
+        _logger.LogInformation("Providing {CredentialType} credential for session {SessionId}",
+            request.Challenge.CredentialType, sessionId);
 
-            await _daemonService.ProvideCredentialAsync(sessionId, request.Challenge, request.Credential);
+        await _daemonService.ProvideCredentialAsync(sessionId, request.Challenge, request.Credential);
 
-            return Ok(ApiResponse.Message("Credential sent"));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error providing credential for session {SessionId}", sessionId);
-            return StatusCode(500, ApiResponse.Error(ex.Message));
-        }
+        return Ok(ApiResponse.Message("Credential sent"));
     }
 
     /// <summary>
@@ -278,20 +250,8 @@ public class PrefillDaemonController : ControllerBase
             return Forbid();
         }
 
-        try
-        {
-            var games = await _daemonService.GetOwnedGamesAsync(sessionId);
-            return Ok(games);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse.Error(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting owned games for session {SessionId}", sessionId);
-            return StatusCode(500, ApiResponse.Error(ex.Message));
-        }
+        var games = await _daemonService.GetOwnedGamesAsync(sessionId);
+        return Ok(games);
     }
 
     /// <summary>
@@ -319,28 +279,16 @@ public class PrefillDaemonController : ControllerBase
             return BadRequest(ApiResponse.Error("No app IDs provided"));
         }
 
-        try
-        {
-            var status = await _daemonService.GetCacheStatusAsync(sessionId, request.AppIds);
-            var upToDate = status.Apps.Where(a => a.IsUpToDate).Select(a => a.AppId).ToList();
-            var outdated = status.Apps.Where(a => !a.IsUpToDate).Select(a => a.AppId).ToList();
+        var status = await _daemonService.GetCacheStatusAsync(sessionId, request.AppIds);
+        var upToDate = status.Apps.Where(a => a.IsUpToDate).Select(a => a.AppId).ToList();
+        var outdated = status.Apps.Where(a => !a.IsUpToDate).Select(a => a.AppId).ToList();
 
-            return Ok(new CacheStatusResponse
-            {
-                UpToDateAppIds = upToDate,
-                OutdatedAppIds = outdated,
-                Message = status.Message
-            });
-        }
-        catch (InvalidOperationException ex)
+        return Ok(new CacheStatusResponse
         {
-            return BadRequest(ApiResponse.Error(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting cache status for session {SessionId}", sessionId);
-            return StatusCode(500, ApiResponse.Error(ex.Message));
-        }
+            UpToDateAppIds = upToDate,
+            OutdatedAppIds = outdated,
+            Message = status.Message
+        });
     }
 
     /// <summary>
@@ -368,20 +316,8 @@ public class PrefillDaemonController : ControllerBase
             return BadRequest(ApiResponse.Required("AppIds"));
         }
 
-        try
-        {
-            await _daemonService.SetSelectedAppsAsync(sessionId, request.AppIds);
-            return Ok(new { message = "Apps selected", count = request.AppIds.Count });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse.Error(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error setting selected apps for session {SessionId}", sessionId);
-            return StatusCode(500, ApiResponse.Error(ex.Message));
-        }
+        await _daemonService.SetSelectedAppsAsync(sessionId, request.AppIds);
+        return Ok(new { message = "Apps selected", count = request.AppIds.Count });
     }
 
     /// <summary>
@@ -404,31 +340,19 @@ public class PrefillDaemonController : ControllerBase
             return Forbid();
         }
 
-        try
-        {
-            _logger.LogInformation("Starting prefill for session {SessionId}", sessionId);
+        _logger.LogInformation("Starting prefill for session {SessionId}", sessionId);
 
-            var result = await _daemonService.PrefillAsync(
-                sessionId,
-                all: request?.All ?? false,
-                recent: request?.Recent ?? false,
-                recentlyPurchased: request?.RecentlyPurchased ?? false,
-                top: request?.Top,
-                force: request?.Force ?? false,
-                operatingSystems: request?.OperatingSystems,
-                maxConcurrency: request?.MaxConcurrency);
+        var result = await _daemonService.PrefillAsync(
+            sessionId,
+            all: request?.All ?? false,
+            recent: request?.Recent ?? false,
+            recentlyPurchased: request?.RecentlyPurchased ?? false,
+            top: request?.Top,
+            force: request?.Force ?? false,
+            operatingSystems: request?.OperatingSystems,
+            maxConcurrency: request?.MaxConcurrency);
 
-            return Ok(result);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse.Error(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during prefill for session {SessionId}", sessionId);
-            return StatusCode(500, ApiResponse.Error(ex.Message));
-        }
+        return Ok(result);
     }
 
     /// <summary>

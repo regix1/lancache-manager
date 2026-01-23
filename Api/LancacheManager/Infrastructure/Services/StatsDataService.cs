@@ -1,24 +1,24 @@
 using LancacheManager.Models;
 using LancacheManager.Infrastructure.Data;
-using LancacheManager.Core.Interfaces.Repositories;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using Microsoft.EntityFrameworkCore;
 
 
-namespace LancacheManager.Infrastructure.Repositories;
+namespace LancacheManager.Infrastructure.Services;
 
 /// <summary>
-/// Repository for statistics database queries
+/// Service for statistics database queries
 /// Queries Downloads table directly for consistent data (no caching)
 /// </summary>
-public class StatsRepository : IStatsRepository
+public class StatsDataService : IStatsDataService
 {
     private const string PrefillToken = "prefill";
 
     private readonly AppDbContext _context;
-    private readonly ILogger<StatsRepository> _logger;
+    private readonly ILogger<StatsDataService> _logger;
 
-    public StatsRepository(AppDbContext context, ILogger<StatsRepository> logger)
+    public StatsDataService(AppDbContext context, ILogger<StatsDataService> logger)
     {
         _context = context;
         _logger = logger;
@@ -44,13 +44,7 @@ public class StatsRepository : IStatsRepository
             .OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes)
             .ToListAsync(cancellationToken);
 
-        // Fix timezone for proper JSON serialization
-        foreach (var stat in stats)
-        {
-            stat.LastActivityUtc = stat.LastActivityUtc.AsUtc();
-        }
-
-        return stats;
+        return stats.WithUtcMarking();
     }
 
     /// <summary>
@@ -95,14 +89,14 @@ public class StatsRepository : IStatsRepository
                     TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
                     TotalDownloads = g.Count(),
                     TotalDurationSeconds = totalDuration,
-                    LastActivityUtc = g.Max(d => d.StartTimeUtc).AsUtc(),
+                    LastActivityUtc = g.Max(d => d.StartTimeUtc),
                     LastActivityLocal = g.Max(d => d.StartTimeUtc)
                 };
             })
             .OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes)
             .ToList();
 
-        return stats;
+        return stats.WithUtcMarking();
     }
 
     /// <summary>
@@ -116,29 +110,18 @@ public class StatsRepository : IStatsRepository
             .Take(limit)
             .ToListAsync(cancellationToken);
 
-        // Fix timezone and calculate duration from EndTime - StartTime for proper JSON serialization
+        // Calculate duration from EndTime - StartTime for proper JSON serialization
         // NOTE: Using EndTime - StartTime instead of querying LogEntries for performance
         foreach (var download in downloads)
         {
-            download.StartTimeUtc = download.StartTimeUtc.AsUtc();
-            if (download.EndTimeUtc != default(DateTime))
+            if (download.EndTimeUtc != default(DateTime) && download.EndTimeUtc > download.StartTimeUtc)
             {
-                download.EndTimeUtc = download.EndTimeUtc.AsUtc();
-                // Calculate duration from EndTime - StartTime
-                if (download.EndTimeUtc > download.StartTimeUtc)
-                {
-                    download.DurationSeconds = (download.EndTimeUtc - download.StartTimeUtc).TotalSeconds;
-                }
+                download.DurationSeconds = (download.EndTimeUtc - download.StartTimeUtc).TotalSeconds;
             }
         }
 
-        return downloads;
+        return downloads.WithUtcMarking();
     }
-
-    /// <summary>
-    /// Get active downloads grouped by game
-    /// </summary>
-    
 
     /// <summary>
     /// Get top games by download count or bytes

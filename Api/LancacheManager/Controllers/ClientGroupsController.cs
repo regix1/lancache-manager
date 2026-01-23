@@ -1,10 +1,11 @@
-using LancacheManager.Models;
+using LancacheManager.Controllers.Base;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
-using LancacheManager.Core.Interfaces.Repositories;
-using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Infrastructure.Extensions;
+using LancacheManager.Middleware;
+using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.SignalR;
 using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 
 namespace LancacheManager.Controllers;
@@ -15,240 +16,156 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/client-groups")]
-public class ClientGroupsController : ControllerBase
+[RequireAuth]
+public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGroupDto, CreateClientGroupRequest, UpdateClientGroupRequest, int>
 {
-    private readonly IClientGroupsRepository _clientGroupsRepository;
-    private readonly IHubContext<DownloadHub> _hubContext;
-    private readonly ILogger<ClientGroupsController> _logger;
+    private readonly IClientGroupsService _clientGroupsRepository;
+
+    protected override string ResourceName => "Client group";
 
     public ClientGroupsController(
-        IClientGroupsRepository clientGroupsRepository,
-        IHubContext<DownloadHub> hubContext,
+        IClientGroupsService clientGroupsRepository,
+        ISignalRNotificationService notifications,
         ILogger<ClientGroupsController> logger)
+        : base(clientGroupsRepository, notifications, logger)
     {
         _clientGroupsRepository = clientGroupsRepository;
-        _hubContext = hubContext;
-        _logger = logger;
     }
 
-    /// <summary>
-    /// Get all client groups
-    /// </summary>
-    [HttpGet]
-    [RequireAuth]
-    public async Task<IActionResult> GetAll()
+    // ===== Abstract Method Implementations =====
+
+    protected override ClientGroupDto ToDto(ClientGroup group) => group.ToDto();
+
+    protected override ClientGroup FromCreateRequest(CreateClientGroupRequest request)
     {
-        try
+        return new ClientGroup
         {
-            var groups = await _clientGroupsRepository.GetAllGroupsAsync();
-            var dtos = groups.Select(ToDto).ToList();
-            return Ok(dtos);
-        }
-        catch (Exception ex)
+            Nickname = request.Nickname.Trim(),
+            Description = request.Description?.Trim()
+        };
+    }
+
+    protected override void ApplyUpdate(ClientGroup entity, UpdateClientGroupRequest request)
+    {
+        entity.Nickname = request.Nickname.Trim();
+        entity.Description = request.Description?.Trim();
+    }
+
+    /// <remarks>
+    /// Basic validation (required fields, format) is handled by FluentValidation.
+    /// This method handles business logic validation that requires database access.
+    /// </remarks>
+    protected override async Task ValidateCreateRequestAsync(CreateClientGroupRequest request, CancellationToken ct)
+    {
+        // Basic validation is handled automatically by FluentValidation (see CreateClientGroupRequestValidator)
+        // Check for duplicate nickname (business logic validation)
+        var existing = await _clientGroupsRepository.GetGroupByNicknameAsync(request.Nickname, ct);
+        if (existing != null)
         {
-            _logger.LogError(ex, "Error getting all client groups");
-            return Ok(new List<ClientGroupDto>());
+            throw new ValidationException("A client group with this nickname already exists");
         }
     }
 
-    /// <summary>
-    /// Get a single client group by ID
-    /// </summary>
-    [HttpGet("{id:int}")]
-    [RequireAuth]
-    public async Task<IActionResult> GetById(int id)
+    /// <remarks>
+    /// Basic validation (required fields, format) is handled by FluentValidation.
+    /// This method handles business logic validation that requires database access.
+    /// </remarks>
+    protected override async Task ValidateUpdateRequestAsync(int id, UpdateClientGroupRequest request, ClientGroup existingEntity, CancellationToken ct)
     {
-        try
+        // Basic validation is handled automatically by FluentValidation (see UpdateClientGroupRequestValidator)
+        // Check for duplicate nickname (excluding self) - business logic validation
+        var duplicate = await _clientGroupsRepository.GetGroupByNicknameAsync(request.Nickname, ct);
+        if (duplicate != null && duplicate.Id != id)
         {
-            var group = await _clientGroupsRepository.GetGroupByIdAsync(id);
-            if (group == null)
+            throw new ValidationException("A client group with this nickname already exists");
+        }
+    }
+
+    // ===== SignalR Notifications =====
+
+    protected override async Task OnCreatedAsync(ClientGroup entity, ClientGroupDto dto)
+    {
+        await Notifications.NotifyAllAsync(SignalREvents.ClientGroupCreated, dto);
+    }
+
+    protected override async Task OnUpdatedAsync(ClientGroup entity, ClientGroupDto dto)
+    {
+        await Notifications.NotifyAllAsync(SignalREvents.ClientGroupUpdated, dto);
+    }
+
+    protected override async Task OnDeletedAsync(int id)
+    {
+        await Notifications.NotifyAllAsync(SignalREvents.ClientGroupDeleted, id);
+    }
+
+    // ===== Post-Create Hook =====
+
+    protected override async Task<ClientGroup> PostCreateAsync(ClientGroup entity, CreateClientGroupRequest request, CancellationToken ct)
+    {
+        // Add initial IPs if provided
+        if (request.InitialIps?.Count > 0)
+        {
+            foreach (var ip in request.InitialIps)
             {
-                return NotFound(ApiResponse.NotFound("Client group"));
+                try
+                {
+                    await _clientGroupsRepository.AddMemberAsync(entity.Id, ip.Trim(), ct);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    Logger.LogWarning("Could not add IP {Ip} to group: {Message}", ip, ex.Message);
+                }
             }
-            return Ok(ToDto(group));
+            // Refresh to get updated members
+            entity = await _clientGroupsRepository.GetGroupByIdAsync(entity.Id, ct) ?? entity;
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting client group {Id}", id);
-            return StatusCode(500, ApiResponse.InternalError("getting client group"));
-        }
+        return entity;
     }
 
-    /// <summary>
-    /// Create a new client group
-    /// </summary>
+    // ===== Override Create to return Created with location =====
+
     [HttpPost]
     [RequireAuth]
-    public async Task<IActionResult> Create([FromBody] CreateClientGroupRequest request)
+    public override async Task<IActionResult> Create([FromBody] CreateClientGroupRequest request, CancellationToken ct = default)
     {
-        try
-        {
-            if (string.IsNullOrWhiteSpace(request.Nickname))
-            {
-                return BadRequest(ApiResponse.Required("Nickname"));
-            }
+        await ValidateCreateRequestAsync(request, ct);
 
-            // Check for duplicate nickname
-            var existing = await _clientGroupsRepository.GetGroupByNicknameAsync(request.Nickname);
-            if (existing != null)
-            {
-                return BadRequest(ApiResponse.Duplicate("client group", "nickname"));
-            }
+        var entity = FromCreateRequest(request);
+        var created = await Repository.CreateAsync(entity, ct);
+        created = await PostCreateAsync(created, request, ct);
 
-            var group = new ClientGroup
-            {
-                Nickname = request.Nickname.Trim(),
-                Description = request.Description?.Trim()
-            };
+        var dto = ToDto(created);
+        await OnCreatedAsync(created, dto);
 
-            var created = await _clientGroupsRepository.CreateGroupAsync(group);
-
-            // Add initial IPs if provided
-            if (request.InitialIps?.Count > 0)
-            {
-                foreach (var ip in request.InitialIps)
-                {
-                    try
-                    {
-                        await _clientGroupsRepository.AddMemberAsync(created.Id, ip.Trim());
-                    }
-                    catch (InvalidOperationException ex)
-                    {
-                        _logger.LogWarning("Could not add IP {Ip} to group: {Message}", ip, ex.Message);
-                    }
-                }
-                // Refresh to get updated members
-                created = await _clientGroupsRepository.GetGroupByIdAsync(created.Id) ?? created;
-            }
-
-            var dto = ToDto(created);
-
-            // Notify clients via SignalR
-            await _hubContext.Clients.All.SendAsync("ClientGroupCreated", dto);
-
-            return Created($"/api/client-groups/{created.Id}", dto);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error creating client group");
-            return StatusCode(500, ApiResponse.InternalError("creating client group"));
-        }
+        Logger.LogInformation("Created {Resource}: {Id}", ResourceName, created.Id);
+        return Created($"/api/client-groups/{created.Id}", dto);
     }
 
-    /// <summary>
-    /// Update an existing client group
-    /// </summary>
-    [HttpPut("{id:int}")]
-    [RequireAuth]
-    public async Task<IActionResult> Update(int id, [FromBody] UpdateClientGroupRequest request)
-    {
-        try
-        {
-            var existing = await _clientGroupsRepository.GetGroupByIdAsync(id);
-            if (existing == null)
-            {
-                return NotFound(ApiResponse.NotFound("Client group"));
-            }
-
-            if (string.IsNullOrWhiteSpace(request.Nickname))
-            {
-                return BadRequest(ApiResponse.Required("Nickname"));
-            }
-
-            // Check for duplicate nickname (excluding self)
-            var duplicate = await _clientGroupsRepository.GetGroupByNicknameAsync(request.Nickname);
-            if (duplicate != null && duplicate.Id != id)
-            {
-                return BadRequest(ApiResponse.Duplicate("client group", "nickname"));
-            }
-
-            existing.Nickname = request.Nickname.Trim();
-            existing.Description = request.Description?.Trim();
-
-            var updated = await _clientGroupsRepository.UpdateGroupAsync(existing);
-            var dto = ToDto(updated);
-
-            // Notify clients via SignalR
-            await _hubContext.Clients.All.SendAsync("ClientGroupUpdated", dto);
-
-            return Ok(dto);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error updating client group {Id}", id);
-            return StatusCode(500, ApiResponse.InternalError("updating client group"));
-        }
-    }
-
-    /// <summary>
-    /// Delete a client group
-    /// </summary>
-    [HttpDelete("{id:int}")]
-    [RequireAuth]
-    public async Task<IActionResult> Delete(int id)
-    {
-        try
-        {
-            var existing = await _clientGroupsRepository.GetGroupByIdAsync(id);
-            if (existing == null)
-            {
-                return NotFound(ApiResponse.NotFound("Client group"));
-            }
-
-            await _clientGroupsRepository.DeleteGroupAsync(id);
-
-            // Notify clients via SignalR
-            await _hubContext.Clients.All.SendAsync("ClientGroupDeleted", id);
-
-            return NoContent();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error deleting client group {Id}", id);
-            return StatusCode(500, ApiResponse.InternalError("deleting client group"));
-        }
-    }
+    // ===== Custom Endpoints (not part of standard CRUD) =====
 
     /// <summary>
     /// Add an IP to a client group
     /// </summary>
+    /// <remarks>
+    /// Validation is handled automatically by FluentValidation (see AddMemberRequestValidator)
+    /// </remarks>
     [HttpPost("{id:int}/members")]
     [RequireAuth]
-    public async Task<IActionResult> AddMember(int id, [FromBody] AddMemberRequest request)
+    public async Task<IActionResult> AddMember(int id, [FromBody] AddMemberRequest request, CancellationToken ct = default)
     {
-        try
-        {
-            var group = await _clientGroupsRepository.GetGroupByIdAsync(id);
-            if (group == null)
-            {
-                return NotFound(ApiResponse.NotFound("Client group"));
-            }
+        // Validation is handled automatically by FluentValidation
+        var group = await _clientGroupsRepository.GetByIdOrThrowAsync(id, "Client group", ct);
 
-            if (string.IsNullOrWhiteSpace(request.ClientIp))
-            {
-                return BadRequest(ApiResponse.Required("Client IP"));
-            }
+        await _clientGroupsRepository.AddMemberAsync(id, request.ClientIp.Trim(), ct);
 
-            await _clientGroupsRepository.AddMemberAsync(id, request.ClientIp.Trim());
+        // Get updated group
+        var updated = await _clientGroupsRepository.GetGroupByIdAsync(id, ct);
+        var dto = ToDto(updated!);
 
-            // Get updated group
-            var updated = await _clientGroupsRepository.GetGroupByIdAsync(id);
-            var dto = ToDto(updated!);
+        // Notify clients via SignalR
+        await Notifications.NotifyAllAsync(SignalREvents.ClientGroupMemberAdded, new ClientGroupMemberAdded(id, request.ClientIp.Trim()));
 
-            // Notify clients via SignalR
-            await _hubContext.Clients.All.SendAsync("ClientGroupMemberAdded", new ClientGroupMemberAdded(id, request.ClientIp.Trim()));
-
-            return Ok(dto);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse.Error(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error adding member to client group {Id}", id);
-            return StatusCode(500, ApiResponse.InternalError("adding member to client group"));
-        }
+        return Ok(dto);
     }
 
     /// <summary>
@@ -256,28 +173,16 @@ public class ClientGroupsController : ControllerBase
     /// </summary>
     [HttpDelete("{id:int}/members/{ip}")]
     [RequireAuth]
-    public async Task<IActionResult> RemoveMember(int id, string ip)
+    public async Task<IActionResult> RemoveMember(int id, string ip, CancellationToken ct = default)
     {
-        try
-        {
-            var group = await _clientGroupsRepository.GetGroupByIdAsync(id);
-            if (group == null)
-            {
-                return NotFound(ApiResponse.NotFound("Client group"));
-            }
+        var group = await _clientGroupsRepository.GetByIdOrThrowAsync(id, "Client group", ct);
 
-            await _clientGroupsRepository.RemoveMemberAsync(id, ip);
+        await _clientGroupsRepository.RemoveMemberAsync(id, ip, ct);
 
-            // Notify clients via SignalR
-            await _hubContext.Clients.All.SendAsync("ClientGroupMemberRemoved", new ClientGroupMemberRemoved(id, ip));
+        // Notify clients via SignalR
+        await Notifications.NotifyAllAsync(SignalREvents.ClientGroupMemberRemoved, new ClientGroupMemberRemoved(id, ip));
 
-            return NoContent();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error removing member from client group {Id}", id);
-            return StatusCode(500, ApiResponse.InternalError("removing member from client group"));
-        }
+        return NoContent();
     }
 
     /// <summary>
@@ -285,34 +190,13 @@ public class ClientGroupsController : ControllerBase
     /// </summary>
     [HttpGet("mapping")]
     [RequireAuth]
-    public async Task<IActionResult> GetMapping()
+    public async Task<IActionResult> GetMapping(CancellationToken ct = default)
     {
-        try
-        {
-            var mapping = await _clientGroupsRepository.GetIpToGroupMappingAsync();
-            var result = mapping.ToDictionary(
-                kvp => kvp.Key,
-                kvp => new { groupId = kvp.Value.GroupId, nickname = kvp.Value.Nickname }
-            );
-            return Ok(result);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting IP to group mapping");
-            return Ok(new Dictionary<string, object>());
-        }
-    }
-
-    private static ClientGroupDto ToDto(ClientGroup group)
-    {
-        return new ClientGroupDto
-        {
-            Id = group.Id,
-            Nickname = group.Nickname,
-            Description = group.Description,
-            CreatedAtUtc = group.CreatedAtUtc,
-            UpdatedAtUtc = group.UpdatedAtUtc,
-            MemberIps = group.Members.Select(m => m.ClientIp).OrderBy(ip => ip).ToList()
-        };
+        var mapping = await _clientGroupsRepository.GetIpToGroupMappingAsync(ct);
+        var result = mapping.ToDictionary(
+            kvp => kvp.Key,
+            kvp => new { groupId = kvp.Value.GroupId, nickname = kvp.Value.Nickname }
+        );
+        return Ok(result);
     }
 }

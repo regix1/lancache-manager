@@ -2,11 +2,9 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using LancacheManager.Models;
 using LancacheManager.Hubs;
-using LancacheManager.Core.Interfaces.Repositories;
-using LancacheManager.Core.Interfaces.Services;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Controllers;
 
@@ -20,8 +18,8 @@ public class ThemeController : ControllerBase
 {
     private readonly string _themesPath;
     private readonly ILogger<ThemeController> _logger;
-    private readonly IStateRepository _stateRepository;
-    private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly IStateService _stateRepository;
+    private readonly ISignalRNotificationService _notifications;
 
     // System theme IDs that cannot be deleted
     private static readonly string[] SYSTEM_THEMES = { "dark-default", "light-default" };
@@ -30,12 +28,12 @@ public class ThemeController : ControllerBase
         IConfiguration configuration,
         ILogger<ThemeController> logger,
         IPathResolver pathResolver,
-        IStateRepository stateRepository,
-        IHubContext<DownloadHub> hubContext)
+        IStateService stateRepository,
+        ISignalRNotificationService notifications)
     {
         _logger = logger;
         _stateRepository = stateRepository;
-        _hubContext = hubContext;
+        _notifications = notifications;
 
         _themesPath = pathResolver.GetThemesDirectory();
 
@@ -542,7 +540,7 @@ public class ThemeController : ControllerBase
 
         // Broadcast theme change to all connected clients
         // Only guest users with selectedTheme=null will apply this change
-        await _hubContext.Clients.All.SendAsync("DefaultGuestThemeChanged", new
+        await _notifications.NotifyAllAsync(SignalREvents.DefaultGuestThemeChanged, new
         {
             newThemeId = themeId
         });

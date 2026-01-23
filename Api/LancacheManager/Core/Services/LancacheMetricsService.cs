@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Reflection;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -19,11 +20,10 @@ namespace LancacheManager.Core.Services;
 /// - _ratio suffix for ratios (0-1)
 /// - _info suffix for metadata
 /// </summary>
-public class LancacheMetricsService : BackgroundService
+public class LancacheMetricsService : ScopedScheduledBackgroundService
 {
-    private readonly Meter _meter;
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly ILogger<LancacheMetricsService> _logger;
+    private readonly Meter _meter;
     private readonly Stopwatch _uptimeStopwatch;
     private readonly string _version;
 
@@ -78,6 +78,7 @@ public class LancacheMetricsService : BackgroundService
     // Configurable update interval (default 15 seconds)
     private int _updateIntervalSeconds = 15;
     private readonly object _intervalLock = new();
+    private int _updateCount;
 
     private class ServiceMetrics
     {
@@ -97,10 +98,27 @@ public class LancacheMetricsService : BackgroundService
         public long Downloads;
     }
 
-    public LancacheMetricsService(IServiceScopeFactory scopeFactory, ILogger<LancacheMetricsService> logger)
+    protected override string ServiceName => "LancacheMetricsService";
+    protected override TimeSpan StartupDelay => TimeSpan.FromSeconds(3);
+    protected override TimeSpan Interval
+    {
+        get
+        {
+            lock (_intervalLock)
+            {
+                return TimeSpan.FromSeconds(_updateIntervalSeconds);
+            }
+        }
+    }
+
+    public LancacheMetricsService(
+        IServiceProvider serviceProvider,
+        IServiceScopeFactory scopeFactory,
+        ILogger<LancacheMetricsService> logger,
+        IConfiguration configuration)
+        : base(serviceProvider, logger, configuration)
     {
         _scopeFactory = scopeFactory;
-        _logger = logger;
         _uptimeStopwatch = Stopwatch.StartNew();
 
         // Get version from environment or assembly
@@ -108,7 +126,7 @@ public class LancacheMetricsService : BackgroundService
             ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString()
             ?? "unknown";
 
-        _logger.LogInformation("Initializing LancacheMetricsService v{Version}", _version);
+        Logger.LogInformation("Initializing LancacheMetricsService v{Version}", _version);
 
         _meter = new Meter("LancacheManager", "1.0.0");
 
@@ -350,7 +368,7 @@ public class LancacheMetricsService : BackgroundService
             description: "Total downloads per client (top 10)"
         );
 
-        _logger.LogInformation("LancacheMetricsService initialization complete");
+        Logger.LogInformation("LancacheMetricsService initialization complete");
     }
 
     // Service metrics measurement providers
@@ -489,71 +507,37 @@ public class LancacheMetricsService : BackgroundService
         {
             if (_updateIntervalSeconds != seconds)
             {
-                _logger.LogInformation("Metrics update interval changed from {Old}s to {New}s", _updateIntervalSeconds, seconds);
+                Logger.LogInformation("Metrics update interval changed from {Old}s to {New}s", _updateIntervalSeconds, seconds);
                 _updateIntervalSeconds = seconds;
             }
         }
     }
 
-    /// <summary>
-    /// Background task to periodically update metric values from database
-    /// Update interval is configurable via SetUpdateInterval
-    /// </summary>
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task ExecuteScopedWorkAsync(
+        IServiceProvider scopedServices,
+        CancellationToken stoppingToken)
     {
-        _logger.LogInformation("LancacheMetricsService background task started with {Interval}s interval", _updateIntervalSeconds);
+        _updateCount++;
+        await UpdateMetricsAsync(scopedServices, stoppingToken);
 
-        // Wait for app to initialize
-        await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken);
+        // Update timestamp
+        Interlocked.Exchange(ref _lastUpdateTimestamp, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
 
-        int updateCount = 0;
-
-        while (!stoppingToken.IsCancellationRequested)
+        // Log periodically based on interval
+        int logFrequency = Math.Max(1, 600 / _updateIntervalSeconds); // Log roughly every 10 minutes
+        if (_updateCount % logFrequency == 0)
         {
-            try
-            {
-                updateCount++;
-                await UpdateMetricsAsync(stoppingToken);
-
-                // Update timestamp
-                Interlocked.Exchange(ref _lastUpdateTimestamp, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
-
-                // Log periodically based on interval
-                int logFrequency = Math.Max(1, 600 / _updateIntervalSeconds); // Log roughly every 10 minutes
-                if (updateCount % logFrequency == 0)
-                {
-                    _logger.LogDebug(
-                        "Metrics updated - Downloads: {Downloads}, Services: {Services}, ActiveDownloads: {Active}",
-                        _totalDownloads, _serviceMetrics.Count, _activeDownloads
-                    );
-                }
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to update metrics");
-            }
-
-            // Use configurable interval
-            int interval;
-            lock (_intervalLock)
-            {
-                interval = _updateIntervalSeconds;
-            }
-            await Task.Delay(TimeSpan.FromSeconds(interval), stoppingToken);
+            Logger.LogDebug(
+                "Metrics updated - Downloads: {Downloads}, Services: {Services}, ActiveDownloads: {Active}",
+                _totalDownloads, _serviceMetrics.Count, _activeDownloads
+            );
         }
-
-        _logger.LogInformation("LancacheMetricsService background task stopped");
     }
 
-    private async Task UpdateMetricsAsync(CancellationToken cancellationToken)
+    private async Task UpdateMetricsAsync(IServiceProvider scopedServices, CancellationToken cancellationToken)
     {
-        using var scope = _scopeFactory.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var cacheService = scope.ServiceProvider.GetRequiredService<CacheManagementService>();
+        var context = scopedServices.GetRequiredService<AppDbContext>();
+        var cacheService = scopedServices.GetRequiredService<CacheManagementService>();
 
         // ============================================
         // CACHE STORAGE METRICS
@@ -572,7 +556,7 @@ public class LancacheMetricsService : BackgroundService
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Failed to get cache storage info");
+            Logger.LogDebug(ex, "Failed to get cache storage info");
         }
 
         // ============================================

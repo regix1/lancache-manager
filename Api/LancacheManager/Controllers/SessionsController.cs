@@ -1,13 +1,13 @@
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Security;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Extensions;
 using LancacheManager.Hubs;
-using LancacheManager.Infrastructure.Repositories;
-using LancacheManager.Core.Interfaces.Repositories;
+using LancacheManager.Infrastructure.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
-using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Controllers;
 
@@ -22,30 +22,30 @@ public class SessionsController : ControllerBase
     private readonly DeviceAuthService _deviceAuthService;
     private readonly GuestSessionService _guestSessionService;
     private readonly ILogger<SessionsController> _logger;
-    private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly ISignalRNotificationService _notifications;
     private readonly AppDbContext _dbContext;
-    private readonly IDatabaseRepository _databaseRepository;
+    private readonly IDatabaseService _databaseService;
     private readonly ConnectionTrackingService _connectionTrackingService;
     private readonly UserPreferencesService _userPreferencesService;
-    private readonly StateRepository _stateService;
+    private readonly StateService _stateService;
 
     public SessionsController(
         DeviceAuthService deviceAuthService,
         GuestSessionService guestSessionService,
         ILogger<SessionsController> logger,
-        IHubContext<DownloadHub> hubContext,
+        ISignalRNotificationService notifications,
         AppDbContext dbContext,
-        IDatabaseRepository databaseRepository,
+        IDatabaseService databaseService,
         ConnectionTrackingService connectionTrackingService,
         UserPreferencesService userPreferencesService,
-        StateRepository stateService)
+        StateService stateService)
     {
         _deviceAuthService = deviceAuthService;
         _guestSessionService = guestSessionService;
         _logger = logger;
-        _hubContext = hubContext;
+        _notifications = notifications;
         _dbContext = dbContext;
-        _databaseRepository = databaseRepository;
+        _databaseService = databaseService;
         _connectionTrackingService = connectionTrackingService;
         _userPreferencesService = userPreferencesService;
         _stateService = stateService;
@@ -67,30 +67,8 @@ public class SessionsController : ControllerBase
         var devices = _deviceAuthService.GetAllDevices();
         var guests = _guestSessionService.GetAllSessions();
 
-        // Convert to unified format
-        var authenticatedSessions = devices.Select(d => new
-        {
-            id = d.DeviceId, // Use DeviceId as the primary identifier
-            deviceId = d.DeviceId,
-            deviceName = d.DeviceName,
-            ipAddress = d.IpAddress,
-            localIp = d.LocalIp,
-            hostname = d.Hostname,
-            operatingSystem = d.OperatingSystem,
-            browser = d.Browser,
-            createdAt = d.RegisteredAt,
-            lastSeenAt = d.LastSeenAt,
-            expiresAt = d.ExpiresAt,
-            isExpired = d.IsExpired,
-            isRevoked = false,
-            revokedAt = (DateTime?)null,
-            revokedBy = (string?)null,
-            type = "authenticated",
-            // Authenticated users always have prefill access
-            prefillEnabled = true,
-            prefillExpiresAt = (DateTime?)null,
-            isPrefillExpired = false
-        }).ToList();
+        // Convert to unified format using extension methods
+        var authenticatedSessions = devices.ToSessionDtos();
 
         // Filter out guest sessions that have been upgraded to authenticated
         // If the same device ID exists in both authenticated and guest, show only authenticated
@@ -98,34 +76,12 @@ public class SessionsController : ControllerBase
 
         var guestSessions = guests
             .Where(g => !authenticatedDeviceIds.Contains(g.DeviceId))
-            .Select(g => new
-            {
-                id = g.DeviceId, // Use DeviceId as the primary identifier
-                deviceId = g.DeviceId,
-                deviceName = g.DeviceName,
-                ipAddress = g.IpAddress,
-                localIp = (string?)null,
-                hostname = (string?)null,
-                operatingSystem = g.OperatingSystem,
-                browser = g.Browser,
-                createdAt = g.CreatedAt,
-                lastSeenAt = g.LastSeenAt,
-                expiresAt = g.ExpiresAt,
-                isExpired = g.IsExpired,
-                isRevoked = g.IsRevoked,
-                revokedAt = g.RevokedAt,
-                revokedBy = g.RevokedBy,
-                type = "guest",
-                // Prefill permissions
-                prefillEnabled = g.PrefillEnabled,
-                prefillExpiresAt = g.PrefillExpiresAt,
-                isPrefillExpired = g.IsPrefillExpired
-            }).ToList();
+            .ToSessionDtos();
 
         // Sort: authenticated users first, then guests, both by creation date (newest first)
         var allSessionsSorted = authenticatedSessions.Concat(guestSessions)
-            .OrderBy(s => s.type == "guest" ? 1 : 0)  // authenticated (0) before guests (1)
-            .ThenByDescending(s => s.createdAt)  // newest first within each type
+            .OrderBy(s => s.Type == "guest" ? 1 : 0)  // authenticated (0) before guests (1)
+            .ThenByDescending(s => s.CreatedAt)  // newest first within each type
             .ToList();
 
         // Apply pagination
@@ -138,21 +94,21 @@ public class SessionsController : ControllerBase
             .Take(pageSize)
             .ToList();
 
-        return Ok(new
+        return Ok(new PaginatedSessionsResponse
         {
-            sessions = paginatedSessions,
-            pagination = new
+            Sessions = paginatedSessions,
+            Pagination = new PaginationInfo
             {
-                page = page,
-                pageSize = pageSize,
-                totalCount = totalCount,
-                totalPages = totalPages,
-                hasNextPage = page < totalPages,
-                hasPreviousPage = page > 1
+                Page = page,
+                PageSize = pageSize,
+                TotalCount = totalCount,
+                TotalPages = totalPages,
+                HasNextPage = page < totalPages,
+                HasPreviousPage = page > 1
             },
-            count = totalCount,
-            authenticatedCount = authenticatedSessions.Count,
-            guestCount = guestSessions.Count
+            Count = totalCount,
+            AuthenticatedCount = authenticatedSessions.Count,
+            GuestCount = guestSessions.Count
         });
     }
 
@@ -168,47 +124,14 @@ public class SessionsController : ControllerBase
         var device = _deviceAuthService.GetAllDevices().FirstOrDefault(d => d.DeviceId == id);
         if (device != null)
         {
-            return Ok(new
-            {
-                id = device.DeviceId,
-                deviceId = device.DeviceId,
-                deviceName = device.DeviceName,
-                ipAddress = device.IpAddress,
-                localIp = device.LocalIp,
-                hostname = device.Hostname,
-                operatingSystem = device.OperatingSystem,
-                browser = device.Browser,
-                createdAt = device.RegisteredAt,
-                lastSeenAt = device.LastSeenAt,
-                expiresAt = device.ExpiresAt,
-                isExpired = device.IsExpired,
-                type = "authenticated"
-            });
+            return Ok(device.ToSessionDto());
         }
 
         // Check guest sessions
         var guestSession = _guestSessionService.GetSessionByDeviceId(id);
         if (guestSession != null)
         {
-            return Ok(new
-            {
-                id = guestSession.DeviceId,
-                deviceId = guestSession.DeviceId,
-                deviceName = guestSession.DeviceName,
-                ipAddress = guestSession.IpAddress,
-                operatingSystem = guestSession.OperatingSystem,
-                browser = guestSession.Browser,
-                createdAt = guestSession.CreatedAt,
-                lastSeenAt = guestSession.LastSeenAt,
-                expiresAt = guestSession.ExpiresAt,
-                isExpired = guestSession.IsExpired,
-                isRevoked = guestSession.IsRevoked,
-                type = "guest",
-                // Prefill permissions
-                prefillEnabled = guestSession.PrefillEnabled,
-                prefillExpiresAt = guestSession.PrefillExpiresAt,
-                isPrefillExpired = guestSession.IsPrefillExpired
-            });
+            return Ok(guestSession.ToSessionDto());
         }
 
         return NotFound(new ErrorResponse { Error = "Session not found" });
@@ -223,7 +146,7 @@ public class SessionsController : ControllerBase
     public async Task<IActionResult> CreateSession([FromQuery] string? type, [FromBody] CreateSessionRequest request)
     {
         // Block session creation during database reset operations
-        if (_databaseRepository.IsResetOperationRunning)
+        if (_databaseService.IsResetOperationRunning)
         {
             _logger.LogWarning("Guest session creation rejected - database reset in progress");
             return StatusCode(503, new ServiceUnavailableResponse
@@ -265,7 +188,7 @@ public class SessionsController : ControllerBase
         HttpContext.Session.SetString("AuthMode", "guest");
 
         // Broadcast session creation via SignalR for real-time updates
-        await _hubContext.Clients.All.SendAsync("UserSessionCreated", new
+        await _notifications.NotifyAllAsync(SignalREvents.UserSessionCreated, new
         {
             deviceId = session.DeviceId,
             sessionType = "guest"
@@ -303,7 +226,7 @@ public class SessionsController : ControllerBase
 
             // Notify authenticated users (admins viewing UserTab) that this session's lastSeenAt was updated
             // Only send to authenticated group to avoid warnings on guest clients
-            await _hubContext.Clients.Group(Hubs.DownloadHub.AuthenticatedUsersGroup).SendAsync("SessionLastSeenUpdated", new
+            await _notifications.NotifyGroupAsync(DownloadHub.AuthenticatedUsersGroup, SignalREvents.SessionLastSeenUpdated, new
             {
                 deviceId = deviceId,
                 sessionType = "authenticated",
@@ -322,7 +245,7 @@ public class SessionsController : ControllerBase
             // Notify authenticated users (admins viewing UserTab) that this session's lastSeenAt was updated
             // Only send to authenticated group to avoid warnings on guest clients
             _logger.LogDebug("Broadcasting SessionLastSeenUpdated for guest {DeviceId}", deviceId);
-            await _hubContext.Clients.Group(Hubs.DownloadHub.AuthenticatedUsersGroup).SendAsync("SessionLastSeenUpdated", new
+            await _notifications.NotifyGroupAsync(DownloadHub.AuthenticatedUsersGroup, SignalREvents.SessionLastSeenUpdated, new
             {
                 deviceId = deviceId,
                 sessionType = "guest",
@@ -366,7 +289,7 @@ public class SessionsController : ControllerBase
                 HttpContext.Session.Clear();
 
                 // Broadcast deletion
-                await _hubContext.Clients.All.SendAsync("UserSessionRevoked", new
+                await _notifications.NotifyAllAsync(SignalREvents.UserSessionRevoked, new
                 {
                     deviceId = deviceId,
                     sessionType = "authenticated"
@@ -386,7 +309,7 @@ public class SessionsController : ControllerBase
             if (deleteSuccess)
             {
                 // Broadcast deletion
-                await _hubContext.Clients.All.SendAsync("UserSessionRevoked", new
+                await _notifications.NotifyAllAsync(SignalREvents.UserSessionRevoked, new
                 {
                     deviceId = deviceId,
                     sessionType = "guest"
@@ -431,7 +354,7 @@ public class SessionsController : ControllerBase
                 }
 
                 // Broadcast deletion
-                await _hubContext.Clients.All.SendAsync("UserSessionRevoked", new
+                await _notifications.NotifyAllAsync(SignalREvents.UserSessionRevoked, new
                 {
                     deviceId = id,
                     sessionType = "authenticated"
@@ -468,7 +391,7 @@ public class SessionsController : ControllerBase
             if (success)
             {
                 // Broadcast action
-                await _hubContext.Clients.All.SendAsync("UserSessionRevoked", new
+                await _notifications.NotifyAllAsync(SignalREvents.UserSessionRevoked, new
                 {
                     deviceId = id,
                     sessionType = "guest"
@@ -530,7 +453,7 @@ public class SessionsController : ControllerBase
         {
             // If reset, send the default guest refresh rate
             var rateToSend = refreshRate ?? _stateService.GetDefaultGuestRefreshRate();
-            await _hubContext.Clients.Client(connectionId).SendAsync("GuestRefreshRateUpdated", new
+            await _notifications.NotifyClientAsync(connectionId, SignalREvents.GuestRefreshRateUpdated, new
             {
                 refreshRate = rateToSend,
                 isDefault = isReset
@@ -589,7 +512,7 @@ public class SessionsController : ControllerBase
                 affectedCount++;
 
                 // Notify the session about the preference change
-                await _hubContext.Clients.All.SendAsync("UserPreferencesUpdated", new
+                await _notifications.NotifyAllAsync(SignalREvents.UserPreferencesUpdated, new
                 {
                     sessionId = session.DeviceId,
                     preferences = new
@@ -639,7 +562,7 @@ public class SessionsController : ControllerBase
                 clearedCount++;
 
                 // Notify connected clients
-                await _hubContext.Clients.All.SendAsync("UserSessionRevoked", new
+                await _notifications.NotifyAllAsync(SignalREvents.UserSessionRevoked, new
                 {
                     deviceId = session.DeviceId,
                     sessionType = "guest"

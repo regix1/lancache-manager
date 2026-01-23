@@ -1,13 +1,14 @@
 using LancacheManager.Models;
 using LancacheManager.Configuration;
 using LancacheManager.Infrastructure.Data;
-using LancacheManager.Infrastructure.Repositories;
-using LancacheManager.Core.Interfaces.Repositories;
+using LancacheManager.Infrastructure.Services;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -27,23 +28,23 @@ public class StatsController : ControllerBase
     private const string PrefillToken = "prefill";
 
     private readonly AppDbContext _context;
-    private readonly StatsRepository _statsService;
-    private readonly IClientGroupsRepository _clientGroupsRepository;
+    private readonly StatsDataService _statsService;
+    private readonly IClientGroupsService _clientGroupsRepository;
     private readonly CacheSnapshotService _cacheSnapshotService;
-    private readonly IStateRepository _stateRepository;
+    private readonly IStateService _stateRepository;
     private readonly ILogger<StatsController> _logger;
     private readonly IOptions<ApiOptions> _apiOptions;
-    private readonly IHubContext<LancacheManager.Hubs.DownloadHub> _downloadHubContext;
+    private readonly ISignalRNotificationService _notifications;
 
     public StatsController(
         AppDbContext context,
-        StatsRepository statsService,
-        IClientGroupsRepository clientGroupsRepository,
+        StatsDataService statsService,
+        IClientGroupsService clientGroupsRepository,
         CacheSnapshotService cacheSnapshotService,
-        IStateRepository stateRepository,
+        IStateService stateRepository,
         ILogger<StatsController> logger,
         IOptions<ApiOptions> apiOptions,
-        IHubContext<LancacheManager.Hubs.DownloadHub> downloadHubContext)
+        ISignalRNotificationService notifications)
     {
         _context = context;
         _statsService = statsService;
@@ -52,7 +53,7 @@ public class StatsController : ControllerBase
         _stateRepository = stateRepository;
         _logger = logger;
         _apiOptions = apiOptions;
-        _downloadHubContext = downloadHubContext;
+        _notifications = notifications;
     }
 
     /// <summary>
@@ -243,152 +244,139 @@ public class StatsController : ControllerBase
         [FromQuery] int? eventId = null,
         [FromQuery] bool includeExcluded = false)
     {
-        try
+        // Get configuration
+        var maxLimit = _apiOptions.Value.MaxClientsPerRequest;
+        var defaultLimit = _apiOptions.Value.DefaultClientsLimit;
+        var effectiveLimit = Math.Min(limit ?? defaultLimit, maxLimit);
+
+        // Parse event IDs
+        var eventIdList = ParseEventId(eventId);
+
+        // Build base query with time filtering
+        var query = _context.Downloads.AsNoTracking();
+
+        // Apply event filter if provided (filters to only tagged downloads)
+        HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
+        query = ApplyEventFilter(query, eventIdList, eventDownloadIds);
+
+        // Filter out hidden IPs completely, but include excluded IPs so they can be shown with a badge.
+        var hiddenClientIps = includeExcluded ? new List<string>() : _stateRepository.GetHiddenClientIps();
+        query = ApplyHiddenClientFilter(query, hiddenClientIps);
+
+        if (startTime.HasValue)
         {
-            // Get configuration
-            var maxLimit = _apiOptions.Value.MaxClientsPerRequest;
-            var defaultLimit = _apiOptions.Value.DefaultClientsLimit;
-            var effectiveLimit = Math.Min(limit ?? defaultLimit, maxLimit);
-
-            // Parse event IDs
-            var eventIdList = ParseEventId(eventId);
-
-            // Build base query with time filtering
-            var query = _context.Downloads.AsNoTracking();
-
-            // Apply event filter if provided (filters to only tagged downloads)
-            HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
-            query = ApplyEventFilter(query, eventIdList, eventDownloadIds);
-
-            // Filter out hidden IPs completely, but include excluded IPs so they can be shown with a badge.
-            var hiddenClientIps = includeExcluded ? new List<string>() : _stateRepository.GetHiddenClientIps();
-            query = ApplyHiddenClientFilter(query, hiddenClientIps);
-
-            if (startTime.HasValue)
-            {
-                var startDate = DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime;
-                query = query.Where(d => d.StartTimeUtc >= startDate);
-            }
-            if (endTime.HasValue)
-            {
-                var endDate = DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime;
-                query = query.Where(d => d.StartTimeUtc <= endDate);
-            }
-
-            // IMPROVEMENT #1: Push aggregation to database (SQL GROUP BY)
-            // NOTE: Duration must be calculated client-side due to SQLite limitations
-            // SQLite can't translate DateTime subtraction with TotalSeconds in aggregates
-            var ipStats = await query
-                .GroupBy(d => d.ClientIp)
-                .Select(g => new
-                {
-                    ClientIp = g.Key,
-                    TotalCacheHitBytes = g.Sum(d => d.CacheHitBytes),
-                    TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
-                    TotalDownloads = g.Count(),
-                    // Get min start and max end for duration calculation client-side
-                    MinStartTimeUtc = g.Min(d => d.StartTimeUtc),
-                    MaxEndTimeUtc = g.Max(d => d.EndTimeUtc),
-                    LastActivityUtc = g.Max(d => d.StartTimeUtc)
-                })
-                .ToListAsync();
-
-            // Calculate duration client-side (total time span from first download to last completion)
-            var ipStatsWithDuration = ipStats.Select(s => new
-            {
-                s.ClientIp,
-                s.TotalCacheHitBytes,
-                s.TotalCacheMissBytes,
-                s.TotalDownloads,
-                TotalDurationSeconds = s.MaxEndTimeUtc > s.MinStartTimeUtc
-                    ? (s.MaxEndTimeUtc - s.MinStartTimeUtc).TotalSeconds
-                    : 0,
-                s.LastActivityUtc
-            }).ToList();
-
-            // IMPROVEMENT #2: Create reverse lookup dictionary (O(1) instead of O(n))
-            var ipToGroupMapping = await _clientGroupsRepository.GetIpToGroupMappingAsync();
-
-            // Build GroupId → GroupInfo lookup
-            var groupIdToInfo = ipToGroupMapping.Values
-                .GroupBy(v => v.GroupId)
-                .ToDictionary(g => g.Key, g => g.First());
-
-            // IMPROVEMENT #8: Single-pass partitioning (grouped vs ungrouped)
-            var groupedStats = new Dictionary<int, List<(string Ip, long Hit, long Miss, int Downloads, double Duration, DateTime LastActivity)>>();
-            var ungroupedStats = new List<ClientStatsWithGroup>();
-
-            foreach (var stat in ipStatsWithDuration)
-            {
-                if (ipToGroupMapping.TryGetValue(stat.ClientIp, out var groupInfo))
-                {
-                    // Add to grouped collection
-                    if (!groupedStats.ContainsKey(groupInfo.GroupId))
-                    {
-                        groupedStats[groupInfo.GroupId] = new();
-                    }
-                    groupedStats[groupInfo.GroupId].Add((
-                        stat.ClientIp,
-                        stat.TotalCacheHitBytes,
-                        stat.TotalCacheMissBytes,
-                        stat.TotalDownloads,
-                        stat.TotalDurationSeconds,
-                        stat.LastActivityUtc
-                    ));
-                }
-                else
-                {
-                    // IMPROVEMENT #3: Use helper method
-                    ungroupedStats.Add(CreateClientStats(
-                        clientIp: stat.ClientIp,
-                        totalCacheHitBytes: stat.TotalCacheHitBytes,
-                        totalCacheMissBytes: stat.TotalCacheMissBytes,
-                        totalDownloads: stat.TotalDownloads,
-                        totalDurationSeconds: stat.TotalDurationSeconds,
-                        lastActivityUtc: stat.LastActivityUtc
-                    ));
-                }
-            }
-
-            // Aggregate grouped stats
-            var groupedClientStats = groupedStats.Select(kvp =>
-            {
-                var groupId = kvp.Key;
-                var members = kvp.Value;
-                var groupInfo = groupIdToInfo[groupId]; // IMPROVEMENT #2: O(1) lookup!
-
-                return CreateClientStats(
-                    clientIp: members.First().Ip,
-                    totalCacheHitBytes: members.Sum(m => m.Hit),
-                    totalCacheMissBytes: members.Sum(m => m.Miss),
-                    totalDownloads: members.Sum(m => m.Downloads),
-                    totalDurationSeconds: members.Sum(m => m.Duration),
-                    lastActivityUtc: members.Max(m => m.LastActivity),
-                    displayName: groupInfo.Nickname,
-                    groupId: groupId,
-                    groupMemberIps: members.Select(m => m.Ip).OrderBy(ip => ip).ToList()
-                );
-            }).ToList();
-
-            // Combine and sort by total bytes
-            var allStats = groupedClientStats
-                .Concat(ungroupedStats)
-                .OrderByDescending(c => c.TotalBytes)
-                .Take(effectiveLimit) // IMPROVEMENT #4: Configurable limit
-                .ToList();
-
-            return Ok(allStats);
+            var startDate = startTime.Value.FromUnixSeconds();
+            query = query.Where(d => d.StartTimeUtc >= startDate);
         }
-        catch (Exception ex)
+        if (endTime.HasValue)
         {
-            _logger.LogError(ex, "Error getting client stats");
-            // IMPROVEMENT #6: Return proper error instead of empty 200 OK
-            return StatusCode(500, new
-            {
-                error = "Failed to retrieve client statistics",
-                message = "An error occurred while processing your request. Please try again later."
-            });
+            var endDate = endTime.Value.FromUnixSeconds();
+            query = query.Where(d => d.StartTimeUtc <= endDate);
         }
+
+        // IMPROVEMENT #1: Push aggregation to database (SQL GROUP BY)
+        // NOTE: Duration must be calculated client-side due to SQLite limitations
+        // SQLite can't translate DateTime subtraction with TotalSeconds in aggregates
+        var ipStats = await query
+            .GroupBy(d => d.ClientIp)
+            .Select(g => new
+            {
+                ClientIp = g.Key,
+                TotalCacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
+                TotalDownloads = g.Count(),
+                // Get min start and max end for duration calculation client-side
+                MinStartTimeUtc = g.Min(d => d.StartTimeUtc),
+                MaxEndTimeUtc = g.Max(d => d.EndTimeUtc),
+                LastActivityUtc = g.Max(d => d.StartTimeUtc)
+            })
+            .ToListAsync();
+
+        // Calculate duration client-side (total time span from first download to last completion)
+        var ipStatsWithDuration = ipStats.Select(s => new
+        {
+            s.ClientIp,
+            s.TotalCacheHitBytes,
+            s.TotalCacheMissBytes,
+            s.TotalDownloads,
+            TotalDurationSeconds = s.MaxEndTimeUtc > s.MinStartTimeUtc
+                ? (s.MaxEndTimeUtc - s.MinStartTimeUtc).TotalSeconds
+                : 0,
+            s.LastActivityUtc
+        }).ToList();
+
+        // IMPROVEMENT #2: Create reverse lookup dictionary (O(1) instead of O(n))
+        var ipToGroupMapping = await _clientGroupsRepository.GetIpToGroupMappingAsync();
+
+        // Build GroupId → GroupInfo lookup
+        var groupIdToInfo = ipToGroupMapping.Values
+            .GroupBy(v => v.GroupId)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        // IMPROVEMENT #8: Single-pass partitioning (grouped vs ungrouped)
+        var groupedStats = new Dictionary<int, List<(string Ip, long Hit, long Miss, int Downloads, double Duration, DateTime LastActivity)>>();
+        var ungroupedStats = new List<ClientStatsWithGroup>();
+
+        foreach (var stat in ipStatsWithDuration)
+        {
+            if (ipToGroupMapping.TryGetValue(stat.ClientIp, out var groupInfo))
+            {
+                // Add to grouped collection
+                if (!groupedStats.ContainsKey(groupInfo.GroupId))
+                {
+                    groupedStats[groupInfo.GroupId] = new();
+                }
+                groupedStats[groupInfo.GroupId].Add((
+                    stat.ClientIp,
+                    stat.TotalCacheHitBytes,
+                    stat.TotalCacheMissBytes,
+                    stat.TotalDownloads,
+                    stat.TotalDurationSeconds,
+                    stat.LastActivityUtc
+                ));
+            }
+            else
+            {
+                // IMPROVEMENT #3: Use helper method
+                ungroupedStats.Add(CreateClientStats(
+                    clientIp: stat.ClientIp,
+                    totalCacheHitBytes: stat.TotalCacheHitBytes,
+                    totalCacheMissBytes: stat.TotalCacheMissBytes,
+                    totalDownloads: stat.TotalDownloads,
+                    totalDurationSeconds: stat.TotalDurationSeconds,
+                    lastActivityUtc: stat.LastActivityUtc
+                ));
+            }
+        }
+
+        // Aggregate grouped stats
+        var groupedClientStats = groupedStats.Select(kvp =>
+        {
+            var groupId = kvp.Key;
+            var members = kvp.Value;
+            var groupInfo = groupIdToInfo[groupId]; // IMPROVEMENT #2: O(1) lookup!
+
+            return CreateClientStats(
+                clientIp: members.First().Ip,
+                totalCacheHitBytes: members.Sum(m => m.Hit),
+                totalCacheMissBytes: members.Sum(m => m.Miss),
+                totalDownloads: members.Sum(m => m.Downloads),
+                totalDurationSeconds: members.Sum(m => m.Duration),
+                lastActivityUtc: members.Max(m => m.LastActivity),
+                displayName: groupInfo.Nickname,
+                groupId: groupId,
+                groupMemberIps: members.Select(m => m.Ip).OrderBy(ip => ip).ToList()
+            );
+        }).ToList();
+
+        // Combine and sort by total bytes
+        var allStats = groupedClientStats
+            .Concat(ungroupedStats)
+            .OrderByDescending(c => c.TotalBytes)
+            .Take(effectiveLimit) // IMPROVEMENT #4: Configurable limit
+            .ToList();
+
+        return Ok(allStats);
     }
 
     [HttpGet("exclusions")]
@@ -419,7 +407,7 @@ public class StatsController : ControllerBase
 
         _stateRepository.SetExcludedClientIps(normalizedIps);
         // Notify clients to refresh downloads/stats since exclusions affect all tabs
-        await _downloadHubContext.Clients.All.SendAsync("DownloadsRefresh", new
+        await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
         {
             reason = "exclusions-updated"
         });
@@ -473,76 +461,62 @@ public class StatsController : ControllerBase
     [OutputCache(PolicyName = "stats-short")]
     public async Task<IActionResult> GetServices([FromQuery] string? since = null, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] int? eventId = null)
     {
-        try
+        // Parse event IDs
+        var eventIdList = ParseEventId(eventId);
+
+        // ALWAYS query Downloads table directly to ensure consistency with dashboard stats
+        // Previously used cached ServiceStats table which caused fluctuating values
+        // Filter out hidden IPs completely, but include excluded IPs (they'll be excluded from calculations)
+        var query = _context.Downloads.AsNoTracking();
+        var hiddenClientIps = _stateRepository.GetHiddenClientIps();
+        var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
+        query = ApplyHiddenClientFilter(query, hiddenClientIps);
+
+        // Apply event filter if provided (filters to only tagged downloads)
+        HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
+        query = ApplyEventFilter(query, eventIdList, eventDownloadIds);
+
+        // Apply time filtering if provided
+        if (startTime.HasValue)
         {
-            // Parse event IDs
-            var eventIdList = ParseEventId(eventId);
-
-            // ALWAYS query Downloads table directly to ensure consistency with dashboard stats
-            // Previously used cached ServiceStats table which caused fluctuating values
-            // Filter out hidden IPs completely, but include excluded IPs (they'll be excluded from calculations)
-            var query = _context.Downloads.AsNoTracking();
-            var hiddenClientIps = _stateRepository.GetHiddenClientIps();
-            var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
-            query = ApplyHiddenClientFilter(query, hiddenClientIps);
-
-            // Apply event filter if provided (filters to only tagged downloads)
-            HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
-            query = ApplyEventFilter(query, eventIdList, eventDownloadIds);
-
-            // Apply time filtering if provided
-            if (startTime.HasValue)
-            {
-                var startDate = DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime;
-                query = query.Where(d => d.StartTimeUtc >= startDate);
-            }
-            if (endTime.HasValue)
-            {
-                var endDate = DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime;
-                query = query.Where(d => d.StartTimeUtc <= endDate);
-            }
-            else if (!string.IsNullOrEmpty(since) && since != "all")
-            {
-                // Parse time period string for backwards compatibility
-                var cutoffTime = TimeUtils.ParseTimePeriod(since);
-                if (cutoffTime.HasValue)
-                {
-                    query = query.Where(d => d.StartTimeUtc >= cutoffTime.Value);
-                }
-            }
-            // No filter = all data (consistent with dashboard)
-
-            // Aggregate by service from Downloads table (exclude stats-excluded IPs from calculations)
-            var serviceStatsQuery = statsExcludedOnlyIps.Count > 0
-                ? query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
-                : query;
-            var serviceStats = await serviceStatsQuery
-                .GroupBy(d => d.Service)
-                .Select(g => new ServiceStats
-                {
-                    Service = g.Key,
-                    TotalCacheHitBytes = g.Sum(d => d.CacheHitBytes),
-                    TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
-                    TotalDownloads = g.Count(),
-                    LastActivityUtc = g.Max(d => d.StartTimeUtc),
-                    LastActivityLocal = g.Max(d => d.StartTimeLocal)
-                })
-                .OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes)
-                .ToListAsync();
-
-            // Fix timezone for proper JSON serialization
-            foreach (var stat in serviceStats)
-            {
-                stat.LastActivityUtc = stat.LastActivityUtc.AsUtc();
-            }
-
-            return Ok(serviceStats);
+            var startDate = startTime.Value.FromUnixSeconds();
+            query = query.Where(d => d.StartTimeUtc >= startDate);
         }
-        catch (Exception ex)
+        if (endTime.HasValue)
         {
-            _logger.LogError(ex, "Error getting service stats");
-            return Ok(new List<ServiceStats>());
+            var endDate = endTime.Value.FromUnixSeconds();
+            query = query.Where(d => d.StartTimeUtc <= endDate);
         }
+        else if (!string.IsNullOrEmpty(since) && since != "all")
+        {
+            // Parse time period string for backwards compatibility
+            var cutoffTime = TimeUtils.ParseTimePeriod(since);
+            if (cutoffTime.HasValue)
+            {
+                query = query.Where(d => d.StartTimeUtc >= cutoffTime.Value);
+            }
+        }
+        // No filter = all data (consistent with dashboard)
+
+        // Aggregate by service from Downloads table (exclude stats-excluded IPs from calculations)
+        var serviceStatsQuery = statsExcludedOnlyIps.Count > 0
+            ? query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
+            : query;
+        var serviceStats = await serviceStatsQuery
+            .GroupBy(d => d.Service)
+            .Select(g => new ServiceStats
+            {
+                Service = g.Key,
+                TotalCacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
+                TotalDownloads = g.Count(),
+                LastActivityUtc = g.Max(d => d.StartTimeUtc),
+                LastActivityLocal = g.Max(d => d.StartTimeLocal)
+            })
+            .OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes)
+            .ToListAsync();
+
+        return Ok(serviceStats.WithUtcMarking());
     }
 
     [HttpGet("dashboard")]
@@ -564,11 +538,11 @@ public class StatsController : ControllerBase
 
         if (startTime.HasValue)
         {
-            cutoffTime = DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime;
+            cutoffTime = startTime.Value.FromUnixSeconds();
         }
         if (endTime.HasValue)
         {
-            endDateTime = DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime;
+            endDateTime = endTime.Value.FromUnixSeconds();
         }
         // If no timestamps provided, cutoffTime and endDateTime remain null = query ALL data
 
@@ -759,70 +733,85 @@ public class StatsController : ControllerBase
         [FromQuery] long? endTime = null,
         [FromQuery] int? eventId = null)
     {
-        try
+        // Parse event IDs
+        var eventIdList = ParseEventId(eventId);
+
+        // Build query with optional time filtering
+        // Filter out hidden IPs completely, but include excluded IPs (they'll be excluded from calculations)
+        var query = _context.Downloads.AsNoTracking();
+        var hiddenClientIps = _stateRepository.GetHiddenClientIps();
+        var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
+        query = ApplyHiddenClientFilter(query, hiddenClientIps);
+
+        // Apply event filter if provided (filters to only tagged downloads)
+        HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
+        query = ApplyEventFilter(query, eventIdList, eventDownloadIds);
+
+        DateTime? cutoffTime = null;
+        DateTime? endDateTime = null;
+
+        if (startTime.HasValue)
         {
-            // Parse event IDs
-            var eventIdList = ParseEventId(eventId);
+            cutoffTime = startTime.Value.FromUnixSeconds();
+            query = query.Where(d => d.StartTimeUtc >= cutoffTime);
+        }
+        if (endTime.HasValue)
+        {
+            endDateTime = endTime.Value.FromUnixSeconds();
+            query = query.Where(d => d.StartTimeUtc <= endDateTime);
+        }
 
-            // Build query with optional time filtering
-            // Filter out hidden IPs completely, but include excluded IPs (they'll be excluded from calculations)
-            var query = _context.Downloads.AsNoTracking();
-            var hiddenClientIps = _stateRepository.GetHiddenClientIps();
-            var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
-            query = ApplyHiddenClientFilter(query, hiddenClientIps);
+        // Calculate number of distinct days in the period
+        int daysInPeriod = 1;
+        long? periodStartTimestamp = null;
+        long? periodEndTimestamp = null;
 
-            // Apply event filter if provided (filters to only tagged downloads)
-            HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
-            query = ApplyEventFilter(query, eventIdList, eventDownloadIds);
+        if (startTime.HasValue && endTime.HasValue)
+        {
+            // Use the provided time range
+            daysInPeriod = Math.Max(1, (int)Math.Ceiling((endDateTime!.Value - cutoffTime!.Value).TotalDays));
+            periodStartTimestamp = startTime.Value;
+            periodEndTimestamp = endTime.Value;
+        }
+        else
+        {
+            // For "all" data, count distinct days from the actual data
+            var dateRange = await query
+                .Select(d => d.StartTimeLocal.Date)
+                .Distinct()
+                .ToListAsync();
 
-            DateTime? cutoffTime = null;
-            DateTime? endDateTime = null;
+            daysInPeriod = Math.Max(1, dateRange.Count);
 
-            if (startTime.HasValue)
+            if (dateRange.Count > 0)
             {
-                cutoffTime = DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime;
-                query = query.Where(d => d.StartTimeUtc >= cutoffTime);
+                var minDate = dateRange.Min();
+                var maxDate = dateRange.Max();
+                periodStartTimestamp = new DateTimeOffset(minDate, TimeSpan.Zero).ToUnixTimeSeconds();
+                periodEndTimestamp = new DateTimeOffset(maxDate.AddDays(1).AddSeconds(-1), TimeSpan.Zero).ToUnixTimeSeconds();
             }
-            if (endTime.HasValue)
+        }
+
+        // Query downloads and group by local time hour (StartTimeLocal is already in configured timezone)
+        // Exclude stats-excluded IPs from calculations
+        var hourlyDataAll = await query
+            .GroupBy(d => d.StartTimeLocal.Hour)
+            .Select(g => new HourlyActivityItem
             {
-                endDateTime = DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime;
-                query = query.Where(d => d.StartTimeUtc <= endDateTime);
-            }
+                Hour = g.Key,
+                Downloads = g.Count(),
+                BytesServed = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
+                CacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                CacheMissBytes = g.Sum(d => d.CacheMissBytes)
+            })
+            .ToListAsync();
 
-            // Calculate number of distinct days in the period
-            int daysInPeriod = 1;
-            long? periodStartTimestamp = null;
-            long? periodEndTimestamp = null;
-
-            if (startTime.HasValue && endTime.HasValue)
-            {
-                // Use the provided time range
-                daysInPeriod = Math.Max(1, (int)Math.Ceiling((endDateTime!.Value - cutoffTime!.Value).TotalDays));
-                periodStartTimestamp = startTime.Value;
-                periodEndTimestamp = endTime.Value;
-            }
-            else
-            {
-                // For "all" data, count distinct days from the actual data
-                var dateRange = await query
-                    .Select(d => d.StartTimeLocal.Date)
-                    .Distinct()
-                    .ToListAsync();
-
-                daysInPeriod = Math.Max(1, dateRange.Count);
-
-                if (dateRange.Count > 0)
-                {
-                    var minDate = dateRange.Min();
-                    var maxDate = dateRange.Max();
-                    periodStartTimestamp = new DateTimeOffset(minDate, TimeSpan.Zero).ToUnixTimeSeconds();
-                    periodEndTimestamp = new DateTimeOffset(maxDate.AddDays(1).AddSeconds(-1), TimeSpan.Zero).ToUnixTimeSeconds();
-                }
-            }
-
-            // Query downloads and group by local time hour (StartTimeLocal is already in configured timezone)
-            // Exclude stats-excluded IPs from calculations
-            var hourlyDataAll = await query
+        // Subtract excluded IPs from calculations if any
+        List<HourlyActivityItem> hourlyData;
+        if (statsExcludedOnlyIps.Count > 0)
+        {
+            var excludedHourlyData = await query
+                .Where(d => statsExcludedOnlyIps.Contains(d.ClientIp))
                 .GroupBy(d => d.StartTimeLocal.Hour)
                 .Select(g => new HourlyActivityItem
                 {
@@ -834,73 +823,50 @@ public class StatsController : ControllerBase
                 })
                 .ToListAsync();
 
-            // Subtract excluded IPs from calculations if any
-            List<HourlyActivityItem> hourlyData;
-            if (statsExcludedOnlyIps.Count > 0)
+            var excludedByHour = excludedHourlyData.ToDictionary(h => h.Hour);
+            hourlyData = hourlyDataAll.Select(h => new HourlyActivityItem
             {
-                var excludedHourlyData = await query
-                    .Where(d => statsExcludedOnlyIps.Contains(d.ClientIp))
-                    .GroupBy(d => d.StartTimeLocal.Hour)
-                    .Select(g => new HourlyActivityItem
-                    {
-                        Hour = g.Key,
-                        Downloads = g.Count(),
-                        BytesServed = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
-                        CacheHitBytes = g.Sum(d => d.CacheHitBytes),
-                        CacheMissBytes = g.Sum(d => d.CacheMissBytes)
-                    })
-                    .ToListAsync();
-
-                var excludedByHour = excludedHourlyData.ToDictionary(h => h.Hour);
-                hourlyData = hourlyDataAll.Select(h => new HourlyActivityItem
-                {
-                    Hour = h.Hour,
-                    Downloads = excludedByHour.TryGetValue(h.Hour, out var excl) ? h.Downloads - excl.Downloads : h.Downloads,
-                    BytesServed = excludedByHour.TryGetValue(h.Hour, out var excl2) ? h.BytesServed - excl2.BytesServed : h.BytesServed,
-                    CacheHitBytes = excludedByHour.TryGetValue(h.Hour, out var excl3) ? h.CacheHitBytes - excl3.CacheHitBytes : h.CacheHitBytes,
-                    CacheMissBytes = excludedByHour.TryGetValue(h.Hour, out var excl4) ? h.CacheMissBytes - excl4.CacheMissBytes : h.CacheMissBytes
-                }).ToList();
-            }
-            else
-            {
-                hourlyData = hourlyDataAll;
-            }
-
-            // Fill in missing hours with zeros and calculate averages
-            var allHours = Enumerable.Range(0, 24)
-                .Select(h => {
-                    var existing = hourlyData.FirstOrDefault(hd => hd.Hour == h);
-                    if (existing != null)
-                    {
-                        existing.AvgDownloads = Math.Round((double)existing.Downloads / daysInPeriod, 1);
-                        existing.AvgBytesServed = existing.BytesServed / daysInPeriod;
-                        return existing;
-                    }
-                    return new HourlyActivityItem { Hour = h };
-                })
-                .OrderBy(h => h.Hour)
-                .ToList();
-
-            // Find peak hour (based on total downloads, not average)
-            var peakHour = allHours.OrderByDescending(h => h.Downloads).FirstOrDefault()?.Hour ?? 0;
-
-            return Ok(new HourlyActivityResponse
-            {
-                Hours = allHours,
-                PeakHour = peakHour,
-                TotalDownloads = allHours.Sum(h => h.Downloads),
-                TotalBytesServed = allHours.Sum(h => h.BytesServed),
-                DaysInPeriod = daysInPeriod,
-                PeriodStart = periodStartTimestamp,
-                PeriodEnd = periodEndTimestamp,
-                Period = startTime.HasValue ? "filtered" : "all"
-            });
+                Hour = h.Hour,
+                Downloads = excludedByHour.TryGetValue(h.Hour, out var excl) ? h.Downloads - excl.Downloads : h.Downloads,
+                BytesServed = excludedByHour.TryGetValue(h.Hour, out var excl2) ? h.BytesServed - excl2.BytesServed : h.BytesServed,
+                CacheHitBytes = excludedByHour.TryGetValue(h.Hour, out var excl3) ? h.CacheHitBytes - excl3.CacheHitBytes : h.CacheHitBytes,
+                CacheMissBytes = excludedByHour.TryGetValue(h.Hour, out var excl4) ? h.CacheMissBytes - excl4.CacheMissBytes : h.CacheMissBytes
+            }).ToList();
         }
-        catch (Exception ex)
+        else
         {
-            _logger.LogError(ex, "Error getting hourly activity data");
-            return Ok(new HourlyActivityResponse { Period = "error" });
+            hourlyData = hourlyDataAll;
         }
+
+        // Fill in missing hours with zeros and calculate averages
+        var allHours = Enumerable.Range(0, 24)
+            .Select(h => {
+                var existing = hourlyData.FirstOrDefault(hd => hd.Hour == h);
+                if (existing != null)
+                {
+                    existing.AvgDownloads = Math.Round((double)existing.Downloads / daysInPeriod, 1);
+                    existing.AvgBytesServed = existing.BytesServed / daysInPeriod;
+                    return existing;
+                }
+                return new HourlyActivityItem { Hour = h };
+            })
+            .OrderBy(h => h.Hour)
+            .ToList();
+
+        // Find peak hour (based on total downloads, not average)
+        var peakHour = allHours.OrderByDescending(h => h.Downloads).FirstOrDefault()?.Hour ?? 0;
+
+        return Ok(new HourlyActivityResponse
+        {
+            Hours = allHours,
+            PeakHour = peakHour,
+            TotalDownloads = allHours.Sum(h => h.Downloads),
+            TotalBytesServed = allHours.Sum(h => h.BytesServed),
+            DaysInPeriod = daysInPeriod,
+            PeriodStart = periodStartTimestamp,
+            PeriodEnd = periodEndTimestamp,
+            Period = startTime.HasValue ? "filtered" : "all"
+        });
     }
 
     /// <summary>
@@ -917,18 +883,16 @@ public class StatsController : ControllerBase
         [FromQuery] long? actualCacheSize = null,
         [FromQuery] int? eventId = null)
     {
-        try
-        {
-            // Parse event IDs
-            var eventIdList = ParseEventId(eventId);
+        // Parse event IDs
+        var eventIdList = ParseEventId(eventId);
             var hiddenClientIps = _stateRepository.GetHiddenClientIps();
             var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
 
             DateTime? cutoffTime = startTime.HasValue
-                ? DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime
+                ? startTime.Value.FromUnixSeconds()
                 : (DateTime?)null;
             DateTime? endDateTime = endTime.HasValue
-                ? DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime
+                ? endTime.Value.FromUnixSeconds()
                 : (DateTime?)null;
             var intervalMinutes = TimeUtils.ParseInterval(interval);
 
@@ -1049,8 +1013,8 @@ public class StatsController : ControllerBase
             {
                 cumulative += dp.GrowthFromPrevious;
                 dp.CumulativeCacheMissBytes = cumulative;
-                dp.Timestamp = dp.Timestamp.AsUtc();
             }
+            dataPoints.WithUtcMarking();
 
             // Calculate trend and statistics using period-over-period comparison
             // Compare recent half growth to older half growth for meaningful trends
@@ -1178,12 +1142,6 @@ public class StatsController : ControllerBase
                 EstimatedBytesDeleted = estimatedBytesDeleted,
                 CacheWasCleared = cacheWasCleared
             });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting cache growth data");
-            return Ok(new CacheGrowthResponse { Period = "error" });
-        }
     }
 
     /// <summary>
@@ -1197,9 +1155,7 @@ public class StatsController : ControllerBase
         [FromQuery] long? endTime = null,
         [FromQuery] int? eventId = null)
     {
-        try
-        {
-            // Parse event IDs
+        // Parse event IDs
             var eventIdList = ParseEventId(eventId);
 
             // Build query with optional time filtering
@@ -1213,12 +1169,12 @@ public class StatsController : ControllerBase
 
             if (startTime.HasValue)
             {
-                var cutoffTime = DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime;
+                var cutoffTime = startTime.Value.FromUnixSeconds();
                 query = query.Where(d => d.StartTimeUtc >= cutoffTime);
             }
             if (endTime.HasValue)
             {
-                var endDateTime = DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime;
+                var endDateTime = endTime.Value.FromUnixSeconds();
                 query = query.Where(d => d.StartTimeUtc <= endDateTime);
             }
 
@@ -1276,12 +1232,6 @@ public class StatsController : ControllerBase
                 AddedToCache = BuildSparklineMetric(addedToCacheData),
                 Period = startTime.HasValue ? "filtered" : "all"
             });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting sparkline data");
-            return Ok(new SparklineDataResponse { Period = "error" });
-        }
     }
 
     private static SparklineMetric BuildSparklineMetric(List<double> data)
@@ -1340,39 +1290,31 @@ public class StatsController : ControllerBase
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null)
     {
-        try
+        if (!startTime.HasValue || !endTime.HasValue)
         {
-            if (!startTime.HasValue || !endTime.HasValue)
-            {
-                return Ok(new CacheSnapshotResponse { HasData = false });
-            }
-
-            var startUtc = DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime;
-            var endUtc = DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime;
-
-            var summary = await _cacheSnapshotService.GetSnapshotSummaryAsync(startUtc, endUtc);
-
-            if (summary == null)
-            {
-                return Ok(new CacheSnapshotResponse { HasData = false });
-            }
-
-            return Ok(new CacheSnapshotResponse
-            {
-                HasData = true,
-                StartUsedSize = summary.StartUsedSize,
-                EndUsedSize = summary.EndUsedSize,
-                AverageUsedSize = summary.AverageUsedSize,
-                TotalCacheSize = summary.TotalCacheSize,
-                SnapshotCount = summary.SnapshotCount,
-                IsEstimate = summary.IsEstimate
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting cache snapshot data");
             return Ok(new CacheSnapshotResponse { HasData = false });
         }
+
+        var startUtc = startTime.Value.FromUnixSeconds();
+        var endUtc = endTime.Value.FromUnixSeconds();
+
+        var summary = await _cacheSnapshotService.GetSnapshotSummaryAsync(startUtc, endUtc);
+
+        if (summary == null)
+        {
+            return Ok(new CacheSnapshotResponse { HasData = false });
+        }
+
+        return Ok(new CacheSnapshotResponse
+        {
+            HasData = true,
+            StartUsedSize = summary.StartUsedSize,
+            EndUsedSize = summary.EndUsedSize,
+            AverageUsedSize = summary.AverageUsedSize,
+            TotalCacheSize = summary.TotalCacheSize,
+            SnapshotCount = summary.SnapshotCount,
+            IsEstimate = summary.IsEstimate
+        });
     }
 }
 

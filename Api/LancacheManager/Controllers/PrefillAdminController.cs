@@ -1,10 +1,10 @@
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Controllers;
 
@@ -21,20 +21,20 @@ public class PrefillAdminController : ControllerBase
     private readonly SteamPrefillDaemonService _daemonService;
     private readonly PrefillCacheService _cacheService;
     private readonly ILogger<PrefillAdminController> _logger;
-    private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly ISignalRNotificationService _notifications;
 
     public PrefillAdminController(
         PrefillSessionService sessionService,
         SteamPrefillDaemonService daemonService,
         PrefillCacheService cacheService,
         ILogger<PrefillAdminController> logger,
-        IHubContext<DownloadHub> hubContext)
+        ISignalRNotificationService notifications)
     {
         _sessionService = sessionService;
         _daemonService = daemonService;
         _cacheService = cacheService;
         _logger = logger;
-        _hubContext = hubContext;
+        _notifications = notifications;
     }
 
     private string? GetDeviceId() =>
@@ -226,7 +226,7 @@ public class PrefillAdminController : ControllerBase
         // Notify the banned device via SignalR so their UI updates immediately
         if (!string.IsNullOrEmpty(ban.BannedDeviceId))
         {
-            await _hubContext.Clients.All.SendAsync("SteamUserBanned", new
+            await _notifications.NotifyAllAsync(SignalREvents.SteamUserBanned, new
             {
                 deviceId = ban.BannedDeviceId,
                 username = ban.Username,
@@ -275,7 +275,7 @@ public class PrefillAdminController : ControllerBase
         // Notify the banned device via SignalR so their UI updates immediately
         if (!string.IsNullOrEmpty(ban.BannedDeviceId))
         {
-            await _hubContext.Clients.All.SendAsync("SteamUserBanned", new
+            await _notifications.NotifyAllAsync(SignalREvents.SteamUserBanned, new
             {
                 deviceId = ban.BannedDeviceId,
                 username = ban.Username,

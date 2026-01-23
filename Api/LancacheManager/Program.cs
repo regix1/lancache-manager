@@ -1,16 +1,18 @@
+using FluentValidation;
+using FluentValidation.AspNetCore;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamKit2;
 using LancacheManager.Configuration;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Filters;
 using LancacheManager.Hubs;
-using LancacheManager.Infrastructure.Repositories;
-using LancacheManager.Core.Interfaces.Repositories;
 using LancacheManager.Infrastructure.Services;
-using LancacheManager.Core.Interfaces.Services;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Platform;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
 using LancacheManager.Security;
+using LancacheManager.Validators;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Routing.Constraints;
 using Microsoft.EntityFrameworkCore;
@@ -44,8 +46,16 @@ if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("LANCACHE_MANAGER_VE
 }
 
 // Add services to the container
-builder.Services.AddControllers();
+builder.Services.AddControllers(options =>
+{
+    // Add validation filter for FluentValidation error responses
+    options.Filters.Add<ValidationFilter>();
+});
 builder.Services.AddEndpointsApiExplorer();
+
+// Configure FluentValidation for automatic request validation
+builder.Services.AddFluentValidationAutoValidation();
+builder.Services.AddValidatorsFromAssemblyContaining<CreateClientGroupRequestValidator>();
 
 // Configure session management with cookies
 // Sessions are stored in memory (cleared on app restart)
@@ -185,6 +195,9 @@ else
     throw new PlatformNotSupportedException($"Unsupported operating system: {OperatingSystemDetector.Description}");
 }
 
+// Register time provider for testable time-dependent code
+builder.Services.AddSingleton<ITimeProvider, SystemTimeProvider>();
+
 // Configure Data Protection for encrypting sensitive data
 // Keys are stored in the data directory and are machine-specific
 // Determine the path based on OS - must match PathResolver logic but cannot use DI yet
@@ -228,24 +241,27 @@ builder.Services.AddHostedService(provider => provider.GetRequiredService<Proces
 builder.Services.AddSingleton<RustProcessHelper>();
 
 // Register repositories with their interfaces
-builder.Services.AddSingleton<ISteamAuthRepository, SteamAuthRepository>();
-builder.Services.AddSingleton<IStateRepository, StateRepository>();
-builder.Services.AddScoped<IDatabaseRepository, DatabaseRepository>();
-builder.Services.AddScoped<IStatsRepository, StatsRepository>();
-builder.Services.AddScoped<IEventsRepository, EventsRepository>();
-builder.Services.AddScoped<IClientGroupsRepository, ClientGroupsRepository>();
-builder.Services.AddSingleton<ISettingsRepository, SettingsRepository>();
+builder.Services.AddSingleton<ISteamAuthStorageService, SteamAuthStorageService>();
+builder.Services.AddSingleton<IStateService, StateService>();
+builder.Services.AddScoped<IDatabaseService, DatabaseService>();
+builder.Services.AddScoped<IStatsDataService, StatsDataService>();
+builder.Services.AddScoped<IEventsService, EventsService>();
+builder.Services.AddScoped<IClientGroupsService, ClientGroupsService>();
+builder.Services.AddSingleton<ISettingsService, SettingsService>();
 
 // Register image caching service
 builder.Services.AddSingleton<IImageCacheService, ImageCacheService>();
 
+// Register SignalR notification service
+builder.Services.AddSingleton<ISignalRNotificationService, SignalRNotificationService>();
+
 // Register concrete classes (for code that directly references them)
-builder.Services.AddSingleton(sp => (SteamAuthRepository)sp.GetRequiredService<ISteamAuthRepository>());
-builder.Services.AddSingleton(sp => (StateRepository)sp.GetRequiredService<IStateRepository>());
-builder.Services.AddScoped(sp => (DatabaseRepository)sp.GetRequiredService<IDatabaseRepository>());
-builder.Services.AddScoped(sp => (StatsRepository)sp.GetRequiredService<IStatsRepository>());
-builder.Services.AddScoped(sp => (EventsRepository)sp.GetRequiredService<IEventsRepository>());
-builder.Services.AddSingleton(sp => (SettingsRepository)sp.GetRequiredService<ISettingsRepository>());
+builder.Services.AddSingleton(sp => (SteamAuthStorageService)sp.GetRequiredService<ISteamAuthStorageService>());
+builder.Services.AddSingleton(sp => (StateService)sp.GetRequiredService<IStateService>());
+builder.Services.AddScoped(sp => (DatabaseService)sp.GetRequiredService<IDatabaseService>());
+builder.Services.AddScoped(sp => (StatsDataService)sp.GetRequiredService<IStatsDataService>());
+builder.Services.AddScoped(sp => (EventsService)sp.GetRequiredService<IEventsService>());
+builder.Services.AddSingleton(sp => (SettingsService)sp.GetRequiredService<ISettingsService>());
 
 // Database configuration (now can use IPathResolver)
 var dbPathInitialized = false;
@@ -310,6 +326,7 @@ builder.Services.AddHttpClient("SteamImages", client =>
 builder.Services.AddSingleton<ApiKeyService>();
 builder.Services.AddSingleton<DeviceAuthService>();
 builder.Services.AddSingleton<GuestSessionService>();
+builder.Services.AddScoped<AuthenticationHelper>();
 builder.Services.AddSingleton<LancacheManager.Core.Services.UserPreferencesService>();
 builder.Services.AddSingleton<LancacheManager.Core.Services.SessionMigrationService>();
 

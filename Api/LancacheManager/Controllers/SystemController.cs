@@ -1,13 +1,11 @@
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
-using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Infrastructure.Services;
-using LancacheManager.Core.Interfaces.Services;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.SignalR;
 using LancacheManager.Core.Services.SteamKit2;
 
 
@@ -21,7 +19,7 @@ namespace LancacheManager.Controllers;
 [Route("api/system")]
 public class SystemController : ControllerBase
 {
-    private readonly StateRepository _stateService;
+    private readonly StateService _stateService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<SystemController> _logger;
     private readonly IPathResolver _pathResolver;
@@ -29,11 +27,11 @@ public class SystemController : ControllerBase
     private readonly CacheClearingService _cacheClearingService;
     private readonly SteamKit2Service _steamKit2Service;
     private readonly DatasourceService _datasourceService;
-    private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly ISignalRNotificationService _notifications;
     private readonly NginxLogRotationHostedService _logRotationService;
 
     public SystemController(
-        StateRepository stateService,
+        StateService stateService,
         IConfiguration configuration,
         ILogger<SystemController> logger,
         IPathResolver pathResolver,
@@ -41,7 +39,7 @@ public class SystemController : ControllerBase
         CacheClearingService cacheClearingService,
         SteamKit2Service steamKit2Service,
         DatasourceService datasourceService,
-        IHubContext<DownloadHub> hubContext,
+        ISignalRNotificationService notifications,
         NginxLogRotationHostedService logRotationService)
     {
         _stateService = stateService;
@@ -52,7 +50,7 @@ public class SystemController : ControllerBase
         _cacheClearingService = cacheClearingService;
         _steamKit2Service = steamKit2Service;
         _datasourceService = datasourceService;
-        _hubContext = hubContext;
+        _notifications = notifications;
         _logRotationService = logRotationService;
     }
 
@@ -365,7 +363,7 @@ public class SystemController : ControllerBase
         _logger.LogInformation("Default guest refresh rate set to: {Rate}", normalizedRate);
 
         // Broadcast to all clients so guest users pick up the new default
-        await _hubContext.Clients.All.SendAsync("DefaultGuestRefreshRateChanged", new
+        await _notifications.NotifyAllAsync(SignalREvents.DefaultGuestRefreshRateChanged, new
         {
             refreshRate = normalizedRate
         });
@@ -428,7 +426,7 @@ public class SystemController : ControllerBase
         _logger.LogInformation("Allowed time formats set to: {Formats}", string.Join(", ", request.Formats));
 
         // Broadcast to all clients
-        await _hubContext.Clients.All.SendAsync("AllowedTimeFormatsChanged", new
+        await _notifications.NotifyAllAsync(SignalREvents.AllowedTimeFormatsChanged, new
         {
             formats = request.Formats
         });
@@ -477,7 +475,7 @@ public class SystemController : ControllerBase
         _logger.LogInformation("Default guest preference {Key} set to: {Value}", key, request.Value);
 
         // Broadcast to all clients so other admins and guest users can update
-        await _hubContext.Clients.All.SendAsync("DefaultGuestPreferencesChanged", new
+        await _notifications.NotifyAllAsync(SignalREvents.DefaultGuestPreferencesChanged, new
         {
             key,
             value = request.Value

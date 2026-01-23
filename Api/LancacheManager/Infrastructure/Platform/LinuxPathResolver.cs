@@ -1,4 +1,4 @@
-using LancacheManager.Core.Interfaces.Services;
+using LancacheManager.Core.Interfaces;
 
 namespace LancacheManager.Infrastructure.Platform;
 
@@ -175,6 +175,12 @@ public class LinuxPathResolver : IPathResolver
 
     public string GetDatabasePath() =>
         Path.Combine(GetDataDirectory(), "LancacheManager.db");
+
+    public string GetDataProtectionKeysPath() =>
+        Path.Combine(GetDataDirectory(), "DataProtection-Keys");
+
+    public string GetSettingsPath(string settingsFileName) =>
+        Path.Combine(GetDataDirectory(), settingsFileName);
 
     /// <summary>
     /// Resolves a relative path to an absolute path based on the operating system

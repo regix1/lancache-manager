@@ -1,0 +1,159 @@
+@layer components {
+  /* ===== DOWNLOADS PAGE - MOBILE BANNER IMPROVEMENTS ===== */
+
+  /* 
+   * Steam header images are 460x215 (2.14:1 aspect ratio)
+   * On mobile, we use aspect-ratio to maintain proper proportions
+   * and avoid cropping/blurring that comes from forced dimensions
+   */
+
+  /* Mobile banner container - maintains Steam header aspect ratio */
+  .download-banner-mobile {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 460 / 215; /* Steam header native aspect ratio */
+    overflow: hidden;
+    background: var(--theme-bg-tertiary);
+  }
+
+  /* High-quality image rendering for game banners */
+  .download-banner-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+    /* Enable high-quality image rendering */
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+  }
+
+  /* Subtle gradient overlay on banners for better text contrast */
+  .download-banner-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      to bottom,
+      transparent 0%,
+      transparent 60%,
+      rgba(0, 0, 0, 0.3) 100%
+    );
+    pointer-events: none;
+  }
+
+  /* Banner placeholder with service icon */
+  .download-banner-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+      135deg,
+      var(--theme-bg-tertiary) 0%,
+      var(--theme-bg-secondary) 100%
+    );
+    padding: 1rem;
+  }
+
+  /* Mobile card improvements */
+  @media (max-width: 639px) {
+    /* Stack banner above content on mobile */
+    .download-card-mobile {
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Full-width banner on mobile with proper aspect ratio */
+    .download-card-mobile .download-banner-wrapper {
+      width: 100%;
+      flex-shrink: 0;
+    }
+
+    /* Content section with good padding */
+    .download-card-mobile .download-content {
+      padding: 0.75rem 1rem 1rem;
+    }
+
+    /* Compact stats on mobile */
+    .download-stats-mobile {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0.5rem 1rem;
+      font-size: 0.8125rem;
+    }
+
+    /* Service badge adjustments for mobile */
+    .download-service-badge {
+      padding: 0.25rem 0.5rem;
+      font-size: 0.6875rem;
+    }
+  }
+
+  /* Desktop view - side-by-side layout */
+  @media (min-width: 640px) {
+    .download-card-desktop {
+      display: flex;
+      flex-direction: row;
+    }
+
+    .download-card-desktop .download-banner-wrapper {
+      width: 280px;
+      flex-shrink: 0;
+    }
+
+    .download-card-desktop .download-content {
+      flex: 1;
+      min-width: 0;
+    }
+  }
+
+  /* ===== COMPACT VIEW MOBILE IMPROVEMENTS ===== */
+  
+  /* Compact view expanded section with banner */
+  .compact-expanded-banner {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 460 / 215;
+    border-radius: 0.375rem;
+    overflow: hidden;
+    margin-bottom: 0.75rem;
+  }
+
+  @media (min-width: 640px) {
+    .compact-expanded-banner {
+      width: 100px;
+      height: 46px;
+      aspect-ratio: auto;
+      margin-bottom: 0;
+    }
+  }
+
+  /* ===== ANIMATION IMPROVEMENTS ===== */
+  
+  /* Smooth image loading transition */
+  .download-banner-image-loading {
+    opacity: 0;
+    transition: opacity 0.3s ease-in-out;
+  }
+
+  .download-banner-image-loaded {
+    opacity: 1;
+  }
+
+  /* Card expand animation */
+  .download-card-expanding {
+    animation: cardExpand 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  @keyframes cardExpand {
+    from {
+      opacity: 0;
+      max-height: 0;
+    }
+    to {
+      opacity: 1;
+      max-height: 1000px;
+    }
+  }
+}

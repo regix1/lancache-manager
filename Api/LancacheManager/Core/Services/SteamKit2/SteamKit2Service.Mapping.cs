@@ -1,5 +1,5 @@
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Core.Services.SteamKit2;
@@ -181,7 +181,7 @@ public partial class SteamKit2Service
                     double percentComplete = (double)processed / totalDownloads * 100;
                     try
                     {
-                        await _hubContext.Clients.All.SendAsync("DepotMappingProgress", new
+                        await _notifications.NotifyAllAsync(SignalREvents.DepotMappingProgress, new
                         {
                             status = "Applying mappings to downloads",
                             percentComplete,
@@ -214,7 +214,7 @@ public partial class SteamKit2Service
             {
                 try
                 {
-                    await _hubContext.Clients.All.SendAsync("DepotMappingProgress", new
+                    await _notifications.NotifyAllAsync(SignalREvents.DepotMappingProgress, new
                     {
                         status = "Finalizing depot mappings",
                         percentComplete = 100.0,

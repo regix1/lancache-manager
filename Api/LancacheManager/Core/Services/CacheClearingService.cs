@@ -2,21 +2,20 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json.Serialization;
 using LancacheManager.Hubs;
-using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Platform;
-using LancacheManager.Core.Interfaces.Services;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
-using Microsoft.AspNetCore.SignalR;
+using ModelCacheClearOperation = LancacheManager.Models.CacheClearOperation;
 
 namespace LancacheManager.Core.Services;
 
 public class CacheClearingService : IHostedService
 {
     private readonly ILogger<CacheClearingService> _logger;
-    private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly ISignalRNotificationService _notifications;
     private readonly IPathResolver _pathResolver;
-    private readonly StateRepository _stateService;
+    private readonly StateService _stateService;
     private readonly ProcessManager _processManager;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly DatasourceService _datasourceService;
@@ -27,16 +26,16 @@ public class CacheClearingService : IHostedService
 
     public CacheClearingService(
         ILogger<CacheClearingService> logger,
-        IHubContext<DownloadHub> hubContext,
+        ISignalRNotificationService notifications,
         IConfiguration configuration,
         IPathResolver pathResolver,
-        StateRepository stateService,
+        StateService stateService,
         ProcessManager processManager,
         RustProcessHelper rustProcessHelper,
         DatasourceService datasourceService)
     {
         _logger = logger;
-        _hubContext = hubContext;
+        _notifications = notifications;
         _pathResolver = pathResolver;
         _stateService = stateService;
         _processManager = processManager;
@@ -171,7 +170,7 @@ public class CacheClearingService : IHostedService
                 operation.EndTime = DateTime.UtcNow;
                 await NotifyProgress(operation);
 
-                await _hubContext.Clients.All.SendAsync("CacheClearComplete", new
+                await _notifications.NotifyAllAsync(SignalREvents.CacheClearComplete, new
                 {
                     success = false,
                     message = errorMessage,
@@ -265,7 +264,7 @@ public class CacheClearingService : IHostedService
                 _logger.LogWarning("Cache clear operation {OperationId} failed: {Error}", operation.Id, operation.Error);
                 await NotifyProgress(operation);
 
-                await _hubContext.Clients.All.SendAsync("CacheClearComplete", new
+                await _notifications.NotifyAllAsync(SignalREvents.CacheClearComplete, new
                 {
                     success = false,
                     message = operation.Error,
@@ -295,7 +294,7 @@ public class CacheClearingService : IHostedService
                 await NotifyProgress(operation);
 
                 // Send completion notification
-                await _hubContext.Clients.All.SendAsync("CacheClearComplete", new
+                await _notifications.NotifyAllAsync(SignalREvents.CacheClearComplete, new
                 {
                     success = false,
                     message = operation.Error,
@@ -481,7 +480,7 @@ public class CacheClearingService : IHostedService
             await NotifyProgress(operation);
 
             // Send completion notification
-            await _hubContext.Clients.All.SendAsync("CacheClearComplete", new
+            await _notifications.NotifyAllAsync(SignalREvents.CacheClearComplete, new
             {
                 success = true,
                 message = operation.StatusMessage,
@@ -507,7 +506,7 @@ public class CacheClearingService : IHostedService
             await NotifyProgress(operation);
 
             // Send cancellation notification
-            await _hubContext.Clients.All.SendAsync("CacheClearComplete", new
+            await _notifications.NotifyAllAsync(SignalREvents.CacheClearComplete, new
             {
                 success = false,
                 message = "Cache clear cancelled by user",
@@ -541,7 +540,7 @@ public class CacheClearingService : IHostedService
             await NotifyProgress(operation);
 
             // Send failure notification
-            await _hubContext.Clients.All.SendAsync("CacheClearComplete", new
+            await _notifications.NotifyAllAsync(SignalREvents.CacheClearComplete, new
             {
                 success = false,
                 message = $"Cache clear failed: {ex.Message}",
@@ -592,7 +591,7 @@ public class CacheClearingService : IHostedService
                 PercentComplete = operation.PercentComplete
             };
 
-            await _hubContext.Clients.All.SendAsync("CacheClearProgress", progress);
+            await _notifications.NotifyAllAsync(SignalREvents.CacheClearProgress, progress);
 
         }
         catch (Exception ex)
@@ -660,7 +659,7 @@ public class CacheClearingService : IHostedService
     {
         try
         {
-            var stateOp = new StateRepository.CacheClearOperation
+            var stateOp = new ModelCacheClearOperation
             {
                 Id = operation.Id,
                 Status = operation.Status.ToString().ToLowerInvariant(),
@@ -691,7 +690,7 @@ public class CacheClearingService : IHostedService
     {
         try
         {
-            var newOperations = _operations.Values.Select(op => new StateRepository.CacheClearOperation
+            var newOperations = _operations.Values.Select(op => new ModelCacheClearOperation
             {
                 Id = op.Id,
                 Status = op.Status.ToString().ToLowerInvariant(),
@@ -832,7 +831,7 @@ public class CacheClearingService : IHostedService
                 operation.EndTime = DateTime.UtcNow;
 
                 // Notify via SignalR
-                await _hubContext.Clients.All.SendAsync("CacheClearComplete", new
+                await _notifications.NotifyAllAsync(SignalREvents.CacheClearComplete, new
                 {
                     success = false,
                     message = "Cache clear operation force killed",

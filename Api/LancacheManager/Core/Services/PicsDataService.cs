@@ -1,7 +1,7 @@
 using System.Text.Json;
 using LancacheManager.Infrastructure.Data;
-using LancacheManager.Infrastructure.Repositories;
-using LancacheManager.Core.Interfaces.Services;
+using LancacheManager.Infrastructure.Services;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Models;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -16,11 +16,11 @@ public class PicsDataService
     private readonly ILogger<PicsDataService> _logger;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IPathResolver _pathResolver;
-    private readonly StateRepository _stateService;
+    private readonly StateService _stateService;
     private readonly string _picsJsonFile;
     private readonly object _fileLock = new object();
 
-    public PicsDataService(ILogger<PicsDataService> logger, IServiceScopeFactory scopeFactory, IPathResolver pathResolver, StateRepository stateService)
+    public PicsDataService(ILogger<PicsDataService> logger, IServiceScopeFactory scopeFactory, IPathResolver pathResolver, StateService stateService)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;

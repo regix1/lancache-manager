@@ -1,9 +1,8 @@
 using LancacheManager.Models;
-using static LancacheManager.Infrastructure.Repositories.StateRepository;
 
-namespace LancacheManager.Core.Interfaces.Repositories;
+namespace LancacheManager.Core.Interfaces;
 
-public interface IStateRepository
+public interface IStateService
 {
     AppState GetState();
     void SaveState(AppState state);
@@ -17,6 +16,11 @@ public interface IStateRepository
     long GetLogPosition(string datasourceName);
     void SetLogPosition(string datasourceName, long position);
     Dictionary<string, long> GetAllLogPositions();
+
+    // Per-datasource total line count methods
+    long GetLogTotalLines(string datasourceName);
+    void SetLogTotalLines(string datasourceName, long totalLines);
+    Dictionary<string, long> GetAllLogTotalLines();
 
     // Cache Clear Operations Methods (stored in data/operations/cache_operations.json)
     List<CacheClearOperation> GetCacheClearOperations();
@@ -68,6 +72,10 @@ public interface IStateRepository
     int GetGuestSessionDurationHours();
     void SetGuestSessionDurationHours(int hours);
 
+    // Guest Mode Lock Methods
+    bool GetGuestModeLocked();
+    void SetGuestModeLocked(bool locked);
+
     // Theme Preference Methods
     string? GetSelectedTheme();
     void SetSelectedTheme(string? themeId);
@@ -75,6 +83,14 @@ public interface IStateRepository
     // Default Guest Theme Methods
     string? GetDefaultGuestTheme();
     void SetDefaultGuestTheme(string? themeId);
+
+    // Refresh Rate Methods
+    string GetRefreshRate();
+    void SetRefreshRate(string rate);
+
+    // Default Guest Refresh Rate Methods
+    string GetDefaultGuestRefreshRate();
+    void SetDefaultGuestRefreshRate(string rate);
 
     // Steam Session Replacement Tracking Methods
     int GetSessionReplacedCount();
@@ -95,4 +111,10 @@ public interface IStateRepository
     void SetExcludedClientRules(List<ClientExclusionRule> rules);
     List<string> GetHiddenClientIps();
     List<string> GetStatsExcludedOnlyClientIps();
+
+    // Guest Prefill Permission Methods
+    bool GetGuestPrefillEnabledByDefault();
+    void SetGuestPrefillEnabledByDefault(bool enabled);
+    int GetGuestPrefillDurationHours();
+    void SetGuestPrefillDurationHours(int hours);
 }

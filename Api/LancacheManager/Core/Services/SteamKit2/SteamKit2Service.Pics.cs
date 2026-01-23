@@ -1,8 +1,8 @@
 using System.Text.Json;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using SteamKit2;
 
@@ -22,22 +22,12 @@ public partial class SteamKit2Service
         _automaticScanSkipped = false; // Reset flag at start of new scan
 
         // Send start notification via SignalR (fire-and-forget)
-        _ = Task.Run(async () =>
+        _notifications.NotifyAllFireAndForget(SignalREvents.DepotMappingStarted, new
         {
-            try
-            {
-                await _hubContext.Clients.All.SendAsync("DepotMappingStarted", new
-                {
-                    scanMode = incrementalOnly ? "incremental" : "full",
-                    message = incrementalOnly ? "Starting incremental depot mapping scan..." : "Starting full depot mapping scan...",
-                    isLoggedOn = IsSteamAuthenticated,
-                    timestamp = DateTime.UtcNow
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to send depot mapping start notification via SignalR");
-            }
+            scanMode = incrementalOnly ? "incremental" : "full",
+            message = incrementalOnly ? "Starting incremental depot mapping scan..." : "Starting full depot mapping scan...",
+            isLoggedOn = IsSteamAuthenticated,
+            timestamp = DateTime.UtcNow
         });
 
         // Dispose previous cancellation token source if it exists
@@ -118,21 +108,14 @@ public partial class SteamKit2Service
             _logger.LogInformation("PICS rebuild cancelled successfully");
 
             // Send cancellation notification via SignalR
-            try
+            await _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete, new
             {
-                await _hubContext.Clients.All.SendAsync("DepotMappingComplete", new
-                {
-                    success = true,
-                    cancelled = true,
-                    message = "Depot mapping scan cancelled",
-                    isLoggedOn = IsSteamAuthenticated,
-                    timestamp = DateTime.UtcNow
-                });
-            }
-            catch (Exception signalREx)
-            {
-                _logger.LogWarning(signalREx, "Failed to send depot mapping cancellation notification via SignalR");
-            }
+                success = true,
+                cancelled = true,
+                message = "Depot mapping scan cancelled",
+                isLoggedOn = IsSteamAuthenticated,
+                timestamp = DateTime.UtcNow
+            });
 
             return true;
         }
@@ -383,23 +366,16 @@ public partial class SteamKit2Service
                     double percentComplete = (_processedBatches * 100.0 / allBatches.Count);
 
                     // Send progress via SignalR
-                    try
+                    await _notifications.NotifyAllAsync(SignalREvents.DepotMappingProgress, new
                     {
-                        await _hubContext.Clients.All.SendAsync("DepotMappingProgress", new
-                        {
-                            status = "Scanning Steam PICS data",
-                            percentComplete,
-                            processedBatches = _processedBatches,
-                            totalBatches = allBatches.Count,
-                            depotMappingsFound = _depotToAppMappings.Count,
-                            isLoggedOn = IsSteamAuthenticated,
-                            message = $"Scanning Steam PICS: {_processedBatches}/{allBatches.Count} batches"
-                        });
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to send PICS scan progress via SignalR");
-                    }
+                        status = "Scanning Steam PICS data",
+                        percentComplete,
+                        processedBatches = _processedBatches,
+                        totalBatches = allBatches.Count,
+                        depotMappingsFound = _depotToAppMappings.Count,
+                        isLoggedOn = IsSteamAuthenticated,
+                        message = $"Scanning Steam PICS: {_processedBatches}/{allBatches.Count} batches"
+                    });
 
                     // Log progress and save every 50 batches to reduce I/O
                     if (_processedBatches % 50 == 0)
@@ -476,24 +452,17 @@ public partial class SteamKit2Service
             _logger.LogInformation("Cleared cached viability check - next check will query Steam for fresh data");
 
             // Send completion notification
-            try
+            var totalMappings = _depotToAppMappings.Count;
+            await _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete, new
             {
-                var totalMappings = _depotToAppMappings.Count;
-                await _hubContext.Clients.All.SendAsync("DepotMappingComplete", new
-                {
-                    success = true,
-                    message = "Depot mapping completed successfully",
-                    totalMappings,
-                    downloadsUpdated,
-                    scanMode = incrementalOnly ? "incremental" : "full",
-                    isLoggedOn = IsSteamAuthenticated,
-                    timestamp = DateTime.UtcNow
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to send depot mapping completion via SignalR");
-            }
+                success = true,
+                message = "Depot mapping completed successfully",
+                totalMappings,
+                downloadsUpdated,
+                scanMode = incrementalOnly ? "incremental" : "full",
+                isLoggedOn = IsSteamAuthenticated,
+                timestamp = DateTime.UtcNow
+            });
         }
         catch (OperationCanceledException)
         {
@@ -510,21 +479,14 @@ public partial class SteamKit2Service
             _logger.LogError(ex, "Error building depot index");
 
             // Send error notification
-            try
+            await _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete, new
             {
-                await _hubContext.Clients.All.SendAsync("DepotMappingComplete", new
-                {
-                    success = false,
-                    message = $"Depot mapping failed: {ex.Message}",
-                    error = ex.Message,
-                    isLoggedOn = IsSteamAuthenticated,
-                    timestamp = DateTime.UtcNow
-                });
-            }
-            catch (Exception signalREx)
-            {
-                _logger.LogWarning(signalREx, "Failed to send depot mapping error via SignalR");
-            }
+                success = false,
+                message = $"Depot mapping failed: {ex.Message}",
+                error = ex.Message,
+                isLoggedOn = IsSteamAuthenticated,
+                timestamp = DateTime.UtcNow
+            });
 
             // Re-throw the exception so calling code knows the operation failed
             throw;
@@ -990,22 +952,15 @@ public partial class SteamKit2Service
     /// </summary>
     private async Task SendPostProcessingProgress(string message, double percentComplete, int depotMappingsFound)
     {
-        try
+        await _notifications.NotifyAllAsync(SignalREvents.DepotMappingProgress, new
         {
-            await _hubContext.Clients.All.SendAsync("DepotMappingProgress", new
-            {
-                status = message,
-                percentComplete,
-                processedBatches = _processedBatches,
-                totalBatches = _totalBatches,
-                depotMappingsFound,
-                isLoggedOn = IsSteamAuthenticated,
-                message
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to send post-processing progress via SignalR");
-        }
+            status = message,
+            percentComplete,
+            processedBatches = _processedBatches,
+            totalBatches = _totalBatches,
+            depotMappingsFound,
+            isLoggedOn = IsSteamAuthenticated,
+            message
+        });
     }
 }

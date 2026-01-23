@@ -1,6 +1,6 @@
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
-using LancacheManager.Core.Interfaces.Repositories;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 
@@ -16,12 +16,12 @@ public class MetricsController : ControllerBase
 {
     private readonly IConfiguration _configuration;
     private readonly LancacheMetricsService _metricsService;
-    private readonly IStateRepository _stateRepository;
+    private readonly IStateService _stateRepository;
 
     public MetricsController(
         IConfiguration configuration,
         LancacheMetricsService metricsService,
-        IStateRepository stateRepository)
+        IStateService stateRepository)
     {
         _configuration = configuration;
         _metricsService = metricsService;

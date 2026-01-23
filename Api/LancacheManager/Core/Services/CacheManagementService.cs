@@ -4,11 +4,10 @@ using Docker.DotNet;
 using Docker.DotNet.Models;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
-using LancacheManager.Core.Interfaces.Services;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using static LancacheManager.Infrastructure.Utilities.FormattingUtils;
 using LancacheManager.Models;
-using Microsoft.AspNetCore.SignalR;
 
 
 namespace LancacheManager.Core.Services;
@@ -21,7 +20,7 @@ public class CacheManagementService
     private readonly ProcessManager _processManager;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly NginxLogRotationService _nginxLogRotationService;
-    private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly ISignalRNotificationService _notifications;
     private readonly DatasourceService _datasourceService;
     private readonly DockerClient? _dockerClient;
 
@@ -47,7 +46,7 @@ public class CacheManagementService
         ProcessManager processManager,
         RustProcessHelper rustProcessHelper,
         NginxLogRotationService nginxLogRotationService,
-        IHubContext<DownloadHub> hubContext,
+        ISignalRNotificationService notifications,
         DatasourceService datasourceService)
     {
         _configuration = configuration;
@@ -56,7 +55,7 @@ public class CacheManagementService
         _processManager = processManager;
         _rustProcessHelper = rustProcessHelper;
         _nginxLogRotationService = nginxLogRotationService;
-        _hubContext = hubContext;
+        _notifications = notifications;
         _datasourceService = datasourceService;
 
         // Use DatasourceService for paths (with backward compatibility)
@@ -791,12 +790,12 @@ public class CacheManagementService
             _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Corruption manager");
 
             // Send start notification via SignalR
-            await _hubContext.Clients.All.SendAsync("CorruptionRemovalStarted", new
+            await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalStarted, new
             {
                 service,
                 message = $"Starting corruption removal for {service} across {datasources.Count} datasource(s)...",
                 timestamp = DateTime.UtcNow
-            }, cancellationToken);
+            });
 
             var processedCount = 0;
             var skippedCount = 0;
@@ -877,14 +876,14 @@ public class CacheManagementService
                             datasource.Name, process.ExitCode, error);
 
                         // Send failure notification via SignalR
-                        await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
+                        await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete, new
                         {
                             success = false,
                             service,
                             message = $"Failed to remove corrupted chunks for {service} in datasource '{datasource.Name}'",
                             error = error,
                             timestamp = DateTime.UtcNow
-                        }, cancellationToken);
+                        });
 
                         throw new Exception($"corruption_manager failed for datasource '{datasource.Name}' with exit code {process.ExitCode}: {error}");
                     }
@@ -899,13 +898,13 @@ public class CacheManagementService
                 processedCount, skippedCount);
 
             // Send success notification via SignalR
-            await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
+            await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete, new
             {
                 success = true,
                 service,
                 message = $"Successfully removed corrupted chunks for {service}",
                 timestamp = DateTime.UtcNow
-            }, cancellationToken);
+            });
 
             // Invalidate service count cache since corruption removal affects counts
             await InvalidateServiceCountsCache();

@@ -7,10 +7,9 @@ using Docker.DotNet;
 using Docker.DotNet.Models;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Hubs;
-using LancacheManager.Core.Interfaces.Services;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
-using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Core.Services;
 
@@ -22,8 +21,7 @@ namespace LancacheManager.Core.Services;
 public partial class SteamPrefillDaemonService : IHostedService, IDisposable
 {
     private readonly ILogger<SteamPrefillDaemonService> _logger;
-    private readonly IHubContext<PrefillDaemonHub> _hubContext;
-    private readonly IHubContext<DownloadHub> _downloadHubContext;
+    private readonly ISignalRNotificationService _notifications;
     private readonly IConfiguration _configuration;
     private readonly IPathResolver _pathResolver;
     private readonly PrefillSessionService _sessionService;
@@ -46,16 +44,14 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
 
     public SteamPrefillDaemonService(
         ILogger<SteamPrefillDaemonService> logger,
-        IHubContext<PrefillDaemonHub> hubContext,
-        IHubContext<DownloadHub> downloadHubContext,
+        ISignalRNotificationService notifications,
         IConfiguration configuration,
         IPathResolver pathResolver,
         PrefillSessionService sessionService,
         PrefillCacheService cacheService)
     {
         _logger = logger;
-        _hubContext = hubContext;
-        _downloadHubContext = downloadHubContext;
+        _notifications = notifications;
         _configuration = configuration;
         _pathResolver = pathResolver;
         _sessionService = sessionService;
@@ -540,8 +536,7 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
 
         // Broadcast session creation to all clients for real-time updates (both hubs)
         var sessionDto = DaemonSessionDto.FromSession(session);
-        await _hubContext.Clients.All.SendAsync("DaemonSessionCreated", sessionDto);
-        await _downloadHubContext.Clients.All.SendAsync("DaemonSessionCreated", sessionDto);
+        await _notifications.NotifyAllBothHubsAsync(SignalREvents.DaemonSessionCreated, sessionDto);
 
         return session;
     }
@@ -690,8 +685,7 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
 
             // Broadcast session update to all clients for real-time updates (both hubs)
             var updatedDto = DaemonSessionDto.FromSession(session);
-            await _hubContext.Clients.All.SendAsync("DaemonSessionUpdated", updatedDto);
-            await _downloadHubContext.Clients.All.SendAsync("DaemonSessionUpdated", updatedDto);
+            await _notifications.NotifyAllBothHubsAsync(SignalREvents.DaemonSessionUpdated, updatedDto);
         }
 
         _logger.LogInformation("Providing encrypted {CredentialType} for session {SessionId}",
@@ -877,8 +871,7 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
         session.PreviousAppName = null;
         await NotifyPrefillStateChangeAsync(session, "started");
         var startDto = DaemonSessionDto.FromSession(session);
-        await _hubContext.Clients.All.SendAsync("DaemonSessionUpdated", startDto);
-        await _downloadHubContext.Clients.All.SendAsync("DaemonSessionUpdated", startDto);
+        await _notifications.NotifyAllBothHubsAsync(SignalREvents.DaemonSessionUpdated, startDto);
 
         try
         {
@@ -965,8 +958,7 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
             session.PreviousAppId = 0;
             session.PreviousAppName = null;
             var endDto = DaemonSessionDto.FromSession(session);
-            await _hubContext.Clients.All.SendAsync("DaemonSessionUpdated", endDto);
-            await _downloadHubContext.Clients.All.SendAsync("DaemonSessionUpdated", endDto);
+            await _notifications.NotifyAllBothHubsAsync(SignalREvents.DaemonSessionUpdated, endDto);
         }
     }
 
@@ -1075,8 +1067,7 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
 
         // Broadcast session termination to all clients for real-time updates (both hubs)
         var terminatedEvent = new { sessionId = session.Id, reason = reason };
-        await _hubContext.Clients.All.SendAsync("DaemonSessionTerminated", terminatedEvent);
-        await _downloadHubContext.Clients.All.SendAsync("DaemonSessionTerminated", terminatedEvent);
+        await _notifications.NotifyAllBothHubsAsync(SignalREvents.DaemonSessionTerminated, terminatedEvent);
 
         // Cancel any ongoing operations immediately
         session.CancellationTokenSource.Cancel();

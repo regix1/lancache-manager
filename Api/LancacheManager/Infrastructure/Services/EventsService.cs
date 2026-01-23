@@ -1,19 +1,19 @@
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Data;
-using LancacheManager.Core.Interfaces.Repositories;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
-namespace LancacheManager.Infrastructure.Repositories;
+namespace LancacheManager.Infrastructure.Services;
 
-public class EventsRepository : IEventsRepository
+public class EventsService : IEventsService
 {
     private const string PrefillToken = "prefill";
 
     private readonly AppDbContext _context;
-    private readonly ILogger<EventsRepository> _logger;
+    private readonly ILogger<EventsService> _logger;
 
-    public EventsRepository(AppDbContext context, ILogger<EventsRepository> logger)
+    public EventsService(AppDbContext context, ILogger<EventsService> logger)
     {
         _context = context;
         _logger = logger;
@@ -21,79 +21,43 @@ public class EventsRepository : IEventsRepository
 
     public async Task<List<Event>> GetAllEventsAsync(CancellationToken cancellationToken = default)
     {
-        var events = await _context.Events
+        return (await _context.Events
             .AsNoTracking()
             .OrderByDescending(e => e.StartTimeUtc)
-            .ToListAsync(cancellationToken);
-
-        foreach (var evt in events)
-        {
-            evt.StartTimeUtc = evt.StartTimeUtc.AsUtc();
-            evt.EndTimeUtc = evt.EndTimeUtc.AsUtc();
-            evt.CreatedAtUtc = evt.CreatedAtUtc.AsUtc();
-            evt.UpdatedAtUtc = evt.UpdatedAtUtc.AsUtc();
-        }
-
-        return events;
+            .ToListAsync(cancellationToken))
+            .WithUtcMarking();
     }
 
     public async Task<List<Event>> GetActiveEventsAsync(CancellationToken cancellationToken = default)
     {
         var now = DateTime.UtcNow;
-        var events = await _context.Events
+        return (await _context.Events
             .AsNoTracking()
             .Where(e => e.StartTimeUtc <= now && e.EndTimeUtc >= now)
             .OrderBy(e => e.StartTimeUtc)
-            .ToListAsync(cancellationToken);
-
-        foreach (var evt in events)
-        {
-            evt.StartTimeUtc = evt.StartTimeUtc.AsUtc();
-            evt.EndTimeUtc = evt.EndTimeUtc.AsUtc();
-            evt.CreatedAtUtc = evt.CreatedAtUtc.AsUtc();
-            evt.UpdatedAtUtc = evt.UpdatedAtUtc.AsUtc();
-        }
-
-        return events;
+            .ToListAsync(cancellationToken))
+            .WithUtcMarking();
     }
 
     public async Task<List<Event>> GetEventsByDateRangeAsync(DateTime startUtc, DateTime endUtc, CancellationToken cancellationToken = default)
     {
-        var events = await _context.Events
+        return (await _context.Events
             .AsNoTracking()
             .Where(e =>
                 (e.StartTimeUtc >= startUtc && e.StartTimeUtc <= endUtc) ||
                 (e.EndTimeUtc >= startUtc && e.EndTimeUtc <= endUtc) ||
                 (e.StartTimeUtc <= startUtc && e.EndTimeUtc >= endUtc))
             .OrderBy(e => e.StartTimeUtc)
-            .ToListAsync(cancellationToken);
-
-        foreach (var evt in events)
-        {
-            evt.StartTimeUtc = evt.StartTimeUtc.AsUtc();
-            evt.EndTimeUtc = evt.EndTimeUtc.AsUtc();
-            evt.CreatedAtUtc = evt.CreatedAtUtc.AsUtc();
-            evt.UpdatedAtUtc = evt.UpdatedAtUtc.AsUtc();
-        }
-
-        return events;
+            .ToListAsync(cancellationToken))
+            .WithUtcMarking();
     }
 
     public async Task<Event?> GetEventByIdAsync(int id, CancellationToken cancellationToken = default)
     {
-        var evt = await _context.Events
+        return (await _context.Events
             .AsNoTracking()
-            .FirstOrDefaultAsync(e => e.Id == id, cancellationToken);
-
-        if (evt != null)
-        {
-            evt.StartTimeUtc = evt.StartTimeUtc.AsUtc();
-            evt.EndTimeUtc = evt.EndTimeUtc.AsUtc();
-            evt.CreatedAtUtc = evt.CreatedAtUtc.AsUtc();
-            evt.UpdatedAtUtc = evt.UpdatedAtUtc.AsUtc();
-        }
-
-        return evt;
+            .FirstOrDefaultAsync(e => e.Id == id, cancellationToken))
+            ?.WithUtcMarking();
     }
 
     public async Task<Event> CreateEventAsync(Event evt, CancellationToken cancellationToken = default)
@@ -102,12 +66,8 @@ public class EventsRepository : IEventsRepository
         _context.Events.Add(evt);
         await _context.SaveChangesAsync(cancellationToken);
 
-        evt.StartTimeUtc = evt.StartTimeUtc.AsUtc();
-        evt.EndTimeUtc = evt.EndTimeUtc.AsUtc();
-        evt.CreatedAtUtc = evt.CreatedAtUtc.AsUtc();
-
         _logger.LogInformation("Created event: {Name} (ID: {Id})", evt.Name, evt.Id);
-        return evt;
+        return evt.WithUtcMarking();
     }
 
     public async Task<Event> UpdateEventAsync(Event evt, CancellationToken cancellationToken = default)
@@ -129,13 +89,8 @@ public class EventsRepository : IEventsRepository
 
         await _context.SaveChangesAsync(cancellationToken);
 
-        existing.StartTimeUtc = existing.StartTimeUtc.AsUtc();
-        existing.EndTimeUtc = existing.EndTimeUtc.AsUtc();
-        existing.CreatedAtUtc = existing.CreatedAtUtc.AsUtc();
-        existing.UpdatedAtUtc = existing.UpdatedAtUtc.AsUtc();
-
         _logger.LogInformation("Updated event: {Name} (ID: {Id})", existing.Name, existing.Id);
-        return existing;
+        return existing.WithUtcMarking();
     }
 
     public async Task DeleteEventAsync(int id, CancellationToken cancellationToken = default)
@@ -186,16 +141,7 @@ public class EventsRepository : IEventsRepository
                 .ToListAsync(cancellationToken);
         }
 
-        foreach (var download in downloads)
-        {
-            download.StartTimeUtc = download.StartTimeUtc.AsUtc();
-            if (download.EndTimeUtc != default)
-            {
-                download.EndTimeUtc = download.EndTimeUtc.AsUtc();
-            }
-        }
-
-        return downloads;
+        return downloads.WithUtcMarking();
     }
 
     public async Task TagDownloadAsync(int eventId, int downloadId, bool autoTagged, CancellationToken cancellationToken = default)
@@ -286,4 +232,25 @@ public class EventsRepository : IEventsRepository
 
         return totalTagged;
     }
+
+
+    // ===== ICrudRepository-style Implementation =====
+
+    public Task<List<Event>> GetAllAsync(CancellationToken ct = default)
+        => GetAllEventsAsync(ct);
+
+    public Task<Event?> GetByIdAsync(int id, CancellationToken ct = default)
+        => GetEventByIdAsync(id, ct);
+
+    public Task<Event> CreateAsync(Event entity, CancellationToken ct = default)
+        => CreateEventAsync(entity, ct);
+
+    public Task<Event> UpdateAsync(Event entity, CancellationToken ct = default)
+        => UpdateEventAsync(entity, ct);
+
+    public async Task DeleteAsync(Event entity, CancellationToken ct = default)
+        => await DeleteEventAsync(entity.Id, ct);
+
+    public async Task<bool> ExistsAsync(int id, CancellationToken ct = default)
+        => await _context.Events.AnyAsync(e => e.Id == id, ct);
 }

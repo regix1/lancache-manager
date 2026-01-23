@@ -1,6 +1,9 @@
+using LancacheManager.Core.Interfaces;
+using LancacheManager.Infrastructure.Utilities;
+
 namespace LancacheManager.Models;
 
-public class Event
+public class Event : IUtcMarkable
 {
     public int Id { get; set; }
     public string Name { get; set; } = string.Empty;
@@ -23,4 +26,12 @@ public class Event
 
     // Navigation property
     public ICollection<EventDownload> EventDownloads { get; set; } = new List<EventDownload>();
+
+    public void MarkDateTimesAsUtc()
+    {
+        StartTimeUtc = StartTimeUtc.AsUtc();
+        EndTimeUtc = EndTimeUtc.AsUtc();
+        CreatedAtUtc = CreatedAtUtc.AsUtc();
+        UpdatedAtUtc = UpdatedAtUtc.AsUtc();
+    }
 }

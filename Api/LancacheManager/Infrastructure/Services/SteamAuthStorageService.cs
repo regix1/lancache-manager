@@ -1,17 +1,16 @@
 using System.Text.Json;
-using LancacheManager.Core.Interfaces.Repositories;
-using LancacheManager.Infrastructure.Services;
-using LancacheManager.Core.Interfaces.Services;
+using LancacheManager.Core.Interfaces;
+using LancacheManager.Models;
 
-namespace LancacheManager.Infrastructure.Repositories;
+namespace LancacheManager.Infrastructure.Services;
 
 /// <summary>
-/// Repository for managing Steam authentication credentials in a separate encrypted file
+/// Service for managing Steam authentication credentials in a separate encrypted file
 /// Uses Microsoft ASP.NET Core Data Protection API with API key as part of encryption
 /// </summary>
-public class SteamAuthRepository : ISteamAuthRepository
+public class SteamAuthStorageService : ISteamAuthStorageService
 {
-    private readonly ILogger<SteamAuthRepository> _logger;
+    private readonly ILogger<SteamAuthStorageService> _logger;
     private readonly IPathResolver _pathResolver;
     private readonly SecureStateEncryptionService _encryption;
     private readonly string _steamAuthDirectory;
@@ -19,8 +18,8 @@ public class SteamAuthRepository : ISteamAuthRepository
     private readonly object _lock = new object();
     private SteamAuthData? _cachedData;
 
-    public SteamAuthRepository(
-        ILogger<SteamAuthRepository> logger,
+    public SteamAuthStorageService(
+        ILogger<SteamAuthStorageService> logger,
         IPathResolver pathResolver,
         SecureStateEncryptionService encryption)
     {
@@ -35,32 +34,6 @@ public class SteamAuthRepository : ISteamAuthRepository
 
         // Ensure steam_auth directory exists
         EnsureDirectoryExists();
-    }
-
-    /// <summary>
-    /// Steam authentication data (decrypted in memory)
-    /// NOTE: GuardData is NOT stored - modern Steam auth uses refresh tokens only
-    /// </summary>
-    public class SteamAuthData
-    {
-        public string Mode { get; set; } = "anonymous"; // "anonymous" or "authenticated"
-        public string? Username { get; set; }
-        public string? RefreshToken { get; set; } // Decrypted in memory, encrypted in storage
-        public DateTime? LastAuthenticated { get; set; }
-        public string? SteamApiKey { get; set; } // Steam Web API key for V1 fallback (decrypted in memory, encrypted in storage)
-    }
-
-    /// <summary>
-    /// Internal class for JSON serialization with encrypted fields
-    /// NOTE: GuardData is NOT stored - modern Steam auth uses refresh tokens only
-    /// </summary>
-    private class PersistedSteamAuthData
-    {
-        public string Mode { get; set; } = "anonymous";
-        public string? Username { get; set; }
-        public string? RefreshToken { get; set; } // Encrypted with ENC2: prefix
-        public DateTime? LastAuthenticated { get; set; }
-        public string? SteamApiKey { get; set; } // Encrypted with ENC2: prefix
     }
 
     /// <summary>
@@ -291,7 +264,7 @@ public class SteamAuthRepository : ISteamAuthRepository
     /// Migrates Steam auth data from old state.json to new separate file
     /// NOTE: GuardData is NOT migrated - modern Steam auth uses refresh tokens only
     /// </summary>
-    public void MigrateFromStateJson(StateRepository.SteamAuthState? oldAuthState)
+    public void MigrateFromStateJson(SteamAuthState? oldAuthState)
     {
         if (oldAuthState == null)
         {

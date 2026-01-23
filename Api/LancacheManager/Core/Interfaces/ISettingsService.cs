@@ -1,8 +1,8 @@
 using LancacheManager.Models;
 
-namespace LancacheManager.Core.Interfaces.Repositories;
+namespace LancacheManager.Core.Interfaces;
 
-public interface ISettingsRepository
+public interface ISettingsService
 {
     GcSettings GetSettings();
     Task<GcSettings> UpdateSettingsAsync(GcSettings newSettings);

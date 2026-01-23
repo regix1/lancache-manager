@@ -1,4 +1,4 @@
-using LancacheManager.Core.Interfaces.Repositories;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Security;
 
 namespace LancacheManager.Middleware;
@@ -7,7 +7,7 @@ namespace LancacheManager.Middleware;
 /// Middleware to optionally require API key authentication for Prometheus metrics endpoint (/metrics)
 ///
 /// Configuration Priority:
-/// 1. UI Toggle (StateRepository) - if set via UI, takes precedence
+/// 1. UI Toggle (StateService) - if set via UI, takes precedence
 /// 2. Environment Variable / appsettings.json (Security:RequireAuthForMetrics) - default fallback
 ///
 /// Values:
@@ -34,7 +34,7 @@ public class MetricsAuthenticationMiddleware
         _logger = logger;
     }
 
-    public async Task InvokeAsync(HttpContext context, ApiKeyService apiKeyService, IStateRepository stateRepository)
+    public async Task InvokeAsync(HttpContext context, AuthenticationHelper authHelper, IStateService stateRepository)
     {
         // Only apply to /metrics endpoint - all other paths skip this middleware
         if (!context.Request.Path.StartsWithSegments("/metrics"))
@@ -44,7 +44,7 @@ public class MetricsAuthenticationMiddleware
         }
 
         // Check if authentication is required for metrics
-        // Priority: UI toggle (StateRepository) > env var/config (IConfiguration)
+        // Priority: UI toggle (StateService) > env var/config (IConfiguration)
         var uiToggleValue = stateRepository.GetRequireAuthForMetrics();
         var configValue = _configuration.GetValue<bool>("Security:RequireAuthForMetrics", false);
         var requireAuth = uiToggleValue ?? configValue;
@@ -57,29 +57,17 @@ public class MetricsAuthenticationMiddleware
         }
 
         // Metrics require authentication - check for API key
-        var apiKey = context.Request.Headers["X-Api-Key"].FirstOrDefault();
-
-        if (string.IsNullOrEmpty(apiKey))
+        var result = authHelper.ValidateApiKey(context);
+        if (result.IsAuthenticated)
         {
-            _logger.LogWarning("Metrics endpoint accessed without API key from {IP}",
-                context.Connection.RemoteIpAddress);
-            context.Response.StatusCode = 401;
-            context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync("{\"error\":\"API key required for metrics. Set X-Api-Key header.\"}");
+            await _next(context);
             return;
         }
 
-        if (!apiKeyService.ValidateApiKey(apiKey))
-        {
-            _logger.LogWarning("Metrics endpoint accessed with invalid API key from {IP}",
-                context.Connection.RemoteIpAddress);
-            context.Response.StatusCode = 403;
-            context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync("{\"error\":\"Invalid API key\"}");
-            return;
-        }
+        _logger.LogWarning("Metrics endpoint accessed without valid API key from {IP}",
+            context.Connection.RemoteIpAddress);
 
-        // Valid API key, proceed
-        await _next(context);
+        await AuthenticationHelper.WriteErrorResponseAsync(
+            context, result.StatusCode, result.ErrorMessage ?? "API key required for metrics");
     }
 }

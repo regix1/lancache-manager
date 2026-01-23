@@ -1,5 +1,5 @@
 using System.Text.Json;
-using LancacheManager.Infrastructure.Repositories;
+using LancacheManager.Infrastructure.Services;
 
 namespace LancacheManager.Core.Services;
 
@@ -12,7 +12,7 @@ public class SteamWebApiService
 {
     private readonly ILogger<SteamWebApiService> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly SteamAuthRepository _steamAuthRepository;
+    private readonly SteamAuthStorageService _steamAuthRepository;
 
     // Cache API version status
     private DateTime _lastStatusCheck = DateTime.MinValue;
@@ -43,7 +43,7 @@ public class SteamWebApiService
     public SteamWebApiService(
         ILogger<SteamWebApiService> logger,
         IHttpClientFactory httpClientFactory,
-        SteamAuthRepository steamAuthRepository)
+        SteamAuthStorageService steamAuthRepository)
     {
         _logger = logger;
         _httpClientFactory = httpClientFactory;

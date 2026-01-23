@@ -24,7 +24,9 @@ public class RequireAuthAttribute : ActionFilterAttribute
             return;
         }
 
-        // Priority 1: Check session cookie
+        var authHelper = httpContext.RequestServices.GetRequiredService<AuthenticationHelper>();
+
+        // Priority 1: Check session cookie with API key
         var sessionDeviceId = httpContext.Session.GetString("DeviceId");
         var sessionApiKey = httpContext.Session.GetString("ApiKey");
 
@@ -40,26 +42,17 @@ public class RequireAuthAttribute : ActionFilterAttribute
         }
 
         // Priority 2: Check for API key in header (for Swagger UI and API clients)
-        var apiKeyHeader = httpContext.Request.Headers["X-Api-Key"].FirstOrDefault();
-        if (!string.IsNullOrEmpty(apiKeyHeader))
+        var result = authHelper.ValidateApiKey(httpContext);
+        if (result.IsAuthenticated)
         {
-            var apiKeyService = httpContext.RequestServices.GetRequiredService<ApiKeyService>();
-            var isValid = apiKeyService.ValidateApiKey(apiKeyHeader);
-            
-            var logger = httpContext.RequestServices.GetService<ILogger<RequireAuthAttribute>>();
-            logger?.LogDebug("[RequireAuth] X-Api-Key header present, validation result: {IsValid}", isValid);
-            
-            if (isValid)
-            {
-                base.OnActionExecuting(context);
-                return;
-            }
+            base.OnActionExecuting(context);
+            return;
         }
 
         // Not authenticated - API Key or session required
         context.Result = new UnauthorizedObjectResult(new
         {
-            error = "Authentication required",
+            error = result.ErrorMessage ?? "Authentication required",
             message = "Please authenticate with a valid session or API key"
         });
     }

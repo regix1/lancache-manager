@@ -1,8 +1,10 @@
 using System.Text.Json.Serialization;
+using LancacheManager.Core.Interfaces;
+using LancacheManager.Infrastructure.Utilities;
 
 namespace LancacheManager.Models;
 
-public class Download
+public class Download : IUtcMarkable
 {
     public int Id { get; set; }
     public string Service { get; set; } = string.Empty;
@@ -63,6 +65,15 @@ public class Download
             // Prefer duration calculated from LogEntries (more accurate)
             var duration = DurationSeconds ?? (EndTimeUtc - StartTimeUtc).TotalSeconds;
             return duration > 0 ? TotalBytes / duration : 0;
+        }
+    }
+
+    public void MarkDateTimesAsUtc()
+    {
+        StartTimeUtc = StartTimeUtc.AsUtc();
+        if (EndTimeUtc != default)
+        {
+            EndTimeUtc = EndTimeUtc.AsUtc();
         }
     }
 }

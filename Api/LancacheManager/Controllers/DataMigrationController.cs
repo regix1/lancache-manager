@@ -1,5 +1,5 @@
 using LancacheManager.Models;
-using LancacheManager.Core.Interfaces.Services;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
@@ -169,9 +169,7 @@ public class DataMigrationController : ControllerBase
         ulong recordsErrors = 0;
         string? backupPath = null;
 
-        try
-        {
-            // Create backup of target database
+        // Create backup of target database
             if (System.IO.File.Exists(targetDatabasePath))
             {
                 var timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
@@ -335,16 +333,6 @@ public class DataMigrationController : ControllerBase
                 Errors = recordsErrors,
                 BackupPath = backupPath
             });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to import from LancacheManager database");
-            return StatusCode(500, new ErrorResponse
-            {
-                Error = "Import failed",
-                Details = ex.Message
-            });
-        }
     }
 
     /// <summary>

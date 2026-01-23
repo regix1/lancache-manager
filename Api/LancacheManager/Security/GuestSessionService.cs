@@ -1,5 +1,5 @@
 using LancacheManager.Infrastructure.Data;
-using LancacheManager.Infrastructure.Repositories;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
@@ -11,12 +11,12 @@ public class GuestSessionService
 {
     private readonly ILogger<GuestSessionService> _logger;
     private readonly IDbContextFactory<AppDbContext> _contextFactory;
-    private readonly StateRepository _stateRepository;
+    private readonly StateService _stateRepository;
     private readonly IConfiguration _configuration;
     private readonly Dictionary<string, GuestSession> _sessionCache = new();
     private readonly object _cacheLock = new();
 
-    public GuestSessionService(ILogger<GuestSessionService> logger, IDbContextFactory<AppDbContext> contextFactory, StateRepository stateRepository, IConfiguration configuration)
+    public GuestSessionService(ILogger<GuestSessionService> logger, IDbContextFactory<AppDbContext> contextFactory, StateService stateRepository, IConfiguration configuration)
     {
         _logger = logger;
         _contextFactory = contextFactory;

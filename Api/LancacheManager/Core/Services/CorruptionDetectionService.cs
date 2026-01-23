@@ -4,10 +4,9 @@ using System.Text.Json;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
-using LancacheManager.Core.Interfaces.Services;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Core.Services;
@@ -22,7 +21,7 @@ public class CorruptionDetectionService
     private readonly IPathResolver _pathResolver;
     private readonly ProcessManager _processManager;
     private readonly RustProcessHelper _rustProcessHelper;
-    private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly ISignalRNotificationService _notifications;
     private readonly DatasourceService _datasourceService;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly OperationStateService _operationStateService;
@@ -47,7 +46,7 @@ public class CorruptionDetectionService
         IPathResolver pathResolver,
         ProcessManager processManager,
         RustProcessHelper rustProcessHelper,
-        IHubContext<DownloadHub> hubContext,
+        ISignalRNotificationService notifications,
         DatasourceService datasourceService,
         IDbContextFactory<AppDbContext> dbContextFactory,
         OperationStateService operationStateService)
@@ -56,7 +55,7 @@ public class CorruptionDetectionService
         _pathResolver = pathResolver;
         _processManager = processManager;
         _rustProcessHelper = rustProcessHelper;
-        _hubContext = hubContext;
+        _notifications = notifications;
         _datasourceService = datasourceService;
         _dbContextFactory = dbContextFactory;
         _operationStateService = operationStateService;
@@ -98,11 +97,11 @@ public class CorruptionDetectionService
         });
 
         // Send start notification via SignalR
-        await _hubContext.Clients.All.SendAsync("CorruptionDetectionStarted", new
+        await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionStarted, new
         {
             operationId,
             message = "Starting corruption detection scan..."
-        }, cancellationToken);
+        });
 
         // Run detection in background
         _ = Task.Run(async () => await RunDetectionAsync(operationId, cancellationToken), cancellationToken);
@@ -168,7 +167,7 @@ public class CorruptionDetectionService
             _operationStateService.RemoveState($"{OperationStateKey}_{operationId}");
 
             // Send completion notification via SignalR
-            await _hubContext.Clients.All.SendAsync("CorruptionDetectionComplete", new
+            await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionComplete, new
             {
                 operationId,
                 success = true,
@@ -191,7 +190,7 @@ public class CorruptionDetectionService
             _operationStateService.RemoveState($"{OperationStateKey}_{operationId}");
 
             // Send failure notification via SignalR
-            await _hubContext.Clients.All.SendAsync("CorruptionDetectionComplete", new
+            await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionComplete, new
             {
                 operationId,
                 success = false,

@@ -1,9 +1,9 @@
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.SignalR;
 using static LancacheManager.Core.Services.UserPreferencesService;
 
 namespace LancacheManager.Controllers;
@@ -20,20 +20,20 @@ public class UserPreferencesController : ControllerBase
     private readonly UserPreferencesService _preferencesService;
     private readonly DeviceAuthService _deviceAuthService;
     private readonly GuestSessionService _guestSessionService;
-    private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly ISignalRNotificationService _notifications;
 
     public UserPreferencesController(
         ILogger<UserPreferencesController> logger,
         UserPreferencesService preferencesService,
         DeviceAuthService deviceAuthService,
         GuestSessionService guestSessionService,
-        IHubContext<DownloadHub> hubContext)
+        ISignalRNotificationService notifications)
     {
         _logger = logger;
         _preferencesService = preferencesService;
         _deviceAuthService = deviceAuthService;
         _guestSessionService = guestSessionService;
-        _hubContext = hubContext;
+        _notifications = notifications;
     }
 
     /// <summary>
@@ -110,11 +110,7 @@ public class UserPreferencesController : ControllerBase
             _logger.LogInformation("Broadcasting UserPreferencesUpdated for session {SessionId} (own preferences)", sessionId);
 
             // Broadcast preference update via SignalR
-            await _hubContext.Clients.All.SendAsync("UserPreferencesUpdated", new
-            {
-                sessionId,
-                preferences
-            });
+            await _notifications.NotifyAllAsync(SignalREvents.UserPreferencesUpdated, new { sessionId, preferences });
 
             _logger.LogInformation("UserPreferencesUpdated broadcast complete");
 
@@ -145,11 +141,7 @@ public class UserPreferencesController : ControllerBase
             _logger.LogInformation("Broadcasting UserPreferencesUpdated for session {SessionId} (single pref: {Key}={Value})", sessionId, key, value);
 
             // Broadcast preference update via SignalR
-            await _hubContext.Clients.All.SendAsync("UserPreferencesUpdated", new
-            {
-                sessionId,
-                preferences
-            });
+            await _notifications.NotifyAllAsync(SignalREvents.UserPreferencesUpdated, new { sessionId, preferences });
 
             _logger.LogInformation("UserPreferencesUpdated broadcast complete");
 
@@ -216,11 +208,7 @@ public class UserPreferencesController : ControllerBase
         if (success)
         {
             // Broadcast preference update via SignalR to notify the target user
-            await _hubContext.Clients.All.SendAsync("UserPreferencesUpdated", new
-            {
-                sessionId,
-                preferences
-            });
+            await _notifications.NotifyAllAsync(SignalREvents.UserPreferencesUpdated, new { sessionId, preferences });
 
             return Ok(new PreferencesUpdateResponse { Message = "Preferences saved successfully" });
         }

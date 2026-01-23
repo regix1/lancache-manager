@@ -1,17 +1,18 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
-using LancacheManager.Infrastructure.Repositories;
+using LancacheManager.Infrastructure.Services;
+using ModelOperationState = LancacheManager.Models.OperationState;
 
 namespace LancacheManager.Core.Services;
 
 public class OperationStateService : IHostedService
 {
     private readonly ILogger<OperationStateService> _logger;
-    private readonly StateRepository _stateService;
+    private readonly StateService _stateService;
     private readonly ConcurrentDictionary<string, OperationState> _states = new();
     private Timer? _cleanupTimer;
 
-    public OperationStateService(ILogger<OperationStateService> logger, StateRepository stateService)
+    public OperationStateService(ILogger<OperationStateService> logger, StateService stateService)
     {
         _logger = logger;
         _stateService = stateService;
@@ -184,7 +185,7 @@ public class OperationStateService : IHostedService
         }
     }
 
-    private OperationState MapPersistedState(StateRepository.OperationState persisted)
+    private OperationState MapPersistedState(ModelOperationState persisted)
     {
         return new OperationState
         {
@@ -263,14 +264,14 @@ public class OperationStateService : IHostedService
                 }
             }
 
-            _logger.LogInformation($"Loaded {_states.Count} operation states from StateRepository");
+            _logger.LogInformation($"Loaded {_states.Count} operation states from StateService");
 
             // Check for interrupted log processing operations and mark them for resume
             CheckAndMarkInterruptedOperationsForResume();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to load operation states from StateRepository");
+            _logger.LogError(ex, "Failed to load operation states from StateService");
         }
     }
 
@@ -278,7 +279,7 @@ public class OperationStateService : IHostedService
     {
         try
         {
-            var stateOp = new StateRepository.OperationState
+            var stateOp = new ModelOperationState
             {
                 Id = state.Key,
                 Type = state.Type,
@@ -300,7 +301,7 @@ public class OperationStateService : IHostedService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to save operation state to StateRepository");
+            _logger.LogError(ex, "Failed to save operation state to StateService");
         }
     }
 
@@ -308,7 +309,7 @@ public class OperationStateService : IHostedService
     {
         try
         {
-            var operations = _states.Values.Select(state => new StateRepository.OperationState
+            var operations = _states.Values.Select(state => new ModelOperationState
             {
                 Id = state.Key,
                 Type = state.Type,
@@ -326,7 +327,7 @@ public class OperationStateService : IHostedService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to save all operation states to StateRepository");
+            _logger.LogError(ex, "Failed to save all operation states to StateService");
         }
     }
 

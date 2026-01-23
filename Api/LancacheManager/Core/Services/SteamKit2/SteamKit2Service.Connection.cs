@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.SignalR;
+using LancacheManager.Hubs;
 using SteamKit2;
 
 namespace LancacheManager.Core.Services.SteamKit2;
@@ -138,7 +138,7 @@ public partial class SteamKit2Service
                 _currentRebuildCts?.Cancel();
 
                 // Send error notification via SignalR
-                _ = _hubContext.Clients.All.SendAsync("SteamSessionError", new
+                _notifications.NotifyAllFireAndForget(SignalREvents.SteamSessionError, new
                 {
                     errorType = "ConnectionFailed",
                     message = errorMessage,
@@ -148,7 +148,7 @@ public partial class SteamKit2Service
                 });
 
                 // Send failure completion event
-                _ = _hubContext.Clients.All.SendAsync("DepotMappingComplete", new
+                _notifications.NotifyAllFireAndForget(SignalREvents.DepotMappingComplete, new
                 {
                     success = false,
                     error = errorMessage,
@@ -167,7 +167,7 @@ public partial class SteamKit2Service
                 delaySeconds, _reconnectAttempt, MaxReconnectAttempts);
 
             // Send progress update so UI knows we're reconnecting
-            _ = _hubContext.Clients.All.SendAsync("DepotMappingProgress", new
+            _notifications.NotifyAllFireAndForget(SignalREvents.DepotMappingProgress, new
             {
                 status = $"Reconnecting to Steam (attempt {_reconnectAttempt}/{MaxReconnectAttempts})...",
                 percentComplete = _totalBatches > 0 ? (_processedBatches * 100.0 / _totalBatches) : 0,
@@ -260,7 +260,7 @@ public partial class SteamKit2Service
             _logger.LogError("Unable to logon to Steam: {Result} / {ExtendedResult}", callback.Result, callback.ExtendedResult);
 
             // Send error notification to frontend
-            _ = _hubContext.Clients.All.SendAsync("SteamSessionError", new
+            _notifications.NotifyAllFireAndForget(SignalREvents.SteamSessionError, new
             {
                 errorType,
                 message = errorMessage,
@@ -273,7 +273,7 @@ public partial class SteamKit2Service
             // If a rebuild was in progress, send failure completion
             if (IsRebuildRunning)
             {
-                _ = _hubContext.Clients.All.SendAsync("DepotMappingComplete", new
+                _notifications.NotifyAllFireAndForget(SignalREvents.DepotMappingComplete, new
                 {
                     success = false,
                     error = errorMessage,
@@ -360,7 +360,7 @@ public partial class SteamKit2Service
                 errorType = "AutoLogout";
 
                 // Send auto-logout notification
-                _ = _hubContext.Clients.All.SendAsync("SteamAutoLogout", new
+                _notifications.NotifyAllFireAndForget(SignalREvents.SteamAutoLogout, new
                 {
                     message = errorMessage,
                     reason = "RepeatedSessionReplacement",
@@ -382,7 +382,7 @@ public partial class SteamKit2Service
             _lastErrorMessage = errorMessage;
 
             // Send error notification to frontend
-            _ = _hubContext.Clients.All.SendAsync("SteamSessionError", new
+            _notifications.NotifyAllFireAndForget(SignalREvents.SteamSessionError, new
             {
                 errorType,
                 message = errorMessage,
@@ -398,7 +398,7 @@ public partial class SteamKit2Service
                 _logger.LogError("Steam session error during active rebuild: {ErrorType} - {Message}", errorType, errorMessage);
 
                 // Send a failure completion event
-                _ = _hubContext.Clients.All.SendAsync("DepotMappingComplete", new
+                _notifications.NotifyAllFireAndForget(SignalREvents.DepotMappingComplete, new
                 {
                     success = false,
                     error = errorMessage,

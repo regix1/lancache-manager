@@ -1,11 +1,11 @@
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
-using LancacheManager.Infrastructure.Repositories;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Controllers;
 
@@ -25,9 +25,9 @@ public class AuthController : ControllerBase
     private readonly IConfiguration _configuration;
     private readonly ILogger<AuthController> _logger;
     private readonly AppDbContext _dbContext;
-    private readonly StateRepository _stateService;
+    private readonly StateService _stateService;
     private readonly GuestSessionService _guestSessionService;
-    private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly ISignalRNotificationService _notifications;
 
     public AuthController(
         ApiKeyService apiKeyService,
@@ -35,9 +35,9 @@ public class AuthController : ControllerBase
         IConfiguration configuration,
         ILogger<AuthController> logger,
         AppDbContext dbContext,
-        StateRepository stateService,
+        StateService stateService,
         GuestSessionService guestSessionService,
-        IHubContext<DownloadHub> hubContext)
+        ISignalRNotificationService notifications)
     {
         _apiKeyService = apiKeyService;
         _deviceAuthService = deviceAuthService;
@@ -46,7 +46,7 @@ public class AuthController : ControllerBase
         _dbContext = dbContext;
         _stateService = stateService;
         _guestSessionService = guestSessionService;
-        _hubContext = hubContext;
+        _notifications = notifications;
     }
 
     /// <summary>
@@ -371,7 +371,7 @@ public class AuthController : ControllerBase
         _logger.LogInformation("Guest mode {Action} by admin", request.IsLocked ? "locked" : "unlocked");
 
         // Broadcast to all clients via SignalR so login modals update in real-time
-        await _hubContext.Clients.All.SendAsync("GuestModeLockChanged", new
+        await _notifications.NotifyAllAsync(SignalREvents.GuestModeLockChanged, new
         {
             isLocked = request.IsLocked
         });
@@ -486,7 +486,7 @@ public class AuthController : ControllerBase
             updatedSession?.PrefillExpiresAt);
 
         // Notify the guest via SignalR so their UI updates immediately
-        await _hubContext.Clients.All.SendAsync("GuestPrefillPermissionChanged", new
+        await _notifications.NotifyAllAsync(SignalREvents.GuestPrefillPermissionChanged, new
         {
             deviceId,
             enabled = updatedSession?.PrefillEnabled ?? false,

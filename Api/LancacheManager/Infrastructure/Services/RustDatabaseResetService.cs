@@ -2,9 +2,8 @@ using System.Diagnostics;
 using System.Text.Json;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
-using LancacheManager.Core.Interfaces.Services;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
-using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Infrastructure.Services;
 
@@ -15,7 +14,7 @@ public class RustDatabaseResetService
 {
     private readonly ILogger<RustDatabaseResetService> _logger;
     private readonly IPathResolver _pathResolver;
-    private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly ISignalRNotificationService _notifications;
     private readonly CacheManagementService _cacheManagementService;
     private readonly ProcessManager _processManager;
     private readonly RustProcessHelper _rustProcessHelper;
@@ -28,14 +27,14 @@ public class RustDatabaseResetService
     public RustDatabaseResetService(
         ILogger<RustDatabaseResetService> logger,
         IPathResolver pathResolver,
-        IHubContext<DownloadHub> hubContext,
+        ISignalRNotificationService notifications,
         CacheManagementService cacheManagementService,
         ProcessManager processManager,
         RustProcessHelper rustProcessHelper)
     {
         _logger = logger;
         _pathResolver = pathResolver;
-        _hubContext = hubContext;
+        _notifications = notifications;
         _cacheManagementService = cacheManagementService;
         _processManager = processManager;
         _rustProcessHelper = rustProcessHelper;
@@ -160,7 +159,7 @@ public class RustDatabaseResetService
             _logger.LogInformation($"Progress file: {progressPath}");
 
             // Send initial progress
-            await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
             {
                 isProcessing = true,
                 percentComplete = 0.0,
@@ -213,12 +212,12 @@ public class RustDatabaseResetService
                     var finalProgress = await ReadProgressFileAsync(progressPath);
                     if (finalProgress != null)
                     {
-                        await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", finalProgress);
+                        await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, finalProgress);
                     }
                     else
                     {
                         // Fallback completion message
-                        await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+                        await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                         {
                             isProcessing = false,
                             percentComplete = 100.0,
@@ -249,7 +248,7 @@ public class RustDatabaseResetService
                 }
                 else
                 {
-                    await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+                    await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                     {
                         isProcessing = false,
                         percentComplete = 0.0,
@@ -265,7 +264,7 @@ public class RustDatabaseResetService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error starting rust database reset");
-            await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
             {
                 isProcessing = false,
                 percentComplete = 0.0,
@@ -295,7 +294,7 @@ public class RustDatabaseResetService
                 if (progress != null)
                 {
                     // Send progress update via SignalR
-                    await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", progress, cancellationToken);
+                    await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, progress);
                 }
             }
         }

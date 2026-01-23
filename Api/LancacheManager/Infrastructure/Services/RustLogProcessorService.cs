@@ -3,11 +3,8 @@ using System.Text.Json;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
-using LancacheManager.Infrastructure.Repositories;
-using LancacheManager.Core.Interfaces.Repositories;
-using LancacheManager.Core.Interfaces.Services;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Infrastructure.Services;
@@ -19,8 +16,8 @@ public class RustLogProcessorService
 {
     private readonly ILogger<RustLogProcessorService> _logger;
     private readonly IPathResolver _pathResolver;
-    private readonly IHubContext<DownloadHub> _hubContext;
-    private readonly StateRepository _stateService;
+    private readonly ISignalRNotificationService _notifications;
+    private readonly StateService _stateService;
     private readonly IServiceProvider _serviceProvider;
     private readonly ProcessManager _processManager;
     private readonly RustProcessHelper _rustProcessHelper;
@@ -162,8 +159,8 @@ public class RustLogProcessorService
     public RustLogProcessorService(
         ILogger<RustLogProcessorService> logger,
         IPathResolver pathResolver,
-        IHubContext<DownloadHub> hubContext,
-        StateRepository stateService,
+        ISignalRNotificationService notifications,
+        StateService stateService,
         IServiceProvider serviceProvider,
         ProcessManager processManager,
         RustProcessHelper rustProcessHelper,
@@ -171,7 +168,7 @@ public class RustLogProcessorService
     {
         _logger = logger;
         _pathResolver = pathResolver;
-        _hubContext = hubContext;
+        _notifications = notifications;
         _stateService = stateService;
         _serviceProvider = serviceProvider;
         _processManager = processManager;
@@ -300,7 +297,7 @@ public class RustLogProcessorService
             // Send initial progress notification to show UI immediately
             if (!silentMode)
             {
-                await _hubContext.Clients.All.SendAsync("ProcessingProgress", new
+                await _notifications.NotifyAllAsync(SignalREvents.ProcessingProgress, new
                 {
                     totalLines = 0,
                     linesParsed = 0,
@@ -381,7 +378,7 @@ public class RustLogProcessorService
                         var mbTotal = logFileInfo.Exists ? logFileInfo.Length / (1024.0 * 1024.0) : 0;
 
                         // Send final progress update with 100% and complete status
-                        await _hubContext.Clients.All.SendAsync("ProcessingProgress", new
+                        await _notifications.NotifyAllAsync(SignalREvents.ProcessingProgress, new
                         {
                             totalLines = finalProgress.TotalLines,
                             linesParsed = finalProgress.LinesParsed,
@@ -452,7 +449,7 @@ public class RustLogProcessorService
                     var finalElapsed = DateTime.UtcNow - startTime;
 
                     // Now send completion signal after the delay
-                    await _hubContext.Clients.All.SendAsync("FastProcessingComplete", new
+                    await _notifications.NotifyAllAsync(SignalREvents.FastProcessingComplete, new
                     {
                         success = true,
                         message = "Log processing completed successfully",
@@ -469,7 +466,7 @@ public class RustLogProcessorService
 
                     // Send a lightweight notification that downloads have been updated
                     // This allows the frontend to refresh active downloads without progress bars
-                    await _hubContext.Clients.All.SendAsync("DownloadsRefresh", new
+                    await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
                     {
                         entriesProcessed = finalProgress?.EntriesSaved ?? 0,
                         timestamp = DateTime.UtcNow
@@ -545,7 +542,7 @@ public class RustLogProcessorService
                     var mbProcessed = mbTotal * (progress.PercentComplete / 100.0);
 
                     // Send progress update via SignalR with all fields React expects
-                    await _hubContext.Clients.All.SendAsync("ProcessingProgress", new
+                    await _notifications.NotifyAllAsync(SignalREvents.ProcessingProgress, new
                     {
                         totalLines = progress.TotalLines,
                         linesParsed = progress.LinesParsed,
@@ -559,7 +556,7 @@ public class RustLogProcessorService
                         entriesQueued = progress.EntriesSaved,
                         linesProcessed = progress.LinesParsed,
                         timestamp = progress.Timestamp
-                    }, cancellationToken);
+                    });
                 }
             }
         }
@@ -591,7 +588,7 @@ public class RustLogProcessorService
             // In silent mode, send a refresh notification so the UI updates
             if (silentMode)
             {
-                await _hubContext.Clients.All.SendAsync("DownloadsRefresh", new
+                await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
                 {
                     timestamp = DateTime.UtcNow
                 });
@@ -660,7 +657,7 @@ public class RustLogProcessorService
                 await context.SaveChangesAsync();
                 _logger.LogInformation("Updated {Count} downloads with game images", updated);
 
-                await _hubContext.Clients.All.SendAsync("DownloadsRefresh", new
+                await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
                 {
                     timestamp = DateTime.UtcNow
                 });
@@ -680,15 +677,15 @@ public class RustLogProcessorService
         try
         {
             using var scope = _serviceProvider.CreateScope();
-            var eventsRepository = scope.ServiceProvider.GetRequiredService<IEventsRepository>();
+            var eventsService = scope.ServiceProvider.GetRequiredService<IEventsService>();
 
-            var taggedCount = await eventsRepository.AutoTagDownloadsForActiveEventsAsync();
+            var taggedCount = await eventsService.AutoTagDownloadsForActiveEventsAsync();
             if (taggedCount > 0)
             {
                 _logger.LogInformation("Auto-tagged {Count} downloads to active events", taggedCount);
 
                 // Notify clients that downloads have been updated with event tags
-                await _hubContext.Clients.All.SendAsync("DownloadsRefresh", new
+                await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
                 {
                     timestamp = DateTime.UtcNow
                 });

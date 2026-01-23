@@ -2,8 +2,8 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using LancacheManager.Core.Services.SteamPrefill;
+using LancacheManager.Hubs;
 using LancacheManager.Models;
-using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Core.Services;
 
@@ -120,8 +120,8 @@ public partial class SteamPrefillDaemonService
         {
             try
             {
-                await _hubContext.Clients.Client(connectionId)
-                    .SendAsync("AuthStateChanged", session.Id, session.AuthState.ToString());
+                await _notifications.SendToPrefillClientRawAsync(connectionId,
+                    SignalREvents.AuthStateChanged, new { sessionId = session.Id, authState = session.AuthState.ToString() });
             }
             catch (Exception ex)
             {
@@ -137,8 +137,8 @@ public partial class SteamPrefillDaemonService
         {
             try
             {
-                await _hubContext.Clients.Client(connectionId)
-                    .SendAsync("CredentialChallenge", session.Id, challenge);
+                await _notifications.SendToPrefillClientRawAsync(connectionId,
+                    SignalREvents.CredentialChallenge, new { sessionId = session.Id, challenge });
             }
             catch (Exception ex)
             {
@@ -154,8 +154,8 @@ public partial class SteamPrefillDaemonService
         {
             try
             {
-                await _hubContext.Clients.Client(connectionId)
-                    .SendAsync("StatusChanged", session.Id, status);
+                await _notifications.SendToPrefillClientRawAsync(connectionId,
+                    SignalREvents.StatusChanged, new { sessionId = session.Id, status });
             }
             catch (Exception ex)
             {
@@ -199,8 +199,8 @@ public partial class SteamPrefillDaemonService
         {
             try
             {
-                await _hubContext.Clients.Client(connectionId)
-                    .SendAsync("PrefillStateChanged", session.Id, state, durationSeconds);
+                await _notifications.SendToPrefillClientRawAsync(connectionId,
+                    SignalREvents.PrefillStateChanged, new { sessionId = session.Id, state, durationSeconds });
             }
             catch (Exception ex)
             {
@@ -373,8 +373,8 @@ public partial class SteamPrefillDaemonService
                 {
                     try
                     {
-                        await _hubContext.Clients.Client(connectionId)
-                            .SendAsync("PrefillProgress", session.Id, frontendProgress);
+                        await _notifications.SendToPrefillClientRawAsync(connectionId,
+                            SignalREvents.PrefillProgress, new { sessionId = session.Id, progress = frontendProgress });
                     }
                     catch (Exception notifyEx)
                     {
@@ -473,16 +473,15 @@ public partial class SteamPrefillDaemonService
         // Broadcast session update to all clients on every progress (for admin pages - both hubs)
         // This ensures totalBytesTransferred updates in real-time
         var progressDto = DaemonSessionDto.FromSession(session);
-        await _hubContext.Clients.All.SendAsync("DaemonSessionUpdated", progressDto);
-        await _downloadHubContext.Clients.All.SendAsync("DaemonSessionUpdated", progressDto);
+        await _notifications.NotifyAllBothHubsAsync(SignalREvents.DaemonSessionUpdated, progressDto);
 
         // Send detailed progress to subscribed connections (the user doing the prefill)
         foreach (var connectionId in session.SubscribedConnections.ToList())
         {
             try
             {
-                await _hubContext.Clients.Client(connectionId)
-                    .SendAsync("PrefillProgress", session.Id, progress);
+                await _notifications.SendToPrefillClientRawAsync(connectionId,
+                    SignalREvents.PrefillProgress, new { sessionId = session.Id, progress });
             }
             catch (Exception ex)
             {
@@ -495,8 +494,7 @@ public partial class SteamPrefillDaemonService
     private async Task BroadcastPrefillHistoryUpdatedAsync(string sessionId, uint appId, string status)
     {
         var historyEvent = new { sessionId, appId, status };
-        await _hubContext.Clients.All.SendAsync("PrefillHistoryUpdated", historyEvent);
-        await _downloadHubContext.Clients.All.SendAsync("PrefillHistoryUpdated", historyEvent);
+        await _notifications.NotifyAllBothHubsAsync(SignalREvents.PrefillHistoryUpdated, historyEvent);
     }
 
     private async Task NotifySessionEndedAsync(DaemonSession session, string reason)
@@ -505,8 +503,8 @@ public partial class SteamPrefillDaemonService
         {
             try
             {
-                await _hubContext.Clients.Client(connectionId)
-                    .SendAsync("SessionEnded", session.Id, reason);
+                await _notifications.SendToPrefillClientRawAsync(connectionId,
+                    SignalREvents.SessionEnded, new { sessionId = session.Id, reason });
             }
             catch
             {
@@ -514,5 +512,4 @@ public partial class SteamPrefillDaemonService
             }
         }
     }
-
-    }
+}

@@ -44,26 +44,7 @@ public class UserPreferencesService
             var preferences = context.UserPreferences
                 .FirstOrDefault(p => p.DeviceId == deviceId);
 
-            if (preferences != null)
-            {
-                return new UserPreferencesDto
-                {
-                    SelectedTheme = preferences.SelectedTheme,
-                    SharpCorners = preferences.SharpCorners,
-                    DisableFocusOutlines = preferences.DisableFocusOutlines,
-                    DisableTooltips = preferences.DisableTooltips,
-                    PicsAlwaysVisible = preferences.PicsAlwaysVisible,
-                    DisableStickyNotifications = preferences.DisableStickyNotifications,
-                    UseLocalTimezone = preferences.UseLocalTimezone,
-                    Use24HourFormat = preferences.Use24HourFormat,
-                    ShowDatasourceLabels = preferences.ShowDatasourceLabels,
-                    ShowYearInDates = preferences.ShowYearInDates,
-                    RefreshRate = preferences.RefreshRate,
-                    AllowedTimeFormats = ParseAllowedTimeFormats(preferences.AllowedTimeFormats)
-                };
-            }
-
-            return null;
+            return preferences != null ? ToDto(preferences) : null;
         }
         catch (Exception ex)
         {
@@ -223,21 +204,7 @@ public class UserPreferencesService
             context.SaveChanges();
 
             // Return the updated preferences from the same context to avoid race conditions
-            return new UserPreferencesDto
-            {
-                SelectedTheme = preferences.SelectedTheme,
-                SharpCorners = preferences.SharpCorners,
-                DisableFocusOutlines = preferences.DisableFocusOutlines,
-                DisableTooltips = preferences.DisableTooltips,
-                PicsAlwaysVisible = preferences.PicsAlwaysVisible,
-                DisableStickyNotifications = preferences.DisableStickyNotifications,
-                UseLocalTimezone = preferences.UseLocalTimezone,
-                Use24HourFormat = preferences.Use24HourFormat,
-                ShowDatasourceLabels = preferences.ShowDatasourceLabels,
-                ShowYearInDates = preferences.ShowYearInDates,
-                RefreshRate = preferences.RefreshRate,
-                AllowedTimeFormats = ParseAllowedTimeFormats(preferences.AllowedTimeFormats)
-            };
+            return ToDto(preferences);
         }
         catch (Exception ex)
         {
@@ -348,4 +315,23 @@ public class UserPreferencesService
             return null;
         }
     }
+
+    /// <summary>
+    /// Maps a UserPreferences entity to a UserPreferencesDto
+    /// </summary>
+    private static UserPreferencesDto ToDto(UserPreferences prefs) => new()
+    {
+        SelectedTheme = prefs.SelectedTheme,
+        SharpCorners = prefs.SharpCorners,
+        DisableFocusOutlines = prefs.DisableFocusOutlines,
+        DisableTooltips = prefs.DisableTooltips,
+        PicsAlwaysVisible = prefs.PicsAlwaysVisible,
+        DisableStickyNotifications = prefs.DisableStickyNotifications,
+        UseLocalTimezone = prefs.UseLocalTimezone,
+        Use24HourFormat = prefs.Use24HourFormat,
+        ShowDatasourceLabels = prefs.ShowDatasourceLabels,
+        ShowYearInDates = prefs.ShowYearInDates,
+        RefreshRate = prefs.RefreshRate,
+        AllowedTimeFormats = ParseAllowedTimeFormats(prefs.AllowedTimeFormats)
+    };
 }

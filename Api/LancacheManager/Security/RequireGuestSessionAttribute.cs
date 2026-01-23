@@ -26,6 +26,8 @@ public class RequireGuestSessionAttribute : ActionFilterAttribute
             return;
         }
 
+        var authHelper = httpContext.RequestServices.GetRequiredService<AuthenticationHelper>();
+
         // Priority 1: allow authenticated sessions (API key)
         var apiKeyService = httpContext.RequestServices.GetRequiredService<ApiKeyService>();
 
@@ -41,8 +43,8 @@ public class RequireGuestSessionAttribute : ActionFilterAttribute
         }
 
         // API key header (Swagger / API clients)
-        var apiKeyHeader = httpContext.Request.Headers["X-Api-Key"].FirstOrDefault();
-        if (!string.IsNullOrEmpty(apiKeyHeader) && apiKeyService.ValidateApiKey(apiKeyHeader))
+        var apiKeyResult = authHelper.ValidateApiKey(httpContext);
+        if (apiKeyResult.IsAuthenticated)
         {
             base.OnActionExecuting(context);
             return;
@@ -124,4 +126,3 @@ public class RequireGuestSessionAttribute : ActionFilterAttribute
         base.OnActionExecuting(context);
     }
 }
-

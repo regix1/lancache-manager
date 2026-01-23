@@ -52,15 +52,14 @@ public class SteamApiKeysController : ControllerBase
     /// RESTful: POST is acceptable for testing/validation operations
     /// Request body: { "apiKey": "..." }
     /// </summary>
+    /// <remarks>
+    /// Validation is handled automatically by FluentValidation (see TestApiKeyRequestValidator)
+    /// </remarks>
     [HttpPost("test")]
     [RequireAuth]
     public async Task<IActionResult> TestApiKey([FromBody] TestApiKeyRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.ApiKey))
-        {
-            return BadRequest(new ErrorResponse { Error = "API key is required" });
-        }
-
+        // Validation is handled automatically by FluentValidation
         var isValid = await _steamWebApiService.TestApiKeyAsync(request.ApiKey);
 
         if (isValid)
@@ -86,15 +85,14 @@ public class SteamApiKeysController : ControllerBase
     /// RESTful: POST is proper method for creating/saving resources
     /// Request body: { "apiKey": "..." }
     /// </summary>
+    /// <remarks>
+    /// Validation is handled automatically by FluentValidation (see SaveApiKeyRequestValidator)
+    /// </remarks>
     [HttpPost]
     [RequireAuth]
     public async Task<IActionResult> SaveApiKey([FromBody] SaveApiKeyRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.ApiKey))
-        {
-            return BadRequest(new ErrorResponse { Error = "API key is required" });
-        }
-
+        // Validation is handled automatically by FluentValidation
         // Test the key first
         var isValid = await _steamWebApiService.TestApiKeyAsync(request.ApiKey);
 

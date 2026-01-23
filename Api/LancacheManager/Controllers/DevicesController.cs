@@ -1,13 +1,12 @@
 using System.ComponentModel.DataAnnotations;
 using LancacheManager.Models;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
-using LancacheManager.Core.Interfaces.Repositories;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
-using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Controllers;
 
@@ -22,24 +21,24 @@ public class DevicesController : ControllerBase
     private readonly DeviceAuthService _deviceAuthService;
     private readonly GuestSessionService _guestSessionService;
     private readonly AppDbContext _dbContext;
-    private readonly IDatabaseRepository _databaseRepository;
+    private readonly IDatabaseService _databaseService;
     private readonly ILogger<DevicesController> _logger;
-    private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly ISignalRNotificationService _notifications;
 
     public DevicesController(
         DeviceAuthService deviceAuthService,
         GuestSessionService guestSessionService,
         AppDbContext dbContext,
-        IDatabaseRepository databaseRepository,
+        IDatabaseService databaseService,
         ILogger<DevicesController> logger,
-        IHubContext<DownloadHub> hubContext)
+        ISignalRNotificationService notifications)
     {
         _deviceAuthService = deviceAuthService;
         _guestSessionService = guestSessionService;
         _dbContext = dbContext;
-        _databaseRepository = databaseRepository;
+        _databaseService = databaseService;
         _logger = logger;
-        _hubContext = hubContext;
+        _notifications = notifications;
     }
 
     /// <summary>
@@ -68,7 +67,7 @@ public class DevicesController : ControllerBase
     public async Task<IActionResult> RegisterDevice([FromBody] RegisterDeviceRequest request)
     {
         // Block authentication during database reset operations
-        if (_databaseRepository.IsResetOperationRunning)
+        if (_databaseService.IsResetOperationRunning)
         {
             _logger.LogWarning("Device registration rejected - database reset in progress");
             return StatusCode(503, new ServiceUnavailableResponse
@@ -173,7 +172,7 @@ public class DevicesController : ControllerBase
                 }
 
                 // Broadcast session creation via SignalR for real-time updates
-                await _hubContext.Clients.All.SendAsync("UserSessionCreated", new
+                await _notifications.NotifyAllAsync(SignalREvents.UserSessionCreated, new
                 {
                     deviceId = request.DeviceId,
                     sessionType = "authenticated"

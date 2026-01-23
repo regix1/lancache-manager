@@ -1,9 +1,10 @@
 using LancacheManager.Models;
 
-namespace LancacheManager.Core.Interfaces.Repositories;
+namespace LancacheManager.Core.Interfaces;
 
-public interface IEventsRepository
+public interface IEventsService : ICrudRepository<Event, int>
 {
+    // Entity-specific methods
     Task<List<Event>> GetAllEventsAsync(CancellationToken cancellationToken = default);
     Task<List<Event>> GetActiveEventsAsync(CancellationToken cancellationToken = default);
     Task<List<Event>> GetEventsByDateRangeAsync(DateTime startUtc, DateTime endUtc, CancellationToken cancellationToken = default);

@@ -2,11 +2,10 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
-using LancacheManager.Infrastructure.Repositories;
-using LancacheManager.Core.Interfaces.Services;
+using LancacheManager.Infrastructure.Services;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using SteamKit2;
 using SteamKit2.Authentication;
@@ -24,11 +23,11 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly SteamService _steamService;
     private readonly IPathResolver _pathResolver;
-    private readonly StateRepository _stateService;
+    private readonly StateService _stateService;
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly ISignalRNotificationService _notifications;
     private readonly SteamWebApiService _steamWebApiService;
-    private readonly SteamAuthRepository _steamAuthRepository;
+    private readonly SteamAuthStorageService _steamAuthRepository;
     private SteamClient? _steamClient;
     private CallbackManager? _manager;
     private SteamUser? _steamUser;
@@ -116,11 +115,11 @@ public partial class SteamKit2Service : IHostedService, IDisposable
         SteamService steamService,
         PicsDataService picsDataService,
         IPathResolver pathResolver,
-        StateRepository stateService,
+        StateService stateService,
         IHttpClientFactory httpClientFactory,
-        IHubContext<DownloadHub> hubContext,
+        ISignalRNotificationService notifications,
         SteamWebApiService steamWebApiService,
-        SteamAuthRepository steamAuthRepository)
+        SteamAuthStorageService steamAuthRepository)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
@@ -129,7 +128,7 @@ public partial class SteamKit2Service : IHostedService, IDisposable
         _pathResolver = pathResolver;
         _stateService = stateService;
         _httpClientFactory = httpClientFactory;
-        _hubContext = hubContext;
+        _notifications = notifications;
         _steamWebApiService = steamWebApiService;
         _steamAuthRepository = steamAuthRepository;
     }

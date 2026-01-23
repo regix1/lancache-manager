@@ -1,8 +1,8 @@
 using LancacheManager.Models;
 
-namespace LancacheManager.Core.Interfaces.Repositories;
+namespace LancacheManager.Core.Interfaces;
 
-public interface IDatabaseRepository
+public interface IDatabaseService
 {
     Task ResetDatabase();
     string StartResetSelectedTablesAsync(List<string> tableNames);

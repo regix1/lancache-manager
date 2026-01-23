@@ -1,17 +1,17 @@
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Data;
-using LancacheManager.Core.Interfaces.Repositories;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
-namespace LancacheManager.Infrastructure.Repositories;
+namespace LancacheManager.Infrastructure.Services;
 
-public class ClientGroupsRepository : IClientGroupsRepository
+public class ClientGroupsService : IClientGroupsService
 {
     private readonly AppDbContext _context;
-    private readonly ILogger<ClientGroupsRepository> _logger;
+    private readonly ILogger<ClientGroupsService> _logger;
 
-    public ClientGroupsRepository(AppDbContext context, ILogger<ClientGroupsRepository> logger)
+    public ClientGroupsService(AppDbContext context, ILogger<ClientGroupsService> logger)
     {
         _context = context;
         _logger = logger;
@@ -19,63 +19,30 @@ public class ClientGroupsRepository : IClientGroupsRepository
 
     public async Task<List<ClientGroup>> GetAllGroupsAsync(CancellationToken cancellationToken = default)
     {
-        var groups = await _context.ClientGroups
+        return (await _context.ClientGroups
             .AsNoTracking()
             .Include(g => g.Members)
             .OrderBy(g => g.Nickname)
-            .ToListAsync(cancellationToken);
-
-        foreach (var group in groups)
-        {
-            group.CreatedAtUtc = group.CreatedAtUtc.AsUtc();
-            group.UpdatedAtUtc = group.UpdatedAtUtc.AsUtc();
-            foreach (var member in group.Members)
-            {
-                member.AddedAtUtc = member.AddedAtUtc.AsUtc();
-            }
-        }
-
-        return groups;
+            .ToListAsync(cancellationToken))
+            .WithUtcMarking();
     }
 
     public async Task<ClientGroup?> GetGroupByIdAsync(int id, CancellationToken cancellationToken = default)
     {
-        var group = await _context.ClientGroups
+        return (await _context.ClientGroups
             .AsNoTracking()
             .Include(g => g.Members)
-            .FirstOrDefaultAsync(g => g.Id == id, cancellationToken);
-
-        if (group != null)
-        {
-            group.CreatedAtUtc = group.CreatedAtUtc.AsUtc();
-            group.UpdatedAtUtc = group.UpdatedAtUtc.AsUtc();
-            foreach (var member in group.Members)
-            {
-                member.AddedAtUtc = member.AddedAtUtc.AsUtc();
-            }
-        }
-
-        return group;
+            .FirstOrDefaultAsync(g => g.Id == id, cancellationToken))
+            ?.WithUtcMarking();
     }
 
     public async Task<ClientGroup?> GetGroupByNicknameAsync(string nickname, CancellationToken cancellationToken = default)
     {
-        var group = await _context.ClientGroups
+        return (await _context.ClientGroups
             .AsNoTracking()
             .Include(g => g.Members)
-            .FirstOrDefaultAsync(g => g.Nickname == nickname, cancellationToken);
-
-        if (group != null)
-        {
-            group.CreatedAtUtc = group.CreatedAtUtc.AsUtc();
-            group.UpdatedAtUtc = group.UpdatedAtUtc.AsUtc();
-            foreach (var member in group.Members)
-            {
-                member.AddedAtUtc = member.AddedAtUtc.AsUtc();
-            }
-        }
-
-        return group;
+            .FirstOrDefaultAsync(g => g.Nickname == nickname, cancellationToken))
+            ?.WithUtcMarking();
     }
 
     public async Task<ClientGroup?> GetGroupByClientIpAsync(string clientIp, CancellationToken cancellationToken = default)
@@ -86,19 +53,7 @@ public class ClientGroupsRepository : IClientGroupsRepository
             .ThenInclude(g => g.Members)
             .FirstOrDefaultAsync(m => m.ClientIp == clientIp, cancellationToken);
 
-        if (member?.ClientGroup != null)
-        {
-            var group = member.ClientGroup;
-            group.CreatedAtUtc = group.CreatedAtUtc.AsUtc();
-            group.UpdatedAtUtc = group.UpdatedAtUtc.AsUtc();
-            foreach (var m in group.Members)
-            {
-                m.AddedAtUtc = m.AddedAtUtc.AsUtc();
-            }
-            return group;
-        }
-
-        return null;
+        return member?.ClientGroup?.WithUtcMarking();
     }
 
     public async Task<ClientGroup> CreateGroupAsync(ClientGroup group, CancellationToken cancellationToken = default)
@@ -107,10 +62,8 @@ public class ClientGroupsRepository : IClientGroupsRepository
         _context.ClientGroups.Add(group);
         await _context.SaveChangesAsync(cancellationToken);
 
-        group.CreatedAtUtc = group.CreatedAtUtc.AsUtc();
-
         _logger.LogInformation("Created client group: {Nickname} (ID: {Id})", group.Nickname, group.Id);
-        return group;
+        return group.WithUtcMarking();
     }
 
     public async Task<ClientGroup> UpdateGroupAsync(ClientGroup group, CancellationToken cancellationToken = default)
@@ -130,15 +83,8 @@ public class ClientGroupsRepository : IClientGroupsRepository
 
         await _context.SaveChangesAsync(cancellationToken);
 
-        existing.CreatedAtUtc = existing.CreatedAtUtc.AsUtc();
-        existing.UpdatedAtUtc = existing.UpdatedAtUtc.AsUtc();
-        foreach (var member in existing.Members)
-        {
-            member.AddedAtUtc = member.AddedAtUtc.AsUtc();
-        }
-
         _logger.LogInformation("Updated client group: {Nickname} (ID: {Id})", existing.Nickname, existing.Id);
-        return existing;
+        return existing.WithUtcMarking();
     }
 
     public async Task DeleteGroupAsync(int id, CancellationToken cancellationToken = default)
@@ -179,10 +125,8 @@ public class ClientGroupsRepository : IClientGroupsRepository
         _context.ClientGroupMembers.Add(member);
         await _context.SaveChangesAsync(cancellationToken);
 
-        member.AddedAtUtc = member.AddedAtUtc.AsUtc();
-
         _logger.LogInformation("Added IP {ClientIp} to client group {Nickname} (ID: {Id})", clientIp, group.Nickname, groupId);
-        return member;
+        return member.WithUtcMarking();
     }
 
     public async Task RemoveMemberAsync(int groupId, string clientIp, CancellationToken cancellationToken = default)
@@ -200,8 +144,6 @@ public class ClientGroupsRepository : IClientGroupsRepository
 
     public async Task<Dictionary<string, (int GroupId, string Nickname)>> GetIpToGroupMappingAsync(CancellationToken cancellationToken = default)
     {
-        // Join members with groups and project to dictionary
-        // Using explicit join ensures we only get members with valid groups
         var mappings = await _context.ClientGroupMembers
             .AsNoTracking()
             .Join(
@@ -211,11 +153,30 @@ public class ClientGroupsRepository : IClientGroupsRepository
                 (member, group) => new { member.ClientIp, member.ClientGroupId, group.Nickname })
             .ToListAsync(cancellationToken);
 
-        // Build dictionary, handling potential duplicate IPs (shouldn't happen due to unique constraint)
         return mappings
             .GroupBy(m => m.ClientIp)
             .ToDictionary(
                 g => g.Key,
                 g => (g.First().ClientGroupId, g.First().Nickname));
     }
+
+    // ===== ICrudRepository-like methods (delegating to entity-specific methods) =====
+
+    public Task<List<ClientGroup>> GetAllAsync(CancellationToken ct = default)
+        => GetAllGroupsAsync(ct);
+
+    public Task<ClientGroup?> GetByIdAsync(int id, CancellationToken ct = default)
+        => GetGroupByIdAsync(id, ct);
+
+    public Task<ClientGroup> CreateAsync(ClientGroup entity, CancellationToken ct = default)
+        => CreateGroupAsync(entity, ct);
+
+    public Task<ClientGroup> UpdateAsync(ClientGroup entity, CancellationToken ct = default)
+        => UpdateGroupAsync(entity, ct);
+
+    public async Task DeleteAsync(ClientGroup entity, CancellationToken ct = default)
+        => await DeleteGroupAsync(entity.Id, ct);
+
+    public async Task<bool> ExistsAsync(int id, CancellationToken ct = default)
+        => await _context.ClientGroups.AnyAsync(g => g.Id == id, ct);
 }

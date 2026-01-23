@@ -4,6 +4,22 @@ using System.Text.Json;
 namespace LancacheManager.Middleware;
 
 /// <summary>
+/// Custom exception for 404 Not Found responses
+/// </summary>
+public class NotFoundException : Exception
+{
+    public NotFoundException(string resource) : base($"{resource} not found") { }
+}
+
+/// <summary>
+/// Custom exception for 400 Bad Request validation errors
+/// </summary>
+public class ValidationException : Exception
+{
+    public ValidationException(string message) : base(message) { }
+}
+
+/// <summary>
 /// Global exception handling middleware to eliminate duplicate try-catch blocks across controllers
 /// Sanitizes error messages in production to prevent information disclosure
 /// </summary>
@@ -25,6 +41,14 @@ public class GlobalExceptionMiddleware
         try
         {
             await _next(context);
+        }
+        catch (NotFoundException ex)
+        {
+            await HandleExceptionAsync(context, ex, HttpStatusCode.NotFound, ex.Message);
+        }
+        catch (ValidationException ex)
+        {
+            await HandleExceptionAsync(context, ex, HttpStatusCode.BadRequest, ex.Message);
         }
         catch (UnauthorizedAccessException ex)
         {
@@ -51,10 +75,10 @@ public class GlobalExceptionMiddleware
             _logger.LogError(ex, "Request timeout");
             await HandleExceptionAsync(context, ex, HttpStatusCode.RequestTimeout, "Request timed out");
         }
-        catch (OperationCanceledException ex)
+        catch (OperationCanceledException)
         {
-            _logger.LogWarning(ex, "Operation was cancelled");
-            await HandleExceptionAsync(context, ex, HttpStatusCode.BadRequest, "Operation was cancelled");
+            // Request was cancelled - don't log as error
+            context.Response.StatusCode = 499; // Client Closed Request
         }
         catch (Exception ex)
         {

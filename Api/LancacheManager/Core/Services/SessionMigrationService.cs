@@ -1,6 +1,6 @@
 using System.Text.Json;
 using LancacheManager.Infrastructure.Data;
-using LancacheManager.Core.Interfaces.Services;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 

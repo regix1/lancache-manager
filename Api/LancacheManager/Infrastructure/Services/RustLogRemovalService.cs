@@ -2,9 +2,8 @@ using System.Diagnostics;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
-using LancacheManager.Core.Interfaces.Services;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Infrastructure.Services;
@@ -17,7 +16,7 @@ public class RustLogRemovalService
 {
     private readonly ILogger<RustLogRemovalService> _logger;
     private readonly IPathResolver _pathResolver;
-    private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly ISignalRNotificationService _notifications;
     private readonly CacheManagementService _cacheManagementService;
     private readonly ProcessManager _processManager;
     private readonly RustProcessHelper _rustProcessHelper;
@@ -87,7 +86,7 @@ public class RustLogRemovalService
     public RustLogRemovalService(
         ILogger<RustLogRemovalService> logger,
         IPathResolver pathResolver,
-        IHubContext<DownloadHub> hubContext,
+        ISignalRNotificationService notifications,
         CacheManagementService cacheManagementService,
         ProcessManager processManager,
         RustProcessHelper rustProcessHelper,
@@ -97,7 +96,7 @@ public class RustLogRemovalService
     {
         _logger = logger;
         _pathResolver = pathResolver;
-        _hubContext = hubContext;
+        _notifications = notifications;
         _cacheManagementService = cacheManagementService;
         _processManager = processManager;
         _rustProcessHelper = rustProcessHelper;
@@ -181,7 +180,7 @@ public class RustLogRemovalService
                 var (stdoutTask, stderrTask) = _rustProcessHelper.CreateOutputMonitoringTasks(_rustProcess, "Rust log removal");
 
                 // Send initial progress notification
-                await _hubContext.Clients.All.SendAsync("LogRemovalProgress", new
+                await _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
                 {
                     filesProcessed = 0,
                     linesProcessed = 0,
@@ -233,7 +232,7 @@ public class RustLogRemovalService
                         ? $"{logMessage}. Database: {dbCleanupResult.Message}"
                         : $"{logMessage}. Database cleanup: {dbCleanupResult.Message}";
 
-                    await _hubContext.Clients.All.SendAsync("LogRemovalComplete", new
+                    await _notifications.NotifyAllAsync(SignalREvents.LogRemovalComplete, new
                     {
                         success = true,
                         message,
@@ -251,7 +250,7 @@ public class RustLogRemovalService
                 else
                 {
                     // Send failure notification
-                    await _hubContext.Clients.All.SendAsync("LogRemovalComplete", new
+                    await _notifications.NotifyAllAsync(SignalREvents.LogRemovalComplete, new
                     {
                         success = false,
                         message = $"Failed to remove {service} entries from logs",
@@ -268,7 +267,7 @@ public class RustLogRemovalService
             // Handle cancellation gracefully
             _logger.LogInformation("Service removal for {Service} was cancelled by user", service);
 
-            await _hubContext.Clients.All.SendAsync("LogRemovalComplete", new
+            await _notifications.NotifyAllAsync(SignalREvents.LogRemovalComplete, new
             {
                 success = false,
                 message = $"Service removal for {service} was cancelled",
@@ -285,7 +284,7 @@ public class RustLogRemovalService
             // Send error notification
             try
             {
-                await _hubContext.Clients.All.SendAsync("LogRemovalComplete", new
+                await _notifications.NotifyAllAsync(SignalREvents.LogRemovalComplete, new
                 {
                     success = false,
                     message = $"Error during log removal: {ex.Message}",
@@ -370,7 +369,7 @@ public class RustLogRemovalService
 
                 var (stdoutTask, stderrTask) = _rustProcessHelper.CreateOutputMonitoringTasks(_rustProcess, "Rust log removal");
 
-                await _hubContext.Clients.All.SendAsync("LogRemovalProgress", new
+                await _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
                 {
                     filesProcessed = 0,
                     linesProcessed = 0,
@@ -403,7 +402,7 @@ public class RustLogRemovalService
                     // The user would need to remove from all datasources to clean up DB records
 
                     var finalProgress = await ReadProgressFileAsync(progressPath);
-                    await _hubContext.Clients.All.SendAsync("LogRemovalComplete", new
+                    await _notifications.NotifyAllAsync(SignalREvents.LogRemovalComplete, new
                     {
                         success = true,
                         message = finalProgress?.Message ?? $"Successfully removed {service} entries from {datasourceName}",
@@ -420,7 +419,7 @@ public class RustLogRemovalService
                 }
                 else
                 {
-                    await _hubContext.Clients.All.SendAsync("LogRemovalComplete", new
+                    await _notifications.NotifyAllAsync(SignalREvents.LogRemovalComplete, new
                     {
                         success = false,
                         message = $"Failed to remove {service} entries from {datasourceName}",
@@ -438,7 +437,7 @@ public class RustLogRemovalService
         {
             _logger.LogInformation("Service removal for {Service} in {Datasource} was cancelled", service, datasourceName);
 
-            await _hubContext.Clients.All.SendAsync("LogRemovalComplete", new
+            await _notifications.NotifyAllAsync(SignalREvents.LogRemovalComplete, new
             {
                 success = false,
                 message = $"Service removal for {service} in {datasourceName} was cancelled",
@@ -455,7 +454,7 @@ public class RustLogRemovalService
 
             try
             {
-                await _hubContext.Clients.All.SendAsync("LogRemovalComplete", new
+                await _notifications.NotifyAllAsync(SignalREvents.LogRemovalComplete, new
                 {
                     success = false,
                     message = $"Error during log removal: {ex.Message}",
@@ -489,7 +488,7 @@ public class RustLogRemovalService
                 if (progress != null)
                 {
                     // Send progress update via SignalR
-                    await _hubContext.Clients.All.SendAsync("LogRemovalProgress", new
+                    await _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
                     {
                         filesProcessed = progress.FilesProcessed,
                         linesProcessed = progress.LinesProcessed,
@@ -498,7 +497,7 @@ public class RustLogRemovalService
                         status = progress.Status,
                         message = progress.Message,
                         service
-                    }, cancellationToken);
+                    });
                 }
             }
         }
@@ -574,7 +573,7 @@ public class RustLogRemovalService
             }
 
             // Send cancellation notification
-            await _hubContext.Clients.All.SendAsync("LogRemovalComplete", new
+            await _notifications.NotifyAllAsync(SignalREvents.LogRemovalComplete, new
             {
                 success = false,
                 message = $"Service removal for {CurrentService} was cancelled",
@@ -617,7 +616,7 @@ public class RustLogRemovalService
             _logger.LogInformation("Starting database cleanup for service: {Service}", service);
 
             // Send progress update
-            await _hubContext.Clients.All.SendAsync("LogRemovalProgress", new
+            await _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
             {
                 filesProcessed = 0,
                 linesProcessed = 0,

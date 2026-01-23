@@ -1,9 +1,8 @@
 using System.Text.Json;
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
-using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Infrastructure.Services;
-using LancacheManager.Core.Interfaces.Services;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
@@ -24,7 +23,7 @@ public class LogsController : ControllerBase
     private readonly IPathResolver _pathResolver;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly DatasourceService _datasourceService;
-    private readonly StateRepository _stateRepository;
+    private readonly StateService _stateRepository;
     private readonly NginxLogRotationService _nginxLogRotationService;
 
     public LogsController(
@@ -34,7 +33,7 @@ public class LogsController : ControllerBase
         IPathResolver pathResolver,
         RustProcessHelper rustProcessHelper,
         DatasourceService datasourceService,
-        StateRepository stateRepository,
+        StateService stateRepository,
         NginxLogRotationService nginxLogRotationService)
     {
         _rustLogProcessorService = rustLogProcessorService;

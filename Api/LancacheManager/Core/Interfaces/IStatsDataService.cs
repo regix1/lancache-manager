@@ -1,9 +1,9 @@
 using LancacheManager.Models;
 
 
-namespace LancacheManager.Core.Interfaces.Repositories;
+namespace LancacheManager.Core.Interfaces;
 
-public interface IStatsRepository
+public interface IStatsDataService
 {
     Task<List<ServiceStats>> GetServiceStatsAsync(CancellationToken cancellationToken = default);
     Task<List<ClientStats>> GetClientStatsAsync(CancellationToken cancellationToken = default);

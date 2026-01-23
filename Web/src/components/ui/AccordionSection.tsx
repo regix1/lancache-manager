@@ -22,6 +22,22 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
   onToggle,
   badge
 }) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onToggle();
+    }
+  };
+
+  const handleHeaderClick = (e: React.MouseEvent) => {
+    // Don't toggle if clicking on an interactive element inside the header
+    const target = e.target as HTMLElement;
+    if (target.closest('button, input, select, [role="button"], [role="listbox"], .ed-trigger')) {
+      return;
+    }
+    onToggle();
+  };
+
   return (
     <div
       className={`group rounded-lg overflow-hidden transition-all duration-300 border ${
@@ -30,10 +46,13 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
           : 'bg-[color-mix(in_srgb,var(--theme-bg-secondary)_60%,transparent)] border-themed-secondary shadow-[0_1px_3px_rgba(0,0,0,0.1)]'
       }`}
     >
-      {/* Header Button */}
-      <button
-        onClick={onToggle}
-        className="w-full px-4 py-3 flex items-center justify-between text-left transition-all duration-200 group/header bg-transparent"
+      {/* Header - using div with role="button" to allow nested interactive elements */}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={handleHeaderClick}
+        onKeyDown={handleKeyDown}
+        className="w-full px-4 py-3 flex items-center justify-between text-left transition-all duration-200 group/header bg-transparent cursor-pointer"
       >
         <div className="flex items-center gap-3">
           {/* Icon with animated background */}
@@ -99,7 +118,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
             }`}
           />
         </div>
-      </button>
+      </div>
 
       {/* Content with smooth animation */}
       <div

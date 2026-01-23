@@ -1,7 +1,7 @@
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Hosting;
 using static LancacheManager.Infrastructure.Utilities.FormattingUtils;
 
 namespace LancacheManager.Core.Services;
@@ -10,12 +10,10 @@ namespace LancacheManager.Core.Services;
 /// Background service that periodically records cache size snapshots.
 /// This enables showing historical used space data for past time periods.
 /// </summary>
-public class CacheSnapshotService : BackgroundService
+public class CacheSnapshotService : ScopedScheduledBackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly CacheManagementService _cacheService;
-    private readonly ILogger<CacheSnapshotService> _logger;
-    private readonly IConfiguration _configuration;
 
     // Default: record snapshot every hour
     private readonly TimeSpan _snapshotInterval;
@@ -23,65 +21,51 @@ public class CacheSnapshotService : BackgroundService
     // Keep snapshots for 90 days by default
     private readonly int _retentionDays;
 
+    private int _snapshotCount;
+
+    protected override string ServiceName => "CacheSnapshotService";
+    protected override TimeSpan StartupDelay => TimeSpan.Zero; // Run immediately
+    protected override TimeSpan Interval => _snapshotInterval;
+    protected override bool RunOnStartup => true;
+    protected override TimeSpan ErrorRetryDelay => TimeSpan.FromMinutes(5);
+
     public CacheSnapshotService(
+        IServiceProvider serviceProvider,
         IServiceScopeFactory scopeFactory,
         CacheManagementService cacheService,
         ILogger<CacheSnapshotService> logger,
         IConfiguration configuration)
+        : base(serviceProvider, logger, configuration)
     {
         _scopeFactory = scopeFactory;
         _cacheService = cacheService;
-        _logger = logger;
-        _configuration = configuration;
 
         _snapshotInterval = TimeSpan.FromMinutes(
-            _configuration.GetValue<int>("CacheSnapshots:IntervalMinutes", 60));
-        _retentionDays = _configuration.GetValue<int>("CacheSnapshots:RetentionDays", 90);
+            configuration.GetValue<int>("CacheSnapshots:IntervalMinutes", 60));
+        _retentionDays = configuration.GetValue<int>("CacheSnapshots:RetentionDays", 90);
+
+        Logger.LogInformation("Cache snapshot service initialized. Interval: {Interval}, Retention: {Retention} days",
+            _snapshotInterval, _retentionDays);
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task OnStartupAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Cache snapshot service started. Interval: {Interval}, Retention: {Retention} days",
-            _snapshotInterval, _retentionDays);
-
         // Take an initial snapshot at startup
         await RecordSnapshotAsync();
+    }
 
-        while (!stoppingToken.IsCancellationRequested)
+    protected override async Task ExecuteScopedWorkAsync(
+        IServiceProvider scopedServices,
+        CancellationToken stoppingToken)
+    {
+        await RecordSnapshotAsync();
+        _snapshotCount++;
+
+        // Cleanup old snapshots periodically (every 24 intervals)
+        if (_snapshotCount % 24 == 0)
         {
-            try
-            {
-                await Task.Delay(_snapshotInterval, stoppingToken);
-
-                if (!stoppingToken.IsCancellationRequested)
-                {
-                    await RecordSnapshotAsync();
-
-                    // Cleanup old snapshots periodically (every 24 hours worth of intervals)
-                    await CleanupOldSnapshotsAsync();
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                // Expected when stopping
-                break;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in cache snapshot service loop");
-                // Wait a bit before retrying
-                try
-                {
-                    await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-            }
+            await CleanupOldSnapshotsAsync();
         }
-
-        _logger.LogInformation("Cache snapshot service stopped");
     }
 
     private async Task RecordSnapshotAsync()
@@ -93,7 +77,7 @@ public class CacheSnapshotService : BackgroundService
             // Skip if no valid data (e.g., on Windows development)
             if (cacheInfo.TotalCacheSize == 0 && cacheInfo.UsedCacheSize == 0)
             {
-                _logger.LogDebug("Skipping cache snapshot - no cache info available");
+                Logger.LogDebug("Skipping cache snapshot - no cache info available");
                 return;
             }
 
@@ -110,12 +94,12 @@ public class CacheSnapshotService : BackgroundService
             dbContext.CacheSnapshots.Add(snapshot);
             await dbContext.SaveChangesAsync();
 
-            _logger.LogDebug("Recorded cache snapshot: {UsedSize} / {TotalSize}",
+            Logger.LogDebug("Recorded cache snapshot: {UsedSize} / {TotalSize}",
                 FormatBytes(cacheInfo.UsedCacheSize), FormatBytes(cacheInfo.TotalCacheSize));
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to record cache snapshot");
+            Logger.LogError(ex, "Failed to record cache snapshot");
         }
     }
 
@@ -134,13 +118,13 @@ public class CacheSnapshotService : BackgroundService
 
             if (deletedCount > 0)
             {
-                _logger.LogInformation("Cleaned up {Count} old cache snapshots (older than {Days} days)",
+                Logger.LogInformation("Cleaned up {Count} old cache snapshots (older than {Days} days)",
                     deletedCount, _retentionDays);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to cleanup old cache snapshots");
+            Logger.LogError(ex, "Failed to cleanup old cache snapshots");
         }
     }
 
