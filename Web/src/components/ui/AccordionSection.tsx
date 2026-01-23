@@ -32,10 +32,18 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
   const handleHeaderClick = (e: React.MouseEvent) => {
     // Don't toggle if clicking on an interactive element inside the header
     const target = e.target as HTMLElement;
-    if (target.closest('button, input, select, [role="button"], [role="listbox"], .ed-trigger')) {
+    if (target.closest('button, input, select, a, [role="button"], [role="listbox"], [role="combobox"], .ed-trigger, .ed-dropdown')) {
       return;
     }
     onToggle();
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    // Don't toggle if touching an interactive element inside the header
+    const target = e.target as HTMLElement;
+    if (target.closest('button, input, select, a, [role="button"], [role="listbox"], [role="combobox"], .ed-trigger, .ed-dropdown')) {
+      return;
+    }
   };
 
   return (
@@ -52,13 +60,14 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
         tabIndex={0}
         onClick={handleHeaderClick}
         onKeyDown={handleKeyDown}
+        onTouchEnd={handleTouchEnd}
         className="w-full px-4 py-3 flex items-center justify-between text-left transition-all duration-200 group/header bg-transparent cursor-pointer"
       >
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
           {/* Icon with animated background */}
           {Icon && (
             <div
-              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-300 ${
+              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-300 flex-shrink-0 ${
                 isExpanded ? 'scale-105' : 'scale-100'
               }`}
               style={{
@@ -79,7 +88,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
 
           {/* Title */}
           <span
-            className={`font-semibold transition-colors duration-200 ${
+            className={`font-semibold transition-colors duration-200 truncate ${
               isExpanded ? 'text-themed-primary' : 'text-themed-secondary'
             }`}
           >
@@ -89,7 +98,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
           {/* Count Badge */}
           {count !== undefined && (
             <span
-              className={`px-2.5 py-1 text-xs rounded-full font-semibold tabular-nums transition-all duration-300 ${
+              className={`px-2.5 py-1 mx-1.5 text-xs rounded-full font-semibold tabular-nums transition-all duration-300 flex-shrink-0 ${
                 isExpanded ? 'scale-105' : 'scale-100 bg-themed-tertiary text-themed-muted'
               }`}
               style={isExpanded ? {
@@ -100,23 +109,32 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
               {count.toLocaleString()}
             </span>
           )}
-
-          {badge}
         </div>
 
-        {/* Chevron with rotation animation */}
-        <div
-          className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all duration-300 ${
-            isExpanded
-              ? 'bg-[color-mix(in_srgb,var(--theme-accent)_10%,transparent)]'
-              : 'bg-transparent'
-          }`}
-        >
-          <ChevronDown
-            className={`w-5 h-5 transition-all duration-300 ease-out ${
-              isExpanded ? 'rotate-180 text-themed-accent' : 'rotate-0 text-themed-muted'
+        {/* Badge and Chevron container */}
+        <div className="flex items-center gap-3 flex-shrink-0">
+          {badge}
+
+          {/* Chevron with rotation animation */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle();
+            }}
+            className={`flex items-center justify-center w-10 h-10 rounded-lg transition-all duration-300 ${
+              isExpanded
+                ? 'bg-[color-mix(in_srgb,var(--theme-accent)_10%,transparent)]'
+                : 'bg-transparent hover:bg-themed-tertiary'
             }`}
-          />
+            aria-label={isExpanded ? 'Collapse section' : 'Expand section'}
+          >
+            <ChevronDown
+              className={`w-5 h-5 transition-all duration-300 ease-out ${
+                isExpanded ? 'rotate-180 text-themed-accent' : 'rotate-0 text-themed-muted'
+              }`}
+            />
+          </button>
         </div>
       </div>
 

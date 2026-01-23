@@ -304,7 +304,13 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       <button
         ref={buttonRef}
         type="button"
-        onClick={() => !disabled && setIsOpen(!isOpen)}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (!disabled) setIsOpen(!isOpen);
+        }}
+        onTouchEnd={(e) => {
+          e.stopPropagation();
+        }}
         disabled={disabled}
         aria-label={resolvedAriaLabel}
         className={`ed-trigger w-full px-3 py-2 rounded-lg border text-left flex items-center justify-between text-sm themed-card text-themed-primary ${

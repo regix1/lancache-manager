@@ -182,12 +182,12 @@ public class DataMigrationController : ControllerBase
             }
 
             // Open source database (read-only)
-            var sourceConnStr = $"Data Source={sourceDatabasePath};Mode=ReadOnly";
+            var sourceConnStr = $"Data Source={sourceDatabasePath};Mode=ReadOnly;Default Timeout=5";
             using var sourceConn = new SqliteConnection(sourceConnStr);
             await sourceConn.OpenAsync();
 
-            // Open target database
-            var targetConnStr = $"Data Source={targetDatabasePath}";
+            // Open target database (with busy timeout to handle concurrent access)
+            var targetConnStr = $"Data Source={targetDatabasePath};Default Timeout=5";
             using var targetConn = new SqliteConnection(targetConnStr);
             await targetConn.OpenAsync();
 
@@ -353,8 +353,8 @@ public class DataMigrationController : ControllerBase
             // Extract path and convert to connection string format for SqliteConnection
             var dbPath = ExtractDatabasePath(connectionString);
             var connStr = connectionString.Contains("Data Source", StringComparison.OrdinalIgnoreCase)
-                ? connectionString
-                : $"Data Source={dbPath}";
+                ? connectionString + ";Default Timeout=5"
+                : $"Data Source={dbPath};Default Timeout=5";
 
             using var connection = new SqliteConnection(connStr);
             await connection.OpenAsync();

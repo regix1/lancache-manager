@@ -32,11 +32,11 @@ export interface EventFrameProps {
 }
 
 const defaultTokens: Required<EventFrameTokens> = {
-  offset: 10,
+  offset: 18,
   radius: 12,
   strokeWidth: 2,
   dashArray: '11 6', // legacy token (unused in CSS shimmer variant)
-  topMargin: 16,
+  topMargin: 28,
   badgeOffset: 12
 };
 

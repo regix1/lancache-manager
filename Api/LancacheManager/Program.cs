@@ -288,9 +288,9 @@ builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
         dbPathInitialized = true;
     }
 
-    // CRITICAL FIX: Simplified connection string - no cache sharing, no pooling
-    // Testing if basic connection string prevents memory leak
-    options.UseSqlite($"Data Source={dbPath}");
+    // Default Timeout=5 sets SQLite busy_timeout to 5 seconds for all connections
+    // This allows SQLite to wait and retry when the database is locked instead of failing immediately
+    options.UseSqlite($"Data Source={dbPath};Default Timeout=5");
 });
 
 // Register DbContextFactory for singleton services that need to create multiple contexts
@@ -299,7 +299,7 @@ builder.Services.AddSingleton<IDbContextFactory<AppDbContext>>(serviceProvider =
 {
     var pathResolver = serviceProvider.GetRequiredService<IPathResolver>();
     var dbPath = Path.Combine(pathResolver.GetDataDirectory(), "LancacheManager.db");
-    var connectionString = $"Data Source={dbPath}";
+    var connectionString = $"Data Source={dbPath};Default Timeout=5";
 
     // Create a factory that returns new DbContext instances on demand
     return new CustomDbContextFactory(connectionString);
@@ -495,6 +495,12 @@ using (var scope = app.Services.CreateScope())
 
         // This will create the database if it doesn't exist and apply all pending migrations
         await dbContext.Database.MigrateAsync();
+
+        // Enable WAL mode for better concurrent access (reduces "database is locked" errors)
+        // WAL is persistent and only needs to be set once per database file
+        // busy_timeout is configured in the connection string (Default Timeout=5)
+        await dbContext.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;");
+        logger.LogInformation("SQLite WAL mode enabled");
 
         logger.LogInformation("Database migrations applied successfully");
 

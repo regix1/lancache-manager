@@ -3,6 +3,7 @@ using System.Text;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Security;
@@ -214,36 +215,54 @@ public class DeviceAuthService
 
         // CRITICAL: Check database first to ensure session still exists
         // This prevents zombie sessions where file cache exists but database session was deleted
-        try
+        // Retry with exponential backoff to handle "database is locked" errors
+        const int maxRetries = 3;
+        var retryDelayMs = 100;
+
+        for (var attempt = 1; attempt <= maxRetries; attempt++)
         {
-            using var context = _contextFactory.CreateDbContext();
-            var session = context.UserSessions
-                .FirstOrDefault(s => s.DeviceId == deviceId && !s.IsGuest && !s.IsRevoked);
-
-            if (session == null)
+            try
             {
-                // Log at Debug level - this is expected when sessions are cleared or devices revoked
-                _logger.LogDebug("[DeviceAuth] Device {DeviceId} not found in database or revoked, denying access", deviceId);
+                using var context = _contextFactory.CreateDbContext();
+                var session = context.UserSessions
+                    .FirstOrDefault(s => s.DeviceId == deviceId && !s.IsGuest && !s.IsRevoked);
 
-                // Remove from cache if it exists
-                lock (_cacheLock)
+                if (session == null)
                 {
-                    _deviceCache.Remove(deviceId);
+                    // Log at Debug level - this is expected when sessions are cleared or devices revoked
+                    _logger.LogDebug("[DeviceAuth] Device {DeviceId} not found in database or revoked, denying access", deviceId);
+
+                    // Remove from cache if it exists
+                    lock (_cacheLock)
+                    {
+                        _deviceCache.Remove(deviceId);
+                    }
+
+                    return false;
                 }
 
+                // NOTE: Do NOT update LastSeenAtUtc here - that's the heartbeat's job
+                // The heartbeat endpoint (/api/sessions/current/last-seen) respects page visibility
+                // and only updates LastSeenAt when the user is actively viewing the page.
+                // Updating it here on every API request would make users always appear "Active"
+                // even when their browser tab is minimized.
+                break; // Success - exit the retry loop
+            }
+            catch (SqliteException ex) when (
+                (ex.SqliteErrorCode == 5 || ex.SqliteErrorCode == 6) && // SQLITE_BUSY=5, SQLITE_LOCKED=6
+                attempt < maxRetries)
+            {
+                // Database is locked/busy, wait and retry
+                _logger.LogDebug("[DeviceAuth] Database locked during ValidateDevice (error code {ErrorCode}), retrying (attempt {Attempt}/{MaxRetries})", ex.SqliteErrorCode, attempt, maxRetries);
+                Thread.Sleep(retryDelayMs);
+                retryDelayMs *= 2; // Exponential backoff
+            }
+            catch (Exception ex)
+            {
+                // Non-retryable error or max retries exceeded
+                _logger.LogError(ex, "[DeviceAuth] Failed to check database for device {DeviceId}, denying access", deviceId);
                 return false;
             }
-
-            // NOTE: Do NOT update LastSeenAtUtc here - that's the heartbeat's job
-            // The heartbeat endpoint (/api/sessions/current/last-seen) respects page visibility
-            // and only updates LastSeenAt when the user is actively viewing the page.
-            // Updating it here on every API request would make users always appear "Active"
-            // even when their browser tab is minimized.
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "[DeviceAuth] Failed to check database for device {DeviceId}, denying access", deviceId);
-            return false;
         }
 
         lock (_cacheLock)
@@ -304,10 +323,10 @@ public class DeviceAuthService
                 }
                 return; // Success - exit the retry loop
             }
-            catch (Exception ex) when (ex.InnerException?.Message?.Contains("database is locked") == true && attempt < maxRetries)
+            catch (SqliteException ex) when ((ex.SqliteErrorCode == 5 || ex.SqliteErrorCode == 6) && attempt < maxRetries)
             {
-                // Database is locked, wait and retry
-                _logger.LogDebug("[DeviceAuth] Database locked, retrying UpdateLastSeen (attempt {Attempt}/{MaxRetries})", attempt, maxRetries);
+                // Database is locked/busy (SQLITE_BUSY=5, SQLITE_LOCKED=6), wait and retry
+                _logger.LogDebug("[DeviceAuth] Database locked (error code {ErrorCode}), retrying UpdateLastSeen (attempt {Attempt}/{MaxRetries})", ex.SqliteErrorCode, attempt, maxRetries);
                 Thread.Sleep(retryDelayMs);
                 retryDelayMs *= 2; // Exponential backoff
             }

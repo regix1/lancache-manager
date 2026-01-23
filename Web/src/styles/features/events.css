@@ -42,7 +42,9 @@
 /* Wrapper - contains everything and provides positioning context */
 .event-frame-wrapper {
   position: relative;
-  margin-top: var(--event-frame-top-margin, 16px);
+  margin-top: var(--event-frame-top-margin, 28px);
+  margin-bottom: var(--event-frame-top-margin, 28px);
+  padding: var(--event-frame-offset, 18px);
 }
 
 /* Content wrapper */
@@ -205,6 +207,28 @@
 .themed-card:has(.event-frame-active),
 .glass-card:has(.event-frame-active) {
   overflow: visible !important;
+}
+
+/* Mobile responsive: reduce spacing on smaller screens */
+@media (max-width: 768px) {
+  .event-frame-wrapper {
+    --event-frame-offset: 0px;
+    --event-frame-offset-negative: 0px;
+    --event-frame-top-margin: 12px;
+    --event-frame-border-radius: 8px;
+    margin-top: var(--event-frame-top-margin);
+    margin-bottom: var(--event-frame-top-margin);
+    padding: 16px;
+  }
+
+  .event-frame-border {
+    inset: 0;
+    border-radius: var(--event-frame-border-radius, 8px);
+  }
+
+  .event-frame-badge-container {
+    top: -12px;
+  }
 }
 
 /* Mobile perf: lower animation cost on coarse pointers */
