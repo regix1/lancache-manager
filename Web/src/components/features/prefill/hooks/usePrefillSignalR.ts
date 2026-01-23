@@ -245,8 +245,8 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         });
 
         // Handle auth state changes from backend
-        connection.on('AuthStateChanged', (_sessionId: string, newState: SteamAuthState) => {
-          onAuthStateChanged(newState);
+        connection.on('AuthStateChanged', (payload: { sessionId: string; authState: SteamAuthState }) => {
+          onAuthStateChanged(payload.authState);
         });
 
         // Handle session subscribed confirmation
@@ -257,8 +257,8 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         });
 
         // Handle session ended (sent to session owner)
-        connection.on('SessionEnded', (_sessionId: string, reason: string) => {
-          addLog('warning', t('prefill.log.sessionEnded', { reason }));
+        connection.on('SessionEnded', (payload: { sessionId: string; reason: string }) => {
+          addLog('warning', t('prefill.log.sessionEnded', { reason: payload.reason }));
           setSession(null);
           setIsLoggedIn(false);
           setIsPrefillActive(false);
@@ -291,7 +291,8 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         // Handle prefill progress updates
         connection.on(
           'PrefillProgress',
-          (_sessionId: string, progress: PrefillProgress & { totalApps: number }) => {
+          (payload: { sessionId: string; progress: PrefillProgress & { totalApps: number } }) => {
+            const progress = payload.progress;
             const isFinalState =
               progress.state === 'completed' ||
               progress.state === 'failed' ||
@@ -415,9 +416,9 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         // Handle status changes
         connection.on(
           'StatusChanged',
-          (_sessionId: string, status: { status: string; message: string }) => {
-            if (status.message) {
-              addLog('info', t('prefill.log.statusMessage', { message: status.message }));
+          (payload: { sessionId: string; status: { status: string; message: string } }) => {
+            if (payload.status.message) {
+              addLog('info', t('prefill.log.statusMessage', { message: payload.status.message }));
             }
           }
         );
@@ -425,7 +426,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         // Handle prefill state changes
         connection.on(
           'PrefillStateChanged',
-          (_sessionId: string, state: string, durationSeconds?: number) => {
+          (payload: { sessionId: string; state: string; durationSeconds?: number }) => {
             const resetAnimationState = () => {
               cachedAnimationQueueRef.current = [];
               isProcessingAnimationRef.current = false;
@@ -433,7 +434,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
               cachedAnimationCountRef.current = 0;
             };
 
-            if (state === 'started') {
+            if (payload.state === 'started') {
               setIsPrefillActive(true);
               addLog('download', t('prefill.log.prefillStarted'));
               cachedAnimationCountRef.current = 0;
@@ -444,15 +445,15 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
                   'prefill_in_progress',
                   JSON.stringify({
                     startedAt: new Date().toISOString(),
-                    sessionId: _sessionId
+                    sessionId: payload.sessionId
                   })
                 );
               } catch {
                 /* ignore */
               }
-            } else if (state === 'completed') {
+            } else if (payload.state === 'completed') {
               setIsPrefillActive(false);
-              const duration = durationSeconds ?? 0;
+              const duration = payload.durationSeconds ?? 0;
               const formattedDuration = formatDuration(duration);
               addLog('success', t('prefill.log.prefillCompleted', { duration: formattedDuration }));
               isCancelling.current = false;
@@ -476,7 +477,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
               } catch {
                 /* ignore */
               }
-            } else if (state === 'failed') {
+            } else if (payload.state === 'failed') {
               setIsPrefillActive(false);
               addLog('error', t('prefill.log.prefillFailed'));
               isCancelling.current = false;
@@ -488,7 +489,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
               } catch {
                 /* ignore */
               }
-            } else if (state === 'cancelled') {
+            } else if (payload.state === 'cancelled') {
               setIsPrefillActive(false);
               addLog('info', t('prefill.log.prefillCancelled'));
               isCancelling.current = false;
