@@ -270,7 +270,6 @@ const DownloadsTab: React.FC = () => {
   // State management
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
   const [settingsOpened, setSettingsOpened] = useState(false);
-  const [filterLoading, setFilterLoading] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
   const [showExportOptions, setShowExportOptions] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -391,28 +390,9 @@ const DownloadsTab: React.FC = () => {
 
   // Note: Downloads are now always fetched from the context - no need to manage mock data count here
 
-  // Track filter changes and show loading state
-  useEffect(() => {
-    if (!loading && latestDownloads.length > 0) {
-      setFilterLoading(true);
-
-      const timer = setTimeout(() => {
-        setFilterLoading(false);
-      }, 300);
-
-      return () => clearTimeout(timer);
-    }
-  }, [
-    settings.selectedService,
-    settings.selectedClient,
-    settings.searchQuery,
-    settings.sortOrder,
-    settings.showZeroBytes,
-    settings.showSmallFiles,
-    settings.hideLocalhost,
-    settings.hideUnknownGames,
-    settings.viewMode
-  ]);
+  // Note: Filter changes are handled client-side via useMemo, no loading state needed.
+  // Showing a loading overlay for instant client-side filtering causes unnecessary flicker.
+  // See Checkbox.tsx for the pattern to follow when filtering data.
 
   const availableServices = useMemo(() => {
     const services = new Set(latestDownloads.map((d) => d.service.toLowerCase()));
@@ -1586,20 +1566,6 @@ const DownloadsTab: React.FC = () => {
 
       {/* Downloads list */}
       <div className="relative overflow-x-hidden" ref={contentRef}>
-        {/* Loading overlay for filter changes */}
-        {filterLoading && (
-          <div className="absolute inset-0 bg-[var(--theme-bg-primary)]/60 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg transition-opacity duration-300">
-            <div
-              className="flex flex-col items-center gap-3 px-6 py-4 rounded-lg bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)] shadow-xl animate-[slideUp_0.3s_ease-out]"
-            >
-              <Loader2 className="w-6 h-6 animate-spin text-[var(--theme-primary)]" />
-              <span className="text-sm font-medium text-[var(--theme-text-primary)]">
-                {t('downloads.tab.updating')}
-              </span>
-            </div>
-          </div>
-        )}
-
         {/* Content based on view mode with fade transition */}
         <div className="relative">
           <div
