@@ -916,11 +916,11 @@
         "title": "Session Types",
         "authenticated": {
           "label": "Authenticated",
-          "description": "Full access with no automatic expiration"
+          "description": "Full access, no expiration"
         },
         "guest": {
           "label": "Guest",
-          "description": "Read-only for {{hours}} hours"
+          "description": "Read-only, expires in {{hours}} hours"
         }
       },
       "actions": {
@@ -931,7 +931,7 @@
         },
         "delete": {
           "label": "Delete",
-          "description": "Remove the device from history"
+          "description": "Remove device from history"
         }
       }
     },

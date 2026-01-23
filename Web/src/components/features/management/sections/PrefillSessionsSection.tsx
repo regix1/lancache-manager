@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Container,
@@ -670,14 +670,15 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   const loadBans = useCallback(async () => {
     setLoadingBans(true);
     try {
-      const bansRes = await ApiService.getSteamBans(includeLifted);
+      // Always fetch full ban list so toggling the filter doesn't trigger reloads.
+      const bansRes = await ApiService.getSteamBans(true);
       setBans(bansRes);
     } catch (error) {
       onError(getErrorMessage(error));
     } finally {
       setLoadingBans(false);
     }
-  }, [includeLifted, onError]);
+  }, [onError]);
 
   // Load prefill history for a session
   const loadHistory = useCallback(async (sessionId: string) => {
@@ -832,6 +833,11 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
 
   const totalPages = Math.ceil(totalCount / pageSize);
   const activeBansCount = bans.filter(b => b.isActive).length;
+  const visibleBans = useMemo(
+    () => (includeLifted ? bans : bans.filter(b => b.isActive)),
+    [bans, includeLifted]
+  );
+  const hasVisibleBans = visibleBans.length > 0;
 
   return (
     <div
@@ -1033,20 +1039,20 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
           />
         }
       >
-        {loadingBans ? (
+        {loadingBans && !hasVisibleBans ? (
           <div className="prefill-loading-state">
             <Loader2 className="w-6 h-6 animate-spin text-themed-muted" />
             <span>{t('management.prefillSessions.bannedUsers.loadingBans')}</span>
           </div>
-        ) : bans.length === 0 ? (
+        ) : !loadingBans && !hasVisibleBans ? (
           <div className="prefill-empty-state">
             <Shield className="w-12 h-12 opacity-50" />
             <p className="prefill-empty-title">{t('management.prefillSessions.bannedUsers.noBannedUsers')}</p>
             <p className="prefill-empty-desc">{t('management.prefillSessions.bannedUsers.noBannedUsersDesc')}</p>
           </div>
         ) : (
-          <div className="prefill-bans-list">
-            {bans.map(ban => (
+          <div className={`prefill-bans-list ${loadingBans ? 'opacity-60 pointer-events-none' : ''}`}>
+            {visibleBans.map(ban => (
               <BannedUserCard
                 key={ban.id}
                 ban={ban}

@@ -33,11 +33,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
       {/* Header Button */}
       <button
         onClick={onToggle}
-        className={`w-full px-4 py-3 flex items-center justify-between text-left transition-all duration-200 group/header ${
-          isExpanded
-            ? 'bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-accent)_8%,transparent)_0%,transparent_100%)]'
-            : 'bg-transparent'
-        }`}
+        className="w-full px-4 py-3 flex items-center justify-between text-left transition-all duration-200 group/header bg-transparent"
       >
         <div className="flex items-center gap-3">
           {/* Icon with animated background */}
@@ -114,7 +110,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
         }`}
       >
         <div
-          className="px-4 pb-4 pt-3 border-t border-themed-secondary bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-bg-tertiary)_30%,transparent)_0%,transparent_100%)]"
+          className="px-4 pb-4 pt-3 border-t border-themed-secondary"
         >
           {children}
         </div>
