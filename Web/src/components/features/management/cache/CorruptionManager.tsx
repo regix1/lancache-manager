@@ -13,7 +13,7 @@ import { useDockerSocket } from '@contexts/DockerSocketContext';
 import type {
   CorruptionRemovalCompleteEvent
 } from '@contexts/SignalRContext/types';
-import { useNotifications } from '@contexts/NotificationsContext';
+import { useNotifications } from '@contexts/notifications';
 import { Card } from '@components/ui/Card';
 import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { Button } from '@components/ui/Button';

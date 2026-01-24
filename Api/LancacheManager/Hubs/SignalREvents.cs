@@ -75,6 +75,7 @@ public static class SignalREvents
 
     // Prefill Daemon
     public const string SteamUserBanned = "SteamUserBanned";
+    public const string SteamUserUnbanned = "SteamUserUnbanned";
     public const string DaemonSessionCreated = "DaemonSessionCreated";
     public const string DaemonSessionUpdated = "DaemonSessionUpdated";
     public const string DaemonSessionTerminated = "DaemonSessionTerminated";

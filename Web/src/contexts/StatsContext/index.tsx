@@ -263,7 +263,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     // Handler for database reset completion - always refresh immediately
     const handleDatabaseResetProgress = (event: { status?: string }) => {
       const status = (event.status || '').toLowerCase();
-      if (status === 'completed' || status === 'complete' || status === 'done') {
+      if (status === 'completed') {
         setTimeout(() => fetchStats(), 500);
       }
     };

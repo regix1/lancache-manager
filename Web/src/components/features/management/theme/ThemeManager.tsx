@@ -34,7 +34,7 @@ import { DeleteConfirmModal } from '@components/modals/theme/DeleteConfirmModal'
 import { CommunityThemeImporter } from './CommunityThemeImporter';
 import { colorGroups } from './constants';
 import { type Theme, type ThemeManagerProps, type EditableTheme, type ThemeColors } from './types';
-import { useNotifications } from '@contexts/NotificationsContext';
+import { useNotifications } from '@contexts/notifications';
 
 const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   const { t } = useTranslation();

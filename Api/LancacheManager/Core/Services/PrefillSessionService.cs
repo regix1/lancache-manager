@@ -93,13 +93,13 @@ public class PrefillSessionService
     /// <summary>
     /// Lifts a ban for a Steam user.
     /// </summary>
-    public async Task<bool> LiftBanAsync(int banId, string? liftedBy = null)
+    public async Task<BannedSteamUser?> LiftBanAsync(int banId, string? liftedBy = null)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         var ban = await context.BannedSteamUsers.FindAsync(banId);
         if (ban == null || ban.IsLifted)
-            return false;
+            return null;
 
         ban.IsLifted = true;
         ban.LiftedAtUtc = DateTime.UtcNow;
@@ -110,7 +110,7 @@ public class PrefillSessionService
         _logger.LogInformation("Lifted ban {BanId} for user {Username}",
             banId, ban.Username);
 
-        return true;
+        return ban;
     }
 
     /// <summary>

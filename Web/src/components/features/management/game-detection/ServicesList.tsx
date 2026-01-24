@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import ServiceCard from './ServiceCard';
 import type { ServiceCacheInfo } from '../../../../types';
-import type { UnifiedNotification } from '@contexts/NotificationsContext';
+import type { UnifiedNotification } from '@contexts/notifications';
 
 interface ServicesListProps {
   services: ServiceCacheInfo[];

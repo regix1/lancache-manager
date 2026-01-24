@@ -77,8 +77,8 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
       console.log('[AuthModal] DatabaseResetProgress:', event);
 
       const statusLower = (event.status || '').toLowerCase();
-      const isComplete = statusLower === 'completed' || statusLower === 'complete' || statusLower === 'done';
-      const isError = statusLower === 'error' || statusLower === 'failed';
+      const isComplete = statusLower === 'completed';
+      const isError = statusLower === 'failed';
 
       if (isComplete) {
         setResetStatus({
@@ -94,7 +94,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
           isResetting: false,
           percentComplete: 0,
           message: event.message || t('modals.auth.databaseReset.failed'),
-          status: 'error'
+          status: 'failed'
         });
         setResetJustCompleted(true);
         setTimeout(() => setResetJustCompleted(false), 5000);

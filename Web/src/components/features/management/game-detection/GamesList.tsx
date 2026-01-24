@@ -5,7 +5,7 @@ import { Button } from '@components/ui/Button';
 import { Pagination } from '@components/ui/Pagination';
 import GameCard from './GameCard';
 import type { GameCacheInfo } from '../../../../types';
-import type { UnifiedNotification } from '@contexts/NotificationsContext';
+import type { UnifiedNotification } from '@contexts/notifications';
 
 interface GamesListProps {
   games: GameCacheInfo[];

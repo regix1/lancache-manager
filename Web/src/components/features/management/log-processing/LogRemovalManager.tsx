@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { FileText, AlertTriangle, RefreshCw, Loader2, Trash2 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
-import { useNotifications } from '@contexts/NotificationsContext';
+import { useNotifications } from '@contexts/notifications';
 import { useDockerSocket } from '@contexts/DockerSocketContext';
 import { Card } from '@components/ui/Card';
 import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';

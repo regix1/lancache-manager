@@ -84,23 +84,16 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
     checkActiveProcessing();
   }, []);
 
-  // Helper function for flexible status checking (handles variations from SignalR)
-  const isCompleteStatus = (status?: string): boolean => {
-    if (!status) return false;
-    const normalized = status.toLowerCase();
-    return normalized === 'complete' || normalized === 'completed' || normalized === 'done' || normalized === 'finished';
-  };
-
   useEffect(() => {
     const handleProcessingProgress = (progress: ProcessingProgressEvent) => {
       const currentProgress = progress.percentComplete || progress.progress || 0;
       const status = progress.status || 'processing';
 
-      if (isCompleteStatus(status)) {
+      if (status.toLowerCase() === 'completed') {
         setProgress({
           isProcessing: false,
           progress: 100,
-          status: 'complete',
+          status: 'completed',
           entriesProcessed: progress.entriesProcessed,
           linesProcessed: progress.linesProcessed || progress.totalLines,
           totalLines: progress.totalLines,
@@ -128,7 +121,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       setProgress({
         isProcessing: false,
         progress: 100,
-        status: 'complete',
+        status: 'completed',
         entriesProcessed: progress.entriesProcessed,
         linesProcessed: progress.linesProcessed,
         totalLines: progress.linesProcessed

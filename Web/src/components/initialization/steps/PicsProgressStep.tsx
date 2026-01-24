@@ -56,9 +56,8 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
   };
 
   useEffect(() => {
-    // Check for various completion status values
     const status = progress?.status?.toLowerCase() || '';
-    const isFinished = status === 'complete' || status === 'completed' || status === 'done';
+    const isFinished = status === 'completed';
 
     if (progress && !progress.isProcessing && (isFinished || progress.progressPercent >= 100)) {
       if (!isComplete) {

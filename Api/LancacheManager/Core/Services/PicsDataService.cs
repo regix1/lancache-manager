@@ -430,7 +430,7 @@ public class PicsDataService
     /// </summary>
     public async Task ImportJsonDataToDatabaseAsync()
     {
-        await ImportJsonDataToDatabaseAsync(CancellationToken.None);
+        await ImportJsonDataToDatabaseAsync(CancellationToken.None, null);
     }
 
     /// <summary>
@@ -438,8 +438,21 @@ public class PicsDataService
     /// </summary>
     public async Task ImportJsonDataToDatabaseAsync(CancellationToken cancellationToken)
     {
+        await ImportJsonDataToDatabaseAsync(cancellationToken, null);
+    }
+
+    /// <summary>
+    /// Import PICS data from JSON file to database with cancellation support and progress reporting
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <param name="progressCallback">Optional callback for progress updates (phase, percentComplete within phase)</param>
+    public async Task ImportJsonDataToDatabaseAsync(CancellationToken cancellationToken, Func<string, int, Task>? progressCallback)
+    {
         try
         {
+            // Phase 1: Load PICS data from JSON (0-5%)
+            if (progressCallback != null) await progressCallback("Loading depot data...", 0);
+
             var picsData = await LoadPicsDataFromJsonAsync();
             if (picsData?.DepotMappings == null)
             {
@@ -447,16 +460,22 @@ public class PicsDataService
                 return;
             }
 
+            if (progressCallback != null) await progressCallback("Processing depot mappings...", 5);
+
             using var scope = _scopeFactory.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
+            // Phase 2: Build mappings list (5-20%)
             var mappingsToImport = new List<SteamDepotMapping>();
             var processedCount = 0;
+            var totalDepots = picsData.DepotMappings.Count;
+            var depotIndex = 0;
 
             foreach (var (depotIdStr, mapping) in picsData.DepotMappings)
             {
                 if (!uint.TryParse(depotIdStr, out var depotId))
                 {
+                    depotIndex++;
                     continue;
                 }
 
@@ -488,17 +507,56 @@ public class PicsDataService
                         }
                     }
                 }
+
+                depotIndex++;
+                // Report progress every 10% of depots processed
+                if (progressCallback != null && depotIndex % (totalDepots / 10 + 1) == 0)
+                {
+                    var phaseProgress = 5 + (int)(15.0 * depotIndex / totalDepots);
+                    await progressCallback($"Processing depot mappings... ({depotIndex:N0}/{totalDepots:N0})", phaseProgress);
+                }
             }
 
+            // Phase 3: Query existing mappings (20-35%)
+            if (progressCallback != null) await progressCallback("Checking existing mappings...", 20);
+
             // Get existing mappings to avoid duplicates
+            // SQLite has a limit of ~999 variables per query, so we batch the Contains query
             var depotIds = mappingsToImport.Select(m => m.DepotId).Distinct().ToList();
-            var existingMappings = await context.SteamDepotMappings
-                .Where(m => depotIds.Contains(m.DepotId))
-                .ToDictionaryAsync(m => $"{m.DepotId}_{m.AppId}");
+            var existingMappings = new Dictionary<string, SteamDepotMapping>();
+            const int queryBatchSize = 500; // Stay safely under SQLite's 999 variable limit
+            var totalQueryBatches = (depotIds.Count + queryBatchSize - 1) / queryBatchSize;
+            var queryBatchIndex = 0;
+
+            for (int i = 0; i < depotIds.Count; i += queryBatchSize)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var batchDepotIds = depotIds.Skip(i).Take(queryBatchSize).ToList();
+                var batchMappings = await context.SteamDepotMappings
+                    .Where(m => batchDepotIds.Contains(m.DepotId))
+                    .ToListAsync(cancellationToken);
+
+                foreach (var mapping in batchMappings)
+                {
+                    existingMappings[$"{mapping.DepotId}_{mapping.AppId}"] = mapping;
+                }
+
+                queryBatchIndex++;
+                // Report progress during query phase (20-35%)
+                if (progressCallback != null && totalQueryBatches > 0 && queryBatchIndex % Math.Max(1, totalQueryBatches / 5) == 0)
+                {
+                    var queryProgress = 20 + (int)(15.0 * queryBatchIndex / totalQueryBatches);
+                    await progressCallback($"Checking existing mappings... ({queryBatchIndex}/{totalQueryBatches})", queryProgress);
+                }
+            }
+
+            // Phase 4: Compare and prepare new mappings (35-45%)
+            if (progressCallback != null) await progressCallback("Preparing new mappings...", 35);
 
             var newMappings = new List<SteamDepotMapping>();
             int updated = 0;
             int comparedCount = 0;
+            var totalToCompare = mappingsToImport.Count;
 
             foreach (var mapping in mappingsToImport)
             {
@@ -527,11 +585,22 @@ public class PicsDataService
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     await Task.Yield();
+
+                    // Report progress during comparison phase (35-45%)
+                    if (progressCallback != null && comparedCount % 10000 == 0)
+                    {
+                        var compareProgress = 35 + (int)(10.0 * comparedCount / totalToCompare);
+                        await progressCallback($"Preparing mappings... ({comparedCount:N0}/{totalToCompare:N0})", compareProgress);
+                    }
                 }
             }
 
-            // Batch insert new mappings to avoid huge single transactions
+            // Phase 5: Batch insert new mappings (45-95%)
+            if (progressCallback != null) await progressCallback($"Inserting {newMappings.Count:N0} new mappings...", 45);
+
             const int batchSize = 5000;
+            var totalInsertBatches = (newMappings.Count + batchSize - 1) / batchSize;
+            var insertBatchIndex = 0;
 
             for (int i = 0; i < newMappings.Count; i += batchSize)
             {
@@ -550,6 +619,15 @@ public class PicsDataService
                     // Just clear the context and continue - the data is already there
                     context.ChangeTracker.Clear();
                     _logger.LogDebug("Skipped batch with duplicate mappings - data already exists");
+                }
+
+                insertBatchIndex++;
+                // Report progress during insert phase (45-95%)
+                if (progressCallback != null)
+                {
+                    var insertProgress = 45 + (int)(50.0 * insertBatchIndex / Math.Max(1, totalInsertBatches));
+                    var insertedCount = Math.Min(insertBatchIndex * batchSize, newMappings.Count);
+                    await progressCallback($"Inserting mappings... ({insertedCount:N0}/{newMappings.Count:N0})", insertProgress);
                 }
 
                 // Yield after each batch

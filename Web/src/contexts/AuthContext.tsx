@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import authService, { type AuthMode } from '@services/auth.service';
 import { useSignalR } from './SignalRContext';
-import type { GuestPrefillPermissionChangedEvent, SteamUserBannedEvent, UserSessionRevokedEvent, GuestDurationUpdatedEvent } from './SignalRContext/types';
+import type { GuestPrefillPermissionChangedEvent, SteamUserBannedEvent, SteamUserUnbannedEvent, UserSessionRevokedEvent, GuestDurationUpdatedEvent } from './SignalRContext/types';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -114,6 +114,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       signalR.off('SteamUserBanned', handleSteamUserBanned);
     };
   }, [signalR]);
+
+  // Listen for SignalR events that indicate this device was unbanned
+  useEffect(() => {
+    const handleSteamUserUnbanned = (event: SteamUserUnbannedEvent) => {
+      // Check if this event is for the current device
+      const currentDeviceId = authService.getDeviceId();
+      if (event.deviceId === currentDeviceId) {
+        console.log('[Auth] Device unbanned via SignalR:', event.username);
+        setIsBanned(false);
+        // Refresh auth to get updated prefill permissions
+        refreshAuth();
+      }
+    };
+
+    signalR.on('SteamUserUnbanned', handleSteamUserUnbanned);
+
+    return () => {
+      signalR.off('SteamUserUnbanned', handleSteamUserUnbanned);
+    };
+  }, [signalR, refreshAuth]);
 
   // Listen for auth state changes from handleUnauthorized and other events
   useEffect(() => {

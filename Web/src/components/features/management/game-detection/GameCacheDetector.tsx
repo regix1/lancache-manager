@@ -9,7 +9,7 @@ import { Tooltip } from '@components/ui/Tooltip';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
-import { useNotifications } from '@contexts/NotificationsContext';
+import { useNotifications } from '@contexts/notifications';
 import { useDockerSocket } from '@contexts/DockerSocketContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import {

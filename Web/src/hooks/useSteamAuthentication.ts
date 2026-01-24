@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import ApiService from '@services/api.service';
-import { useNotifications } from '@contexts/NotificationsContext';
+import { useNotifications } from '@contexts/notifications';
 
 export interface SteamAuthOptions {
   autoStartPics?: boolean;

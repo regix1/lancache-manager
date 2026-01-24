@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStats } from '@contexts/StatsContext';
-import { useNotifications } from '@contexts/NotificationsContext';
+import { useNotifications } from '@contexts/notifications';
 import { useMockMode } from '@contexts/MockModeContext';
 import { useSignalR } from '@contexts/SignalRContext';
 import type {

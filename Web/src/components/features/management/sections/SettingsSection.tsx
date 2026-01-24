@@ -5,7 +5,7 @@ import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { useMockMode } from '@contexts/MockModeContext';
-import { useNotifications } from '@contexts/NotificationsContext';
+import { useNotifications } from '@contexts/notifications';
 import AuthenticationManager from '../steam/AuthenticationManager';
 import DisplayPreferences from './DisplayPreferences';
 import GcManager from '../gc/GcManager';

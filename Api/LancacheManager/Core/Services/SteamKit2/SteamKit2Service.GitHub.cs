@@ -32,6 +32,9 @@ public partial class SteamKit2Service
                 timestamp = DateTime.UtcNow
             });
 
+            // Phase 1: Connect and download (0-10%)
+            await SendGitHubProgress("Connecting to GitHub...", 2);
+
             const string githubUrl = "https://github.com/regix1/lancache-pics/releases/latest/download/pics_depot_mappings.json";
 
             using var httpClient = _httpClientFactory.CreateClient();
@@ -40,6 +43,7 @@ public partial class SteamKit2Service
 
             _logger.LogInformation("[GitHub Mode] Downloading from: {Url}", githubUrl);
 
+            await SendGitHubProgress("Downloading depot data...", 5);
             var response = await httpClient.GetAsync(githubUrl, cancellationToken);
 
             if (!response.IsSuccessStatusCode)
@@ -48,6 +52,7 @@ public partial class SteamKit2Service
                 return false;
             }
 
+            await SendGitHubProgress("Reading response data...", 8);
             var jsonContent = await response.Content.ReadAsStringAsync(cancellationToken);
 
             if (string.IsNullOrWhiteSpace(jsonContent))
@@ -56,7 +61,9 @@ public partial class SteamKit2Service
                 return false;
             }
 
-            // Validate JSON structure and parse GitHub data
+            // Phase 2: Validate JSON (10-15%)
+            await SendGitHubProgress("Validating JSON structure...", 10);
+
             PicsJsonData? downloadedData;
             try
             {
@@ -81,7 +88,8 @@ public partial class SteamKit2Service
                 return false;
             }
 
-            // Save to local file (overwrites existing)
+            // Phase 3: Save to local file (15-18%)
+            await SendGitHubProgress("Saving to local file...", 15);
             var localPath = _picsDataService.GetPicsJsonFilePath();
             await System.IO.File.WriteAllTextAsync(localPath, jsonContent, cancellationToken);
             _logger.LogInformation("[GitHub Mode] Saved pre-created depot data to: {Path}", localPath);
@@ -89,29 +97,40 @@ public partial class SteamKit2Service
             // Clear cache so next load reads the new file
             _picsDataService.ClearCache();
 
-            // Send progress update for clearing phase
-            await SendGitHubProgress("Clearing existing depot mappings...", 25);
+            // Phase 4: Clear existing mappings (18-22%)
+            await SendGitHubProgress("Clearing existing depot mappings...", 18);
 
             // Full replace: Clear existing depot mappings first, then import fresh data
             // This ensures the database always matches GitHub exactly (removes stale/deleted mappings)
             _logger.LogInformation("[GitHub Mode] Clearing existing depot mappings for full replace...");
             await _picsDataService.ClearDepotMappingsAsync(cancellationToken);
 
-            // Send progress update for import phase
-            await SendGitHubProgress("Importing depot mappings to database...", 50);
+            await SendGitHubProgress("Depot mappings cleared", 22);
 
-            // Import fresh data from GitHub
+            // Phase 5: Import to database (22-90%) - uses progress callback for granular updates
             _logger.LogInformation("[GitHub Mode] Importing {Count} depot mappings to database (full replace mode)",
                 downloadedData.DepotMappings.Count);
-            await _picsDataService.ImportJsonDataToDatabaseAsync(cancellationToken);
 
-            // Send progress update for apply phase
+            // Progress callback that maps import progress (0-100%) to our range (22-90%)
+            async Task ImportProgressCallback(string message, int importPercent)
+            {
+                // Map 0-100% import progress to 22-90% overall progress
+                var overallPercent = 22 + (int)(0.68 * importPercent);
+                await SendGitHubProgress(message, overallPercent);
+            }
+
+            await _picsDataService.ImportJsonDataToDatabaseAsync(cancellationToken, ImportProgressCallback);
+
+            // Phase 6: Apply mappings to downloads (90-98%)
             await SendGitHubProgress("Applying mappings to downloads...", 90);
 
             // Apply depot mappings to existing downloads
             // This only updates downloads that don't have game info yet (or missing image)
             _logger.LogInformation("[GitHub Mode] Applying depot mappings to downloads without game info");
             await ManuallyApplyDepotMappings();
+
+            // Phase 7: Finalize (98-100%)
+            await SendGitHubProgress("Finalizing import...", 98);
 
             _logger.LogInformation("[GitHub Mode] Pre-created depot data downloaded and imported successfully");
 

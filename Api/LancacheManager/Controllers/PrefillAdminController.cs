@@ -309,11 +309,21 @@ public class PrefillAdminController : ControllerBase
     {
         var adminDeviceId = GetDeviceId();
 
-        var success = await _sessionService.LiftBanAsync(banId, adminDeviceId);
+        var ban = await _sessionService.LiftBanAsync(banId, adminDeviceId);
 
-        if (!success)
+        if (ban == null)
         {
             return NotFound(ApiResponse.Error("Ban not found or already lifted"));
+        }
+
+        // Notify the unbanned device via SignalR so their UI updates immediately
+        if (!string.IsNullOrEmpty(ban.BannedDeviceId))
+        {
+            await _notifications.NotifyAllAsync(SignalREvents.SteamUserUnbanned, new
+            {
+                deviceId = ban.BannedDeviceId,
+                username = ban.Username
+            });
         }
 
         _logger.LogInformation("Admin {AdminId} lifted ban {BanId}", adminDeviceId, banId);

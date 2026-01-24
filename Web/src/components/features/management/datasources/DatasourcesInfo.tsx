@@ -9,7 +9,7 @@ import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { useSignalR } from '@contexts/SignalRContext';
 import type { FastProcessingCompleteEvent } from '@contexts/SignalRContext/types';
-import { useNotifications } from '@contexts/NotificationsContext';
+import { useNotifications } from '@contexts/notifications';
 import {
   ManagerCardHeader,
   LoadingState

@@ -7,7 +7,7 @@ import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { FullScanRequiredModal } from '@components/modals/setup/FullScanRequiredModal';
-import { useNotifications } from '@contexts/NotificationsContext';
+import { useNotifications } from '@contexts/notifications';
 import { usePicsProgress } from '@contexts/PicsProgressContext';
 import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 import { formatNextCrawlTime, toTotalSeconds } from '@utils/timeFormatters';

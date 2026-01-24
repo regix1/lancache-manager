@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { HubConnection } from '@microsoft/signalr';
-import { useNotifications } from '@contexts/NotificationsContext';
+import { useNotifications } from '@contexts/notifications';
 import { type SteamLoginFlowState, type SteamAuthActions } from './useSteamAuthentication';
 
 interface CredentialChallenge {
