@@ -89,7 +89,6 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   const clearAllLocalStorage = () => {
     storage.removeItem('initializationCurrentStep');
     storage.removeItem('dataSourceChoice');
-    storage.removeItem('initializationApiKey');
     storage.removeItem('steamApiKey');
     storage.removeItem('importConnectionString');
     storage.removeItem('importBatchSize');
@@ -199,9 +198,10 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
           return;
         }
 
-        // Not authenticated → always show api-key step (backend is source of truth)
+        // Not authenticated → show api-key step (backend is source of truth)
+        // Don't clear localStorage here - just reset to api-key step
+        // This preserves the initialization flow state in App.tsx
         if (!authCheck.isAuthenticated && authRequired) {
-          clearAllLocalStorage();
           setCurrentStep('api-key');
           setIsCheckingAuth(false);
           return;

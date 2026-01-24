@@ -43,9 +43,11 @@ export const useInitializationAuth = ({
         try {
           const result = await authService.register(apiKey, null);
           if (result.success) {
-            await onAuthChanged?.();
-            await checkPicsDataStatus();
+            // IMPORTANT: Set step BEFORE calling onAuthChanged to prevent race condition
+            // onAuthChanged triggers refreshAuth which may re-render parent and remount this component
             setCurrentStep('import-historical-data');
+            await checkPicsDataStatus();
+            await onAuthChanged?.();
           } else {
             setAuthError(result.message);
           }
@@ -68,7 +70,6 @@ export const useInitializationAuth = ({
         }
 
         await authService.startGuestMode();
-        await onAuthChanged?.();
 
         const setupResponse = await fetch(
           '/api/system/setup',
@@ -79,15 +80,18 @@ export const useInitializationAuth = ({
         if (setupData.isSetupCompleted) {
           onInitializationComplete();
         } else {
+          // Set step BEFORE onAuthChanged to prevent race condition
           setCurrentStep('import-historical-data');
+          await onAuthChanged?.();
         }
         break;
       }
 
       case 'admin': {
-        await onAuthChanged?.();
-        await checkPicsDataStatus();
+        // Set step BEFORE onAuthChanged to prevent race condition
         setCurrentStep('import-historical-data');
+        await checkPicsDataStatus();
+        await onAuthChanged?.();
         break;
       }
     }

@@ -352,10 +352,6 @@ const AppContent: React.FC = () => {
       setIsInitializationFlowActive(false);
       storage.removeItem('initializationFlowActive');
       storage.removeItem('initializationCurrentStep');
-      storage.removeItem('initializationInProgress');
-      storage.removeItem('initializationMethod');
-      storage.removeItem('initializationDownloadStatus');
-      storage.removeItem('usingSteamAuth');
       storage.removeItem('dataSourceChoice');
     } else {
       // Backend shows setup is NOT complete
