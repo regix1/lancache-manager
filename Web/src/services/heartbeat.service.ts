@@ -33,8 +33,6 @@ class HeartbeatService {
         this.sendHeartbeat();
       }
     }, 30000); // 30 seconds
-
-    console.log('[Heartbeat] Started sending heartbeats every 30 seconds');
   }
 
   /**
@@ -54,10 +52,7 @@ class HeartbeatService {
 
       if (this.isPageVisible && !wasVisible) {
         // Tab became visible - send immediate heartbeat
-        console.log('[Heartbeat] Page became visible, sending heartbeat');
         this.sendHeartbeat();
-      } else if (!this.isPageVisible && wasVisible) {
-        console.log('[Heartbeat] Page hidden, pausing heartbeats');
       }
     };
 
@@ -81,7 +76,6 @@ class HeartbeatService {
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = null;
-      console.log('[Heartbeat] Stopped sending heartbeats');
     }
     this.removeVisibilityListener();
   }

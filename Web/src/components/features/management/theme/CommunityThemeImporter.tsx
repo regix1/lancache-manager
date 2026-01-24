@@ -328,10 +328,6 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
         throw new Error(error.error || t('management.themes.errors.failedToUpdate'));
       }
 
-      console.log(
-        `Auto-updated theme: ${theme.meta?.name || theme.name} to v${theme.meta?.version}`
-      );
-
       if (onThemeImported) {
         onThemeImported();
       }

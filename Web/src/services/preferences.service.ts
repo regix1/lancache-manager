@@ -348,11 +348,8 @@ class PreferencesService {
       // CRITICAL: Prevent duplicate dispatches within 5 seconds
       // Both UserSessionsCleared and UserSessionRevoked can trigger this
       if (recentlyDispatchedSessionsCleared) {
-        console.log('[PreferencesService] Already dispatched sessions cleared recently - skipping duplicate');
         return;
       }
-
-      console.log('[PreferencesService] UserSessionsCleared event received');
       recentlyDispatchedSessionsCleared = true;
 
       // Dispatch custom event for App.tsx to handle (needs React context for refreshAuth)
@@ -372,12 +369,10 @@ class PreferencesService {
       // CRITICAL: Skip if we just processed this revocation in the last 5 seconds
       // This prevents duplicate SignalR events from causing multiple logout attempts
       if (recentRevocations.has(revocationKey)) {
-        console.log('[PreferencesService] Already processed revocation for', revocationKey, '- skipping duplicate');
         return;
       }
 
       try {
-        console.log('[PreferencesService] UserSessionRevoked event received:', data);
 
         // Add to recent set FIRST to block duplicates immediately
         recentRevocations.add(revocationKey);
@@ -393,11 +388,8 @@ class PreferencesService {
         if (isOurSession) {
           // Check if we already dispatched recently (e.g., from UserSessionsCleared event)
           if (recentlyDispatchedSessionsCleared) {
-            console.log('[PreferencesService] Session revoked but already dispatched sessions cleared - skipping');
             return;
           }
-
-          console.warn('[PreferencesService] Our session was revoked - forcing logout');
           recentlyDispatchedSessionsCleared = true;
 
           // Dispatch custom event for App.tsx to handle (needs React context for refreshAuth)

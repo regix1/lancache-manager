@@ -219,8 +219,6 @@ export const PrefillProvider: React.FC<PrefillProviderProps> = ({ children }) =>
       setLogEntries([]);
       setSessionIdState(null);
       setBackgroundCompletionState(null);
-
-      console.log('[PrefillContext] Cleared all prefill storage');
     } catch (error) {
       console.error('[PrefillContext] Failed to clear prefill storage:', error);
     }

@@ -82,7 +82,6 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   // Listen for processing complete events to refresh positions
   useEffect(() => {
     const handleProcessingComplete = async (_result: FastProcessingCompleteEvent) => {
-      console.log('[DatasourcesManager] Processing complete, refreshing positions');
       try {
         const positions = await fetchLogPositions();
         setLogPositions(positions);

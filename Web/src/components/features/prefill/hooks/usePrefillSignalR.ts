@@ -724,9 +724,6 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
           sessionStorage.getItem('prefill_activity_log') ||
           sessionStorage.getItem('prefill_in_progress');
         if (hasStaleData) {
-          console.log(
-            '[usePrefillSignalR] No active session but found stale storage data, clearing...'
-          );
           clearAllPrefillStorage();
         }
       }

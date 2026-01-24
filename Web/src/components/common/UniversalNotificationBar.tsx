@@ -72,9 +72,6 @@ const createCancelHandler =
       const isAlreadyCompleted = patterns.some((pattern) => errorMsg.includes(pattern));
 
       if (isAlreadyCompleted) {
-        console.log(
-          '[UniversalNotificationBar] Operation already completed, dismissing notification'
-        );
         removeNotification(notificationId);
       } else {
         console.error('Failed to cancel operation:', err);

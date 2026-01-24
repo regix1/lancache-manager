@@ -187,7 +187,6 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       const currentSource = depotSource;
       // Only switch if current selection is 'incremental' or 'full' (which require Web API)
       if (currentSource === 'incremental' || currentSource === 'full') {
-        console.log('[DepotMapping] Web API unavailable - switching Apply Now Source to GitHub mode');
         setDepotSource('github');
         storage.setItem('depotSource', 'github');
       }
@@ -221,10 +220,6 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       depotConfig?.crawlIncrementalMode !== 'github' &&
       !autoSwitchAttemptedRef.current
     ) {
-      console.log(
-        '[DepotMapping] Web API V2 down and no V1 API key configured - switching automatic scan schedule to GitHub mode'
-      );
-
       // Mark that we've attempted the switch to prevent repeats
       autoSwitchAttemptedRef.current = true;
 
@@ -236,7 +231,6 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       }))
         .then((response) => {
           if (response.ok) {
-            console.log('[DepotMapping] Successfully set scan mode to GitHub');
             // Also set interval to 30 minutes (0.5 hours) for GitHub mode
             return fetch('/api/depots/rebuild/config/interval', ApiService.getFetchOptions({
               method: 'PUT',
@@ -257,7 +251,6 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
         })
         .then((intervalResponse) => {
           if (intervalResponse && intervalResponse.ok) {
-            console.log('[DepotMapping] Successfully set interval to 30 minutes for GitHub mode');
             // Force a refresh to update the UI with persisted values
             setTimeout(() => refreshProgress(), 1000);
           } else if (intervalResponse && !intervalResponse.ok) {
@@ -450,8 +443,6 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
   useEffect(() => {
     const handleShowFullScanModal = (event: Event) => {
       const customEvent = event as CustomEvent;
-      console.log('[DepotMappingManager] Received show-full-scan-modal event:', customEvent.detail);
-
       // Show the modal with the error message
       setChangeGapWarning({
         show: true,
@@ -563,12 +554,6 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       }
 
       // Use incremental or full scan based on user selection
-      console.log(
-        '[DepotMapping] Calling triggerSteamKitRebuild with incremental:',
-        useIncrementalScan,
-        'depotSource:',
-        depotSource
-      );
       const response = await ApiService.triggerSteamKitRebuild(useIncrementalScan);
       // console.log('[DepotMapping] Backend response:', response);
 

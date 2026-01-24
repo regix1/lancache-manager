@@ -102,10 +102,6 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
       authMode === 'unauthenticated';
 
     if (wasLoggedOut) {
-      console.log('[AuthenticationManager] Unexpected logout detected, showing auth modal', {
-        authMode,
-        prevAuthMode: prevAuthMode.current
-      });
       setShowAuthModal(true);
       hasShownRevocationModal.current = true; // Mark as shown
       onError?.('Your session has expired or been revoked. Please authenticate again.');
@@ -119,7 +115,6 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
     setAuthChecking(true);
     try {
       const result = await authService.checkAuth();
-      console.log('[AuthenticationManager] Auth check result:', result);
       setGuestTimeRemaining(result.guestTimeRemaining || 0);
       setHasData(result.hasData || false);
       setHasBeenInitialized(result.hasBeenInitialized || false);
@@ -194,17 +189,14 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
   };
 
   const handleRegenerateKey = () => {
-    console.log('[AuthenticationManager] Regenerate Key button clicked');
     setShowRegenerateModal(true);
   };
 
   const confirmRegenerateKey = async () => {
-    console.log('[AuthenticationManager] Confirm regenerate clicked');
     setAuthLoading(true);
 
     try {
       const result = await authService.regenerateApiKey();
-      console.log('[AuthenticationManager] Regenerate API result:', result);
 
       if (result.success) {
         // Store if user was in guest mode before regeneration

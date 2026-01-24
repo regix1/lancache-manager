@@ -27,11 +27,9 @@ preferencesService.loadPreferences()
 
     // Listen for guest session creation to reload preferences and reapply theme
     window.addEventListener('guest-session-created', () => {
-      console.log('[Init] Guest session created, reloading preferences...');
       preferencesService.clearCache();
       preferencesService.loadPreferences()
         .then((preferences) => {
-          console.log('[Init] Preferences reloaded after guest session creation');
           // Reapply theme based on new preferences
           return themeService.loadSavedTheme(preferences?.selectedTheme);
         })
@@ -41,7 +39,6 @@ preferencesService.loadPreferences()
     });
 
     // Note: SignalR listener for preferences is setup in App.tsx after SignalR connection is established
-    console.log('[Init] Initialization complete');
   })
   .catch((error) => {
     console.error('[Init] Error during initialization:', error);

@@ -162,11 +162,8 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
     // Only refetch on reconnection if user has access
     if (authLoading || !hasAccess) return;
 
-    console.log('[PicsProgress] SignalR connection state:', signalR.connectionState);
-
     // When SignalR reconnects, immediately fetch current state to recover any missed messages
     if (signalR.connectionState === 'connected') {
-      console.log('[PicsProgress] SignalR connected/reconnected - fetching current state');
       fetchProgress();
     }
   }, [signalR.connectionState, mockMode, authLoading, hasAccess]);
@@ -176,7 +173,6 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
     if (mockMode) return;
 
     const handleDepotMappingStarted = (event: DepotMappingStartedEvent) => {
-      console.log('[PicsProgress] Depot mapping started:', event);
       setProgress((prev) =>
         prev
           ? {
@@ -194,7 +190,6 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
     };
 
     const handleDepotMappingProgress = (event: DepotMappingProgressEvent) => {
-      console.log('[PicsProgress] Depot mapping progress:', event);
       setProgress((prev) =>
         prev
           ? {
@@ -216,7 +211,6 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
     };
 
     const handleDepotMappingComplete = (event: DepotMappingCompleteEvent) => {
-      console.log('[PicsProgress] Depot mapping complete:', event);
       const now = new Date().toISOString();
       
       // Handle both success and failure cases

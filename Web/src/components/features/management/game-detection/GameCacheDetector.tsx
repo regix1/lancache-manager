@@ -251,9 +251,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       (n) => n.type === 'database_reset' && n.status === 'completed'
     );
     if (databaseResetNotifs.length > 0) {
-      console.log(
-        '[GameCacheDetector] Database reset detected, clearing games/services and re-checking database LogEntries'
-      );
       setGames([]);
       setServices([]);
       checkIfLogsProcessed();
@@ -264,7 +261,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       (n) => n.type === 'log_processing' && n.status === 'completed'
     );
     if (logProcessingNotifs.length > 0) {
-      console.log('[GameCacheDetector] Log processing completed, re-checking database LogEntries');
       checkIfLogsProcessed();
     }
 
@@ -274,7 +270,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         (n) => n.type === 'game_detection' && n.status === 'completed'
       );
       if (gameDetectionNotifs.length > 0) {
-        console.log('[GameCacheDetector] Game detection completed, loading results from database');
         setIsStartingDetection(false);
         setScanType(null);
 
@@ -477,7 +472,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
       // Fire-and-forget: API returned 202 Accepted, removal is happening in background
       // Game will be removed from list when SignalR GameRemovalComplete event arrives
-      console.log(`Game removal started for AppID ${gameAppId}: ${result.message}`);
 
       // Trigger a refetch after removal likely completes to refresh downloads
       setTimeout(() => {
@@ -535,7 +529,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
       // Fire-and-forget: API returned 202 Accepted, removal is happening in background
       // Service will be removed from list when SignalR ServiceRemovalComplete event arrives
-      console.log(`Service removal started for ${serviceName}: ${result.message}`);
 
       // Trigger a refetch after removal likely completes to refresh downloads
       setTimeout(() => {

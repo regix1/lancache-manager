@@ -210,7 +210,6 @@ class ThemeService {
 
     window.addEventListener('preference-changed', (event: Event) => {
       const { key, value } = (event as CustomEvent<{ key: string; value: unknown }>).detail;
-      console.log(`[ThemeService] Preference changed: ${key} = ${value}`);
 
       // Apply preference changes without showing notifications
       try {
@@ -231,7 +230,6 @@ class ThemeService {
                 .then(data => {
                   const defaultTheme = data.themeId || 'dark-default';
                   if (defaultTheme !== this.getCurrentThemeId()) {
-                    console.log(`[ThemeService] Applying default guest theme: ${defaultTheme}`);
                     return this.setTheme(defaultTheme);
                   }
                 })
@@ -239,7 +237,6 @@ class ThemeService {
                   console.error('[ThemeService] Failed to fetch default guest theme:', err);
                 });
             } else if (typeof value === 'string' && value !== this.getCurrentThemeId()) {
-              console.log(`[ThemeService] Applying new theme: ${value}`);
               this.setTheme(value);
             }
             break;
@@ -1319,7 +1316,6 @@ class ThemeService {
           if (response.ok) {
             const data = await response.json();
             const defaultGuestThemeId = data.themeId || 'dark-default';
-            console.log(`[ThemeService] Applying default guest theme: ${defaultGuestThemeId}`);
             const theme = await this.getTheme(defaultGuestThemeId);
             if (theme) {
               this.applyTheme(theme);

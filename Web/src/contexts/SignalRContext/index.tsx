@@ -37,6 +37,10 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
   const isSettingUpRef = useRef(false);
   // Track if we've already initialized to prevent double-mounting in Strict Mode
   const hasInitializedRef = useRef(false);
+  // Track page visibility state
+  const isPageVisibleRef = useRef(!document.hidden);
+  // Track consecutive reconnection failures for exponential backoff
+  const reconnectAttemptsRef = useRef(0);
 
   // Store event handlers - using Map for better performance
   const eventHandlersRef = useRef<Map<string, Set<EventHandler>>>(new Map());
@@ -48,23 +52,10 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
 
   // Subscribe to an event
   const on = useCallback((eventName: string, handler: EventHandler) => {
-    // console.log(`[SignalR] Registering handler for event: ${eventName}`);
-
     if (!eventHandlersRef.current.has(eventName)) {
       eventHandlersRef.current.set(eventName, new Set());
     }
     eventHandlersRef.current.get(eventName)!.add(handler);
-
-    // console.log(`[SignalR] Handler registered. Total handlers for ${eventName}: ${eventHandlersRef.current.get(eventName)?.size || 0}`);
-
-    // If connection exists and is connected, add the handler to SignalR
-    if (
-      connectionRef.current &&
-      connectionRef.current.state === signalR.HubConnectionState.Connected
-    ) {
-      // SignalR handlers are already set up to dispatch to our handlers map
-      // No need to call connection.on again
-    }
   }, []);
 
   // Unsubscribe from an event
@@ -95,17 +86,35 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
     }
   }, []);
 
+  // Calculate backoff delay with exponential increase and jitter
+  const getReconnectDelay = useCallback(() => {
+    const baseDelay = 2000; // 2 seconds
+    const maxDelay = 60000; // 60 seconds max
+    const attempts = reconnectAttemptsRef.current;
+    
+    // Exponential backoff: 2s, 4s, 8s, 16s, 32s, 60s (capped)
+    const exponentialDelay = Math.min(baseDelay * Math.pow(2, attempts), maxDelay);
+    
+    // Add jitter (±25%) to prevent thundering herd
+    const jitter = exponentialDelay * 0.25 * (Math.random() * 2 - 1);
+    
+    return Math.round(exponentialDelay + jitter);
+  }, []);
+
   // Setup SignalR connection
   const setupConnection = useCallback(async () => {
     // Don't connect in mock mode
     if (mockModeRef.current) {
-      // console.log('[SignalR] Skipping connection in mock mode');
+      return;
+    }
+
+    // Don't connect if page is hidden - wait until visible
+    if (!isPageVisibleRef.current) {
       return;
     }
 
     // Prevent concurrent setup attempts (happens during React Strict Mode double mount)
     if (isSettingUpRef.current) {
-      // console.log('[SignalR] Setup already in progress, skipping');
       return;
     }
 
@@ -115,7 +124,6 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
       (connectionRef.current.state === signalR.HubConnectionState.Connected ||
         connectionRef.current.state === signalR.HubConnectionState.Connecting)
     ) {
-      // console.log('[SignalR] Connection already exists (state:', connectionRef.current.state, '), skipping setup');
       return;
     }
 
@@ -123,8 +131,6 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
 
     // Stop any existing connection first
     if (connectionRef.current) {
-      // const existingState = connectionRef.current.state;
-      // console.log('[SignalR] Stopping existing connection (state:', existingState, ')');
       try {
         await connectionRef.current.stop();
       } catch (err) {
@@ -145,11 +151,16 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
         })
         .withAutomaticReconnect({
           nextRetryDelayInMilliseconds: (retryContext) => {
+            // Don't auto-reconnect if page is hidden
+            if (!isPageVisibleRef.current) {
+              return null; // Stop auto-reconnect, will reconnect when page becomes visible
+            }
             // Progressive backoff: 0ms, 2s, 5s, 10s, 30s, then 30s
             if (retryContext.previousRetryCount === 0) return 0;
             if (retryContext.previousRetryCount === 1) return 2000;
             if (retryContext.previousRetryCount === 2) return 5000;
             if (retryContext.previousRetryCount === 3) return 10000;
+            if (retryContext.previousRetryCount > 10) return null; // Give up after 10 attempts
             return 30000;
           }
         })
@@ -162,7 +173,6 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
 
       // Set up connection lifecycle handlers
       connection.onreconnecting((_error) => {
-        // console.log('[SignalR] Reconnecting...', error);
         if (isMountedRef.current) {
           setConnectionState('reconnecting');
           setIsConnected(false);
@@ -170,16 +180,16 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
       });
 
       connection.onreconnected((connectionId) => {
-        // console.log('[SignalR] Reconnected successfully, ID:', connectionId);
         if (isMountedRef.current) {
           setConnectionState('connected');
           setIsConnected(true);
           setConnectionId(connectionId || null);
+          // Reset reconnect attempts on successful reconnection
+          reconnectAttemptsRef.current = 0;
         }
       });
 
       connection.onclose((_error) => {
-        // console.log('[SignalR] Connection closed', error);
         if (isMountedRef.current) {
           setConnectionState('disconnected');
           setIsConnected(false);
@@ -190,17 +200,25 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
             return;
           }
 
-          // Attempt to reconnect after 5 seconds
+          // Don't reconnect if page is hidden - wait until visible
+          if (!isPageVisibleRef.current) {
+            return;
+          }
+
+          // Clear any pending reconnection
           if (reconnectTimeoutRef.current) {
             clearTimeout(reconnectTimeoutRef.current);
           }
 
+          // Calculate delay with exponential backoff
+          const delay = getReconnectDelay();
+          reconnectAttemptsRef.current++;
+
           reconnectTimeoutRef.current = setTimeout(() => {
-            if (isMountedRef.current && !mockModeRef.current) {
-              // console.log('[SignalR] Attempting manual reconnection...');
+            if (isMountedRef.current && !mockModeRef.current && isPageVisibleRef.current) {
               setupConnection();
             }
-          }, 5000);
+          }, delay);
         }
       });
 
@@ -209,11 +227,8 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
         SIGNALR_EVENTS.forEach((eventName) => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           connection.on(eventName, (...args: any[]) => {
-            // console.log(`[SignalR] Received event: ${eventName}`, args);
-
             // Dispatch to all registered handlers for this event
             const handlers = eventHandlersRef.current.get(eventName);
-            // console.log(`[SignalR] Handlers for ${eventName}:`, handlers?.size || 0);
 
             if (handlers && handlers.size > 0) {
               handlers.forEach((handler) => {
@@ -224,7 +239,6 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
                 }
               });
             }
-            // Removed: No need to warn about unregistered handlers - it's normal
           });
         });
       };
@@ -234,13 +248,13 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
       // Start the connection
       await connection.start();
 
-      // console.log('[SignalR] Connected successfully, ID:', connection.connectionId);
-
       if (isMountedRef.current) {
         connectionRef.current = connection;
         setConnectionState('connected');
         setIsConnected(true);
         setConnectionId(connection.connectionId || null);
+        // Reset reconnect attempts on successful connection
+        reconnectAttemptsRef.current = 0;
         isSettingUpRef.current = false;
       } else {
         // Component unmounted while connecting, clean up
@@ -254,29 +268,66 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
         setConnectionState('disconnected');
         setIsConnected(false);
         setConnectionId(null);
-        isSettingUpRef.current = false;
 
-        // Don't retry if in mock mode or component unmounted
-        if (mockModeRef.current || !isMountedRef.current) {
+        // Don't retry if in mock mode or component unmounted or page hidden
+        if (mockModeRef.current || !isMountedRef.current || !isPageVisibleRef.current) {
           return;
         }
 
-        // Retry after 5 seconds
+        // Clear any pending reconnection
         if (reconnectTimeoutRef.current) {
           clearTimeout(reconnectTimeoutRef.current);
         }
 
+        // Calculate delay with exponential backoff
+        const delay = getReconnectDelay();
+        reconnectAttemptsRef.current++;
+
         reconnectTimeoutRef.current = setTimeout(() => {
-          if (isMountedRef.current && !mockModeRef.current) {
-            // console.log('[SignalR] Retrying connection...');
+          if (isMountedRef.current && !mockModeRef.current && isPageVisibleRef.current) {
             setupConnection();
           }
-        }, 5000);
-      } else {
-        isSettingUpRef.current = false;
+        }, delay);
       }
     }
-  }, []);
+  }, [getReconnectDelay]);
+
+  // Handle page visibility changes
+  useEffect(() => {
+    if (mockMode) return;
+
+    const handleVisibilityChange = () => {
+      const wasVisible = isPageVisibleRef.current;
+      isPageVisibleRef.current = !document.hidden;
+
+      if (!wasVisible && isPageVisibleRef.current) {
+        // Page became visible
+        // Check if we need to reconnect
+        if (
+          !connectionRef.current ||
+          connectionRef.current.state === signalR.HubConnectionState.Disconnected
+        ) {
+          // Reset backoff since this is a user-initiated visibility change
+          reconnectAttemptsRef.current = 0;
+          // Clear any pending reconnection and connect immediately
+          if (reconnectTimeoutRef.current) {
+            clearTimeout(reconnectTimeoutRef.current);
+            reconnectTimeoutRef.current = null;
+          }
+          setupConnection();
+        }
+      }
+      // When page becomes hidden, we let the connection stay open
+      // The server timeout and browser's WebSocket handling will manage it
+      // We just won't try to reconnect while hidden
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [mockMode, setupConnection]);
 
   // Initialize connection on mount
   useEffect(() => {
@@ -284,7 +335,6 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
 
     // Don't connect in mock mode
     if (mockMode) {
-      // console.log('[SignalR] Mock mode enabled, not connecting');
       setConnectionState('disconnected');
       setIsConnected(false);
       return;
@@ -292,7 +342,6 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
 
     // Prevent duplicate connections during React Strict Mode double-mount
     if (hasInitializedRef.current) {
-      // console.log('[SignalR] Already initialized, skipping duplicate connection attempt');
       return;
     }
 
@@ -312,7 +361,6 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
 
       // Stop the connection if it exists
       if (connectionRef.current) {
-        // console.log('[SignalR] Stopping connection on unmount');
         const connToStop = connectionRef.current;
         connectionRef.current = null;
         connToStop.stop().catch((err) => {

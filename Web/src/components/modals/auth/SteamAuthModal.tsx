@@ -56,7 +56,6 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
     if (!opened) return;
 
     const handleAutoLogout = () => {
-      console.log('[SteamAuthModal] Received auto-logout event, closing modal');
       cancelPendingRequest();
       actions.resetAuthForm();
       onClose();

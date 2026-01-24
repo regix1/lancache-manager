@@ -121,7 +121,6 @@ const AppContent: React.FC = () => {
   // Switch away from auth-required tabs if auth is lost
   useEffect(() => {
     if (authMode !== 'authenticated' && (activeTab === 'users' || activeTab === 'management')) {
-      console.log('[App] Auth lost while on protected tab, switching to dashboard');
       setActiveTab('dashboard');
     }
   }, [authMode, activeTab]);
@@ -145,7 +144,6 @@ const AppContent: React.FC = () => {
   // Setup SignalR listeners for preferences and theme
   useEffect(() => {
     if (signalR) {
-      console.log('[App] Setting up preferences and theme SignalR listeners');
       preferencesService.setupSignalRListener(signalR);
       themeService.setupPreferenceListeners();
     }
@@ -260,12 +258,10 @@ const AppContent: React.FC = () => {
       // CRITICAL: Prevent duplicate processing - both UserSessionsCleared and UserSessionRevoked
       // can dispatch this event, causing a spam of logout attempts
       if (isProcessingSessionClear.current) {
-        console.log('[App] Already processing session clear - skipping duplicate');
         return;
       }
 
       isProcessingSessionClear.current = true;
-      console.log('[App] User sessions cleared - forcing logout and clearing cookies');
 
       // Clear local authentication data
       authService.clearAuthAndDevice();
@@ -281,7 +277,6 @@ const AppContent: React.FC = () => {
           method: 'POST',
           credentials: 'include' // Include cookies in request so backend can clear them
         });
-        console.log('[App] Session cookies cleared via backend');
       } catch (error) {
         console.error('[App] Failed to clear session cookies:', error);
       }
@@ -294,9 +289,8 @@ const AppContent: React.FC = () => {
       try {
         await refreshSteamAuth();
         refreshSteamWebApiStatus();
-        console.log('[App] Refreshed Steam auth and Web API status after session clear');
       } catch (error) {
-        console.error('[App] Failed to refresh Steam status:', error);
+        // Silently fail - Steam status will be refreshed on next interaction
       }
 
       // Reset the flag after a delay to allow future legitimate clears
@@ -349,14 +343,12 @@ const AppContent: React.FC = () => {
     // IMPORTANT: If user has an active initialization flow in localStorage, respect that first
     // This ensures that page refreshes during initialization don't kick the user to the dashboard
     if (storedFlow === 'true' || storedStep) {
-      console.log('[App] Active initialization flow detected in localStorage, restoring...');
       setIsInitializationFlowActive(true);
       return;
     }
 
     // If setup is complete OR logs have been processed, clear any stale initialization flow
     if (setupCompleted || hasProcessedLogs) {
-      console.log('[App] Setup complete or logs processed, clearing initialization flow');
       setIsInitializationFlowActive(false);
       storage.removeItem('initializationFlowActive');
       storage.removeItem('initializationCurrentStep');
@@ -372,7 +364,6 @@ const AppContent: React.FC = () => {
       // If backend was reset (setup not complete) but we have advanced initialization state,
       // this indicates /data was deleted while browser was open - clear everything
       if (storedStep && storedStep !== 'api-key' && storedStep !== 'import-historical-data' && setupCompleted === false && hasProcessedLogs === false) {
-        console.log('[App] Detected backend reset with stale browser state, clearing all initialization localStorage');
         storage.removeItem('initializationFlowActive');
         storage.removeItem('initializationCurrentStep');
         storage.removeItem('initializationInProgress');
@@ -413,13 +404,6 @@ const AppContent: React.FC = () => {
           const hasData =
             data.database?.totalMappings > 0 ||
             (data.steamKit2?.isReady && data.steamKit2?.depotCount > 0);
-
-          console.log('[App] Depot status check:', {
-            totalMappings: data.database?.totalMappings,
-            steamKit2Ready: data.steamKit2?.isReady,
-            steamKit2DepotCount: data.steamKit2?.depotCount,
-            hasData
-          });
 
           setDepotInitialized(hasData);
           setCheckingDepotStatus(false);

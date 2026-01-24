@@ -176,7 +176,7 @@ class OperationStateService {
           error instanceof TypeError &&
           error.message.includes('Failed to fetch')
         ) {
-          console.log(`Retry attempt ${attempt + 1}/${maxRetries} after network error`);
+          // Network error - will retry
         } else {
           throw error;
         }

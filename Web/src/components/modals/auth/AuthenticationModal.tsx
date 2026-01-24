@@ -54,7 +54,6 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
 
   // Clear auth state immediately when modal opens to prevent race conditions
   useEffect(() => {
-    console.log('[AuthModal] Clearing stale auth state on mount');
     // Clear local auth state to ensure a clean slate
     // This prevents periodic checks from interfering while user is typing
     authService.clearAuth();
@@ -74,8 +73,6 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
       message?: string;
       status?: string;
     }) => {
-      console.log('[AuthModal] DatabaseResetProgress:', event);
-
       const statusLower = (event.status || '').toLowerCase();
       const isComplete = statusLower === 'completed';
       const isError = statusLower === 'failed';
@@ -118,7 +115,6 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   // Subscribe directly to GuestModeLockChanged for fast updates
   useEffect(() => {
     const handleGuestModeLockChanged = (event: { isLocked: boolean }) => {
-      console.log('[AuthModal] GuestModeLockChanged received:', event.isLocked);
       setLocalGuestModeLocked(event.isLocked);
     };
 

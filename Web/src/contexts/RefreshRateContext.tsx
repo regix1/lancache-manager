@@ -101,7 +101,6 @@ export const RefreshRateProvider: React.FC<RefreshRateProviderProps> = ({ childr
   useEffect(() => {
     // Handle admin pushing a new rate to this specific guest
     const handleGuestRefreshRateUpdated = (data: GuestRefreshRateUpdatedEvent) => {
-      console.log('[RefreshRate] Received GuestRefreshRateUpdated:', data);
       if (data.refreshRate && data.refreshRate in REFRESH_RATES) {
         setRefreshRateState(data.refreshRate as RefreshRate);
       }
@@ -109,7 +108,6 @@ export const RefreshRateProvider: React.FC<RefreshRateProviderProps> = ({ childr
 
     // Handle default guest rate change (affects guests using default)
     const handleDefaultGuestRefreshRateChanged = (data: DefaultGuestRefreshRateChangedEvent) => {
-      console.log('[RefreshRate] Received DefaultGuestRefreshRateChanged:', data);
       // Only update if this is a guest user (they might be using the default)
       if (authMode === 'guest' && data.refreshRate && data.refreshRate in REFRESH_RATES) {
         // Re-fetch to see if we should use the new default

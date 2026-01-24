@@ -71,7 +71,6 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
   // Listen for SteamAutoLogout SignalR events
   useEffect(() => {
     const handleSteamAutoLogout = async (event: SteamAutoLogoutEvent) => {
-      console.log('[SteamAuth] Received SteamAutoLogout event:', event);
       // Update local state immediately to reflect logout
       setSteamAuthMode('anonymous');
       setUsername('');

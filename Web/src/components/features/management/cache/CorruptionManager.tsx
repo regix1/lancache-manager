@@ -176,7 +176,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
         n => n.type === 'corruption_detection' && n.status === 'completed'
       );
       if (corruptionDetectionCompleteNotifs.length > 0) {
-        console.log('[CorruptionManager] Corruption detection completed, loading results from database');
         setIsStartingScan(false);
 
         // Load fresh results from the database (backend already saved them)

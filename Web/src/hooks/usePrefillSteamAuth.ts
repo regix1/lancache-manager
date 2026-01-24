@@ -59,8 +59,6 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     const handleAuthStateChanged = (payload: { sessionId: string; authState: string }) => {
       if (payload.sessionId !== sessionId) return;
 
-      console.log('[usePrefillSteamAuth] AuthStateChanged:', payload.authState);
-
       if (payload.authState === 'Authenticated') {
         // Login succeeded - clear any pending timeouts and notify success
         if (deviceConfirmationTimeoutRef.current) {
@@ -119,7 +117,6 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     const handleCredentialChallenge = async (payload: { sessionId: string; challenge: CredentialChallenge }) => {
       if (payload.sessionId !== sessionId) return;
 
-      console.log('[usePrefillSteamAuth] CredentialChallenge:', payload.challenge.credentialType);
       setPendingChallenge(payload.challenge);
 
       // Set the appropriate state based on credential type
@@ -154,7 +151,6 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           await new Promise(resolve => setTimeout(resolve, 300));
           try {
             await hubConnection.invoke('ProvideCredential', sessionId, payload.challenge, 'confirm');
-            console.log('[usePrefillSteamAuth] Device confirmation acknowledged');
           } catch (err) {
             console.error('Failed to send device confirmation acknowledgement:', err);
           }
@@ -175,12 +171,9 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   useEffect(() => {
     if (waitingForMobileConfirmation && hubConnection && sessionId) {
       deviceConfirmationTimeoutRef.current = setTimeout(async () => {
-        console.log('[usePrefillSteamAuth] Device confirmation timed out, cancelling login');
-        
         // Cancel the login on the daemon to reset its state
         try {
           await hubConnection.invoke('CancelLogin', sessionId);
-          console.log('[usePrefillSteamAuth] Login cancelled on daemon');
         } catch (err) {
           console.error('[usePrefillSteamAuth] Failed to cancel login on daemon:', err);
         }
@@ -410,7 +403,6 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
             // We wait for AuthStateChanged to trigger onSuccess
             // Return false so modal stays open
             if (nextChallenge.credentialType === 'device-confirmation') {
-              console.log('[usePrefillSteamAuth] Device confirmation required, waiting for approval...');
               setLoading(false);
               return false; // Modal should stay open
             }
@@ -419,7 +411,6 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
             if (isWaitingForDeviceConfirmationRef.current) {
               // WaitForChallenge timed out but we're in device confirmation mode
               // Wait for AuthStateChanged instead of assuming success
-              console.log('[usePrefillSteamAuth] WaitForChallenge returned null during device confirmation, waiting for AuthStateChanged...');
               setLoading(false);
               return false; // Modal should stay open
             } else {

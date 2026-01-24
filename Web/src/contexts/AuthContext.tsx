@@ -75,7 +75,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // Check if this event is for the current device
       const currentDeviceId = authService.getDeviceId();
       if (event.deviceId === currentDeviceId) {
-        console.log('[Auth] Prefill permission changed via SignalR:', event.enabled);
         setPrefillEnabled(event.enabled);
         if (event.expiresAt) {
           const expiresAt = new Date(event.expiresAt);
@@ -100,7 +99,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // Check if this event is for the current device
       const currentDeviceId = authService.getDeviceId();
       if (event.deviceId === currentDeviceId) {
-        console.log('[Auth] Device banned via SignalR:', event.username);
         setIsBanned(true);
         // Also disable prefill access
         setPrefillEnabled(false);
@@ -121,7 +119,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // Check if this event is for the current device
       const currentDeviceId = authService.getDeviceId();
       if (event.deviceId === currentDeviceId) {
-        console.log('[Auth] Device unbanned via SignalR:', event.username);
         setIsBanned(false);
         // Refresh auth to get updated prefill permissions
         refreshAuth();
@@ -138,14 +135,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // Listen for auth state changes from handleUnauthorized and other events
   useEffect(() => {
     const handleAuthStateChanged = () => {
-      console.log('[Auth] Auth state changed, refreshing...');
       refreshAuth();
     };
 
     // Listen for localStorage changes (cross-tab sync)
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'auth-token' || e.key === 'auth-mode') {
-        console.log('[Auth] Storage changed in another tab, refreshing...');
         refreshAuth();
       }
     };
@@ -182,7 +177,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   useEffect(() => {
     const handleGuestDurationUpdated = (event: GuestDurationUpdatedEvent) => {
       if (authMode === 'guest') {
-        console.log('[Auth] Guest duration updated via SignalR:', event.durationMinutes);
         setPrefillTimeRemaining(event.durationMinutes);
         if (event.durationMinutes <= 0) {
           setAuthMode('expired');
@@ -201,7 +195,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // This handles the case where SignalR connected before authentication was validated
   useEffect(() => {
     if (signalR.isConnected && authMode === 'authenticated') {
-      console.log('[Auth] Joining AuthenticatedUsersGroup via SignalR');
       signalR.invoke('JoinAuthenticatedGroup').catch((err) => {
         console.error('[Auth] Failed to join AuthenticatedUsersGroup:', err);
       });
