@@ -211,9 +211,9 @@ public class RustProcessHelper
     {
         var stdoutTask = Task.Run(async () =>
         {
-            while (!process.StandardOutput.EndOfStream)
+            string? line;
+            while ((line = await process.StandardOutput.ReadLineAsync()) != null)
             {
-                var line = await process.StandardOutput.ReadLineAsync();
                 if (!string.IsNullOrEmpty(line))
                 {
                     _logger.LogInformation("[{ProcessName}] {Line}", processName, line);
@@ -223,9 +223,9 @@ public class RustProcessHelper
 
         var stderrTask = Task.Run(async () =>
         {
-            while (!process.StandardError.EndOfStream)
+            string? line;
+            while ((line = await process.StandardError.ReadLineAsync()) != null)
             {
-                var line = await process.StandardError.ReadLineAsync();
                 if (!string.IsNullOrEmpty(line))
                 {
                     // Stderr may contain warnings or diagnostic info, log at debug level

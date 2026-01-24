@@ -63,7 +63,7 @@ COPY Web/ ./
 RUN npm run build
 
 # Stage 3: Build Backend
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS backend-builder
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS backend-builder
 
 ARG TARGETPLATFORM
 
@@ -94,7 +94,7 @@ COPY --from=frontend-builder /app/dist /app/publish/wwwroot
 COPY --from=rust-builder /build/output/* /app/publish/rust-processor/
 
 # Stage 3: Runtime
-FROM mcr.microsoft.com/dotnet/aspnet:8.0
+FROM mcr.microsoft.com/dotnet/aspnet:10.0
 ARG VERSION
 WORKDIR /app
 

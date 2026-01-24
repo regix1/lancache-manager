@@ -158,9 +158,9 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         // Monitor stderr in background
         _ = Task.Run(async () =>
         {
-            while (!_rustProcess.StandardError.EndOfStream)
+            string? line;
+            while ((line = await _rustProcess.StandardError.ReadLineAsync(stoppingToken)) != null)
             {
-                var line = await _rustProcess.StandardError.ReadLineAsync(stoppingToken);
                 if (!string.IsNullOrEmpty(line))
                 {
                     _logger.LogDebug("[speed_tracker stderr] {Line}", line);

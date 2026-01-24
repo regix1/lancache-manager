@@ -83,28 +83,18 @@ builder.Services.Configure<CookiePolicyOptions>(options =>
 builder.Services.AddSwaggerGen(c =>
 {
     // Add API Key authentication support to Swagger UI
-    c.AddSecurityDefinition("ApiKey", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+    c.AddSecurityDefinition("ApiKey", new Microsoft.OpenApi.OpenApiSecurityScheme
     {
-        Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
-        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
+        Type = Microsoft.OpenApi.SecuritySchemeType.ApiKey,
+        In = Microsoft.OpenApi.ParameterLocation.Header,
         Name = "X-Api-Key",
         Description = "API Key authentication. Enter your API key from the Management tab."
     });
 
     // Apply API Key security requirement to all endpoints
-    c.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
+    c.AddSecurityRequirement(_ => new Microsoft.OpenApi.OpenApiSecurityRequirement
     {
-        {
-            new Microsoft.OpenApi.Models.OpenApiSecurityScheme
-            {
-                Reference = new Microsoft.OpenApi.Models.OpenApiReference
-                {
-                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
-                    Id = "ApiKey"
-                }
-            },
-            new string[] {}
-        }
+        [new Microsoft.OpenApi.OpenApiSecuritySchemeReference("ApiKey")] = new List<string>()
     });
 });
 builder.Services.AddSignalR(options =>
@@ -152,7 +142,7 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
     // Clear default known networks/proxies to accept forwarded headers from any source
     // In production behind a trusted proxy, you may want to restrict this
-    options.KnownNetworks.Clear();
+    options.KnownIPNetworks.Clear();
     options.KnownProxies.Clear();
 });
 
