@@ -1481,7 +1481,7 @@
         "disableTooltipsDesc": "Hide tooltip hints throughout the UI",
         "notifications": "Notifications",
         "disableStickyNotifications": "Disable Sticky Notifications",
-        "disableStickyNotificationsDesc": "Auto-dismiss all notifications",
+        "disableStickyNotificationsDesc": "Notification bar scrolls with page instead of staying fixed at top",
         "keepNotificationsVisible": "Keep Notifications Visible",
         "keepNotificationsVisibleDesc": "Disable auto-dismiss for all notifications until manually closed",
         "downloads": "Downloads",

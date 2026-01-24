@@ -75,17 +75,15 @@ interface NotificationsProviderProps {
 
 /**
  * Check if notifications should auto-dismiss.
- * Returns false if:
- * - disableStickyNotifications is false (sticky mode ON)
- * - OR picsAlwaysVisible is true (keep all notifications visible)
+ * Returns true (auto-dismiss enabled) unless "Keep Notifications Visible" is checked.
+ *
+ * Note: "Disable Sticky Notifications" only controls the sticky position of the
+ * notification bar, NOT auto-dismiss behavior.
  */
 const shouldAutoDismiss = (): boolean => {
-  // If "Keep Notifications Visible" is enabled, never auto-dismiss
-  if (themeService.getPicsAlwaysVisibleSync()) {
-    return false;
-  }
-  // Otherwise, respect the sticky notifications setting
-  return !themeService.getDisableStickyNotificationsSync();
+  // Only "Keep Notifications Visible" controls auto-dismiss
+  // When checked, notifications stay until manually dismissed
+  return !themeService.getPicsAlwaysVisibleSync();
 };
 
 export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ children }) => {
