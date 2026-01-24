@@ -142,7 +142,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
         .downloads-header {
           position: relative;
           padding: 1.25rem;
-          border-radius: 16px;
+          border-radius: var(--theme-border-radius-xl);
           background: var(--theme-card-bg);
           border: 1px solid var(--theme-border-primary);
           overflow: hidden;
@@ -175,7 +175,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
           justify-content: center;
           width: 72px;
           height: 72px;
-          border-radius: 16px;
+          border-radius: var(--theme-border-radius-xl);
           background: var(--theme-bg-tertiary);
           border: 1px solid var(--theme-border-secondary);
         }
@@ -188,7 +188,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
         .speed-ring {
           position: absolute;
           inset: -3px;
-          border-radius: 18px;
+          border-radius: calc(var(--theme-border-radius-xl) + 2px);
           border: 2px solid transparent;
           opacity: 0;
           transition: opacity 0.3s ease;
@@ -278,7 +278,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
           padding: 0.25rem 0.6rem;
           font-size: 0.7rem;
           font-weight: 500;
-          border-radius: 6px;
+          border-radius: var(--theme-border-radius);
           background: var(--theme-bg-tertiary);
           color: var(--theme-text-secondary);
           border: 1px solid var(--theme-border-secondary);
@@ -312,7 +312,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
         .tab-container {
           display: flex;
           padding: 4px;
-          border-radius: 12px;
+          border-radius: var(--theme-border-radius-lg);
           background: var(--theme-bg-tertiary);
           border: 1px solid var(--theme-border-secondary);
         }
@@ -328,7 +328,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
           color: var(--theme-text-muted);
           background: transparent;
           border: none;
-          border-radius: 8px;
+          border-radius: var(--theme-border-radius);
           cursor: pointer;
           transition: all 0.2s ease;
         }
@@ -368,7 +368,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
           padding: 0 5px;
           font-size: 0.65rem;
           font-weight: 700;
-          border-radius: 9px;
+          border-radius: var(--theme-border-radius);
           background: color-mix(in srgb, var(--theme-text-muted) 20%, transparent);
           color: inherit;
         }
@@ -393,7 +393,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
           align-items: center;
           gap: 0.5rem;
           padding: 0.5rem 0.75rem;
-          border-radius: 8px;
+          border-radius: var(--theme-border-radius);
           background: color-mix(in srgb, var(--theme-bg-tertiary) 60%, transparent);
           border: 1px solid var(--theme-border-secondary);
         }
