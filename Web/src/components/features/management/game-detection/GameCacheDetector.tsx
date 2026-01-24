@@ -468,7 +468,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     setError(null);
 
     try {
-      const result = await ApiService.removeGameFromCache(gameAppId);
+      await ApiService.removeGameFromCache(gameAppId);
 
       // Fire-and-forget: API returned 202 Accepted, removal is happening in background
       // Game will be removed from list when SignalR GameRemovalComplete event arrives
@@ -525,7 +525,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     setError(null);
 
     try {
-      const result = await ApiService.removeServiceFromCache(serviceName);
+      await ApiService.removeServiceFromCache(serviceName);
 
       // Fire-and-forget: API returned 202 Accepted, removal is happening in background
       // Service will be removed from list when SignalR ServiceRemovalComplete event arrives
