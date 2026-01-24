@@ -530,6 +530,12 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
           // Admin pages use this - PrefillPanel doesn't need it
         });
 
+        // Register no-op handler for CredentialChallenge to prevent SignalR warning
+        // Actual handling is done in usePrefillSteamAuth when auth UI is active
+        connection.on('CredentialChallenge', () => {
+          // Handled by usePrefillSteamAuth
+        });
+
         connection.onclose(() => {
           setIsConnecting(false);
         });

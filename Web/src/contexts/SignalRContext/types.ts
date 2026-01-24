@@ -84,7 +84,8 @@ export const SIGNALR_EVENTS = [
   'DaemonSessionCreated',
   'DaemonSessionUpdated',
   'DaemonSessionTerminated',
-  'PrefillHistoryUpdated'
+  'PrefillHistoryUpdated',
+  'CredentialChallenge'
 ] as const;
 
 export type SignalREvent = (typeof SIGNALR_EVENTS)[number];
