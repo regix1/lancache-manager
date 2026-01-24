@@ -38,7 +38,10 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
   const fetchSetupStatus = async () => {
     try {
       // This is a public endpoint - no auth required
-      const response = await fetch(`${API_BASE}/system/setup`, ApiService.getFetchOptions());
+      const response = await fetch(
+        `${API_BASE}/system/setup`,
+        ApiService.getFetchOptions({ cache: 'no-store' })
+      );
       if (response.ok) {
         const data = await response.json();
         const isCompleted =

@@ -64,7 +64,7 @@ public class AppState
     // Client IP exclusion rules (mode controls stats-only vs hide)
     public List<ClientExclusionRule> ExcludedClientRules { get; set; } = new();
 
-    // LEGACY: SteamAuth has been migrated to separate file (data/steam_auth/credentials.json)
+    // LEGACY: SteamAuth has been migrated to separate file (data/security/steam_auth/credentials.json)
     // This property is kept temporarily for backward compatibility during migration
     public SteamAuthState? SteamAuth { get; set; }
 }

@@ -25,8 +25,8 @@ public class ApiKeyService
         }
         else
         {
-            // Use the path resolver to get the data directory
-            _apiKeyPath = Path.Combine(_pathResolver.GetDataDirectory(), "api_key.txt");
+            // Use the path resolver to get the security directory
+            _apiKeyPath = Path.Combine(_pathResolver.GetSecurityDirectory(), "api_key.txt");
         }
 
         // Ensure data directory exists

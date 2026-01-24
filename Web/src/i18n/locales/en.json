@@ -637,7 +637,7 @@
       "step1": "SSH into your LANCache Manager server",
       "step2": {
         "before": "Check ",
-        "code": "/data/api_key.txt"
+        "code": "/data/security/api_key.txt"
       },
       "step3": {
         "before": "Or check container logs: ",
@@ -3259,7 +3259,7 @@
       },
       "help": {
         "title": "Where to find your API key:",
-        "description": "The API key was displayed when you first started the server. Check your server logs for \"API Key:\" or look in the data/api_key.txt file."
+        "description": "The API key was displayed when you first started the server. Check your server logs for \"API Key:\" or look in the data/security/api_key.txt file."
       },
       "errors": {
         "apiKeyRequired": "API key is required",

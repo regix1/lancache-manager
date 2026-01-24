@@ -38,7 +38,7 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
         _rotationService = rotationService;
         _configuration = configuration;
         _logger = logger;
-        _settingsFilePath = Path.Combine(pathResolver.GetDataDirectory(), "log-rotation-settings.json");
+        _settingsFilePath = pathResolver.GetSettingsPath("log-rotation-settings.json");
         _currentScheduleHours = LoadScheduleHours();
     }
 
@@ -70,6 +70,12 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
     {
         try
         {
+            var settingsDir = Path.GetDirectoryName(_settingsFilePath);
+            if (!string.IsNullOrEmpty(settingsDir) && !Directory.Exists(settingsDir))
+            {
+                Directory.CreateDirectory(settingsDir);
+            }
+
             var settings = new LogRotationSettings { ScheduleHours = hours };
             var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
             await File.WriteAllTextAsync(_settingsFilePath, json);

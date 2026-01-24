@@ -27,9 +27,9 @@ public class SteamAuthStorageService : ISteamAuthStorageService
         _pathResolver = pathResolver;
         _encryption = encryption;
 
-        // Create steam_auth directory in data folder
-        var dataDir = _pathResolver.GetDataDirectory();
-        _steamAuthDirectory = Path.Combine(dataDir, "steam_auth");
+        // Create steam_auth directory in security folder
+        var securityDir = _pathResolver.GetSecurityDirectory();
+        _steamAuthDirectory = Path.Combine(securityDir, "steam_auth");
         _steamAuthFilePath = Path.Combine(_steamAuthDirectory, "credentials.json");
 
         // Ensure steam_auth directory exists

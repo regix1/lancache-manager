@@ -109,12 +109,19 @@ public class RustLogProcessorService
         }
 
         // Read progress from Rust progress file
-        var dataDirectory = _pathResolver.GetDataDirectory();
-        var progressPath = Path.Combine(dataDirectory, "rust_progress.json");
+        var operationsDir = _pathResolver.GetOperationsDirectory();
+        var defaultDatasourceName = _datasourceService.GetDefaultDatasource()?.Name ?? "default";
+        var progressPath = Path.Combine(operationsDir, $"rust_progress_{defaultDatasourceName}.json");
+        var legacyProgressPath = Path.Combine(operationsDir, "rust_progress.json");
 
         ProgressData? progress = null;
         try
         {
+            if (!File.Exists(progressPath) && File.Exists(legacyProgressPath))
+            {
+                progressPath = legacyProgressPath;
+            }
+
             if (File.Exists(progressPath))
             {
                 var json = File.ReadAllText(progressPath);
@@ -223,9 +230,9 @@ public class RustLogProcessorService
             IsSilentMode = silentMode;
             _cancellationTokenSource = new CancellationTokenSource();
 
-            var dataDirectory = _pathResolver.GetDataDirectory();
-            var dbPath = Path.Combine(dataDirectory, "LancacheManager.db");
-            var progressPath = Path.Combine(dataDirectory, $"rust_progress_{datasourceName}.json");
+            var dbPath = _pathResolver.GetDatabasePath();
+            var operationsDir = _pathResolver.GetOperationsDirectory();
+            var progressPath = Path.Combine(operationsDir, $"rust_progress_{datasourceName}.json");
             var rustExecutablePath = _pathResolver.GetRustLogProcessorPath();
 
             // Determine if logFilePath is a directory or file path

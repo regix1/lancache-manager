@@ -26,7 +26,7 @@ public class PicsDataService
         _scopeFactory = scopeFactory;
         _pathResolver = pathResolver;
         _stateService = stateService;
-        _picsJsonFile = Path.Combine(_pathResolver.GetDataDirectory(), "pics_depot_mappings.json");
+        _picsJsonFile = Path.Combine(_pathResolver.GetPicsDirectory(), "pics_depot_mappings.json");
     }
 
     /// <summary>

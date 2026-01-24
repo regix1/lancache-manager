@@ -155,7 +155,7 @@ docker run -d \
 docker logs lancache-manager | grep "API Key"
 ```
 
-The key is also saved at `/data/api_key.txt`.
+The key is also saved at `/data/security/api_key.txt`.
 
 ### First Steps
 
@@ -311,7 +311,7 @@ services:
 
       # Base path for daemon session data (commands/responses)
       # Must be inside /data for Docker sibling container access
-      # - Prefill__DaemonBasePath=/data/prefill-sessions
+      # - Prefill__DaemonBasePath=/data/prefill
 
       # Host path that maps to /data in this container (auto for auto-detection)
       # Auto-detected from container mounts. Only set if auto-detection fails.
@@ -394,7 +394,7 @@ services:
 
 | Volume | Purpose | Notes |
 |--------|---------|-------|
-| `/data` | Database, API key, themes, cached images | Required |
+| `/data` | Database, security, state/config, themes, cached images | Required |
 | `/logs` | LANCache access logs | Add `:ro` for read-only |
 | `/cache` | LANCache cached files | Add `:ro` for monitoring only |
 | `/var/run/docker.sock` | Docker API access | Optional. Required for nginx rotation and Steam Prefill |
@@ -478,7 +478,7 @@ Guests can view dashboards, downloads, and events but cannot modify settings or 
 |----------|---------|-------------|
 | `Prefill__DockerImage` | ghcr.io/regix1/steam-prefill-daemon:latest | Docker image for prefill containers. |
 | `Prefill__SessionTimeoutMinutes` | 120 | Inactive session cleanup timeout. |
-| `Prefill__DaemonBasePath` | /data/prefill-sessions | Session data storage path. |
+| `Prefill__DaemonBasePath` | /data/prefill | Session data storage path. |
 | `Prefill__HostDataPath` | auto | Host path mapping to `/data` (`auto` for auto-detection). |
 | `Prefill__LancacheDnsIp` | auto | IP of your lancache-dns container (`auto` for auto-detection). |
 | `Prefill__NetworkMode` | auto | Network mode for prefill containers: `host`, `bridge`, a network name, or `auto`. |
@@ -861,12 +861,12 @@ server {
 ### Lost API Key
 
 ```bash
-cat ./data/api_key.txt
+cat ./data/security/api_key.txt
 # or
 docker logs lancache-manager | grep "API Key"
 ```
 
-To generate a new key, stop the container, delete `./data/api_key.txt`, and restart.
+To generate a new key, stop the container, delete `./data/security/api_key.txt`, and restart.
 
 ### Permission Issues
 

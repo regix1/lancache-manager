@@ -26,6 +26,36 @@ public interface IPathResolver
     string GetDataDirectory();
 
     /// <summary>
+    /// Gets the config directory path
+    /// </summary>
+    string GetConfigDirectory();
+
+    /// <summary>
+    /// Gets the state directory path
+    /// </summary>
+    string GetStateDirectory();
+
+    /// <summary>
+    /// Gets the security directory path
+    /// </summary>
+    string GetSecurityDirectory();
+
+    /// <summary>
+    /// Gets the database directory path
+    /// </summary>
+    string GetDatabaseDirectory();
+
+    /// <summary>
+    /// Gets the PICS data directory path
+    /// </summary>
+    string GetPicsDirectory();
+
+    /// <summary>
+    /// Gets the prefill data directory path
+    /// </summary>
+    string GetPrefillDirectory();
+
+    /// <summary>
     /// Gets the logs directory path
     /// </summary>
     string GetLogsDirectory();
@@ -134,7 +164,7 @@ public interface IPathResolver
     string GetDataProtectionKeysPath();
 
     /// <summary>
-    /// Gets the path to a settings file in the data directory
+    /// Gets the path to a settings file in the config directory
     /// </summary>
     /// <param name="settingsFileName">The name of the settings file</param>
     string GetSettingsPath(string settingsFileName);

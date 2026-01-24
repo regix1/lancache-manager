@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import authService from '@services/auth.service';
 import ApiService from '@services/api.service';
 import { storage } from '@utils/storage';
+import { useInitializationAuth } from '@hooks/useInitializationAuth';
 import {
   ApiKeyStep,
   ImportHistoricalDataStep,
@@ -83,83 +84,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   const [authDisabled, setAuthDisabled] = useState<boolean>(false);
   const [backButtonDisabled, setBackButtonDisabled] = useState<boolean>(false);
 
-  useEffect(() => {
-    storage.setItem('initializationCurrentStep', currentStep);
-  }, [currentStep]);
-
-  useEffect(() => {
-    if (dataSourceChoice) {
-      storage.setItem('dataSourceChoice', dataSourceChoice);
-    } else {
-      storage.removeItem('dataSourceChoice');
-    }
-  }, [dataSourceChoice]);
-
-  useEffect(() => {
-    const checkSetupStatus = async () => {
-      const INIT_VERSION = '1.0';
-      const storedVersion = storage.getItem('initializationVersion');
-
-      if (storedVersion !== INIT_VERSION) {
-        clearAllLocalStorage();
-        storage.setItem('initializationVersion', INIT_VERSION);
-      }
-
-      await checkDataAvailability();
-
-      try {
-        const authCheck = await authService.checkAuth();
-        const authRequired = authCheck.requiresAuth;
-        setAuthDisabled(!authRequired);
-
-        const setupResponse = await fetch('/api/system/setup', ApiService.getFetchOptions());
-        const setupData = await setupResponse.json();
-
-        if (setupData.isCompleted && authCheck.isAuthenticated) {
-          clearAllLocalStorage();
-          onInitialized();
-          return;
-        }
-
-        const storedStep = storage.getItem('initializationCurrentStep');
-        if (storedStep) {
-          if (!authCheck.isAuthenticated && !setupData.isCompleted) {
-            clearAllLocalStorage();
-            setCurrentStep('api-key');
-            return;
-          }
-
-          const storedChoice = storage.getItem('dataSourceChoice');
-          if (storedChoice) {
-            setDataSourceChoice(storedChoice as 'github' | 'steam');
-          }
-
-          if (
-            storedStep === 'depot-init' ||
-            storedStep === 'pics-progress' ||
-            storedStep === 'log-processing' ||
-            storedStep === 'depot-mapping'
-          ) {
-            await checkPicsDataStatus();
-          }
-          return;
-        }
-
-        if (!authRequired || !authCheck.isAuthenticated) {
-          setCurrentStep('api-key');
-        } else {
-          await checkPicsDataStatus();
-          setCurrentStep('import-historical-data');
-        }
-      } catch (error) {
-        console.error('Failed to check setup status:', error);
-        setCurrentStep('api-key');
-      }
-    };
-
-    checkSetupStatus();
-  }, []);
-
+  // Helper functions (defined before hook and useEffects that depend on them)
   const clearAllLocalStorage = () => {
     storage.removeItem('initializationCurrentStep');
     storage.removeItem('dataSourceChoice');
@@ -174,7 +99,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   const checkDataAvailability = async () => {
     setCheckingDataAvailability(true);
     try {
-      const setupResponse = await fetch('/api/system/setup', ApiService.getFetchOptions());
+      const setupResponse = await fetch('/api/system/setup', ApiService.getFetchOptions({ cache: 'no-store' }));
       if (setupResponse.ok) {
         const setupData = await setupResponse.json();
         const hasData = setupData.isSetupCompleted || setupData.hasProcessedLogs || false;
@@ -206,6 +131,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   const markSetupCompleted = async () => {
     try {
       await fetch('/api/system/setup', ApiService.getFetchOptions({
+        cache: 'no-store',
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ completed: true })
@@ -220,58 +146,101 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     onInitialized();
   };
 
-  const handleAuthenticate = async () => {
-    if (!apiKey.trim()) {
-      setAuthError('API key is required');
-      return;
-    }
+  // Consolidated authentication handler for all auth modes
+  const { authenticate, authSuccessRef } = useInitializationAuth({
+    apiKey,
+    setAuthError,
+    setAuthenticating,
+    onAuthChanged,
+    checkPicsDataStatus,
+    checkDataAvailability,
+    setCurrentStep,
+    onInitializationComplete: handleInitializationComplete
+  });
 
-    setAuthenticating(true);
-    setAuthError(null);
+  // Effects (after hook so authSuccessRef is available)
+  useEffect(() => {
+    storage.setItem('initializationCurrentStep', currentStep);
+  }, [currentStep]);
 
-    try {
-      const result = await authService.register(apiKey, null);
-      if (result.success) {
-        // Registration succeeded - authService already set isAuthenticated=true
-        // No need to double-check with checkAuth() which can cause race conditions
-        onAuthChanged?.();
-        await checkPicsDataStatus();
-        setCurrentStep('import-historical-data');
-      } else {
-        setAuthError(result.message);
-      }
-    } catch (error: unknown) {
-      setAuthError((error instanceof Error ? error.message : String(error)) || t('modals.auth.errors.authenticationFailed'));
-    } finally {
-      setAuthenticating(false);
-    }
-  };
-
-  const handleStartGuestMode = async () => {
-    const hasData = await checkDataAvailability();
-    if (!hasData) {
-      setAuthError(t('modals.auth.errors.guestModeNoData'));
-      return;
-    }
-
-    await authService.startGuestMode();
-    onAuthChanged?.();
-
-    const setupResponse = await fetch('/api/system/setup', ApiService.getFetchOptions());
-    const setupData = await setupResponse.json();
-
-    if (setupData.isSetupCompleted) {
-      handleInitializationComplete();
+  useEffect(() => {
+    if (dataSourceChoice) {
+      storage.setItem('dataSourceChoice', dataSourceChoice);
     } else {
-      setCurrentStep('import-historical-data');
+      storage.removeItem('dataSourceChoice');
     }
-  };
+  }, [dataSourceChoice]);
 
-  const handleContinueAsAdmin = async () => {
-    onAuthChanged?.();
-    await checkPicsDataStatus();
-    setCurrentStep('import-historical-data');
-  };
+  useEffect(() => {
+    const checkSetupStatus = async () => {
+      const INIT_VERSION = '1.0';
+      const storedVersion = storage.getItem('initializationVersion');
+
+      if (storedVersion !== INIT_VERSION) {
+        clearAllLocalStorage();
+        storage.setItem('initializationVersion', INIT_VERSION);
+      }
+
+      await checkDataAvailability();
+
+      try {
+        const authCheck = await authService.checkAuth();
+        const authRequired = authCheck.requiresAuth;
+        setAuthDisabled(!authRequired);
+
+        const setupResponse = await fetch('/api/system/setup', ApiService.getFetchOptions({ cache: 'no-store' }));
+        const setupData = await setupResponse.json();
+
+        if (setupData.isCompleted && authCheck.isAuthenticated) {
+          clearAllLocalStorage();
+          onInitialized();
+          return;
+        }
+
+        const storedStep = storage.getItem('initializationCurrentStep');
+        if (storedStep) {
+          if (!authCheck.isAuthenticated && !setupData.isCompleted) {
+            if (authSuccessRef.current) {
+              return;
+            }
+            clearAllLocalStorage();
+            setCurrentStep('api-key');
+            return;
+          }
+
+          const storedChoice = storage.getItem('dataSourceChoice');
+          if (storedChoice) {
+            setDataSourceChoice(storedChoice as 'github' | 'steam');
+          }
+
+          if (
+            storedStep === 'depot-init' ||
+            storedStep === 'pics-progress' ||
+            storedStep === 'log-processing' ||
+            storedStep === 'depot-mapping'
+          ) {
+            await checkPicsDataStatus();
+          }
+          return;
+        }
+
+        if (!authRequired || !authCheck.isAuthenticated) {
+          if (authSuccessRef.current) {
+            return;
+          }
+          setCurrentStep('api-key');
+        } else {
+          await checkPicsDataStatus();
+          setCurrentStep('import-historical-data');
+        }
+      } catch (error) {
+        console.error('Failed to check setup status:', error);
+        setCurrentStep('api-key');
+      }
+    };
+
+    checkSetupStatus();
+  }, []);
 
   const handleImportComplete = () => {
     setCurrentStep('data-source-choice');
@@ -385,9 +354,9 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
             dataAvailable={dataAvailable}
             checkingDataAvailability={checkingDataAvailability}
             authDisabled={authDisabled}
-            onAuthenticate={handleAuthenticate}
-            onStartGuestMode={handleStartGuestMode}
-            onContinueAsAdmin={handleContinueAsAdmin}
+            onAuthenticate={() => authenticate('apiKey')}
+            onStartGuestMode={() => authenticate('guest')}
+            onContinueAsAdmin={() => authenticate('admin')}
           />
         );
 

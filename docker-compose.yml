@@ -138,7 +138,7 @@ services:
 
       # Base path for daemon session data (commands/responses)
       # Must be inside /data for Docker sibling container access
-      # - Prefill__DaemonBasePath=/data/prefill-sessions
+      # - Prefill__DaemonBasePath=/data/prefill
 
       # Host path that maps to /data in this container (auto for auto-detection)
       # Auto-detected from container mounts. Only set if auto-detection fails.

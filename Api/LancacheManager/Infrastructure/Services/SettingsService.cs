@@ -16,7 +16,12 @@ public class SettingsService : ISettingsService
     {
         _logger = logger;
         _pathResolver = pathResolver;
-        _settingsFilePath = Path.Combine(_pathResolver.GetDataDirectory(), "gc-settings.json");
+        _settingsFilePath = _pathResolver.GetSettingsPath("gc-settings.json");
+        var settingsDir = Path.GetDirectoryName(_settingsFilePath);
+        if (!string.IsNullOrEmpty(settingsDir) && !Directory.Exists(settingsDir))
+        {
+            Directory.CreateDirectory(settingsDir);
+        }
         _currentSettings = LoadSettings();
     }
 

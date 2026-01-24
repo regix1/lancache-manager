@@ -37,9 +37,15 @@ public class StateService : IStateService
         _pathResolver = pathResolver;
         _encryption = encryption;
         _steamAuthStorage = steamAuthStorage;
-        _stateFilePath = Path.Combine(_pathResolver.GetDataDirectory(), "state.json");
+        _stateFilePath = Path.Combine(_pathResolver.GetStateDirectory(), "state.json");
         _operationHistoryFilePath = Path.Combine(_pathResolver.GetOperationsDirectory(), "operation_history.json");
         _cacheOperationsFilePath = Path.Combine(_pathResolver.GetOperationsDirectory(), "cache_operations.json");
+
+        var stateDir = Path.GetDirectoryName(_stateFilePath);
+        if (!string.IsNullOrEmpty(stateDir) && !Directory.Exists(stateDir))
+        {
+            Directory.CreateDirectory(stateDir);
+        }
     }
 
     /// <summary>
@@ -135,7 +141,7 @@ public class StateService : IStateService
                         _migrationAttempted = true;
 
                         // Always clear Steam auth from main state after migration attempt
-                        // (Steam auth now lives in separate file: data/steam_auth/credentials.json)
+                        // (Steam auth now lives in separate file: data/security/steam_auth/credentials.json)
                         // Setting to null will exclude it from JSON serialization
                         var hadSteamAuth = _cachedState.SteamAuth != null &&
                                           (_cachedState.SteamAuth.RefreshToken != null ||

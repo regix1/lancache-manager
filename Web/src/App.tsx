@@ -398,7 +398,10 @@ const AppContent: React.FC = () => {
     const checkDepotStatus = async () => {
       try {
         setCheckingDepotStatus(true);
-        const response = await fetch('/api/depots/status', ApiService.getFetchOptions());
+        const response = await fetch(
+          '/api/depots/status',
+          ApiService.getFetchOptions({ cache: 'no-store' })
+        );
         if (response.ok) {
           const data = await response.json();
           const hasData =
@@ -431,7 +434,10 @@ const AppContent: React.FC = () => {
 
     // Double-check that depot is actually initialized before updating state
     try {
-      const response = await fetch('/api/depots/status', ApiService.getFetchOptions());
+      const response = await fetch(
+        '/api/depots/status',
+        ApiService.getFetchOptions({ cache: 'no-store' })
+      );
       if (response.ok) {
         const data = await response.json();
         const hasData =

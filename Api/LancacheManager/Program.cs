@@ -191,17 +191,55 @@ builder.Services.AddSingleton<ITimeProvider, SystemTimeProvider>();
 // Configure Data Protection for encrypting sensitive data
 // Keys are stored in the data directory and are machine-specific
 // Determine the path based on OS - must match PathResolver logic but cannot use DI yet
-string dataProtectionKeyPath;
+string dataRoot;
 if (OperatingSystemDetector.IsWindows)
 {
     // Windows: Find project root and use data directory
     var projectRoot = FindProjectRootForDataProtection();
-    dataProtectionKeyPath = Path.Combine(projectRoot, "data", "DataProtection-Keys");
+    dataRoot = Path.Combine(projectRoot, "data");
 }
 else // Linux/Docker
 {
-    // Linux: /data/DataProtection-Keys
-    dataProtectionKeyPath = Path.Combine("/data", "DataProtection-Keys");
+    // Linux: /data
+    dataRoot = "/data";
+}
+
+var legacyKeyPath = Path.Combine(dataRoot, "DataProtection-Keys");
+var securityDir = Path.Combine(dataRoot, "security");
+var dataProtectionKeyPath = Path.Combine(securityDir, "DataProtection-Keys");
+
+// Migrate legacy key path if present
+try
+{
+    if (Directory.Exists(legacyKeyPath))
+    {
+        Directory.CreateDirectory(securityDir);
+        if (!Directory.Exists(dataProtectionKeyPath))
+        {
+            Directory.Move(legacyKeyPath, dataProtectionKeyPath);
+            Console.WriteLine($"Migrated Data Protection keys to: {dataProtectionKeyPath}");
+        }
+        else
+        {
+            foreach (var file in Directory.GetFiles(legacyKeyPath))
+            {
+                var destFile = Path.Combine(dataProtectionKeyPath, Path.GetFileName(file));
+                if (!File.Exists(destFile))
+                {
+                    File.Move(file, destFile);
+                }
+            }
+
+            if (Directory.GetFileSystemEntries(legacyKeyPath).Length == 0)
+            {
+                Directory.Delete(legacyKeyPath);
+            }
+        }
+    }
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"Failed to migrate Data Protection keys: {ex.Message}");
 }
 
 // Ensure the directory exists
@@ -238,6 +276,7 @@ builder.Services.AddScoped<IStatsDataService, StatsDataService>();
 builder.Services.AddScoped<IEventsService, EventsService>();
 builder.Services.AddScoped<IClientGroupsService, ClientGroupsService>();
 builder.Services.AddSingleton<ISettingsService, SettingsService>();
+builder.Services.AddSingleton<PathMigrationService>();
 
 // Register image caching service
 builder.Services.AddSingleton<IImageCacheService, ImageCacheService>();
@@ -259,7 +298,7 @@ builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
 {
     // Get the path resolver to determine the database path
     var pathResolver = serviceProvider.GetRequiredService<IPathResolver>();
-    var dbPath = Path.Combine(pathResolver.GetDataDirectory(), "LancacheManager.db");
+    var dbPath = pathResolver.GetDatabasePath();
 
     // Ensure the directory exists (only log once)
     var dbDir = Path.GetDirectoryName(dbPath);
@@ -288,7 +327,7 @@ builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
 builder.Services.AddSingleton<IDbContextFactory<AppDbContext>>(serviceProvider =>
 {
     var pathResolver = serviceProvider.GetRequiredService<IPathResolver>();
-    var dbPath = Path.Combine(pathResolver.GetDataDirectory(), "LancacheManager.db");
+    var dbPath = pathResolver.GetDatabasePath();
     var connectionString = $"Data Source={dbPath};Default Timeout=5";
 
     // Create a factory that returns new DbContext instances on demand
@@ -476,8 +515,18 @@ var app = builder.Build();
 // IMPORTANT: Apply database migrations FIRST before any service tries to access the database
 using (var scope = app.Services.CreateScope())
 {
-    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    var pathResolver = scope.ServiceProvider.GetRequiredService<IPathResolver>();
+    var pathMigrationService = scope.ServiceProvider.GetRequiredService<PathMigrationService>();
+
+    var migrationResult = pathMigrationService.MigrateLegacyDataLayout();
+    if (migrationResult.FilesMoved > 0 || migrationResult.DirectoriesMoved > 0)
+    {
+        logger.LogInformation("Migrated legacy data layout (files: {FilesMoved}, dirs: {DirsMoved})",
+            migrationResult.FilesMoved, migrationResult.DirectoriesMoved);
+    }
+
+    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
     try
     {
@@ -516,7 +565,6 @@ using (var scope = app.Services.CreateScope())
     }
 
     // Migrate operation files from old data directory to new operations subdirectory
-    var pathResolver = scope.ServiceProvider.GetRequiredService<IPathResolver>();
     var migratedCount = pathResolver.MigrateOperationFilesToNewLocation();
     if (migratedCount > 0)
     {

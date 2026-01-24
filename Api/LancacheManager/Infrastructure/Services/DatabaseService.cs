@@ -533,7 +533,7 @@ public class DatabaseService : IDatabaseService
 
                             // CRITICAL: Also delete the PICS JSON file to prevent re-import on next scan
                             // Without this, the JSON file would be imported back into the database
-                            var picsJsonPath = Path.Combine(_pathResolver.GetDataDirectory(), "pics_depot_mappings.json");
+                            var picsJsonPath = Path.Combine(_pathResolver.GetPicsDirectory(), "pics_depot_mappings.json");
                             if (File.Exists(picsJsonPath))
                             {
                                 try
@@ -986,7 +986,7 @@ public class DatabaseService : IDatabaseService
             await _context.SaveChangesAsync();
 
             // CRITICAL: Also delete the PICS JSON file to prevent re-import on next scan
-            var picsJsonPath = Path.Combine(_pathResolver.GetDataDirectory(), "pics_depot_mappings.json");
+            var picsJsonPath = Path.Combine(_pathResolver.GetPicsDirectory(), "pics_depot_mappings.json");
             if (File.Exists(picsJsonPath))
             {
                 try

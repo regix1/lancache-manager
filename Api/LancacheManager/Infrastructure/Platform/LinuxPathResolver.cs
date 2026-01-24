@@ -33,6 +33,18 @@ public class LinuxPathResolver : IPathResolver
 
     public string GetDataDirectory() => Path.GetFullPath(Path.Combine(_basePath, "data"));
 
+    public string GetConfigDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "config"));
+
+    public string GetStateDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "state"));
+
+    public string GetSecurityDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "security"));
+
+    public string GetDatabaseDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "db"));
+
+    public string GetPicsDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "pics"));
+
+    public string GetPrefillDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "prefill"));
+
     public string GetLogsDirectory() => Path.GetFullPath(Path.Combine(_basePath, "logs"));
 
     public string GetCacheDirectory() => Path.GetFullPath(Path.Combine(_basePath, "cache"));
@@ -41,7 +53,7 @@ public class LinuxPathResolver : IPathResolver
 
     public string GetThemesDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "themes"));
 
-    public string GetCachedImagesDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "cached-img"));
+    public string GetCachedImagesDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "cache", "images"));
 
     public string GetOperationsDirectory()
     {
@@ -174,13 +186,13 @@ public class LinuxPathResolver : IPathResolver
         Path.Combine(AppContext.BaseDirectory, "rust-processor", "speed_tracker");
 
     public string GetDatabasePath() =>
-        Path.Combine(GetDataDirectory(), "LancacheManager.db");
+        Path.Combine(GetDatabaseDirectory(), "LancacheManager.db");
 
     public string GetDataProtectionKeysPath() =>
-        Path.Combine(GetDataDirectory(), "DataProtection-Keys");
+        Path.Combine(GetSecurityDirectory(), "DataProtection-Keys");
 
     public string GetSettingsPath(string settingsFileName) =>
-        Path.Combine(GetDataDirectory(), settingsFileName);
+        Path.Combine(GetConfigDirectory(), settingsFileName);
 
     /// <summary>
     /// Resolves a relative path to an absolute path based on the operating system

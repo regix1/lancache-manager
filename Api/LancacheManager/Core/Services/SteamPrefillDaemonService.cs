@@ -1264,7 +1264,7 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
             return _pathResolver.ResolvePath(configured);
         }
 
-        return Path.Combine(_pathResolver.GetDataDirectory(), "prefill-sessions");
+        return _pathResolver.GetPrefillDirectory();
     }
 
     private bool ShouldUseTcpMode()

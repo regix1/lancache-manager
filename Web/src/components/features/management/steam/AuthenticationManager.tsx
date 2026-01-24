@@ -483,7 +483,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
               <ol className="list-decimal list-inside text-sm space-y-1 ml-2">
                 <li>{t('management.auth.modal.step1')}</li>
                 <li>
-                  {t('management.auth.modal.step2Before')} <code className="bg-themed-tertiary px-1 rounded">/data/api_key.txt</code>
+                  {t('management.auth.modal.step2Before')} <code className="bg-themed-tertiary px-1 rounded">/data/security/api_key.txt</code>
                 </li>
                 <li>
                   {t('management.auth.modal.step3Before')}{' '}
@@ -564,7 +564,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
                 <li>{t('management.auth.regenerateModal.point2')}</li>
                 <li>{t('management.auth.regenerateModal.point3')}</li>
                 <li>
-                  {t('management.auth.regenerateModal.point4Before')} <code className="bg-themed-tertiary px-1 rounded">/data/api_key.txt</code>{' '}
+                  {t('management.auth.regenerateModal.point4Before')} <code className="bg-themed-tertiary px-1 rounded">/data/security/api_key.txt</code>{' '}
                   {t('management.auth.regenerateModal.point4After')}
                 </li>
               </ul>

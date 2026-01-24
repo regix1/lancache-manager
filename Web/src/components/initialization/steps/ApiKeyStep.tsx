@@ -169,7 +169,7 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
       <div className="p-3 rounded-lg text-sm bg-themed-tertiary">
         <p className="text-themed-secondary">
           <strong className="text-themed-primary">{t('initialization.apiKey.whereToFind')}</strong>{' '}
-          {t('initialization.apiKey.whereToFindDesc')} <code className="text-themed-accent">data/api_key.txt</code>
+          {t('initialization.apiKey.whereToFindDesc')} <code className="text-themed-accent">data/security/api_key.txt</code>
         </p>
       </div>
 

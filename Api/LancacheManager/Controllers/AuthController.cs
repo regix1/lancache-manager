@@ -56,6 +56,10 @@ public class AuthController : ControllerBase
     [HttpGet("status")]
     public IActionResult CheckAuthStatus()
     {
+        Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0";
+        Response.Headers["Pragma"] = "no-cache";
+        Response.Headers["Expires"] = "0";
+
         // Check if authentication is enabled
         var authEnabled = _configuration.GetValue<bool>("Security:EnableAuthentication", true);
 
