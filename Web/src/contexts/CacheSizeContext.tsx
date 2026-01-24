@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
 import ApiService from '@services/api.service';
 import type { CacheSizeInfo } from '@/types';
 
@@ -29,10 +29,19 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasFetched, setHasFetched] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const fetchCacheSize = useCallback(async () => {
     // Skip if already loading
     if (isLoading) return;
+
+    // Skip if page is hidden - will retry when visible
+    if (document.hidden) return;
+
+    // Cancel any in-flight request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
 
     setIsLoading(true);
     setError(null);
@@ -42,10 +51,22 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
       setCacheSize(size);
       setHasFetched(true);
     } catch (err) {
-      console.error('Failed to fetch cache size:', err);
-      setError(err instanceof Error ? err.message : 'Failed to calculate cache size');
+      // Don't log or set error for aborted requests
+      if (err instanceof Error && err.name === 'AbortError') {
+        return;
+      }
+      
+      // Handle timeout errors specifically
+      if (err instanceof Error && (err.name === 'TimeoutError' || err.message.includes('timed out'))) {
+        console.warn('[CacheSize] Request timed out - cache size calculation may take longer on large caches');
+        setError('Cache size calculation timed out. This can happen with very large caches.');
+      } else {
+        console.error('[CacheSize] Failed to fetch cache size:', err);
+        setError(err instanceof Error ? err.message : 'Failed to calculate cache size');
+      }
     } finally {
       setIsLoading(false);
+      abortControllerRef.current = null;
     }
   }, [isLoading]);
 
@@ -54,6 +75,15 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
     setCacheSize(null);
     setHasFetched(false);
     setError(null);
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, []);
 
   // Auto-fetch on first access if not already fetched

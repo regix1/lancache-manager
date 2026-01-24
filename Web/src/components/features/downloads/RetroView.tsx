@@ -13,12 +13,11 @@ import { EAIcon } from '@components/ui/EAIcon';
 import { BlizzardIcon } from '@components/ui/BlizzardIcon';
 import { XboxIcon } from '@components/ui/XboxIcon';
 import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
+import { GameImage } from '@components/common/GameImage';
 import { HardDrive, Download, Zap } from 'lucide-react';
 import { useDownloadAssociations } from '@contexts/DownloadAssociationsContext';
 import DownloadBadges from './DownloadBadges';
 import type { Download as DownloadType, DownloadGroup, EventSummary } from '../../../types';
-
-const API_BASE = '/api';
 
 type SortOrder = 'latest' | 'oldest' | 'largest' | 'smallest' | 'service' | 'efficiency' | 'efficiency-low' | 'sessions' | 'alphabetical';
 
@@ -1136,12 +1135,11 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                   {/* App - with game image (responsive to column width) */}
                   <div className="px-2 min-w-0 flex items-center gap-2 overflow-hidden" data-cell>
                     {hasGameImage && data.gameAppId ? (
-                      <img
-                        src={`${API_BASE}/game-images/${data.gameAppId}/header`}
+                      <GameImage
+                        gameAppId={data.gameAppId}
                         alt={data.gameName || t('downloads.tab.retro.gameFallback')}
                         className="min-w-[60px] max-w-[120px] w-2/5 h-auto aspect-[120/45] rounded object-cover flex-shrink"
-                        loading="lazy"
-                        onError={() => handleImageError(String(data.gameAppId))}
+                        onFinalError={handleImageError}
                       />
                     ) : (
                       /* Service icon placeholder - fixed size, no background box for cleaner shrinking */
@@ -1243,12 +1241,11 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                   {/* App image and name */}
                   <div className="flex items-center gap-2 sm:gap-3 w-full min-w-0">
                     {hasGameImage && data.gameAppId ? (
-                      <img
-                        src={`${API_BASE}/game-images/${data.gameAppId}/header`}
+                      <GameImage
+                        gameAppId={data.gameAppId}
                         alt={data.gameName || t('downloads.tab.retro.gameFallback')}
                         className="w-[100px] h-[40px] sm:w-[130px] sm:h-[50px] rounded object-cover flex-shrink-0"
-                        loading="lazy"
-                        onError={() => handleImageError(String(data.gameAppId))}
+                        onFinalError={handleImageError}
                       />
                     ) : (
                       <div

@@ -20,12 +20,11 @@ import { XboxIcon } from '@components/ui/XboxIcon';
 import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
 import { Tooltip } from '@components/ui/Tooltip';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
+import { GameImage } from '@components/common/GameImage';
 import { useHoldTimer } from '@hooks/useHoldTimer';
 import { useDownloadAssociations } from '@contexts/DownloadAssociationsContext';
 import DownloadBadges from './DownloadBadges';
 import type { Download, DownloadGroup } from '../../../types';
-
-const API_BASE = '/api';
 
 interface NormalViewSectionLabels {
   multipleDownloads: string;
@@ -168,14 +167,12 @@ const GroupCard: React.FC<GroupCardProps> = ({
   if (shouldRenderBanner) {
     if (hasSteamArtwork && steamAppId) {
       bannerContent = (
-        <img
-          src={`${API_BASE}/game-images/${steamAppId}/header`}
-          srcSet={`${API_BASE}/game-images/${steamAppId}/header?type=capsule 616w, ${API_BASE}/game-images/${steamAppId}/header 460w`}
-          sizes="(max-width: 639px) 100vw, 280px"
+        <GameImage
+          gameAppId={steamAppId}
           alt={primaryName || group.name}
           className="download-banner-image"
-          loading="lazy"
-          onError={() => handleImageError(steamAppId)}
+          sizes="(max-width: 639px) 100vw, 280px"
+          onFinalError={handleImageError}
         />
       );
     } else {

@@ -6,12 +6,11 @@ import { getServiceBadgeStyles } from '@utils/serviceColors';
 import { Tooltip } from '@components/ui/Tooltip';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { SteamIcon } from '@components/ui/SteamIcon';
+import { GameImage } from '@components/common/GameImage';
 import { useHoldTimer } from '@hooks/useHoldTimer';
 import { useDownloadAssociations } from '@contexts/DownloadAssociationsContext';
 import DownloadBadges from './DownloadBadges';
 import type { Download, DownloadGroup } from '../../../types';
-
-const API_BASE = '/api';
 
 interface CompactViewSectionLabels {
   multipleDownloads: string;
@@ -265,14 +264,12 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     <SteamIcon size={24} className="text-[var(--theme-steam)] opacity-60" />
                   </div>
                 ) : (
-                  <img
-                    src={`${API_BASE}/game-images/${primaryDownload.gameAppId}/header`}
-                    srcSet={`${API_BASE}/game-images/${primaryDownload.gameAppId}/header?type=capsule 616w, ${API_BASE}/game-images/${primaryDownload.gameAppId}/header 460w`}
-                    sizes="(max-width: 639px) 100%, 100px"
+                  <GameImage
+                    gameAppId={primaryDownload.gameAppId}
                     alt={primaryDownload.gameName || group.name}
                     className="compact-expanded-banner sm:w-[100px] sm:h-[46px] rounded object-cover border border-[var(--theme-border-secondary)]"
-                    loading="lazy"
-                    onError={() => handleImageError(String(primaryDownload.gameAppId))}
+                    sizes="(max-width: 639px) 100%, 100px"
+                    onFinalError={handleImageError}
                   />
                 )}
               </div>
