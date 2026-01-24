@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 
-const API_BASE = import.meta.env.VITE_API_URL || '';
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 interface GameImageProps {
   gameAppId: string | number;
@@ -13,7 +13,8 @@ interface GameImageProps {
 
 /**
  * Game image component with automatic fallback to capsule image when header fails.
- * Falls back through: header -> capsule -> error handler (shows placeholder)
+ * Backend endpoint: /api/game-images/{appId}/header?type=capsule
+ * Falls back through: header -> capsule (via query param) -> error handler (shows placeholder)
  */
 export const GameImage: React.FC<GameImageProps> = ({
   gameAppId,
@@ -24,24 +25,27 @@ export const GameImage: React.FC<GameImageProps> = ({
   sizes
 }) => {
   const appId = String(gameAppId);
-  const [imageType, setImageType] = useState<'header' | 'capsule'>('header');
+  const [useCapsule, setUseCapsule] = useState(false);
   const [hasTriedFallback, setHasTriedFallback] = useState(false);
 
   const handleError = useCallback(() => {
-    if (imageType === 'header' && !hasTriedFallback) {
-      // First failure: try capsule image as fallback
-      setImageType('capsule');
+    if (!useCapsule && !hasTriedFallback) {
+      // First failure: try capsule image as fallback (via query parameter)
+      setUseCapsule(true);
       setHasTriedFallback(true);
     } else {
       // Capsule also failed: notify parent to show placeholder
       onFinalError(appId);
     }
-  }, [imageType, hasTriedFallback, appId, onFinalError]);
+  }, [useCapsule, hasTriedFallback, appId, onFinalError]);
 
-  const src = `${API_BASE}/game-images/${appId}/${imageType}`;
+  // Backend uses /header endpoint with optional ?type=capsule query param
+  const src = useCapsule
+    ? `${API_BASE}/game-images/${appId}/header?type=capsule`
+    : `${API_BASE}/game-images/${appId}/header`;
   
-  // Only use srcSet for header images (capsule is already the fallback)
-  const srcSet = imageType === 'header' 
+  // Only use srcSet for initial header load (includes both resolutions)
+  const srcSet = !useCapsule
     ? `${API_BASE}/game-images/${appId}/header?type=capsule 616w, ${API_BASE}/game-images/${appId}/header 460w`
     : undefined;
 
