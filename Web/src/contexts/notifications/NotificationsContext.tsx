@@ -77,6 +77,14 @@ const shouldAutoDismiss = (): boolean => {
   return !themeService.getDisableStickyNotificationsSync();
 };
 
+/**
+ * Check if PICS/depot_mapping notifications should auto-dismiss.
+ * Returns false if picsAlwaysVisible is enabled (keep visible until manually dismissed).
+ */
+const shouldAutoDismissPics = (): boolean => {
+  return shouldAutoDismiss() && !themeService.getPicsAlwaysVisibleSync();
+};
+
 export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ children }) => {
   const [notifications, setNotifications] = useState<UnifiedNotification[]>(() => {
     // Restore notifications from localStorage on mount
@@ -213,6 +221,19 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       }
     },
     [cancelAutoDismissTimer, getNextInstanceId, removeNotificationAnimated]
+  );
+
+  /**
+   * Schedule auto-dismiss for PICS/depot_mapping notifications.
+   * Respects the picsAlwaysVisible preference - won't dismiss if user wants them always visible.
+   */
+  const scheduleAutoDismissForPics = useCallback(
+    (notificationId: string, delayMs: number = AUTO_DISMISS_DELAY_MS) => {
+      if (shouldAutoDismissPics()) {
+        scheduleAutoDismiss(notificationId, delayMs);
+      }
+    },
+    [scheduleAutoDismiss]
   );
 
   const removeNotification = useCallback((id: string) => {
@@ -663,7 +684,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             : n
         );
       });
-      scheduleAutoDismiss(notificationId, CANCELLED_NOTIFICATION_DELAY_MS);
+      scheduleAutoDismissForPics(notificationId, CANCELLED_NOTIFICATION_DELAY_MS);
     };
 
     /** Handles successful depot mapping completion */
@@ -683,7 +704,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             notification.progress || 0,
             successMessage,
             successDetails,
-            () => scheduleAutoDismiss(notificationId)
+            () => scheduleAutoDismissForPics(notificationId)
           );
           return prev;
         });
@@ -700,7 +721,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               : n
           );
         });
-        scheduleAutoDismiss(notificationId);
+        scheduleAutoDismissForPics(notificationId);
       }
     };
 
@@ -718,7 +739,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
       localStorage.removeItem(NOTIFICATION_STORAGE_KEYS.DEPOT_MAPPING);
       updateNotification(notificationId, { status: 'failed', error: errorMessage });
-      scheduleAutoDismiss(notificationId);
+      scheduleAutoDismissForPics(notificationId);
     };
 
     /** Main depot mapping completion dispatcher */
@@ -845,6 +866,28 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     window.addEventListener('show-toast', handleShowToast);
     return () => window.removeEventListener('show-toast', handleShowToast);
   }, [addNotification, removeNotificationAnimated]);
+
+  // Listen for picsAlwaysVisible preference changes
+  // When turned off, schedule auto-dismiss for completed PICS notifications
+  React.useEffect(() => {
+    const handlePicsVisibilityChange = () => {
+      // Check if picsAlwaysVisible was just turned OFF
+      if (!themeService.getPicsAlwaysVisibleSync() && shouldAutoDismiss()) {
+        // Find any completed depot_mapping notifications and schedule auto-dismiss
+        setNotifications((prev) => {
+          prev.forEach((n) => {
+            if (n.type === 'depot_mapping' && (n.status === 'completed' || n.status === 'failed')) {
+              scheduleAutoDismiss(n.id);
+            }
+          });
+          return prev;
+        });
+      }
+    };
+
+    window.addEventListener('picsvisibilitychange', handlePicsVisibilityChange);
+    return () => window.removeEventListener('picsvisibilitychange', handlePicsVisibilityChange);
+  }, [scheduleAutoDismiss]);
 
   // Recovery on page load
   React.useEffect(() => {
