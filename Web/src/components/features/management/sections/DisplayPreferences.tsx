@@ -218,8 +218,8 @@ const DisplayPreferences: React.FC = () => {
           onChange={handleStickyNotificationsChange}
         />
         <PreferenceRow
-          label={t('management.sections.displayPreferences.keepProcessingVisible')}
-          description={t('management.sections.displayPreferences.keepProcessingVisibleDesc')}
+          label={t('management.sections.displayPreferences.keepNotificationsVisible')}
+          description={t('management.sections.displayPreferences.keepNotificationsVisibleDesc')}
           checked={picsAlwaysVisible}
           onChange={handlePicsVisibleChange}
         />

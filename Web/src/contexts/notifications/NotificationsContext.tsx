@@ -73,16 +73,19 @@ interface NotificationsProviderProps {
   children: ReactNode;
 }
 
-const shouldAutoDismiss = (): boolean => {
-  return !themeService.getDisableStickyNotificationsSync();
-};
-
 /**
- * Check if PICS/depot_mapping notifications should auto-dismiss.
- * Returns false if picsAlwaysVisible is enabled (keep visible until manually dismissed).
+ * Check if notifications should auto-dismiss.
+ * Returns false if:
+ * - disableStickyNotifications is false (sticky mode ON)
+ * - OR picsAlwaysVisible is true (keep all notifications visible)
  */
-const shouldAutoDismissPics = (): boolean => {
-  return shouldAutoDismiss() && !themeService.getPicsAlwaysVisibleSync();
+const shouldAutoDismiss = (): boolean => {
+  // If "Keep Notifications Visible" is enabled, never auto-dismiss
+  if (themeService.getPicsAlwaysVisibleSync()) {
+    return false;
+  }
+  // Otherwise, respect the sticky notifications setting
+  return !themeService.getDisableStickyNotificationsSync();
 };
 
 export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ children }) => {
@@ -221,19 +224,6 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       }
     },
     [cancelAutoDismissTimer, getNextInstanceId, removeNotificationAnimated]
-  );
-
-  /**
-   * Schedule auto-dismiss for PICS/depot_mapping notifications.
-   * Respects the picsAlwaysVisible preference - won't dismiss if user wants them always visible.
-   */
-  const scheduleAutoDismissForPics = useCallback(
-    (notificationId: string, delayMs: number = AUTO_DISMISS_DELAY_MS) => {
-      if (shouldAutoDismissPics()) {
-        scheduleAutoDismiss(notificationId, delayMs);
-      }
-    },
-    [scheduleAutoDismiss]
   );
 
   const removeNotification = useCallback((id: string) => {
@@ -684,7 +674,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             : n
         );
       });
-      scheduleAutoDismissForPics(notificationId, CANCELLED_NOTIFICATION_DELAY_MS);
+      scheduleAutoDismiss(notificationId, CANCELLED_NOTIFICATION_DELAY_MS);
     };
 
     /** Handles successful depot mapping completion */
@@ -704,7 +694,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             notification.progress || 0,
             successMessage,
             successDetails,
-            () => scheduleAutoDismissForPics(notificationId)
+            () => scheduleAutoDismiss(notificationId)
           );
           return prev;
         });
@@ -721,7 +711,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               : n
           );
         });
-        scheduleAutoDismissForPics(notificationId);
+        scheduleAutoDismiss(notificationId);
       }
     };
 
@@ -739,7 +729,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
       localStorage.removeItem(NOTIFICATION_STORAGE_KEYS.DEPOT_MAPPING);
       updateNotification(notificationId, { status: 'failed', error: errorMessage });
-      scheduleAutoDismissForPics(notificationId);
+      scheduleAutoDismiss(notificationId);
     };
 
     /** Main depot mapping completion dispatcher */
@@ -867,16 +857,16 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     return () => window.removeEventListener('show-toast', handleShowToast);
   }, [addNotification, removeNotificationAnimated]);
 
-  // Listen for picsAlwaysVisible preference changes
-  // When turned off, schedule auto-dismiss for completed PICS notifications
+  // Listen for "Keep Notifications Visible" preference changes
+  // When turned off, schedule auto-dismiss for ALL completed/failed notifications
   React.useEffect(() => {
-    const handlePicsVisibilityChange = () => {
-      // Check if picsAlwaysVisible was just turned OFF
-      if (!themeService.getPicsAlwaysVisibleSync() && shouldAutoDismiss()) {
-        // Find any completed depot_mapping notifications and schedule auto-dismiss
+    const handleNotificationVisibilityChange = () => {
+      // Check if "Keep Notifications Visible" was just turned OFF
+      if (shouldAutoDismiss()) {
+        // Find ALL completed/failed notifications and schedule auto-dismiss
         setNotifications((prev) => {
           prev.forEach((n) => {
-            if (n.type === 'depot_mapping' && (n.status === 'completed' || n.status === 'failed')) {
+            if (n.status === 'completed' || n.status === 'failed') {
               scheduleAutoDismiss(n.id);
             }
           });
@@ -885,8 +875,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       }
     };
 
-    window.addEventListener('picsvisibilitychange', handlePicsVisibilityChange);
-    return () => window.removeEventListener('picsvisibilitychange', handlePicsVisibilityChange);
+    window.addEventListener('notificationvisibilitychange', handleNotificationVisibilityChange);
+    return () => window.removeEventListener('notificationvisibilitychange', handleNotificationVisibilityChange);
   }, [scheduleAutoDismiss]);
 
   // Recovery on page load

@@ -80,9 +80,9 @@
 /* Event badge container positioning */
 .event-frame-badge-container {
   position: absolute;
-  top: calc(var(--event-frame-offset-negative, -10px) - var(--event-frame-badge-offset, 12px));
+  top: var(--event-frame-offset-negative, -10px);
   left: 50%;
-  transform: translateX(-50%);
+  transform: translate(-50%, -42%);
   pointer-events: none;
   max-width: calc(100% - 24px);
   white-space: nowrap;
@@ -97,7 +97,8 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: var(--event-frame-badge-gap, 0.375rem);
+  justify-content: center;
+  gap: var(--event-frame-badge-gap, 0.5rem);
   padding: var(--event-frame-badge-padding-y, 0.5rem) var(--event-frame-badge-padding-x, 1.25rem);
   border-radius: 9999px;
   font-size: var(--event-frame-badge-font-size, 0.75rem);
@@ -132,6 +133,7 @@
   background-color: var(--theme-error);
   box-shadow: 0 0 6px var(--theme-error);
   flex: 0 0 auto;
+  margin-right: 0.25rem;
 }
 
 .event-frame-live-dot {

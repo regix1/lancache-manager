@@ -265,7 +265,7 @@ class ThemeService {
             break;
 
           case 'picsAlwaysVisible':
-            window.dispatchEvent(new Event('picsvisibilitychange'));
+            window.dispatchEvent(new Event('notificationvisibilitychange'));
             break;
 
           case 'disableStickyNotifications':
@@ -1467,7 +1467,7 @@ class ThemeService {
     await preferencesService.setPreference('picsAlwaysVisible', enabled);
 
     // Apply immediately for current user
-    window.dispatchEvent(new Event('picsvisibilitychange'));
+    window.dispatchEvent(new Event('notificationvisibilitychange'));
   }
 
   

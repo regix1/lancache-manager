@@ -990,8 +990,8 @@
         "description": "Keep notification bar fixed at top when scrolling"
       },
       "staticNotifications": {
-        "title": "Static Notifications",
-        "description": "Require manual dismissal - won't auto-clear"
+        "title": "Keep Notifications Visible",
+        "description": "Disable auto-dismiss for all notifications until manually closed"
       },
       "customFormats": "Custom formats for this user",
       "defaultFormats": "Using default ({{formats}})",
@@ -1482,8 +1482,8 @@
         "notifications": "Notifications",
         "disableStickyNotifications": "Disable Sticky Notifications",
         "disableStickyNotificationsDesc": "Auto-dismiss all notifications",
-        "keepProcessingVisible": "Keep Processing Visible",
-        "keepProcessingVisibleDesc": "Always show PICS download notifications",
+        "keepNotificationsVisible": "Keep Notifications Visible",
+        "keepNotificationsVisibleDesc": "Disable auto-dismiss for all notifications until manually closed",
         "downloads": "Downloads",
         "showDatasourceLabels": "Show Datasource Labels",
         "showDatasourceLabelsDesc": "Display datasource info when multiple sources",
