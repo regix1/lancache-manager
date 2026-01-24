@@ -121,26 +121,6 @@ public class GameCacheDetectionService
     }
 
     /// <summary>
-    /// Count unknown games (games with names starting with "Unknown Game") in cached results
-    /// </summary>
-    private async Task<int> CountUnknownGamesAsync()
-    {
-        try
-        {
-            await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-            var unknownCount = await dbContext.CachedGameDetections
-                .Where(g => g.GameName.StartsWith("Unknown Game (Depot"))
-                .CountAsync();
-            return unknownCount;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[GameDetection] Failed to count unknown games");
-            return 0;
-        }
-    }
-
-    /// <summary>
     /// Check if unknown depot IDs now have mappings available in SteamDepotMappings
     /// Returns the count of unknown depot IDs that now have mappings
     /// </summary>
