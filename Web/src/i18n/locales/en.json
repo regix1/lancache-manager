@@ -1544,6 +1544,7 @@
       "subtitle": "Clear cached game files from disk",
       "refreshCacheSize": "Refresh cache size",
       "cacheSize": "Cache Size",
+      "cacheSizeError": "Cache Size Error",
       "clearCache": "Clear Cache",
       "clearDatasourceCache": "Clear {{datasource}} cache",
       "clearingCacheDeletes": "Clearing cache deletes ALL cached game files from disk",

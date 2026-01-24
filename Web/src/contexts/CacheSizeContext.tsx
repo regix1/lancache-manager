@@ -56,14 +56,8 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
         return;
       }
       
-      // Handle timeout errors specifically
-      if (err instanceof Error && (err.name === 'TimeoutError' || err.message.includes('timed out'))) {
-        console.warn('[CacheSize] Request timed out - cache size calculation may take longer on large caches');
-        setError('Cache size calculation timed out. This can happen with very large caches.');
-      } else {
-        console.error('[CacheSize] Failed to fetch cache size:', err);
-        setError(err instanceof Error ? err.message : 'Failed to calculate cache size');
-      }
+      console.error('[CacheSize] Failed to fetch cache size:', err);
+      setError(err instanceof Error ? err.message : 'Failed to calculate cache size');
     } finally {
       setIsLoading(false);
       abortControllerRef.current = null;

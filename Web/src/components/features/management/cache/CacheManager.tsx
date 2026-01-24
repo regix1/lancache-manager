@@ -5,6 +5,7 @@ import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useCacheSize } from '@contexts/CacheSizeContext';
+import { useNotifications } from '@contexts/notifications';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -94,6 +95,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
 
   // Cache size from global context (persists across navigation)
   const { cacheSize, isLoading: cacheSizeLoading, error: cacheSizeError, fetchCacheSize, clearCacheSize } = useCacheSize();
+  const { addNotification } = useNotifications();
 
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -111,6 +113,19 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       fetchCacheSize();
     }
   }, [mockMode, cacheReadOnly, cacheSize, cacheSizeLoading, fetchCacheSize]);
+
+  // Show notification when cache size fetch fails
+  useEffect(() => {
+    if (cacheSizeError) {
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: t('management.cache.cacheSizeError', 'Cache Size Error'),
+        detailMessage: cacheSizeError,
+        details: { notificationType: 'error' }
+      });
+    }
+  }, [cacheSizeError, addNotification, t]);
 
   // Get estimated time based on current delete mode
   const getEstimatedTime = useCallback(() => {

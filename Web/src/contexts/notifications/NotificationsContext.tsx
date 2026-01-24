@@ -119,6 +119,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
   const autoDismissTimersRef = useRef<Map<string, { timerId: ReturnType<typeof setTimeout>; instanceId: number }>>(new Map());
   const instanceCounterRef = useRef<Map<string, number>>(new Map());
 
+  // Track previous SignalR connection state to detect reconnections
+  const prevConnectionStateRef = useRef<string | null>(null);
+
   const getNextInstanceId = useCallback((notificationId: string): number => {
     const current = instanceCounterRef.current.get(notificationId) || 0;
     const next = current + 1;
@@ -964,6 +967,111 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
     recoverAllOperations();
   }, [authLoading, isAuthenticated, scheduleAutoDismiss]);
+
+  // Monitor SignalR connection state - re-run recovery on reconnection
+  // This ensures we recover from missed completion events during connection loss (especially on mobile)
+  React.useEffect(() => {
+    // Skip if not authenticated
+    if (authLoading || !isAuthenticated) return;
+
+    const currentState = signalR.connectionState;
+    const prevState = prevConnectionStateRef.current;
+
+    // Update the ref for next comparison
+    prevConnectionStateRef.current = currentState;
+
+    // Only trigger recovery on RECONNECTION (not initial connection)
+    // Reconnection is when we transition TO 'connected' FROM 'reconnecting' or 'disconnected'
+    // but NOT from null (initial mount) since the auth-based recovery handles that
+    if (
+      currentState === 'connected' &&
+      prevState !== null &&
+      prevState !== 'connected'
+    ) {
+      const fetchWithAuth = async (url: string): Promise<Response> => {
+        return fetch(url, {
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+      };
+
+      const recoverLogProcessing = createSimpleRecoveryFunction(
+        RECOVERY_CONFIGS.logProcessing,
+        fetchWithAuth,
+        setNotifications,
+        scheduleAutoDismiss
+      );
+
+      const recoverCacheClearing = createSimpleRecoveryFunction(
+        RECOVERY_CONFIGS.cacheClearing,
+        fetchWithAuth,
+        setNotifications,
+        scheduleAutoDismiss
+      );
+
+      const recoverDatabaseReset = createSimpleRecoveryFunction(
+        RECOVERY_CONFIGS.databaseReset,
+        fetchWithAuth,
+        setNotifications,
+        scheduleAutoDismiss
+      );
+
+      const recoverDepotMapping = createSimpleRecoveryFunction(
+        RECOVERY_CONFIGS.depotMapping,
+        fetchWithAuth,
+        setNotifications,
+        scheduleAutoDismiss
+      );
+
+      const recoverLogRemoval = createDynamicRecoveryFunction(
+        RECOVERY_CONFIGS.logRemoval,
+        fetchWithAuth,
+        setNotifications,
+        scheduleAutoDismiss
+      );
+
+      const recoverGameDetection = createDynamicRecoveryFunction(
+        RECOVERY_CONFIGS.gameDetection,
+        fetchWithAuth,
+        setNotifications,
+        scheduleAutoDismiss
+      );
+
+      const recoverCorruptionDetection = createDynamicRecoveryFunction(
+        RECOVERY_CONFIGS.corruptionDetection,
+        fetchWithAuth,
+        setNotifications,
+        scheduleAutoDismiss
+      );
+
+      const recoverCacheRemovals = createCacheRemovalsRecoveryFunction(
+        fetchWithAuth,
+        setNotifications,
+        scheduleAutoDismiss
+      );
+
+      const recoverAllOperations = async () => {
+        try {
+          await Promise.allSettled([
+            recoverLogProcessing(),
+            recoverLogRemoval(),
+            recoverDepotMapping(),
+            recoverCacheClearing(),
+            recoverDatabaseReset(),
+            recoverGameDetection(),
+            recoverCorruptionDetection(),
+            recoverCacheRemovals()
+          ]);
+        } catch (err) {
+          console.error('[NotificationsContext] Failed to recover operations after reconnection:', err);
+        }
+      };
+
+      recoverAllOperations();
+    }
+  }, [signalR.connectionState, authLoading, isAuthenticated, scheduleAutoDismiss]);
 
   const value = {
     notifications,

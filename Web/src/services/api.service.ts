@@ -850,10 +850,8 @@ class ApiService {
       const url = datasource
         ? `${API_BASE}/cache/size?datasource=${encodeURIComponent(datasource)}`
         : `${API_BASE}/cache/size`;
-      const res = await fetch(url, this.getFetchOptions({
-        // Can take a while for large caches
-        signal: AbortSignal.timeout(120000) // 2 minutes
-      }));
+      // No timeout - cache size calculation can take a very long time for large caches
+      const res = await fetch(url, this.getFetchOptions());
       return await this.handleResponse<CacheSizeInfo>(res);
     } catch (error) {
       console.error('getCacheSize error:', error);
