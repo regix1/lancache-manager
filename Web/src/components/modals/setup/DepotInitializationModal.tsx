@@ -95,8 +95,6 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     storage.removeItem('importBatchSize');
     storage.removeItem('importOverwriteExisting');
     storage.removeItem('initializationVersion');
-    // Clear auth success flag from sessionStorage (survives remounts but should be cleared on completion)
-    sessionStorage.removeItem('initializationAuthSuccess');
   };
 
   const checkDataAvailability = async () => {
@@ -150,7 +148,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   };
 
   // Consolidated authentication handler for all auth modes
-  const { authenticate, authSuccessRef } = useInitializationAuth({
+  const { authenticate } = useInitializationAuth({
     apiKey,
     setAuthError,
     setAuthenticating,
@@ -161,7 +159,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     onInitializationComplete: handleInitializationComplete
   });
 
-  // Effects (after hook so authSuccessRef is available)
+  // Effects
   useEffect(() => {
     storage.setItem('initializationCurrentStep', currentStep);
   }, [currentStep]);
@@ -194,25 +192,24 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         const setupResponse = await fetch('/api/system/setup', ApiService.getFetchOptions({ cache: 'no-store' }));
         const setupData = await setupResponse.json();
 
+        // Setup complete and authenticated → go to app
         if (setupData.isCompleted && authCheck.isAuthenticated) {
           clearAllLocalStorage();
           onInitialized();
           return;
         }
 
-        const storedStep = storage.getItem('initializationCurrentStep');
-        if (storedStep) {
-          if (!authCheck.isAuthenticated && !setupData.isCompleted) {
-            if (authSuccessRef.current) {
-              setIsCheckingAuth(false);
-              return;
-            }
-            clearAllLocalStorage();
-            setCurrentStep('api-key');
-            setIsCheckingAuth(false);
-            return;
-          }
+        // Not authenticated → always show api-key step (backend is source of truth)
+        if (!authCheck.isAuthenticated && authRequired) {
+          clearAllLocalStorage();
+          setCurrentStep('api-key');
+          setIsCheckingAuth(false);
+          return;
+        }
 
+        // Authenticated but setup not complete → continue from stored step
+        const storedStep = storage.getItem('initializationCurrentStep');
+        if (storedStep && storedStep !== 'api-key') {
           const storedChoice = storage.getItem('dataSourceChoice');
           if (storedChoice) {
             setDataSourceChoice(storedChoice as 'github' | 'steam');
@@ -226,19 +223,18 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
           ) {
             await checkPicsDataStatus();
           }
+          setCurrentStep(storedStep as InitStep);
           setIsCheckingAuth(false);
           return;
         }
 
-        if (!authRequired || !authCheck.isAuthenticated) {
-          if (authSuccessRef.current) {
-            setIsCheckingAuth(false);
-            return;
-          }
-          setCurrentStep('api-key');
-        } else {
+        // No stored step or at api-key step
+        if (!authRequired || authCheck.isAuthenticated) {
+          // Auth not required or already authenticated → go to import step
           await checkPicsDataStatus();
           setCurrentStep('import-historical-data');
+        } else {
+          setCurrentStep('api-key');
         }
       } catch (error) {
         console.error('Failed to check setup status:', error);
