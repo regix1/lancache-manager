@@ -160,10 +160,17 @@ export function createProgressHandler<T>(
     const notificationId = config.getId(event);
 
     setNotifications((prev) => {
-      const existing = prev.find((n) => n.id === notificationId && n.status === 'running');
+      // Check if any notification with this ID exists (running, completed, or failed)
+      const existingAny = prev.find((n) => n.id === notificationId);
+      
+      // If notification exists but is completed/failed, ignore late progress events
+      // This prevents duplicates when progress events arrive after completion
+      if (existingAny && existingAny.status !== 'running') {
+        return prev;
+      }
 
-      if (existing) {
-        // Update existing notification
+      if (existingAny && existingAny.status === 'running') {
+        // Update existing running notification
         return prev.map((n) => {
           if (n.id === notificationId) {
             return {
@@ -183,7 +190,7 @@ export function createProgressHandler<T>(
         // Cancel any existing auto-dismiss timer
         cancelAutoDismissTimer?.(notificationId);
 
-        // Create new notification
+        // Create new notification (only if no existing notification with this ID)
         const newNotification: UnifiedNotification = {
           id: notificationId,
           type: config.type,
@@ -469,9 +476,16 @@ export function createStatusAwareProgressHandler<T>(
     } else {
       // Handle progress - update existing or create new
       setNotifications((prev) => {
-        const existing = prev.find((n) => n.id === notificationId && n.status === 'running');
+        // Check if any notification with this ID exists (running, completed, or failed)
+        const existingAny = prev.find((n) => n.id === notificationId);
+        
+        // If notification exists but is completed/failed, ignore late progress events
+        // This prevents duplicates when progress events arrive after completion
+        if (existingAny && existingAny.status !== 'running') {
+          return prev;
+        }
 
-        if (existing) {
+        if (existingAny && existingAny.status === 'running') {
           return prev.map((n) => {
             if (n.id === notificationId) {
               return {
@@ -486,7 +500,7 @@ export function createStatusAwareProgressHandler<T>(
           // Cancel any existing auto-dismiss timer
           cancelAutoDismissTimer?.(notificationId);
 
-          // Create new notification
+          // Create new notification (only if no existing notification with this ID)
           const newNotification: UnifiedNotification = {
             id: notificationId,
             type: config.type,
