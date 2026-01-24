@@ -83,6 +83,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   });
   const [authDisabled, setAuthDisabled] = useState<boolean>(false);
   const [backButtonDisabled, setBackButtonDisabled] = useState<boolean>(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState<boolean>(true);
 
   // Helper functions (defined before hook and useEffects that depend on them)
   const clearAllLocalStorage = () => {
@@ -203,10 +204,12 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         if (storedStep) {
           if (!authCheck.isAuthenticated && !setupData.isCompleted) {
             if (authSuccessRef.current) {
+              setIsCheckingAuth(false);
               return;
             }
             clearAllLocalStorage();
             setCurrentStep('api-key');
+            setIsCheckingAuth(false);
             return;
           }
 
@@ -223,11 +226,13 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
           ) {
             await checkPicsDataStatus();
           }
+          setIsCheckingAuth(false);
           return;
         }
 
         if (!authRequired || !authCheck.isAuthenticated) {
           if (authSuccessRef.current) {
+            setIsCheckingAuth(false);
             return;
           }
           setCurrentStep('api-key');
@@ -238,6 +243,8 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       } catch (error) {
         console.error('Failed to check setup status:', error);
         setCurrentStep('api-key');
+      } finally {
+        setIsCheckingAuth(false);
       }
     };
 
@@ -345,6 +352,16 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   };
 
   const renderStep = () => {
+    // Show loading state while checking auth for steps that make API calls
+    if (isCheckingAuth && currentStep !== 'api-key') {
+      return (
+        <div className="flex flex-col items-center justify-center py-12">
+          <div className="w-12 h-12 rounded-full border-4 border-themed-secondary border-t-primary animate-spin mb-4" />
+          <p className="text-themed-secondary">{t('common.loading', 'Loading...')}</p>
+        </div>
+      );
+    }
+
     switch (currentStep) {
       case 'api-key':
         return (
