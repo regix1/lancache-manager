@@ -98,15 +98,30 @@
   display: flex;
   align-items: center;
   gap: var(--event-frame-badge-gap, 0.375rem);
-  padding: var(--event-frame-badge-padding-y, 0.375rem) var(--event-frame-badge-padding-x, 1rem);
+  padding: var(--event-frame-badge-padding-y, 0.5rem) var(--event-frame-badge-padding-x, 1.25rem);
   border-radius: 9999px;
   font-size: var(--event-frame-badge-font-size, 0.75rem);
   font-weight: 600;
   color: var(--event-frame-color, var(--theme-primary));
   background: var(--theme-bg-primary);
-  border: 1px solid var(--event-frame-color, var(--theme-primary));
+  border: var(--event-frame-stroke-width, 2px) solid var(--event-frame-color, var(--theme-primary));
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   letter-spacing: 0.02em;
+}
+
+/* Badge glow effect to match frame border */
+.event-frame-badge::after {
+  content: '';
+  position: absolute;
+  inset: calc(var(--event-frame-stroke-width, 2px) * -1);
+  border-radius: inherit;
+  border: var(--event-frame-stroke-width, 2px) solid transparent;
+  box-sizing: border-box;
+  opacity: 0.25;
+  box-shadow: 0 0 8px var(--event-frame-color, var(--theme-primary));
+  animation: eventFrameBorderPulse var(--event-frame-border-pulse-duration, 3.2s) ease-in-out infinite;
+  will-change: opacity, box-shadow;
+  pointer-events: none;
 }
 
 .event-frame-badge-dot {
@@ -237,7 +252,8 @@
     --event-frame-border-pulse-duration: 4.4s;
   }
 
-  .event-frame-border::after {
+  .event-frame-border::after,
+  .event-frame-badge::after {
     animation-duration: 4.4s;
   }
 
@@ -253,6 +269,7 @@
 /* Reduced motion support */
 @media (prefers-reduced-motion: reduce) {
   .event-frame-border::after,
+  .event-frame-badge::after,
   .event-frame-live-dot,
   .event-frame-live-dot::after {
     animation: none !important;
