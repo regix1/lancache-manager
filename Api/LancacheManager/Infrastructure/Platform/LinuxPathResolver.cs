@@ -41,7 +41,12 @@ public class LinuxPathResolver : IPathResolver
 
     public string GetDatabaseDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "db"));
 
-    public string GetPicsDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "pics"));
+    public string GetPicsDirectory()
+    {
+        var path = Path.GetFullPath(Path.Combine(GetDataDirectory(), "pics"));
+        Directory.CreateDirectory(path); // Ensure directory exists
+        return path;
+    }
 
     public string GetPrefillDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "prefill"));
 

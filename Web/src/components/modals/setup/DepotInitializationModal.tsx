@@ -94,6 +94,8 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     storage.removeItem('importBatchSize');
     storage.removeItem('importOverwriteExisting');
     storage.removeItem('initializationVersion');
+    // Clear auth success flag from sessionStorage (survives remounts but should be cleared on completion)
+    sessionStorage.removeItem('initializationAuthSuccess');
   };
 
   const checkDataAvailability = async () => {

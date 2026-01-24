@@ -1,9 +1,12 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import authService from '@services/auth.service';
 import ApiService from '@services/api.service';
 
 export type AuthMode = 'apiKey' | 'guest' | 'admin';
+
+// Session storage key for auth success flag - survives component remounts
+const AUTH_SUCCESS_KEY = 'initializationAuthSuccess';
 
 interface UseInitializationAuthProps {
   apiKey: string;
@@ -27,7 +30,16 @@ export const useInitializationAuth = ({
   onInitializationComplete
 }: UseInitializationAuthProps) => {
   const { t } = useTranslation();
-  const authSuccessRef = useRef(false);
+  // Initialize from sessionStorage to survive component remounts
+  const authSuccessRef = useRef(sessionStorage.getItem(AUTH_SUCCESS_KEY) === 'true');
+  
+  // Sync ref changes to sessionStorage
+  useEffect(() => {
+    return () => {
+      // Clean up on unmount only if initialization is complete
+      // (don't clear during normal remounts)
+    };
+  }, []);
 
   const authenticate = useCallback(async (mode: AuthMode) => {
     setAuthError(null);
@@ -41,13 +53,16 @@ export const useInitializationAuth = ({
 
         setAuthenticating(true);
         authSuccessRef.current = false;
+        sessionStorage.removeItem(AUTH_SUCCESS_KEY);
 
         try {
           const result = await authService.register(apiKey, null);
           if (result.success) {
             // Registration succeeded - authService already set isAuthenticated=true
             // No need to double-check with checkAuth() which can cause race conditions
+            // Store in both ref AND sessionStorage to survive component remounts
             authSuccessRef.current = true;
+            sessionStorage.setItem(AUTH_SUCCESS_KEY, 'true');
             await onAuthChanged?.();
             await checkPicsDataStatus();
             setCurrentStep('import-historical-data');
