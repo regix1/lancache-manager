@@ -27,7 +27,7 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
   
   return (
     <div
-      className={`group rounded-lg overflow-hidden transition-all duration-300 border ${
+      className={`group themed-border-radius overflow-hidden transition-all duration-300 border ${
         isExpanded
           ? `bg-themed-secondary ${enabled ? 'border-themed-primary' : 'border-themed-secondary'} shadow-[0_4px_16px_rgba(0,0,0,0.25),0_1px_4px_rgba(0,0,0,0.15)]`
           : 'bg-[color-mix(in_srgb,var(--theme-bg-secondary)_60%,transparent)] border-themed-secondary shadow-[0_1px_3px_rgba(0,0,0,0.12)]'
@@ -47,11 +47,12 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
           <div className="flex items-center gap-2.5">
             {/* Folder Icon */}
             <div
-              className={`w-7 h-7 rounded-md flex items-center justify-center transition-all duration-300 ${
+              className={`w-7 h-7 flex items-center justify-center transition-all duration-300 ${
                 isExpanded
                   ? 'bg-[color-mix(in_srgb,var(--theme-icon-blue)_15%,transparent)] scale-105'
                   : 'bg-themed-tertiary scale-100'
               }`}
+              style={{ borderRadius: 'var(--theme-border-radius)' }}
             >
               <FolderOpen
                 className={`w-3.5 h-3.5 transition-colors duration-300 ${
@@ -95,11 +96,12 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
 
             {/* Chevron with rotation animation */}
             <div
-              className={`flex items-center justify-center w-7 h-7 rounded-md transition-all duration-300 ${
+              className={`flex items-center justify-center w-7 h-7 transition-all duration-300 ${
                 isExpanded
                   ? 'bg-[color-mix(in_srgb,var(--theme-accent)_10%,transparent)]'
                   : 'bg-transparent'
               }`}
+              style={{ borderRadius: 'var(--theme-border-radius)' }}
             >
               <ChevronDown
                 className={`w-4 h-4 transition-all duration-300 ease-out ${

@@ -278,7 +278,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
 
       {/* Period Totals - Aggregate stats for entire time range */}
       <div
-        className="flex flex-col sm:flex-row sm:items-center sm:justify-between px-3 py-2 mb-3 rounded-lg text-xs gap-1 sm:gap-0 bg-themed-secondary"
+        className="flex flex-col sm:flex-row sm:items-center sm:justify-between px-3 py-2 mb-3 themed-border-radius text-xs gap-1 sm:gap-0 bg-themed-secondary"
       >
         <div className="flex items-center gap-2">
           {isMultiDayPeriod && (
@@ -313,7 +313,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
       <div className={`grid grid-cols-1 ${isTodayInRange ? 'sm:grid-cols-2' : ''} gap-3 mb-4`}>
         {/* Peak Hour */}
         <div
-          className="p-3 flex flex-col justify-between min-h-[72px] rounded-xl"
+          className="p-3 flex flex-col justify-between min-h-[72px] themed-border-radius"
           style={{
             backgroundColor: 'color-mix(in srgb, var(--theme-warning) 10%, transparent)'
           }}
@@ -354,7 +354,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
         {/* Current Hour - Hidden on mobile, only show on sm+ if today is in range */}
         {isTodayInRange && (
           <div
-            className="hidden sm:flex p-3 flex-col justify-between min-h-[72px] rounded-xl"
+            className="hidden sm:flex p-3 flex-col justify-between min-h-[72px] themed-border-radius"
             style={{
               backgroundColor: 'color-mix(in srgb, var(--theme-primary) 10%, transparent)'
             }}

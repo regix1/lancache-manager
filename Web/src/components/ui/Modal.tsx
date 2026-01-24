@@ -98,7 +98,7 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
     >
       <div className="min-h-full flex items-center justify-center px-4">
         <div
-          className={`themed-card border rounded-lg ${sizes[size]} w-full max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-4rem)] flex flex-col transform transition-all duration-250 ease-out ${
+          className={`themed-card border themed-border-radius ${sizes[size]} w-full max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-4rem)] flex flex-col transform transition-all duration-250 ease-out ${
             isAnimating ? 'opacity-100 scale-100 translate-y-0 delay-[50ms]' : 'opacity-0 scale-90 translate-y-8 delay-0'
           }`}
         >
@@ -107,7 +107,7 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
               <div className="text-base sm:text-lg font-semibold text-themed-primary">{title}</div>
               <button
                 onClick={onClose}
-                className="p-1 hover:bg-themed-hover rounded-lg smooth-transition"
+                className="p-1 hover:bg-themed-hover themed-border-radius smooth-transition"
               >
                 <X className="w-5 h-5 text-themed-muted" />
               </button>

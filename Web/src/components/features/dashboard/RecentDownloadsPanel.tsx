@@ -493,7 +493,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
         .tab-toggle {
           display: flex;
           padding: 3px;
-          border-radius: 10px;
+          border-radius: var(--theme-border-radius-lg);
           background: var(--theme-bg-tertiary);
           border: 1px solid var(--theme-border-secondary);
         }
@@ -508,7 +508,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           color: var(--theme-text-muted);
           background: transparent;
           border: none;
-          border-radius: 7px;
+          border-radius: var(--theme-border-radius);
           cursor: pointer;
           transition: all 0.2s ease;
         }
@@ -614,7 +614,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           color: var(--theme-button-text);
           background: var(--theme-primary);
           border: none;
-          border-radius: 6px;
+          border-radius: var(--theme-border-radius);
           cursor: pointer;
           transition: opacity 0.2s ease;
           white-space: nowrap;
@@ -652,7 +652,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           justify-content: space-between;
           gap: 0.75rem;
           padding: 0.75rem;
-          border-radius: 10px;
+          border-radius: var(--theme-border-radius-lg);
           background: var(--theme-bg-secondary);
           border: 1px solid var(--theme-border-secondary);
           transition: all 0.2s ease;
@@ -726,7 +726,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           display: flex;
           align-items: center;
           justify-content: center;
-          border-radius: 8px;
+          border-radius: var(--theme-border-radius);
           background: var(--theme-bg-tertiary);
           color: var(--theme-text-muted);
         }
@@ -836,7 +836,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
 
         .hit-badge {
           padding: 0.25rem 0.5rem;
-          border-radius: 6px;
+          border-radius: var(--theme-border-radius);
           font-size: 0.7rem;
           font-weight: 700;
           min-width: 42px;
@@ -944,7 +944,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           color: var(--theme-text-muted);
           background: var(--theme-bg-tertiary);
           border: 1px solid var(--theme-border-secondary);
-          border-radius: 6px;
+          border-radius: var(--theme-border-radius);
           cursor: pointer;
           transition: all 0.2s ease;
         }

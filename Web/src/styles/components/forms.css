@@ -5,7 +5,8 @@
 
   /* Theme-aware Input */
   .themed-input {
-    @apply rounded-lg border;
+    @apply border;
+    border-radius: var(--theme-border-radius-lg);
     background-color: var(--theme-input-bg);
     border-color: var(--theme-input-border);
     color: var(--theme-text-primary);
@@ -69,7 +70,8 @@
 
   /* Themed Checkbox Styling - Simplified */
   .themed-checkbox {
-    @apply h-4 w-4 cursor-pointer transition-all appearance-none rounded relative;
+    @apply h-4 w-4 cursor-pointer transition-all appearance-none relative;
+    border-radius: var(--theme-border-radius);
     border: 2px solid var(--theme-checkbox-border);
     background-color: var(--theme-checkbox-bg);
     box-shadow: var(--theme-checkbox-shadow);
@@ -111,7 +113,7 @@
     width: 20px;
     height: 20px;
     border: 2px solid var(--theme-checkbox-border);
-    border-radius: 4px;
+    border-radius: var(--theme-border-radius);
     background: var(--theme-input-bg);
     cursor: pointer;
     position: relative;
@@ -300,7 +302,7 @@
     cursor: pointer;
     transition: all 0.15s ease;
     user-select: none;
-    border-radius: 0.25rem;
+    border-radius: var(--theme-border-radius);
     padding: 0;
   }
 
@@ -353,5 +355,14 @@
   /* Themed checkbox/radio accent color */
   .accent-themed {
     accent-color: var(--theme-primary);
+  }
+
+  /* Segmented Control */
+  .segmented-control-container {
+    border-radius: var(--theme-border-radius-lg);
+  }
+
+  .segmented-control-button {
+    border-radius: var(--theme-border-radius);
   }
 }

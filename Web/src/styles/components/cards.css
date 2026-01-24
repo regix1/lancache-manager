@@ -3,6 +3,11 @@
    * CARDS - Themed, Glass, Widget, Session
    * ============================================== */
 
+  /* Theme-aware border radius */
+  .themed-border-radius {
+    border-radius: var(--theme-border-radius-lg);
+  }
+
   /* Theme-aware Card */
   .themed-card {
     background-color: var(--theme-card-bg);
@@ -57,7 +62,7 @@
   /* Widget card styles */
   .widget-card {
     @apply p-4;
-    border-radius: var(--theme-border-radius-lg, 0.75rem);
+    border-radius: var(--theme-border-radius-lg);
     background: var(--theme-card-bg);
     border: 1px solid var(--theme-card-border);
   }
@@ -84,7 +89,8 @@
 
   /* Session card refined */
   .session-card {
-    @apply rounded-lg overflow-hidden;
+    @apply overflow-hidden;
+    border-radius: var(--theme-border-radius-lg);
     background: var(--theme-bg-secondary);
     border: 1px solid var(--theme-border-secondary);
     transition: all 0.2s ease;
@@ -106,7 +112,8 @@
 
   /* Bulk action card */
   .bulk-action-card {
-    @apply rounded-lg p-4;
+    @apply p-4;
+    border-radius: var(--theme-border-radius-lg);
     background: linear-gradient(135deg, var(--theme-bg-secondary) 0%, var(--theme-bg-tertiary) 100%);
     border: 1px solid var(--theme-border-secondary);
   }

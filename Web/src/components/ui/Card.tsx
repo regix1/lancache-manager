@@ -19,7 +19,7 @@ export const Card: React.FC<CardProps> = ({ children, className = '', padding = 
   const baseClass = glassmorphism ? 'glass-card' : 'themed-card';
 
   return (
-    <div className={`${baseClass} rounded-lg border ${paddings[padding]} ${className}`} style={style}>{children}</div>
+    <div className={`${baseClass} themed-border-radius border ${paddings[padding]} ${className}`} style={style}>{children}</div>
   );
 };
 

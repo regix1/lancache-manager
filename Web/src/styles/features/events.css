@@ -6,11 +6,11 @@
 @keyframes eventFrameBorderPulse {
   0%, 100% {
     opacity: 0.25;
-    box-shadow: 0 0 8px var(--event-frame-color, var(--theme-primary));
+    box-shadow: 0 0 8px var(--event-frame-color);
   }
   50% {
     opacity: 0.55;
-    box-shadow: 0 0 14px var(--event-frame-color, var(--theme-primary));
+    box-shadow: 0 0 14px var(--event-frame-color);
   }
 }
 
@@ -42,9 +42,9 @@
 /* Wrapper - contains everything and provides positioning context */
 .event-frame-wrapper {
   position: relative;
-  margin-top: var(--event-frame-top-margin, 28px);
-  margin-bottom: var(--event-frame-top-margin, 28px);
-  padding: var(--event-frame-offset, 18px);
+  margin-top: var(--event-frame-top-margin);
+  margin-bottom: var(--event-frame-top-margin);
+  padding: var(--event-frame-offset);
 }
 
 /* Content wrapper */
@@ -56,9 +56,9 @@
 /* Solid border with soft pulsing glow */
 .event-frame-border {
   position: absolute;
-  inset: var(--event-frame-offset-negative, -10px);
-  border-radius: var(--event-frame-border-radius, 22px);
-  border: var(--event-frame-stroke-width, 2px) solid var(--event-frame-color, var(--theme-primary));
+  inset: var(--event-frame-offset-negative);
+  border-radius: var(--event-frame-border-radius);
+  border: var(--event-frame-stroke-width) solid var(--event-frame-color);
   pointer-events: none;
   z-index: 0;
   box-sizing: border-box;
@@ -69,18 +69,18 @@
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  border: var(--event-frame-stroke-width, 2px) solid transparent;
+  border: var(--event-frame-stroke-width) solid transparent;
   box-sizing: border-box;
   opacity: 0.25;
-  box-shadow: 0 0 8px var(--event-frame-color, var(--theme-primary));
-  animation: eventFrameBorderPulse var(--event-frame-border-pulse-duration, 3.2s) ease-in-out infinite;
+  box-shadow: 0 0 8px var(--event-frame-color);
+  animation: eventFrameBorderPulse var(--event-frame-border-pulse-duration) ease-in-out infinite;
   will-change: opacity, box-shadow;
 }
 
 /* Event badge container positioning */
 .event-frame-badge-container {
   position: absolute;
-  top: var(--event-frame-offset-negative, -10px);
+  top: var(--event-frame-offset-negative);
   left: 50%;
   transform: translate(-50%, -42%);
   pointer-events: none;
@@ -98,14 +98,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--event-frame-badge-gap, 0.5rem);
-  padding: var(--event-frame-badge-padding-y, 0.5rem) var(--event-frame-badge-padding-x, 1.25rem);
-  border-radius: 9999px;
-  font-size: var(--event-frame-badge-font-size, 0.75rem);
+  gap: 0.5rem;
+  padding: 0.5rem 1.25rem;
+  border-radius: 1rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--event-frame-color, var(--theme-primary));
   background: var(--theme-bg-primary);
-  border: var(--event-frame-stroke-width, 2px) solid var(--event-frame-color, var(--theme-primary));
+  border: 2px solid var(--event-frame-color, var(--theme-primary));
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   letter-spacing: 0.02em;
 }
@@ -114,21 +114,21 @@
 .event-frame-badge::after {
   content: '';
   position: absolute;
-  inset: calc(var(--event-frame-stroke-width, 2px) * -1);
+  inset: -2px;
   border-radius: inherit;
-  border: var(--event-frame-stroke-width, 2px) solid transparent;
+  border: 2px solid transparent;
   box-sizing: border-box;
   opacity: 0.25;
   box-shadow: 0 0 8px var(--event-frame-color, var(--theme-primary));
-  animation: eventFrameBorderPulse var(--event-frame-border-pulse-duration, 3.2s) ease-in-out infinite;
+  animation: eventFrameBorderPulse 3.2s ease-in-out infinite;
   will-change: opacity, box-shadow;
   pointer-events: none;
 }
 
 .event-frame-badge-dot {
   position: relative;
-  width: var(--event-frame-badge-dot-size, 0.5rem);
-  height: var(--event-frame-badge-dot-size, 0.5rem);
+  width: 0.5rem;
+  height: 0.5rem;
   border-radius: 9999px;
   background-color: var(--theme-error);
   box-shadow: 0 0 6px var(--theme-error);
@@ -240,7 +240,7 @@
 
   .event-frame-border {
     inset: 0;
-    border-radius: var(--event-frame-border-radius, 8px);
+    border-radius: var(--event-frame-border-radius);
   }
 
   .event-frame-badge-container {

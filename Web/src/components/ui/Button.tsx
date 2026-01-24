@@ -70,7 +70,7 @@ export const Button: React.FC<ButtonProps> = ({
         ${getVariantClasses()}
         ${sizes[size]}
         ${fullWidth ? 'w-full' : ''}
-        rounded-lg font-medium
+        themed-button-radius font-medium
         smooth-transition
         disabled:opacity-50 disabled:cursor-not-allowed
         flex items-center justify-center gap-2

@@ -656,7 +656,7 @@ const Dashboard: React.FC = () => {
             {isEditMode ? (
               <button
                 onClick={exitEditMode}
-                className="edit-mode-done flex items-center gap-2 px-4 py-2 text-sm rounded-lg"
+                className="edit-mode-done flex items-center gap-2 px-4 py-2 text-sm themed-border-radius"
               >
                 <Check className="w-4 h-4" />
                 <span>{t('dashboard.done')}</span>
@@ -665,7 +665,7 @@ const Dashboard: React.FC = () => {
               <Tooltip content={t('tooltips.rearrangeCards')} strategy="overlay">
                 <button
                   onClick={toggleEditMode}
-                  className="edit-mode-toggle flex items-center gap-2 px-3 py-2 text-sm rounded-lg border text-themed-secondary bg-themed-secondary border-themed-primary"
+                  className="edit-mode-toggle flex items-center gap-2 px-3 py-2 text-sm themed-border-radius border text-themed-secondary bg-themed-secondary border-themed-primary"
                 >
                   <Move className="w-4 h-4" />
                   <span>{t('dashboard.edit')}</span>
@@ -680,7 +680,7 @@ const Dashboard: React.FC = () => {
               <Tooltip content={t('dashboard.hiddenCardsTooltip', { count: hiddenCardsCount })} strategy="overlay">
                 <button
                   onClick={() => setDropdownOpen(!dropdownOpen)}
-                  className="hover-btn-trigger flex items-center gap-2 px-3 py-2 text-sm rounded-lg border text-themed-secondary bg-themed-secondary border-themed-primary"
+                  className="hover-btn-trigger flex items-center gap-2 px-3 py-2 text-sm themed-border-radius border text-themed-secondary bg-themed-secondary border-themed-primary"
                 >
                   <EyeOff className="w-4 h-4" />
                   <span className="hidden sm:inline">{t('dashboard.hiddenCount', { count: hiddenCardsCount })} {t('dashboard.hidden')}</span>
@@ -694,7 +694,7 @@ const Dashboard: React.FC = () => {
               {/* Hidden Cards Dropdown */}
               {dropdownOpen && (
                 <div
-                  className="absolute right-0 mt-2 w-72 sm:w-80 rounded-lg border shadow-xl z-50 themed-card border-themed-primary"
+                  className="absolute right-0 mt-2 w-72 sm:w-80 themed-border-radius border shadow-xl z-50 themed-card border-themed-primary"
                 >
                   {/* Search - only show if more than 3 hidden cards */}
                   {hiddenCardsCount > 3 && (
@@ -706,7 +706,7 @@ const Dashboard: React.FC = () => {
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
                           placeholder={t('dashboard.searchHiddenCards')}
-                          className="w-full pl-10 pr-3 py-2 rounded-lg text-sm bg-themed-tertiary text-themed-primary border border-themed-primary"
+                          className="w-full pl-10 pr-3 py-2 themed-border-radius text-sm bg-themed-tertiary text-themed-primary border border-themed-primary"
                           autoFocus
                         />
                       </div>
@@ -721,7 +721,7 @@ const Dashboard: React.FC = () => {
                         setDropdownOpen(false);
                         setSearchQuery('');
                       }}
-                      className="hover-btn w-full px-3 py-2 text-sm rounded-lg text-left flex items-center gap-2 text-themed-accent"
+                      className="hover-btn w-full px-3 py-2 text-sm themed-border-radius text-left flex items-center gap-2 text-themed-accent"
                     >
                       <Eye className="w-4 h-4" />
                       {t('dashboard.showAllCards')}
@@ -743,10 +743,10 @@ const Dashboard: React.FC = () => {
                                 setSearchQuery('');
                               }
                             }}
-                            className="hover-btn w-full p-2.5 rounded-lg flex items-center gap-3 group"
+                            className="hover-btn w-full p-2.5 themed-border-radius flex items-center gap-3 group"
                           >
                             <div
-                              className="p-1.5 rounded-lg group-hover:scale-105 transition-transform"
+                              className="p-1.5 themed-border-radius group-hover:scale-105 transition-transform"
                               style={getIconStyle(card.color)}
                             >
                               <Icon className="w-4 h-4 text-[var(--theme-button-text)]" />
@@ -775,7 +775,7 @@ const Dashboard: React.FC = () => {
           <Tooltip content={t('tooltips.resetCardLayout')} strategy="overlay">
             <button
               onClick={resetCardOrder}
-              className="hover-btn-trigger flex items-center gap-2 px-3 py-2 text-sm transition-colors rounded-lg border text-themed-secondary bg-themed-secondary border-themed-primary hover:bg-themed-hover hover:text-themed-primary"
+              className="hover-btn-trigger flex items-center gap-2 px-3 py-2 text-sm transition-colors themed-border-radius border text-themed-secondary bg-themed-secondary border-themed-primary hover:bg-themed-hover hover:text-themed-primary"
             >
               <LayoutGrid className="w-4 h-4" />
               <span className="hidden sm:inline">{t('dashboard.resetLayout')}</span>
@@ -788,7 +788,7 @@ const Dashboard: React.FC = () => {
       {isEditMode && (
         <div className="md:hidden edit-mode-banner">
           <div
-            className="flex items-center justify-between py-3 px-4 rounded-lg text-sm"
+            className="flex items-center justify-between py-3 px-4 themed-border-radius text-sm"
             style={{
               backgroundColor: 'color-mix(in srgb, var(--theme-primary) 15%, transparent)',
               borderLeft: '3px solid var(--theme-primary)'
@@ -814,14 +814,14 @@ const Dashboard: React.FC = () => {
       {/* First-time hint for mobile (only shows once) */}
       {showDragHint && !isEditMode && (
         <div className="md:hidden">
-          <div className="flex items-center justify-between py-3 px-4 rounded-lg bg-themed-secondary text-themed-muted text-sm">
+          <div className="flex items-center justify-between py-3 px-4 themed-border-radius bg-themed-secondary text-themed-muted text-sm">
             <div className="flex items-center gap-2">
               <span>💡</span>
               <span dangerouslySetInnerHTML={{ __html: t('dashboard.dragHint') }} />
             </div>
             <button
               onClick={hideDragHint}
-              className="ml-2 p-1 rounded hover:bg-themed-hover transition-colors flex-shrink-0 text-themed-muted"
+              className="ml-2 p-1 themed-border-radius hover:bg-themed-hover transition-colors flex-shrink-0 text-themed-muted"
               title={t('dashboard.hideThisHint')}
             >
               <X className="w-4 h-4" />
@@ -836,7 +836,7 @@ const Dashboard: React.FC = () => {
           {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
             <div
               key={i}
-              className="rounded-lg p-4 border animate-pulse glass-card h-40"
+              className="themed-border-radius p-4 border animate-pulse glass-card h-40"
             >
               <div className="h-4 rounded w-3/5 bg-themed-hover" />
               <div className="h-8 rounded mt-2 w-4/5 bg-themed-hover" />
@@ -885,7 +885,7 @@ const Dashboard: React.FC = () => {
                   className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-all hidden md:block z-[5]"
                 >
                   <div
-                    className="p-1 rounded cursor-grab hover:bg-themed-hover"
+                    className="p-1 themed-border-radius cursor-grab hover:bg-themed-hover"
                   >
                     <GripVertical className="w-4 h-4 text-themed-muted" />
                   </div>
@@ -898,7 +898,7 @@ const Dashboard: React.FC = () => {
                   className="absolute top-2 left-2 transition-all md:hidden z-[5] edit-mode-handle"
                 >
                   <div
-                    className="p-1.5 rounded-lg"
+                    className="p-1.5 themed-border-radius"
                     style={{
                       backgroundColor: draggedCard === card.key
                         ? 'var(--theme-primary)'
@@ -921,7 +921,7 @@ const Dashboard: React.FC = () => {
               {/* Selected card overlay in edit mode */}
               {isEditMode && draggedCard === card.key && (
                 <div
-                  className="absolute inset-0 rounded-lg md:hidden pointer-events-none"
+                  className="absolute inset-0 themed-border-radius md:hidden pointer-events-none"
                   style={{
                     boxShadow: 'inset 0 0 0 2px var(--theme-primary)',
                     zIndex: 5
@@ -962,7 +962,7 @@ const Dashboard: React.FC = () => {
               >
                 <button
                   onClick={() => toggleCardVisibility(card.key)}
-                  className="p-1.5 rounded-lg transition-colors hover:bg-themed-hover"
+                  className="p-1.5 themed-border-radius transition-colors hover:bg-themed-hover"
                 >
                   <EyeOff className="w-3.5 h-3.5 text-themed-muted" />
                 </button>
@@ -972,7 +972,7 @@ const Dashboard: React.FC = () => {
               {isCardDisabled && (
                 <Tooltip content={t('tooltips.liveDataOnly')} strategy="overlay">
                   <div
-                    className="absolute inset-0 z-10 cursor-not-allowed rounded-lg"
+                    className="absolute inset-0 z-10 cursor-not-allowed themed-border-radius"
                     style={{ background: 'transparent' }}
                   />
                 </Tooltip>
@@ -989,7 +989,7 @@ const Dashboard: React.FC = () => {
           {[1, 2].map((i) => (
             <div
               key={i}
-              className="rounded-lg p-6 border animate-pulse glass-card flex flex-col h-[400px]"
+              className="themed-border-radius p-6 border animate-pulse glass-card flex flex-col h-[400px]"
             >
               <div className="h-6 rounded mb-4 flex-shrink-0 w-2/5 bg-themed-hover" />
               <div className="flex-1 rounded bg-themed-hover" />
@@ -1012,7 +1012,7 @@ const Dashboard: React.FC = () => {
           {[1, 2, 3, 4].map((i) => (
             <div
               key={i}
-              className="rounded-lg p-4 border animate-pulse glass-card h-[200px]"
+              className="themed-border-radius p-4 border animate-pulse glass-card h-[200px]"
             >
               <div className="h-5 rounded mb-3 w-1/2 bg-themed-hover" />
               <div className="space-y-2">
@@ -1042,7 +1042,7 @@ const Dashboard: React.FC = () => {
 
       {/* Top Clients - Pass the filtered data arrays */}
       {showLoading ? (
-        <div className="rounded-lg p-6 border animate-pulse animate-fadeIn glass-card flex flex-col h-[400px]">
+        <div className="themed-border-radius p-6 border animate-pulse animate-fadeIn glass-card flex flex-col h-[400px]">
           <div className="h-6 rounded mb-4 flex-shrink-0 w-[30%] bg-themed-hover" />
           <div className="flex-1 flex flex-col justify-start gap-3">
             {[1, 2, 3, 4, 5].map((i) => (

@@ -42,7 +42,8 @@
 
   /* Mobile-first dropdown positioning */
   .mobile-dropdown {
-    @apply absolute z-20 rounded-lg shadow-lg min-w-full max-h-60 overflow-y-auto;
+    @apply absolute z-20 shadow-lg min-w-full max-h-60 overflow-y-auto;
+    border-radius: var(--theme-border-radius-lg);
     /* Default to left positioning on mobile */
     left: 0;
     top: 100%;

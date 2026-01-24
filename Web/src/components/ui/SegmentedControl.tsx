@@ -31,13 +31,13 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
   const sizeClasses = {
     sm: {
       container: 'p-[3px]',
-      button: 'px-2 py-1 rounded-md',
+      button: 'px-2 py-1',
       icon: 14,
       text: 'text-xs'
     },
     md: {
       container: 'p-[3px]',
-      button: 'px-3 py-[0.4rem] rounded-[7px]',
+      button: 'px-3 py-[0.4rem]',
       icon: 14,
       text: 'text-xs'
     }
@@ -47,7 +47,7 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
 
   return (
     <div
-      className={`inline-flex rounded-[10px] ${sizes.container} ${fullWidth ? 'w-full' : ''} ${className} bg-themed-tertiary border border-themed-secondary`}
+      className={`inline-flex segmented-control-container ${sizes.container} ${fullWidth ? 'w-full' : ''} ${className} bg-themed-tertiary border border-themed-secondary`}
     >
       {options.map((option) => {
         const isActive = value === option.value;
@@ -58,7 +58,7 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
             key={option.value}
             onClick={() => !isDisabled && onChange(option.value)}
             disabled={isDisabled}
-            className={`${sizes.button} transition-all flex items-center justify-center gap-[0.4rem] font-semibold whitespace-nowrap text-xs ${
+            className={`segmented-control-button ${sizes.button} transition-all flex items-center justify-center gap-[0.4rem] font-semibold whitespace-nowrap text-xs ${
               fullWidth ? 'flex-1' : ''
             } ${
               isDisabled && !isActive ? 'opacity-50 cursor-default' : ''

@@ -43,9 +43,14 @@
     color: var(--theme-icon-red);
   }
 
+  /* Theme-aware button border radius */
+  .themed-button-radius {
+    border-radius: var(--theme-border-radius-lg);
+  }
+
   /* Theme-aware Button */
   .themed-button-primary {
-    @apply rounded-lg;
+    border-radius: var(--theme-border-radius-lg);
     background-color: var(--theme-button-bg);
     color: var(--theme-button-text);
     border-color: var(--theme-button-bg);

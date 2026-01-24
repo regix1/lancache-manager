@@ -115,7 +115,7 @@
     width: 100%;
     height: auto;
     aspect-ratio: 460 / 215;
-    border-radius: 0.375rem;
+    border-radius: var(--theme-border-radius);
     overflow: hidden;
     margin-bottom: 0.75rem;
   }

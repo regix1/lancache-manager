@@ -206,7 +206,7 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
       {isOpen && createPortal(
         <div
           ref={popoverRef}
-          className="fixed rounded-lg border shadow-[0_10px_40px_rgba(0,0,0,0.4)] themed-card max-w-[calc(100vw-24px)]"
+          className="fixed themed-border-radius border shadow-[0_10px_40px_rgba(0,0,0,0.4)] themed-card max-w-[calc(100vw-24px)] z-[10000]"
           style={{
             left: popoverPos.x,
             top: popoverPos.y,

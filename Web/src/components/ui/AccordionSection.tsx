@@ -48,7 +48,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
 
   return (
     <div
-      className={`group rounded-lg overflow-hidden transition-all duration-300 border ${
+      className={`group themed-border-radius overflow-hidden transition-all duration-300 border ${
         isExpanded
           ? 'bg-themed-secondary border-themed-primary shadow-[0_4px_16px_rgba(0,0,0,0.2),0_1px_4px_rgba(0,0,0,0.12)]'
           : 'bg-[color-mix(in_srgb,var(--theme-bg-secondary)_60%,transparent)] border-themed-secondary shadow-[0_1px_3px_rgba(0,0,0,0.1)]'
@@ -67,7 +67,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
           {/* Icon with animated background */}
           {Icon && (
             <div
-              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-300 flex-shrink-0 ${
+              className={`w-8 h-8 themed-border-radius flex items-center justify-center transition-all duration-300 flex-shrink-0 ${
                 isExpanded ? 'scale-105' : 'scale-100'
               }`}
               style={{
@@ -122,7 +122,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
               e.stopPropagation();
               onToggle();
             }}
-            className={`flex items-center justify-center w-10 h-10 rounded-lg transition-all duration-300 ${
+            className={`flex items-center justify-center w-10 h-10 themed-border-radius transition-all duration-300 ${
               isExpanded
                 ? 'bg-[color-mix(in_srgb,var(--theme-accent)_10%,transparent)]'
                 : 'bg-transparent hover:bg-themed-tertiary'
