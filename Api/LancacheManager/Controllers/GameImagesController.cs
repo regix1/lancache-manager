@@ -106,15 +106,12 @@ public class GameImagesController : ControllerBase
                 return File(imageBytes, contentType);
             }
 
-            // If capsule failed, fall back to header
-            if (useCapsule)
-            {
-                _logger.LogDebug($"Capsule image not available for app {appId}, falling back to header");
-                return await GetGameHeaderImage(appId, null, cancellationToken);
-            }
-
+            // Image not found - cache the failure and return 404
+            // Frontend handles fallback logic (header -> capsule -> placeholder)
+            // so no need for backend to try alternate image types
             _failedImageCache.TryAdd(cacheKey, DateTime.UtcNow);
-            return NotFound(new GameImageErrorResponse { Error = $"Steam header image not available for app {appId}" });
+            var imageType = useCapsule ? "capsule" : "header";
+            return NotFound(new GameImageErrorResponse { Error = $"Steam {imageType} image not available for app {appId}" });
         }
         catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
         {

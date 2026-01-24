@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
@@ -28,6 +28,12 @@ export const GameImage: React.FC<GameImageProps> = ({
   const [useCapsule, setUseCapsule] = useState(false);
   const [hasTriedFallback, setHasTriedFallback] = useState(false);
 
+  // Reset state when gameAppId changes (component reused for different game)
+  useEffect(() => {
+    setUseCapsule(false);
+    setHasTriedFallback(false);
+  }, [appId]);
+
   const handleError = useCallback(() => {
     if (!useCapsule && !hasTriedFallback) {
       // First failure: try capsule image as fallback (via query parameter)
@@ -40,19 +46,15 @@ export const GameImage: React.FC<GameImageProps> = ({
   }, [useCapsule, hasTriedFallback, appId, onFinalError]);
 
   // Backend uses /header endpoint with optional ?type=capsule query param
+  // Do NOT use srcSet for fallback logic - it lets browser pick and defeats our fallback order
+  // Fallback order: header (460x215) -> capsule (616x353) -> placeholder
   const src = useCapsule
     ? `${API_BASE}/game-images/${appId}/header?type=capsule`
     : `${API_BASE}/game-images/${appId}/header`;
-  
-  // Only use srcSet for initial header load (includes both resolutions)
-  const srcSet = !useCapsule
-    ? `${API_BASE}/game-images/${appId}/header?type=capsule 616w, ${API_BASE}/game-images/${appId}/header 460w`
-    : undefined;
 
   return (
     <img
       src={src}
-      srcSet={srcSet}
       sizes={sizes}
       alt={alt}
       className={className}
