@@ -124,6 +124,13 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     }
   }, [isDepotMappingFromNotification]); // Only trigger on notification state changes
 
+  // Refresh progress when component mounts to get accurate nextCrawlIn
+  // This ensures the countdown reflects the actual time remaining, not stale cached data
+  useEffect(() => {
+    refreshProgress();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only on mount
+
   // Update local countdown when depotConfig changes
   useEffect(() => {
     if (depotConfig?.nextCrawlIn) {
