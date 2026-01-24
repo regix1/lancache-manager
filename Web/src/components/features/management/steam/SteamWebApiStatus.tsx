@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Globe, AlertCircle, CheckCircle, Key, Loader2, Trash2, AlertTriangle } from 'lucide-react';
+import { Globe, AlertCircle, CheckCircle, XCircle, Key, Loader2, Trash2, AlertTriangle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
@@ -141,17 +141,17 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
     return 'var(--theme-error)';
   };
 
-  const getVersionBadge = (version: string, available: boolean) => {
+  const getVersionBadge = (version: string, available: boolean, needsKey?: boolean) => {
+    const Icon = available ? CheckCircle : (needsKey ? AlertTriangle : XCircle);
+    const colorClass = available
+      ? 'bg-themed-success text-themed-success border-[var(--theme-success)]'
+      : needsKey
+        ? 'bg-themed-warning text-themed-warning border-[var(--theme-warning)]'
+        : 'bg-themed-error text-themed-error border-[var(--theme-error)]';
+
     return (
-      <span
-        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border border-transparent ${
-          available ? 'bg-themed-success text-themed-success' : 'bg-themed-tertiary text-themed-muted'
-        }`}
-      >
-        <span
-          className="w-1.5 h-1.5 rounded-full"
-          style={{ backgroundColor: available ? 'var(--theme-success)' : 'var(--theme-text-muted)' }}
-        />
+      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border ${colorClass}`}>
+        <Icon className="w-3.5 h-3.5" />
         {version}
       </span>
     );
@@ -218,7 +218,8 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
                 {getVersionBadge('V2', status.isV2Available)}
                 {getVersionBadge(
                   status.hasApiKey ? t('management.steamWebApi.v1WithKey') : t('management.steamWebApi.v1NoKey'),
-                  status.isV1Available
+                  status.isV1Available,
+                  !status.isV1Available && !status.hasApiKey
                 )}
               </div>
             ) : (
