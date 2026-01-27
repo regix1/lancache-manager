@@ -1244,13 +1244,22 @@ public class StatsController : ControllerBase
         if (trimmed.Count < 2)
             return new SparklineMetric { Data = trimmed, Trend = "stable" };
 
-        // Trend based on last few points
+        // Trend based on comparing last few points to the immediately preceding points
+        // This matches the visual trend the user sees at the end of the sparkline
         string trend = "stable";
-        if (trimmed.Count >= 3)
+        if (trimmed.Count >= 4)
         {
-            double recent = trimmed.TakeLast(3).Average();
-            double earlier = trimmed.Take(Math.Max(1, trimmed.Count - 3)).Average();
+            // Compare last 3 points to the 3 points immediately before them
+            int recentCount = Math.Min(3, trimmed.Count / 2);
+            double recent = trimmed.TakeLast(recentCount).Average();
+            double earlier = trimmed.Skip(Math.Max(0, trimmed.Count - recentCount * 2)).Take(recentCount).Average();
             double diff = (recent - earlier) / Math.Max(earlier, 0.001);
+            trend = diff > 0.05 ? "up" : diff < -0.05 ? "down" : "stable";
+        }
+        else if (trimmed.Count >= 2)
+        {
+            // For very short data, just compare last to first
+            double diff = (trimmed.Last() - trimmed.First()) / Math.Max(trimmed.First(), 0.001);
             trend = diff > 0.05 ? "up" : diff < -0.05 ? "down" : "stable";
         }
 
@@ -1267,13 +1276,22 @@ public class StatsController : ControllerBase
         if (trimmed.Count < 2)
             return new SparklineMetric { Data = trimmed, Trend = "stable" };
 
-        // Trend based on last few points
+        // Trend based on comparing last few points to the immediately preceding points
+        // This matches the visual trend the user sees at the end of the sparkline
         string trend = "stable";
-        if (trimmed.Count >= 3)
+        if (trimmed.Count >= 4)
         {
-            double recent = trimmed.TakeLast(3).Average();
-            double earlier = trimmed.Take(Math.Max(1, trimmed.Count - 3)).Average();
+            // Compare last 3 points to the 3 points immediately before them
+            int recentCount = Math.Min(3, trimmed.Count / 2);
+            double recent = trimmed.TakeLast(recentCount).Average();
+            double earlier = trimmed.Skip(Math.Max(0, trimmed.Count - recentCount * 2)).Take(recentCount).Average();
             double diff = recent - earlier; // Point difference for ratios
+            trend = diff > 2 ? "up" : diff < -2 ? "down" : "stable";
+        }
+        else if (trimmed.Count >= 2)
+        {
+            // For very short data, just compare last to first
+            double diff = trimmed.Last() - trimmed.First();
             trend = diff > 2 ? "up" : diff < -2 ? "down" : "stable";
         }
 
