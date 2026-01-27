@@ -203,19 +203,6 @@ export interface StatsExclusionsResponse {
   ips: string[];
 }
 
-// API Response Types - matching api.service.ts
-export interface CacheClearStatus {
-  operationId: string;
-  status: string;
-  progress?: number;
-  message?: string;
-  statusMessage?: string;
-  percentComplete?: number;
-  bytesDeleted?: number;
-  filesDeleted?: number;
-  error?: string;
-}
-
 export interface ProcessingStatus {
   isProcessing: boolean;
   progress?: number;
@@ -320,18 +307,6 @@ export interface ServiceCacheInfo {
   datasources: string[];
 }
 
-export interface GameDetectionStatus {
-  operationId: string;
-  startTime: string;
-  status: 'running' | 'complete' | 'failed';
-  message?: string;
-  games?: GameCacheInfo[];
-  services?: ServiceCacheInfo[];
-  totalGamesDetected?: number;
-  totalServicesDetected?: number;
-  error?: string;
-}
-
 // Event Types
 export interface Event {
   id: number;
@@ -344,14 +319,6 @@ export interface Event {
   colorIndex: number; // 1-8, references theme event colors
   createdAtUtc: string;
   updatedAtUtc?: string;
-}
-
-export interface EventDownload {
-  id: number;
-  eventId: number;
-  downloadId: number;
-  taggedAtUtc: string;
-  autoTagged: boolean;
 }
 
 export interface CreateEventRequest {

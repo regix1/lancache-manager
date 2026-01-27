@@ -21,6 +21,7 @@ public class RustDatabaseResetService
     private Process? _rustProcess;
     private CancellationTokenSource? _cancellationTokenSource;
     private Task? _progressMonitorTask;
+    private readonly SemaphoreSlim _startLock = new(1, 1);
 
     public bool IsProcessing { get; private set; }
 
@@ -131,15 +132,24 @@ public class RustDatabaseResetService
 
     public async Task<bool> StartResetAsync()
     {
-        if (IsProcessing)
+        await _startLock.WaitAsync();
+        try
         {
-            _logger.LogWarning("rust database reset is already running");
-            return false;
+            if (IsProcessing)
+            {
+                _logger.LogWarning("rust database reset is already running");
+                return false;
+            }
+
+            IsProcessing = true;
+        }
+        finally
+        {
+            _startLock.Release();
         }
 
         try
         {
-            IsProcessing = true;
             _cancellationTokenSource = new CancellationTokenSource();
 
             var dbPath = _pathResolver.GetDatabasePath();

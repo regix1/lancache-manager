@@ -17,8 +17,6 @@ import { useAuth } from '../AuthContext';
 import { SIGNALR_REFRESH_EVENTS } from '../SignalRContext/types';
 import type { DownloadsContextType, DownloadsProviderProps } from './types';
 
-// Re-export types for consumers
-export type { DownloadsContextType, DownloadsProviderProps } from './types';
 
 // ============================================
 // CONTEXT & HOOK

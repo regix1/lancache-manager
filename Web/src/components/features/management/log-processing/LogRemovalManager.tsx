@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FileText, AlertTriangle, RefreshCw, Loader2, Trash2 } from 'lucide-react';
+import { FileText, AlertTriangle, Loader2, Trash2 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useNotifications } from '@contexts/notifications';
@@ -71,17 +71,15 @@ interface LogRemovalManagerProps {
   authMode: AuthMode;
   mockMode: boolean;
   onError?: (message: string) => void;
-  onReloadRef?: React.RefObject<(() => Promise<void>) | null>;
 }
 
 const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
   authMode,
   mockMode,
-  onError,
-  onReloadRef
+  onError
 }) => {
   const { t } = useTranslation();
-  const { notifications } = useNotifications();
+  const { notifications, isAnyRemovalRunning } = useNotifications();
   const { isDockerAvailable } = useDockerSocket();
 
   // State
@@ -100,7 +98,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
 
   // Derive active log removal from notifications
   const activeLogRemovalNotification = notifications.find(
-    n => n.type === 'log_removal' && n.id.startsWith('log_removal-') && n.status === 'running'
+    n => n.type === 'log_removal' && n.status === 'running'
   );
   const activeLogRemoval = activeLogRemovalNotification?.details?.service as string | null ?? null;
 
@@ -111,11 +109,18 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
       }, 100);
       loadDirectoryPermissions();
     }
+  }, [hasInitiallyLoaded]);
 
-    if (onReloadRef) {
-      onReloadRef.current = () => loadData(true);
+  // Listen for log removal completion via notifications to trigger reload
+  useEffect(() => {
+    const completedLogRemoval = notifications.find(
+      n => n.type === 'log_removal' && n.status === 'completed'
+    );
+    
+    if (completedLogRemoval && hasInitiallyLoaded) {
+      loadData(true);
     }
-  }, [hasInitiallyLoaded, onReloadRef]);
+  }, [notifications, hasInitiallyLoaded]);
 
   const loadData = async (_forceRefresh = false) => {
     setIsLoading(true);
@@ -257,7 +262,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
     <Tooltip content={t('management.logRemoval.refreshServiceCounts')} position="top">
       <Button
         onClick={() => loadData(true)}
-        disabled={isLoading || !!activeLogRemoval}
+        disabled={isLoading || isAnyRemovalRunning}
         variant="subtle"
         size="sm"
       >
@@ -314,7 +319,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
 
         {/* Content */}
         {isReadOnly ? (
-          <ReadOnlyBadge message={logsReadOnly ? 'Read-only' : 'Docker socket required'} />
+          <ReadOnlyBadge message={logsReadOnly ? t('management.logRemoval.readOnly') : t('management.logRemoval.dockerSocketRequired')} />
         ) : (
           <>
             {loadError && (
@@ -327,7 +332,6 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
                     size="sm"
                     onClick={() => loadData()}
                     className="mt-2"
-                    leftSection={<RefreshCw className="w-3 h-3" />}
                   >
                     {t('management.logRemoval.buttons.tryAgain')}
                   </Button>
@@ -373,7 +377,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
                               }}
                               disabled={
                                 mockMode ||
-                                !!activeLogRemoval ||
+                                isAnyRemovalRunning ||
                                 !!startingServiceRemoval ||
                                 !!deletingLogFile ||
                                 authMode !== 'authenticated' ||
@@ -399,7 +403,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
                                   isRemoving={activeLogRemoval === service || startingServiceRemoval === key}
                                   isDisabled={
                                     mockMode ||
-                                    !!activeLogRemoval ||
+                                    isAnyRemovalRunning ||
                                     !!startingServiceRemoval ||
                                     authMode !== 'authenticated' ||
                                     !ds.logsWritable ||

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { HelpCircle, AlertTriangle, Info, CheckCircle2 } from 'lucide-react';
 import { CustomScrollbar } from './CustomScrollbar';
 
-export interface HelpPopoverSection {
+interface HelpPopoverSection {
   title: string;
   items: {
     label: string;
@@ -238,25 +238,6 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
   );
 };
 
-/** Helper component for code blocks in HelpPopover */
-export const HelpCode: React.FC<{ children: React.ReactNode; block?: boolean }> = ({
-  children,
-  block = false
-}) => {
-  if (block) {
-    return (
-      <div className="p-2.5 rounded font-mono text-[10px] leading-relaxed bg-themed-tertiary text-themed-secondary border border-themed-secondary">
-        {children}
-      </div>
-    );
-  }
-  return (
-    <code className="px-1.5 py-0.5 rounded font-mono text-[10px] bg-themed-tertiary text-[var(--theme-primary)]">
-      {children}
-    </code>
-  );
-};
-
 /** Helper component for section titles in HelpPopover - now with subtle background */
 export const HelpSection: React.FC<{
   title: string;
@@ -280,36 +261,6 @@ export const HelpSection: React.FC<{
     </div>
   </div>
 );
-
-/** Highlighted keyword/term pill */
-export const HelpKeyword: React.FC<{
-  children: React.ReactNode;
-  color?: 'blue' | 'green' | 'orange' | 'purple' | 'cyan' | 'red';
-}> = ({
-  children,
-  color = 'blue'
-}) => {
-  const colorMap = {
-    blue: { bg: 'var(--theme-info-bg)', text: 'var(--theme-info-text)' },
-    green: { bg: 'var(--theme-success-bg)', text: 'var(--theme-success-text)' },
-    orange: { bg: 'var(--theme-warning-bg)', text: 'var(--theme-warning-text)' },
-    purple: { bg: 'color-mix(in srgb, var(--theme-icon-purple) 15%, transparent)', text: 'var(--theme-icon-purple)' },
-    cyan: { bg: 'color-mix(in srgb, var(--theme-icon-cyan) 15%, transparent)', text: 'var(--theme-icon-cyan)' },
-    red: { bg: 'var(--theme-error-bg)', text: 'var(--theme-error-text)' }
-  };
-
-  return (
-    <span
-      className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium"
-      style={{
-        backgroundColor: colorMap[color].bg,
-        color: colorMap[color].text
-      }}
-    >
-      {children}
-    </span>
-  );
-};
 
 /** Important note/callout with colored left border */
 export const HelpNote: React.FC<{
@@ -367,34 +318,6 @@ export const HelpNote: React.FC<{
   );
 };
 
-/** Bullet list item with colored bullet */
-export const HelpListItem: React.FC<{
-  children: React.ReactNode;
-  color?: 'default' | 'blue' | 'green' | 'orange';
-}> = ({
-  children,
-  color = 'default'
-}) => {
-  const bulletColors = {
-    default: 'var(--theme-text-muted)',
-    blue: 'var(--theme-info)',
-    green: 'var(--theme-success)',
-    orange: 'var(--theme-warning)'
-  };
-
-  return (
-    <div className="flex gap-2 text-xs leading-relaxed">
-      <span
-        className="flex-shrink-0 mt-1.5 w-1 h-1 rounded-full"
-        style={{ backgroundColor: bulletColors[color] }}
-      />
-      <span className="text-themed-secondary">
-        {children}
-      </span>
-    </div>
-  );
-};
-
 /** Definition list for term-description pairs */
 export const HelpDefinition: React.FC<{
   term: string;
@@ -428,21 +351,3 @@ export const HelpDefinition: React.FC<{
     </div>
   );
 };
-
-/** Compact step indicator */
-export const HelpStep: React.FC<{
-  number: number;
-  children: React.ReactNode;
-}> = ({
-  number,
-  children
-}) => (
-  <div className="flex gap-2 text-xs leading-relaxed">
-    <span className="flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold bg-[var(--theme-primary)] text-themed-button">
-      {number}
-    </span>
-    <span className="text-themed-secondary">
-      {children}
-    </span>
-  </div>
-);

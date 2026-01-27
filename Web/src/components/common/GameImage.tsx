@@ -63,5 +63,3 @@ export const GameImage: React.FC<GameImageProps> = ({
     />
   );
 };
-
-export default GameImage;

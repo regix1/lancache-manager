@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import authService from '@services/auth.service';
 import ApiService from '@services/api.service';
 
-export type AuthMode = 'apiKey' | 'guest' | 'admin';
+type AuthMode = 'apiKey' | 'guest' | 'admin';
 
 interface UseInitializationAuthProps {
   apiKey: string;
@@ -12,7 +12,7 @@ interface UseInitializationAuthProps {
   onAuthChanged?: () => Promise<void> | void;
   checkPicsDataStatus: () => Promise<unknown>;
   checkDataAvailability: () => Promise<boolean>;
-  setCurrentStep: (step: 'import-historical-data') => void;
+  setCurrentStep: (step: 'permissions-check') => void;
   onInitializationComplete: () => void;
 }
 
@@ -45,7 +45,7 @@ export const useInitializationAuth = ({
           if (result.success) {
             // IMPORTANT: Set step BEFORE calling onAuthChanged to prevent race condition
             // onAuthChanged triggers refreshAuth which may re-render parent and remount this component
-            setCurrentStep('import-historical-data');
+            setCurrentStep('permissions-check');
             await checkPicsDataStatus();
             await onAuthChanged?.();
           } else {
@@ -81,7 +81,7 @@ export const useInitializationAuth = ({
           onInitializationComplete();
         } else {
           // Set step BEFORE onAuthChanged to prevent race condition
-          setCurrentStep('import-historical-data');
+          setCurrentStep('permissions-check');
           await onAuthChanged?.();
         }
         break;
@@ -89,7 +89,7 @@ export const useInitializationAuth = ({
 
       case 'admin': {
         // Set step BEFORE onAuthChanged to prevent race condition
-        setCurrentStep('import-historical-data');
+        setCurrentStep('permissions-check');
         await checkPicsDataStatus();
         await onAuthChanged?.();
         break;

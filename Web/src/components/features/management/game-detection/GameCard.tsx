@@ -18,6 +18,7 @@ interface GameCardProps {
   isExpanded: boolean;
   isExpanding: boolean;
   isRemoving: boolean;
+  isAnyRemovalRunning: boolean;
   isAuthenticated: boolean;
   cacheReadOnly: boolean;
   dockerSocketAvailable: boolean;
@@ -34,6 +35,7 @@ const GameCard: React.FC<GameCardProps> = ({
   isExpanded,
   isExpanding,
   isRemoving,
+  isAnyRemovalRunning,
   isAuthenticated,
   cacheReadOnly,
   dockerSocketAvailable,
@@ -104,7 +106,7 @@ const GameCard: React.FC<GameCardProps> = ({
         <Tooltip content={t('management.gameDetection.removeGameCache')}>
           <Button
             onClick={() => onRemove(game)}
-            disabled={isRemoving || !isAuthenticated || cacheReadOnly || !dockerSocketAvailable || checkingPermissions}
+            disabled={isAnyRemovalRunning || !isAuthenticated || cacheReadOnly || !dockerSocketAvailable || checkingPermissions}
             variant="filled"
             color="red"
             size="sm"

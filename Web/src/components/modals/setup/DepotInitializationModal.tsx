@@ -7,6 +7,7 @@ import { storage } from '@utils/storage';
 import { useInitializationAuth } from '@hooks/useInitializationAuth';
 import {
   ApiKeyStep,
+  PermissionsCheckStep,
   ImportHistoricalDataStep,
   DataSourceChoiceStep,
   SteamApiKeyStep,
@@ -39,6 +40,7 @@ interface PicsStatus {
 
 type InitStep =
   | 'api-key'
+  | 'permissions-check'
   | 'import-historical-data'
   | 'data-source-choice'
   | 'steam-api-key'
@@ -49,15 +51,16 @@ type InitStep =
   | 'depot-mapping';
 
 const getStepInfo = (t: (key: string) => string): Record<InitStep, { number: number; title: string; total: number }> => ({
-  'api-key': { number: 1, title: t('initialization.modal.stepTitles.authentication'), total: 9 },
-  'import-historical-data': { number: 2, title: t('initialization.modal.stepTitles.importHistoricalData'), total: 9 },
-  'data-source-choice': { number: 3, title: t('initialization.modal.stepTitles.dataSourceSelection'), total: 9 },
-  'steam-api-key': { number: 4, title: t('initialization.modal.stepTitles.steamApiKey'), total: 9 },
-  'steam-auth': { number: 5, title: t('initialization.modal.stepTitles.steamPicsAuthentication'), total: 9 },
-  'depot-init': { number: 6, title: t('initialization.modal.stepTitles.depotInitialization'), total: 9 },
-  'pics-progress': { number: 7, title: t('initialization.modal.stepTitles.picsDataProgress'), total: 9 },
-  'log-processing': { number: 8, title: t('initialization.modal.stepTitles.logProcessing'), total: 9 },
-  'depot-mapping': { number: 9, title: t('initialization.modal.stepTitles.depotMapping'), total: 9 }
+  'api-key': { number: 1, title: t('initialization.modal.stepTitles.authentication'), total: 10 },
+  'permissions-check': { number: 2, title: t('initialization.modal.stepTitles.permissionsCheck'), total: 10 },
+  'import-historical-data': { number: 3, title: t('initialization.modal.stepTitles.importHistoricalData'), total: 10 },
+  'data-source-choice': { number: 4, title: t('initialization.modal.stepTitles.dataSourceSelection'), total: 10 },
+  'steam-api-key': { number: 5, title: t('initialization.modal.stepTitles.steamApiKey'), total: 10 },
+  'steam-auth': { number: 6, title: t('initialization.modal.stepTitles.steamPicsAuthentication'), total: 10 },
+  'depot-init': { number: 7, title: t('initialization.modal.stepTitles.depotInitialization'), total: 10 },
+  'pics-progress': { number: 8, title: t('initialization.modal.stepTitles.picsDataProgress'), total: 10 },
+  'log-processing': { number: 9, title: t('initialization.modal.stepTitles.logProcessing'), total: 10 },
+  'depot-mapping': { number: 10, title: t('initialization.modal.stepTitles.depotMapping'), total: 10 }
 });
 
 const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
@@ -230,9 +233,9 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
 
         // No stored step or at api-key step
         if (!authRequired || authCheck.isAuthenticated) {
-          // Auth not required or already authenticated → go to import step
+          // Auth not required or already authenticated → go to permissions check
           await checkPicsDataStatus();
-          setCurrentStep('import-historical-data');
+          setCurrentStep('permissions-check');
         } else {
           setCurrentStep('api-key');
         }
@@ -246,6 +249,10 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
 
     checkSetupStatus();
   }, []);
+
+  const handlePermissionsCheckComplete = () => {
+    setCurrentStep('import-historical-data');
+  };
 
   const handleImportComplete = () => {
     setCurrentStep('data-source-choice');
@@ -314,8 +321,11 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
 
   const handleGoBack = () => {
     switch (currentStep) {
-      case 'import-historical-data':
+      case 'permissions-check':
         setCurrentStep('api-key');
+        break;
+      case 'import-historical-data':
+        setCurrentStep('permissions-check');
         break;
       case 'data-source-choice':
         setCurrentStep('import-historical-data');
@@ -373,6 +383,11 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
             onStartGuestMode={() => authenticate('guest')}
             onContinueAsAdmin={() => authenticate('admin')}
           />
+        );
+
+      case 'permissions-check':
+        return (
+          <PermissionsCheckStep onComplete={handlePermissionsCheckComplete} />
         );
 
       case 'import-historical-data':

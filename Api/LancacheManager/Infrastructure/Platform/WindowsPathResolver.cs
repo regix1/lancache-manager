@@ -18,7 +18,12 @@ public class WindowsPathResolver : IPathResolver
 
     public string GetBasePath() => _basePath;
 
-    public string GetDataDirectory() => Path.GetFullPath(Path.Combine(_basePath, "data"));
+    public string GetDataDirectory()
+    {
+        var path = Path.GetFullPath(Path.Combine(_basePath, "data"));
+        Directory.CreateDirectory(path); // Ensure directory exists
+        return path;
+    }
 
     public string GetConfigDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "config"));
 
@@ -37,9 +42,19 @@ public class WindowsPathResolver : IPathResolver
 
     public string GetPrefillDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "prefill"));
 
-    public string GetLogsDirectory() => Path.GetFullPath(Path.Combine(_basePath, "logs"));
+    public string GetLogsDirectory()
+    {
+        var path = Path.GetFullPath(Path.Combine(_basePath, "logs"));
+        Directory.CreateDirectory(path); // Ensure directory exists
+        return path;
+    }
 
-    public string GetCacheDirectory() => Path.GetFullPath(Path.Combine(_basePath, "cache"));
+    public string GetCacheDirectory()
+    {
+        var path = Path.GetFullPath(Path.Combine(_basePath, "cache"));
+        Directory.CreateDirectory(path); // Ensure directory exists
+        return path;
+    }
 
     public string GetDevicesDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "devices"));
 

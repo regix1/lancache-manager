@@ -3,7 +3,7 @@ import { useAuth } from '@contexts/AuthContext';
 import ApiService from '@services/api.service';
 import { API_BASE } from '@utils/constants';
 
-export interface SetupStatus {
+interface SetupStatus {
   isCompleted: boolean;
   hasProcessedLogs: boolean;
   isSetupCompleted: boolean;

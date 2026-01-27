@@ -94,6 +94,20 @@ public class CacheManagementService
                     _logger.LogError(ex, "Failed to create cache directory for datasource '{Name}': {Path}", ds.Name, ds.CachePath);
                 }
             }
+
+            // Also ensure logs directory exists
+            if (!Directory.Exists(ds.LogPath))
+            {
+                try
+                {
+                    Directory.CreateDirectory(ds.LogPath);
+                    _logger.LogInformation("Created logs directory for datasource '{Name}': {Path}", ds.Name, ds.LogPath);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to create logs directory for datasource '{Name}': {Path}", ds.Name, ds.LogPath);
+                }
+            }
         }
 
         // Initialize Docker client for reading container configuration

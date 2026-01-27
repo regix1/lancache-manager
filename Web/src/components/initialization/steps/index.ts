@@ -1,4 +1,5 @@
 export { ApiKeyStep } from './ApiKeyStep';
+export { PermissionsCheckStep } from './PermissionsCheckStep';
 export { ImportHistoricalDataStep } from './ImportHistoricalDataStep';
 export { DataSourceChoiceStep } from './DataSourceChoiceStep';
 export { SteamApiKeyStep } from './SteamApiKeyStep';

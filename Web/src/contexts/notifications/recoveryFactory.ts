@@ -46,13 +46,13 @@ export function createSimpleRecoveryFunction(
       // Check if we should skip (e.g., silent mode)
       if (config.shouldSkip?.(data)) {
         localStorage.removeItem(config.storageKey);
-        setNotifications((prev) => prev.filter((n) => n.type !== config.type));
+        setNotifications((prev: UnifiedNotification[]) => prev.filter((n) => n.type !== config.type));
         return;
       }
 
       if (config.isProcessing(data)) {
         const notificationData = config.createNotification(data);
-        setNotifications((prev) => {
+        setNotifications((prev: UnifiedNotification[]) => {
           const filtered = prev.filter((n) => n.type !== config.type);
           return [
             ...filtered,
@@ -71,7 +71,7 @@ export function createSimpleRecoveryFunction(
         if (saved) {
           localStorage.removeItem(config.storageKey);
 
-          setNotifications((prev) => {
+          setNotifications((prev: UnifiedNotification[]) => {
             const existing = prev.find((n) => n.type === config.type && n.status === 'running');
             if (existing) {
               return prev.map((n) => {
@@ -91,93 +91,6 @@ export function createSimpleRecoveryFunction(
           });
 
           scheduleAutoDismiss(notificationId);
-        }
-      }
-    } catch {
-      // Silently fail - operation not running
-    }
-  };
-}
-
-// ============================================================================
-// Dynamic Recovery Config (for dynamic-ID operations)
-// ============================================================================
-
-export interface DynamicRecoveryConfig {
-  apiEndpoint: string;
-  storageKey: string;
-  type: NotificationType;
-  getId: (data: Record<string, unknown>) => string;
-  getIdFromSaved: (saved: Record<string, unknown>) => string;
-  isProcessing: (data: Record<string, unknown>) => boolean;
-  createNotification: (data: Record<string, unknown>) => Omit<UnifiedNotification, 'id' | 'type' | 'status' | 'startedAt'>;
-  staleMessage: string;
-}
-
-export function createDynamicRecoveryFunction(
-  config: DynamicRecoveryConfig,
-  fetchWithAuth: FetchWithAuth,
-  setNotifications: SetNotifications,
-  scheduleAutoDismiss: ScheduleAutoDismiss
-): () => Promise<void> {
-  return async () => {
-    try {
-      const response = await fetchWithAuth(config.apiEndpoint);
-      if (!response.ok) return;
-
-      const data = await response.json();
-
-      if (config.isProcessing(data)) {
-        const notificationId = config.getId(data);
-        const notificationData = config.createNotification(data);
-
-        setNotifications((prev) => {
-          const filtered = prev.filter((n) => n.type !== config.type);
-          return [
-            ...filtered,
-            {
-              id: notificationId,
-              type: config.type,
-              status: 'running' as NotificationStatus,
-              startedAt: new Date(),
-              ...notificationData
-            }
-          ];
-        });
-      } else {
-        // Clear stale state
-        const saved = localStorage.getItem(config.storageKey);
-        if (saved) {
-          localStorage.removeItem(config.storageKey);
-
-          let recoveryId = 'unknown';
-          try {
-            const parsed = JSON.parse(saved);
-            recoveryId = config.getIdFromSaved(parsed);
-          } catch {
-            // Use default
-          }
-
-          setNotifications((prev) => {
-            const existing = prev.find((n) => n.type === config.type && n.status === 'running');
-            if (existing) {
-              return prev.map((n) => {
-                if (n.type === config.type && n.status === 'running') {
-                  return {
-                    ...n,
-                    id: recoveryId,
-                    status: 'completed' as NotificationStatus,
-                    message: config.staleMessage,
-                    progress: 100
-                  };
-                }
-                return n;
-              });
-            }
-            return prev;
-          });
-
-          scheduleAutoDismiss(recoveryId);
         }
       }
     } catch {
@@ -282,11 +195,7 @@ export const RECOVERY_CONFIGS = {
     apiEndpoint: '/api/logs/remove/status',
     storageKey: NOTIFICATION_STORAGE_KEYS.LOG_REMOVAL,
     type: 'log_removal' as NotificationType,
-    getId: (data: Record<string, unknown>) => NOTIFICATION_IDS.logRemoval((data.service as string) || 'unknown'),
-    getIdFromSaved: (saved: Record<string, unknown>) => {
-      const details = saved.details as Record<string, unknown> | undefined;
-      return NOTIFICATION_IDS.logRemoval((details?.service as string) || 'unknown');
-    },
+    notificationId: NOTIFICATION_IDS.LOG_REMOVAL,
     isProcessing: (data: Record<string, unknown>) => Boolean(data.isProcessing) && Boolean(data.service),
     createNotification: (data: Record<string, unknown>) => ({
       message: `Removing ${data.service} entries from logs`,
@@ -298,20 +207,13 @@ export const RECOVERY_CONFIGS = {
       }
     }),
     staleMessage: 'Log entry removal completed'
-  } satisfies DynamicRecoveryConfig,
+  } satisfies SimpleRecoveryConfig,
 
   gameDetection: {
     apiEndpoint: '/api/games/detect/active',
     storageKey: NOTIFICATION_STORAGE_KEYS.GAME_DETECTION,
     type: 'game_detection' as NotificationType,
-    getId: (data: Record<string, unknown>) => {
-      const op = data.operation as Record<string, unknown>;
-      return NOTIFICATION_IDS.gameDetection((op?.operationId as string) || 'unknown');
-    },
-    getIdFromSaved: (saved: Record<string, unknown>) => {
-      const details = saved.details as Record<string, unknown> | undefined;
-      return NOTIFICATION_IDS.gameDetection((details?.operationId as string) || 'unknown');
-    },
+    notificationId: NOTIFICATION_IDS.GAME_DETECTION,
     isProcessing: (data: Record<string, unknown>) => Boolean(data.isProcessing) && Boolean(data.operation),
     createNotification: (data: Record<string, unknown>) => {
       const op = data.operation as Record<string, unknown>;
@@ -325,17 +227,13 @@ export const RECOVERY_CONFIGS = {
       };
     },
     staleMessage: 'Game detection completed'
-  } satisfies DynamicRecoveryConfig,
+  } satisfies SimpleRecoveryConfig,
 
   corruptionDetection: {
     apiEndpoint: '/api/cache/corruption/detect/status',
     storageKey: NOTIFICATION_STORAGE_KEYS.CORRUPTION_DETECTION,
     type: 'corruption_detection' as NotificationType,
-    getId: (data: Record<string, unknown>) => NOTIFICATION_IDS.corruptionDetection((data.operationId as string) || 'unknown'),
-    getIdFromSaved: (saved: Record<string, unknown>) => {
-      const details = saved.details as Record<string, unknown> | undefined;
-      return NOTIFICATION_IDS.corruptionDetection((details?.operationId as string) || 'unknown');
-    },
+    notificationId: NOTIFICATION_IDS.CORRUPTION_DETECTION,
     isProcessing: (data: Record<string, unknown>) => Boolean(data.isRunning),
     createNotification: (data: Record<string, unknown>) => ({
       message: (data.message as string) || 'Scanning for corrupted cache chunks...',
@@ -345,7 +243,7 @@ export const RECOVERY_CONFIGS = {
       }
     }),
     staleMessage: 'Corruption detection completed'
-  } satisfies DynamicRecoveryConfig
+  } satisfies SimpleRecoveryConfig
 };
 
 // ============================================================================
@@ -390,7 +288,7 @@ export function createCacheRemovalsRecoveryFunction(
         data.gameRemovals,
         NOTIFICATION_STORAGE_KEYS.GAME_REMOVAL,
         'game_removal',
-        (op) => NOTIFICATION_IDS.gameRemoval(op.gameAppId!),
+        () => NOTIFICATION_IDS.GAME_REMOVAL,
         (op) => ({
           message: op.message || `Removing ${op.gameName}...`,
           details: {
@@ -400,7 +298,7 @@ export function createCacheRemovalsRecoveryFunction(
             bytesFreed: op.bytesFreed
           }
         }),
-        (saved) => NOTIFICATION_IDS.gameRemoval(saved.details?.gameAppId || 'unknown'),
+        () => NOTIFICATION_IDS.GAME_REMOVAL,
         'Game removal completed',
         setNotifications,
         scheduleAutoDismiss
@@ -411,7 +309,7 @@ export function createCacheRemovalsRecoveryFunction(
         data.serviceRemovals,
         NOTIFICATION_STORAGE_KEYS.SERVICE_REMOVAL,
         'service_removal',
-        (op) => NOTIFICATION_IDS.serviceRemoval(op.serviceName!),
+        () => NOTIFICATION_IDS.SERVICE_REMOVAL,
         (op) => ({
           message: op.message || `Removing ${op.serviceName} service...`,
           details: {
@@ -420,7 +318,7 @@ export function createCacheRemovalsRecoveryFunction(
             bytesFreed: op.bytesFreed
           }
         }),
-        (saved) => NOTIFICATION_IDS.serviceRemoval(saved.details?.service || 'unknown'),
+        () => NOTIFICATION_IDS.SERVICE_REMOVAL,
         'Service removal completed',
         setNotifications,
         scheduleAutoDismiss
@@ -431,14 +329,15 @@ export function createCacheRemovalsRecoveryFunction(
         data.corruptionRemovals,
         NOTIFICATION_STORAGE_KEYS.CORRUPTION_REMOVAL,
         'corruption_removal',
-        (op) => NOTIFICATION_IDS.corruptionRemoval(op.service!),
+        () => NOTIFICATION_IDS.CORRUPTION_REMOVAL,
         (op) => ({
           message: op.message || `Removing corrupted chunks for ${op.service}...`,
           details: {
-            operationId: op.operationId
+            operationId: op.operationId,
+            service: op.service
           }
         }),
-        (saved) => NOTIFICATION_IDS.corruptionRemoval(saved.details?.service || 'unknown'),
+        () => NOTIFICATION_IDS.CORRUPTION_REMOVAL,
         'Corruption removal completed',
         setNotifications,
         scheduleAutoDismiss
@@ -465,7 +364,7 @@ function recoverOperations(
       const notificationId = getId(op);
       const data = createData(op);
 
-      setNotifications((prev) => {
+      setNotifications((prev: UnifiedNotification[]) => {
         const filtered = prev.filter((n) => n.id !== notificationId);
         return [
           ...filtered,
@@ -495,7 +394,7 @@ function recoverOperations(
 
       const recoveryId = getIdFromSaved(parsed);
 
-      setNotifications((prev) => {
+      setNotifications((prev: UnifiedNotification[]) => {
         const existing = prev.find((n) => n.type === type && n.status === 'running');
         if (existing) {
           return prev.map((n) => {

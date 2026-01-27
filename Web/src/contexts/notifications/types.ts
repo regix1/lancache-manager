@@ -128,6 +128,15 @@ export interface NotificationsContextType {
    * Removes all completed or failed notifications.
    */
   clearCompletedNotifications: () => void;
+  /**
+   * Returns true if any removal operation is currently running.
+   * Used to disable all removal buttons since they share a backend lock.
+   */
+  isAnyRemovalRunning: boolean;
+  /**
+   * Returns the type of removal currently running, or null if none.
+   */
+  activeRemovalType: NotificationType | null;
 }
 
 // ============================================================================
@@ -149,10 +158,3 @@ export type ScheduleAutoDismiss = (notificationId: string, delayMs?: number) => 
  * @param notificationId - The notification ID whose timer should be cancelled
  */
 export type CancelAutoDismissTimer = (notificationId: string) => void;
-
-/**
- * Function to update a specific notification.
- * @param id - The notification ID to update
- * @param updates - Partial notification data to merge
- */
-export type UpdateNotification = (id: string, updates: Partial<UnifiedNotification>) => void;

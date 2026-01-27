@@ -142,9 +142,8 @@ COPY --from=backend-builder /app/publish ./
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Create required directories with proper permissions
-RUN mkdir -p /data /logs /cache /tmp && \
-    chmod -R 777 /data /logs /cache /tmp
+# Create /tmp directory (data/logs/cache are created by the application)
+RUN mkdir -p /tmp && chmod 777 /tmp
 
 # Configure environment
 ENV ASPNETCORE_URLS=http://+:80

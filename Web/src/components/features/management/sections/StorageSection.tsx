@@ -16,8 +16,6 @@ interface StorageSectionProps {
   onError: (message: string) => void;
   onSuccess: (message: string) => void;
   onDataRefresh: () => void;
-  logRemovalReloadRef: React.RefObject<(() => Promise<void>) | null>;
-  corruptionReloadRef: React.RefObject<(() => Promise<void>) | null>;
 }
 
 const StorageSection: React.FC<StorageSectionProps> = ({
@@ -27,9 +25,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
   gameCacheRefreshKey,
   onError,
   onSuccess,
-  onDataRefresh,
-  logRemovalReloadRef,
-  corruptionReloadRef
+  onDataRefresh
 }) => {
   const { t } = useTranslation();
 
@@ -74,7 +70,6 @@ const StorageSection: React.FC<StorageSectionProps> = ({
             authMode={authMode}
             mockMode={mockMode}
             onError={onError}
-            onReloadRef={logRemovalReloadRef}
           />
         </div>
       </div>
@@ -113,7 +108,6 @@ const StorageSection: React.FC<StorageSectionProps> = ({
             authMode={authMode}
             mockMode={mockMode}
             onError={onError}
-            onReloadRef={corruptionReloadRef}
           />
 
           {/* Game Detection */}

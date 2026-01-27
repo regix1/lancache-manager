@@ -241,5 +241,3 @@ export function createLogEntry(
     details
   };
 }
-
-export default ActivityLog;

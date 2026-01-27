@@ -158,8 +158,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   useEffect(() => {
     const handleSessionRevoked = (event: UserSessionRevokedEvent) => {
       const currentDeviceId = authService.getDeviceId();
-      if (event.deviceId === currentDeviceId || event.sessionId === currentDeviceId) {
-        console.warn('[Auth] Device session was revoked via SignalR:', event.reason);
+      if (event.deviceId === currentDeviceId) {
+        console.warn('[Auth] Device session was revoked via SignalR:', event.sessionType);
         setIsAuthenticated(false);
         setAuthMode('unauthenticated');
         authService.clearAuth();
@@ -173,12 +173,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     };
   }, [signalR]);
 
-  // Listen for guest duration updates via SignalR (replaces polling for guest expiration)
+  // Listen for guest duration config updates via SignalR
+  // Note: This updates the configured duration for NEW guest sessions, not remaining time
   useEffect(() => {
     const handleGuestDurationUpdated = (event: GuestDurationUpdatedEvent) => {
       if (authMode === 'guest') {
-        setPrefillTimeRemaining(event.durationMinutes);
-        if (event.durationMinutes <= 0) {
+        // Convert hours to minutes for the remaining time display
+        const durationMinutes = event.durationHours * 60;
+        setPrefillTimeRemaining(durationMinutes);
+        if (durationMinutes <= 0) {
           setAuthMode('expired');
         }
       }

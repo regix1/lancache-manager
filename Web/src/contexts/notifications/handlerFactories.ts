@@ -53,7 +53,7 @@ export interface StartedHandlerConfig<T> {
  * const handleGameDetectionStarted = createStartedHandler<GameDetectionStartedEvent>(
  *   {
  *     type: 'game_detection',
- *     getId: (e) => NOTIFICATION_IDS.gameDetection(e.operationId),
+ *     getId: () => NOTIFICATION_IDS.GAME_DETECTION,
  *     storageKey: NOTIFICATION_STORAGE_KEYS.GAME_DETECTION,
  *     defaultMessage: 'Detecting games...',
  *     getDetails: (e) => ({ operationId: e.operationId })
@@ -74,7 +74,7 @@ export function createStartedHandler<T>(
     // Cancel any existing auto-dismiss timer for this notification
     cancelAutoDismissTimer?.(notificationId);
 
-    setNotifications((prev) => {
+    setNotifications((prev: UnifiedNotification[]) => {
       // Check if already exists (skip if not replacing)
       if (!config.replaceExisting) {
         const existing = prev.find((n) => n.id === notificationId);
@@ -141,7 +141,7 @@ export interface ProgressHandlerConfig<T> {
  * const handleLogRemovalProgress = createProgressHandler<LogRemovalProgressEvent>(
  *   {
  *     type: 'log_removal',
- *     getId: (e) => NOTIFICATION_IDS.logRemoval(e.service),
+ *     getId: () => NOTIFICATION_IDS.LOG_REMOVAL,
  *     storageKey: NOTIFICATION_STORAGE_KEYS.LOG_REMOVAL,
  *     getMessage: (e) => `Removing ${e.service} entries...`,
  *     getProgress: (e) => e.percentComplete || 0
@@ -159,7 +159,7 @@ export function createProgressHandler<T>(
   return (event: T): void => {
     const notificationId = config.getId(event);
 
-    setNotifications((prev) => {
+    setNotifications((prev: UnifiedNotification[]) => {
       // Check if any notification with this ID exists (running, completed, or failed)
       const existingAny = prev.find((n) => n.id === notificationId);
       
@@ -255,7 +255,7 @@ export interface CompletionHandlerConfig<T> {
  * const handleGameRemovalComplete = createCompletionHandler<GameRemovalCompleteEvent>(
  *   {
  *     type: 'game_removal',
- *     getId: (e) => NOTIFICATION_IDS.gameRemoval(e.gameAppId),
+ *     getId: () => NOTIFICATION_IDS.GAME_REMOVAL,
  *     storageKey: NOTIFICATION_STORAGE_KEYS.GAME_REMOVAL,
  *     getSuccessDetails: (e) => ({ filesDeleted: e.filesDeleted })
  *   },
@@ -277,7 +277,7 @@ export function createCompletionHandler<T extends { success: boolean; message?: 
 
     if (config.useAnimationDelay) {
       // First update progress to 100 while keeping status as 'running'
-      setNotifications((prev) => {
+      setNotifications((prev: UnifiedNotification[]) => {
         const existing = prev.find((n) => n.id === notificationId);
         if (!existing) return prev;
 
@@ -297,7 +297,7 @@ export function createCompletionHandler<T extends { success: boolean; message?: 
 
       // After animation delay, update status
       setTimeout(() => {
-        setNotifications((prev) => {
+        setNotifications((prev: UnifiedNotification[]) => {
           return prev.map((n) => {
             if (n.id === notificationId) {
               if (event.success) {
@@ -324,7 +324,7 @@ export function createCompletionHandler<T extends { success: boolean; message?: 
       }, COMPLETION_ANIMATION_DELAY_MS);
     } else {
       // Immediate completion
-      setNotifications((prev) => {
+      setNotifications((prev: UnifiedNotification[]) => {
         const existing = prev.find((n) => n.id === notificationId);
 
         if (!existing) {
@@ -475,7 +475,7 @@ export function createStatusAwareProgressHandler<T>(
       scheduleAutoDismiss(notificationId);
     } else {
       // Handle progress - update existing or create new
-      setNotifications((prev) => {
+      setNotifications((prev: UnifiedNotification[]) => {
         // Check if any notification with this ID exists (running, completed, or failed)
         const existingAny = prev.find((n) => n.id === notificationId);
         

@@ -98,9 +98,9 @@ class HeartbeatService {
    */
   private async sendHeartbeat(): Promise<void> {
     try {
-      // Heartbeats are only meaningful for authenticated sessions.
-      // Avoid spamming protected endpoints (401) when unauthenticated / guest.
-      if (!authService.isRegistered()) {
+      // Heartbeats are meaningful for both authenticated and guest sessions
+      // Only skip when completely unauthenticated (no session at all)
+      if (!authService.isRegistered() && !authService.isGuestModeActive()) {
         return;
       }
 

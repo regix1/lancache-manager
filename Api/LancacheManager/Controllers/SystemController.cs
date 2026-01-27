@@ -121,8 +121,10 @@ public class SystemController : ControllerBase
         var cachePath = _pathResolver.GetCacheDirectory();
         var logPath = _pathResolver.GetLogsDirectory();
 
-        var cacheWritable = _pathResolver.IsCacheDirectoryWritable();
-        var logsWritable = _pathResolver.IsLogsDirectoryWritable();
+        var cacheExists = Directory.Exists(cachePath);
+        var logsExists = Directory.Exists(logPath);
+        var cacheWritable = cacheExists && _pathResolver.IsCacheDirectoryWritable();
+        var logsWritable = logsExists && _pathResolver.IsLogsDirectoryWritable();
         var dockerSocketAvailable = _pathResolver.IsDockerSocketAvailable();
 
         return Ok(new SystemPermissionsResponse
@@ -130,14 +132,16 @@ public class SystemController : ControllerBase
             Cache = new DirectoryPermission
             {
                 Path = cachePath,
+                Exists = cacheExists,
                 Writable = cacheWritable,
-                ReadOnly = !cacheWritable
+                ReadOnly = cacheExists && !cacheWritable
             },
             Logs = new DirectoryPermission
             {
                 Path = logPath,
+                Exists = logsExists,
                 Writable = logsWritable,
-                ReadOnly = !logsWritable
+                ReadOnly = logsExists && !logsWritable
             },
             DockerSocket = new DockerSocketPermission
             {

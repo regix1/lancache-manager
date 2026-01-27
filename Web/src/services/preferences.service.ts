@@ -1,20 +1,10 @@
 import { API_BASE } from '../utils/constants';
 import authService from './auth.service';
-
-// SignalR data types for preference updates
-interface PreferencesUpdatedEvent {
-  sessionId: string;
-  preferences: UserPreferences;
-}
-
-interface SessionRevokedEvent {
-  deviceId: string;
-  sessionType: 'authenticated' | 'guest';
-}
-
-interface DefaultGuestThemeChangedEvent {
-  newThemeId: string;
-}
+import type {
+  UserPreferencesUpdatedEvent,
+  UserSessionRevokedEvent,
+  DefaultGuestThemeChangedEvent
+} from '../contexts/SignalRContext/types';
 
 // SignalR connection interface - handler needs to accept any args for compatibility
 interface SignalRConnection {
@@ -22,7 +12,7 @@ interface SignalRConnection {
   on: (eventName: string, handler: (...args: any[]) => void) => void;
 }
 
-export interface UserPreferences {
+interface UserPreferences {
   selectedTheme: string | null;
   sharpCorners: boolean;
   disableFocusOutlines: boolean;
@@ -246,7 +236,7 @@ class PreferencesService {
     let recentlyDispatchedSessionsCleared = false;
 
     // Handle preference updates
-    const handlePreferencesUpdated = (data: PreferencesUpdatedEvent) => {
+    const handlePreferencesUpdated = (data: UserPreferencesUpdatedEvent) => {
       if (isProcessingUpdate) {
         // console.log('[PreferencesService] Already processing update, skipping duplicate');
         return;
@@ -362,7 +352,7 @@ class PreferencesService {
     };
 
     // Handle session revoked - check if it's our session and logout immediately
-    const handleSessionRevoked = (data: SessionRevokedEvent) => {
+    const handleSessionRevoked = (data: UserSessionRevokedEvent) => {
       const { deviceId, sessionType } = data;
       const revocationKey = `${deviceId}-${sessionType}`;
 

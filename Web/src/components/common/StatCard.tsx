@@ -6,7 +6,7 @@ import { HelpPopover } from '@components/ui/HelpPopover';
 import Sparkline from '@components/features/dashboard/components/Sparkline';
 import AnimatedValue from '@components/features/dashboard/components/AnimatedValue';
 
-export type StatCardColor = 'blue' | 'green' | 'emerald' | 'purple' | 'indigo' | 'orange' | 'yellow' | 'cyan' | 'red';
+type StatCardColor = 'blue' | 'green' | 'emerald' | 'purple' | 'indigo' | 'orange' | 'yellow' | 'cyan' | 'red';
 
 interface StatCardProps {
   title: string;

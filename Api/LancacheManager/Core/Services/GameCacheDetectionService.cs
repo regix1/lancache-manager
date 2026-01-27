@@ -27,6 +27,7 @@ public class GameCacheDetectionService
     private readonly ISignalRNotificationService _notifications;
     private readonly DatasourceService _datasourceService;
     private readonly ConcurrentDictionary<string, DetectionOperation> _operations = new();
+    private readonly SemaphoreSlim _startLock = new(1, 1);
     private const string FailedDepotsStateKey = "failedDepotResolutions";
 
     public class DetectionOperation
@@ -72,52 +73,68 @@ public class GameCacheDetectionService
         RestoreInterruptedOperations();
     }
 
-    public string StartDetectionAsync(bool incremental = true)
+    public async Task<string?> StartDetectionAsync(bool incremental = true)
     {
-        var operationId = Guid.NewGuid().ToString();
-        var scanType = incremental ? "incremental" : "full";
-        var message = incremental
-            ? "Starting incremental scan (new games and services only)..."
-            : "Starting full scan (all games and services)...";
-
-        var operation = new DetectionOperation
+        await _startLock.WaitAsync();
+        try
         {
-            OperationId = operationId,
-            StartTime = DateTime.UtcNow,
-            Status = "running",
-            Message = message,
-            ScanType = scanType,
-            PercentComplete = 0
-        };
-
-        _operations[operationId] = operation;
-
-        // Save to OperationStateService for persistence
-        _operationStateService.SaveState($"gameDetection_{operationId}", new OperationState
-        {
-            Key = $"gameDetection_{operationId}",
-            Type = "gameDetection",
-            Status = "running",
-            Message = operation.Message,
-            Data = JsonSerializer.SerializeToElement(new { operationId })
-        });
-
-        // Send SignalR notification that detection started
-        _ = Task.Run(async () =>
-        {
-            await _notifications.NotifyAllAsync(SignalREvents.GameDetectionStarted, new
+            // Check if there's already an active detection
+            var activeOp = _operations.Values.FirstOrDefault(o => o.Status == "running");
+            if (activeOp != null)
             {
-                operationId,
-                scanType,
-                message,
-                timestamp = DateTime.UtcNow
+                _logger.LogWarning("[GameDetection] Detection already in progress: {OperationId}", activeOp.OperationId);
+                return null; // Return null to indicate operation already running
+            }
+
+            var operationId = Guid.NewGuid().ToString();
+            var scanType = incremental ? "incremental" : "full";
+            var message = incremental
+                ? "Starting incremental scan (new games and services only)..."
+                : "Starting full scan (all games and services)...";
+
+            var operation = new DetectionOperation
+            {
+                OperationId = operationId,
+                StartTime = DateTime.UtcNow,
+                Status = "running",
+                Message = message,
+                ScanType = scanType,
+                PercentComplete = 0
+            };
+
+            _operations[operationId] = operation;
+
+            // Save to OperationStateService for persistence
+            _operationStateService.SaveState($"gameDetection_{operationId}", new OperationState
+            {
+                Key = $"gameDetection_{operationId}",
+                Type = "gameDetection",
+                Status = "running",
+                Message = operation.Message,
+                Data = JsonSerializer.SerializeToElement(new { operationId })
             });
-        });
 
-        // Start detection in background
-        _ = Task.Run(async () => await RunDetectionAsync(operationId, incremental));
+            // Send SignalR notification that detection started
+            _ = Task.Run(async () =>
+            {
+                await _notifications.NotifyAllAsync(SignalREvents.GameDetectionStarted, new
+                {
+                    operationId,
+                    scanType,
+                    message,
+                    timestamp = DateTime.UtcNow
+                });
+            });
 
-        return operationId;
+            // Start detection in background
+            _ = Task.Run(async () => await RunDetectionAsync(operationId, incremental));
+
+            return operationId;
+        }
+        finally
+        {
+            _startLock.Release();
+        }
     }
 
     /// <summary>

@@ -226,6 +226,7 @@ public class SystemPermissionsResponse
 public class DirectoryPermission
 {
     public string Path { get; set; } = string.Empty;
+    public bool Exists { get; set; } = true;
     public bool Writable { get; set; }
     public bool ReadOnly { get; set; }
 }

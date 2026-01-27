@@ -25,6 +25,7 @@ public class RustLogProcessorService
     private Process? _rustProcess;
     private CancellationTokenSource? _cancellationTokenSource;
     private Task? _progressMonitorTask;
+    private readonly SemaphoreSlim _startLock = new(1, 1);
 
     public bool IsProcessing { get; private set; }
     public bool IsSilentMode { get; private set; }
@@ -215,10 +216,21 @@ public class RustLogProcessorService
 
     public async Task<bool> StartProcessingAsync(string logFilePath, long startPosition = 0, bool silentMode = false, string? datasourceName = null)
     {
-        if (IsProcessing)
+        await _startLock.WaitAsync();
+        try
         {
-            _logger.LogWarning("Rust log processor is already running");
-            return false;
+            if (IsProcessing)
+            {
+                _logger.LogWarning("Rust log processor is already running");
+                return false;
+            }
+
+            IsProcessing = true;
+            IsSilentMode = silentMode;
+        }
+        finally
+        {
+            _startLock.Release();
         }
 
         // Use default datasource name if not specified
@@ -226,8 +238,6 @@ public class RustLogProcessorService
 
         try
         {
-            IsProcessing = true;
-            IsSilentMode = silentMode;
             _cancellationTokenSource = new CancellationTokenSource();
 
             var dbPath = _pathResolver.GetDatabasePath();
@@ -485,14 +495,43 @@ public class RustLogProcessorService
             else
             {
                 // Non-zero exit code but not cancelled - this is an actual error
-                // Error is already logged, no need for SignalR notification as frontend uses FastProcessingComplete
+                _logger.LogError("Rust processor failed with exit code {ExitCode}", exitCode);
+
+                if (!silentMode)
+                {
+                    // Send failure notification so frontend doesn't get stuck
+                    await _notifications.NotifyAllAsync(SignalREvents.FastProcessingComplete, new
+                    {
+                        success = false,
+                        message = $"Log processing failed with exit code {exitCode}",
+                        entriesProcessed = 0,
+                        linesProcessed = 0,
+                        elapsed = 0,
+                        timestamp = DateTime.UtcNow
+                    });
+                }
+
                 return false;
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error starting Rust log processor");
-            // Error is already logged, no need for SignalR notification as frontend uses FastProcessingComplete
+
+            if (!silentMode)
+            {
+                // Send failure notification so frontend doesn't get stuck
+                await _notifications.NotifyAllAsync(SignalREvents.FastProcessingComplete, new
+                {
+                    success = false,
+                    message = $"Log processing error: {ex.Message}",
+                    entriesProcessed = 0,
+                    linesProcessed = 0,
+                    elapsed = 0,
+                    timestamp = DateTime.UtcNow
+                });
+            }
+
             return false;
         }
         finally

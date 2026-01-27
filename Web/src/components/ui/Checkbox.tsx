@@ -44,5 +44,3 @@ export const Checkbox: React.FC<CheckboxProps> = ({
 
   return <input type="checkbox" className={`${checkboxClasses} ${className}`} onClick={handleClick} {...props} />;
 };
-
-export default Checkbox;

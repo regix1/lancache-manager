@@ -44,7 +44,7 @@ const ACTIVITY_EVENTS = [
 
 const IDLE_TIMEOUT = 60000; // 1 minute of inactivity = idle
 
-export interface ActivityTrackerReturn {
+interface ActivityTrackerReturn {
   isActive: boolean;
   lastActivityTime: number;
 }

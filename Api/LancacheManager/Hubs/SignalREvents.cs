@@ -71,6 +71,7 @@ public static class SignalREvents
 
     // Auth / Guest Mode
     public const string GuestModeLockChanged = "GuestModeLockChanged";
+    public const string GuestDurationUpdated = "GuestDurationUpdated";
     public const string GuestPrefillPermissionChanged = "GuestPrefillPermissionChanged";
 
     // Prefill Daemon

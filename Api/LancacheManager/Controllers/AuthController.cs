@@ -330,7 +330,7 @@ public class AuthController : ControllerBase
     /// </summary>
     [HttpPost("guest/config/duration")]
     [RequireAuth]
-    public IActionResult SetGuestSessionDuration([FromBody] SetGuestDurationRequest request)
+    public async Task<IActionResult> SetGuestSessionDuration([FromBody] SetGuestDurationRequest request)
     {
         if (request.DurationHours < 1 || request.DurationHours > 168)
         {
@@ -344,6 +344,12 @@ public class AuthController : ControllerBase
         _guestSessionService.SetGuestSessionDurationHours(request.DurationHours);
 
         _logger.LogInformation("Guest session duration updated to {Hours} hours", request.DurationHours);
+
+        // Broadcast to all clients via SignalR so admin panels update in real-time
+        await _notifications.NotifyAllAsync(SignalREvents.GuestDurationUpdated, new
+        {
+            durationHours = request.DurationHours
+        });
 
         return Ok(new GuestDurationResponse
         {

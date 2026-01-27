@@ -17,7 +17,7 @@ const BACKGROUND_COMPLETION_KEY = 'prefill_background_completion';
 const DISMISSED_COMPLETION_KEY = 'prefill_dismissed_completion_at';
 const MAX_LOG_ENTRIES = 500; // Limit stored entries to prevent storage bloat
 
-export interface BackgroundCompletion {
+interface BackgroundCompletion {
   completedAt: string;
   message: string;
   duration?: number; // Duration in seconds if available

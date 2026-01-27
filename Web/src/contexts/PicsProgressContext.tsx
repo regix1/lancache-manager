@@ -12,7 +12,7 @@ import type {
  * PICS Progress Interface
  * Matches the structure returned by /api/depots/rebuild/progress
  */
-export interface PicsProgress {
+interface PicsProgress {
   // Core status
   isProcessing: boolean;
   status: string;

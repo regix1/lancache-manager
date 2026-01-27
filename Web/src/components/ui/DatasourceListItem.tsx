@@ -149,5 +149,3 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
     </div>
   );
 };
-
-export default DatasourceListItem;

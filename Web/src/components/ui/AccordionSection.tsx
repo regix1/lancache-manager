@@ -155,5 +155,3 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
     </div>
   );
 };
-
-export default AccordionSection;

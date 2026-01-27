@@ -11,6 +11,7 @@ interface ServiceCardProps {
   isExpanded: boolean;
   isExpanding: boolean;
   isRemoving: boolean;
+  isAnyRemovalRunning: boolean;
   isAuthenticated: boolean;
   cacheReadOnly: boolean;
   dockerSocketAvailable: boolean;
@@ -27,6 +28,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
   isExpanded,
   isExpanding,
   isRemoving,
+  isAnyRemovalRunning,
   isAuthenticated,
   cacheReadOnly,
   dockerSocketAvailable,
@@ -93,7 +95,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
         <Tooltip content={t('management.gameDetection.removeServiceCache')}>
           <Button
             onClick={() => onRemove(service)}
-            disabled={isRemoving || !isAuthenticated || cacheReadOnly || !dockerSocketAvailable || checkingPermissions}
+            disabled={isAnyRemovalRunning || !isAuthenticated || cacheReadOnly || !dockerSocketAvailable || checkingPermissions}
             variant="filled"
             color="red"
             size="sm"

@@ -20,6 +20,7 @@ public class CacheClearingService : IHostedService
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly DatasourceService _datasourceService;
     private readonly ConcurrentDictionary<string, CacheClearOperation> _operations = new();
+    private readonly SemaphoreSlim _startLock = new(1, 1);
     private readonly string _cachePath;
     private Timer? _cleanupTimer;
     private string _deleteMode;
@@ -110,31 +111,49 @@ public class CacheClearingService : IHostedService
         return Task.CompletedTask;
     }
 
-    public Task<string> StartCacheClearAsync(string? datasourceName = null)
+    public async Task<string?> StartCacheClearAsync(string? datasourceName = null)
     {
-        var operationId = Guid.NewGuid().ToString();
-        var operation = new CacheClearOperation
+        await _startLock.WaitAsync();
+        try
         {
-            Id = operationId,
-            StartTime = DateTime.UtcNow,
-            Status = ClearStatus.Preparing,
-            StatusMessage = datasourceName != null
-                ? $"Initializing cache clear for {datasourceName}..."
-                : "Initializing cache clear...",
-            CancellationTokenSource = new CancellationTokenSource(),
-            DatasourceName = datasourceName
-        };
+            // Check for any active operations (Preparing or Running)
+            var activeOperation = _operations.Values.FirstOrDefault(o =>
+                o.Status == ClearStatus.Preparing || o.Status == ClearStatus.Running);
 
-        _operations[operationId] = operation;
-        SaveOperationToState(operation);
+            if (activeOperation != null)
+            {
+                _logger.LogWarning("Cache clear is already running: {OperationId}", activeOperation.Id);
+                return null; // Return null to indicate operation already running
+            }
 
-        _logger.LogInformation($"Starting cache clear operation {operationId}" +
-            (datasourceName != null ? $" for datasource: {datasourceName}" : " for all datasources"));
+            var operationId = Guid.NewGuid().ToString();
+            var operation = new CacheClearOperation
+            {
+                Id = operationId,
+                StartTime = DateTime.UtcNow,
+                Status = ClearStatus.Preparing,
+                StatusMessage = datasourceName != null
+                    ? $"Initializing cache clear for {datasourceName}..."
+                    : "Initializing cache clear...",
+                CancellationTokenSource = new CancellationTokenSource(),
+                DatasourceName = datasourceName
+            };
 
-        // Start the clear operation on a background thread
-        _ = Task.Run(async () => await ExecuteCacheClear(operation), operation.CancellationTokenSource.Token);
+            _operations[operationId] = operation;
+            SaveOperationToState(operation);
 
-        return Task.FromResult(operationId);
+            _logger.LogInformation($"Starting cache clear operation {operationId}" +
+                (datasourceName != null ? $" for datasource: {datasourceName}" : " for all datasources"));
+
+            // Start the clear operation on a background thread
+            _ = Task.Run(async () => await ExecuteCacheClear(operation), operation.CancellationTokenSource.Token);
+
+            return operationId;
+        }
+        finally
+        {
+            _startLock.Release();
+        }
     }
 
     private async Task ExecuteCacheClear(CacheClearOperation operation)

@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   Loader2,
-  RefreshCw,
   ScrollText,
   HardDrive,
   CheckCircle,
@@ -9,14 +8,13 @@ import {
   Lock
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Button } from './Button';
 import { Tooltip } from './Tooltip';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
-export type IconColor = 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'purple' | 'cyan' | 'indigo';
+type IconColor = 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'purple' | 'cyan' | 'indigo';
 
 // Safelist for CSS purging - these classes are used dynamically via `icon-bg-${iconColor}`
 // prettier-ignore
@@ -28,7 +26,7 @@ const _iconClassSafelist = [
 ];
 void _iconClassSafelist;
 
-export interface PermissionStatus {
+interface PermissionStatus {
   logsReadOnly?: boolean;
   cacheReadOnly?: boolean;
   dockerSocketAvailable?: boolean;
@@ -98,14 +96,14 @@ interface PermissionIndicatorsProps {
 /**
  * Standardized permission status indicators (logs/cache writable status)
  */
-export const PermissionIndicators: React.FC<PermissionIndicatorsProps> = ({
+const PermissionIndicators: React.FC<PermissionIndicatorsProps> = ({
   logsReadOnly,
   cacheReadOnly,
   showLogs = true,
   showCache = true
 }) => {
   const { t } = useTranslation();
-  
+
   return (
     <div className="flex items-center gap-2">
       {showLogs && logsReadOnly !== undefined && (
@@ -139,46 +137,6 @@ export const PermissionIndicators: React.FC<PermissionIndicatorsProps> = ({
         </Tooltip>
       )}
     </div>
-  );
-};
-
-// ============================================================================
-// ACTION BUTTONS
-// ============================================================================
-
-interface RefreshButtonProps {
-  onClick: () => void;
-  isLoading?: boolean;
-  disabled?: boolean;
-  tooltip?: string;
-}
-
-/**
- * Standardized refresh button for management cards
- */
-export const RefreshButton: React.FC<RefreshButtonProps> = ({
-  onClick,
-  isLoading = false,
-  disabled = false,
-  tooltip
-}) => {
-  const { t } = useTranslation();
-  
-  return (
-    <Tooltip content={tooltip || t('ui.managerCard.refreshData')} position="top">
-      <Button
-        onClick={onClick}
-        disabled={disabled || isLoading}
-        variant="subtle"
-        size="sm"
-      >
-        {isLoading ? (
-          <Loader2 className="w-4 h-4 animate-spin" />
-        ) : (
-          <RefreshCw className="w-4 h-4" />
-        )}
-      </Button>
-    </Tooltip>
   );
 };
 

@@ -28,6 +28,7 @@ public class CorruptionDetectionService
 
     // Track active detection operations
     private readonly ConcurrentDictionary<string, DetectionOperation> _operations = new();
+    private readonly SemaphoreSlim _startLock = new(1, 1);
 
     private const string OperationStateKey = "corruptionDetection";
 
@@ -67,46 +68,53 @@ public class CorruptionDetectionService
     /// </summary>
     public async Task<string> StartDetectionAsync(CancellationToken cancellationToken = default)
     {
-        var operationId = Guid.NewGuid().ToString("N")[..8];
-
-        // Check if there's already an active detection
-        var activeOp = _operations.Values.FirstOrDefault(o => o.Status == "running");
-        if (activeOp != null)
+        await _startLock.WaitAsync(cancellationToken);
+        try
         {
-            _logger.LogWarning("[CorruptionDetection] Detection already in progress: {OperationId}", activeOp.OperationId);
-            return activeOp.OperationId;
+            // Check if there's already an active detection
+            var activeOp = _operations.Values.FirstOrDefault(o => o.Status == "running");
+            if (activeOp != null)
+            {
+                _logger.LogWarning("[CorruptionDetection] Detection already in progress: {OperationId}", activeOp.OperationId);
+                return activeOp.OperationId;
+            }
+
+            var operationId = Guid.NewGuid().ToString("N")[..8];
+            var operation = new DetectionOperation
+            {
+                OperationId = operationId,
+                StartTime = DateTime.UtcNow,
+                Status = "running",
+                Message = "Starting corruption detection..."
+            };
+
+            _operations[operationId] = operation;
+
+            // Save operation state for recovery
+            _operationStateService.SaveState($"{OperationStateKey}_{operationId}", new OperationState
+            {
+                Key = $"{OperationStateKey}_{operationId}",
+                Type = "corruptionDetection",
+                Status = "running",
+                Message = "Starting corruption detection..."
+            });
+
+            // Send start notification via SignalR
+            await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionStarted, new
+            {
+                operationId,
+                message = "Starting corruption detection scan..."
+            });
+
+            // Run detection in background
+            _ = Task.Run(async () => await RunDetectionAsync(operationId, cancellationToken), cancellationToken);
+
+            return operationId;
         }
-
-        var operation = new DetectionOperation
+        finally
         {
-            OperationId = operationId,
-            StartTime = DateTime.UtcNow,
-            Status = "running",
-            Message = "Starting corruption detection..."
-        };
-
-        _operations[operationId] = operation;
-
-        // Save operation state for recovery
-        _operationStateService.SaveState($"{OperationStateKey}_{operationId}", new OperationState
-        {
-            Key = $"{OperationStateKey}_{operationId}",
-            Type = "corruptionDetection",
-            Status = "running",
-            Message = "Starting corruption detection..."
-        });
-
-        // Send start notification via SignalR
-        await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionStarted, new
-        {
-            operationId,
-            message = "Starting corruption detection scan..."
-        });
-
-        // Run detection in background
-        _ = Task.Run(async () => await RunDetectionAsync(operationId, cancellationToken), cancellationToken);
-
-        return operationId;
+            _startLock.Release();
+        }
     }
 
     /// <summary>

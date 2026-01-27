@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 
-export interface HighlightGlowProps {
+interface HighlightGlowProps {
   children: React.ReactNode;
   enabled?: boolean;
   color?: string;

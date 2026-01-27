@@ -24,6 +24,7 @@ public class RustLogRemovalService
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private Process? _rustProcess;
     private CancellationTokenSource? _cancellationTokenSource;
+    private readonly SemaphoreSlim _startLock = new(1, 1);
 
     private readonly DatasourceService _datasourceService;
 
@@ -128,16 +129,25 @@ public class RustLogRemovalService
 
     public async Task<bool> StartRemovalAsync(string service)
     {
-        if (IsProcessing)
+        await _startLock.WaitAsync();
+        try
         {
-            _logger.LogWarning("Log removal is already running for service: {CurrentService}", CurrentService);
-            return false;
+            if (IsProcessing)
+            {
+                _logger.LogWarning("Log removal is already running for service: {CurrentService}", CurrentService);
+                return false;
+            }
+
+            IsProcessing = true;
+            CurrentService = service;
+        }
+        finally
+        {
+            _startLock.Release();
         }
 
         try
         {
-            IsProcessing = true;
-            CurrentService = service;
             _cancellationTokenSource = new CancellationTokenSource();
 
             var operationsDir = _pathResolver.GetOperationsDirectory();
@@ -310,34 +320,45 @@ public class RustLogRemovalService
     /// </summary>
     public async Task<bool> StartRemovalForDatasourceAsync(string service, string datasourceName)
     {
-        if (IsProcessing)
-        {
-            _logger.LogWarning("Log removal is already running for service: {CurrentService}", CurrentService);
-            return false;
-        }
+        string logDir;
 
-        var datasource = _datasourceService.GetDatasource(datasourceName);
-        if (datasource == null)
+        await _startLock.WaitAsync();
+        try
         {
-            _logger.LogError("Datasource '{DatasourceName}' not found", datasourceName);
-            return false;
-        }
+            if (IsProcessing)
+            {
+                _logger.LogWarning("Log removal is already running for service: {CurrentService}", CurrentService);
+                return false;
+            }
 
-        if (!datasource.LogsWritable)
+            var datasource = _datasourceService.GetDatasource(datasourceName);
+            if (datasource == null)
+            {
+                _logger.LogError("Datasource '{DatasourceName}' not found", datasourceName);
+                return false;
+            }
+
+            if (!datasource.LogsWritable)
+            {
+                _logger.LogError("Logs directory is read-only for datasource '{DatasourceName}'", datasourceName);
+                return false;
+            }
+
+            logDir = datasource.LogPath;
+            IsProcessing = true;
+            CurrentService = service;
+            CurrentDatasource = datasourceName;
+        }
+        finally
         {
-            _logger.LogError("Logs directory is read-only for datasource '{DatasourceName}'", datasourceName);
-            return false;
+            _startLock.Release();
         }
 
         try
         {
-            IsProcessing = true;
-            CurrentService = service;
-            CurrentDatasource = datasourceName;
             _cancellationTokenSource = new CancellationTokenSource();
 
             var operationsDir = _pathResolver.GetOperationsDirectory();
-            var logDir = datasource.LogPath;
             var progressPath = Path.Combine(operationsDir, $"log_remove_progress_{datasourceName}.json");
             var rustExecutablePath = _pathResolver.GetRustLogManagerPath();
 

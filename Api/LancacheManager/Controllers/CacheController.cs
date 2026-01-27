@@ -286,6 +286,12 @@ public class CacheController : ControllerBase
         }
 
         var operationId = await _cacheClearingService.StartCacheClearAsync();
+
+        if (operationId == null)
+        {
+            return Conflict(new ConflictResponse { Error = "Cache clearing is already running" });
+        }
+
         _logger.LogInformation("Started cache clear operation for all datasources: {OperationId}", operationId);
 
         return Accepted(new CacheOperationResponse
@@ -329,6 +335,12 @@ public class CacheController : ControllerBase
         }
 
         var operationId = await _cacheClearingService.StartCacheClearAsync(name);
+
+        if (operationId == null)
+        {
+            return Conflict(new ConflictResponse { Error = "Cache clearing is already running" });
+        }
+
         _logger.LogInformation("Started cache clear operation for datasource {Datasource}: {OperationId}", name, operationId);
 
         return Accepted(new CacheOperationResponse
@@ -492,6 +504,17 @@ public class CacheController : ControllerBase
     [RequireAuth]
     public IActionResult RemoveCorruptedChunks(string service)
     {
+        // Check if ANY removal operation is already in progress (they share a lock)
+        var activeRemovals = _removalTracker.GetAllActiveRemovals();
+        if (activeRemovals.HasActiveOperations)
+        {
+            var activeType = activeRemovals.GameRemovals.Any() ? "game" :
+                             activeRemovals.ServiceRemovals.Any() ? "service" :
+                             activeRemovals.CorruptionRemovals.Any() ? "corruption" : "unknown";
+            _logger.LogWarning("[CorruptionRemoval] Blocked - another {Type} removal is already in progress", activeType);
+            return Conflict(new ErrorResponse { Error = $"Another removal operation ({activeType}) is already in progress. Please wait for it to complete." });
+        }
+
         var cachePath = _pathResolver.GetCacheDirectory();
         var logsPath = _pathResolver.GetLogsDirectory();
         var dbPath = _pathResolver.GetDatabasePath();

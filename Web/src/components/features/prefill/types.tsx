@@ -63,20 +63,6 @@ export interface CommandButton {
   color?: 'blue' | 'green' | 'red' | 'yellow' | 'purple' | 'gray' | 'orange' | 'default';
 }
 
-export interface PrefillProgress {
-  state: string;
-  percentComplete: number;
-  currentAppId: number;
-  currentAppName: string;
-  totalApps: number;
-  currentApp: number;
-  totalBytes: number;
-  downloadedBytes: number;
-  currentSpeed: number;
-  elapsedSeconds: number;
-  remainingSeconds?: number;
-}
-
 // Grouped command buttons for better organization
 // Note: ALL commands require login - nothing works without Steam auth
 export const SELECTION_COMMANDS: CommandButton[] = [

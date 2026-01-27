@@ -93,6 +93,3 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({ target, onClose, 
 };
 
 export default CacheRemovalModal;
-
-// Re-export for backwards compatibility with existing imports
-export { CacheRemovalModal };

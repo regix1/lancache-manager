@@ -301,5 +301,3 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
     </div>
   );
 };
-
-export default MultiSelectDropdown;

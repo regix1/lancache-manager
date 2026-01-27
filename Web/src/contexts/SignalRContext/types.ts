@@ -26,69 +26,99 @@ export interface SignalRProviderProps {
 }
 
 // List of all SignalR events
+// Keep in sync with Api/LancacheManager/Hubs/SignalREvents.cs
 export const SIGNALR_EVENTS = [
+  // Downloads
   'DownloadsRefresh',
+  'DownloadSpeedUpdate',
+
+  // Log Processing
   'ProcessingProgress',
   'FastProcessingComplete',
-  'DownloadSpeedUpdate',
-  'NetworkBandwidthUpdate',
+  'LogRemovalProgress',
+  'LogRemovalComplete',
+
+  // Database Operations
+  'DatabaseResetProgress',
+  'PrefillSessionsCleared',
+  'BannedSteamUsersCleared',
+
+  // SteamKit2 / Depot Mapping
   'DepotMappingStarted',
   'DepotMappingProgress',
   'DepotMappingComplete',
   'SteamSessionError',
   'SteamAutoLogout',
-  'DatabaseResetProgress',
-  'LogRemovalProgress',
-  'LogRemovalComplete',
-  'GameRemovalProgress',
-  'GameRemovalComplete',
-  'ServiceRemovalProgress',
-  'ServiceRemovalComplete',
+  'AutomaticScanSkipped',
+
+  // Cache Operations
   'CacheClearProgress',
   'CacheClearComplete',
-  'CorruptionRemovalStarted',
-  'CorruptionRemovalComplete',
+  'ServiceRemovalProgress',
+  'ServiceRemovalComplete',
   'CorruptionDetectionStarted',
   'CorruptionDetectionComplete',
+  'CorruptionRemovalStarted',
+  'CorruptionRemovalComplete',
+
+  // Games
   'GameDetectionStarted',
   'GameDetectionComplete',
-  'GuestDurationUpdated',
-  'GuestModeLockChanged',
-  'AutomaticScanSkipped',
-  'UserPreferencesUpdated',
-  'UserPreferencesReset',
-  'UserSessionsCleared',
-  'DefaultGuestThemeChanged',
-  'DefaultGuestPreferencesChanged',
-  'AllowedTimeFormatsChanged',
-  'UserSessionRevoked',
-  'UserSessionCreated',
-  'SessionLastSeenUpdated',
-  'GuestRefreshRateUpdated',
-  'DefaultGuestRefreshRateChanged',
-  'EventCreated',
-  'EventUpdated',
-  'EventDeleted',
-  'EventsCleared',
+  'GameRemovalProgress',
+  'GameRemovalComplete',
+
+  // Client Groups
   'ClientGroupCreated',
   'ClientGroupUpdated',
   'ClientGroupDeleted',
   'ClientGroupMemberAdded',
   'ClientGroupMemberRemoved',
-  'PrefillProgress',
-  'StatusChanged',
-  'PrefillStateChanged',
+  'ClientGroupsCleared',
+
+  // Events
+  'EventCreated',
+  'EventUpdated',
+  'EventDeleted',
+  'EventsCleared',
+  'DownloadTagged',
+
+  // Sessions
+  'UserSessionCreated',
+  'UserSessionRevoked',
+  'UserSessionsCleared',
+  'SessionLastSeenUpdated',
+  'GuestRefreshRateUpdated',
+
+  // User Preferences
+  'UserPreferencesUpdated',
+  'UserPreferencesReset',
+
+  // System / Config
+  'DefaultGuestRefreshRateChanged',
+  'AllowedTimeFormatsChanged',
+  'DefaultGuestPreferencesChanged',
+  'DefaultGuestThemeChanged',
+
+  // Auth / Guest Mode
+  'GuestModeLockChanged',
+  'GuestDurationUpdated',
   'GuestPrefillPermissionChanged',
+
+  // Prefill Daemon
   'SteamUserBanned',
   'SteamUserUnbanned',
   'DaemonSessionCreated',
   'DaemonSessionUpdated',
   'DaemonSessionTerminated',
+  'SessionSubscribed',
+  'AuthStateChanged',
+  'CredentialChallenge',
+  'StatusChanged',
+  'PrefillStateChanged',
+  'PrefillProgress',
   'PrefillHistoryUpdated',
-  'CredentialChallenge'
+  'SessionEnded'
 ] as const;
-
-export type SignalREvent = (typeof SIGNALR_EVENTS)[number];
 
 /**
  * Events that trigger a data refresh in DownloadsContext/StatsContext.
@@ -114,8 +144,6 @@ export const SIGNALR_REFRESH_EVENTS = [
   'ClientGroupMemberRemoved'
 ] as const;
 
-export type SignalRRefreshEvent = (typeof SIGNALR_REFRESH_EVENTS)[number];
-
 // SignalR Event Types
 
 export interface ProcessingProgressEvent {
@@ -131,48 +159,11 @@ export interface ProcessingProgressEvent {
 }
 
 export interface FastProcessingCompleteEvent {
+  success?: boolean;
+  message?: string;
   entriesProcessed?: number;
   linesProcessed?: number;
   elapsed?: number;
-}
-
-export interface DownloadSpeedUpdateEvent {
-  timestampUtc: string;
-  totalBytesPerSecond: number;
-  gameSpeeds: {
-    depotId: number;
-    gameName?: string;
-    gameAppId?: number;
-    service: string;
-    bytesPerSecond: number;
-    totalBytes: number;
-    requestCount: number;
-    cacheHitBytes: number;
-    cacheMissBytes: number;
-    cacheHitPercent: number;
-  }[];
-  clientSpeeds: {
-    clientIp: string;
-    bytesPerSecond: number;
-    totalBytes: number;
-    activeGames: number;
-    cacheHitBytes: number;
-    cacheMissBytes: number;
-  }[];
-  windowSeconds: number;
-  entriesInWindow: number;
-  hasActiveDownloads: boolean;
-}
-
-export interface NetworkBandwidthUpdateEvent {
-  timestampUtc: string;
-  interfaceName: string;
-  downloadBytesPerSecond: number;
-  uploadBytesPerSecond: number;
-  totalBytesReceived: number;
-  totalBytesSent: number;
-  isAvailable: boolean;
-  errorMessage?: string;
 }
 
 export interface LogRemovalProgressEvent {
@@ -279,6 +270,7 @@ export interface CacheClearProgressEvent {
   filesDeleted?: number;
   directoriesProcessed?: number;
   bytesDeleted?: number;
+  datasourceName?: string;
 }
 
 export interface CacheClearCompleteEvent {
@@ -287,6 +279,7 @@ export interface CacheClearCompleteEvent {
   error?: string;
   filesDeleted?: number;
   directoriesProcessed?: number;
+  datasourceName?: string;
 }
 
 export interface DepotMappingStartedEvent {
@@ -351,46 +344,12 @@ export interface ShowToastEvent {
   duration?: number;
 }
 
-export interface PreferenceChangeEvent {
-  key: string;
-  value: unknown;
-}
-
 export interface GuestRefreshRateUpdatedEvent {
   refreshRate: string;
 }
 
 export interface DefaultGuestRefreshRateChangedEvent {
   refreshRate: string;
-}
-
-export interface DefaultGuestPreferencesChangedEvent {
-  key: string;
-  value: boolean;
-}
-
-export interface AllowedTimeFormatsChangedEvent {
-  formats: string[];
-}
-
-export interface PrefillProgressEvent {
-  state: string;
-  currentAppId: number;
-  currentAppName?: string;
-  totalBytes: number;
-  bytesDownloaded: number;
-  percentComplete: number;
-  bytesPerSecond: number;
-  elapsedSeconds: number;
-  result?: string;
-  errorMessage?: string;
-  totalApps: number;
-  updatedApps: number;
-  alreadyUpToDate: number;
-  failedApps: number;
-  totalBytesTransferred: number;
-  totalTimeSeconds: number;
-  updatedAt: string;
 }
 
 export interface GuestPrefillPermissionChangedEvent {
@@ -457,17 +416,39 @@ export interface DaemonSessionTerminatedEvent {
 }
 
 export interface UserSessionRevokedEvent {
-  deviceId?: string;
-  sessionId?: string;
-  reason?: string;
+  deviceId: string;
+  sessionType: 'authenticated' | 'guest';
 }
 
 export interface GuestDurationUpdatedEvent {
-  durationMinutes: number;
+  durationHours: number;
 }
 
 export interface PrefillHistoryUpdatedEvent {
   sessionId: string;
   appId: number;
   status: string;
+}
+
+// User Preferences Events
+export interface UserPreferencesUpdatedEvent {
+  sessionId: string;
+  preferences: {
+    selectedTheme: string | null;
+    sharpCorners: boolean;
+    disableFocusOutlines: boolean;
+    disableTooltips: boolean;
+    picsAlwaysVisible: boolean;
+    disableStickyNotifications: boolean;
+    useLocalTimezone: boolean;
+    use24HourFormat: boolean;
+    showDatasourceLabels: boolean;
+    showYearInDates: boolean;
+    refreshRate?: string | null;
+    allowedTimeFormats?: string[] | null;
+  };
+}
+
+export interface DefaultGuestThemeChangedEvent {
+  newThemeId: string;
 }

@@ -731,8 +731,8 @@ class ApiService {
 
   // Get directory write permissions and docker socket availability
   static async getDirectoryPermissions(): Promise<{
-    cache: { path: string; writable: boolean; readOnly: boolean };
-    logs: { path: string; writable: boolean; readOnly: boolean };
+    cache: { path: string; exists: boolean; writable: boolean; readOnly: boolean };
+    logs: { path: string; exists: boolean; writable: boolean; readOnly: boolean };
     dockerSocket: { available: boolean };
   }> {
     const res = await fetch(`${API_BASE}/system/permissions`, this.getFetchOptions());
@@ -1558,7 +1558,7 @@ export interface DaemonSessionDto {
   networkDiagnostics?: NetworkDiagnostics;
 }
 
-export interface PrefillSessionsResponse {
+interface PrefillSessionsResponse {
   sessions: PrefillSessionDto[];
   totalCount: number;
   page: number;
@@ -1592,7 +1592,7 @@ export interface PrefillHistoryEntryDto {
   errorMessage?: string;
 }
 
-export interface CachedAppDto {
+interface CachedAppDto {
   appId: number;
   appName?: string;
   depotCount: number;
@@ -1601,7 +1601,7 @@ export interface CachedAppDto {
   cachedBy?: string;
 }
 
-export interface PrefillCacheStatusDto {
+interface PrefillCacheStatusDto {
   upToDateAppIds: number[];
   outdatedAppIds: number[];
   message?: string;

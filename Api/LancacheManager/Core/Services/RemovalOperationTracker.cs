@@ -156,9 +156,9 @@ public class RemovalOperationTracker
         StartRemoval(RemovalOperationType.Corruption, key, operationId, serviceName, $"Removing corrupted chunks for {serviceName}...");
     }
 
-    public void UpdateCorruptionRemoval(string serviceName, string status, string message)
+    public void UpdateCorruptionRemoval(string serviceName, string status, string? message = null)
     {
-        UpdateRemoval(RemovalOperationType.Corruption, serviceName.ToLowerInvariant(), status, message);
+        UpdateRemoval(RemovalOperationType.Corruption, serviceName.ToLowerInvariant(), status, message ?? string.Empty);
     }
 
     public void CompleteCorruptionRemoval(string serviceName, bool success, string? error = null)

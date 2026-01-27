@@ -117,14 +117,28 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       });
     };
 
-    const handleFastProcessingComplete = (progress: FastProcessingCompleteEvent) => {
+    const handleFastProcessingComplete = (data: FastProcessingCompleteEvent) => {
+      // Check if processing failed
+      if (data.success === false) {
+        setError(data.message || t('initialization.logProcessing.failedToProcess'));
+        setProgress({
+          isProcessing: false,
+          progress: 0,
+          status: 'error'
+        });
+        setComplete(false);
+        setProcessing(false);
+        return;
+      }
+
+      // Success case
       setProgress({
         isProcessing: false,
         progress: 100,
         status: 'completed',
-        entriesProcessed: progress.entriesProcessed,
-        linesProcessed: progress.linesProcessed,
-        totalLines: progress.linesProcessed
+        entriesProcessed: data.entriesProcessed,
+        linesProcessed: data.linesProcessed,
+        totalLines: data.linesProcessed
       });
       setComplete(true);
       setProcessing(false);
@@ -137,7 +151,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       signalR.off('ProcessingProgress', handleProcessingProgress);
       signalR.off('FastProcessingComplete', handleFastProcessingComplete);
     };
-  }, [signalR]);
+  }, [signalR, t]);
 
   const toggleExpanded = (name: string) => {
     setExpandedDatasources(prev => {

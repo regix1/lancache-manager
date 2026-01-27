@@ -188,14 +188,21 @@ public class GamesController : ControllerBase
     /// </summary>
     [HttpPost("detect")]
     [RequireAuth]
-    public IActionResult DetectGames([FromQuery] bool forceRefresh = false)
+    public async Task<IActionResult> DetectGames([FromQuery] bool forceRefresh = false)
     {
         try
         {
             // forceRefresh=true means full scan (incremental=false)
             // forceRefresh=false means quick scan (incremental=true)
             var incremental = !forceRefresh;
-            var operationId = _gameCacheDetectionService.StartDetectionAsync(incremental);
+            var operationId = await _gameCacheDetectionService.StartDetectionAsync(incremental);
+
+            if (operationId == null)
+            {
+                // Already running - return 409 Conflict
+                return Conflict(new ConflictResponse { Error = "Game detection is already running" });
+            }
+
             _logger.LogInformation("Started game detection operation: {OperationId} (forceRefresh={ForceRefresh}, incremental={Incremental})", operationId, forceRefresh, incremental);
 
             return Accepted(new GameDetectionStartResponse

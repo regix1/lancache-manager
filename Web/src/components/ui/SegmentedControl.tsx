@@ -1,7 +1,7 @@
 import React from 'react';
 import { Tooltip } from './Tooltip';
 
-export interface SegmentedControlOption {
+interface SegmentedControlOption {
   value: string;
   label?: string;
   icon?: React.ReactNode;
@@ -93,5 +93,3 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
     </div>
   );
 };
-
-export default SegmentedControl;

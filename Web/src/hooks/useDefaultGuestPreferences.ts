@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import ApiService from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext';
 
-export interface DefaultGuestPreferences {
+interface DefaultGuestPreferences {
   useLocalTimezone: boolean;
   use24HourFormat: boolean;
   sharpCorners: boolean;
@@ -110,5 +110,3 @@ export const useDefaultGuestPreferences = () => {
 
   return { prefs, loading };
 };
-
-export default useDefaultGuestPreferences;

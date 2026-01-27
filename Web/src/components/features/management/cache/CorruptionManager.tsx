@@ -8,11 +8,7 @@ import {
 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
-import { useSignalR } from '@contexts/SignalRContext';
 import { useDockerSocket } from '@contexts/DockerSocketContext';
-import type {
-  CorruptionRemovalCompleteEvent
-} from '@contexts/SignalRContext/types';
 import { useNotifications } from '@contexts/notifications';
 import { Card } from '@components/ui/Card';
 import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
@@ -33,18 +29,15 @@ interface CorruptionManagerProps {
   authMode: AuthMode;
   mockMode: boolean;
   onError?: (message: string) => void;
-  onReloadRef?: React.RefObject<(() => Promise<void>) | null>;
 }
 
 const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   authMode,
   mockMode,
-  onError,
-  onReloadRef
+  onError
 }) => {
   const { t } = useTranslation();
-  const { notifications, addNotification } = useNotifications();
-  const signalR = useSignalR();
+  const { notifications, addNotification, isAnyRemovalRunning } = useNotifications();
   const { isDockerAvailable } = useDockerSocket();
 
   // Derive corruption detection scan state from notifications (standardized pattern like GameCacheDetector)
@@ -81,9 +74,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   const activeCorruptionRemovalNotification = notifications.find(
     n => n.type === 'corruption_removal' && n.status === 'running'
   );
-  const removingCorruption = activeCorruptionRemovalNotification
-    ? (activeCorruptionRemovalNotification.id.replace('corruption_removal-', '') as string)
-    : null;
+  const removingCorruption = activeCorruptionRemovalNotification?.details?.service as string | null ?? null;
 
   // Load cached data from database
   const loadCachedData = useCallback(async (showNotification: boolean = false) => {
@@ -207,25 +198,36 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
     }
   }, [notifications, isStartingScan]);
 
-  // Listen for CorruptionRemovalComplete event
+  // Listen for corruption removal completion - remove service from local state immediately
+  // This follows the same pattern as GameCacheDetector which removes items from state on completion
   useEffect(() => {
-    if (!signalR) return;
+    // Find all completed corruption removal notifications
+    const completedCorruptionRemovals = notifications.filter(
+      n => n.type === 'corruption_removal' && n.status === 'completed'
+    );
 
-    const handleCorruptionRemovalComplete = async (result: CorruptionRemovalCompleteEvent) => {
-      if (result.success) {
-        // Start a new scan after removal to refresh data
-        await startScan();
-      } else {
-        onError?.(result.error || t('management.corruption.removalFailed'));
+    completedCorruptionRemovals.forEach((notif) => {
+      const serviceName = notif.details?.service;
+      if (!serviceName) return;
+
+      // Remove the service from local state immediately (backend already handled the removal)
+      setCorruptionSummary((prev) => {
+        const updated = { ...prev };
+        delete updated[serviceName];
+        return updated;
+      });
+
+      // Also clear expanded state and details for this service
+      if (expandedCorruptionService === serviceName) {
+        setExpandedCorruptionService(null);
       }
-    };
-
-    signalR.on('CorruptionRemovalComplete', handleCorruptionRemovalComplete);
-
-    return () => {
-      signalR.off('CorruptionRemovalComplete', handleCorruptionRemovalComplete);
-    };
-  }, [signalR, onError, startScan]);
+      setCorruptionDetails((prev) => {
+        const updated = { ...prev };
+        delete updated[serviceName];
+        return updated;
+      });
+    });
+  }, [notifications, expandedCorruptionService]);
 
   // Initial load - load cached data without auto-scanning (matches GameCacheDetector pattern)
   useEffect(() => {
@@ -234,11 +236,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
       // Only load cached data - don't auto-start scan
       loadCachedData();
     }
-
-    if (onReloadRef) {
-      onReloadRef.current = () => startScan();
-    }
-  }, [hasInitiallyLoaded, onReloadRef, loadCachedData, startScan]);
+  }, [hasInitiallyLoaded, loadCachedData]);
 
   const loadDirectoryPermissions = async () => {
     try {
@@ -341,7 +339,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
       <Tooltip content={t('management.corruption.loadPreviousResults')} position="top">
         <Button
           onClick={() => loadCachedData(true)}
-          disabled={isLoading || isScanning || !!removingCorruption}
+          disabled={isLoading || isScanning || isAnyRemovalRunning}
           variant="subtle"
           size="sm"
         >
@@ -351,7 +349,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
       <Tooltip content={t('management.corruption.scanForCorrupted')} position="top">
         <Button
           onClick={() => startScan()}
-          disabled={isLoading || isScanning || !!removingCorruption}
+          disabled={isLoading || isScanning || isAnyRemovalRunning}
           variant="filled"
           color="blue"
           size="sm"
@@ -472,7 +470,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
                           variant="subtle"
                           size="sm"
                           className="flex-shrink-0"
-                          disabled={!!removingCorruption}
+                          disabled={isAnyRemovalRunning}
                         >
                           {expandedCorruptionService === service ? (
                             <ChevronUp className="w-4 h-4" />
@@ -496,7 +494,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
                           onClick={() => handleRemoveCorruption(service)}
                           disabled={
                             mockMode ||
-                            !!removingCorruption ||
+                            isAnyRemovalRunning ||
                             !!startingCorruptionRemoval ||
                             authMode !== 'authenticated' ||
                             logsReadOnly ||

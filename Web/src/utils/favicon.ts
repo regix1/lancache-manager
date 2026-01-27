@@ -56,7 +56,7 @@ function generateFaviconSvg(primaryColor: string): string {
 /**
  * Updates the favicon in the document with the current theme color
  */
-export function updateFavicon(): void {
+function updateFavicon(): void {
   // Get the current theme primary color
   const primaryColor =
     getComputedStyle(document.documentElement).getPropertyValue('--theme-primary').trim() ||

@@ -3,13 +3,13 @@ import { useTranslation } from 'react-i18next';
 import { Tooltip } from '@components/ui/Tooltip';
 import { getEventColorVar } from '@utils/eventColors';
 
-export interface EventFrameEvent {
+interface EventFrameEvent {
   id: number;
   name: string;
   colorIndex: number;
 }
 
-export interface EventFrameTokens {
+interface EventFrameTokens {
   offset?: number;
   radius?: number;
   strokeWidth?: number;
@@ -17,7 +17,7 @@ export interface EventFrameTokens {
   badgeOffset?: number;
 }
 
-export interface EventFrameProps {
+interface EventFrameProps {
   children: React.ReactNode;
   enabled?: boolean;
   color?: string;

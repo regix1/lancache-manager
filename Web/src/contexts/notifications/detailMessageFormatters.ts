@@ -1,11 +1,20 @@
 import type {
   ProcessingProgressEvent,
   DepotMappingProgressEvent,
+  LogRemovalProgressEvent,
+  LogRemovalCompleteEvent,
   GameRemovalProgressEvent,
   ServiceRemovalProgressEvent,
-  LogRemovalProgressEvent,
+  CorruptionRemovalStartedEvent,
+  CorruptionRemovalCompleteEvent,
+  GameDetectionStartedEvent,
+  GameDetectionCompleteEvent,
+  CorruptionDetectionStartedEvent,
+  CorruptionDetectionCompleteEvent,
+  DatabaseResetProgressEvent,
   CacheClearProgressEvent,
-  DatabaseResetProgressEvent
+  CacheClearCompleteEvent,
+  DepotMappingStartedEvent
 } from '../SignalRContext/types';
 
 /**
@@ -107,76 +116,6 @@ export const formatDepotMappingRecoveryDetailMessage = (data: {
 };
 
 // ============================================================================
-// Log Removal
-// ============================================================================
-
-/**
- * Formats the message for log removal progress.
- * Shows service name and optionally lines removed count.
- * @param event - The log removal progress event from SignalR
- * @returns Formatted message string
- */
-export const formatLogRemovalMessage = (event: LogRemovalProgressEvent): string => {
-  const linesRemoved = event.linesRemoved || 0;
-  if (linesRemoved > 0) {
-    return `Removing ${event.service} entries (${linesRemoved.toLocaleString()} removed)...`;
-  }
-  return event.message || `Removing ${event.service} entries...`;
-};
-
-// ============================================================================
-// Game Removal
-// ============================================================================
-
-/**
- * Formats the message for game removal progress.
- * @param event - The game removal progress event from SignalR
- * @returns Formatted message string
- */
-export const formatGameRemovalMessage = (event: GameRemovalProgressEvent): string => {
-  return event.message || `Removing ${event.gameName}...`;
-};
-
-// ============================================================================
-// Service Removal
-// ============================================================================
-
-/**
- * Formats the message for service removal progress.
- * @param event - The service removal progress event from SignalR
- * @returns Formatted message string
- */
-export const formatServiceRemovalMessage = (event: ServiceRemovalProgressEvent): string => {
-  return event.message || `Removing ${event.serviceName} cache...`;
-};
-
-// ============================================================================
-// Cache Clearing
-// ============================================================================
-
-/**
- * Formats the message for cache clear progress.
- * @param event - The cache clear progress event from SignalR
- * @returns Formatted message string
- */
-export const formatCacheClearMessage = (event: CacheClearProgressEvent): string => {
-  return event.statusMessage || 'Clearing cache...';
-};
-
-// ============================================================================
-// Database Reset
-// ============================================================================
-
-/**
- * Formats the message for database reset progress.
- * @param event - The database reset progress event from SignalR
- * @returns Formatted message string
- */
-export const formatDatabaseResetMessage = (event: DatabaseResetProgressEvent): string => {
-  return event.message || 'Resetting database...';
-};
-
-// ============================================================================
 // Recovery Message Formatters (for recoveryFactory.ts)
 // ============================================================================
 
@@ -208,4 +147,231 @@ export const formatLogProcessingRecoveryDetailMessage = (
   const entries = entriesProcessed?.toLocaleString() || '0';
   const total = totalLines?.toLocaleString() || '0';
   return `${entries} of ${total} entries`;
+};
+
+// ============================================================================
+// Log Removal
+// ============================================================================
+
+/**
+ * Formats the message for log removal progress.
+ * Shows service name and optionally lines removed count.
+ * @param event - The log removal progress event from SignalR
+ * @returns Formatted message string
+ */
+export const formatLogRemovalProgressMessage = (event: LogRemovalProgressEvent): string => {
+  const linesRemoved = event.linesRemoved || 0;
+  if (linesRemoved > 0) {
+    return `Removing ${event.service} entries (${linesRemoved.toLocaleString()} removed)...`;
+  }
+  return event.message || `Removing ${event.service} entries...`;
+};
+
+/**
+ * Formats the success message for log removal completion.
+ * @param event - The log removal complete event from SignalR
+ * @returns Formatted success message string
+ */
+export const formatLogRemovalCompleteMessage = (event: LogRemovalCompleteEvent): string => {
+  return event.message || `Successfully removed ${event.service} entries`;
+};
+
+// ============================================================================
+// Game Removal
+// ============================================================================
+
+/**
+ * Formats the message for game removal progress.
+ * @param event - The game removal progress event from SignalR
+ * @returns Formatted message string
+ */
+export const formatGameRemovalProgressMessage = (event: GameRemovalProgressEvent): string => {
+  return event.message || `Removing ${event.gameName}...`;
+};
+
+// ============================================================================
+// Service Removal
+// ============================================================================
+
+/**
+ * Formats the message for service removal progress.
+ * @param event - The service removal progress event from SignalR
+ * @returns Formatted message string
+ */
+export const formatServiceRemovalProgressMessage = (event: ServiceRemovalProgressEvent): string => {
+  return event.message || `Removing ${event.serviceName} cache...`;
+};
+
+// ============================================================================
+// Corruption Removal
+// ============================================================================
+
+/**
+ * Formats the message for corruption removal started.
+ * @param event - The corruption removal started event from SignalR
+ * @returns Formatted message string
+ */
+export const formatCorruptionRemovalStartedMessage = (
+  event: CorruptionRemovalStartedEvent
+): string => {
+  return event.message || `Removing corrupted chunks for ${event.service}...`;
+};
+
+/**
+ * Formats the success message for corruption removal completion.
+ * @param event - The corruption removal complete event from SignalR
+ * @returns Formatted success message string
+ */
+export const formatCorruptionRemovalCompleteMessage = (
+  event: CorruptionRemovalCompleteEvent
+): string => {
+  return event.message || `Successfully removed corrupted chunks for ${event.service}`;
+};
+
+// ============================================================================
+// Game Detection
+// ============================================================================
+
+/**
+ * Formats the message for game detection started.
+ * @param event - The game detection started event from SignalR
+ * @returns Formatted message string
+ */
+export const formatGameDetectionStartedMessage = (event: GameDetectionStartedEvent): string => {
+  return event.message || 'Detecting games and services in cache...';
+};
+
+/**
+ * Formats the success message for game detection completion.
+ * @param event - The game detection complete event from SignalR
+ * @returns Formatted success message string
+ */
+export const formatGameDetectionCompleteMessage = (event: GameDetectionCompleteEvent): string => {
+  return event.message || 'Game detection completed';
+};
+
+/**
+ * Formats the failure message for game detection.
+ * @param event - The game detection complete event from SignalR
+ * @returns Formatted failure message string
+ */
+export const formatGameDetectionFailureMessage = (event: GameDetectionCompleteEvent): string => {
+  return event.message || 'Game detection failed';
+};
+
+// ============================================================================
+// Corruption Detection
+// ============================================================================
+
+/**
+ * Formats the message for corruption detection started.
+ * @param event - The corruption detection started event from SignalR
+ * @returns Formatted message string
+ */
+export const formatCorruptionDetectionStartedMessage = (
+  event: CorruptionDetectionStartedEvent
+): string => {
+  return event.message || 'Scanning for corrupted cache chunks...';
+};
+
+/**
+ * Formats the success message for corruption detection completion.
+ * @param event - The corruption detection complete event from SignalR
+ * @returns Formatted success message string
+ */
+export const formatCorruptionDetectionCompleteMessage = (
+  event: CorruptionDetectionCompleteEvent
+): string => {
+  return event.message || 'Corruption scan completed';
+};
+
+/**
+ * Formats the failure message for corruption detection.
+ * @param event - The corruption detection complete event from SignalR
+ * @returns Formatted failure message string
+ */
+export const formatCorruptionDetectionFailureMessage = (
+  event: CorruptionDetectionCompleteEvent
+): string => {
+  return event.message || 'Corruption scan failed';
+};
+
+// ============================================================================
+// Database Reset
+// ============================================================================
+
+/**
+ * Formats the message for database reset progress.
+ * @param event - The database reset progress event from SignalR
+ * @returns Formatted message string
+ */
+export const formatDatabaseResetProgressMessage = (event: DatabaseResetProgressEvent): string => {
+  return event.message || 'Resetting database...';
+};
+
+/**
+ * Formats the completion message for database reset.
+ * @param event - The database reset progress event from SignalR
+ * @returns Formatted completion message string
+ */
+export const formatDatabaseResetCompleteMessage = (event: DatabaseResetProgressEvent): string => {
+  return event.message || 'Database reset completed';
+};
+
+// ============================================================================
+// Cache Clearing
+// ============================================================================
+
+/**
+ * Formats the message for cache clear progress.
+ * @param event - The cache clear progress event from SignalR
+ * @returns Formatted message string
+ */
+export const formatCacheClearProgressMessage = (event: CacheClearProgressEvent): string => {
+  return event.statusMessage || 'Clearing cache...';
+};
+
+/**
+ * Formats the success message for cache clear completion.
+ * @param event - The cache clear complete event from SignalR
+ * @returns Formatted success message string
+ */
+export const formatCacheClearCompleteMessage = (event: CacheClearCompleteEvent): string => {
+  return event.message || 'Cache cleared successfully';
+};
+
+/**
+ * Formats the failure message for cache clear.
+ * @param event - The cache clear complete event from SignalR
+ * @returns Formatted failure message string
+ */
+export const formatCacheClearFailureMessage = (event: CacheClearCompleteEvent): string => {
+  return event.error || event.message || 'Cache clear failed';
+};
+
+// ============================================================================
+// Depot Mapping
+// ============================================================================
+
+/**
+ * Formats the message for depot mapping started.
+ * @param event - The depot mapping started event from SignalR
+ * @returns Formatted message string
+ */
+export const formatDepotMappingStartedMessage = (event: DepotMappingStartedEvent): string => {
+  return event.message || 'Starting depot mapping scan...';
+};
+
+/**
+ * Formats the message for depot mapping progress.
+ * Falls back to existing notification message if event has no message.
+ * @param event - The depot mapping progress event from SignalR
+ * @param existingMessage - Optional existing notification message for fallback
+ * @returns Formatted message string
+ */
+export const formatDepotMappingProgressMessage = (
+  event: DepotMappingProgressEvent,
+  existingMessage?: string
+): string => {
+  return event.message || existingMessage || 'Scanning depot mappings...';
 };

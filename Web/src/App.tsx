@@ -104,8 +104,8 @@ const AppContent: React.FC = () => {
 
   // Start heartbeat service when component mounts
   useEffect(() => {
-    // Only start heartbeats for authenticated sessions (prevents 401 spam on cold load)
-    if (!checkingAuth && authMode === 'authenticated') {
+    // Start heartbeats for authenticated and guest sessions (prevents 401 spam only when unauthenticated)
+    if (!checkingAuth && (authMode === 'authenticated' || authMode === 'guest')) {
       heartbeatService.startHeartbeat();
     } else {
       heartbeatService.stopHeartbeat();

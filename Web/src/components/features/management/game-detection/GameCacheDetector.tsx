@@ -37,7 +37,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   refreshKey = 0
 }) => {
   const { t } = useTranslation();
-  const { addNotification, updateNotification, notifications } = useNotifications();
+  const { addNotification, updateNotification, notifications, isAnyRemovalRunning } = useNotifications();
   const { isDockerAvailable } = useDockerSocket();
 
   // Derive game detection state from notifications (standardized pattern)
@@ -749,6 +749,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                     services={filteredServices}
                     totalServices={filteredServices.length}
                     notifications={notifications}
+                    isAnyRemovalRunning={isAnyRemovalRunning}
                     isAuthenticated={isAuthenticated}
                     cacheReadOnly={cacheReadOnly}
                     dockerSocketAvailable={isDockerAvailable}
@@ -772,6 +773,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                     games={filteredGames}
                     totalGames={filteredGames.length}
                     notifications={notifications}
+                    isAnyRemovalRunning={isAnyRemovalRunning}
                     isAuthenticated={isAuthenticated}
                     cacheReadOnly={cacheReadOnly}
                     dockerSocketAvailable={isDockerAvailable}

@@ -38,18 +38,3 @@ export const ClientIpDisplay: React.FC<ClientIpDisplayProps> = ({
     </Tooltip>
   );
 };
-
-/**
- * Hook to get the display name for a client IP.
- * Returns the nickname if one exists, otherwise returns the IP.
- */
-export const useClientDisplayName = (clientIp: string): { displayName: string; hasNickname: boolean; nickname?: string } => {
-  const { getGroupForIp } = useClientGroups();
-  const group = getGroupForIp(clientIp);
-
-  return {
-    displayName: group?.nickname || clientIp,
-    hasNickname: !!group?.nickname,
-    nickname: group?.nickname
-  };
-};

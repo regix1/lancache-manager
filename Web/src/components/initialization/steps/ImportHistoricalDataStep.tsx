@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Database, Loader2, CheckCircle, XCircle, FolderOpen, RefreshCw, Search } from 'lucide-react';
+import { Database, Loader2, CheckCircle, XCircle, FolderOpen, RefreshCw, Search, ChevronDown, ChevronUp, HardDrive } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
@@ -46,7 +46,7 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
   onSkip
 }) => {
   const { t } = useTranslation();
-  
+
   const importTypeOptions: DropdownOption[] = [
     {
       value: 'develancache',
@@ -59,7 +59,7 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
       description: t('initialization.importHistorical.lancacheManagerDesc')
     }
   ];
-  
+
   const [importType, setImportType] = useState<ImportType>(() => {
     const stored = storage.getItem('importType');
     return (stored === 'lancache-manager' ? stored : 'develancache') as ImportType;
@@ -81,6 +81,7 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
   const [inputMode, setInputMode] = useState<InputMode>('auto');
   const [autoSearching, setAutoSearching] = useState(false);
   const [foundDatabases, setFoundDatabases] = useState<FileSystemItem[]>([]);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   useEffect(() => {
     storage.setItem('importType', importType);
@@ -102,7 +103,6 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
     storage.setItem('importOverwriteExisting', overwriteExisting.toString());
   }, [overwriteExisting]);
 
-  // Auto-search for databases when in auto mode
   const searchForDatabases = useCallback(async () => {
     setAutoSearching(true);
     try {
@@ -120,7 +120,6 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
     }
   }, []);
 
-  // Trigger search when switching to auto mode
   useEffect(() => {
     if (inputMode === 'auto' && foundDatabases.length === 0) {
       searchForDatabases();
@@ -198,56 +197,37 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex flex-col items-center text-center">
-        <div
-          className={`w-14 h-14 rounded-full flex items-center justify-center mb-3 ${
-            importType === 'develancache' ? 'bg-themed-info' : 'bg-themed-primary-subtle'
-          }`}
-        >
-          <Database className={`w-7 h-7 ${importType === 'develancache' ? 'icon-info' : 'icon-primary'}`} />
+        <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-info">
+          <HardDrive className="w-7 h-7 icon-info" />
         </div>
-        <h3 className="text-lg font-semibold text-themed-primary mb-1">{t('initialization.importHistorical.title')}</h3>
+        <h3 className="text-lg font-semibold text-themed-primary mb-1">
+          {t('initialization.importHistorical.title')}
+        </h3>
         <p className="text-sm text-themed-secondary max-w-md">
           {t('initialization.importHistorical.subtitle')}
         </p>
-      </div>
-
-      {/* Skip Notice */}
-      <div className="p-3 rounded-lg text-center text-sm bg-themed-info text-themed-info">
-        {t('initialization.importHistorical.skipNotice')}
       </div>
 
       {/* Success Message */}
       {importResult && (
         <div className="p-4 rounded-lg bg-themed-success">
           <p className="font-medium mb-2 flex items-center gap-2 text-themed-success">
-            <CheckCircle className="w-4 h-4" />
+            <CheckCircle className="w-5 h-5" />
             {importResult.message}
           </p>
-          <div className="grid grid-cols-2 gap-2 text-sm text-themed-success">
-            <div>{t('initialization.importHistorical.total', {
-              count: importResult.totalRecords,
-              formattedCount: importResult.totalRecords.toLocaleString()
-            })}</div>
-            <div>{t('initialization.importHistorical.imported', {
-              count: importResult.imported,
-              formattedCount: importResult.imported.toLocaleString()
-            })}</div>
-            <div>{t('initialization.importHistorical.skipped', {
-              count: importResult.skipped,
-              formattedCount: importResult.skipped.toLocaleString()
-            })}</div>
-            <div>{t('initialization.importHistorical.errors', {
-              count: importResult.errors,
-              formattedCount: importResult.errors.toLocaleString()
-            })}</div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm text-themed-success">
+            <div>{t('initialization.importHistorical.total', { count: importResult.totalRecords, formattedCount: importResult.totalRecords.toLocaleString() })}</div>
+            <div>{t('initialization.importHistorical.imported', { count: importResult.imported, formattedCount: importResult.imported.toLocaleString() })}</div>
+            <div>{t('initialization.importHistorical.skipped', { count: importResult.skipped, formattedCount: importResult.skipped.toLocaleString() })}</div>
+            <div>{t('initialization.importHistorical.errors', { count: importResult.errors, formattedCount: importResult.errors.toLocaleString() })}</div>
           </div>
         </div>
       )}
 
-      {/* Import Type Dropdown */}
+      {/* Database Type Selection */}
       <div>
         <label className="block text-sm font-medium text-themed-secondary mb-1.5">
           {t('initialization.importHistorical.databaseType')}
@@ -263,45 +243,53 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
         />
       </div>
 
-      {/* Mode Toggle */}
-      <div className="flex items-center justify-center gap-2">
-        <Button
+      {/* Mode Selection Tabs */}
+      <div className="flex rounded-lg p-1 gap-1 bg-themed-tertiary">
+        <button
           onClick={() => setInputMode('auto')}
-          size="xs"
-          variant={inputMode === 'auto' ? 'filled' : 'default'}
-          color="blue"
           disabled={importing || !!importResult}
+          className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-all ${
+            inputMode === 'auto'
+              ? 'bg-themed-secondary text-themed-primary shadow-sm'
+              : 'text-themed-secondary hover:text-themed-primary'
+          } disabled:opacity-50`}
         >
-          <Search className="w-3 h-3 mr-1" />
+          <Search className="w-4 h-4" />
           {t('initialization.importHistorical.auto')}
-        </Button>
-        <Button
+        </button>
+        <button
           onClick={() => setInputMode('browse')}
-          size="xs"
-          variant={inputMode === 'browse' ? 'filled' : 'default'}
-          color="blue"
           disabled={importing || !!importResult}
+          className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-all ${
+            inputMode === 'browse'
+              ? 'bg-themed-secondary text-themed-primary shadow-sm'
+              : 'text-themed-secondary hover:text-themed-primary'
+          } disabled:opacity-50`}
         >
-          <FolderOpen className="w-3 h-3 mr-1" />
+          <FolderOpen className="w-4 h-4" />
           {t('initialization.importHistorical.browse')}
-        </Button>
-        <Button
+        </button>
+        <button
           onClick={() => setInputMode('manual')}
-          size="xs"
-          variant={inputMode === 'manual' ? 'filled' : 'default'}
-          color="blue"
           disabled={importing || !!importResult}
+          className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-all ${
+            inputMode === 'manual'
+              ? 'bg-themed-secondary text-themed-primary shadow-sm'
+              : 'text-themed-secondary hover:text-themed-primary'
+          } disabled:opacity-50`}
         >
           {t('initialization.importHistorical.manualPath')}
-        </Button>
+        </button>
       </div>
 
-      {/* Auto Mode - Found Databases */}
+      {/* Auto Mode Content */}
       {inputMode === 'auto' && (
-        <div className="space-y-3">
+        <div className="space-y-2">
           <div className="flex items-center justify-between">
             <p className="text-sm text-themed-secondary">
-              {autoSearching ? t('initialization.importHistorical.searching') : t('initialization.importHistorical.foundDatabases', { count: foundDatabases.length })}
+              {autoSearching
+                ? t('initialization.importHistorical.searching')
+                : t('initialization.importHistorical.foundDatabases', { count: foundDatabases.length })}
             </p>
             <Button
               onClick={searchForDatabases}
@@ -309,11 +297,7 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
               variant="subtle"
               size="xs"
             >
-              {autoSearching ? (
-                <Loader2 className="w-3 h-3 animate-spin" />
-              ) : (
-                <RefreshCw className="w-3 h-3" />
-              )}
+              {autoSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
             </Button>
           </div>
 
@@ -324,7 +308,7 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
             </div>
           ) : foundDatabases.length > 0 ? (
             <div className="rounded-lg border overflow-hidden border-themed-secondary">
-              <div className="max-h-[180px] overflow-y-auto custom-scrollbar">
+              <div className="max-h-[160px] overflow-y-auto custom-scrollbar">
                 {foundDatabases.map((item, index) => (
                   <button
                     key={index}
@@ -339,12 +323,10 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
                       <Database className="w-4 h-4 icon-green" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium text-themed-primary truncate text-sm">{item.name}</div>
-                      <div className="text-xs text-themed-muted mt-0.5 truncate">{item.path}</div>
+                      <div className="font-medium text-themed-primary truncate">{item.name}</div>
+                      <div className="text-xs text-themed-muted truncate">{item.path}</div>
                     </div>
-                    <div className="text-xs text-themed-muted flex-shrink-0">
-                      {formatSize(item.size)}
-                    </div>
+                    <div className="text-xs text-themed-muted flex-shrink-0">{formatSize(item.size)}</div>
                   </button>
                 ))}
               </div>
@@ -384,51 +366,53 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
         </div>
       )}
 
-      {/* Selected Database Display (for auto mode) */}
+      {/* Selected Database Display */}
       {inputMode === 'auto' && connectionString && (
         <div className="p-3 rounded-lg flex items-center gap-2 bg-themed-tertiary">
-          <Database className="w-4 h-4 text-themed-secondary" />
-          <span className="text-sm text-themed-primary font-medium truncate flex-1">
-            {connectionString}
-          </span>
+          <Database className="w-4 h-4 text-themed-secondary flex-shrink-0" />
+          <span className="text-sm text-themed-primary font-medium truncate flex-1">{connectionString}</span>
         </div>
       )}
 
       {/* Advanced Options */}
-      <div className="p-4 rounded-lg space-y-3 bg-themed-tertiary">
-        <div>
-          <label className="block text-sm font-medium text-themed-secondary mb-1.5">{t('initialization.importHistorical.batchSize')}</label>
-          <input
-            type="number"
-            value={batchSize}
-            onChange={(e) => setBatchSize(parseInt(e.target.value) || 1000)}
-            min="100"
-            max="10000"
-            step="100"
-            className="w-full px-3 py-2 themed-input"
-            disabled={importing || !!importResult}
-          />
-        </div>
-        <div>
-          <Checkbox
-            checked={overwriteExisting}
-            onChange={(e) => setOverwriteExisting(e.target.checked)}
-            label={t('initialization.importHistorical.updateExisting')}
-            disabled={importing || !!importResult}
-          />
-          <p className="text-xs text-themed-muted mt-1 ml-6">
-            {overwriteExisting ? t('initialization.importHistorical.updateExistingNote') : t('initialization.importHistorical.addNewOnly')}
-          </p>
-        </div>
+      <div className="rounded-lg border border-themed-secondary overflow-hidden">
+        <button
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          className="w-full px-4 py-2 flex items-center justify-between text-sm font-medium text-themed-secondary bg-themed-tertiary hover:bg-themed-hover transition-colors"
+        >
+          <span>{t('initialization.importHistorical.advancedOptions')}</span>
+          {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        {showAdvanced && (
+          <div className="px-4 py-3 flex flex-wrap items-center gap-4 bg-themed-secondary">
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-themed-secondary whitespace-nowrap">
+                {t('initialization.importHistorical.batchSize')}:
+              </label>
+              <input
+                type="number"
+                value={batchSize}
+                onChange={(e) => setBatchSize(parseInt(e.target.value) || 1000)}
+                min="100"
+                max="10000"
+                step="100"
+                className="w-24 px-2 py-1 themed-input text-sm"
+                disabled={importing || !!importResult}
+              />
+            </div>
+            <Checkbox
+              checked={overwriteExisting}
+              onChange={(e) => setOverwriteExisting(e.target.checked)}
+              label={t('initialization.importHistorical.updateExisting')}
+              disabled={importing || !!importResult}
+            />
+          </div>
+        )}
       </div>
 
       {/* Validation Result */}
       {validationResult && (
-        <div
-          className={`p-3 rounded-lg flex items-start gap-3 ${
-            validationResult.valid ? 'bg-themed-success' : 'bg-themed-error'
-          }`}
-        >
+        <div className={`p-3 rounded-lg flex items-start gap-3 ${validationResult.valid ? 'bg-themed-success' : 'bg-themed-error'}`}>
           {validationResult.valid ? (
             <CheckCircle className="w-5 h-5 flex-shrink-0 icon-success" />
           ) : (
@@ -442,23 +426,13 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
                 formattedCount: (validationResult.recordCount ?? 0).toLocaleString()
               })}`}
             </p>
-            {!validationResult.valid && validationResult.message.includes('DownloadEvents') && (
-              <p className="mt-1 text-xs opacity-80">
-                {t('initialization.importHistorical.checkDeveLanCache')}
-              </p>
-            )}
-            {!validationResult.valid && validationResult.message.includes('Downloads') && (
-              <p className="mt-1 text-xs opacity-80">
-                {t('initialization.importHistorical.checkLancacheManager')}
-              </p>
-            )}
           </div>
         </div>
       )}
 
       {/* Action Buttons */}
       {!importResult && (
-        <div className="flex gap-3">
+        <div className="flex flex-col sm:flex-row gap-2">
           <Button
             variant="default"
             onClick={handleValidate}
@@ -484,6 +458,13 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
             {t('initialization.importHistorical.skip')}
           </Button>
         </div>
+      )}
+
+      {/* Skip Notice */}
+      {!importResult && (
+        <p className="text-xs text-themed-muted text-center">
+          {t('initialization.importHistorical.skipNotice')}
+        </p>
       )}
     </div>
   );

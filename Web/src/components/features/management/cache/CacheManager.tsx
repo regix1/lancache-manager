@@ -95,7 +95,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
 
   // Cache size from global context (persists across navigation)
   const { cacheSize, isLoading: cacheSizeLoading, error: cacheSizeError, fetchCacheSize, clearCacheSize } = useCacheSize();
-  const { addNotification } = useNotifications();
+  const { addNotification, isAnyRemovalRunning } = useNotifications();
 
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -283,7 +283,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       <Tooltip content={t('management.cache.refreshCacheSize')} position="top">
         <Button
           onClick={fetchCacheSize}
-          disabled={cacheSizeLoading || isCacheClearing}
+          disabled={cacheSizeLoading || isAnyRemovalRunning}
           variant="subtle"
           size="sm"
         >
@@ -299,7 +299,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
           disabled={
             actionLoading ||
             mockMode ||
-            isCacheClearing ||
+            isAnyRemovalRunning ||
             authMode !== 'authenticated' ||
             cacheReadOnly
           }
@@ -371,7 +371,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                         disabled={
                           actionLoading ||
                           mockMode ||
-                          isCacheClearing ||
+                          isAnyRemovalRunning ||
                           authMode !== 'authenticated' ||
                           cacheReadOnly ||
                           !ds.cacheWritable
@@ -403,7 +403,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                     variant="subtle"
                     size="sm"
                     onClick={fetchCacheSize}
-                    disabled={cacheSizeLoading || isCacheClearing}
+                    disabled={cacheSizeLoading || isAnyRemovalRunning}
                   >
                     {cacheSizeLoading ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin text-themed-muted" />
@@ -473,7 +473,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                     disabled={
                       deleteModeLoading ||
                       mockMode ||
-                      isCacheClearing ||
+                      isAnyRemovalRunning ||
                       authMode !== 'authenticated' ||
                       cacheReadOnly
                     }
@@ -489,7 +489,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                     disabled={
                       deleteModeLoading ||
                       mockMode ||
-                      isCacheClearing ||
+                      isAnyRemovalRunning ||
                       authMode !== 'authenticated' ||
                       cacheReadOnly
                     }
@@ -506,7 +506,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                       disabled={
                         deleteModeLoading ||
                         mockMode ||
-                        isCacheClearing ||
+                        isAnyRemovalRunning ||
                         authMode !== 'authenticated' ||
                         cacheReadOnly
                       }

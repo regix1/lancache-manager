@@ -162,5 +162,3 @@ export const useDownloadAssociations = (): DownloadAssociationsContextType => {
   }
   return context;
 };
-
-export default DownloadAssociationsContext;

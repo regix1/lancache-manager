@@ -1955,6 +1955,8 @@
     "logRemoval": {
       "title": "Log Removal",
       "subtitle": "Remove service entries from log files",
+      "readOnly": "Read-only",
+      "dockerSocketRequired": "Docker socket required",
       "refreshServiceCounts": "Refresh service counts",
       "noEntriesForDatasource": "No services with log entries",
       "labels": {
@@ -4179,6 +4181,31 @@
       "whereToFindDesc": "Check your server logs for \"API Key:\" or look in",
       "noDataTooltip": "No data available. Complete setup first."
     },
+    "permissionsCheck": {
+      "title": "Permissions Check",
+      "subtitle": "Verifying access to required directories and services",
+      "cacheDirectory": "Cache Directory",
+      "logsDirectory": "Logs Directory",
+      "dockerSocket": "Docker Socket",
+      "checking": "Checking...",
+      "writable": "Read/Write",
+      "readOnly": "Read-only",
+      "notAccessible": "Not accessible",
+      "notFound": "Not found",
+      "available": "Available",
+      "notAvailable": "Not available",
+      "cacheImpact": "Cannot clear cache or remove games",
+      "logsImpact": "Cannot remove log entries",
+      "cacheNotFound": "Directory will be created when cache data is generated",
+      "logsNotFound": "Create the logs directory and point it to your Lancache logs",
+      "dockerImpact": "Cannot signal container restart after log rotation",
+      "allGood": "All permissions verified. You have full access to all features.",
+      "hasWarnings": "Some features may be limited. You can still proceed.",
+      "hasErrors": "Some directories are not accessible. This may cause issues.",
+      "failedToCheck": "Failed to check permissions. Please try again.",
+      "recheck": "Recheck",
+      "continue": "Continue"
+    },
     "dataSource": {
       "title": "Choose Data Source",
       "subtitle": "Select how to obtain depot mapping data for identifying Steam games",
@@ -4367,6 +4394,7 @@
       "noDatabasesFound": "No database files found",
       "tryOtherModes": "Try using Browse or Manual mode",
       "databasePath": "Database File Path",
+      "advancedOptions": "Advanced Options",
       "batchSize": "Batch Size",
       "updateExisting": "Update existing records (merge mode)",
       "updateExistingNote": "Existing records will be updated.",
@@ -4395,6 +4423,7 @@
       "cannotGoBack": "Cannot go back during operation",
       "stepTitles": {
         "authentication": "Authentication",
+        "permissionsCheck": "Permissions Check",
         "importHistoricalData": "Import Historical Data",
         "dataSourceSelection": "Data Source Selection",
         "steamApiKey": "Steam API Key",

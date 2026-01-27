@@ -3,11 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { useStats } from '@contexts/StatsContext';
 import { useNotifications } from '@contexts/notifications';
 import { useMockMode } from '@contexts/MockModeContext';
-import { useSignalR } from '@contexts/SignalRContext';
-import type {
-  LogRemovalCompleteEvent,
-  CorruptionRemovalCompleteEvent
-} from '@contexts/SignalRContext/types';
 import { useAuth } from '@contexts/AuthContext';
 import { useSteamAuth } from '@contexts/SteamAuthContext';
 import operationStateService from '@services/operationState.service';
@@ -36,7 +31,6 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
   const { refreshStats } = useStats();
   const { addNotification, notifications } = useNotifications();
   const { mockMode } = useMockMode();
-  const signalR = useSignalR();
   const { isAuthenticated, authMode } = useAuth();
   const { steamAuthMode } = useSteamAuth();
 
@@ -68,10 +62,6 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
   // Use ref to ensure migration only happens once
   const hasMigratedRef = useRef(false);
 
-  // Refs to interact with LogRemovalManager and CorruptionManager
-  const logRemovalReloadRef = useRef<(() => Promise<void>) | null>(null);
-  const corruptionReloadRef = useRef<(() => Promise<void>) | null>(null);
-
   // Notification management
   const addError = useCallback(
     (message: string) => {
@@ -96,34 +86,6 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
     },
     [addNotification]
   );
-
-  // Helper function to refresh log removal data
-  const refreshLogRemoval = useCallback(async () => {
-    if (logRemovalReloadRef.current) {
-      await logRemovalReloadRef.current();
-    }
-  }, []);
-
-  // Helper function to refresh corruption data
-  const refreshCorruption = useCallback(async () => {
-    if (corruptionReloadRef.current) {
-      await corruptionReloadRef.current();
-    }
-  }, []);
-
-  // Refs for callbacks to avoid dependency issues in SignalR subscriptions
-  const addErrorRef = useRef(addError);
-  const setSuccessRef = useRef(setSuccess);
-  const refreshLogRemovalRef = useRef(refreshLogRemoval);
-  const refreshCorruptionRef = useRef(refreshCorruption);
-
-  // Keep refs up to date
-  useEffect(() => {
-    addErrorRef.current = addError;
-    setSuccessRef.current = setSuccess;
-    refreshLogRemovalRef.current = refreshLogRemoval;
-    refreshCorruptionRef.current = refreshCorruption;
-  }, [addError, setSuccess, refreshLogRemoval, refreshCorruption]);
 
   // Persist active section to localStorage
   useEffect(() => {
@@ -177,33 +139,6 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
 
     initialize();
   }, [setSuccess]);
-
-  // Subscribe to SignalR events for management-specific operations
-  useEffect(() => {
-    if (mockMode) return;
-
-    const handleLogRemovalComplete = async (result: LogRemovalCompleteEvent) => {
-      if (result.success) {
-        await refreshLogRemovalRef.current();
-      }
-      // State is derived from notifications, no need to clear operation state
-    };
-
-    const handleCorruptionRemovalComplete = async (result: CorruptionRemovalCompleteEvent) => {
-      if (result.success) {
-        await refreshCorruptionRef.current();
-      }
-    };
-
-    signalR.on('LogRemovalComplete', handleLogRemovalComplete);
-    signalR.on('CorruptionRemovalComplete', handleCorruptionRemovalComplete);
-
-    return () => {
-      signalR.off('LogRemovalComplete', handleLogRemovalComplete);
-      signalR.off('CorruptionRemovalComplete', handleCorruptionRemovalComplete);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mockMode]);
 
   // Handle section change
   const handleSectionChange = useCallback((section: ManagementSection) => {
@@ -271,8 +206,6 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
             onError={addError}
             onSuccess={setSuccess}
             onDataRefresh={refreshStats}
-            logRemovalReloadRef={logRemovalReloadRef}
-            corruptionReloadRef={corruptionReloadRef}
           />
         );
 
