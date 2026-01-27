@@ -28,13 +28,18 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
   const hasPublicDnsWithHostNetworking = diagnostics.useHostNetworking &&
     diagnostics.dnsResults.some(r => r.success && !r.isPrivateIp);
 
+  // Check if at least one Steam domain resolves to a private IP (either domain is sufficient)
+  const hasAtLeastOnePrivateDns = diagnostics.dnsResults.some(r => r.success && r.isPrivateIp);
+
+  // IPv6 bypass is only an issue if no domain resolves to a private IP via IPv4
   const hasIpv6BypassIssue = !diagnostics.useHostNetworking &&
+    !hasAtLeastOnePrivateDns &&
     diagnostics.dnsResults.some(r => r.success && hasIpv6Resolution(r) && !r.isPrivateIp);
 
-  // Only flag as issue if: no internet, DNS failed, public IP without host networking, or IPv6 bypass risk
+  // Only flag as issue if: no internet, or no domains resolve to private IP without host networking
+  // Note: For Steam, users only need ONE of the two domains configured correctly
   const hasRealIssue = !diagnostics.internetConnectivity ||
-    diagnostics.dnsResults.some(r => !r.success) ||
-    (!diagnostics.useHostNetworking && diagnostics.dnsResults.some(r => r.success && !r.isPrivateIp)) ||
+    (!diagnostics.useHostNetworking && !hasAtLeastOnePrivateDns) ||
     hasIpv6BypassIssue;
 
   // Show info state (not warning) when public DNS but host networking is in use
@@ -187,7 +192,11 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
           )}
 
           {/* DNS Results */}
-          {diagnostics.dnsResults.map((result, index) => (
+          {diagnostics.dnsResults.map((result, index) => {
+            // Show info (not warning) for public IP if another domain has private IP
+            const showAsInfo = diagnostics.useHostNetworking || hasAtLeastOnePrivateDns;
+            
+            return (
             <div key={index} className="space-y-1">
               {/* Domain row */}
               <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -195,7 +204,7 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
                   {result.success ? (
                     result.isPrivateIp ? (
                       <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[var(--theme-success)]" />
-                    ) : diagnostics.useHostNetworking ? (
+                    ) : showAsInfo ? (
                       <Info className="h-4 w-4 flex-shrink-0 text-[var(--theme-info)]" />
                     ) : (
                       <AlertTriangle className="h-4 w-4 flex-shrink-0 text-[var(--theme-warning)]" />
@@ -220,7 +229,7 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
                   className={`ml-6 text-xs font-mono break-all ${
                     result.isPrivateIp
                       ? 'text-[var(--theme-success)]'
-                      : diagnostics.useHostNetworking
+                      : showAsInfo
                         ? 'text-[var(--theme-info)]'
                         : 'text-[var(--theme-warning)]'
                   }`}
@@ -229,23 +238,25 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
                 </div>
               )}
 
-              {/* DNS Info/Warning for public IP - different message based on host networking */}
+              {/* DNS Info/Warning for public IP - different message based on context */}
               {result.success && !result.isPrivateIp && (
                 <div
                   className={`ml-6 text-xs p-2.5 rounded leading-relaxed ${
-                    diagnostics.useHostNetworking
+                    showAsInfo
                       ? 'bg-[var(--theme-info-bg)] text-[var(--theme-info-text)]'
                       : 'bg-[var(--theme-warning-bg)] text-[var(--theme-warning-text)]'
                   }`}
                 >
                   {diagnostics.useHostNetworking
                     ? t('prefill.network.publicDnsExpected')
-                    : t('prefill.network.publicIpDetected')}
+                    : hasAtLeastOnePrivateDns
+                      ? t('prefill.network.alternativeDomainConfigured')
+                      : t('prefill.network.publicIpDetected')}
                 </div>
               )}
 
-              {/* IPv6 bypass warning */}
-              {result.success && hasIpv6Resolution(result) && !result.isPrivateIp && !diagnostics.useHostNetworking && (
+              {/* IPv6 bypass warning - only show if no domain resolves to private IP */}
+              {result.success && hasIpv6Resolution(result) && !result.isPrivateIp && !diagnostics.useHostNetworking && !hasAtLeastOnePrivateDns && (
                 <div className="ml-6 text-xs p-2.5 rounded leading-relaxed bg-[var(--theme-warning-bg)] text-[var(--theme-warning-text)]">
                   {t('prefill.network.ipv6BypassDetected')}
                 </div>
@@ -258,7 +269,8 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
           </div>
         )}
       </div>
