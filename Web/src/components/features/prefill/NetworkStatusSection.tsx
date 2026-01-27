@@ -28,18 +28,20 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
   const hasPublicDnsWithHostNetworking = diagnostics.useHostNetworking &&
     diagnostics.dnsResults.some(r => r.success && !r.isPrivateIp);
 
-  // Check if at least one Steam domain resolves to a private IP (either domain is sufficient)
-  const hasAtLeastOnePrivateDns = diagnostics.dnsResults.some(r => r.success && r.isPrivateIp);
+  // Steam's official trigger domain - this is the important one
+  const steamTriggerDomain = 'lancache.steamcontent.com';
+  const steamTriggerResult = diagnostics.dnsResults.find(r => r.domain === steamTriggerDomain);
+  const hasSteamTriggerConfigured = steamTriggerResult?.success && steamTriggerResult?.isPrivateIp;
 
-  // IPv6 bypass is only an issue if no domain resolves to a private IP via IPv4
+  // IPv6 bypass is only an issue if the Steam trigger domain doesn't resolve to a private IP via IPv4
   const hasIpv6BypassIssue = !diagnostics.useHostNetworking &&
-    !hasAtLeastOnePrivateDns &&
+    !hasSteamTriggerConfigured &&
     diagnostics.dnsResults.some(r => r.success && hasIpv6Resolution(r) && !r.isPrivateIp);
 
-  // Only flag as issue if: no internet, or no domains resolve to private IP without host networking
-  // Note: For Steam, users only need ONE of the two domains configured correctly
+  // Only flag as issue if: no internet, or Steam trigger domain not configured (without host networking)
+  // Note: steam.cache.lancache.net is optional - only lancache.steamcontent.com matters for Steam
   const hasRealIssue = !diagnostics.internetConnectivity ||
-    (!diagnostics.useHostNetworking && !hasAtLeastOnePrivateDns) ||
+    (!diagnostics.useHostNetworking && !hasSteamTriggerConfigured) ||
     hasIpv6BypassIssue;
 
   // Show info state (not warning) when public DNS but host networking is in use
@@ -193,8 +195,10 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
 
           {/* DNS Results */}
           {diagnostics.dnsResults.map((result, index) => {
-            // Show info (not warning) for public IP if another domain has private IP
-            const showAsInfo = diagnostics.useHostNetworking || hasAtLeastOnePrivateDns;
+            const isSteamTriggerDomain = result.domain === steamTriggerDomain;
+            // For optional domains (steam.cache.lancache.net), show info style if Steam trigger is configured
+            // For the Steam trigger domain, only show info with host networking
+            const showAsInfo = diagnostics.useHostNetworking || (!isSteamTriggerDomain && hasSteamTriggerConfigured);
             
             return (
             <div key={index} className="space-y-1">
@@ -238,7 +242,7 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
                 </div>
               )}
 
-              {/* DNS Info/Warning for public IP - different message based on context */}
+              {/* DNS Info/Warning for public IP - different message based on domain and context */}
               {result.success && !result.isPrivateIp && (
                 <div
                   className={`ml-6 text-xs p-2.5 rounded leading-relaxed ${
@@ -249,14 +253,16 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
                 >
                   {diagnostics.useHostNetworking
                     ? t('prefill.network.publicDnsExpected')
-                    : hasAtLeastOnePrivateDns
-                      ? t('prefill.network.alternativeDomainConfigured')
-                      : t('prefill.network.publicIpDetected')}
+                    : isSteamTriggerDomain
+                      ? t('prefill.network.steamTriggerDomainNotConfigured')
+                      : hasSteamTriggerConfigured
+                        ? t('prefill.network.optionalDomainNotConfigured')
+                        : t('prefill.network.publicIpDetected')}
                 </div>
               )}
 
-              {/* IPv6 bypass warning - only show if no domain resolves to private IP */}
-              {result.success && hasIpv6Resolution(result) && !result.isPrivateIp && !diagnostics.useHostNetworking && !hasAtLeastOnePrivateDns && (
+              {/* IPv6 bypass warning - only show if Steam trigger domain not configured */}
+              {result.success && hasIpv6Resolution(result) && !result.isPrivateIp && !diagnostics.useHostNetworking && !hasSteamTriggerConfigured && (
                 <div className="ml-6 text-xs p-2.5 rounded leading-relaxed bg-[var(--theme-warning-bg)] text-[var(--theme-warning-text)]">
                   {t('prefill.network.ipv6BypassDetected')}
                 </div>

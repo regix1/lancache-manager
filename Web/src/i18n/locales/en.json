@@ -2906,7 +2906,8 @@
       "inDockerCompose": "in your docker-compose.yml",
       "publicDnsExpected": "Public DNS is expected with host networking. Steam-prefill will detect lancache automatically via localhost. If your cache size grows during downloads, everything is working correctly.",
       "publicIpDetected": "Public IP detected - lancache-dns may not be configured. Prefill may download from internet instead of populating cache.",
-      "alternativeDomainConfigured": "This domain resolves to a public IP, but an alternative Steam domain is correctly configured. Prefill will work using the configured domain.",
+      "steamTriggerDomainNotConfigured": "This is Steam's official trigger domain. Configure lancache-dns to point this to your cache server IP for optimal performance (32 connections vs 4).",
+      "optionalDomainNotConfigured": "This domain is optional - it's only used by lancache-dns configuration. As long as lancache.steamcontent.com is configured, prefill will work correctly.",
       "hostNetworkingHint": "If Steam login hangs or times out, try setting Prefill__NetworkMode=bridge in your docker-compose.yml.",
       "ipv6UnsupportedHint": "IPv6 failures are expected: lancache-dns only supports IPv4. If clients prefer IPv6, disable IPv6 or force IPv4 to avoid bypassing your cache.",
       "ipv6BypassDetected": "IPv6 resolution detected for this domain. If your router or clients bypass lancache-dns via IPv6, Steam login and prefill can fail. Consider disabling IPv6 or ensuring AAAA records point to your cache."
