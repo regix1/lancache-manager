@@ -174,6 +174,11 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
     if (typeToIdMap[notification.type]) {
       id = typeToIdMap[notification.type];
+    } else if (notification.type === 'generic' && notification.message) {
+      // For generic notifications, create a deterministic ID based on message
+      // This prevents duplicate notifications with the same message
+      const messageHash = notification.message.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
+      id = `generic_${messageHash}`;
     } else {
       id = `notification_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     }
