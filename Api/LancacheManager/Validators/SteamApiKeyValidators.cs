@@ -1,5 +1,5 @@
 using FluentValidation;
-using static LancacheManager.Controllers.SteamApiKeysController;
+using LancacheManager.Models;
 
 namespace LancacheManager.Validators;
 

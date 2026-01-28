@@ -142,9 +142,3 @@ public class GcController : ControllerBase
         }
     }
 }
-
-public class UpdateGcSettingsRequest
-{
-    public string Aggressiveness { get; set; } = "disabled";
-    public long MemoryThresholdMB { get; set; } = 4096;
-}

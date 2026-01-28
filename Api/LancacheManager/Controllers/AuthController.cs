@@ -218,8 +218,8 @@ public class AuthController : ControllerBase
             {
                 // Check 1: Direct device ID match in bans
                 isBanned = _dbContext.BannedSteamUsers
-                    .Any(b => b.BannedDeviceId == checkDeviceId && 
-                              !b.IsLifted && 
+                    .Any(b => b.BannedDeviceId == checkDeviceId &&
+                              !b.IsLifted &&
                               (b.ExpiresAtUtc == null || b.ExpiresAtUtc > DateTime.UtcNow));
 
                 // Check 2: If not found by device ID, check if any sessions from this device
@@ -413,16 +413,6 @@ public class AuthController : ControllerBase
         });
     }
 
-    public class SetGuestDurationRequest
-    {
-        public int DurationHours { get; set; }
-    }
-
-    public class SetGuestLockRequest
-    {
-        public bool IsLocked { get; set; }
-    }
-
     /// <summary>
     /// GET /api/auth/guest/prefill/config - Get guest prefill configuration
     /// </summary>
@@ -512,17 +502,5 @@ public class AuthController : ControllerBase
                 ? $"Prefill access granted for {request.DurationHours ?? _stateService.GetGuestPrefillDurationHours()} hour(s)"
                 : "Prefill access revoked"
         });
-    }
-
-    public class SetGuestPrefillConfigRequest
-    {
-        public bool EnabledByDefault { get; set; }
-        public int DurationHours { get; set; } = 2;
-    }
-
-    public class ToggleGuestPrefillRequest
-    {
-        public bool Enabled { get; set; }
-        public int? DurationHours { get; set; }
     }
 }

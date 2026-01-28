@@ -166,7 +166,7 @@ public class SteamAuthController : ControllerBase
     /// </summary>
     [HttpPut("mode")]
     [RequireAuth]
-    public IActionResult SetSteamAuthMode([FromBody] SetModeRequest request)
+    public IActionResult SetSteamAuthMode([FromBody] SetSteamModeRequest request)
     {
         if (string.IsNullOrWhiteSpace(request?.Mode))
         {
@@ -203,30 +203,5 @@ public class SteamAuthController : ControllerBase
         _logger.LogInformation("Steam logout completed");
 
         return Ok(MessageResponse.Ok("Logged out from Steam successfully"));
-    }
-
-    public class SteamLoginRequest
-    {
-        [StringLength(64, ErrorMessage = "Username cannot exceed 64 characters")]
-        public string? Username { get; set; }
-
-        [StringLength(256, ErrorMessage = "Password cannot exceed 256 characters")]
-        public string? Password { get; set; }
-
-        [StringLength(10, ErrorMessage = "TwoFactorCode cannot exceed 10 characters")]
-        [RegularExpression(@"^[A-Z0-9]*$", ErrorMessage = "TwoFactorCode contains invalid characters")]
-        public string? TwoFactorCode { get; set; }
-
-        [StringLength(10, ErrorMessage = "EmailCode cannot exceed 10 characters")]
-        [RegularExpression(@"^[A-Z0-9]*$", ErrorMessage = "EmailCode contains invalid characters")]
-        public string? EmailCode { get; set; }
-
-        public bool AllowMobileConfirmation { get; set; } = true;
-        public bool AutoStartPicsRebuild { get; set; } = false;
-    }
-
-    public class SetModeRequest
-    {
-        public string? Mode { get; set; }
     }
 }

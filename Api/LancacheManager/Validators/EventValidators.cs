@@ -1,5 +1,5 @@
 using FluentValidation;
-using LancacheManager.Controllers;
+using LancacheManager.Models;
 
 namespace LancacheManager.Validators;
 

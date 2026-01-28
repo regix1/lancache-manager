@@ -208,31 +208,3 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
         return NoContent();
     }
 }
-
-/// <summary>
-/// Request model for creating an event
-/// </summary>
-public class CreateEventRequest
-{
-    public string Name { get; set; } = string.Empty;
-    public string? Description { get; set; }
-    public long StartTime { get; set; } // Unix timestamp
-    public long EndTime { get; set; } // Unix timestamp
-    public DateTime? StartTimeLocal { get; set; }
-    public DateTime? EndTimeLocal { get; set; }
-    public int? ColorIndex { get; set; } // 1-8, references theme event colors
-}
-
-/// <summary>
-/// Request model for updating an event
-/// </summary>
-public class UpdateEventRequest
-{
-    public string Name { get; set; } = string.Empty;
-    public string? Description { get; set; }
-    public long StartTime { get; set; } // Unix timestamp
-    public long EndTime { get; set; } // Unix timestamp
-    public DateTime? StartTimeLocal { get; set; }
-    public DateTime? EndTimeLocal { get; set; }
-    public int? ColorIndex { get; set; } // 1-8, references theme event colors
-}

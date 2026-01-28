@@ -309,11 +309,3 @@ public class DownloadsController : ControllerBase
         return Ok(result);
     }
 }
-
-/// <summary>
-/// Request model for batch download events endpoint
-/// </summary>
-public class BatchDownloadEventsRequest
-{
-    public List<int> DownloadIds { get; set; } = new();
-}

@@ -578,24 +578,4 @@ public class SessionsController : ControllerBase
 
         return Ok(new { clearedCount, message = $"Cleared {clearedCount} guest sessions" });
     }
-
-    public class SetSessionRefreshRateRequest
-    {
-        public string RefreshRate { get; set; } = string.Empty;
-    }
-
-    public class SetSessionRefreshRateResponse
-    {
-        public bool Success { get; set; }
-        public string Message { get; set; } = string.Empty;
-        public string RefreshRate { get; set; } = string.Empty;
-    }
-
-    public class CreateSessionRequest
-    {
-        public string DeviceId { get; set; } = string.Empty; // Browser fingerprint
-        public string? DeviceName { get; set; }
-        public string? OperatingSystem { get; set; }
-        public string? Browser { get; set; }
-    }
 }

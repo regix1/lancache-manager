@@ -555,8 +555,3 @@ public class ThemeController : ControllerBase
         });
     }
 }
-
-public class ThemePreferenceRequest
-{
-    public string ThemeId { get; set; } = string.Empty;
-}

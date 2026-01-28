@@ -259,7 +259,7 @@ public class PrefillDaemonController : ControllerBase
     /// </summary>
     [HttpPost("sessions/{sessionId}/cache-status")]
     [RequirePrefillAccess]
-    public async Task<ActionResult<CacheStatusResponse>> GetCacheStatus(string sessionId, [FromBody] CacheStatusRequest request)
+    public async Task<ActionResult<PrefillCacheStatusResponse>> GetCacheStatus(string sessionId, [FromBody] PrefillCacheStatusRequest request)
     {
         var deviceId = GetDeviceId()!;
 
@@ -283,7 +283,7 @@ public class PrefillDaemonController : ControllerBase
         var upToDate = status.Apps.Where(a => a.IsUpToDate).Select(a => a.AppId).ToList();
         var outdated = status.Apps.Where(a => !a.IsUpToDate).Select(a => a.AppId).ToList();
 
-        return Ok(new CacheStatusResponse
+        return Ok(new PrefillCacheStatusResponse
         {
             UpToDateAppIds = upToDate,
             OutdatedAppIds = outdated,
@@ -402,41 +402,4 @@ public class PrefillDaemonController : ControllerBase
         return Request.Headers["X-Device-Id"].FirstOrDefault();
     }
 
-    #region Request DTOs
-
-    public class ProvideCredentialRequest
-    {
-        public CredentialChallenge? Challenge { get; set; }
-        public string? Credential { get; set; }
-    }
-
-    public class SetSelectedAppsRequest
-    {
-        public List<uint>? AppIds { get; set; }
-    }
-
-    public class CacheStatusRequest
-    {
-        public List<uint>? AppIds { get; set; }
-    }
-
-    public class CacheStatusResponse
-    {
-        public List<uint> UpToDateAppIds { get; set; } = new();
-        public List<uint> OutdatedAppIds { get; set; } = new();
-        public string? Message { get; set; }
-    }
-
-    public class StartPrefillRequest
-    {
-        public bool All { get; set; }
-        public bool Recent { get; set; }
-        public bool RecentlyPurchased { get; set; }
-        public int? Top { get; set; }
-        public bool Force { get; set; }
-        public List<string>? OperatingSystems { get; set; }
-        public int? MaxConcurrency { get; set; }
-    }
-
-    #endregion
 }
