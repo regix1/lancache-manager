@@ -337,7 +337,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       {isOpen && dropdownPosition && createPortal(
       <div
           ref={dropdownRef}
-          className={`ed-dropdown fixed themed-border-radius border border-themed-primary overflow-hidden bg-themed-secondary max-w-[calc(100vw-32px)] shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3),0_8px_10px_-6px_rgba(0,0,0,0.2)] z-[50000] ${dropdownWidth?.trim().startsWith('w-') ? dropdownWidth : ''}`}
+          className={`ed-dropdown fixed themed-border-radius border border-themed-primary overflow-hidden bg-themed-secondary max-w-[calc(100vw-32px)] shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3),0_8px_10px_-6px_rgba(0,0,0,0.2)] z-[200000] ${dropdownWidth?.trim().startsWith('w-') ? dropdownWidth : ''}`}
           style={{
             top: dropdownPosition.top,
             bottom: dropdownPosition.bottom,
@@ -411,7 +411,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                     {expandedSubmenu === option.value && submenuPosition && createPortal(
                       <div
                         ref={submenuRef}
-                        className="ed-dropdown fixed w-64 themed-border-radius border border-themed-primary overflow-hidden z-[10001] bg-themed-secondary shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3),0_8px_10px_-6px_rgba(0,0,0,0.2)] animate-[dropdownSlideDown_0.15s_cubic-bezier(0.16,1,0.3,1)]"
+                        className="ed-dropdown fixed w-64 themed-border-radius border border-themed-primary overflow-hidden z-[200001] bg-themed-secondary shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3),0_8px_10px_-6px_rgba(0,0,0,0.2)] animate-[dropdownSlideDown_0.15s_cubic-bezier(0.16,1,0.3,1)]"
                         style={{
                           top: submenuPosition.top,
                           left: submenuPosition.left
