@@ -288,7 +288,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
               {showMonthDropdown && (
                 <div
                   ref={monthDropdownRef}
-                  className="absolute top-full left-0 mt-1 bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)] rounded-lg shadow-lg overflow-hidden z-[60]"
+                  className="absolute top-full left-0 mt-1 bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)] rounded-lg shadow-lg overflow-hidden z-[85]"
                 >
                   <CustomScrollbar maxHeight="200px" paddingMode="none">
                     <div className="py-1">
@@ -330,7 +330,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
               {showYearDropdown && (
                 <div
                   ref={yearDropdownRef}
-                  className="absolute top-full right-0 mt-1 bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)] rounded-lg shadow-lg overflow-hidden z-[60]"
+                  className="absolute top-full right-0 mt-1 bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)] rounded-lg shadow-lg overflow-hidden z-[85]"
                 >
                   <CustomScrollbar maxHeight="200px" paddingMode="none">
                     <div className="py-1">
@@ -438,7 +438,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
               {showHourDropdown && (
                 <div
                   ref={hourDropdownRef}
-                  className="absolute top-full left-0 mt-1 bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)] rounded-lg shadow-lg overflow-hidden z-[60]"
+                  className="absolute top-full left-0 mt-1 bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)] rounded-lg shadow-lg overflow-hidden z-[85]"
                 >
                   <CustomScrollbar maxHeight="200px" paddingMode="none">
                     <div className="py-1">
@@ -494,7 +494,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
               {showMinuteDropdown && (
                 <div
                   ref={minuteDropdownRef}
-                  className="absolute top-full left-0 mt-1 bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)] rounded-lg shadow-lg overflow-hidden z-[60]"
+                  className="absolute top-full left-0 mt-1 bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)] rounded-lg shadow-lg overflow-hidden z-[85]"
                 >
                   <CustomScrollbar maxHeight="200px" paddingMode="none">
                     <div className="py-1">

@@ -344,7 +344,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
           {isOpen && createPortal(
             <div
               ref={dropdownRef}
-              className="ed-dropdown fixed w-64 rounded-lg border overflow-hidden bg-[var(--theme-bg-secondary)] border-[var(--theme-border-primary)] max-w-[calc(100vw-32px)] shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3),0_8px_10px_-6px_rgba(0,0,0,0.2)] z-[60]"
+              className="ed-dropdown fixed w-64 rounded-lg border overflow-hidden bg-[var(--theme-bg-secondary)] border-[var(--theme-border-primary)] max-w-[calc(100vw-32px)] shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3),0_8px_10px_-6px_rgba(0,0,0,0.2)] z-[85]"
               style={{
                 top: dropdownPosition.top,
                 left: dropdownPosition.left,

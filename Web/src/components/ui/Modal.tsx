@@ -18,7 +18,7 @@ interface ModalProps {
 export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, size = 'md' }) => {
   const [isVisible, setIsVisible] = React.useState(false);
   const [isAnimating, setIsAnimating] = React.useState(false);
-  const [zIndex, setZIndex] = React.useState(100001);
+  const [zIndex, setZIndex] = React.useState(80);
   const modalId = React.useRef<number | null>(null);
 
   const sizes = {
@@ -44,7 +44,7 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
       modalStack.push(modalId.current);
 
       // Set z-index based on stack position (each modal gets higher z-index)
-      setZIndex(100000 + modalStack.length);
+      setZIndex(80 + modalStack.length);
 
       // Start animation with slight delay for smoother appearance
       setIsVisible(true);

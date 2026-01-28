@@ -73,7 +73,7 @@
   /* Info icon tooltip specific */
   .relative.inline-block > div:not(:first-child) {
     position: absolute !important;
-    z-index: 70 !important;
+    z-index: 90 !important;
   }
 
   /* Radix UI or similar library tooltips */
@@ -82,7 +82,7 @@
   [data-state='closed'],
   [role='tooltip'] {
     position: absolute !important;
-    z-index: 70 !important;
+    z-index: 90 !important;
   }
 
   /* Ensure modals stay on top */

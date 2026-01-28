@@ -112,7 +112,7 @@
 .tooltip-overlay {
   @apply fixed max-w-xs px-2.5 py-1.5 text-xs pointer-events-none;
   border-radius: var(--theme-border-radius);
-  z-index: 70;
+  z-index: 90;
   background-color: var(--theme-bg-tertiary);
   color: var(--theme-text-primary);
 }
