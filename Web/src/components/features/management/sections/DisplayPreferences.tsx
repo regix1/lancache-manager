@@ -4,6 +4,7 @@ import { Brush, Bell, Database, Calendar } from 'lucide-react';
 import { Checkbox } from '@components/ui/Checkbox';
 import preferencesService from '@services/preferences.service';
 import themeService from '@services/theme.service';
+import { useSessionPreferences } from '@contexts/SessionPreferencesContext';
 import { useTimezone } from '@contexts/TimezoneContext';
 import { setGlobalAlwaysShowYearPreference } from '@utils/yearDisplayPreference';
 
@@ -68,6 +69,7 @@ const PreferenceSection: React.FC<PreferenceSectionProps> = ({
 
 const DisplayPreferences: React.FC = () => {
   const { t } = useTranslation();
+  const { currentPreferences } = useSessionPreferences();
   const { forceRefresh } = useTimezone();
 
   // Visual preferences
@@ -84,28 +86,20 @@ const DisplayPreferences: React.FC = () => {
   // Date & Time preferences
   const [alwaysShowYear, setAlwaysShowYear] = useState(false);
 
-  const [isLoading, setIsLoading] = useState(true);
-
-  // Load initial preferences
+  // Initialize from SessionPreferencesContext when preferences are loaded
   useEffect(() => {
-    const loadPreferences = async () => {
-      try {
-        const prefs = await preferencesService.getPreferences();
-        setSharpCorners(prefs.sharpCorners);
-        setDisableTooltips(prefs.disableTooltips);
-        setDisableStickyNotifications(prefs.disableStickyNotifications);
-        setPicsAlwaysVisible(prefs.picsAlwaysVisible);
-        setShowDatasourceLabels(prefs.showDatasourceLabels);
-        setAlwaysShowYear(prefs.showYearInDates);
-      } catch (error) {
-        console.error('[DisplayPreferences] Failed to load preferences:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+    if (currentPreferences) {
+      setSharpCorners(currentPreferences.sharpCorners);
+      setDisableTooltips(currentPreferences.disableTooltips);
+      setDisableStickyNotifications(currentPreferences.disableStickyNotifications);
+      setPicsAlwaysVisible(currentPreferences.picsAlwaysVisible);
+      setShowDatasourceLabels(currentPreferences.showDatasourceLabels);
+      setAlwaysShowYear(currentPreferences.showYearInDates);
+    }
+  }, [currentPreferences]);
 
-    loadPreferences();
-  }, []);
+  // Show loading skeleton only if we don't have preferences yet
+  const isLoading = !currentPreferences;
 
   // Listen for preference changes from SignalR
   useEffect(() => {

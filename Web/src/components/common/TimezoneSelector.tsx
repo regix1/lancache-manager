@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Clock, Globe, MapPin } from 'lucide-react';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import preferencesService from '@services/preferences.service';
+import { useSessionPreferences } from '@contexts/SessionPreferencesContext';
 import { useTimezone } from '@contexts/TimezoneContext';
 import { useAuth } from '@contexts/AuthContext';
 import { useDefaultGuestPreferences } from '@hooks/useDefaultGuestPreferences';
@@ -16,34 +17,17 @@ interface TimezoneSelectorProps {
 
 const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false }) => {
   const { t } = useTranslation();
+  const { currentPreferences } = useSessionPreferences();
   const { useLocalTimezone, use24HourFormat, setPendingTimeSetting } = useTimezone();
   const { authMode } = useAuth();
   const { prefs: guestDefaults, loading: loadingDefaults } = useDefaultGuestPreferences();
   const [tick, setTick] = useState(0);
   const hasAutoSwitched = useRef(false);
-  const [userAllowedFormats, setUserAllowedFormats] = useState<string[] | null>(null);
 
   const isGuest = authMode === 'guest';
 
-  useEffect(() => {
-    const loadUserFormats = async () => {
-      try {
-        const prefs = await preferencesService.getPreferences();
-        setUserAllowedFormats(prefs.allowedTimeFormats || null);
-      } catch (error) {
-        console.error('Failed to load user preferences:', error);
-      }
-    };
-    loadUserFormats();
-
-    const handlePrefChange = (e: CustomEvent) => {
-      if (e.detail?.key === 'allowedTimeFormats') {
-        setUserAllowedFormats(e.detail.value || null);
-      }
-    };
-    window.addEventListener('preference-changed', handlePrefChange as EventListener);
-    return () => window.removeEventListener('preference-changed', handlePrefChange as EventListener);
-  }, []);
+  // Get allowed time formats from SessionPreferencesContext
+  const userAllowedFormats = currentPreferences?.allowedTimeFormats || null;
 
   const getAdminDefault = (): TimeSettingValue => {
     const isLocal = guestDefaults.useLocalTimezone;

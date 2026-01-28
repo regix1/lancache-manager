@@ -191,12 +191,21 @@ interface Theme {
 
 class ThemeService {
   // Get the best text color for a given background using theme colors
-  
+
 
   private currentTheme: Theme | null = null;
   private styleElement: HTMLStyleElement | null = null;
   private preferenceListenersSetup = false;
   private isProcessingReset = false;
+
+  // Store preference values locally - updated via preference-changed events
+  // This ensures themeService doesn't depend on preferencesService cache being in sync
+  private _sharpCorners = false;
+  private _disableFocusOutlines = true;
+  private _disableTooltips = false;
+  private _picsAlwaysVisible = false;
+  private _disableStickyNotifications = false;
+  private _preferencesInitialized = false;
 
   /**
    * Setup listeners for live preference updates
@@ -242,6 +251,8 @@ class ThemeService {
             break;
 
           case 'sharpCorners':
+            // Store the value locally before applying
+            this._sharpCorners = value as boolean;
             // Re-apply current theme to update border radius
             if (this.currentTheme) {
               this.applyTheme(this.currentTheme);
@@ -252,6 +263,7 @@ class ThemeService {
 
           case 'disableFocusOutlines':
             if (value !== null && value !== undefined) {
+              this._disableFocusOutlines = value as boolean;
               document.documentElement.setAttribute('data-disable-focus-outlines', value.toString());
               window.dispatchEvent(new Event('focusoutlineschange'));
             }
@@ -259,16 +271,19 @@ class ThemeService {
 
           case 'disableTooltips':
             if (value !== null && value !== undefined) {
+              this._disableTooltips = value as boolean;
               document.documentElement.setAttribute('data-disable-tooltips', value.toString());
               window.dispatchEvent(new Event('tooltipschange'));
             }
             break;
 
           case 'picsAlwaysVisible':
+            this._picsAlwaysVisible = value as boolean;
             window.dispatchEvent(new Event('notificationvisibilitychange'));
             break;
 
           case 'disableStickyNotifications':
+            this._disableStickyNotifications = value as boolean;
             window.dispatchEvent(new Event('stickynotificationschange'));
             break;
         }
@@ -281,12 +296,10 @@ class ThemeService {
     window.addEventListener('preferences-reset', async () => {
       // Prevent duplicate processing
       if (this.isProcessingReset) {
-        // console.log('[ThemeService] Already processing reset, skipping duplicate');
         return;
       }
 
       this.isProcessingReset = true;
-      // console.log('[ThemeService] Preferences reset, applying defaults...');
 
       try {
         // Clear localStorage theme cache
@@ -294,11 +307,12 @@ class ThemeService {
         storage.removeItem('lancache_theme_css');
         storage.removeItem('lancache_theme_dark');
 
-        // Reload preferences (will get defaults from API)
-        await preferencesService.loadPreferences();
+        // Reload preferences from API and reinitialize local state
+        const prefs = await preferencesService.loadPreferences();
+        this.initializePreferences(prefs);
 
         // Load and apply default theme
-        await this.loadSavedTheme();
+        await this.loadSavedTheme(prefs);
 
         // Show notification with different message for guest vs authenticated users
         const isGuest = authService.authMode === 'guest';
@@ -1015,12 +1029,11 @@ class ThemeService {
     }
 
     // Apply theme-specific settings
-    // Check prefs from database/API, then fall back to theme defaults
-    const prefs = preferencesService.getPreferencesSync();
-
-    const sharpCorners = prefs?.sharpCorners ?? (theme.meta.sharpCorners ?? false);
-    const disableFocusOutlines = prefs?.disableFocusOutlines ?? (theme.meta.disableFocusOutlines ?? false);
-    const disableTooltips = prefs?.disableTooltips ?? (theme.meta.disableTooltips ?? false);
+    // Use local state (initialized via loadSavedTheme or preference-changed events)
+    // Fall back to theme defaults if not yet initialized
+    const sharpCorners = this._preferencesInitialized ? this._sharpCorners : (theme.meta.sharpCorners ?? false);
+    const disableFocusOutlines = this._preferencesInitialized ? this._disableFocusOutlines : (theme.meta.disableFocusOutlines ?? false);
+    const disableTooltips = this._preferencesInitialized ? this._disableTooltips : (theme.meta.disableTooltips ?? false);
 
     // Apply focus outlines setting
     document.documentElement.setAttribute(
@@ -1277,10 +1290,24 @@ class ThemeService {
     window.dispatchEvent(new Event('themechange'));
   }
 
-  async loadSavedTheme(selectedThemeFromPrefs?: string | null): Promise<void> {
+  async loadSavedTheme(prefs?: {
+    selectedTheme?: string | null;
+    sharpCorners?: boolean;
+    disableFocusOutlines?: boolean;
+    disableTooltips?: boolean;
+    picsAlwaysVisible?: boolean;
+    disableStickyNotifications?: boolean;
+  } | null): Promise<void> {
+    // Initialize local preference state from provided preferences
+    if (prefs) {
+      this.initializePreferences(prefs);
+    }
+
     // Initialize with default settings (no API calls at startup)
     document.documentElement.setAttribute('data-disable-focus-outlines', 'false');
     document.documentElement.setAttribute('data-disable-tooltips', 'false');
+
+    const selectedThemeFromPrefs = prefs?.selectedTheme;
 
     // Check if we have a preloaded theme from the HTML
     const preloadStyle = document.getElementById('lancache-theme-preload');
@@ -1408,6 +1435,9 @@ class ThemeService {
   }
 
   async setSharpCorners(enabled: boolean): Promise<void> {
+    // Update local state immediately
+    this._sharpCorners = enabled;
+
     // Save to API (this will trigger SignalR broadcast to other users)
     await preferencesService.setPreference('sharpCorners', enabled);
 
@@ -1422,11 +1452,32 @@ class ThemeService {
   
 
   getSharpCornersSync(): boolean {
-    const prefs = preferencesService.getPreferencesSync();
-    return prefs?.sharpCorners || false;
+    return this._sharpCorners;
+  }
+
+  /**
+   * Initialize local preference values from preferences object
+   * Called from loadSavedTheme with preferences from main.tsx
+   */
+  initializePreferences(prefs: {
+    sharpCorners?: boolean;
+    disableFocusOutlines?: boolean;
+    disableTooltips?: boolean;
+    picsAlwaysVisible?: boolean;
+    disableStickyNotifications?: boolean;
+  }): void {
+    this._sharpCorners = prefs.sharpCorners ?? false;
+    this._disableFocusOutlines = prefs.disableFocusOutlines ?? true;
+    this._disableTooltips = prefs.disableTooltips ?? false;
+    this._picsAlwaysVisible = prefs.picsAlwaysVisible ?? false;
+    this._disableStickyNotifications = prefs.disableStickyNotifications ?? false;
+    this._preferencesInitialized = true;
   }
 
   async setDisableFocusOutlines(enabled: boolean): Promise<void> {
+    // Update local state immediately
+    this._disableFocusOutlines = enabled;
+
     // Save to API
     await preferencesService.setPreference('disableFocusOutlines', enabled);
 
@@ -1440,11 +1491,13 @@ class ThemeService {
   
 
   getDisableFocusOutlinesSync(): boolean {
-    const prefs = preferencesService.getPreferencesSync();
-    return prefs?.disableFocusOutlines ?? true; // Default to true
+    return this._disableFocusOutlines;
   }
 
   async setDisableTooltips(enabled: boolean): Promise<void> {
+    // Update local state immediately
+    this._disableTooltips = enabled;
+
     // Save to API
     await preferencesService.setPreference('disableTooltips', enabled);
 
@@ -1458,11 +1511,13 @@ class ThemeService {
   
 
   getDisableTooltipsSync(): boolean {
-    const prefs = preferencesService.getPreferencesSync();
-    return prefs?.disableTooltips || false;
+    return this._disableTooltips;
   }
 
   async setPicsAlwaysVisible(enabled: boolean): Promise<void> {
+    // Update local state immediately
+    this._picsAlwaysVisible = enabled;
+
     // Save to API (this will trigger SignalR broadcast to other users)
     await preferencesService.setPreference('picsAlwaysVisible', enabled);
 
@@ -1473,11 +1528,13 @@ class ThemeService {
   
 
   getPicsAlwaysVisibleSync(): boolean {
-    const prefs = preferencesService.getPreferencesSync();
-    return prefs?.picsAlwaysVisible || false;
+    return this._picsAlwaysVisible;
   }
 
   async setDisableStickyNotifications(enabled: boolean): Promise<void> {
+    // Update local state immediately
+    this._disableStickyNotifications = enabled;
+
     // Save to API (this will trigger SignalR broadcast to other users)
     await preferencesService.setPreference('disableStickyNotifications', enabled);
 
@@ -1488,8 +1545,7 @@ class ThemeService {
   
 
   getDisableStickyNotificationsSync(): boolean {
-    const prefs = preferencesService.getPreferencesSync();
-    return prefs?.disableStickyNotifications || false;
+    return this._disableStickyNotifications;
   }
 
   async setTheme(themeId: string): Promise<void> {
@@ -1503,9 +1559,9 @@ class ThemeService {
 
   // Called after authentication to reload theme from server
   async reloadThemeAfterAuth(): Promise<void> {
-    // Reload preferences from API
-    preferencesService.clearCache();
+    // Reload preferences from API and reinitialize local state
     const prefs = await preferencesService.loadPreferences();
+    this.initializePreferences(prefs);
 
     // Load theme from preferences
     if (prefs.selectedTheme) {

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useSyncExternalStore, useCallback, useMemo } from 'react';
-import preferencesService from '@services/preferences.service';
+import { useSessionPreferences } from './SessionPreferencesContext';
 import { setGlobalTimezonePreference } from '@utils/timezonePreference';
 import { setGlobal24HourPreference } from '@utils/timeFormatPreference';
 import { setGlobalAlwaysShowYearPreference, getGlobalAlwaysShowYearPreference } from '@utils/yearDisplayPreference';
@@ -30,6 +30,7 @@ const TimezoneContext = createContext<TimezoneContextType>({
 export const useTimezone = () => useContext(TimezoneContext);
 
 export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { currentPreferences } = useSessionPreferences();
   const [actualUseLocal, setActualUseLocal] = useState(false);
   const [actualUse24Hour, setActualUse24Hour] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -48,18 +49,16 @@ export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const useLocalTimezone = pendingUseLocal ?? actualUseLocal;
   const use24HourFormat = pendingUse24Hour ?? actualUse24Hour;
 
-  // Load initial preferences
+  // Initialize from SessionPreferencesContext when preferences are loaded
   useEffect(() => {
-    const load = async () => {
-      const prefs = await preferencesService.getPreferences();
-      setActualUseLocal(prefs.useLocalTimezone);
-      setActualUse24Hour(prefs.use24HourFormat);
-      setGlobalTimezonePreference(prefs.useLocalTimezone);
-      setGlobal24HourPreference(prefs.use24HourFormat);
-      setGlobalAlwaysShowYearPreference(prefs.showYearInDates ?? false);
-    };
-    load();
-  }, []);
+    if (currentPreferences) {
+      setActualUseLocal(currentPreferences.useLocalTimezone);
+      setActualUse24Hour(currentPreferences.use24HourFormat);
+      setGlobalTimezonePreference(currentPreferences.useLocalTimezone);
+      setGlobal24HourPreference(currentPreferences.use24HourFormat);
+      setGlobalAlwaysShowYearPreference(currentPreferences.showYearInDates ?? false);
+    }
+  }, [currentPreferences]);
 
   // Listen for preference changes from SignalR
   useEffect(() => {

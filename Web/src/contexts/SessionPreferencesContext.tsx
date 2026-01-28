@@ -179,7 +179,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
         if (key === 'showYearInDates' && hasPendingPreference('showYearInDates')) {
           return;
         }
-        
+
         if (baseline[key] !== normalizedPrefs[key]) {
           window.dispatchEvent(
             new CustomEvent('preference-changed', {

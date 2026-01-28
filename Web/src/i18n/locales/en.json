@@ -59,6 +59,7 @@
     "process": "Process",
     "processAll": "Process All",
     "clearing": "Clearing...",
+    "unsaved": "unsaved",
     "clearAll": "Clear All",
     "selectAll": "Select All",
     "deselectAll": "Deselect All",

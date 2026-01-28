@@ -135,13 +135,13 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const [pendingDeleteSession, setPendingDeleteSession] = useState<Session | null>(null);
   const [editingSession, setEditingSession] = useState<Session | null>(null);
   const [editingPreferences, setEditingPreferences] = useState<UserPreferences | null>(null);
+  const [pendingPrefillChange, setPendingPrefillChange] = useState<boolean | null>(null);
   const [loadingPreferences, setLoadingPreferences] = useState(false);
   const [savingPreferences, setSavingPreferences] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize] = useState(20);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
-  const [updatingPrefill, setUpdatingPrefill] = useState(false);
 
   const toggleSessionExpanded = (sessionId: string) => {
     setExpandedSessions((prev) => {
@@ -334,6 +334,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
   const handleEditSession = async (session: Session) => {
     setEditingSession(session);
+    setPendingPrefillChange(null);
     setLoadingPreferences(true);
     try {
       const response = await fetch(
@@ -429,6 +430,38 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               body: JSON.stringify({ refreshRate: editingPreferences.refreshRate || '' })
             })
           );
+
+          // Handle prefill access change if pending
+          if (pendingPrefillChange !== null) {
+            const prefillResponse = await fetch(
+              `/api/auth/guest/prefill/toggle/${encodeURIComponent(editingSession.deviceId || editingSession.id)}`,
+              ApiService.getFetchOptions({
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ enabled: pendingPrefillChange })
+              })
+            );
+
+            if (prefillResponse.ok) {
+              const prefillData = await prefillResponse.json();
+              // Update the session in the list
+              setSessions((prev) =>
+                prev.map((s) => {
+                  if (s.id === editingSession.id) {
+                    return {
+                      ...s,
+                      prefillEnabled: prefillData.prefillEnabled,
+                      prefillExpiresAt: prefillData.prefillExpiresAt,
+                      isPrefillExpired: false
+                    };
+                  }
+                  return s;
+                })
+              );
+            }
+          }
         }
 
         // The session preferences will be automatically updated via SignalR
@@ -436,6 +469,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
         setEditingSession(null);
         setEditingPreferences(null);
+        setPendingPrefillChange(null);
       } else {
         const errorData = await response.json();
         showToast('error', errorData.error || t('activeSessions.errors.savePreferences'));
@@ -461,57 +495,6 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       return `${hours}h ${minutes}m remaining`;
     }
     return `${minutes}m remaining`;
-  };
-
-  const handleTogglePrefill = async (session: Session, enabled: boolean) => {
-    try {
-      setUpdatingPrefill(true);
-      const response = await fetch(
-        `/api/auth/guest/prefill/toggle/${encodeURIComponent(session.deviceId || session.id)}`,
-        ApiService.getFetchOptions({
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ enabled })
-        })
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        // Update the session in the list
-        setSessions((prev) =>
-          prev.map((s) => {
-            if (s.id === session.id) {
-              return {
-                ...s,
-                prefillEnabled: data.prefillEnabled,
-                prefillExpiresAt: data.prefillExpiresAt,
-                isPrefillExpired: false
-              };
-            }
-            return s;
-          })
-        );
-        // Also update the editingSession if it's the same session
-        if (editingSession?.id === session.id) {
-          setEditingSession({
-            ...editingSession,
-            prefillEnabled: data.prefillEnabled,
-            prefillExpiresAt: data.prefillExpiresAt,
-            isPrefillExpired: false
-          });
-        }
-        showToast('success', data.message);
-      } else {
-        const errorData = await response.json();
-        showToast('error', errorData.error || t('activeSessions.errors.updatePrefill'));
-      }
-    } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || t('activeSessions.errors.updatePrefill'));
-    } finally {
-      setUpdatingPrefill(false);
-    }
   };
 
   type SessionStatus = 'active' | 'away' | 'inactive';
@@ -1213,6 +1196,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           if (!savingPreferences) {
             setEditingSession(null);
             setEditingPreferences(null);
+            setPendingPrefillChange(null);
           }
         }}
         title={
@@ -1257,7 +1241,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   <label className="text-sm font-medium text-themed-primary">
                     {t('activeSessions.preferencesModal.selectedTheme')}
                   </label>
-                  {editingPreferences.selectedTheme ? (
+                  {editingPreferences.selectedTheme && editingPreferences.selectedTheme !== defaultGuestTheme ? (
                     <button
                       type="button"
                       onClick={() =>
@@ -1306,7 +1290,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     <label className="text-sm font-medium text-themed-primary">
                       {t('activeSessions.preferencesModal.refreshRate')}
                     </label>
-                    {editingPreferences.refreshRate ? (
+                    {editingPreferences.refreshRate && editingPreferences.refreshRate !== defaultGuestRefreshRate ? (
                       <button
                         type="button"
                         onClick={() =>
@@ -1347,59 +1331,67 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               )}
 
               {/* Prefill Access (Guest Users Only) */}
-              {editingSession && editingSession.type === 'guest' && !editingSession.isRevoked && !editingSession.isExpired && (
-                <div className="p-4 rounded-lg bg-themed-tertiary border border-themed-secondary">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Download className="w-4 h-4 text-themed-accent" />
-                    <h4 className="text-sm font-medium text-themed-primary">
-                      {t('activeSessions.prefill.title')}
-                    </h4>
-                  </div>
-                  <p className="text-xs text-themed-muted mb-3">
-                    {t('activeSessions.prefill.subtitle')}
-                  </p>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      {editingSession.prefillEnabled && !editingSession.isPrefillExpired ? (
-                        <div className="flex items-center gap-2">
-                          <span className="px-2 py-1 text-xs rounded-full font-medium status-badge-success">
-                            {t('activeSessions.prefill.status.enabled')}
-                          </span>
-                          {editingSession.prefillExpiresAt && (
-                            <span className="text-xs text-themed-muted">
-                              {t('activeSessions.prefill.status.expires', {
-                                time: formatTimeRemaining(editingSession.prefillExpiresAt)
-                              })}
-                            </span>
-                          )}
-                        </div>
-                      ) : editingSession.isPrefillExpired ? (
-                        <span className="px-2 py-1 text-xs rounded-full font-medium status-badge-warning">
-                          {t('activeSessions.prefill.status.expired')}
-                        </span>
-                      ) : (
-                        <span className="px-2 py-1 text-xs rounded-full font-medium bg-themed-secondary text-themed-muted">
-                          {t('activeSessions.prefill.status.disabled')}
-                        </span>
-                      )}
+              {editingSession && editingSession.type === 'guest' && !editingSession.isRevoked && !editingSession.isExpired && (() => {
+                // Determine effective prefill state (pending change takes precedence)
+                const currentPrefillEnabled = editingSession.prefillEnabled && !editingSession.isPrefillExpired;
+                const effectivePrefillEnabled = pendingPrefillChange !== null ? pendingPrefillChange : currentPrefillEnabled;
+                const hasUnsavedChange = pendingPrefillChange !== null && pendingPrefillChange !== currentPrefillEnabled;
+
+                return (
+                  <div className="p-4 rounded-lg bg-themed-tertiary border border-themed-secondary">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Download className="w-4 h-4 text-themed-accent" />
+                      <h4 className="text-sm font-medium text-themed-primary">
+                        {t('activeSessions.prefill.title')}
+                      </h4>
                     </div>
-                    <Button
-                      variant="default"
-                      color={editingSession.prefillEnabled && !editingSession.isPrefillExpired ? 'orange' : 'green'}
-                      size="sm"
-                      onClick={() => handleTogglePrefill(
-                        editingSession,
-                        !(editingSession.prefillEnabled && !editingSession.isPrefillExpired)
-                      )}
-                      loading={updatingPrefill}
-                    >
-                      {editingSession.prefillEnabled && !editingSession.isPrefillExpired
-                        ? t('activeSessions.prefill.actions.revoke')
-                        : t('activeSessions.prefill.actions.grant')}
-                    </Button>
+                    <p className="text-xs text-themed-muted mb-3">
+                      {t('activeSessions.prefill.subtitle')}
+                    </p>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {effectivePrefillEnabled ? (
+                          <>
+                            <span className="px-2 py-1 text-xs rounded-full font-medium status-badge-success">
+                              {t('activeSessions.prefill.status.enabled')}
+                            </span>
+                            {!hasUnsavedChange && editingSession.prefillExpiresAt && (
+                              <span className="text-xs text-themed-muted">
+                                {t('activeSessions.prefill.status.expires', {
+                                  time: formatTimeRemaining(editingSession.prefillExpiresAt)
+                                })}
+                              </span>
+                            )}
+                          </>
+                        ) : editingSession.isPrefillExpired && pendingPrefillChange === null ? (
+                          <span className="px-2 py-1 text-xs rounded-full font-medium status-badge-warning">
+                            {t('activeSessions.prefill.status.expired')}
+                          </span>
+                        ) : (
+                          <span className="px-2 py-1 text-xs rounded-full font-medium bg-themed-secondary text-themed-muted">
+                            {t('activeSessions.prefill.status.disabled')}
+                          </span>
+                        )}
+                        {hasUnsavedChange && (
+                          <span className="text-xs text-themed-accent italic">
+                            ({t('common.unsaved')})
+                          </span>
+                        )}
+                      </div>
+                      <Button
+                        variant="default"
+                        color={effectivePrefillEnabled ? 'orange' : 'green'}
+                        size="sm"
+                        onClick={() => setPendingPrefillChange(!effectivePrefillEnabled)}
+                      >
+                        {effectivePrefillEnabled
+                          ? t('activeSessions.prefill.actions.revoke')
+                          : t('activeSessions.prefill.actions.grant')}
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* UI Preferences */}
               <div className="space-y-3">
@@ -1524,24 +1516,33 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     <label className="text-sm text-themed-secondary">
                       {t('user.guest.timeFormats.title')}
                     </label>
-                    {editingPreferences.allowedTimeFormats ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setEditingPreferences({
-                            ...editingPreferences,
-                            allowedTimeFormats: undefined
-                          })
-                        }
-                        className="text-xs px-2 py-0.5 rounded transition-colors text-themed-accent bg-themed-tertiary hover:bg-themed-secondary"
-                      >
-                        {t('actions.useDefault')}
-                      </button>
-                    ) : (
-                      <span className="text-xs px-2 py-0.5 rounded text-themed-muted bg-themed-tertiary">
-                        {t('actions.usingDefault')}
-                      </span>
-                    )}
+                    {(() => {
+                      // Compare current formats with default to determine if "Use Default" should be shown
+                      const currentFormats = editingPreferences.allowedTimeFormats;
+                      const defaultFormats = defaultGuestPrefs.allowedTimeFormats ?? ['server-24h', 'server-12h', 'local-24h', 'local-12h'];
+                      const isUsingDefault = !currentFormats ||
+                        (currentFormats.length === defaultFormats.length &&
+                         currentFormats.every(f => defaultFormats.includes(f)));
+
+                      return isUsingDefault ? (
+                        <span className="text-xs px-2 py-0.5 rounded text-themed-muted bg-themed-tertiary">
+                          {t('actions.usingDefault')}
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditingPreferences({
+                              ...editingPreferences,
+                              allowedTimeFormats: undefined
+                            })
+                          }
+                          className="text-xs px-2 py-0.5 rounded transition-colors text-themed-accent bg-themed-tertiary hover:bg-themed-secondary"
+                        >
+                          {t('actions.useDefault')}
+                        </button>
+                      );
+                    })()}
                   </div>
                   <MultiSelectDropdown
                     options={timeFormatOptions.map((opt) => ({
@@ -1611,6 +1612,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               onClick={() => {
                 setEditingSession(null);
                 setEditingPreferences(null);
+                setPendingPrefillChange(null);
               }}
               disabled={savingPreferences}
             >

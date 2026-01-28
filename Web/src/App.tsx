@@ -267,9 +267,6 @@ const AppContent: React.FC = () => {
       // Clear local authentication data
       authService.clearAuthAndDevice();
 
-      // Clear theme/preferences cache
-      preferencesService.clearCache();
-
       // IMPORTANT: Clear HttpOnly session cookies by making a request to backend
       // Since cookies are HttpOnly, JavaScript can't clear them directly
       // The backend must send Set-Cookie with expired date
