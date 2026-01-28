@@ -19,7 +19,7 @@
   .custom-dropdown .absolute,
   .relative > .absolute:not(.input-icon):not(.nav-indicator) {
     position: absolute !important;
-    z-index: 99999 !important;
+    z-index: 60 !important;
   }
 
   /* Input icons should stay at normal z-index */
@@ -34,7 +34,7 @@
   .custom-dropdown .fixed,
   .relative > .fixed {
     position: fixed !important;
-    z-index: 99998 !important;
+    z-index: 50 !important;
     pointer-events: auto !important;
   }
 
@@ -57,7 +57,7 @@
   /* Ensure dropdown is positioned from button, not affecting layout */
   .relative:has(button svg.lucide-settings) > .absolute {
     position: absolute !important;
-    z-index: 99999 !important;
+    z-index: 60 !important;
     top: calc(100% + 0.5rem) !important;
     right: 0 !important;
     margin: 0 !important;
@@ -73,7 +73,7 @@
   /* Info icon tooltip specific */
   .relative.inline-block > div:not(:first-child) {
     position: absolute !important;
-    z-index: 100000 !important;
+    z-index: 70 !important;
   }
 
   /* Radix UI or similar library tooltips */
@@ -82,12 +82,12 @@
   [data-state='closed'],
   [role='tooltip'] {
     position: absolute !important;
-    z-index: 100000 !important;
+    z-index: 70 !important;
   }
 
   /* Ensure modals stay on top */
   .fixed.inset-0.bg-black {
-    z-index: 100001 !important;
+    z-index: 80 !important;
   }
 
   /* Prevent overflow issues on containers */
@@ -98,7 +98,7 @@
   /* Ensure dropdown content is absolute */
   .absolute.themed-card {
     position: absolute !important;
-    z-index: 99999 !important;
+    z-index: 60 !important;
   }
 
   /* Highlight glow wrapper - applies glow directly to the wrapper element */

@@ -202,7 +202,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-themed-primary">
+    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-themed-primary">
       {/* Stripe background pattern */}
       <div
         className="absolute inset-0 opacity-5"

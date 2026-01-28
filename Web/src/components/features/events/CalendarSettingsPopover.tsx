@@ -238,7 +238,7 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
       {isOpen && popoverPos && createPortal(
         <div
           ref={popoverRef}
-          className="fixed rounded-xl border shadow-2xl overflow-hidden z-[100000] flex flex-col"
+          className="fixed rounded-xl border shadow-2xl overflow-hidden z-[70] flex flex-col"
           style={{
             left: popoverPos.x,
             top: popoverPos.y,

@@ -318,7 +318,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
               {showMonthDropdown && (
                 <div
                   ref={monthDropdownRef}
-                  className="absolute top-full left-0 mt-1 bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)] rounded-lg shadow-lg overflow-hidden z-[100003]"
+                  className="absolute top-full left-0 mt-1 bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)] rounded-lg shadow-lg overflow-hidden z-[60]"
                 >
                   <CustomScrollbar maxHeight="200px" paddingMode="none">
                     <div className="py-1">
@@ -358,7 +358,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
               {showYearDropdown && (
                 <div
                   ref={yearDropdownRef}
-                  className="absolute top-full right-0 mt-1 bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)] rounded-lg shadow-lg overflow-hidden z-[100003]"
+                  className="absolute top-full right-0 mt-1 bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)] rounded-lg shadow-lg overflow-hidden z-[60]"
                 >
                   <CustomScrollbar maxHeight="200px" paddingMode="none">
                     <div className="py-1">
