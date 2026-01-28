@@ -704,10 +704,4 @@ public class LogsController : ControllerBase
 
         return Ok(new MessageResponse { Message = "Service removal force killed successfully" });
     }
-
-    public class UpdateLogPositionRequest
-    {
-        public long? Position { get; set; }
-        public bool? Reset { get; set; }
-    }
 }

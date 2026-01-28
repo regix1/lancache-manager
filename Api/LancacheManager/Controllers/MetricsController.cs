@@ -111,21 +111,3 @@ public class MetricsController : ControllerBase
         return GetSecurity();
     }
 }
-
-public class SetIntervalRequest
-{
-    public int Interval { get; set; }
-}
-
-public class SetSecurityRequest
-{
-    public bool Enabled { get; set; }
-}
-
-public class MetricsSecurityResponse
-{
-    public bool RequiresAuthentication { get; set; }
-    public string Source { get; set; } = "config";
-    public bool CanToggle { get; set; } = true;
-    public bool EnvVarValue { get; set; }
-}

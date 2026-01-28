@@ -37,7 +37,7 @@ public class DataMigrationController : ControllerBase
     /// </summary>
     [HttpPost("import-develancache")]
     [RequireAuth]
-    public async Task<IActionResult> ImportFromDeveLanCache([FromBody] ImportRequest request)
+    public async Task<IActionResult> ImportFromDeveLanCache([FromBody] DataMigrationImportRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.ConnectionString))
         {
@@ -135,7 +135,7 @@ public class DataMigrationController : ControllerBase
     /// </summary>
     [HttpPost("import-lancache-manager")]
     [RequireAuth]
-    public async Task<IActionResult> ImportFromLancacheManager([FromBody] ImportRequest request)
+    public async Task<IActionResult> ImportFromLancacheManager([FromBody] DataMigrationImportRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.ConnectionString))
         {
@@ -428,49 +428,4 @@ public class DataMigrationController : ControllerBase
         return trimmed;
     }
 
-    /// <summary>
-    /// Request model for importing data
-    /// </summary>
-    public class ImportRequest
-    {
-        public string ConnectionString { get; set; } = string.Empty;
-        public int? BatchSize { get; set; } = 1000;
-        public bool OverwriteExisting { get; set; } = false;
-    }
-
-    /// <summary>
-    /// Progress data from Rust data_migrator binary
-    /// </summary>
-    public class MigrationProgress
-    {
-        [JsonPropertyName("is_processing")]
-        public bool IsProcessing { get; set; }
-
-        [JsonPropertyName("percent_complete")]
-        public double PercentComplete { get; set; }
-
-        [JsonPropertyName("status")]
-        public string Status { get; set; } = string.Empty;
-
-        [JsonPropertyName("message")]
-        public string Message { get; set; } = string.Empty;
-
-        [JsonPropertyName("records_processed")]
-        public ulong RecordsProcessed { get; set; }
-
-        [JsonPropertyName("records_imported")]
-        public ulong RecordsImported { get; set; }
-
-        [JsonPropertyName("records_skipped")]
-        public ulong RecordsSkipped { get; set; }
-
-        [JsonPropertyName("records_errors")]
-        public ulong RecordsErrors { get; set; }
-
-        [JsonPropertyName("backup_path")]
-        public string? BackupPath { get; set; }
-
-        [JsonPropertyName("timestamp")]
-        public string Timestamp { get; set; } = string.Empty;
-    }
 }

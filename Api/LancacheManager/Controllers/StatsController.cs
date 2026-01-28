@@ -1335,27 +1335,3 @@ public class StatsController : ControllerBase
         });
     }
 }
-
-/// <summary>
-/// Response for historical cache size snapshots
-/// </summary>
-public class CacheSnapshotResponse
-{
-    public bool HasData { get; set; }
-    public long StartUsedSize { get; set; }
-    public long EndUsedSize { get; set; }
-    public long AverageUsedSize { get; set; }
-    public long TotalCacheSize { get; set; }
-    public int SnapshotCount { get; set; }
-    public bool IsEstimate { get; set; }
-}
-
-public class StatsExclusionsResponse
-{
-    public List<string> Ips { get; set; } = new();
-}
-
-public class UpdateStatsExclusionsRequest
-{
-    public List<string> Ips { get; set; } = new();
-}

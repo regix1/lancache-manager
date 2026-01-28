@@ -163,14 +163,4 @@ public class SteamApiKeysController : ControllerBase
             Apps = limitedApps.Cast<object>().ToList()
         });
     }
-
-    public class TestApiKeyRequest
-    {
-        public string ApiKey { get; set; } = string.Empty;
-    }
-
-    public class SaveApiKeyRequest
-    {
-        public string ApiKey { get; set; } = string.Empty;
-    }
 }

@@ -189,25 +189,4 @@ public class DevicesController : ControllerBase
 
         return Unauthorized(result);
     }
-
-    // Note: Device/session revocation has been moved to SessionsController
-    // Use DELETE /api/sessions/{id} for revoking both authenticated devices and guest sessions
-
-    public class RegisterDeviceRequest
-    {
-        [Required]
-        [StringLength(128, MinimumLength = 16, ErrorMessage = "DeviceId must be between 16 and 128 characters")]
-        [RegularExpression(@"^[a-zA-Z0-9_-]+$", ErrorMessage = "DeviceId contains invalid characters")]
-        public string DeviceId { get; set; } = string.Empty;
-
-        [Required]
-        [StringLength(100, MinimumLength = 40, ErrorMessage = "ApiKey must be between 40 and 100 characters")]
-        public string ApiKey { get; set; } = string.Empty;
-
-        [StringLength(100, ErrorMessage = "DeviceName cannot exceed 100 characters")]
-        public string? DeviceName { get; set; }
-
-        [StringLength(45, ErrorMessage = "LocalIp cannot exceed 45 characters")] // Max IPv6 length
-        public string? LocalIp { get; set; }
-    }
 }

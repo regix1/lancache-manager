@@ -1461,6 +1461,98 @@ public class MetricsStatusResponse
     public string AuthMethod { get; set; } = string.Empty;
 }
 
+/// <summary>
+/// Response for metrics security settings
+/// </summary>
+public class MetricsSecurityResponse
+{
+    public bool RequiresAuthentication { get; set; }
+    public string Source { get; set; } = "config";
+    public bool CanToggle { get; set; } = true;
+    public bool EnvVarValue { get; set; }
+}
+
+// ============================================================
+// System Controller Additional DTOs
+// ============================================================
+
+/// <summary>
+/// Response for refresh rate setting
+/// </summary>
+public class RefreshRateResponse
+{
+    public string? Message { get; set; }
+    public string RefreshRate { get; set; } = string.Empty;
+}
+
+// ============================================================
+// Session Controller Additional DTOs
+// ============================================================
+
+/// <summary>
+/// Response for session refresh rate setting
+/// </summary>
+public class SetSessionRefreshRateResponse
+{
+    public bool Success { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public string RefreshRate { get; set; } = string.Empty;
+}
+
+// ============================================================
+// Prefill Daemon Controller Additional DTOs
+// ============================================================
+
+/// <summary>
+/// Response for prefill cache status check
+/// </summary>
+public class PrefillCacheStatusResponse
+{
+    public List<uint> UpToDateAppIds { get; set; } = new();
+    public List<uint> OutdatedAppIds { get; set; } = new();
+    public string? Message { get; set; }
+}
+
+// ============================================================
+// Data Migration Controller DTOs
+// ============================================================
+
+/// <summary>
+/// Progress tracking for data migration operations
+/// </summary>
+public class MigrationProgress
+{
+    [System.Text.Json.Serialization.JsonPropertyName("is_processing")]
+    public bool IsProcessing { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("percent_complete")]
+    public double PercentComplete { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("status")]
+    public string Status { get; set; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("message")]
+    public string Message { get; set; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("records_processed")]
+    public ulong RecordsProcessed { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("records_imported")]
+    public ulong RecordsImported { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("records_skipped")]
+    public ulong RecordsSkipped { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("records_errors")]
+    public ulong RecordsErrors { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("backup_path")]
+    public string? BackupPath { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("timestamp")]
+    public string Timestamp { get; set; } = string.Empty;
+}
+
 // ============================================================
 // Common API Response Helpers
 // ============================================================
@@ -1469,6 +1561,128 @@ public class MetricsStatusResponse
 /// Static factory methods for common API responses.
 /// Reduces inline anonymous object creation across controllers.
 /// </summary>
+
+// ============================================================
+// Prefill Admin Controller DTOs
+// ============================================================
+
+/// <summary>
+/// Response for paginated prefill sessions
+/// </summary>
+public class PrefillSessionsResponse
+{
+    public List<PrefillSessionDto> Sessions { get; set; } = new();
+    public int TotalCount { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+}
+
+/// <summary>
+/// DTO for prefill session information
+/// </summary>
+public class PrefillSessionDto
+{
+    public int Id { get; set; }
+    public string SessionId { get; set; } = string.Empty;
+    public string DeviceId { get; set; } = string.Empty;
+    public string? ContainerId { get; set; }
+    public string? ContainerName { get; set; }
+    public string? SteamUsername { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public bool IsAuthenticated { get; set; }
+    public bool IsPrefilling { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
+    public DateTime? EndedAtUtc { get; set; }
+    public DateTime ExpiresAtUtc { get; set; }
+    public string? TerminationReason { get; set; }
+    public string? TerminatedBy { get; set; }
+    public bool IsLive { get; set; }
+}
+
+/// <summary>
+/// DTO for banned Steam user information
+/// </summary>
+public class BannedSteamUserDto
+{
+    public int Id { get; set; }
+    public string Username { get; set; } = string.Empty;
+    public string? BanReason { get; set; }
+    public string? BannedDeviceId { get; set; }
+    public DateTime BannedAtUtc { get; set; }
+    public string? BannedBy { get; set; }
+    public DateTime? ExpiresAtUtc { get; set; }
+    public bool IsLifted { get; set; }
+    public DateTime? LiftedAtUtc { get; set; }
+    public string? LiftedBy { get; set; }
+    public bool IsActive { get; set; }
+}
+
+/// <summary>
+/// DTO for prefill history entries
+/// </summary>
+public class PrefillHistoryEntryDto
+{
+    public int Id { get; set; }
+    public string SessionId { get; set; } = string.Empty;
+    public uint AppId { get; set; }
+    public string? AppName { get; set; }
+    public DateTime StartedAtUtc { get; set; }
+    public DateTime? CompletedAtUtc { get; set; }
+    public long BytesDownloaded { get; set; }
+    public long TotalBytes { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public string? ErrorMessage { get; set; }
+}
+
+/// <summary>
+/// DTO for cached app information
+/// </summary>
+public class CachedAppDto
+{
+    public uint AppId { get; set; }
+    public string? AppName { get; set; }
+    public int DepotCount { get; set; }
+    public long TotalBytes { get; set; }
+    public DateTime CachedAtUtc { get; set; }
+    public string? CachedBy { get; set; }
+}
+
+/// <summary>
+/// Response for cache check operation
+/// </summary>
+public class CacheCheckResponse
+{
+    public List<uint> CachedAppIds { get; set; } = new();
+    public List<uint> UncachedAppIds { get; set; } = new();
+    public List<CachedAppDto> CacheInfo { get; set; } = new();
+}
+
+// ============================================================
+// Stats Controller Additional DTOs
+// ============================================================
+
+/// <summary>
+/// Response for cache snapshot summary
+/// </summary>
+public class CacheSnapshotResponse
+{
+    public bool HasData { get; set; }
+    public long StartUsedSize { get; set; }
+    public long EndUsedSize { get; set; }
+    public long AverageUsedSize { get; set; }
+    public long TotalCacheSize { get; set; }
+    public int SnapshotCount { get; set; }
+    public bool IsEstimate { get; set; }
+}
+
+/// <summary>
+/// Response for stats exclusions
+/// </summary>
+public class StatsExclusionsResponse
+{
+    public List<string> Ips { get; set; } = new();
+}
+
 public static class ApiResponse
 {
     // ==================== Error Responses ====================

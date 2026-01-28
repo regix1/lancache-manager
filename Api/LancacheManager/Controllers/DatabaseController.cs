@@ -111,9 +111,4 @@ public class DatabaseController : ControllerBase
         var count = await _dbService.GetLogEntriesCountAsync();
         return Ok(new LogEntriesCountResponse { Count = count });
     }
-
-    public class ResetTablesRequest
-    {
-        public List<string> Tables { get; set; } = new();
-    }
 }
