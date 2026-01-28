@@ -1,14 +1,11 @@
 import React from 'react';
-import { useTimezone } from '@contexts/TimezoneContext';
 
 /**
- * Wrapper component that forces all children to re-render when timezone preference changes
- * Uses React's key prop to unmount/remount the entire tree
+ * Wrapper component for timezone-aware content.
+ * Previously used key-based remounting which caused flash/flicker.
+ * Now just passes children through - useFormattedDateTime hook handles updates
+ * via refreshKey dependency in its useMemo.
  */
 export const TimezoneAwareWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { refreshKey } = useTimezone();
-
-  // When refreshKey changes, React will unmount and remount all children
-  // This ensures all displayed times update to the new timezone
-  return <React.Fragment key={`timezone-${refreshKey}`}>{children}</React.Fragment>;
+  return <>{children}</>;
 };

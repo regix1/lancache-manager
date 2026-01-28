@@ -15,7 +15,8 @@ import {
   Lock,
   Unlock,
   ChevronDown,
-  Download
+  Download,
+  Palette
 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -34,6 +35,7 @@ import { getErrorMessage } from '@utils/error';
 import { useAuth } from '@contexts/AuthContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useSignalR } from '@contexts/SignalRContext';
+import { useSessionPreferences } from '@contexts/SessionPreferencesContext';
 import { useDefaultGuestPreferences } from '@hooks/useDefaultGuestPreferences';
 import { useActivityTracker } from '@hooks/useActivityTracker';
 import {
@@ -84,6 +86,15 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const { refreshAuth } = useAuth();
   const { on, off } = useSignalR();
   const { prefs: defaultGuestPrefs } = useDefaultGuestPreferences();
+  
+  // Use centralized session preferences from context
+  const { 
+    getSessionPreferences, 
+    loadSessionPreferences, 
+    isLoaded: isPreferencesLoaded,
+    isLoading: isPreferencesLoading
+  } = useSessionPreferences();
+
   const timeFormatOptions = [
     {
       value: 'server-24h',
@@ -130,8 +141,6 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const [pageSize] = useState(20);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
-  const [sessionPreferences, setSessionPreferences] = useState<Record<string, UserPreferences>>({});
-  const [loadingSessionPrefs, setLoadingSessionPrefs] = useState<Set<string>>(new Set());
   const [updatingPrefill, setUpdatingPrefill] = useState(false);
 
   const toggleSessionExpanded = (sessionId: string) => {
@@ -145,54 +154,6 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       return next;
     });
   };
-
-  // Load preferences for a specific session (for card preview)
-  const loadSessionPreferences = useCallback(
-    async (sessionId: string) => {
-      if (sessionPreferences[sessionId] || loadingSessionPrefs.has(sessionId)) {
-        return;
-      }
-
-      setLoadingSessionPrefs((prev) => new Set(prev).add(sessionId));
-
-      try {
-        const response = await fetch(
-          `/api/user-preferences/session/${encodeURIComponent(sessionId)}`,
-          ApiService.getFetchOptions()
-        );
-
-        if (response.ok) {
-          const prefs = await response.json();
-          setSessionPreferences((prev) => ({
-            ...prev,
-            [sessionId]: {
-              selectedTheme: prefs.selectedTheme || null,
-              sharpCorners: prefs.sharpCorners ?? false,
-              disableFocusOutlines: prefs.disableFocusOutlines ?? true,
-              disableTooltips: prefs.disableTooltips ?? false,
-              picsAlwaysVisible: prefs.picsAlwaysVisible ?? false,
-              disableStickyNotifications: prefs.disableStickyNotifications ?? false,
-              showDatasourceLabels: prefs.showDatasourceLabels ?? true,
-              useLocalTimezone: prefs.useLocalTimezone ?? false,
-              use24HourFormat: prefs.use24HourFormat ?? true,
-              showYearInDates: prefs.showYearInDates ?? false,
-              refreshRate: prefs.refreshRate ?? null,
-              allowedTimeFormats: prefs.allowedTimeFormats ?? undefined
-            }
-          }));
-        }
-      } catch (err) {
-        console.error('Failed to load session preferences:', err);
-      } finally {
-        setLoadingSessionPrefs((prev) => {
-          const next = new Set(prev);
-          next.delete(sessionId);
-          return next;
-        });
-      }
-    },
-    [sessionPreferences, loadingSessionPrefs]
-  );
 
   const loadSessions = useCallback(
     async (showLoading = false, page = currentPage) => {
@@ -253,16 +214,6 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     [setSessions]
   );
 
-  const handleUserPreferencesUpdated = useCallback(
-    (data: { sessionId: string; preferences: UserPreferences }) => {
-      setSessionPreferences((prev) => ({
-        ...prev,
-        [data.sessionId]: data.preferences
-      }));
-    },
-    []
-  );
-
   useEffect(() => {
     loadSessions(true);
 
@@ -270,14 +221,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     on('UserSessionsCleared', handleSessionsCleared);
     on('UserSessionCreated', handleSessionCreated);
     on('SessionLastSeenUpdated', handleSessionLastSeenUpdated);
-    on('UserPreferencesUpdated', handleUserPreferencesUpdated);
 
     return () => {
       off('UserSessionRevoked', handleSessionRevoked);
       off('UserSessionsCleared', handleSessionsCleared);
       off('UserSessionCreated', handleSessionCreated);
       off('SessionLastSeenUpdated', handleSessionLastSeenUpdated);
-      off('UserPreferencesUpdated', handleUserPreferencesUpdated);
     };
   }, [
     loadSessions,
@@ -286,8 +235,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     handleSessionRevoked,
     handleSessionsCleared,
     handleSessionCreated,
-    handleSessionLastSeenUpdated,
-    handleUserPreferencesUpdated
+    handleSessionLastSeenUpdated
   ]);
 
   const handleRevokeSession = (session: Session) => {
@@ -468,37 +416,6 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             editingPreferences.disableStickyNotifications
           );
           await themeService.setPicsAlwaysVisible(editingPreferences.picsAlwaysVisible);
-
-          window.dispatchEvent(
-            new CustomEvent('preference-changed', {
-              detail: {
-                key: 'showDatasourceLabels',
-                value: editingPreferences.showDatasourceLabels
-              }
-            })
-          );
-          window.dispatchEvent(
-            new CustomEvent('preference-changed', {
-              detail: { key: 'useLocalTimezone', value: editingPreferences.useLocalTimezone }
-            })
-          );
-          window.dispatchEvent(
-            new CustomEvent('preference-changed', {
-              detail: { key: 'use24HourFormat', value: editingPreferences.use24HourFormat }
-            })
-          );
-          window.dispatchEvent(
-            new CustomEvent('preference-changed', {
-              detail: { key: 'showYearInDates', value: editingPreferences.showYearInDates }
-            })
-          );
-          if (editingPreferences.allowedTimeFormats) {
-            window.dispatchEvent(
-              new CustomEvent('preference-changed', {
-                detail: { key: 'allowedTimeFormats', value: editingPreferences.allowedTimeFormats }
-              })
-            );
-          }
         }
 
         if (editingSession.type === 'guest') {
@@ -513,6 +430,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             })
           );
         }
+
+        // The session preferences will be automatically updated via SignalR
+        // through the SessionPreferencesContext, no need to update local state
 
         setEditingSession(null);
         setEditingPreferences(null);
@@ -620,10 +540,14 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     const isActive = sessionStatus === 'active';
     const isAway = sessionStatus === 'away';
     const isDimmed = session.isExpired || session.isRevoked;
-    const prefs = sessionPreferences[session.id];
-    const isLoadingPrefs = loadingSessionPrefs.has(session.id);
+    
+    // Get preferences from centralized context
+    const prefs = getSessionPreferences(session.id);
+    const isLoadingPrefs = isPreferencesLoading(session.id);
 
-    if (!prefs && !isLoadingPrefs && !session.isRevoked && !session.isExpired) {
+    // Trigger load if not loaded and session is active
+    if (!prefs && !isLoadingPrefs && !isPreferencesLoaded(session.id) && !session.isRevoked && !session.isExpired) {
+      // Use setTimeout to avoid state update during render
       setTimeout(() => loadSessionPreferences(session.id), 0);
     }
 
@@ -695,9 +619,13 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   )}
                   {!session.isRevoked && !session.isExpired && prefs && (
                     <>
-                      <span className="pref-badge text-[10px]">{themeName}</span>
                       <span className="pref-badge text-[10px]">
-                        {t('activeSessions.labels.timezone', { zone: timezoneLabel })}
+                        <Palette className="w-3 h-3" />
+                        {themeName}
+                      </span>
+                      <span className="pref-badge text-[10px]">
+                        <Globe className="w-3 h-3" />
+                        {timezoneLabel}
                       </span>
                     </>
                   )}
@@ -760,9 +688,13 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     )}
                     {!session.isRevoked && !session.isExpired && prefs && (
                       <>
-                        <span className="pref-badge">{themeName}</span>
                         <span className="pref-badge">
-                          {t('activeSessions.labels.timezone', { zone: timezoneLabel })}
+                          <Palette className="w-3 h-3" />
+                          {themeName}
+                        </span>
+                        <span className="pref-badge">
+                          <Globe className="w-3 h-3" />
+                          {timezoneLabel}
                         </span>
                       </>
                     )}

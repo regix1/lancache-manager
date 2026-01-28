@@ -1,7 +1,6 @@
 import { API_BASE } from '../utils/constants';
 import authService from './auth.service';
 import type {
-  UserPreferencesUpdatedEvent,
   UserSessionRevokedEvent,
   DefaultGuestThemeChangedEvent
 } from '../contexts/SignalRContext/types';
@@ -80,7 +79,6 @@ class PreferencesService {
           allowedTimeFormats: data.allowedTimeFormats || null
         };
         this.loaded = true;
-        // console.log('[PreferencesService] Loaded preferences from API:', this.preferences);
         return this.preferences;
       } else {
         // Return defaults if API call fails
@@ -97,10 +95,10 @@ class PreferencesService {
     }
   }
 
-
-
   /**
    * Update a single preference
+   * NOTE: This method no longer dispatches preference-changed events.
+   * SessionPreferencesContext handles state management via SignalR.
    */
   async updatePreference<K extends keyof UserPreferences>(
     key: K,
@@ -110,7 +108,6 @@ class PreferencesService {
 
     // CRITICAL: If there's already an update in-flight for this key, return that promise
     if (this.pendingUpdates.has(keyStr)) {
-      // console.log(`[PreferencesService] Update already in-flight for ${keyStr}, waiting...`);
       return this.pendingUpdates.get(keyStr)!;
     }
 
@@ -138,15 +135,8 @@ class PreferencesService {
           if (this.preferences) {
             this.preferences[key] = value;
           }
-          // console.log(`[PreferencesService] Updated preference ${key}:`, value);
-
-          // Dispatch immediate local update (SignalR will also broadcast, but this gives instant feedback)
-          window.dispatchEvent(
-            new CustomEvent('preference-changed', {
-              detail: { key: key as string, value }
-            })
-          );
-
+          // No longer dispatching preference-changed events here
+          // SessionPreferencesContext handles state management via SignalR
           return true;
         } else {
           console.error(`[PreferencesService] Failed to update preference ${key}:`, response.status);
@@ -215,18 +205,20 @@ class PreferencesService {
   updateCache(preferences: UserPreferences): void {
     this.preferences = preferences;
     this.loaded = true;
-    // console.log('[PreferencesService] Cache updated directly:', this.preferences);
   }
 
   /**
-   * Setup SignalR listener for preference updates
-   * Handles UserPreferencesUpdated, UserPreferencesReset, and UserSessionsCleared
+   * Setup SignalR listener for session-related events (NOT preference updates)
+   * 
+   * NOTE: UserPreferencesUpdated is now handled by SessionPreferencesContext.
+   * This method only handles session management events:
+   * - UserPreferencesReset
+   * - UserSessionsCleared
+   * - UserSessionRevoked
+   * - DefaultGuestThemeChanged
    */
   setupSignalRListener(signalR: SignalRConnection): void {
-    // console.log('[PreferencesService] Setting up SignalR listeners');
-
-    // Track if we're processing to prevent race conditions
-    let isProcessingUpdate = false;
+    // Track processing flags to prevent race conditions
     let isProcessingReset = false;
 
     // CRITICAL: Track recently processed revocations to prevent duplicate SignalR events
@@ -235,91 +227,14 @@ class PreferencesService {
     // Track if we recently dispatched user-sessions-cleared to prevent duplicate events
     let recentlyDispatchedSessionsCleared = false;
 
-    // Handle preference updates
-    const handlePreferencesUpdated = (data: UserPreferencesUpdatedEvent) => {
-      if (isProcessingUpdate) {
-        // console.log('[PreferencesService] Already processing update, skipping duplicate');
-        return;
-      }
-
-      try {
-        isProcessingUpdate = true;
-
-        const { sessionId, preferences: newPreferences } = data;
-
-        // Check if this update is for the current user's session
-        const deviceId = authService.getDeviceId();
-        const guestSessionId = authService.getGuestSessionId();
-        const currentSessionId = deviceId || guestSessionId;
-
-        if (sessionId !== currentSessionId) {
-          return;
-        }
-
-        // console.log('[PreferencesService] Preferences updated for current session, applying changes...');
-
-        // Get old preferences before updating
-        const oldPrefs = this.preferences;
-
-        // Parse new preferences from SignalR data
-        const updatedPrefs: UserPreferences = {
-          selectedTheme: newPreferences.selectedTheme || null,
-          sharpCorners: newPreferences.sharpCorners || false,
-          disableFocusOutlines: newPreferences.disableFocusOutlines || false,
-          disableTooltips: newPreferences.disableTooltips || false,
-          picsAlwaysVisible: newPreferences.picsAlwaysVisible || false,
-          disableStickyNotifications: newPreferences.disableStickyNotifications || false,
-          useLocalTimezone: newPreferences.useLocalTimezone || false,
-          use24HourFormat: newPreferences.use24HourFormat || false,
-          showDatasourceLabels: newPreferences.showDatasourceLabels ?? true,
-          showYearInDates: newPreferences.showYearInDates || false,
-          refreshRate: newPreferences.refreshRate || null,
-          allowedTimeFormats: newPreferences.allowedTimeFormats || null
-        };
-
-        // Update cache directly with SignalR values (don't fetch from API to avoid race conditions)
-        this.updateCache(updatedPrefs);
-
-        // Only dispatch events for preferences that actually changed
-        if (oldPrefs) {
-          Object.keys(updatedPrefs).forEach((key) => {
-            const typedKey = key as keyof UserPreferences;
-            if (oldPrefs[typedKey] !== updatedPrefs[typedKey]) {
-              // console.log(`[PreferencesService] Preference changed: ${key} = ${updatedPrefs[typedKey]}`);
-              window.dispatchEvent(
-                new CustomEvent('preference-changed', {
-                  detail: { key, value: updatedPrefs[typedKey] }
-                })
-              );
-            }
-          });
-        } else {
-          // If no old prefs, dispatch all
-          Object.keys(updatedPrefs).forEach((key) => {
-            window.dispatchEvent(
-              new CustomEvent('preference-changed', {
-                detail: { key, value: updatedPrefs[key as keyof UserPreferences] }
-              })
-            );
-          });
-        }
-      } finally {
-        setTimeout(() => {
-          isProcessingUpdate = false;
-        }, 500);
-      }
-    };
-
     // Handle preference reset
     const handlePreferencesReset = () => {
       if (isProcessingReset) {
-        // console.log('[PreferencesService] Already processing reset, skipping duplicate');
         return;
       }
 
       try {
         isProcessingReset = true;
-        // console.log('[PreferencesService] UserPreferencesReset event received');
 
         // Clear cached preferences
         this.clearCache();
@@ -336,7 +251,6 @@ class PreferencesService {
     // Handle session cleared - dispatch event for App.tsx to handle
     const handleSessionsCleared = () => {
       // CRITICAL: Prevent duplicate dispatches within 5 seconds
-      // Both UserSessionsCleared and UserSessionRevoked can trigger this
       if (recentlyDispatchedSessionsCleared) {
         return;
       }
@@ -357,13 +271,11 @@ class PreferencesService {
       const revocationKey = `${deviceId}-${sessionType}`;
 
       // CRITICAL: Skip if we just processed this revocation in the last 5 seconds
-      // This prevents duplicate SignalR events from causing multiple logout attempts
       if (recentRevocations.has(revocationKey)) {
         return;
       }
 
       try {
-
         // Add to recent set FIRST to block duplicates immediately
         recentRevocations.add(revocationKey);
 
@@ -376,13 +288,13 @@ class PreferencesService {
           (sessionType === 'guest' && deviceId === ourGuestSessionId);
 
         if (isOurSession) {
-          // Check if we already dispatched recently (e.g., from UserSessionsCleared event)
+          // Check if we already dispatched recently
           if (recentlyDispatchedSessionsCleared) {
             return;
           }
           recentlyDispatchedSessionsCleared = true;
 
-          // Dispatch custom event for App.tsx to handle (needs React context for refreshAuth)
+          // Dispatch custom event for App.tsx to handle
           window.dispatchEvent(new CustomEvent('user-sessions-cleared'));
 
           // Reset flag after 5 seconds
@@ -400,26 +312,22 @@ class PreferencesService {
 
     // Handle default guest theme changed - auto-update guests using default theme
     const handleDefaultGuestThemeChanged = (data: DefaultGuestThemeChangedEvent) => {
-      // console.log('[PreferencesService] DefaultGuestThemeChanged event received:', data);
-
       const { newThemeId } = data;
 
       // Only apply to guest users
       if (authService.authMode !== 'guest') {
-        // console.log('[PreferencesService] Not a guest user, ignoring default theme change');
         return;
       }
 
       // Only apply if user is currently using the default theme (selectedTheme === null)
       const currentPrefs = this.getPreferencesSync();
       if (currentPrefs && currentPrefs.selectedTheme !== null) {
-        // console.log('[PreferencesService] Guest has custom theme selected, ignoring default theme change');
         return;
       }
 
-      // console.log(`[PreferencesService] Applying new default guest theme: ${newThemeId}`);
-
       // Dispatch preference-changed event to trigger theme update
+      // This is one of the few remaining uses of preference-changed, 
+      // specifically for theme changes that need themeService to react
       window.dispatchEvent(
         new CustomEvent('preference-changed', {
           detail: { key: 'selectedTheme', value: newThemeId }
@@ -427,13 +335,11 @@ class PreferencesService {
       );
     };
 
-    signalR.on('UserPreferencesUpdated', handlePreferencesUpdated);
+    // NOTE: UserPreferencesUpdated is now handled by SessionPreferencesContext
     signalR.on('UserPreferencesReset', handlePreferencesReset);
     signalR.on('UserSessionsCleared', handleSessionsCleared);
     signalR.on('UserSessionRevoked', handleSessionRevoked);
     signalR.on('DefaultGuestThemeChanged', handleDefaultGuestThemeChanged);
-
-    // console.log('[PreferencesService] SignalR listeners registered');
   }
 
   /**
@@ -455,10 +361,6 @@ class PreferencesService {
       allowedTimeFormats: null // Default to all time formats allowed
     };
   }
-
-
-
-
 }
 
 export default new PreferencesService();

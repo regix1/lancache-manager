@@ -25,7 +25,6 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
 
   const isGuest = authMode === 'guest';
 
-  // Load user's own allowed formats from their preferences
   useEffect(() => {
     const loadUserFormats = async () => {
       try {
@@ -37,7 +36,6 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
     };
     loadUserFormats();
 
-    // Listen for preference changes
     const handlePrefChange = (e: CustomEvent) => {
       if (e.detail?.key === 'allowedTimeFormats') {
         setUserAllowedFormats(e.detail.value || null);
@@ -47,7 +45,6 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
     return () => window.removeEventListener('preference-changed', handlePrefChange as EventListener);
   }, []);
 
-  // Get the admin's default setting for guests
   const getAdminDefault = (): TimeSettingValue => {
     const isLocal = guestDefaults.useLocalTimezone;
     const is24h = guestDefaults.use24HourFormat;
@@ -58,7 +55,6 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
     return 'server-12h';
   };
 
-  // Tick every second to trigger re-render for clock update
   useEffect(() => {
     const interval = setInterval(() => {
       setTick(t => t + 1);
@@ -66,21 +62,16 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
     return () => clearInterval(interval);
   }, []);
 
-  // Get effective allowed formats: user's own settings take priority over admin defaults
   const getEffectiveAllowedFormats = (): string[] => {
-    // User's own allowed formats take priority if set
     if (userAllowedFormats && userAllowedFormats.length > 0) {
       return userAllowedFormats;
     }
-    // Fall back to admin defaults for guests
     if (isGuest && guestDefaults.allowedTimeFormats && guestDefaults.allowedTimeFormats.length > 0) {
       return guestDefaults.allowedTimeFormats;
     }
-    // No restrictions - all formats allowed
     return [];
   };
 
-  // Auto-switch guest to allowed format if current selection is not allowed
   useEffect(() => {
     if (!isGuest || loadingDefaults || hasAutoSwitched.current) return;
 
@@ -88,7 +79,6 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
     const allowedFormats = getEffectiveAllowedFormats();
 
     if (allowedFormats.length > 0 && !allowedFormats.includes(currentValue)) {
-      // Current selection not allowed - switch to admin default or first allowed
       const adminDefault = getAdminDefault();
       const targetFormat = allowedFormats.includes(adminDefault)
         ? adminDefault
@@ -99,7 +89,6 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
     }
   }, [isGuest, loadingDefaults, guestDefaults.allowedTimeFormats, userAllowedFormats]);
 
-  // Helper to get current value without dependency issues
   const getCurrentValueInternal = (): TimeSettingValue => {
     if (useLocalTimezone) {
       return use24HourFormat ? 'local-24h' : 'local-12h';
@@ -108,7 +97,6 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
     }
   };
 
-  // Compute current time based on timezone/format preferences
   const computeTime = () => {
     const timezone = getEffectiveTimezone(useLocalTimezone);
     const { hour: hours, minute: minutes } = getTimeInTimezone(new Date(), timezone);
@@ -122,7 +110,7 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
     }
   };
 
-  void tick; // Force re-render every second for clock
+  void tick;
   const currentTime = computeTime();
 
   const getCurrentValue = (): TimeSettingValue => {
@@ -177,7 +165,6 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
     }
   ];
 
-  // Mark the admin's default for guests and filter by allowed formats
   const adminDefault = isGuest ? getAdminDefault() : null;
   const effectiveAllowedFormats = getEffectiveAllowedFormats();
 

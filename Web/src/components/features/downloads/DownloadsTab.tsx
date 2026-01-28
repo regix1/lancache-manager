@@ -16,7 +16,7 @@ import { useTimeFilter } from '@contexts/TimeFilterContext';
 import { useClientGroups } from '@contexts/ClientGroupContext';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
-import preferencesService from '@services/preferences.service';
+import { useSessionPreferences } from '@contexts/SessionPreferencesContext';
 import { formatDateTime } from '@utils/formatters';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
@@ -232,35 +232,22 @@ const DownloadsTab: React.FC = () => {
 
   // Datasource display state
   const [config, setConfig] = useState<Config | null>(null);
-  const [showDatasourceLabels, setShowDatasourceLabels] = useState(true);
+  
+  // Get showDatasourceLabels from centralized SessionPreferencesContext
+  const { currentPreferences } = useSessionPreferences();
+  const showDatasourceLabels = currentPreferences?.showDatasourceLabels ?? true;
 
-  // Fetch config and preferences for datasource display
+  // Fetch config for datasource display
   useEffect(() => {
     const loadDatasourceSettings = async () => {
       try {
-        const [configData, prefs] = await Promise.all([
-          ApiService.getConfig(),
-          preferencesService.getPreferences()
-        ]);
+        const configData = await ApiService.getConfig();
         setConfig(configData);
-        setShowDatasourceLabels(prefs.showDatasourceLabels ?? true);
       } catch (err) {
         console.error('Failed to load datasource settings:', err);
       }
     };
     loadDatasourceSettings();
-
-    // Listen for preference changes
-    const handlePreferenceChange = (event: CustomEvent<{ key: string; value: unknown }>) => {
-      if (event.detail.key === 'showDatasourceLabels') {
-        setShowDatasourceLabels(event.detail.value as boolean);
-      }
-    };
-    window.addEventListener('preference-changed', handlePreferenceChange as EventListener);
-
-    return () => {
-      window.removeEventListener('preference-changed', handlePreferenceChange as EventListener);
-    };
   }, []);
 
   // Compute whether to show datasource labels (show if any datasources are configured)

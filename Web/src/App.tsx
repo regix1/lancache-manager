@@ -20,6 +20,7 @@ import { PrefillProvider } from '@contexts/PrefillContext';
 import { AuthProvider, useAuth } from '@contexts/AuthContext';
 import { SteamWebApiStatusProvider, useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 import { TimezoneProvider } from '@contexts/TimezoneContext';
+import { SessionPreferencesProvider } from '@contexts/SessionPreferencesContext';
 import { DockerSocketProvider, useDockerSocket } from '@contexts/DockerSocketContext';
 import { TimezoneAwareWrapper } from '@components/common/TimezoneAwareWrapper';
 import Header from '@components/layout/Header';
@@ -791,8 +792,9 @@ const App: React.FC = () => {
           <SignalRProvider>
             <AuthProvider>
               <DockerSocketProvider>
-                <RefreshRateProvider>
-                  <TimezoneProvider>
+                <SessionPreferencesProvider>
+                  <RefreshRateProvider>
+                    <TimezoneProvider>
                     <SteamWebApiStatusProvider>
                     <GuestConfigProvider>
                       <SetupStatusProvider>
@@ -822,8 +824,9 @@ const App: React.FC = () => {
                       </SetupStatusProvider>
                     </GuestConfigProvider>
                   </SteamWebApiStatusProvider>
-                  </TimezoneProvider>
-                </RefreshRateProvider>
+                    </TimezoneProvider>
+                  </RefreshRateProvider>
+                </SessionPreferencesProvider>
               </DockerSocketProvider>
             </AuthProvider>
           </SignalRProvider>

@@ -3,115 +3,75 @@ import preferencesService from '@services/preferences.service';
 import { setGlobalTimezonePreference } from '@utils/timezonePreference';
 import { setGlobal24HourPreference } from '@utils/timeFormatPreference';
 import { setGlobalAlwaysShowYearPreference, getGlobalAlwaysShowYearPreference } from '@utils/yearDisplayPreference';
+import {
+  setPendingTimezone,
+  subscribe as subscribeToPending,
+  getPendingValue
+} from '@utils/pendingPreferences';
 
 type TimeSettingValue = 'server-24h' | 'server-12h' | 'local-24h' | 'local-12h';
-
-// External store for pending selection - prevents flicker when both preferences
-// are updated separately via SignalR by providing stable values during transition
-let pendingTimeSetting: TimeSettingValue | null = null;
-const pendingListeners = new Set<() => void>();
-
-const pendingStore = {
-  subscribe: (listener: () => void) => {
-    pendingListeners.add(listener);
-    return () => { pendingListeners.delete(listener); };
-  },
-  getSnapshot: () => pendingTimeSetting,
-  set: (value: TimeSettingValue | null) => {
-    if (pendingTimeSetting === value) return;
-    pendingTimeSetting = value;
-    pendingListeners.forEach((l) => l());
-  }
-};
 
 interface TimezoneContextType {
   useLocalTimezone: boolean;
   use24HourFormat: boolean;
   refreshKey: number;
   setPendingTimeSetting: (value: TimeSettingValue | null) => void;
+  forceRefresh: () => void;
 }
 
 const TimezoneContext = createContext<TimezoneContextType>({
   useLocalTimezone: false,
   use24HourFormat: true,
   refreshKey: 0,
-  setPendingTimeSetting: () => {}
+  setPendingTimeSetting: () => {},
+  forceRefresh: () => {}
 });
 
 export const useTimezone = () => useContext(TimezoneContext);
 
 export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [actualUseLocalTimezone, setActualUseLocalTimezone] = useState(false);
-  const [actualUse24HourFormat, setActualUse24HourFormat] = useState(true);
+  const [actualUseLocal, setActualUseLocal] = useState(false);
+  const [actualUse24Hour, setActualUse24Hour] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
-  const pendingChange = useSyncExternalStore(pendingStore.subscribe, pendingStore.getSnapshot);
 
-  // Derive effective values from pending (if set) or actual state
-  const useLocalTimezone = pendingChange !== null
-    ? pendingChange.startsWith('local')
-    : actualUseLocalTimezone;
-  const use24HourFormat = pendingChange !== null
-    ? pendingChange.endsWith('24h')
-    : actualUse24HourFormat;
+  // Subscribe to pending preference changes for immediate UI updates
+  const pendingUseLocal = useSyncExternalStore(
+    subscribeToPending,
+    () => getPendingValue<boolean>('useLocalTimezone')
+  );
+  const pendingUse24Hour = useSyncExternalStore(
+    subscribeToPending,
+    () => getPendingValue<boolean>('use24HourFormat')
+  );
 
-  // Clear pending when actual values catch up
+  // Derive effective values: pending takes precedence over actual
+  const useLocalTimezone = pendingUseLocal ?? actualUseLocal;
+  const use24HourFormat = pendingUse24Hour ?? actualUse24Hour;
+
+  // Load initial preferences
   useEffect(() => {
-    if (pendingChange !== null) {
-      const expectedUseLocal = pendingChange.startsWith('local');
-      const expectedUse24Hour = pendingChange.endsWith('24h');
-      if (actualUseLocalTimezone === expectedUseLocal && actualUse24HourFormat === expectedUse24Hour) {
-        // Just clear pending - no refreshKey increment needed since
-        // effective values are already correct (derived from pending)
-        pendingStore.set(null);
-      }
-    }
-  }, [actualUseLocalTimezone, actualUse24HourFormat, pendingChange]);
-
-  useEffect(() => {
-    // Load initial preferences
-    const loadPreferences = async () => {
+    const load = async () => {
       const prefs = await preferencesService.getPreferences();
-      setActualUseLocalTimezone(prefs.useLocalTimezone);
-      setActualUse24HourFormat(prefs.use24HourFormat);
+      setActualUseLocal(prefs.useLocalTimezone);
+      setActualUse24Hour(prefs.use24HourFormat);
       setGlobalTimezonePreference(prefs.useLocalTimezone);
       setGlobal24HourPreference(prefs.use24HourFormat);
       setGlobalAlwaysShowYearPreference(prefs.showYearInDates ?? false);
     };
-    loadPreferences();
+    load();
+  }, []);
 
-    // Listen for preference changes from SignalR
-    const handlePreferenceChange = (event: Event) => {
-      const customEvent = event as CustomEvent<{ key: string; value: boolean }>;
-      const { key, value } = customEvent.detail;
-
-      // When there's a pending change, silently update actual values
-      // without triggering refreshKey (the effective values come from pending)
-      if (pendingTimeSetting !== null && (key === 'useLocalTimezone' || key === 'use24HourFormat')) {
-        if (key === 'useLocalTimezone') {
-          setActualUseLocalTimezone((prev) => {
-            if (prev !== value) {
-              setGlobalTimezonePreference(value);
-              return value;
-            }
-            return prev;
-          });
-        } else {
-          setActualUse24HourFormat((prev) => {
-            if (prev !== value) {
-              setGlobal24HourPreference(value);
-              return value;
-            }
-            return prev;
-          });
-        }
-        return;
-      }
+  // Listen for preference changes from SignalR
+  useEffect(() => {
+    const handleChange = (e: Event) => {
+      const { key, value } = (e as CustomEvent<{ key: string; value: boolean }>).detail;
 
       if (key === 'useLocalTimezone') {
-        setActualUseLocalTimezone((prev) => {
+        setActualUseLocal(prev => {
           if (prev !== value) {
             setGlobalTimezonePreference(value);
-            setRefreshKey((prevKey) => prevKey + 1);
+            // Only increment refreshKey if no pending value (pending handles immediate UI)
+            if (pendingUseLocal === null) setRefreshKey(k => k + 1);
             return value;
           }
           return prev;
@@ -119,40 +79,44 @@ export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
 
       if (key === 'use24HourFormat') {
-        setActualUse24HourFormat((prev) => {
+        setActualUse24Hour(prev => {
           if (prev !== value) {
             setGlobal24HourPreference(value);
-            setRefreshKey((prevKey) => prevKey + 1);
+            if (pendingUse24Hour === null) setRefreshKey(k => k + 1);
             return value;
           }
           return prev;
         });
       }
 
-      // Handle showYearInDates preference change - only update if value actually changed
       if (key === 'showYearInDates') {
-        const currentValue = getGlobalAlwaysShowYearPreference();
-        if (currentValue !== value) {
+        const current = getGlobalAlwaysShowYearPreference();
+        if (current !== value) {
           setGlobalAlwaysShowYearPreference(value);
-          setRefreshKey((prevKey) => prevKey + 1);
+          setRefreshKey(k => k + 1);
         }
       }
     };
 
-    window.addEventListener('preference-changed', handlePreferenceChange);
-    return () => window.removeEventListener('preference-changed', handlePreferenceChange);
-  }, []);
+    window.addEventListener('preference-changed', handleChange);
+    return () => window.removeEventListener('preference-changed', handleChange);
+  }, [pendingUseLocal, pendingUse24Hour]);
 
   const setPendingTimeSetting = useCallback((value: TimeSettingValue | null) => {
-    pendingStore.set(value);
+    setPendingTimezone(value);
+  }, []);
+
+  const forceRefresh = useCallback(() => {
+    setRefreshKey(k => k + 1);
   }, []);
 
   const contextValue = useMemo(() => ({
     useLocalTimezone,
     use24HourFormat,
     refreshKey,
-    setPendingTimeSetting
-  }), [useLocalTimezone, use24HourFormat, refreshKey, setPendingTimeSetting]);
+    setPendingTimeSetting,
+    forceRefresh
+  }), [useLocalTimezone, use24HourFormat, refreshKey, setPendingTimeSetting, forceRefresh]);
 
   return (
     <TimezoneContext.Provider value={contextValue}>

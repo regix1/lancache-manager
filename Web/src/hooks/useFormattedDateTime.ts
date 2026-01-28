@@ -3,6 +3,9 @@ import { getServerTimezone } from '@utils/timezone';
 import { useTimezone } from '@contexts/TimezoneContext';
 import { getGlobalAlwaysShowYearPreference } from '@utils/yearDisplayPreference';
 
+// Track logging to avoid console spam
+let lastLoggedRefreshKey = -1;
+
 /**
  * Hook that formats a date/time and automatically re-renders when timezone or time format preference changes
  * Use this instead of formatDateTime() directly in components to get live preference updates
@@ -11,6 +14,12 @@ export const useFormattedDateTime = (dateString: string | Date | null | undefine
   const { useLocalTimezone, use24HourFormat, refreshKey } = useTimezone();
 
   return useMemo(() => {
+    // Log only once per refreshKey change
+    if (refreshKey !== lastLoggedRefreshKey) {
+      console.log('[useFormattedDateTime] useMemo recomputing, refreshKey:', refreshKey, 'alwaysShowYear:', getGlobalAlwaysShowYearPreference());
+      lastLoggedRefreshKey = refreshKey;
+    }
+
     if (!dateString) return 'N/A';
 
     try {

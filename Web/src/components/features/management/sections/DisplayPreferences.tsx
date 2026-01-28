@@ -4,6 +4,7 @@ import { Brush, Bell, Database, Calendar } from 'lucide-react';
 import { Checkbox } from '@components/ui/Checkbox';
 import preferencesService from '@services/preferences.service';
 import themeService from '@services/theme.service';
+import { useTimezone } from '@contexts/TimezoneContext';
 import { setGlobalAlwaysShowYearPreference } from '@utils/yearDisplayPreference';
 
 interface PreferenceRowProps {
@@ -67,6 +68,7 @@ const PreferenceSection: React.FC<PreferenceSectionProps> = ({
 
 const DisplayPreferences: React.FC = () => {
   const { t } = useTranslation();
+  const { forceRefresh } = useTimezone();
 
   // Visual preferences
   const [sharpCorners, setSharpCorners] = useState(false);
@@ -164,11 +166,10 @@ const DisplayPreferences: React.FC = () => {
 
   const handleAlwaysShowYearChange = useCallback(async (checked: boolean) => {
     setAlwaysShowYear(checked);
-    // Update global state immediately for instant UI feedback
     setGlobalAlwaysShowYearPreference(checked);
-    // Save to API (will also dispatch preference-changed event for TimezoneContext)
+    forceRefresh();
     await preferencesService.setPreference('showYearInDates', checked);
-  }, []);
+  }, [forceRefresh]);
 
   if (isLoading) {
     return (

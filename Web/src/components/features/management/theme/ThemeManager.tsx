@@ -19,6 +19,7 @@ import { useTranslation } from 'react-i18next';
 import themeService from '@services/theme.service';
 import preferencesService from '@services/preferences.service';
 import authService from '@services/auth.service';
+import { useSessionPreferences } from '@contexts/SessionPreferencesContext';
 import ApiService from '@services/api.service';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
@@ -82,6 +83,16 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Get theme preference from SessionPreferencesContext
+  const { currentPreferences } = useSessionPreferences();
+  
+  // Sync currentTheme with context when it changes (handles SignalR updates)
+  useEffect(() => {
+    if (currentPreferences?.selectedTheme && !previewTheme) {
+      setCurrentTheme(currentPreferences.selectedTheme);
+    }
+  }, [currentPreferences?.selectedTheme, previewTheme]);
+
   // Load themes on mount
   useEffect(() => {
     loadThemes();
@@ -98,23 +109,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       const saved = themeService.getCurrentThemeId();
       if (saved) setCurrentTheme(saved);
     }
-
-    // Listen for live preference changes from admin (theme changes only)
-    const handlePreferenceChange = (event: Event) => {
-      const customEvent = event as CustomEvent<{ key: string; value: unknown }>;
-      const { key, value } = customEvent.detail;
-
-      if (key === 'selectedTheme' && value) {
-        setCurrentTheme(value as string);
-        setPreviewTheme(null);
-      }
-    };
-
-    window.addEventListener('preference-changed', handlePreferenceChange);
-
-    return () => {
-      window.removeEventListener('preference-changed', handlePreferenceChange);
-    };
   }, []);
 
   // Handler Functions
