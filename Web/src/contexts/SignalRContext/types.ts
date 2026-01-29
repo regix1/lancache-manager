@@ -57,6 +57,7 @@ export const SIGNALR_EVENTS = [
   'ServiceRemovalProgress',
   'ServiceRemovalComplete',
   'CorruptionDetectionStarted',
+  'CorruptionDetectionProgress',
   'CorruptionDetectionComplete',
   'CorruptionRemovalStarted',
   'CorruptionRemovalComplete',
@@ -231,6 +232,17 @@ export interface CorruptionRemovalCompleteEvent {
 export interface CorruptionDetectionStartedEvent {
   operationId: string;
   message?: string;
+}
+
+export interface CorruptionDetectionProgressEvent {
+  operationId: string;
+  status: string;
+  message?: string;
+  filesProcessed?: number;
+  totalFiles?: number;
+  percentComplete?: number;
+  currentFile?: string;
+  datasourceName?: string;
 }
 
 export interface CorruptionDetectionCompleteEvent {

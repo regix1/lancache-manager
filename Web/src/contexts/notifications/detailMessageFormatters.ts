@@ -10,6 +10,7 @@ import type {
   GameDetectionStartedEvent,
   GameDetectionCompleteEvent,
   CorruptionDetectionStartedEvent,
+  CorruptionDetectionProgressEvent,
   CorruptionDetectionCompleteEvent,
   DatabaseResetProgressEvent,
   CacheClearProgressEvent,
@@ -272,6 +273,23 @@ export const formatCorruptionDetectionStartedMessage = (
   event: CorruptionDetectionStartedEvent
 ): string => {
   return event.message || 'Scanning for corrupted cache chunks...';
+};
+
+/**
+ * Formats the message for corruption detection progress.
+ * @param event - The corruption detection progress event from SignalR
+ * @returns Formatted message string
+ */
+export const formatCorruptionDetectionProgressMessage = (
+  event: CorruptionDetectionProgressEvent
+): string => {
+  if (event.message) {
+    return event.message;
+  }
+  if (event.totalFiles && event.filesProcessed !== undefined) {
+    return `Scanning file ${event.filesProcessed + 1}/${event.totalFiles}...`;
+  }
+  return 'Scanning for corrupted cache chunks...';
 };
 
 /**

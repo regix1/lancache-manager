@@ -146,7 +146,8 @@ public class CorruptionDetectionService
                     break;
 
                 var dsCounts = await GetCorruptionSummaryForDatasource(
-                    datasource.LogPath, datasource.CachePath, timezone, rustBinaryPath, cancellationToken);
+                    datasource.LogPath, datasource.CachePath, timezone, rustBinaryPath, 
+                    operationId, datasource.Name, cancellationToken);
 
                 // Aggregate counts
                 foreach (var kvp in dsCounts)
@@ -208,47 +209,95 @@ public class CorruptionDetectionService
     }
 
     /// <summary>
-    /// Get corruption summary for a specific datasource.
+    /// Get corruption summary for a specific datasource with progress tracking.
     /// </summary>
     private async Task<Dictionary<string, long>> GetCorruptionSummaryForDatasource(
-        string logDir, string cacheDir, string timezone, string rustBinaryPath, CancellationToken cancellationToken)
+        string logDir, string cacheDir, string timezone, string rustBinaryPath, 
+        string operationId, string datasourceName, CancellationToken cancellationToken)
     {
-        var startInfo = _rustProcessHelper.CreateProcessStartInfo(
-            rustBinaryPath,
-            $"summary \"{logDir}\" \"{cacheDir}\" \"{timezone}\"");
+        // Create progress file for this datasource
+        var operationsDir = _pathResolver.GetOperationsDirectory();
+        Directory.CreateDirectory(operationsDir);
+        var progressFile = Path.Combine(operationsDir, $"corruption_detection_{operationId}_{datasourceName}.json");
 
-        using var process = Process.Start(startInfo);
-        if (process == null)
+        try
         {
-            throw new Exception("Failed to start corruption_manager process");
+            var startInfo = _rustProcessHelper.CreateProcessStartInfo(
+                rustBinaryPath,
+                $"summary \"{logDir}\" \"{cacheDir}\" \"{progressFile}\" \"{timezone}\"");
+
+            using var process = Process.Start(startInfo);
+            if (process == null)
+            {
+                throw new Exception("Failed to start corruption_manager process");
+            }
+
+            // Poll the progress file while the process runs
+            var pollTask = Task.Run(async () =>
+            {
+                var lastMessage = string.Empty;
+                while (!process.HasExited)
+                {
+                    await Task.Delay(500, cancellationToken);
+
+                    var progressData = await _rustProcessHelper.ReadProgressFileAsync<CorruptionDetectionProgressData>(progressFile);
+
+                    if (progressData != null && progressData.Message != lastMessage)
+                    {
+                        lastMessage = progressData.Message;
+
+                        // Send progress notification via SignalR
+                        await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionProgress, new
+                        {
+                            operationId,
+                            status = progressData.Status,
+                            message = progressData.Message,
+                            filesProcessed = progressData.FilesProcessed,
+                            totalFiles = progressData.TotalFiles,
+                            percentComplete = progressData.PercentComplete,
+                            currentFile = progressData.CurrentFile,
+                            datasourceName
+                        });
+
+                        _logger.LogDebug("[CorruptionDetection] Progress: {Percent:F1}% - {Message}",
+                            progressData.PercentComplete, progressData.Message);
+                    }
+                }
+            }, cancellationToken);
+
+            var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+            var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+
+            await _processManager.WaitForProcessAsync(process, cancellationToken);
+            await pollTask;
+
+            var output = await outputTask;
+            var error = await errorTask;
+
+            _logger.LogDebug("[CorruptionDetection] Rust process exit code: {Code}", process.ExitCode);
+
+            if (process.ExitCode != 0)
+            {
+                _logger.LogError("[CorruptionDetection] Failed with exit code {Code}: {Error}", process.ExitCode, error);
+                throw new Exception($"corruption_manager failed with exit code {process.ExitCode}: {error}");
+            }
+
+            // Parse JSON output from Rust binary
+            var summaryData = JsonSerializer.Deserialize<CorruptionSummaryData>(output,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            if (summaryData?.ServiceCounts == null)
+            {
+                return new Dictionary<string, long>();
+            }
+
+            return summaryData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
         }
-
-        var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-
-        await _processManager.WaitForProcessAsync(process, cancellationToken);
-
-        var output = await outputTask;
-        var error = await errorTask;
-
-        _logger.LogDebug("[CorruptionDetection] Rust process exit code: {Code}", process.ExitCode);
-
-        if (process.ExitCode != 0)
+        finally
         {
-            _logger.LogError("[CorruptionDetection] Failed with exit code {Code}: {Error}", process.ExitCode, error);
-            throw new Exception($"corruption_manager failed with exit code {process.ExitCode}: {error}");
+            // Clean up progress file
+            await _rustProcessHelper.DeleteTemporaryFileAsync(progressFile);
         }
-
-        // Parse JSON output from Rust binary
-        var summaryData = JsonSerializer.Deserialize<CorruptionSummaryData>(output,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-
-        if (summaryData?.ServiceCounts == null)
-        {
-            return new Dictionary<string, long>();
-        }
-
-        return summaryData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
     }
 
     /// <summary>
@@ -375,6 +424,20 @@ public class CorruptionSummaryData
 {
     [System.Text.Json.Serialization.JsonPropertyName("service_counts")]
     public Dictionary<string, long>? ServiceCounts { get; set; }
+}
+
+/// <summary>
+/// JSON model for Rust corruption detection progress.
+/// </summary>
+public class CorruptionDetectionProgressData
+{
+    public string Status { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+    public int FilesProcessed { get; set; }
+    public int TotalFiles { get; set; }
+    public double PercentComplete { get; set; }
+    public string? CurrentFile { get; set; }
+    public string? Timestamp { get; set; }
 }
 
 /// <summary>

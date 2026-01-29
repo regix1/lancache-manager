@@ -14,6 +14,7 @@ import type {
   CorruptionRemovalStartedEvent,
   CorruptionRemovalCompleteEvent,
   CorruptionDetectionStartedEvent,
+  CorruptionDetectionProgressEvent,
   CorruptionDetectionCompleteEvent,
   GameDetectionStartedEvent,
   GameDetectionCompleteEvent,
@@ -66,6 +67,7 @@ import {
   formatGameDetectionCompleteMessage,
   formatGameDetectionFailureMessage,
   formatCorruptionDetectionStartedMessage,
+  formatCorruptionDetectionProgressMessage,
   formatCorruptionDetectionCompleteMessage,
   formatCorruptionDetectionFailureMessage,
   formatDatabaseResetProgressMessage,
@@ -525,6 +527,25 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       cancelAutoDismissTimer
     );
 
+    const handleCorruptionDetectionProgress = createProgressHandler<CorruptionDetectionProgressEvent>(
+      {
+        type: 'corruption_detection',
+        getId: () => NOTIFICATION_IDS.CORRUPTION_DETECTION,
+        storageKey: NOTIFICATION_STORAGE_KEYS.CORRUPTION_DETECTION,
+        getMessage: formatCorruptionDetectionProgressMessage,
+        getProgress: (e) => e.percentComplete || 0,
+        getDetails: (e) => ({
+          operationId: e.operationId,
+          filesProcessed: e.filesProcessed,
+          totalFiles: e.totalFiles,
+          currentFile: e.currentFile,
+          datasourceName: e.datasourceName
+        })
+      },
+      setNotifications,
+      cancelAutoDismissTimer
+    );
+
     const handleCorruptionDetectionComplete = createCompletionHandler<CorruptionDetectionCompleteEvent>(
       {
         type: 'corruption_detection',
@@ -812,6 +833,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     signalR.on('GameDetectionStarted', handleGameDetectionStarted);
     signalR.on('GameDetectionComplete', handleGameDetectionComplete);
     signalR.on('CorruptionDetectionStarted', handleCorruptionDetectionStarted);
+    signalR.on('CorruptionDetectionProgress', handleCorruptionDetectionProgress);
     signalR.on('CorruptionDetectionComplete', handleCorruptionDetectionComplete);
     signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
     signalR.on('CacheClearProgress', handleCacheClearProgress);
@@ -835,6 +857,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       signalR.off('GameDetectionStarted', handleGameDetectionStarted);
       signalR.off('GameDetectionComplete', handleGameDetectionComplete);
       signalR.off('CorruptionDetectionStarted', handleCorruptionDetectionStarted);
+      signalR.off('CorruptionDetectionProgress', handleCorruptionDetectionProgress);
       signalR.off('CorruptionDetectionComplete', handleCorruptionDetectionComplete);
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
       signalR.off('CacheClearProgress', handleCacheClearProgress);

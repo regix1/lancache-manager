@@ -153,7 +153,7 @@ fn main() -> Result<()> {
     if args.len() < 2 {
         eprintln!("Usage:");
         eprintln!("  {} detect <log_dir> <cache_dir> <output_json> [timezone]", args[0]);
-        eprintln!("  {} summary <log_dir> <cache_dir> [timezone] [threshold]", args[0]);
+        eprintln!("  {} summary <log_dir> <cache_dir> [progress_json] [timezone] [threshold]", args[0]);
         eprintln!("  {} remove <database_path> <log_dir> <cache_dir> <service> <progress_json>", args[0]);
         eprintln!();
         eprintln!("Commands:");
@@ -167,7 +167,7 @@ fn main() -> Result<()> {
         eprintln!("  cache_dir    - Cache directory root path (e.g., /cache or H:/cache)");
         eprintln!("  output_json  - Path to output JSON file");
         eprintln!("  service      - Service name to remove corrupted chunks for (e.g., steam, epic)");
-        eprintln!("  progress_json - Path to progress JSON file for removal tracking");
+        eprintln!("  progress_json - Path to progress JSON file for tracking (optional for summary)");
         eprintln!("  timezone     - Optional timezone (default: UTC)");
         eprintln!("  threshold    - Optional miss threshold (default: 3)");
         std::process::exit(1);
@@ -215,19 +215,28 @@ fn main() -> Result<()> {
 
         "summary" => {
             if args.len() < 4 {
-                eprintln!("Usage: {} summary <log_dir> <cache_dir> [timezone] [threshold]", args[0]);
+                eprintln!("Usage: {} summary <log_dir> <cache_dir> [progress_json] [timezone] [threshold]", args[0]);
                 std::process::exit(1);
             }
 
             let log_dir = PathBuf::from(&args[2]);
             let cache_dir = PathBuf::from(&args[3]);
-            let timezone = if args.len() > 4 {
-                parse_timezone(&args[4])
+            
+            // Parse optional progress file (arg[4]) - use "none" to skip progress
+            let progress_path = if args.len() > 4 && args[4] != "none" && !args[4].is_empty() {
+                Some(PathBuf::from(&args[4]))
+            } else {
+                None
+            };
+            
+            // Timezone and threshold shift by 1 if progress file is provided
+            let timezone = if args.len() > 5 {
+                parse_timezone(&args[5])
             } else {
                 chrono_tz::UTC
             };
-            let threshold = if args.len() > 5 {
-                args[5].parse::<usize>().unwrap_or(3)
+            let threshold = if args.len() > 6 {
+                args[6].parse::<usize>().unwrap_or(3)
             } else {
                 3
             };
@@ -236,12 +245,17 @@ fn main() -> Result<()> {
             eprintln!("Generating corruption summary...");
             eprintln!("  Log directory: {}", log_dir.display());
             eprintln!("  Cache directory: {}", cache_dir.display());
+            eprintln!("  Progress file: {}", progress_path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "none".to_string()));
             eprintln!("  Timezone: {}", timezone);
             eprintln!("  Miss threshold: {}", threshold);
 
             let detector = CorruptionDetector::new(&cache_dir, threshold);
-            let summary = detector.generate_summary(&log_dir, "access.log", timezone)
-                .context("Failed to generate corruption summary")?;
+            let summary = detector.generate_summary_with_progress(
+                &log_dir, 
+                "access.log", 
+                timezone,
+                progress_path.as_deref()
+            ).context("Failed to generate corruption summary")?;
 
             // Output JSON to stdout for C# to capture (ONLY stdout should be JSON)
             let json = serde_json::to_string(&summary)?;

@@ -1,6 +1,7 @@
 use crate::cache_utils;
 use crate::log_reader::LogFileReader;
 use crate::parser::LogParser;
+use crate::progress_utils;
 use crate::service_utils;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -25,6 +26,19 @@ pub struct CorruptionSummary {
 pub struct CorruptionReport {
     pub corrupted_chunks: Vec<CorruptedChunk>,
     pub summary: CorruptionSummary,
+}
+
+/// Progress data for corruption detection scan
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CorruptionDetectionProgress {
+    pub status: String,
+    pub message: String,
+    pub files_processed: usize,
+    pub total_files: usize,
+    pub percent_complete: f64,
+    pub current_file: Option<String>,
+    pub timestamp: String,
 }
 
 pub struct CorruptionDetector {
@@ -182,14 +196,154 @@ impl CorruptionDetector {
         })
     }
 
-    /// Generate quick summary (just counts per service)
-    pub fn generate_summary<P: AsRef<Path>>(
+    /// Detect corrupted chunks with progress reporting
+    /// Returns a map of (service, url) -> miss_count for chunks with 3+ misses
+    pub fn detect_corrupted_chunks_with_progress<P: AsRef<Path>>(
         &self,
         log_dir: P,
         log_base_name: &str,
         timezone: chrono_tz::Tz,
+        progress_path: Option<&Path>,
+    ) -> Result<HashMap<(String, String), usize>> {
+        let log_dir = log_dir.as_ref();
+
+        // Discover all log files
+        let log_files = crate::log_discovery::discover_log_files(log_dir, log_base_name)?;
+
+        if log_files.is_empty() {
+            if let Some(progress_file) = progress_path {
+                self.write_detection_progress(progress_file, "complete", "No log files found", 0, 0, 100.0, None)?;
+            }
+            return Ok(HashMap::new());
+        }
+
+        let total_files = log_files.len();
+        eprintln!("Scanning {} log file(s) for corrupted chunks...", total_files);
+
+        // Write initial progress
+        if let Some(progress_file) = progress_path {
+            self.write_detection_progress(
+                progress_file,
+                "scanning",
+                &format!("Scanning {} log files for corrupted chunks...", total_files),
+                0,
+                total_files,
+                0.0,
+                None,
+            )?;
+        }
+
+        let parser = LogParser::new(timezone);
+        let mut miss_tracker: HashMap<(String, String), usize> = HashMap::new();
+        let mut entries_processed = 0usize;
+
+        // Process each log file
+        for (file_index, log_file) in log_files.iter().enumerate() {
+            let file_name = log_file.path.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+            
+            eprintln!("Processing ({}/{}): {}", file_index + 1, total_files, log_file.path.display());
+
+            // Update progress for current file
+            if let Some(progress_file) = progress_path {
+                let percent = (file_index as f64 / total_files as f64) * 100.0;
+                self.write_detection_progress(
+                    progress_file,
+                    "scanning",
+                    &format!("Scanning file {}/{}: {}", file_index + 1, total_files, file_name),
+                    file_index,
+                    total_files,
+                    percent,
+                    Some(file_name.clone()),
+                )?;
+            }
+
+            // Try to process the file, but skip if corrupted
+            let file_result = (|| -> Result<()> {
+                let mut reader = LogFileReader::open(&log_file.path)?;
+                let mut line = String::new();
+
+                loop {
+                    line.clear();
+                    let bytes_read = reader.read_line(&mut line)?;
+                    if bytes_read == 0 {
+                        break; // EOF
+                    }
+
+                    // Parse log entry
+                    if let Some(entry) = parser.parse_line(line.trim()) {
+                        // Skip health check/heartbeat endpoints
+                        if service_utils::should_skip_url(&entry.url) {
+                            continue;
+                        }
+
+                        // Only track MISS and UNKNOWN status
+                        if entry.cache_status == "MISS" || entry.cache_status == "UNKNOWN" {
+                            let key = (entry.service.clone(), entry.url.clone());
+                            *miss_tracker.entry(key).or_insert(0) += 1;
+                            entries_processed += 1;
+
+                            // MEMORY OPTIMIZATION: Periodically clean up entries that won't reach threshold
+                            if entries_processed % 100_000 == 0 {
+                                let before_size = miss_tracker.len();
+                                miss_tracker.retain(|_, count| *count >= self.miss_threshold - 1);
+                                miss_tracker.shrink_to_fit();
+                                let after_size = miss_tracker.len();
+                                if before_size > after_size {
+                                    eprintln!("  Memory cleanup: Removed {} low-count entries (kept {})",
+                                        before_size - after_size, after_size);
+                                }
+                            }
+                        }
+                    }
+                }
+                Ok(())
+            })();
+
+            // If this file failed (e.g., corrupted gzip), log warning and skip it
+            if let Err(e) = file_result {
+                eprintln!("WARNING: Skipping corrupted file {}: {}", log_file.path.display(), e);
+                eprintln!("  Continuing with remaining files...");
+                continue;
+            }
+        }
+
+        // Final filter to only chunks with miss_threshold or more MISS/UNKNOWN requests
+        let corrupted: HashMap<(String, String), usize> = miss_tracker
+            .into_iter()
+            .filter(|(_, count)| *count >= self.miss_threshold)
+            .collect();
+
+        eprintln!("Found {} corrupted chunks ({}+ MISS/UNKNOWN)", corrupted.len(), self.miss_threshold);
+
+        // Write completion progress
+        if let Some(progress_file) = progress_path {
+            self.write_detection_progress(
+                progress_file,
+                "complete",
+                &format!("Scan complete. Found {} corrupted chunks.", corrupted.len()),
+                total_files,
+                total_files,
+                100.0,
+                None,
+            )?;
+        }
+
+        Ok(corrupted)
+    }
+
+    /// Generate quick summary with progress reporting
+    pub fn generate_summary_with_progress<P: AsRef<Path>>(
+        &self,
+        log_dir: P,
+        log_base_name: &str,
+        timezone: chrono_tz::Tz,
+        progress_path: Option<&Path>,
     ) -> Result<CorruptionSummary> {
-        let corrupted_map = self.detect_corrupted_chunks(log_dir, log_base_name, timezone)?;
+        let corrupted_map = self.detect_corrupted_chunks_with_progress(
+            log_dir, log_base_name, timezone, progress_path
+        )?;
 
         let mut service_counts: HashMap<String, usize> = HashMap::new();
 
@@ -203,5 +357,28 @@ impl CorruptionDetector {
             service_counts,
             total_corrupted,
         })
+    }
+
+    /// Helper to write detection progress to file
+    fn write_detection_progress(
+        &self,
+        progress_path: &Path,
+        status: &str,
+        message: &str,
+        files_processed: usize,
+        total_files: usize,
+        percent_complete: f64,
+        current_file: Option<String>,
+    ) -> Result<()> {
+        let progress = CorruptionDetectionProgress {
+            status: status.to_string(),
+            message: message.to_string(),
+            files_processed,
+            total_files,
+            percent_complete,
+            current_file,
+            timestamp: progress_utils::current_timestamp(),
+        };
+        progress_utils::write_progress_json(progress_path, &progress)
     }
 }

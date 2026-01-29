@@ -38,6 +38,7 @@ public static class SignalREvents
 
     // Cache Operations
     public const string CorruptionDetectionStarted = "CorruptionDetectionStarted";
+    public const string CorruptionDetectionProgress = "CorruptionDetectionProgress";
     public const string CorruptionDetectionComplete = "CorruptionDetectionComplete";
     public const string CorruptionRemovalStarted = "CorruptionRemovalStarted";
     public const string CorruptionRemovalComplete = "CorruptionRemovalComplete";
