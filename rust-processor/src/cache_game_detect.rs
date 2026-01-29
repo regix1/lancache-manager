@@ -318,6 +318,62 @@ fn query_service_downloads(db_path: &Path) -> Result<HashMap<String, Vec<(String
     Ok(services)
 }
 
+/// Detect cache files for a service using direct file existence checks (for incremental mode)
+/// This is faster when checking a small number of URLs
+fn detect_cache_files_for_service_incremental(
+    service_name: &str,
+    service_urls: &[(String, String)],
+    cache_dir: &Path,
+) -> Result<ServiceCacheInfo> {
+    let found_files: HashSet<PathBuf> = service_urls
+        .par_iter()
+        .filter_map(|(service, url)| {
+            let cache_key = format!("{}{}", service, url);
+            let hash = cache_utils::calculate_md5(&cache_key);
+            
+            // Calculate the hierarchical path (first 2 chars as subdirectory)
+            let subdir = &hash[0..2];
+            let file_path = cache_dir.join(subdir).join(&hash);
+            
+            if file_path.exists() {
+                Some(file_path)
+            } else {
+                // Check chunked format
+                (0..100).find_map(|chunk| {
+                    let start = chunk * 1_048_576;
+                    let end = start + 1_048_575;
+                    let chunked_key = format!("{}{}bytes={}-{}", service, url, start, end);
+                    let chunked_hash = cache_utils::calculate_md5(&chunked_key);
+                    let chunked_subdir = &chunked_hash[0..2];
+                    let chunked_path = cache_dir.join(chunked_subdir).join(&chunked_hash);
+                    if chunked_path.exists() {
+                        Some(chunked_path)
+                    } else {
+                        None
+                    }
+                })
+            }
+        })
+        .collect();
+
+    let total_size: u64 = found_files
+        .iter()
+        .filter_map(|path| fs::metadata(path).ok().map(|m| m.len()))
+        .sum();
+
+    let unique_urls: HashSet<String> = service_urls.iter().map(|(_, url)| url.clone()).collect();
+    let sample_urls: Vec<String> = unique_urls.iter().take(5).cloned().collect();
+    let cache_file_paths: Vec<String> = found_files.iter().map(|p| p.display().to_string()).collect();
+
+    Ok(ServiceCacheInfo {
+        service_name: service_name.to_string(),
+        cache_files_found: found_files.len(),
+        total_size_bytes: total_size,
+        sample_urls,
+        cache_file_paths,
+    })
+}
+
 fn detect_cache_files_for_service(
     service_name: &str,
     service_urls: &[(String, String)],
@@ -372,6 +428,83 @@ fn detect_cache_files_for_service(
         service_name: service_name.to_string(),
         cache_files_found: found_files.len(),
         total_size_bytes: total_size,
+        sample_urls,
+        cache_file_paths,
+    })
+}
+
+/// Detect cache files for a game using direct file existence checks (for incremental mode)
+/// This is faster when checking a small number of URLs
+fn detect_cache_files_for_game_incremental(
+    records: &[DownloadRecord],
+    cache_dir: &Path,
+) -> Result<GameCacheInfo> {
+    if records.is_empty() {
+        anyhow::bail!("No records provided");
+    }
+
+    let game_app_id = records[0].game_app_id;
+    let game_name = records[0].game_name.clone();
+
+    let mut unique_urls: HashSet<String> = HashSet::new();
+    let mut depot_ids: HashSet<u32> = HashSet::new();
+    let mut service_urls: Vec<(String, String)> = Vec::new();
+
+    for record in records {
+        unique_urls.insert(record.url.clone());
+        let service_lower = record.service.to_lowercase();
+        service_urls.push((service_lower, record.url.clone()));
+        if let Some(depot_id) = record.depot_id {
+            depot_ids.insert(depot_id);
+        }
+    }
+
+    // Use direct file existence checks instead of hash map lookups
+    let found_files: HashSet<PathBuf> = service_urls
+        .par_iter()
+        .filter_map(|(service, url)| {
+            let cache_key = format!("{}{}", service, url);
+            let hash = cache_utils::calculate_md5(&cache_key);
+            
+            // Calculate the hierarchical path (first 2 chars as subdirectory)
+            let subdir = &hash[0..2];
+            let file_path = cache_dir.join(subdir).join(&hash);
+            
+            if file_path.exists() {
+                Some(file_path)
+            } else {
+                // Check chunked format
+                (0..100).find_map(|chunk| {
+                    let start = chunk * 1_048_576;
+                    let end = start + 1_048_575;
+                    let chunked_key = format!("{}{}bytes={}-{}", service, url, start, end);
+                    let chunked_hash = cache_utils::calculate_md5(&chunked_key);
+                    let chunked_subdir = &chunked_hash[0..2];
+                    let chunked_path = cache_dir.join(chunked_subdir).join(&chunked_hash);
+                    if chunked_path.exists() {
+                        Some(chunked_path)
+                    } else {
+                        None
+                    }
+                })
+            }
+        })
+        .collect();
+
+    let total_size: u64 = found_files
+        .iter()
+        .filter_map(|path| fs::metadata(path).ok().map(|m| m.len()))
+        .sum();
+
+    let sample_urls: Vec<String> = unique_urls.iter().take(5).cloned().collect();
+    let cache_file_paths: Vec<String> = found_files.iter().map(|p| p.display().to_string()).collect();
+
+    Ok(GameCacheInfo {
+        game_app_id,
+        game_name,
+        cache_files_found: found_files.len(),
+        total_size_bytes: total_size,
+        depot_ids: depot_ids.into_iter().collect(),
         sample_urls,
         cache_file_paths,
     })
@@ -463,7 +596,7 @@ fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 4 {
-        eprintln!("Usage: {} <database_path> <cache_dir> <output_json> [excluded_game_ids_json]", args[0]);
+        eprintln!("Usage: {} <database_path> <cache_dir> <output_json> [excluded_game_ids_json] [--incremental]", args[0]);
         eprintln!();
         eprintln!("Detects which games have files in the cache directory.");
         eprintln!();
@@ -472,6 +605,7 @@ fn main() -> Result<()> {
         eprintln!("  cache_dir              - Cache directory root (e.g., /cache or H:/cache)");
         eprintln!("  output_json            - Path to output JSON report");
         eprintln!("  excluded_game_ids_json - (Optional) JSON file with array of game IDs to exclude for incremental scanning");
+        eprintln!("  --incremental          - (Optional) Skip cache directory scan for faster incremental updates");
         std::process::exit(1);
     }
 
@@ -479,8 +613,11 @@ fn main() -> Result<()> {
     let cache_dir = PathBuf::from(&args[2]);
     let output_json = PathBuf::from(&args[3]);
 
+    // Check for --incremental flag anywhere in args
+    let incremental_mode = args.iter().any(|arg| arg == "--incremental");
+
     // Read excluded game IDs if provided (for incremental scanning)
-    let excluded_game_ids: Vec<u32> = if args.len() >= 5 {
+    let excluded_game_ids: Vec<u32> = if args.len() >= 5 && !args[4].starts_with("--") {
         let excluded_path = PathBuf::from(&args[4]);
         if excluded_path.exists() {
             let json = fs::read_to_string(&excluded_path)
@@ -498,6 +635,7 @@ fn main() -> Result<()> {
     eprintln!("Game Cache Detection");
     eprintln!("  Database: {}", db_path.display());
     eprintln!("  Cache directory: {}", cache_dir.display());
+    eprintln!("  Mode: {}", if incremental_mode { "Incremental (Quick Scan)" } else { "Full Scan" });
 
     if !db_path.exists() {
         anyhow::bail!("Database not found: {}", db_path.display());
@@ -507,9 +645,21 @@ fn main() -> Result<()> {
         anyhow::bail!("Cache directory not found: {}", cache_dir.display());
     }
 
-    // PHASE 1: Scan cache directory and build in-memory index
-    // This is much faster than checking 2.3M individual file.exists() calls
-    let cache_files_index = scan_cache_directory(&cache_dir)?;
+    // Variables that may or may not be used depending on mode
+    let cache_files_index: Option<HashMap<String, CacheFileInfo>>;
+
+    if incremental_mode {
+        // INCREMENTAL MODE: Skip expensive cache directory scan
+        // Only check file existence for new games (fast when there are few new games)
+        eprintln!("\n=== Incremental Mode: Skipping Cache Directory Scan ===");
+        eprintln!("Will check file existence directly for new games only...");
+        cache_files_index = None;
+    } else {
+        // FULL SCAN: Build in-memory index of all cache files
+        // This is much faster than checking 2.3M individual file.exists() calls
+        let index = scan_cache_directory(&cache_dir)?;
+        cache_files_index = Some(index);
+    }
 
     // PHASE 2: Query database for game URLs
     eprintln!("\n=== Phase 2: Querying Database ===");
@@ -538,7 +688,11 @@ fn main() -> Result<()> {
 
     // PHASE 3: Match database URLs to cache files
     eprintln!("\n=== Phase 3: Matching Games to Cache Files ===");
-    eprintln!("Using in-memory index for instant lookups...\n");
+    if incremental_mode {
+        eprintln!("Using direct file existence checks (optimized for few new games)...\n");
+    } else {
+        eprintln!("Using in-memory index for instant lookups...\n");
+    }
 
     let mut detected_games = Vec::new();
     let mut processed_count = 0;
@@ -551,7 +705,13 @@ fn main() -> Result<()> {
         eprint!("  [{}/{}] Matching game {} ({}) - {} URLs... ",
                 processed_count, total_games, game_id, records[0].game_name, url_count);
 
-        match detect_cache_files_for_game(&records, &cache_files_index) {
+        let result = if incremental_mode {
+            detect_cache_files_for_game_incremental(&records, &cache_dir)
+        } else {
+            detect_cache_files_for_game(&records, cache_files_index.as_ref().unwrap())
+        };
+
+        match result {
             Ok(info) => {
                 if info.cache_files_found > 0 {
                     let size_gb = info.total_size_bytes as f64 / 1_073_741_824.0;
@@ -581,45 +741,51 @@ fn main() -> Result<()> {
     eprintln!("Total game cache size: {:.2} GB", total_bytes_found as f64 / 1_073_741_824.0);
 
     // PHASE 4: Detect non-game services
-    eprintln!("\n=== Phase 4: Detecting Non-Game Services ===");
-
-    let services_map = query_service_downloads(&db_path)?;
-
+    // Skip service detection in incremental mode since services don't change often
+    // and this adds significant overhead
     let mut detected_services = Vec::new();
     let mut service_files_found = 0;
     let mut service_bytes_found: u64 = 0;
 
-    for (service_name, service_urls) in services_map {
-        eprint!("  Matching service '{}' - {} URLs... ", service_name, service_urls.len());
+    if !incremental_mode {
+        eprintln!("\n=== Phase 4: Detecting Non-Game Services ===");
 
-        match detect_cache_files_for_service(&service_name, &service_urls, &cache_files_index) {
-            Ok(info) => {
-                if info.cache_files_found > 0 {
-                    let size_gb = info.total_size_bytes as f64 / 1_073_741_824.0;
-                    let size_mb = info.total_size_bytes as f64 / 1_048_576.0;
+        let services_map = query_service_downloads(&db_path)?;
 
-                    if size_gb >= 1.0 {
-                        eprintln!("FOUND {} files ({:.2} GB)", info.cache_files_found, size_gb);
+        for (service_name, service_urls) in services_map {
+            eprint!("  Matching service '{}' - {} URLs... ", service_name, service_urls.len());
+
+            match detect_cache_files_for_service(&service_name, &service_urls, cache_files_index.as_ref().unwrap()) {
+                Ok(info) => {
+                    if info.cache_files_found > 0 {
+                        let size_gb = info.total_size_bytes as f64 / 1_073_741_824.0;
+                        let size_mb = info.total_size_bytes as f64 / 1_048_576.0;
+
+                        if size_gb >= 1.0 {
+                            eprintln!("FOUND {} files ({:.2} GB)", info.cache_files_found, size_gb);
+                        } else {
+                            eprintln!("FOUND {} files ({:.2} MB)", info.cache_files_found, size_mb);
+                        }
+
+                        service_files_found += info.cache_files_found;
+                        service_bytes_found += info.total_size_bytes;
+                        detected_services.push(info);
                     } else {
-                        eprintln!("FOUND {} files ({:.2} MB)", info.cache_files_found, size_mb);
+                        eprintln!("no cache files found");
                     }
-
-                    service_files_found += info.cache_files_found;
-                    service_bytes_found += info.total_size_bytes;
-                    detected_services.push(info);
-                } else {
-                    eprintln!("no cache files found");
+                }
+                Err(e) => {
+                    eprintln!("ERROR: {}", e);
                 }
             }
-            Err(e) => {
-                eprintln!("ERROR: {}", e);
-            }
         }
-    }
 
-    eprintln!("\n=== Service Scan Complete ===");
-    eprintln!("Total service cache files found: {}", service_files_found);
-    eprintln!("Total service cache size: {:.2} GB", service_bytes_found as f64 / 1_073_741_824.0);
+        eprintln!("\n=== Service Scan Complete ===");
+        eprintln!("Total service cache files found: {}", service_files_found);
+        eprintln!("Total service cache size: {:.2} GB", service_bytes_found as f64 / 1_073_741_824.0);
+    } else {
+        eprintln!("\n=== Skipping Service Detection (Incremental Mode) ===");
+    }
 
     let report = DetectionReport {
         total_games_detected: detected_games.len(),

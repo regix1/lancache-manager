@@ -254,9 +254,10 @@ public class GameCacheDetectionService
             _logger.LogInformation("[GameDetection] Scanning {Count} datasource(s)", datasources.Count);
 
             // Prepare excluded IDs for incremental scans
+            List<ServiceCacheInfo>? existingServices = null;
             if (incremental)
             {
-                // Load existing games from database
+                // Load existing games and services from database
                 await using (var dbContext = await _dbContextFactory.CreateDbContextAsync())
                 {
                     var cachedGames = await dbContext.CachedGameDetections.ToListAsync();
@@ -276,6 +277,14 @@ public class GameCacheDetectionService
                     else
                     {
                         _logger.LogInformation("[GameDetection] No cached results found, performing full scan");
+                    }
+
+                    // Load existing services for incremental mode (we skip service scanning in incremental mode)
+                    var cachedServices = await dbContext.CachedServiceDetections.ToListAsync();
+                    if (cachedServices.Count > 0)
+                    {
+                        existingServices = cachedServices.Select(ConvertToServiceCacheInfo).ToList();
+                        _logger.LogInformation("[GameDetection] Incremental scan: preserving {ServiceCount} existing services", existingServices.Count);
                     }
                 }
             }
@@ -303,9 +312,11 @@ public class GameCacheDetectionService
                     : "Scanning database and cache directory...";
 
                 // Build arguments
+                // Add --incremental flag for quick scans to skip the expensive cache directory scan
+                var incrementalFlag = incremental ? " --incremental" : "";
                 string arguments = !string.IsNullOrEmpty(excludedIdsPath)
-                    ? $"\"{dbPath}\" \"{cachePath}\" \"{outputJson}\" \"{excludedIdsPath}\""
-                    : $"\"{dbPath}\" \"{cachePath}\" \"{outputJson}\"";
+                    ? $"\"{dbPath}\" \"{cachePath}\" \"{outputJson}\" \"{excludedIdsPath}\"{incrementalFlag}"
+                    : $"\"{dbPath}\" \"{cachePath}\" \"{outputJson}\"{incrementalFlag}";
 
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, arguments);
 
@@ -438,8 +449,15 @@ public class GameCacheDetectionService
             operation.Status = "complete";
             operation.Games = finalGames;
             operation.TotalGamesDetected = totalGamesDetected;
-            operation.Services = aggregatedServices;
-            operation.TotalServicesDetected = aggregatedServices.Count;
+
+            // For incremental mode, use existing services (service detection is skipped)
+            // For full scan, use newly detected services
+            var finalServices = incremental && existingServices != null && existingServices.Count > 0
+                ? existingServices
+                : aggregatedServices;
+
+            operation.Services = finalServices;
+            operation.TotalServicesDetected = finalServices.Count;
 
             // Save results to database (replaces in-memory cache)
             await SaveGamesToDatabaseAsync(finalGames, incremental);
@@ -457,8 +475,8 @@ public class GameCacheDetectionService
                 }
             }
 
-            // Save services to database
-            if (aggregatedServices.Count > 0)
+            // Save services to database (only for full scan, incremental preserves existing)
+            if (!incremental && aggregatedServices.Count > 0)
             {
                 await SaveServicesToDatabaseAsync(aggregatedServices);
                 _logger.LogInformation("[GameDetection] Services saved to database - {Count} services total", aggregatedServices.Count);
@@ -483,7 +501,7 @@ public class GameCacheDetectionService
                 success = true,
                 operationId,
                 totalGamesDetected,
-                totalServicesDetected = aggregatedServices.Count,
+                totalServicesDetected = finalServices.Count,
                 message = operation.Message,
                 timestamp = DateTime.UtcNow
             });
