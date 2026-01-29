@@ -263,8 +263,9 @@ public partial class SteamKit2Service : IHostedService, IDisposable
             {
                 _logger.LogInformation("Steam depot crawl cancelled during shutdown");
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                _logger.LogDebug(ex, "Exception during Steam depot crawl shutdown - expected during cancellation");
             }
         }
 

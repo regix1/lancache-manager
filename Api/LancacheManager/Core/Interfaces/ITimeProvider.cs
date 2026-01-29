@@ -19,16 +19,3 @@ public class SystemTimeProvider : ITimeProvider
     public DateTime Now => DateTime.Now;
     public DateTimeOffset UtcNowOffset => DateTimeOffset.UtcNow;
 }
-
-/// <summary>
-/// Test implementation with controllable time.
-/// </summary>
-public class FakeTimeProvider : ITimeProvider
-{
-    public DateTime UtcNow { get; set; } = DateTime.UtcNow;
-    public DateTime Now => UtcNow.ToLocalTime();
-    public DateTimeOffset UtcNowOffset => new(UtcNow);
-
-    public void Advance(TimeSpan duration) => UtcNow = UtcNow.Add(duration);
-    public void SetTime(DateTime utcTime) => UtcNow = utcTime;
-}

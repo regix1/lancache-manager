@@ -24,7 +24,6 @@
     <!-- Microsoft.Extensions.Caching.Memory and HealthChecks are included transitively via ASP.NET Core -->
     <PackageReference Include="SteamKit2" Version="3.4.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.0" />
-    <PackageReference Include="Tomlyn" Version="0.19.0" />
 
     <!-- OpenTelemetry for Prometheus + Grafana metrics -->
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.15.0" />
