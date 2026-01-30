@@ -12,11 +12,13 @@ import type {
   ServiceRemovalProgressEvent,
   ServiceRemovalCompleteEvent,
   CorruptionRemovalStartedEvent,
+  CorruptionRemovalProgressEvent,
   CorruptionRemovalCompleteEvent,
   CorruptionDetectionStartedEvent,
   CorruptionDetectionProgressEvent,
   CorruptionDetectionCompleteEvent,
   GameDetectionStartedEvent,
+  GameDetectionProgressEvent,
   GameDetectionCompleteEvent,
   DatabaseResetProgressEvent,
   CacheClearProgressEvent,
@@ -64,6 +66,7 @@ import {
   formatCorruptionRemovalStartedMessage,
   formatCorruptionRemovalCompleteMessage,
   formatGameDetectionStartedMessage,
+  formatGameDetectionProgressMessage,
   formatGameDetectionCompleteMessage,
   formatGameDetectionFailureMessage,
   formatCorruptionDetectionStartedMessage,
@@ -468,6 +471,25 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       cancelAutoDismissTimer
     );
 
+    const handleCorruptionRemovalProgress = createProgressHandler<CorruptionRemovalProgressEvent>(
+      {
+        type: 'corruption_removal',
+        getId: () => NOTIFICATION_IDS.CORRUPTION_REMOVAL,
+        storageKey: NOTIFICATION_STORAGE_KEYS.CORRUPTION_REMOVAL,
+        getMessage: (e) => e.message || `Removing corrupted chunks: ${e.status}`,
+        getProgress: (e) => e.percentComplete ?? 0,
+        getDetails: (e) => ({
+          operationId: e.operationId,
+          service: e.service,
+          status: e.status,
+          filesProcessed: e.filesProcessed,
+          totalFiles: e.totalFiles
+        })
+      },
+      setNotifications,
+      cancelAutoDismissTimer
+    );
+
     const handleCorruptionRemovalComplete = createCompletionHandler<CorruptionRemovalCompleteEvent>(
       {
         type: 'corruption_removal',
@@ -489,6 +511,23 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         defaultMessage: 'Detecting games and services...',
         getMessage: formatGameDetectionStartedMessage,
         getDetails: (e) => ({ operationId: e.operationId, scanType: e.scanType })
+      },
+      setNotifications,
+      cancelAutoDismissTimer
+    );
+
+    const handleGameDetectionProgress = createProgressHandler<GameDetectionProgressEvent>(
+      {
+        type: 'game_detection',
+        getId: () => NOTIFICATION_IDS.GAME_DETECTION,
+        storageKey: NOTIFICATION_STORAGE_KEYS.GAME_DETECTION,
+        getMessage: formatGameDetectionProgressMessage,
+        getProgress: (e) => e.progressPercent || 0,
+        getDetails: (e) => ({
+          operationId: e.operationId,
+          gamesDetected: e.gamesDetected,
+          servicesDetected: e.servicesDetected
+        })
       },
       setNotifications,
       cancelAutoDismissTimer
@@ -829,8 +868,10 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     signalR.on('ServiceRemovalProgress', handleServiceRemovalProgress);
     signalR.on('ServiceRemovalComplete', handleServiceRemovalComplete);
     signalR.on('CorruptionRemovalStarted', handleCorruptionRemovalStarted);
+    signalR.on('CorruptionRemovalProgress', handleCorruptionRemovalProgress);
     signalR.on('CorruptionRemovalComplete', handleCorruptionRemovalComplete);
     signalR.on('GameDetectionStarted', handleGameDetectionStarted);
+    signalR.on('GameDetectionProgress', handleGameDetectionProgress);
     signalR.on('GameDetectionComplete', handleGameDetectionComplete);
     signalR.on('CorruptionDetectionStarted', handleCorruptionDetectionStarted);
     signalR.on('CorruptionDetectionProgress', handleCorruptionDetectionProgress);
@@ -853,8 +894,10 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       signalR.off('ServiceRemovalProgress', handleServiceRemovalProgress);
       signalR.off('ServiceRemovalComplete', handleServiceRemovalComplete);
       signalR.off('CorruptionRemovalStarted', handleCorruptionRemovalStarted);
+      signalR.off('CorruptionRemovalProgress', handleCorruptionRemovalProgress);
       signalR.off('CorruptionRemovalComplete', handleCorruptionRemovalComplete);
       signalR.off('GameDetectionStarted', handleGameDetectionStarted);
+      signalR.off('GameDetectionProgress', handleGameDetectionProgress);
       signalR.off('GameDetectionComplete', handleGameDetectionComplete);
       signalR.off('CorruptionDetectionStarted', handleCorruptionDetectionStarted);
       signalR.off('CorruptionDetectionProgress', handleCorruptionDetectionProgress);

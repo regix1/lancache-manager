@@ -499,6 +499,36 @@ public class LogsController : ControllerBase
     }
 
     /// <summary>
+    /// DELETE /api/logs/process/cancel - Cancel ongoing log processing
+    /// </summary>
+    [HttpDelete("process/cancel")]
+    [RequireAuth]
+    public IActionResult CancelLogProcessing()
+    {
+        var cancelled = _rustLogProcessorService.CancelProcessing();
+        if (!cancelled)
+        {
+            return NotFound(new { error = "No log processing operation to cancel" });
+        }
+        return Ok(new { message = "Cancellation requested for log processing" });
+    }
+
+    /// <summary>
+    /// POST /api/logs/process/kill - Force kill log processing operation
+    /// </summary>
+    [HttpPost("process/kill")]
+    [RequireAuth]
+    public async Task<IActionResult> ForceKillLogProcessing()
+    {
+        var killed = await _rustLogProcessorService.ForceKillProcessingAsync();
+        if (!killed)
+        {
+            return NotFound(new { error = "No log processing operation to kill" });
+        }
+        return Ok(new { message = "Log processing was force killed" });
+    }
+
+    /// <summary>
     /// DELETE /api/logs/services/{service} - Remove logs for specific service (from all datasources)
     /// RESTful: DELETE is proper method for removing resources, service name in path
     /// </summary>

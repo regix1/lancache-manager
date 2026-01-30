@@ -28,6 +28,7 @@ public class GameCacheDetectionService
     private readonly DatasourceService _datasourceService;
     private readonly ConcurrentDictionary<string, DetectionOperation> _operations = new();
     private readonly SemaphoreSlim _startLock = new(1, 1);
+    private CancellationTokenSource? _cancellationTokenSource;
     private const string FailedDepotsStateKey = "failedDepotResolutions";
 
     public class DetectionOperation
@@ -86,6 +87,11 @@ public class GameCacheDetectionService
                 return null; // Return null to indicate operation already running
             }
 
+            // Cancel any existing token source and create a new one
+            _cancellationTokenSource?.Cancel();
+            _cancellationTokenSource?.Dispose();
+            _cancellationTokenSource = new CancellationTokenSource();
+
             var operationId = Guid.NewGuid().ToString();
             var scanType = incremental ? "incremental" : "full";
             var message = incremental
@@ -126,8 +132,9 @@ public class GameCacheDetectionService
                 });
             });
 
-            // Start detection in background
-            _ = Task.Run(async () => await RunDetectionAsync(operationId, incremental));
+            // Start detection in background with cancellation token
+            var cancellationToken = _cancellationTokenSource.Token;
+            _ = Task.Run(async () => await RunDetectionAsync(operationId, incremental, cancellationToken), cancellationToken);
 
             return operationId;
         }
@@ -217,7 +224,7 @@ public class GameCacheDetectionService
         }
     }
 
-    private async Task RunDetectionAsync(string operationId, bool incremental)
+    private async Task RunDetectionAsync(string operationId, bool incremental, CancellationToken cancellationToken = default)
     {
         if (!_operations.TryGetValue(operationId, out var operation))
         {
@@ -228,9 +235,28 @@ public class GameCacheDetectionService
         List<GameCacheInfo>? existingGames = null;
         var outputJsonFiles = new List<string>();
 
+        // Helper to send progress notification
+        async Task SendProgressAsync(string status, string message, int gamesDetected = 0, int servicesDetected = 0, double progressPercent = 0)
+        {
+            operation.Message = message;
+            operation.PercentComplete = progressPercent;
+            await _notifications.NotifyAllAsync(SignalREvents.GameDetectionProgress, new
+            {
+                operationId,
+                status,
+                message,
+                gamesDetected,
+                servicesDetected,
+                progressPercent
+            });
+        }
+
         try
         {
             _logger.LogInformation("[GameDetection] Starting detection for operation {OperationId} (incremental={Incremental})", operationId, incremental);
+
+            // Check for cancellation at start
+            cancellationToken.ThrowIfCancellationRequested();
 
             // Smart pre-check: If incremental scan and we have 3+ unknown games, try applying mappings first
             if (incremental)
@@ -253,14 +279,17 @@ public class GameCacheDetectionService
             var datasources = _datasourceService.GetDatasources();
             _logger.LogInformation("[GameDetection] Scanning {Count} datasource(s)", datasources.Count);
 
+            // Send initial progress
+            await SendProgressAsync("preparing", "Preparing detection scan...", 0, 0, 5);
+
             // Prepare excluded IDs for incremental scans
             List<ServiceCacheInfo>? existingServices = null;
             if (incremental)
             {
                 // Load existing games and services from database
-                await using (var dbContext = await _dbContextFactory.CreateDbContextAsync())
+                await using (var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken))
                 {
-                    var cachedGames = await dbContext.CachedGameDetections.ToListAsync();
+                    var cachedGames = await dbContext.CachedGameDetections.ToListAsync(cancellationToken);
                     if (cachedGames.Count > 0)
                     {
                         // Convert database records to GameCacheInfo
@@ -272,7 +301,7 @@ public class GameCacheDetectionService
                         File.WriteAllText(excludedIdsPath, excludedIdsJson);
 
                         _logger.LogInformation("[GameDetection] Incremental scan: excluding {ExcludedCount} already-detected games", excludedGameIds.Count);
-                        operation.Message = $"Scanning for new games (skipping {excludedGameIds.Count} already detected)...";
+                        await SendProgressAsync("preparing", $"Scanning for new games (skipping {excludedGameIds.Count} already detected)...", existingGames.Count, 0, 10);
                     }
                     else
                     {
@@ -280,7 +309,7 @@ public class GameCacheDetectionService
                     }
 
                     // Load existing services for incremental mode (we skip service scanning in incremental mode)
-                    var cachedServices = await dbContext.CachedServiceDetections.ToListAsync();
+                    var cachedServices = await dbContext.CachedServiceDetections.ToListAsync(cancellationToken);
                     if (cachedServices.Count > 0)
                     {
                         existingServices = cachedServices.Select(ConvertToServiceCacheInfo).ToList();
@@ -293,6 +322,9 @@ public class GameCacheDetectionService
                 _logger.LogInformation("[GameDetection] Force refresh: performing full scan");
             }
 
+            // Check for cancellation before scanning
+            cancellationToken.ThrowIfCancellationRequested();
+
             // Aggregate results from all datasources
             var aggregatedGames = new List<GameCacheInfo>();
             var aggregatedServices = new List<ServiceCacheInfo>();
@@ -300,16 +332,25 @@ public class GameCacheDetectionService
             var serviceNameSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase); // Track unique services
 
             // Scan each datasource
+            var datasourceIndex = 0;
             foreach (var datasource in datasources)
             {
+                // Check for cancellation before each datasource
+                cancellationToken.ThrowIfCancellationRequested();
+
                 var cachePath = datasource.CachePath;
                 var outputJson = Path.Combine(operationsDir, $"game_detection_{operationId}_{datasource.Name}.json");
                 outputJsonFiles.Add(outputJson);
 
                 _logger.LogInformation("[GameDetection] Scanning datasource '{DatasourceName}': {CachePath}", datasource.Name, cachePath);
-                operation.Message = datasources.Count > 1
+                
+                var scanMessage = datasources.Count > 1
                     ? $"Scanning datasource '{datasource.Name}'..."
                     : "Scanning database and cache directory...";
+                
+                // Calculate progress: 10-80% for scanning (70% range divided by datasource count)
+                var progressBase = 10 + (70.0 * datasourceIndex / datasources.Count);
+                await SendProgressAsync("scanning", scanMessage, aggregatedGames.Count, aggregatedServices.Count, progressBase);
 
                 // Build arguments
                 // Add --incremental flag for quick scans to skip the expensive cache directory scan
@@ -320,7 +361,7 @@ public class GameCacheDetectionService
 
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, arguments);
 
-                var result = await _rustProcessHelper.ExecuteProcessAsync(startInfo, CancellationToken.None);
+                var result = await _rustProcessHelper.ExecuteProcessAsync(startInfo, cancellationToken);
 
                 // Log diagnostic output from stderr (contains scan progress and stats)
                 if (!string.IsNullOrWhiteSpace(result.Error))
@@ -342,7 +383,7 @@ public class GameCacheDetectionService
                     throw new FileNotFoundException($"Output file not found: {outputJson}");
                 }
 
-                var json = await File.ReadAllTextAsync(outputJson);
+                var json = await File.ReadAllTextAsync(outputJson, cancellationToken);
                 var detectionResult = JsonSerializer.Deserialize<GameDetectionResult>(json);
 
                 if (detectionResult == null)
@@ -412,7 +453,15 @@ public class GameCacheDetectionService
 
                 _logger.LogInformation("[GameDetection] Datasource '{DatasourceName}' found {GameCount} games, {ServiceCount} services",
                     datasource.Name, detectionResult.Games.Count, detectionResult.Services.Count);
+                
+                datasourceIndex++;
             }
+
+            // Check for cancellation before finalizing
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // Send progress for applying depot mappings
+            await SendProgressAsync("applying_mappings", "Applying depot mappings...", aggregatedGames.Count, aggregatedServices.Count, 85);
 
             // Merge with existing games if this was an incremental scan
             List<GameCacheInfo> finalGames;
@@ -459,6 +508,9 @@ public class GameCacheDetectionService
             operation.Services = finalServices;
             operation.TotalServicesDetected = finalServices.Count;
 
+            // Send progress for saving to database
+            await SendProgressAsync("saving", "Saving results to database...", totalGamesDetected, finalServices.Count, 90);
+
             // Save results to database (replaces in-memory cache)
             await SaveGamesToDatabaseAsync(finalGames, incremental);
             _logger.LogInformation("[GameDetection] Results saved to database - {Count} games total", totalGamesDetected);
@@ -503,6 +555,42 @@ public class GameCacheDetectionService
                 totalGamesDetected,
                 totalServicesDetected = finalServices.Count,
                 message = operation.Message,
+                timestamp = DateTime.UtcNow
+            });
+
+            // Clean up temporary files
+            foreach (var outputJson in outputJsonFiles)
+            {
+                await _rustProcessHelper.DeleteTemporaryFileAsync(outputJson);
+            }
+            if (!string.IsNullOrEmpty(excludedIdsPath))
+            {
+                await _rustProcessHelper.DeleteTemporaryFileAsync(excludedIdsPath);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("[GameDetection] Operation {OperationId} was cancelled", operationId);
+            operation.Status = "cancelled";
+            operation.Message = "Detection cancelled by user";
+
+            // Update persisted state with cancelled status
+            _operationStateService.SaveState($"gameDetection_{operationId}", new OperationState
+            {
+                Key = $"gameDetection_{operationId}",
+                Type = "gameDetection",
+                Status = "cancelled",
+                Message = operation.Message,
+                Data = JsonSerializer.SerializeToElement(new { operationId, cancelled = true })
+            });
+
+            // Send SignalR notification that detection was cancelled
+            await _notifications.NotifyAllAsync(SignalREvents.GameDetectionComplete, new
+            {
+                success = false,
+                operationId,
+                message = operation.Message,
+                cancelled = true,
                 timestamp = DateTime.UtcNow
             });
 
@@ -564,6 +652,21 @@ public class GameCacheDetectionService
     public DetectionOperation? GetActiveOperation()
     {
         return _operations.Values.FirstOrDefault(op => op.Status == "running");
+    }
+
+    /// <summary>
+    /// Cancel the currently running detection operation.
+    /// </summary>
+    public void CancelDetection()
+    {
+        var activeOp = GetActiveOperation();
+        if (activeOp != null)
+        {
+            _logger.LogInformation("[GameDetection] Cancelling detection operation {OperationId}", activeOp.OperationId);
+            _cancellationTokenSource?.Cancel();
+            activeOp.Status = "cancelled";
+            activeOp.Message = "Detection cancelled by user";
+        }
     }
 
     public async Task<DetectionOperation?> GetCachedDetectionAsync()

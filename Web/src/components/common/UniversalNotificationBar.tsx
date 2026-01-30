@@ -113,6 +113,24 @@ const CANCEL_CONFIGS: Record<string, CancelConfig> = {
     forceKillFn: undefined,
     alreadyCompletedPatterns: [],
     requiresOperationId: false
+  },
+  corruption_removal: {
+    cancelFn: () => ApiService.cancelCorruptionRemoval(),
+    forceKillFn: undefined,
+    alreadyCompletedPatterns: ['not found', 'No active corruption removal'],
+    requiresOperationId: false
+  },
+  log_processing: {
+    cancelFn: () => ApiService.cancelLogProcessing(),
+    forceKillFn: () => ApiService.forceKillLogProcessing(),
+    alreadyCompletedPatterns: ['not found', 'No log processing'],
+    requiresOperationId: false
+  },
+  game_detection: {
+    cancelFn: () => ApiService.cancelGameDetection(),
+    forceKillFn: undefined,
+    alreadyCompletedPatterns: ['not found', 'No active game detection'],
+    requiresOperationId: false
   }
 };
 
@@ -323,7 +341,7 @@ const renderProgressBar = ({ notification, t }: ContentRendererProps) => {
   }
 
   // Some types don't show progress bars
-  if (notification.type === 'service_removal' || notification.type === 'game_detection') {
+  if (notification.type === 'service_removal') {
     return null;
   }
 
@@ -438,7 +456,10 @@ const UnifiedNotificationItem = ({
         {/* Cancel button for operations that support cancellation */}
         {(notification.type === 'cache_clearing' ||
           notification.type === 'log_removal' ||
-          notification.type === 'depot_mapping') &&
+          notification.type === 'depot_mapping' ||
+          notification.type === 'corruption_removal' ||
+          notification.type === 'log_processing' ||
+          notification.type === 'game_detection') &&
           notification.status === 'running' &&
           onCancel &&
           (notification.details?.cancelling ? (
@@ -453,7 +474,13 @@ const UnifiedNotificationItem = ({
                   ? t('common.notifications.cancelCacheClearing')
                   : notification.type === 'log_removal'
                     ? t('common.notifications.cancelLogRemoval')
-                    : t('common.notifications.cancelDepotMapping')
+                    : notification.type === 'corruption_removal'
+                      ? t('common.notifications.cancelCorruptionRemoval')
+                      : notification.type === 'log_processing'
+                        ? t('common.notifications.cancelLogProcessing')
+                        : notification.type === 'game_detection'
+                          ? t('common.notifications.cancelGameDetection')
+                          : t('common.notifications.cancelDepotMapping')
               }
               position="left"
             >

@@ -8,6 +8,7 @@ import type {
   CorruptionRemovalStartedEvent,
   CorruptionRemovalCompleteEvent,
   GameDetectionStartedEvent,
+  GameDetectionProgressEvent,
   GameDetectionCompleteEvent,
   CorruptionDetectionStartedEvent,
   CorruptionDetectionProgressEvent,
@@ -240,6 +241,15 @@ export const formatCorruptionRemovalCompleteMessage = (
  */
 export const formatGameDetectionStartedMessage = (event: GameDetectionStartedEvent): string => {
   return event.message || 'Detecting games and services in cache...';
+};
+
+/**
+ * Formats the progress message for game detection.
+ * @param event - The game detection progress event from SignalR
+ * @returns Formatted progress message string
+ */
+export const formatGameDetectionProgressMessage = (event: GameDetectionProgressEvent): string => {
+  return event.message || 'Scanning for games and services...';
 };
 
 /**

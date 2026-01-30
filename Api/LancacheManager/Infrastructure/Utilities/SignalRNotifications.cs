@@ -76,6 +76,23 @@ public static class SignalRNotifications
     );
 
     /// <summary>
+    /// Notification for corruption removal progress.
+    /// </summary>
+    /// <summary>
+    /// Notification for corruption removal progress.
+    /// </summary>
+    public record CorruptionRemovalProgress(
+        string Service,
+        string OperationId,
+        string Status,
+        string Message,
+        DateTime Timestamp,
+        int FilesProcessed = 0,
+        int TotalFiles = 0,
+        double PercentComplete = 0
+    );
+
+    /// <summary>
     /// Notification when corruption removal completes.
     /// </summary>
     public record CorruptionRemovalComplete(

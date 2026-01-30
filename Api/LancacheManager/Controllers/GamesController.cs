@@ -284,4 +284,24 @@ public class GamesController : ControllerBase
         });
     }
 
+
+    /// <summary>
+    /// POST /api/games/detect/cancel - Cancel running game detection
+    /// </summary>
+    [HttpPost("detect/cancel")]
+    [RequireAuth]
+    public IActionResult CancelDetection()
+    {
+        var activeOp = _gameCacheDetectionService.GetActiveOperation();
+        if (activeOp == null)
+        {
+            return NotFound(new { error = "No active game detection operation to cancel" });
+        }
+
+        _gameCacheDetectionService.CancelDetection();
+        _logger.LogInformation("Game detection cancelled for operation: {OperationId}", activeOp.OperationId);
+
+        return Ok(new { message = "Game detection cancellation requested", operationId = activeOp.OperationId });
+    }
+
 }

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 
 namespace LancacheManager.Core.Services;
 
@@ -9,7 +10,8 @@ public enum RemovalOperationType
 {
     Game,
     Service,
-    Corruption
+    Corruption,
+    CacheClearing
 }
 
 /// <summary>
@@ -150,10 +152,16 @@ public class RemovalOperationTracker
 
     #region Corruption Removal Operations
 
-    public void StartCorruptionRemoval(string serviceName, string operationId)
+    public void StartCorruptionRemoval(string serviceName, string operationId, CancellationTokenSource? cts = null)
     {
         var key = serviceName.ToLowerInvariant();
         StartRemoval(RemovalOperationType.Corruption, key, operationId, serviceName, $"Removing corrupted chunks for {serviceName}...");
+        
+        // Store the CancellationTokenSource for cancellation support
+        if (cts != null && _operations.TryGetValue((RemovalOperationType.Corruption, key), out var operation))
+        {
+            operation.CancellationTokenSource = cts;
+        }
     }
 
     public void UpdateCorruptionRemoval(string serviceName, string status, string? message = null)
@@ -161,9 +169,29 @@ public class RemovalOperationTracker
         UpdateRemoval(RemovalOperationType.Corruption, serviceName.ToLowerInvariant(), status, message ?? string.Empty);
     }
 
+    public void UpdateCorruptionRemovalProgress(string serviceName, string status, string? message, int filesProcessed, int totalFiles, double percentComplete)
+    {
+        var key = serviceName.ToLowerInvariant();
+        if (_operations.TryGetValue((RemovalOperationType.Corruption, key), out var operation))
+        {
+            operation.Status = status;
+            operation.Message = message ?? string.Empty;
+            operation.FilesProcessed = filesProcessed;
+            operation.TotalFiles = totalFiles;
+            operation.PercentComplete = percentComplete;
+        }
+    }
+
     public void CompleteCorruptionRemoval(string serviceName, bool success, string? error = null)
     {
-        CompleteRemoval(RemovalOperationType.Corruption, serviceName.ToLowerInvariant(), success, 0, 0, error);
+        var key = serviceName.ToLowerInvariant();
+        // Dispose the CancellationTokenSource when completing
+        if (_operations.TryGetValue((RemovalOperationType.Corruption, key), out var operation))
+        {
+            operation.CancellationTokenSource?.Dispose();
+            operation.CancellationTokenSource = null;
+        }
+        CompleteRemoval(RemovalOperationType.Corruption, key, success, 0, 0, error);
     }
 
     public RemovalOperation? GetCorruptionRemovalStatus(string serviceName)
@@ -174,6 +202,153 @@ public class RemovalOperationTracker
     public IEnumerable<RemovalOperation> GetActiveCorruptionRemovals()
     {
         return GetActiveRemovals(RemovalOperationType.Corruption);
+    }
+
+    /// <summary>
+    /// Request cancellation of a corruption removal operation.
+    /// Returns true if cancellation was requested, false if no operation found.
+    /// </summary>
+    public bool CancelCorruptionRemoval(string serviceName)
+    {
+        var key = serviceName.ToLowerInvariant();
+        if (_operations.TryGetValue((RemovalOperationType.Corruption, key), out var operation))
+        {
+            if (operation.CancellationTokenSource != null && !operation.CancellationTokenSource.IsCancellationRequested)
+            {
+                _logger.LogInformation("Requesting cancellation for corruption removal: {Service}", serviceName);
+                operation.CancellationTokenSource.Cancel();
+                operation.Status = "cancelling";
+                operation.Message = "Cancellation requested...";
+                return true;
+            }
+        }
+        return false;
+    }
+
+    #endregion
+
+    #region Cache Clearing Operations
+
+    public void StartCacheClearing(string datasourceName, string operationId, CancellationTokenSource? cts = null, Process? process = null)
+    {
+        var key = datasourceName.ToLowerInvariant();
+        StartRemoval(RemovalOperationType.CacheClearing, key, operationId, datasourceName, $"Clearing cache for {datasourceName}...");
+        
+        // Store the CancellationTokenSource and Process for cancellation support
+        if (_operations.TryGetValue((RemovalOperationType.CacheClearing, key), out var operation))
+        {
+            if (cts != null) operation.CancellationTokenSource = cts;
+            if (process != null) operation.RustProcess = process;
+        }
+    }
+
+    public void UpdateCacheClearing(string datasourceName, string status, string? message = null)
+    {
+        UpdateRemoval(RemovalOperationType.CacheClearing, datasourceName.ToLowerInvariant(), status, message ?? string.Empty);
+    }
+
+    public void UpdateCacheClearingProgress(string datasourceName, int directoriesProcessed, int totalDirectories, long bytesDeleted, double percentComplete)
+    {
+        var key = datasourceName.ToLowerInvariant();
+        if (_operations.TryGetValue((RemovalOperationType.CacheClearing, key), out var operation))
+        {
+            operation.DirectoriesProcessed = directoriesProcessed;
+            operation.TotalDirectories = totalDirectories;
+            operation.BytesFreed = bytesDeleted;
+            operation.PercentComplete = percentComplete;
+        }
+    }
+
+    public void CompleteCacheClearing(string datasourceName, bool success, string? error = null)
+    {
+        var key = datasourceName.ToLowerInvariant();
+        // Dispose the CancellationTokenSource and clear process reference when completing
+        if (_operations.TryGetValue((RemovalOperationType.CacheClearing, key), out var operation))
+        {
+            operation.CancellationTokenSource?.Dispose();
+            operation.CancellationTokenSource = null;
+            operation.RustProcess = null;
+        }
+        CompleteRemoval(RemovalOperationType.CacheClearing, key, success, 0, 0, error);
+    }
+
+    public RemovalOperation? GetCacheClearingStatus(string datasourceName)
+    {
+        return GetRemovalStatus(RemovalOperationType.CacheClearing, datasourceName.ToLowerInvariant());
+    }
+
+    public IEnumerable<RemovalOperation> GetActiveCacheClearings()
+    {
+        return GetActiveRemovals(RemovalOperationType.CacheClearing);
+    }
+
+    /// <summary>
+    /// Request cancellation of a cache clearing operation.
+    /// Returns true if cancellation was requested, false if no operation found.
+    /// </summary>
+    public bool CancelCacheClearing(string datasourceName)
+    {
+        var key = datasourceName.ToLowerInvariant();
+        if (_operations.TryGetValue((RemovalOperationType.CacheClearing, key), out var operation))
+        {
+            if (operation.CancellationTokenSource != null && !operation.CancellationTokenSource.IsCancellationRequested)
+            {
+                _logger.LogInformation("Requesting cancellation for cache clearing: {Datasource}", datasourceName);
+                operation.CancellationTokenSource.Cancel();
+                operation.Status = "cancelling";
+                operation.Message = "Cancellation requested...";
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Force kills the Rust process for a cache clearing operation.
+    /// Returns true if the process was killed, false if no operation or process found.
+    /// </summary>
+    public bool ForceKillCacheClearing(string datasourceName)
+    {
+        var key = datasourceName.ToLowerInvariant();
+        if (_operations.TryGetValue((RemovalOperationType.CacheClearing, key), out var operation))
+        {
+            // First cancel the token
+            operation.CancellationTokenSource?.Cancel();
+            
+            // Kill the Rust process if it exists and is still running
+            if (operation.RustProcess != null && !operation.RustProcess.HasExited)
+            {
+                _logger.LogWarning("Force killing Rust cache_cleaner process (PID: {Pid}) for datasource {Datasource}", 
+                    operation.RustProcess.Id, datasourceName);
+                try
+                {
+                    operation.RustProcess.Kill(entireProcessTree: true);
+                    operation.Status = "cancelled";
+                    operation.Message = "Force killed by user";
+                    operation.CompletedAt = DateTime.UtcNow;
+                    operation.RustProcess = null;
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error force killing process for datasource {Datasource}", datasourceName);
+                    return false;
+                }
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Sets the Rust process reference for a cache clearing operation after spawn.
+    /// </summary>
+    public void SetCacheClearingProcess(string datasourceName, Process process)
+    {
+        var key = datasourceName.ToLowerInvariant();
+        if (_operations.TryGetValue((RemovalOperationType.CacheClearing, key), out var operation))
+        {
+            operation.RustProcess = process;
+        }
     }
 
     #endregion
@@ -189,7 +364,8 @@ public class RemovalOperationTracker
         {
             GameRemovals = GetActiveGameRemovals().ToList(),
             ServiceRemovals = GetActiveServiceRemovals().ToList(),
-            CorruptionRemovals = GetActiveCorruptionRemovals().ToList()
+            CorruptionRemovals = GetActiveCorruptionRemovals().ToList(),
+            CacheClearings = GetActiveCacheClearings().ToList()
         };
     }
 
@@ -200,13 +376,36 @@ public class RemovalOperation
 {
     public string Id { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
-    public string Status { get; set; } = "pending"; // pending, running, complete, failed
+    public string Status { get; set; } = "pending"; // pending, running, complete, failed, cancelled, cancelling
     public string Message { get; set; } = string.Empty;
     public DateTime StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public int FilesDeleted { get; set; }
     public long BytesFreed { get; set; }
     public string? Error { get; set; }
+    
+    // Progress tracking for corruption removal and cache clearing
+    public double PercentComplete { get; set; }
+    public int FilesProcessed { get; set; }
+    public int TotalFiles { get; set; }
+    
+    // Additional properties for cache clearing (directories instead of files)
+    public int DirectoriesProcessed { get; set; }
+    public int TotalDirectories { get; set; }
+    
+    /// <summary>
+    /// CancellationTokenSource for cancelling the operation.
+    /// Not serialized to JSON responses.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public CancellationTokenSource? CancellationTokenSource { get; set; }
+    
+    /// <summary>
+    /// Reference to the Rust process for force kill capability.
+    /// Not serialized to JSON responses.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public Process? RustProcess { get; set; }
 }
 
 public class ActiveRemovalsStatus
@@ -214,7 +413,8 @@ public class ActiveRemovalsStatus
     public List<RemovalOperation> GameRemovals { get; set; } = new();
     public List<RemovalOperation> ServiceRemovals { get; set; } = new();
     public List<RemovalOperation> CorruptionRemovals { get; set; } = new();
+    public List<RemovalOperation> CacheClearings { get; set; } = new();
 
     public bool HasActiveOperations =>
-        GameRemovals.Any() || ServiceRemovals.Any() || CorruptionRemovals.Any();
+        GameRemovals.Any() || ServiceRemovals.Any() || CorruptionRemovals.Any() || CacheClearings.Any();
 }

@@ -29,6 +29,90 @@ public class RustLogProcessorService
 
     public bool IsProcessing { get; private set; }
     public bool IsSilentMode { get; private set; }
+    public bool IsCancelling { get; private set; }
+
+    /// <summary>
+    /// Cancels any ongoing log processing operation
+    /// </summary>
+    /// <returns>True if cancellation was requested, false if no operation was running</returns>
+    public bool CancelProcessing()
+    {
+        if (!IsProcessing || _cancellationTokenSource == null)
+        {
+            _logger.LogWarning("No log processing operation to cancel");
+            return false;
+        }
+
+        if (IsCancelling)
+        {
+            _logger.LogWarning("Cancellation already in progress");
+            return false;
+        }
+
+        IsCancelling = true;
+        _logger.LogInformation("Cancellation requested for log processing");
+        
+        try
+        {
+            _cancellationTokenSource.Cancel();
+            
+            // Kill the Rust process if it's running
+            if (_rustProcess != null && !_rustProcess.HasExited)
+            {
+                _logger.LogInformation("Killing Rust log processor process");
+                _rustProcess.Kill(entireProcessTree: true);
+            }
+            
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during log processing cancellation");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Force kills the log processing operation
+    /// </summary>
+    public async Task<bool> ForceKillProcessingAsync()
+    {
+        if (!IsProcessing)
+        {
+            _logger.LogWarning("No log processing operation to kill");
+            return false;
+        }
+
+        _logger.LogWarning("Force killing log processing operation");
+        
+        try
+        {
+            // Force cancel the token
+            _cancellationTokenSource?.Cancel();
+            
+            // Kill the process tree
+            if (_rustProcess != null && !_rustProcess.HasExited)
+            {
+                _rustProcess.Kill(entireProcessTree: true);
+                await _rustProcess.WaitForExitAsync();
+            }
+            
+            IsProcessing = false;
+            IsCancelling = false;
+            
+            // Send cancellation notification
+            await _notifications.NotifyAllAsync(
+                Hubs.SignalREvents.FastProcessingComplete,
+                new { cancelled = true, message = "Log processing was cancelled" });
+            
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during force kill of log processing");
+            return false;
+        }
+    }
 
     /// <summary>
     /// Resets the log position to 0 to reprocess all logs (all datasources)

@@ -24,6 +24,12 @@ use cache_corruption_detector::CorruptionDetector;
 struct ProgressData {
     status: String,
     message: String,
+    #[serde(rename = "percentComplete")]
+    percent_complete: f64,
+    #[serde(rename = "filesProcessed")]
+    files_processed: usize,
+    #[serde(rename = "totalFiles")]
+    total_files: usize,
     timestamp: String,
 }
 
@@ -31,10 +37,20 @@ fn parse_timezone(tz_str: &str) -> chrono_tz::Tz {
     tz_str.parse().unwrap_or(chrono_tz::UTC)
 }
 
-fn write_progress(progress_path: &Path, status: &str, message: &str) -> Result<()> {
+fn write_progress(
+    progress_path: &Path,
+    status: &str,
+    message: &str,
+    percent_complete: f64,
+    files_processed: usize,
+    total_files: usize,
+) -> Result<()> {
     let progress = ProgressData {
         status: status.to_string(),
         message: message.to_string(),
+        percent_complete,
+        files_processed,
+        total_files,
         timestamp: progress_utils::current_timestamp(),
     };
 
@@ -279,7 +295,7 @@ fn main() -> Result<()> {
             eprintln!("  Log directory: {}", log_dir.display());
             eprintln!("  Cache directory: {}", cache_dir.display());
 
-            write_progress(&progress_path, "starting", &format!("Starting removal for {}", service))?;
+            write_progress(&progress_path, "starting", &format!("Starting removal for {}", service), 0.0, 0, 0)?;
 
             // OPTIMIZED: Single-pass detection and removal
             // Instead of reading logs twice (once to detect, once to remove),
@@ -302,11 +318,15 @@ fn main() -> Result<()> {
             let mut entries_processed: usize = 0;
             let miss_threshold: usize = 3; // Same threshold as corruption_detector
 
-            write_progress(&progress_path, "scanning", &format!("Scanning {} log files for corrupted chunks", log_files.len()))?;
+            let total_files = log_files.len();
+            write_progress(&progress_path, "scanning", &format!("Scanning {} log files for corrupted chunks", total_files), 0.0, 0, total_files)?;
 
             // First pass: identify all corrupted URLs AND track their response sizes
             for (file_index, log_file) in log_files.iter().enumerate() {
-                eprintln!("  Scanning file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
+                // Update progress during scanning (0-30%)
+                let scan_percent = (file_index as f64 / total_files as f64) * 30.0;
+                write_progress(&progress_path, "scanning", &format!("Scanning file {}/{}", file_index + 1, total_files), scan_percent, file_index, total_files)?;
+                eprintln!("  Scanning file {}/{}: {}", file_index + 1, total_files, log_file.path.display());
 
                 let scan_result = (|| -> Result<()> {
                     let mut log_reader = LogFileReader::open(&log_file.path)?;
@@ -377,7 +397,7 @@ fn main() -> Result<()> {
 
             if corrupted_urls_with_sizes.is_empty() {
                 eprintln!("No corrupted chunks found, nothing to remove");
-                write_progress(&progress_path, "complete", "No corrupted chunks found")?;
+                write_progress(&progress_path, "complete", "No corrupted chunks found", 100.0, 0, 0)?;
                 return Ok(());
             }
 
@@ -392,10 +412,13 @@ fn main() -> Result<()> {
 
             let mut total_lines_removed: u64 = 0;
 
-            write_progress(&progress_path, "filtering", &format!("Filtering {} log files", log_files.len()))?;
+            write_progress(&progress_path, "filtering", &format!("Filtering {} log files", total_files), 30.0, 0, total_files)?;
 
             for (file_index, log_file) in log_files.iter().enumerate() {
-                eprintln!("  Processing file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
+                // Update progress during filtering (30-70%)
+                let filter_percent = 30.0 + (file_index as f64 / total_files as f64) * 40.0;
+                write_progress(&progress_path, "filtering", &format!("Filtering file {}/{}", file_index + 1, total_files), filter_percent, file_index, total_files)?;
+                eprintln!("  Processing file {}/{}: {}", file_index + 1, total_files, log_file.path.display());
 
                 let file_result = (|| -> Result<u64> {
                     use std::io::BufWriter;
@@ -507,7 +530,8 @@ fn main() -> Result<()> {
                 }
             }
 
-            write_progress(&progress_path, "removing_cache", &format!("Removing cache files for {} corrupted URLs", corrupted_urls_with_sizes.len()))?;
+            let total_urls = corrupted_urls_with_sizes.len();
+            write_progress(&progress_path, "removing_cache", &format!("Removing cache files for {} corrupted URLs", total_urls), 70.0, 0, total_urls)?;
 
             // Step 3: Delete ALL cache file chunks from disk
             // IMPORTANT: Use same logic as game_cache_remover - try no-range format first!
@@ -518,7 +542,13 @@ fn main() -> Result<()> {
             let mut other_errors = 0;
             let slice_size: i64 = 1_048_576; // 1MB
 
-            for (url, response_size) in &corrupted_urls_with_sizes {
+            for (url_index, (url, response_size)) in corrupted_urls_with_sizes.iter().enumerate() {
+                // Update progress during cache removal (70-95%)
+                if url_index % 50 == 0 || url_index == total_urls - 1 {
+                    let cache_percent = 70.0 + (url_index as f64 / total_urls.max(1) as f64) * 25.0;
+                    write_progress(&progress_path, "removing_cache", &format!("Removing cache file {}/{}", url_index + 1, total_urls), cache_percent, url_index, total_urls)?;
+                }
+                
                 // FIRST: Try the no-range format (standard lancache format)
                 let cache_path_no_range = cache_utils::calculate_cache_path_no_range(&cache_dir, &service_lower, url);
 
@@ -624,18 +654,18 @@ fn main() -> Result<()> {
                     permission_errors
                 );
                 eprintln!("\n{}", error_msg);
-                write_progress(&progress_path, "failed", &error_msg)?;
+                write_progress(&progress_path, "failed", &error_msg, 0.0, 0, 0)?;
                 std::process::exit(1);
             }
 
             // Step 4: Delete database records for corrupted downloads
             // Only reached if ALL file deletions succeeded (no permission errors)
             eprintln!("Step 4: Deleting database records...");
-            write_progress(&progress_path, "removing_database", "Deleting database records for corrupted chunks")?;
+            write_progress(&progress_path, "removing_database", "Deleting database records for corrupted chunks", 95.0, 0, 0)?;
 
             let (downloads_deleted, log_entries_deleted) = delete_corrupted_from_database(&db_path, service, &corrupted_urls)?;
 
-            write_progress(&progress_path, "complete", &format!("Removed {} corrupted URLs for {} ({} cache files deleted, {} log lines removed, {} downloads deleted, {} log entries deleted)", corrupted_urls_with_sizes.len(), service, deleted_count, total_lines_removed, downloads_deleted, log_entries_deleted))?;
+            write_progress(&progress_path, "complete", &format!("Removed {} corrupted URLs for {} ({} cache files deleted, {} log lines removed, {} downloads deleted, {} log entries deleted)", corrupted_urls_with_sizes.len(), service, deleted_count, total_lines_removed, downloads_deleted, log_entries_deleted), 100.0, 0, 0)?;
             eprintln!("\n=== Corruption Removal Summary ===");
             eprintln!("Corrupted URLs removed: {}", corrupted_urls_with_sizes.len());
             eprintln!("Cache files deleted: {}", deleted_count);

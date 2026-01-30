@@ -541,15 +541,22 @@ public class CacheController : ControllerBase
 
         var operationId = Guid.NewGuid().ToString();
 
-        // Start tracking this removal operation
-        _removalTracker.StartCorruptionRemoval(service, operationId);
+        // Create CancellationTokenSource for this operation
+        var cts = new CancellationTokenSource();
+        
+        // Start tracking this removal operation with CancellationTokenSource
+        _removalTracker.StartCorruptionRemoval(service, operationId, cts);
 
         // Send start notification via SignalR
         _notifications.NotifyAllFireAndForget(SignalREvents.CorruptionRemovalStarted,
             new CorruptionRemovalStarted(service, operationId, $"Starting corruption removal for {service}...", DateTime.UtcNow));
+        var progressFilePath = Path.Combine(_pathResolver.GetOperationsDirectory(), $"corruption_removal_{operationId}.json");
 
         _ = Task.Run(async () =>
         {
+            // Track last status to avoid duplicate notifications
+            string? lastStatus = null;
+            
             try
             {
                 // Pause LiveLogMonitorService to prevent file locking issues
@@ -559,6 +566,45 @@ public class CacheController : ControllerBase
                 // Update tracking
                 _removalTracker.UpdateCorruptionRemoval(service, "removing", $"Removing corrupted chunks for {service}...");
 
+                // Start progress monitoring task
+                var progressMonitorTask = Task.Run(async () =>
+                {
+                    try
+                    {
+                        while (!cts.Token.IsCancellationRequested)
+                        {
+                            await Task.Delay(500, cts.Token);
+                            
+                            var progress = await _rustProcessHelper.ReadProgressFileAsync<CorruptionRemovalProgressData>(progressFilePath);
+                            if (progress != null && progress.Status != lastStatus)
+                            {
+                                lastStatus = progress.Status;
+                                _removalTracker.UpdateCorruptionRemoval(service, progress.Status, progress.Message);
+                                
+                                // Send progress notification via SignalR
+                                await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalProgress,
+                                    new CorruptionRemovalProgress(
+                                        service, 
+                                        operationId, 
+                                        progress.Status, 
+                                        progress.Message, 
+                                        DateTime.UtcNow,
+                                        progress.FilesProcessed,
+                                        progress.TotalFiles,
+                                        progress.PercentComplete));
+                            }
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Expected when operation completes or is cancelled
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Progress monitoring ended for corruption removal: {Service}", service);
+                    }
+                }, cts.Token);
+
                 try
                 {
                     var result = await _rustProcessHelper.RunCorruptionManagerAsync(
@@ -566,9 +612,13 @@ public class CacheController : ControllerBase
                         logsPath,
                         cachePath,
                         service: service,
-                        progressFile: Path.Combine(_pathResolver.GetOperationsDirectory(), $"corruption_removal_{operationId}.json"),
+                        progressFile: progressFilePath,
                         databasePath: dbPath
                     );
+
+                    // Stop progress monitoring
+                    await cts.CancelAsync();
+                    try { await progressMonitorTask; } catch { /* ignore cancellation */ }
 
                     if (result.Success)
                     {
@@ -594,7 +644,20 @@ public class CacheController : ControllerBase
                     // Always resume LiveLogMonitorService
                     await LiveLogMonitorService.ResumeAsync();
                     _logger.LogInformation("Resumed LiveLogMonitorService after corruption removal");
+                    
+                    // Clean up progress file
+                    try { if (System.IO.File.Exists(progressFilePath)) System.IO.File.Delete(progressFilePath); } catch { }
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Corruption removal cancelled for service: {Service}", service);
+                _removalTracker.CompleteCorruptionRemoval(service, false, "Operation was cancelled.");
+                await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
+                    new CorruptionRemovalComplete(false, service, operationId, Error: "Operation was cancelled."));
+                    
+                // Resume LiveLogMonitorService on cancellation
+                await LiveLogMonitorService.ResumeAsync();
             }
             catch (Exception ex)
             {
@@ -658,6 +721,51 @@ public class CacheController : ControllerBase
                 StartedAt = o.StartedAt
             })
         });
+    }
+
+    /// <summary>
+    /// POST /api/cache/corruption/cancel - Cancel active corruption removal operation
+    /// </summary>
+    [HttpPost("corruption/cancel")]
+    [RequireAuth]
+    public IActionResult CancelCorruptionRemoval([FromQuery] string? service = null)
+    {
+        // If service is specified, cancel that specific operation
+        if (!string.IsNullOrEmpty(service))
+        {
+            var cancelled = _removalTracker.CancelCorruptionRemoval(service);
+            if (!cancelled)
+            {
+                return NotFound(new ErrorResponse { Error = $"No active corruption removal found for service: {service}" });
+            }
+            
+            _logger.LogInformation("Cancellation requested for corruption removal: {Service}", service);
+            return Ok(new { Message = $"Cancellation requested for corruption removal of {service}", Service = service });
+        }
+        
+        // Otherwise, cancel any active corruption removal
+        var activeRemovals = _removalTracker.GetActiveCorruptionRemovals().ToList();
+        if (!activeRemovals.Any())
+        {
+            return NotFound(new ErrorResponse { Error = "No active corruption removal operation to cancel" });
+        }
+        
+        var cancelledServices = new List<string>();
+        foreach (var removal in activeRemovals)
+        {
+            if (_removalTracker.CancelCorruptionRemoval(removal.Name))
+            {
+                cancelledServices.Add(removal.Name);
+            }
+        }
+        
+        if (!cancelledServices.Any())
+        {
+            return Conflict(new ErrorResponse { Error = "Could not cancel operations (they may have already completed)" });
+        }
+        
+        _logger.LogInformation("Cancellation requested for corruption removal operations: {Services}", string.Join(", ", cancelledServices));
+        return Ok(new { Message = $"Cancellation requested for: {string.Join(", ", cancelledServices)}", Services = cancelledServices });
     }
 
     /// <summary>
@@ -829,6 +937,17 @@ public class CacheController : ControllerBase
                 Status = o.Status,
                 Message = o.Message,
                 StartedAt = o.StartedAt
+            }),
+            CacheClearings = status.CacheClearings.Select(o => new CacheClearingInfo
+            {
+                DatasourceName = o.Name,
+                OperationId = o.Id,
+                Status = o.Status,
+                Message = o.Message,
+                StartedAt = o.StartedAt,
+                DirectoriesProcessed = o.DirectoriesProcessed,
+                TotalDirectories = o.TotalDirectories,
+                PercentComplete = o.PercentComplete
             })
         });
     }

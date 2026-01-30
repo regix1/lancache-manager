@@ -60,10 +60,12 @@ export const SIGNALR_EVENTS = [
   'CorruptionDetectionProgress',
   'CorruptionDetectionComplete',
   'CorruptionRemovalStarted',
+  'CorruptionRemovalProgress',
   'CorruptionRemovalComplete',
 
   // Games
   'GameDetectionStarted',
+  'GameDetectionProgress',
   'GameDetectionComplete',
   'GameRemovalProgress',
   'GameRemovalComplete',
@@ -222,6 +224,17 @@ export interface CorruptionRemovalStartedEvent {
   message?: string;
 }
 
+export interface CorruptionRemovalProgressEvent {
+  service: string;
+  operationId?: string;
+  status: string;
+  message: string;
+  percentComplete?: number;
+  filesProcessed?: number;
+  totalFiles?: number;
+  timestamp?: string;
+}
+
 export interface CorruptionRemovalCompleteEvent {
   service: string;
   success: boolean;
@@ -258,6 +271,15 @@ export interface GameDetectionStartedEvent {
   operationId: string;
   scanType?: 'full' | 'incremental';
   message?: string;
+}
+
+export interface GameDetectionProgressEvent {
+  operationId: string;
+  status: string;
+  message: string;
+  gamesDetected?: number;
+  servicesDetected?: number;
+  progressPercent?: number;
 }
 
 export interface GameDetectionCompleteEvent {

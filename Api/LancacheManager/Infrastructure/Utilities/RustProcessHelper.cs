@@ -349,13 +349,17 @@ public class RustProcessHelper
     /// <summary>
     /// Runs the corruption_manager Rust executable for detecting or removing corrupted files
     /// </summary>
+    /// <summary>
+    /// Runs the corruption_manager Rust executable for detecting or removing corrupted files
+    /// </summary>
     public async Task<RustExecutionResult> RunCorruptionManagerAsync(
         string command,
         string logsPath,
         string cachePath,
         string? service = null,
         string? progressFile = null,
-        string? databasePath = null)
+        string? databasePath = null,
+        CancellationToken cancellationToken = default)
     {
         try
         {
@@ -378,7 +382,7 @@ public class RustProcessHelper
             _logger.LogInformation("[corruption_manager] Executing: {Binary} {Args}", rustBinaryPath, arguments);
 
             var startInfo = CreateProcessStartInfo(rustBinaryPath, arguments);
-            var result = await ExecuteProcessAsync(startInfo, CancellationToken.None);
+            var result = await ExecuteProcessAsync(startInfo, cancellationToken);
 
             // Log stdout and stderr for debugging
             if (!string.IsNullOrEmpty(result.Output))
@@ -399,7 +403,7 @@ public class RustProcessHelper
                 {
                     try
                     {
-                        var jsonContent = await File.ReadAllTextAsync(outputFile);
+                        var jsonContent = await File.ReadAllTextAsync(outputFile, cancellationToken);
 
                         // Only attempt to deserialize if content is not empty
                         if (!string.IsNullOrWhiteSpace(jsonContent))

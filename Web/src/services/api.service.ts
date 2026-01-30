@@ -646,6 +646,36 @@ class ApiService {
     }
   }
 
+  // Cancel ongoing log processing
+  static async cancelLogProcessing(signal?: AbortSignal): Promise<OperationResponse> {
+    try {
+      const res = await fetch(`${API_BASE}/logs/process/cancel`, this.getFetchOptions({
+        method: 'DELETE',
+        signal,
+        headers: { 'Content-Type': 'application/json' }
+      }));
+      return await this.handleResponse<OperationResponse>(res);
+    } catch (error: unknown) {
+      console.error('cancelLogProcessing error:', error);
+      throw error;
+    }
+  }
+
+  // Force kill log processing
+  static async forceKillLogProcessing(signal?: AbortSignal): Promise<OperationResponse> {
+    try {
+      const res = await fetch(`${API_BASE}/logs/process/kill`, this.getFetchOptions({
+        method: 'POST',
+        signal,
+        headers: { 'Content-Type': 'application/json' }
+      }));
+      return await this.handleResponse<OperationResponse>(res);
+    } catch (error: unknown) {
+      console.error('forceKillLogProcessing error:', error);
+      throw error;
+    }
+  }
+
 
   static async getProcessingStatus(): Promise<ProcessingStatus> {
     try {
@@ -922,6 +952,21 @@ class ApiService {
     }
   }
 
+  // Cancel corruption removal operation
+  static async cancelCorruptionRemoval(signal?: AbortSignal): Promise<{ message: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/cache/corruption/cancel`, this.getFetchOptions({
+        method: 'POST',
+        signal,
+        headers: { 'Content-Type': 'application/json' }
+      }));
+      return await this.handleResponse<{ message: string }>(res);
+    } catch (error) {
+      console.error('cancelCorruptionRemoval error:', error);
+      throw error;
+    }
+  }
+
   // Get detailed corruption information for a specific service
   static async getCorruptionDetails(
     service: string,
@@ -954,12 +999,20 @@ class ApiService {
     }
   }
 
-  // Get status of game cache detection operation
-  
-
-  // Get active game cache detection operation (if any)
-  // Note: Used by NotificationsContext for recovery
-  
+  // Cancel game cache detection operation
+  static async cancelGameDetection(signal?: AbortSignal): Promise<{ message: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/games/detect/cancel`, this.getFetchOptions({
+        method: 'POST',
+        signal,
+        headers: { 'Content-Type': 'application/json' }
+      }));
+      return await this.handleResponse<{ message: string }>(res);
+    } catch (error) {
+      console.error('cancelGameDetection error:', error);
+      throw error;
+    }
+  }
 
   // Get cached game detection results from database (if available)
   static async getCachedGameDetection(): Promise<{

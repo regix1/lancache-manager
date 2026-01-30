@@ -41,6 +41,7 @@ public static class SignalREvents
     public const string CorruptionDetectionProgress = "CorruptionDetectionProgress";
     public const string CorruptionDetectionComplete = "CorruptionDetectionComplete";
     public const string CorruptionRemovalStarted = "CorruptionRemovalStarted";
+    public const string CorruptionRemovalProgress = "CorruptionRemovalProgress";
     public const string CorruptionRemovalComplete = "CorruptionRemovalComplete";
     public const string CacheClearProgress = "CacheClearProgress";
     public const string CacheClearComplete = "CacheClearComplete";
@@ -49,6 +50,7 @@ public static class SignalREvents
 
     // Games
     public const string GameDetectionStarted = "GameDetectionStarted";
+    public const string GameDetectionProgress = "GameDetectionProgress";
     public const string GameDetectionComplete = "GameDetectionComplete";
     public const string GameRemovalProgress = "GameRemovalProgress";
     public const string GameRemovalComplete = "GameRemovalComplete";

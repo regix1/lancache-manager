@@ -441,6 +441,19 @@ public class CorruptionDetectionProgressData
 }
 
 /// <summary>
+/// JSON model for Rust corruption removal progress.
+/// </summary>
+public class CorruptionRemovalProgressData
+{
+    public string Status { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+    public string? Timestamp { get; set; }
+    public int FilesProcessed { get; set; }
+    public int TotalFiles { get; set; }
+    public double PercentComplete { get; set; }
+}
+
+/// <summary>
 /// Result model for cached corruption detection.
 /// </summary>
 public class CachedCorruptionResult
