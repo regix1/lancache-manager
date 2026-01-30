@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { HardDrive, Loader2, Database, Server } from 'lucide-react';
 import ApiService from '@services/api.service';
@@ -50,6 +50,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [isStartingDetection, setIsStartingDetection] = useState(false);
   // Track local loading state for loading cached data (quick synchronous operation)
   const [isLoadingData, setIsLoadingData] = useState(false);
+  // Ref to prevent duplicate API calls (handles rapid button clicks before state updates)
+  const detectionInFlightRef = useRef(false);
   // Combined loading state: either notification says running OR we're in starting phase OR loading cached data
   const loading = isDetectionFromNotification || isStartingDetection || isLoadingData;
   const [games, setGames] = useState<GameCacheInfo[]>([]);
@@ -272,6 +274,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       if (gameDetectionNotifs.length > 0) {
         setIsStartingDetection(false);
         setScanType(null);
+        // Reset ref to allow future detection calls
+        detectionInFlightRef.current = false;
 
         // Note: Operation state now handled by NotificationsContext
 
@@ -305,12 +309,14 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         console.error('[GameCacheDetector] Game detection failed');
         setIsStartingDetection(false);
         setScanType(null);
+        // Reset ref to allow future detection calls
+        detectionInFlightRef.current = false;
         // Note: Operation state now handled by NotificationsContext
       }
     }
   }, [notifications, isStartingDetection]);
 
-  const startDetection = async (forceRefresh: boolean, scanTypeLabel: 'full' | 'incremental') => {
+  const startDetection = useCallback(async (forceRefresh: boolean, scanTypeLabel: 'full' | 'incremental') => {
     if (mockMode) {
       const errorMsg = t('management.gameDetection.detectionDisabledMockMode');
       setError(errorMsg);
@@ -322,6 +328,15 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       });
       return;
     }
+
+    // Prevent duplicate API calls - check ref first (handles rapid clicks before state updates)
+    if (detectionInFlightRef.current || loading) {
+      console.log('[GameCacheDetector] Detection already in progress, ignoring duplicate call');
+      return;
+    }
+
+    // Set ref immediately to block any concurrent calls
+    detectionInFlightRef.current = true;
 
     setIsStartingDetection(true);
     setError(null);
@@ -347,11 +362,13 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       console.error('Detection error:', err);
       setIsStartingDetection(false);
       setScanType(null);
+      // Reset ref on error so user can retry
+      detectionInFlightRef.current = false;
     }
-  };
+  }, [mockMode, loading, t, addNotification]);
 
-  const handleFullScan = () => startDetection(true, 'full');
-  const handleIncrementalScan = () => startDetection(false, 'incremental');
+  const handleFullScan = useCallback(() => startDetection(true, 'full'), [startDetection]);
+  const handleIncrementalScan = useCallback(() => startDetection(false, 'incremental'), [startDetection]);
 
   const handleLoadData = async () => {
     if (mockMode) return;

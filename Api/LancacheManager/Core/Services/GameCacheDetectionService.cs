@@ -286,6 +286,9 @@ public class GameCacheDetectionService
             List<ServiceCacheInfo>? existingServices = null;
             if (incremental)
             {
+                // Progress: Checking for new games
+                await SendProgressAsync("preparing", "Checking for new games...", 0, 0, 15);
+
                 // Load existing games and services from database
                 await using (var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken))
                 {
@@ -301,11 +304,12 @@ public class GameCacheDetectionService
                         File.WriteAllText(excludedIdsPath, excludedIdsJson);
 
                         _logger.LogInformation("[GameDetection] Incremental scan: excluding {ExcludedCount} already-detected games", excludedGameIds.Count);
-                        await SendProgressAsync("preparing", $"Scanning for new games (skipping {excludedGameIds.Count} already detected)...", existingGames.Count, 0, 10);
+                        await SendProgressAsync("preparing", $"Scanning for new games (skipping {excludedGameIds.Count} already detected)...", existingGames.Count, 0, 25);
                     }
                     else
                     {
                         _logger.LogInformation("[GameDetection] No cached results found, performing full scan");
+                        await SendProgressAsync("preparing", "No cached results found, performing full scan...", 0, 0, 25);
                     }
 
                     // Load existing services for incremental mode (we skip service scanning in incremental mode)
@@ -320,10 +324,14 @@ public class GameCacheDetectionService
             else
             {
                 _logger.LogInformation("[GameDetection] Force refresh: performing full scan");
+                await SendProgressAsync("preparing", "Preparing full scan...", 0, 0, 15);
             }
 
             // Check for cancellation before scanning
             cancellationToken.ThrowIfCancellationRequested();
+
+            // Progress: About to scan datasources
+            await SendProgressAsync("scanning", "Scanning datasources...", 0, 0, 30);
 
             // Aggregate results from all datasources
             var aggregatedGames = new List<GameCacheInfo>();
@@ -348,8 +356,8 @@ public class GameCacheDetectionService
                     ? $"Scanning datasource '{datasource.Name}'..."
                     : "Scanning database and cache directory...";
                 
-                // Calculate progress: 10-80% for scanning (70% range divided by datasource count)
-                var progressBase = 10 + (70.0 * datasourceIndex / datasources.Count);
+                // Calculate progress: 30-70% for scanning (40% range divided by datasource count)
+                var progressBase = 30 + (40.0 * datasourceIndex / datasources.Count);
                 await SendProgressAsync("scanning", scanMessage, aggregatedGames.Count, aggregatedServices.Count, progressBase);
 
                 // Build arguments
@@ -392,6 +400,17 @@ public class GameCacheDetectionService
                 }
 
                 // Aggregate games (deduplicate by GameAppId)
+                // Progress range for game aggregation: from current progress to next datasource's base
+                var totalGamesInResult = detectionResult.Games.Count;
+                var gameIndex = 0;
+                var lastProgressUpdate = 0;
+                
+                // Calculate progress range for this datasource's game processing
+                // Games processing takes 30% of the datasource's share (from base to base + 30% of share)
+                var datasourceProgressShare = 40.0 / datasources.Count;
+                var gameProcessingStart = progressBase;
+                var gameProcessingEnd = progressBase + (datasourceProgressShare * 0.75); // 75% of datasource share for game processing
+                
                 foreach (var game in detectionResult.Games)
                 {
                     if (!gameAppIdSet.Contains(game.GameAppId))
@@ -421,6 +440,22 @@ public class GameCacheDetectionService
                         {
                             existingGame.Datasources.Add(datasource.Name);
                         }
+                    }
+                    
+                    gameIndex++;
+                    
+                    // Send progress updates every 5 games or every 10% of total games
+                    var progressThreshold = Math.Max(5, totalGamesInResult / 10);
+                    if (gameIndex - lastProgressUpdate >= progressThreshold || gameIndex == totalGamesInResult)
+                    {
+                        lastProgressUpdate = gameIndex;
+                        var gameProgress = gameProcessingStart + ((gameProcessingEnd - gameProcessingStart) * gameIndex / totalGamesInResult);
+                        await SendProgressAsync(
+                            "scanning",
+                            $"Processing games ({gameIndex}/{totalGamesInResult})...",
+                            aggregatedGames.Count,
+                            aggregatedServices.Count,
+                            gameProgress);
                     }
                 }
 
@@ -459,6 +494,9 @@ public class GameCacheDetectionService
 
             // Check for cancellation before finalizing
             cancellationToken.ThrowIfCancellationRequested();
+
+            // Progress: Datasource scanning complete
+            await SendProgressAsync("processing", "Merging results...", aggregatedGames.Count, aggregatedServices.Count, 70);
 
             // Send progress for applying depot mappings
             await SendProgressAsync("applying_mappings", "Applying depot mappings...", aggregatedGames.Count, aggregatedServices.Count, 85);
