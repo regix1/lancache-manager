@@ -55,12 +55,13 @@ const STORAGE_KEY = 'retro-view-column-widths';
 
 const GRID_GAP = 8;
 const GRID_PADDING = 32;
-const GRID_FIXED_ADDITIONS = 60; // app +40, overall +20 in grid template
+const GRID_FIXED_ADDITIONS = 20; // overall +20 in grid template
 const RESIZE_MIN_WIDTH = 60;
 const COLUMN_FIT_FLOOR = 40;
 
 const MIN_COLUMN_WIDTHS: ColumnWidths = {
   timestamp: 80,
+  banner: 130,
   app: 100,
   datasource: 70,
   events: 50,
@@ -74,12 +75,13 @@ const MIN_COLUMN_WIDTHS: ColumnWidths = {
 
 const getVisibleColumns = (showDatasource: boolean): (keyof ColumnWidths)[] => {
   return showDatasource
-    ? ['timestamp', 'app', 'datasource', 'events', 'depot', 'client', 'speed', 'cacheHit', 'overall']
-    : ['timestamp', 'app', 'events', 'depot', 'client', 'speed', 'cacheHit', 'overall'];
+    ? ['timestamp', 'banner', 'app', 'datasource', 'events', 'depot', 'client', 'speed', 'cacheHit', 'overall']
+    : ['timestamp', 'banner', 'app', 'events', 'depot', 'client', 'speed', 'cacheHit', 'overall'];
 };
 
 const getAvailableGridWidth = (containerWidth: number, showDatasource: boolean): number => {
-  const columnCount = showDatasource ? 9 : 8;
+  // +1 for banner column (now 10 or 9 columns)
+  const columnCount = showDatasource ? 10 : 9;
   const gapCount = columnCount - 1;
   return containerWidth - GRID_PADDING - (gapCount * GRID_GAP) - GRID_FIXED_ADDITIONS;
 };
@@ -669,6 +671,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
     // Measure each column's required width based on actual data
     const measuredWidths: ColumnWidths = {
       timestamp: 80,
+      banner: 140,
       app: 100,
       datasource: 75,
       events: 90,
@@ -688,12 +691,14 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
       measuredWidths.timestamp = Math.max(measuredWidths.timestamp, measureSpan.offsetWidth + 12);
     });
 
-    // App column
+    // Banner column - fixed size for game images
+    measuredWidths.banner = 140;
+
+    // App column - text only (image is in banner column)
     measureSpan.style.font = '500 14px system-ui, -apple-system, sans-serif';
     grouped.forEach((data) => {
       measureSpan.textContent = data.gameName || data.service;
-      // Add image width (100px) + gap (8px) + padding (32px)
-      measuredWidths.app = Math.max(measuredWidths.app, measureSpan.offsetWidth + 100 + 8 + 32);
+      measuredWidths.app = Math.max(measuredWidths.app, measureSpan.offsetWidth + 32);
     });
 
     // Datasource column
@@ -741,6 +746,8 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
     measureSpan.style.font = '600 11px system-ui, -apple-system, sans-serif';
     measureSpan.textContent = t('downloads.tab.retro.headers.timestamp');
     measuredWidths.timestamp = Math.max(measuredWidths.timestamp, measureSpan.offsetWidth + 32);
+    measureSpan.textContent = t('downloads.tab.retro.headers.banner', 'Banner');
+    measuredWidths.banner = Math.max(measuredWidths.banner, measureSpan.offsetWidth + 32);
     measureSpan.textContent = t('downloads.tab.retro.headers.app');
     measuredWidths.app = Math.max(measuredWidths.app, measureSpan.offsetWidth + 32);
     if (isDatasourceShown) {
@@ -795,12 +802,17 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
         });
         break;
 
+      case 'banner':
+        // Banner column: fixed size for game images (120px) + padding
+        maxWidth = 140;
+        break;
+
       case 'app':
         measureSpan.style.font = '500 14px system-ui, -apple-system, sans-serif';
         grouped.forEach((data) => {
           measureSpan.textContent = data.gameName || data.service;
-          // Add image width (120px) + gap (8px) + padding (32px)
-          maxWidth = Math.max(maxWidth, measureSpan.offsetWidth + 120 + 8 + 32);
+          // App name only (image is in banner column now)
+          maxWidth = Math.max(maxWidth, measureSpan.offsetWidth + 32);
         });
         break;
 
@@ -865,6 +877,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
     measureSpan.style.letterSpacing = '0.025em';
     const headerLabels: Record<string, string> = {
       timestamp: t('downloads.tab.retro.headers.timestamp'),
+      banner: t('downloads.tab.retro.headers.banner', 'Banner'),
       app: t('downloads.tab.retro.headers.app'),
       datasource: t('downloads.tab.retro.headers.source'),
       events: t('downloads.tab.retro.headers.events'),
@@ -998,8 +1011,8 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
   // Only show datasource column when there are multiple datasources
   const showDatasourceColumn = hasMultipleDatasources && showDatasourceLabels;
   const gridTemplate = showDatasourceColumn
-    ? `${columnWidths.timestamp}px ${columnWidths.app + 40}px ${columnWidths.datasource}px ${columnWidths.events}px ${columnWidths.depot}px ${columnWidths.client}px ${columnWidths.speed}px ${columnWidths.cacheHit + columnWidths.cacheMiss}px minmax(${columnWidths.overall + 20}px, 1fr)`
-    : `${columnWidths.timestamp}px ${columnWidths.app + 40}px ${columnWidths.events}px ${columnWidths.depot}px ${columnWidths.client}px ${columnWidths.speed}px ${columnWidths.cacheHit + columnWidths.cacheMiss}px minmax(${columnWidths.overall + 20}px, 1fr)`;
+    ? `${columnWidths.timestamp}px ${columnWidths.banner}px ${columnWidths.app}px ${columnWidths.datasource}px ${columnWidths.events}px ${columnWidths.depot}px ${columnWidths.client}px ${columnWidths.speed}px ${columnWidths.cacheHit + columnWidths.cacheMiss}px minmax(${columnWidths.overall + 20}px, 1fr)`
+    : `${columnWidths.timestamp}px ${columnWidths.banner}px ${columnWidths.app}px ${columnWidths.events}px ${columnWidths.depot}px ${columnWidths.client}px ${columnWidths.speed}px ${columnWidths.cacheHit + columnWidths.cacheMiss}px minmax(${columnWidths.overall + 20}px, 1fr)`;
 
   // Memoize grid template to prevent recalculation
   const gridTemplateMemo = useMemo(() => gridTemplate, [gridTemplate]);
@@ -1027,6 +1040,15 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
             <ResizeHandle
               onMouseDown={(e) => handleMouseDown('timestamp', e)}
               onDoubleClick={() => handleAutoFitColumn('timestamp')}
+            />
+          </div>
+          <div className="relative px-2 flex items-center justify-center h-full min-w-0" data-header>
+            <span className="min-w-0 truncate text-center">
+              {t('downloads.tab.retro.headers.banner', 'Banner')}
+            </span>
+            <ResizeHandle
+              onMouseDown={(e) => handleMouseDown('banner', e)}
+              onDoubleClick={() => handleAutoFitColumn('banner')}
             />
           </div>
           <div className="relative px-2 flex items-center h-full min-w-0" data-header>
@@ -1132,21 +1154,25 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                     <span className="block truncate" title={timeRange}>{timeRange}</span>
                   </div>
 
-                  {/* App - with game image (responsive to column width) */}
-                  <div className="px-2 min-w-0 flex items-center gap-2 overflow-hidden" data-cell>
+                  {/* Banner - dedicated column for game artwork */}
+                  <div className="px-2 min-w-0 flex items-center justify-center" data-cell>
                     {hasGameImage && data.gameAppId ? (
                       <GameImage
                         gameAppId={data.gameAppId}
                         alt={data.gameName || t('downloads.tab.retro.gameFallback')}
-                        className="min-w-[60px] max-w-[120px] w-2/5 h-auto aspect-[120/45] rounded object-cover flex-shrink"
+                        className="w-[120px] h-[56px] rounded object-cover"
                         onFinalError={handleImageError}
                       />
                     ) : (
-                      /* Service icon placeholder - fixed size, no background box for cleaner shrinking */
-                      <div className="w-10 h-10 flex items-center justify-center flex-shrink-0">
+                      /* Service icon placeholder */
+                      <div className="w-[120px] h-[56px] rounded flex items-center justify-center bg-[var(--theme-bg-tertiary)]">
                         {getServiceIcon(data.service, 32)}
                       </div>
                     )}
+                  </div>
+
+                  {/* App name */}
+                  <div className="px-2 min-w-0 overflow-hidden" data-cell>
                     <div className="flex flex-col min-w-0 overflow-hidden">
                       <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate" title={data.gameName || data.service}>
                         {data.gameName || data.service}
@@ -1239,19 +1265,19 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
                 /* Mobile Layout - with explicit width constraints */
                 <div className="p-3 pl-4 space-y-2 sm:space-y-3 w-full max-w-full overflow-hidden">
                   {/* App image and name */}
-                  <div className="flex items-center gap-2 sm:gap-3 w-full min-w-0">
+                  <div className="flex items-center gap-3 w-full min-w-0">
                     {hasGameImage && data.gameAppId ? (
                       <GameImage
                         gameAppId={data.gameAppId}
                         alt={data.gameName || t('downloads.tab.retro.gameFallback')}
-                        className="w-[100px] h-[40px] sm:w-[130px] sm:h-[50px] rounded object-cover flex-shrink-0"
+                        className="w-[120px] h-[56px] rounded object-cover flex-shrink-0"
                         onFinalError={handleImageError}
                       />
                     ) : (
                       <div
-                        className="w-[100px] h-[40px] sm:w-[130px] sm:h-[50px] rounded flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]"
+                        className="w-[120px] h-[56px] rounded flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]"
                       >
-                        {getServiceIcon(data.service, 24)}
+                        {getServiceIcon(data.service, 32)}
                       </div>
                     )}
                     <div className="flex-1 min-w-0 overflow-hidden">

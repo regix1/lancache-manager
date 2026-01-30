@@ -249,7 +249,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
             />
             <div className="flex-1 min-w-0">
               {/* Title Row - Service badge and game name */}
-              <div className="flex items-center gap-2 mb-2">
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
                 <span
                   className="px-2 py-0.5 text-[11px] font-extrabold rounded-md shadow-sm flex-shrink-0"
                   style={getServiceBadgeStyles(group.service)}
@@ -257,14 +257,15 @@ const GroupCard: React.FC<GroupCardProps> = ({
                   {group.service.toUpperCase()}
                 </span>
                 {group.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/)) && (
-                  <h3 className="text-sm font-bold text-[var(--theme-text-primary)] truncate">
+                  <h3 className="text-sm font-bold text-[var(--theme-text-primary)] truncate flex-1 min-w-0">
                     {group.name}
                   </h3>
                 )}
               </div>
-              
-              {/* Mobile Stats Row - Key info only */}
-              <div className="flex items-center justify-between text-xs">
+
+              {/* Mobile Stats - Stacked layout for better spacing */}
+              <div className="flex flex-col gap-1.5 text-xs">
+                {/* Primary stats row */}
                 <div className="flex items-center gap-3">
                   <span className="font-semibold text-[var(--theme-text-primary)]">
                     {formatBytes(group.totalBytes)}
@@ -276,15 +277,14 @@ const GroupCard: React.FC<GroupCardProps> = ({
                   ) : (
                     <span className="text-[var(--theme-text-muted)]">0%</span>
                   )}
-                </div>
-                <div className="flex items-center gap-2 text-[var(--theme-text-muted)]">
                   {group.count > 1 && (
-                    <span>{group.count} req</span>
+                    <span className="text-[var(--theme-text-muted)]">{group.count} req</span>
                   )}
-                  <span className="flex items-center gap-1">
-                    <Clock size={10} />
-                    {formatRelativeTime(group.lastSeen)}
-                  </span>
+                </div>
+                {/* Secondary stats row */}
+                <div className="flex items-center gap-1 text-[var(--theme-text-muted)]">
+                  <Clock size={10} className="flex-shrink-0" />
+                  <span>{formatRelativeTime(group.lastSeen)}</span>
                 </div>
               </div>
 

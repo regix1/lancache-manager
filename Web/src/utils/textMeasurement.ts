@@ -122,6 +122,7 @@ const SAMPLE_DATA_PATTERNS = {
  */
 export interface ColumnWidths {
   timestamp: number;
+  banner: number;
   app: number;
   datasource: number;
   events: number;
@@ -217,7 +218,8 @@ export function calculateColumnWidths(actualData?: {
 
   return {
     timestamp: calculateWidth(headerWidths.timestamp, timestampContentWidth),
-    app: calculateWidth(headerWidths.app, appTotalWidth, 8), // Extra padding for app column
+    banner: 140, // Fixed width for game banner images (120px image + padding)
+    app: calculateWidth(headerWidths.app, appNameContentWidth, 8), // App name only (no image)
     datasource: calculateWidth(headerWidths.datasource, datasourceContentWidth),
     events: calculateWidth(headerWidths.events, eventsContentWidth),
     depot: calculateWidth(headerWidths.depot, depotContentWidth),
