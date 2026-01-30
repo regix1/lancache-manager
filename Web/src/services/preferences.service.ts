@@ -11,7 +11,7 @@ interface SignalRConnection {
   on: (eventName: string, handler: (...args: any[]) => void) => void;
 }
 
-export interface UserPreferences {
+interface UserPreferences {
   selectedTheme: string | null;
   sharpCorners: boolean;
   disableFocusOutlines: boolean;

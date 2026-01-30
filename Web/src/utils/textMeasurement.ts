@@ -177,12 +177,8 @@ export function calculateColumnWidths(actualData?: {
   // Timestamp: measure the longest timestamp pattern
   const timestampContentWidth = measureMaxTextWidth(timestampSamples, RETRO_VIEW_FONTS.timestamp, 0);
 
-  // App: includes image (60-120px responsive) + gap (8px) + text
-  // Use minimum responsive image width for default calculation
-  const APP_IMAGE_WIDTH = 80;
-  const APP_GAP = 8;
+  // App: text only (image is now in separate banner column)
   const appNameContentWidth = measureMaxTextWidth(appNameSamples, RETRO_VIEW_FONTS.appName, 0);
-  const appTotalWidth = APP_IMAGE_WIDTH + APP_GAP + appNameContentWidth;
 
   // Depot: typical depot IDs are 6-7 digits
   const depotContentWidth = measureTextWidth('1234567', RETRO_VIEW_FONTS.depot);
