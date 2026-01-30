@@ -236,31 +236,42 @@ public class CorruptionDetectionService
             var pollTask = Task.Run(async () =>
             {
                 var lastMessage = string.Empty;
+                var lastPercent = 0.0;
+                const double percentThreshold = 5.0; // Send update if percent changes by 5% or more
+                
                 while (!process.HasExited)
                 {
                     await Task.Delay(500, cancellationToken);
 
                     var progressData = await _rustProcessHelper.ReadProgressFileAsync<CorruptionDetectionProgressData>(progressFile);
 
-                    if (progressData != null && progressData.Message != lastMessage)
+                    if (progressData != null)
                     {
-                        lastMessage = progressData.Message;
-
-                        // Send progress notification via SignalR
-                        await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionProgress, new
+                        var messageChanged = progressData.Message != lastMessage;
+                        var percentChanged = Math.Abs(progressData.PercentComplete - lastPercent) >= percentThreshold;
+                        
+                        // Send update if either message OR percentComplete changes significantly
+                        if (messageChanged || percentChanged)
                         {
-                            operationId,
-                            status = progressData.Status,
-                            message = progressData.Message,
-                            filesProcessed = progressData.FilesProcessed,
-                            totalFiles = progressData.TotalFiles,
-                            percentComplete = progressData.PercentComplete,
-                            currentFile = progressData.CurrentFile,
-                            datasourceName
-                        });
+                            lastMessage = progressData.Message;
+                            lastPercent = progressData.PercentComplete;
 
-                        _logger.LogDebug("[CorruptionDetection] Progress: {Percent:F1}% - {Message}",
-                            progressData.PercentComplete, progressData.Message);
+                            // Send progress notification via SignalR
+                            await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionProgress, new
+                            {
+                                operationId,
+                                status = progressData.Status,
+                                message = progressData.Message,
+                                filesProcessed = progressData.FilesProcessed,
+                                totalFiles = progressData.TotalFiles,
+                                percentComplete = progressData.PercentComplete,
+                                currentFile = progressData.CurrentFile,
+                                datasourceName
+                            });
+
+                            _logger.LogDebug("[CorruptionDetection] Progress: {Percent:F1}% - {Message}",
+                                progressData.PercentComplete, progressData.Message);
+                        }
                     }
                 }
             }, cancellationToken);

@@ -13,6 +13,41 @@ use std::sync::{Arc, Mutex};
 mod cache_utils;
 mod progress_utils;
 
+#[derive(Serialize)]
+struct ProgressData {
+    status: String,
+    message: String,
+    #[serde(rename = "percentComplete")]
+    percent_complete: f64,
+    #[serde(rename = "gamesProcessed")]
+    games_processed: usize,
+    #[serde(rename = "totalGames")]
+    total_games: usize,
+    timestamp: String,
+}
+
+fn write_progress(
+    progress_path: Option<&Path>,
+    status: &str,
+    message: &str,
+    percent_complete: f64,
+    games_processed: usize,
+    total_games: usize,
+) -> Result<()> {
+    if let Some(path) = progress_path {
+        let progress = ProgressData {
+            status: status.to_string(),
+            message: message.to_string(),
+            percent_complete,
+            games_processed,
+            total_games,
+            timestamp: progress_utils::current_timestamp(),
+        };
+        progress_utils::write_progress_json(path, &progress)?;
+    }
+    Ok(())
+}
+
 #[derive(Debug, Serialize)]
 struct GameCacheInfo {
     game_app_id: u32,
@@ -596,7 +631,7 @@ fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 4 {
-        eprintln!("Usage: {} <database_path> <cache_dir> <output_json> [excluded_game_ids_json] [--incremental]", args[0]);
+        eprintln!("Usage: {} <database_path> <cache_dir> <output_json> [excluded_game_ids_json] [--incremental] [--progress-file <path>]", args[0]);
         eprintln!();
         eprintln!("Detects which games have files in the cache directory.");
         eprintln!();
@@ -606,6 +641,7 @@ fn main() -> Result<()> {
         eprintln!("  output_json            - Path to output JSON report");
         eprintln!("  excluded_game_ids_json - (Optional) JSON file with array of game IDs to exclude for incremental scanning");
         eprintln!("  --incremental          - (Optional) Skip cache directory scan for faster incremental updates");
+        eprintln!("  --progress-file <path> - (Optional) Path to write progress JSON updates");
         std::process::exit(1);
     }
 
@@ -615,6 +651,12 @@ fn main() -> Result<()> {
 
     // Check for --incremental flag anywhere in args
     let incremental_mode = args.iter().any(|arg| arg == "--incremental");
+
+    // Check for --progress-file argument
+    let progress_path: Option<PathBuf> = args.iter()
+        .position(|arg| arg == "--progress-file")
+        .and_then(|pos| args.get(pos + 1))
+        .map(PathBuf::from);
 
     // Read excluded game IDs if provided (for incremental scanning)
     let excluded_game_ids: Vec<u32> = if args.len() >= 5 && !args[4].starts_with("--") {
@@ -636,6 +678,12 @@ fn main() -> Result<()> {
     eprintln!("  Database: {}", db_path.display());
     eprintln!("  Cache directory: {}", cache_dir.display());
     eprintln!("  Mode: {}", if incremental_mode { "Incremental (Quick Scan)" } else { "Full Scan" });
+    if let Some(ref path) = progress_path {
+        eprintln!("  Progress file: {}", path.display());
+    }
+
+    // Write initial progress
+    write_progress(progress_path.as_deref(), "starting", "Initializing game cache detection", 0.0, 0, 0)?;
 
     if !db_path.exists() {
         anyhow::bail!("Database not found: {}", db_path.display());
@@ -653,20 +701,25 @@ fn main() -> Result<()> {
         // Only check file existence for new games (fast when there are few new games)
         eprintln!("\n=== Incremental Mode: Skipping Cache Directory Scan ===");
         eprintln!("Will check file existence directly for new games only...");
+        write_progress(progress_path.as_deref(), "scanning", "Incremental mode - skipping cache scan", 20.0, 0, 0)?;
         cache_files_index = None;
     } else {
         // FULL SCAN: Build in-memory index of all cache files
         // This is much faster than checking 2.3M individual file.exists() calls
+        write_progress(progress_path.as_deref(), "scanning", "Scanning cache directory", 5.0, 0, 0)?;
         let index = scan_cache_directory(&cache_dir)?;
+        write_progress(progress_path.as_deref(), "scanning", "Cache directory scan complete", 20.0, 0, 0)?;
         cache_files_index = Some(index);
     }
 
     // PHASE 2: Query database for game URLs
     eprintln!("\n=== Phase 2: Querying Database ===");
+    write_progress(progress_path.as_deref(), "querying", "Querying database for game URLs", 20.0, 0, 0)?;
 
     // Query ALL URLs to get accurate cache sizes (no sampling)
     // This ensures we find and measure every cache file for complete accuracy
     let all_records = query_game_downloads(&db_path, None, &excluded_game_ids)?;
+    write_progress(progress_path.as_deref(), "querying", "Database query complete", 30.0, 0, 0)?;
 
     // Continue even if no games found - we still want to detect services
 
@@ -693,17 +746,38 @@ fn main() -> Result<()> {
     } else {
         eprintln!("Using in-memory index for instant lookups...\n");
     }
+    write_progress(progress_path.as_deref(), "matching", &format!("Matching {} games to cache files", total_games), 30.0, 0, total_games)?;
 
     let mut detected_games = Vec::new();
     let mut processed_count = 0;
     let mut total_files_found = 0;
     let mut total_bytes_found: u64 = 0;
+    let mut last_progress_update = 0;
 
     for (game_id, records) in games_map {
         processed_count += 1;
         let url_count = records.len();
         eprint!("  [{}/{}] Matching game {} ({}) - {} URLs... ",
                 processed_count, total_games, game_id, records[0].game_name, url_count);
+
+        // Update progress every 5 games or every 10%
+        let current_percent = if total_games > 0 {
+            (processed_count as f64 / total_games as f64 * 100.0) as usize
+        } else {
+            0
+        };
+        if processed_count % 5 == 0 || current_percent >= last_progress_update + 10 || processed_count == total_games {
+            let progress_percent = 30.0 + (processed_count as f64 / total_games.max(1) as f64) * 50.0;
+            write_progress(
+                progress_path.as_deref(),
+                "matching",
+                &format!("Processing game {}/{}", processed_count, total_games),
+                progress_percent,
+                processed_count,
+                total_games,
+            )?;
+            last_progress_update = current_percent;
+        }
 
         let result = if incremental_mode {
             detect_cache_files_for_game_incremental(&records, &cache_dir)
@@ -749,11 +823,26 @@ fn main() -> Result<()> {
 
     if !incremental_mode {
         eprintln!("\n=== Phase 4: Detecting Non-Game Services ===");
+        write_progress(progress_path.as_deref(), "services", "Detecting non-game services", 80.0, 0, 0)?;
 
         let services_map = query_service_downloads(&db_path)?;
+        let total_services = services_map.len();
+        let mut services_processed = 0;
 
         for (service_name, service_urls) in services_map {
+            services_processed += 1;
             eprint!("  Matching service '{}' - {} URLs... ", service_name, service_urls.len());
+
+            // Update progress for services (80-90%)
+            let service_percent = 80.0 + (services_processed as f64 / total_services.max(1) as f64) * 10.0;
+            write_progress(
+                progress_path.as_deref(),
+                "services",
+                &format!("Processing service {}/{}: {}", services_processed, total_services, service_name),
+                service_percent,
+                services_processed,
+                total_services,
+            )?;
 
             match detect_cache_files_for_service(&service_name, &service_urls, cache_files_index.as_ref().unwrap()) {
                 Ok(info) => {
@@ -785,6 +874,7 @@ fn main() -> Result<()> {
         eprintln!("Total service cache size: {:.2} GB", service_bytes_found as f64 / 1_073_741_824.0);
     } else {
         eprintln!("\n=== Skipping Service Detection (Incremental Mode) ===");
+        write_progress(progress_path.as_deref(), "services", "Skipping service detection (incremental mode)", 90.0, 0, 0)?;
     }
 
     let report = DetectionReport {
@@ -793,6 +883,9 @@ fn main() -> Result<()> {
         games: detected_games,
         services: detected_services,
     };
+
+    // Writing output (90-100%)
+    write_progress(progress_path.as_deref(), "writing", "Writing detection report", 90.0, 0, 0)?;
 
     let json = serde_json::to_string_pretty(&report)?;
     fs::write(&output_json, json)?;
@@ -803,6 +896,16 @@ fn main() -> Result<()> {
     eprintln!("Total cache files: {}", total_files_found + service_files_found);
     eprintln!("Total cache size: {:.2} GB", (total_bytes_found + service_bytes_found) as f64 / 1_073_741_824.0);
     eprintln!("Report saved to: {}", output_json.display());
+
+    // Final completion progress
+    write_progress(
+        progress_path.as_deref(),
+        "complete",
+        &format!("Detection complete: {} games, {} services detected", report.total_games_detected, report.total_services_detected),
+        100.0,
+        report.total_games_detected,
+        report.total_games_detected,
+    )?;
 
     Ok(())
 }

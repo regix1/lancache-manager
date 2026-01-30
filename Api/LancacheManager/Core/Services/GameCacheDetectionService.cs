@@ -234,6 +234,7 @@ public class GameCacheDetectionService
         string? excludedIdsPath = null;
         List<GameCacheInfo>? existingGames = null;
         var outputJsonFiles = new List<string>();
+        string? progressFilePath = null;
 
         // Helper to send progress notification
         async Task SendProgressAsync(string status, string message, int gamesDetected = 0, int servicesDetected = 0, double progressPercent = 0)
@@ -341,6 +342,7 @@ public class GameCacheDetectionService
 
             // Scan each datasource
             var datasourceIndex = 0;
+            progressFilePath = Path.Combine(operationsDir, $"game_detection_progress_{operationId}.json");
             foreach (var datasource in datasources)
             {
                 // Check for cancellation before each datasource
@@ -364,12 +366,62 @@ public class GameCacheDetectionService
                 // Add --incremental flag for quick scans to skip the expensive cache directory scan
                 var incrementalFlag = incremental ? " --incremental" : "";
                 string arguments = !string.IsNullOrEmpty(excludedIdsPath)
-                    ? $"\"{dbPath}\" \"{cachePath}\" \"{outputJson}\" \"{excludedIdsPath}\"{incrementalFlag}"
-                    : $"\"{dbPath}\" \"{cachePath}\" \"{outputJson}\"{incrementalFlag}";
+                    ? $"\"{dbPath}\" \"{cachePath}\" \"{outputJson}\" \"{excludedIdsPath}\"{incrementalFlag} --progress-file \"{progressFilePath}\""
+                    : $"\"{dbPath}\" \"{cachePath}\" \"{outputJson}\"{incrementalFlag} --progress-file \"{progressFilePath}\"";
 
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, arguments);
 
-                var result = await _rustProcessHelper.ExecuteProcessAsync(startInfo, cancellationToken);
+                // Start progress monitoring task
+                var progressCts = new CancellationTokenSource();
+                var progressMonitorTask = Task.Run(async () =>
+                {
+                    try
+                    {
+                        while (!progressCts.Token.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                        {
+                            await Task.Delay(500, progressCts.Token);
+
+                            var progress = await _rustProcessHelper.ReadProgressFileAsync<GameDetectionProgressData>(progressFilePath);
+                            if (progress != null)
+                            {
+                                operation.Message = progress.Message;
+                                operation.PercentComplete = progress.PercentComplete;
+
+                                // Send SignalR notification for live updates
+                                await _notifications.NotifyAllAsync(SignalREvents.GameDetectionProgress, new
+                                {
+                                    operationId,
+                                    status = progress.Status,
+                                    message = progress.Message,
+                                    gamesProcessed = progress.GamesProcessed,
+                                    totalGames = progress.TotalGames,
+                                    progressPercent = progress.PercentComplete
+                                });
+                            }
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Expected when cancellation is requested
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[GameDetection] Error in progress monitoring task");
+                    }
+                }, progressCts.Token);
+
+                ProcessExecutionResult result;
+                try
+                {
+                    result = await _rustProcessHelper.ExecuteProcessAsync(startInfo, cancellationToken);
+                }
+                finally
+                {
+                    // Stop progress monitoring
+                    await progressCts.CancelAsync();
+                    try { await progressMonitorTask; } catch { /* ignore cancellation */ }
+                    progressCts.Dispose();
+                }
 
                 // Log diagnostic output from stderr (contains scan progress and stats)
                 if (!string.IsNullOrWhiteSpace(result.Error))
@@ -605,6 +657,10 @@ public class GameCacheDetectionService
             {
                 await _rustProcessHelper.DeleteTemporaryFileAsync(excludedIdsPath);
             }
+            if (!string.IsNullOrEmpty(progressFilePath))
+            {
+                await _rustProcessHelper.DeleteTemporaryFileAsync(progressFilePath);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -640,6 +696,10 @@ public class GameCacheDetectionService
             if (!string.IsNullOrEmpty(excludedIdsPath))
             {
                 await _rustProcessHelper.DeleteTemporaryFileAsync(excludedIdsPath);
+            }
+            if (!string.IsNullOrEmpty(progressFilePath))
+            {
+                await _rustProcessHelper.DeleteTemporaryFileAsync(progressFilePath);
             }
         }
         catch (Exception ex)
@@ -677,6 +737,10 @@ public class GameCacheDetectionService
             if (!string.IsNullOrEmpty(excludedIdsPath))
             {
                 await _rustProcessHelper.DeleteTemporaryFileAsync(excludedIdsPath);
+            }
+            if (!string.IsNullOrEmpty(progressFilePath))
+            {
+                await _rustProcessHelper.DeleteTemporaryFileAsync(progressFilePath);
             }
         }
     }
@@ -1209,5 +1273,29 @@ public class GameCacheDetectionService
 
         [System.Text.Json.Serialization.JsonPropertyName("services")]
         public List<ServiceCacheInfo> Services { get; set; } = new();
+    }
+
+    /// <summary>
+    /// JSON model for Rust game detection progress.
+    /// </summary>
+    private class GameDetectionProgressData
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("status")]
+        public string Status { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("message")]
+        public string Message { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("percentComplete")]
+        public double PercentComplete { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("gamesProcessed")]
+        public int GamesProcessed { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("totalGames")]
+        public int TotalGames { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("timestamp")]
+        public string? Timestamp { get; set; }
     }
 }
