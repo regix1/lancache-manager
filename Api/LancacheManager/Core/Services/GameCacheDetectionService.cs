@@ -103,9 +103,8 @@ public class GameCacheDetectionService : IDisposable
                 return null; // Return null to indicate operation already running
             }
 
-            // Cancel any existing token source and create a new one
-            _cancellationTokenSource?.Cancel();
-            _cancellationTokenSource?.Dispose();
+            // Create a new cancellation token source
+            // Note: Don't cancel/dispose old one here - it may have been disposed by CompleteOperation
             _cancellationTokenSource = new CancellationTokenSource();
 
             var scanType = incremental ? "incremental" : "full";
