@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Key, Lock, Loader2, Shield, Mail, Smartphone } from 'lucide-react';
+import { Key, Lock, Loader2, Shield, Mail, Smartphone, AlertCircle } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { type SteamLoginFlowState, type SteamAuthActions } from '@hooks/useSteamAuthentication';
@@ -15,6 +15,10 @@ interface SteamAuthModalProps {
   isPrefillMode?: boolean;
   /** Called when user cancels during device confirmation in prefill mode - should end session */
   onCancelLogin?: () => void;
+  /** Error message from auto-login failure */
+  autoLoginError?: string | null;
+  /** Callback to clear the auto-login error */
+  onClearError?: () => void;
 }
 
 export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
@@ -23,7 +27,9 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
   state,
   actions,
   isPrefillMode = false,
-  onCancelLogin
+  onCancelLogin,
+  autoLoginError,
+  onClearError
 }) => {
   const { t } = useTranslation();
   const { on, off } = useSignalR();
@@ -204,6 +210,24 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
           {/* Credentials Form */}
           {!needsTwoFactor && !needsEmailCode && !waitingForMobileConfirmation && (
             <div className="space-y-4">
+              {/* Auto-login error banner */}
+              {autoLoginError && (
+                <div className="mb-4 p-3 rounded-lg flex items-start gap-3 bg-[color-mix(in_srgb,var(--theme-warning)_15%,transparent)] border border-[color-mix(in_srgb,var(--theme-warning)_30%,transparent)]">
+                  <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0 text-[var(--theme-warning)]" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-[var(--theme-warning-text)]">
+                      Auto-login failed
+                    </p>
+                    <p className="text-xs text-themed-muted mt-1">
+                      {autoLoginError}
+                    </p>
+                    <p className="text-xs text-themed-muted mt-1">
+                      Please enter your credentials to login manually.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-themed-secondary mb-1.5">
                   {t('modals.steamAuth.labels.username')}
@@ -211,7 +235,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                 <input
                   type="text"
                   value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  onChange={(e) => { setUsername(e.target.value); onClearError?.(); }}
                   placeholder={t('modals.steamAuth.placeholders.username')}
                   className="w-full px-3 py-2.5 themed-input"
                   disabled={loading}
@@ -226,7 +250,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                 <input
                   type="password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => { setPassword(e.target.value); onClearError?.(); }}
                   onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
                   placeholder={t('modals.steamAuth.placeholders.password')}
                   className="w-full px-3 py-2.5 themed-input"

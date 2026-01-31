@@ -148,7 +148,9 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     actions: authActions,
     trigger2FAPrompt,
     triggerEmailPrompt,
-    autoLoginState
+    autoLoginState,
+    autoLoginError,
+    resetAutoLoginError
   } = usePrefillSteamAuth({
     sessionId: signalR.session?.id ?? null,
     hubConnection: signalR.hubConnection.current,
@@ -167,16 +169,12 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         addLog('success', `Auto-login successful${result.username ? ` as ${result.username}` : ''}`);
       } else {
         setAutoLoginMessage(null);
-        // Handle expected "no token" cases silently - just open modal
-        const isNoTokenCase = result.reason === 'no-saved-credentials' ||
-                              result.reason === 'no_token' ||
-                              result.reason === 'unauthorized';
-        if (isNoTokenCase) {
-          setShowAuthModal(true);
+        setShowAuthModal(true);  // Always open modal on failure
+
+        const isExpectedFailure = ['no_token', 'unauthorized', 'no-saved-credentials'].includes(result.reason);
+        if (isExpectedFailure) {
           addLog('info', 'Please log in to Steam to continue.');
         } else {
-          // For actual errors, show the modal and log the warning
-          setShowAuthModal(true);
           addLog('warning', result.message || 'Auto-login failed. Please log in manually.');
         }
       }
@@ -659,6 +657,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           actions={authActions}
           isPrefillMode={true}
           onCancelLogin={handleCancelLogin}
+          autoLoginError={autoLoginError}
+          onClearError={resetAutoLoginError}
         />
         <PrefillStartScreen
           error={signalR.error}
@@ -686,6 +686,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         actions={authActions}
         isPrefillMode={true}
         onCancelLogin={handleCancelLogin}
+        autoLoginError={autoLoginError}
+        onClearError={resetAutoLoginError}
       />
 
       {/* Game Selection Modal */}

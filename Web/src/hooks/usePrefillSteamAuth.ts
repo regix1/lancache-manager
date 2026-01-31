@@ -59,6 +59,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   // Track auto-login state
   const [autoLoginState, setAutoLoginState] = useState<'idle' | 'attempting' | 'success' | 'failed'>('idle');
   const autoLoginAttemptedRef = useRef(false);
+  const [autoLoginError, setAutoLoginError] = useState<string | null>(null);
 
   // Form state
   const [username, setUsername] = useState('');
@@ -233,6 +234,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     const attemptAutoLogin = async () => {
       autoLoginAttemptedRef.current = true;
       setAutoLoginState('attempting');
+      setAutoLoginError(null);
 
       try {
         onAutoLoginStart?.();
@@ -242,7 +244,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
 
       // Add timeout to prevent hanging - auto-login should complete within 30 seconds
       const timeoutPromise = new Promise<AutoLoginResult>((_, reject) => {
-        setTimeout(() => reject(new Error('Auto-login timed out')), 30000);
+        setTimeout(() => reject(new Error('Auto-login timed out after 30 seconds')), 30000);
       });
 
       try {
@@ -253,8 +255,11 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
 
         if (result.success) {
           setAutoLoginState('success');
+          setAutoLoginError(null);
         } else {
-          // Always set to failed first, before calling callback
+          // Always set error and state before calling callback
+          const errorMessage = result.message || `Auto-login failed: ${result.reason}`;
+          setAutoLoginError(errorMessage);
           setAutoLoginState('failed');
         }
 
@@ -266,13 +271,16 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         }
       } catch (err) {
         console.error('[usePrefillSteamAuth] Auto-login failed:', err);
-        // Always set to failed first
+        const errorMessage = err instanceof Error ? err.message : 'Auto-login request failed';
+
+        // Always set error and state before calling callback
+        setAutoLoginError(errorMessage);
         setAutoLoginState('failed');
 
         const failureResult: AutoLoginResult = {
           success: false,
           reason: 'error',
-          message: err instanceof Error ? err.message : 'Auto-login request failed'
+          message: errorMessage
         };
 
         try {
@@ -313,6 +321,10 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       clearTimeout(deviceConfirmationTimeoutRef.current);
       deviceConfirmationTimeoutRef.current = null;
     }
+  }, []);
+
+  const resetAutoLoginError = useCallback(() => {
+    setAutoLoginError(null);
   }, []);
 
   const handleAuthenticate = useCallback(async (): Promise<boolean> => {
@@ -620,6 +632,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     triggerLoginPrompt,
     trigger2FAPrompt,
     triggerEmailPrompt,
-    autoLoginState
+    autoLoginState,
+    autoLoginError,
+    resetAutoLoginError
   };
 }
