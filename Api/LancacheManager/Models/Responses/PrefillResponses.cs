@@ -100,3 +100,14 @@ public class CacheCheckResponse
     public List<uint> UncachedAppIds { get; set; } = new();
     public List<CachedAppDto> CacheInfo { get; set; } = new();
 }
+
+/// <summary>
+/// Result of auto-login attempt using stored refresh token
+/// </summary>
+public class AutoLoginResult
+{
+    public bool Success { get; set; }
+    public string Reason { get; set; } = string.Empty;
+    public string? Message { get; set; }
+    public string? Username { get; set; }
+}

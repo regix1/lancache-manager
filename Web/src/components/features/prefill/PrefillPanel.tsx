@@ -10,11 +10,12 @@ import { NetworkStatusSection } from './NetworkStatusSection';
 import ApiService from '@services/api.service';
 import { usePrefillContext } from '@contexts/PrefillContext';
 import { useAuth } from '@contexts/AuthContext';
+import { useSteamAuth } from '@contexts/SteamAuthContext';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import authService from '@services/auth.service';
 import { API_BASE } from '@utils/constants';
 
-import { ScrollText, X, Timer, LogIn, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ScrollText, X, Timer, LogIn, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 
 // Import extracted components
 import { PrefillStartScreen } from './PrefillStartScreen';
@@ -57,11 +58,16 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
   // Check if user is authenticated (not guest) for auth-only features
   const { isAuthenticated, authMode } = useAuth();
+  const { steamAuthMode } = useSteamAuth();
   const isUserAuthenticated = isAuthenticated && authMode === 'authenticated';
+  const isApiKeyHolder = isAuthenticated && authMode === 'authenticated';
+  const hasSteamPicsAuth = steamAuthMode === 'authenticated';
+  const enableAutoLogin = isApiKeyHolder && hasSteamPicsAuth;
 
   // Local UI state
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [autoLoginMessage, setAutoLoginMessage] = useState<string | null>(null);
 
   // Game selection state
   const [ownedGames, setOwnedGames] = useState<OwnedGame[]>([]);
@@ -141,7 +147,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     state: authState,
     actions: authActions,
     trigger2FAPrompt,
-    triggerEmailPrompt
+    triggerEmailPrompt,
+    autoLoginState
   } = usePrefillSteamAuth({
     sessionId: signalR.session?.id ?? null,
     hubConnection: signalR.hubConnection.current,
@@ -149,7 +156,26 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     onError: () => {
       /* Keep modal open on error */
     },
-    onDeviceConfirmationTimeout: () => setShowAuthModal(false)
+    onDeviceConfirmationTimeout: () => setShowAuthModal(false),
+    enableAutoLogin,
+    onAutoLoginStart: () => {
+      setAutoLoginMessage('Attempting automatic login...');
+    },
+    onAutoLoginResult: (result) => {
+      if (result.success) {
+        setAutoLoginMessage(null);
+        addLog('success', `Auto-login successful${result.username ? ` as ${result.username}` : ''}`);
+      } else {
+        setAutoLoginMessage(null);
+        if (result.reason === 'no-saved-credentials') {
+          setShowAuthModal(true);
+          addLog('info', result.message || 'No saved credentials found. Please log in manually.');
+        } else {
+          setShowAuthModal(true);
+          addLog('warning', result.message || 'Auto-login failed. Please log in manually.');
+        }
+      }
+    }
   });
 
   // Timer for session countdown
@@ -774,28 +800,38 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                   className={`w-10 h-10 rounded-lg flex items-center justify-center ${
                     signalR.isLoggedIn
                       ? 'bg-[color-mix(in_srgb,var(--theme-success)_15%,transparent)]'
+                      : autoLoginState === 'attempting'
+                      ? 'bg-[color-mix(in_srgb,var(--theme-info)_15%,transparent)]'
                       : 'bg-[color-mix(in_srgb,var(--theme-warning)_15%,transparent)]'
                   }`}
                 >
                   {signalR.isLoggedIn ? (
                     <CheckCircle2 className="h-5 w-5 text-[var(--theme-success)]" />
+                  ) : autoLoginState === 'attempting' ? (
+                    <Loader2 className="h-5 w-5 text-[var(--theme-info)] animate-spin" />
                   ) : (
                     <LogIn className="h-5 w-5 text-[var(--theme-warning)]" />
                   )}
                 </div>
                 <div>
                   <p className="font-medium text-themed-primary">
-                    {signalR.isLoggedIn ? t('prefill.auth.loggedIn') : t('prefill.auth.loginRequired')}
+                    {signalR.isLoggedIn
+                      ? t('prefill.auth.loggedIn')
+                      : autoLoginState === 'attempting'
+                      ? 'Attempting Auto-Login'
+                      : t('prefill.auth.loginRequired')}
                   </p>
                   <p className="text-sm text-themed-muted">
                     {signalR.isLoggedIn
                       ? t('prefill.auth.canUsePrefill')
+                      : autoLoginState === 'attempting'
+                      ? (autoLoginMessage || 'Logging in automatically...')
                       : t('prefill.auth.authenticateToAccess')}
                   </p>
                 </div>
               </div>
 
-              {!signalR.isLoggedIn && !isSessionExpired && (
+              {!signalR.isLoggedIn && !isSessionExpired && autoLoginState !== 'attempting' && (
                 <Button
                   variant="filled"
                   onClick={handleOpenAuthModal}
