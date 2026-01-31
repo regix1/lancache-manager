@@ -242,8 +242,13 @@ impl CorruptionDetector {
             let file_name = log_file.path.file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| "unknown".to_string());
-            
+
             eprintln!("Processing ({}/{}): {}", file_index + 1, total_files, log_file.path.display());
+
+            // Get file size for progress calculation within the file
+            let file_size = std::fs::metadata(&log_file.path)
+                .map(|m| m.len())
+                .unwrap_or(0);
 
             // Update progress for current file
             if let Some(progress_file) = progress_path {
@@ -259,53 +264,85 @@ impl CorruptionDetector {
                 )?;
             }
 
-            // Try to process the file, but skip if corrupted
-            let file_result = (|| -> Result<()> {
-                let mut reader = LogFileReader::open(&log_file.path)?;
-                let mut line = String::new();
+            // Process the file with progress tracking
+            let mut reader = match LogFileReader::open(&log_file.path) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("WARNING: Skipping corrupted file {}: {}", log_file.path.display(), e);
+                    eprintln!("  Continuing with remaining files...");
+                    continue;
+                }
+            };
 
-                loop {
-                    line.clear();
-                    let bytes_read = reader.read_line(&mut line)?;
-                    if bytes_read == 0 {
-                        break; // EOF
+            let mut line = String::new();
+            let mut bytes_read_total = 0u64;
+            let mut last_progress_percent = 0.0f64;
+            let progress_update_threshold = 5.0; // Update every 5% within the file
+
+            loop {
+                line.clear();
+                let bytes_read = match reader.read_line(&mut line) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        eprintln!("WARNING: Error reading file {}: {}", log_file.path.display(), e);
+                        break;
+                    }
+                };
+
+                if bytes_read == 0 {
+                    break; // EOF
+                }
+
+                bytes_read_total += bytes_read as u64;
+
+                // Update progress within the file (every ~5%)
+                if file_size > 0 {
+                    let file_progress = (bytes_read_total as f64 / file_size as f64) * 100.0;
+                    if file_progress - last_progress_percent >= progress_update_threshold {
+                        last_progress_percent = file_progress;
+
+                        if let Some(progress_file) = progress_path {
+                            // Calculate overall progress: file_index/total_files + (file_progress/100) * (1/total_files)
+                            let overall_percent = ((file_index as f64 + file_progress / 100.0) / total_files as f64) * 100.0;
+                            let _ = self.write_detection_progress(
+                                progress_file,
+                                "scanning",
+                                &format!("Scanning {}: {:.0}%", file_name, file_progress),
+                                file_index,
+                                total_files,
+                                overall_percent,
+                                Some(file_name.clone()),
+                            );
+                        }
+                    }
+                }
+
+                // Parse log entry
+                if let Some(entry) = parser.parse_line(line.trim()) {
+                    // Skip health check/heartbeat endpoints
+                    if service_utils::should_skip_url(&entry.url) {
+                        continue;
                     }
 
-                    // Parse log entry
-                    if let Some(entry) = parser.parse_line(line.trim()) {
-                        // Skip health check/heartbeat endpoints
-                        if service_utils::should_skip_url(&entry.url) {
-                            continue;
-                        }
+                    // Only track MISS and UNKNOWN status
+                    if entry.cache_status == "MISS" || entry.cache_status == "UNKNOWN" {
+                        let key = (entry.service.clone(), entry.url.clone());
+                        *miss_tracker.entry(key).or_insert(0) += 1;
+                        entries_processed += 1;
 
-                        // Only track MISS and UNKNOWN status
-                        if entry.cache_status == "MISS" || entry.cache_status == "UNKNOWN" {
-                            let key = (entry.service.clone(), entry.url.clone());
-                            *miss_tracker.entry(key).or_insert(0) += 1;
-                            entries_processed += 1;
-
-                            // MEMORY OPTIMIZATION: Periodically clean up entries that won't reach threshold
-                            if entries_processed % 100_000 == 0 {
-                                let before_size = miss_tracker.len();
-                                miss_tracker.retain(|_, count| *count >= self.miss_threshold - 1);
-                                miss_tracker.shrink_to_fit();
-                                let after_size = miss_tracker.len();
-                                if before_size > after_size {
-                                    eprintln!("  Memory cleanup: Removed {} low-count entries (kept {})",
-                                        before_size - after_size, after_size);
-                                }
+                        // MEMORY OPTIMIZATION: Periodically clean up entries that won't reach threshold
+                        if entries_processed % 100_000 == 0 {
+                            let before_size = miss_tracker.len();
+                            miss_tracker.retain(|_, count| *count >= self.miss_threshold - 1);
+                            miss_tracker.shrink_to_fit();
+                            let after_size = miss_tracker.len();
+                            if before_size > after_size {
+                                eprintln!("  Memory cleanup: Removed {} low-count entries (kept {})",
+                                    before_size - after_size, after_size);
                             }
                         }
                     }
                 }
-                Ok(())
-            })();
-
-            // If this file failed (e.g., corrupted gzip), log warning and skip it
-            if let Err(e) = file_result {
-                eprintln!("WARNING: Skipping corrupted file {}: {}", log_file.path.display(), e);
-                eprintln!("  Continuing with remaining files...");
-                continue;
             }
         }
 

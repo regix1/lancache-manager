@@ -291,16 +291,10 @@ public class GameCacheDetectionService : IDisposable
             var datasources = _datasourceService.GetDatasources();
             _logger.LogInformation("[GameDetection] Scanning {Count} datasource(s)", datasources.Count);
 
-            // Send initial progress
-            await SendProgressAsync("preparing", "Preparing detection scan...", 0, 0, 5);
-
             // Prepare excluded IDs for incremental scans
             List<ServiceCacheInfo>? existingServices = null;
             if (incremental)
             {
-                // Progress: Checking for new games
-                await SendProgressAsync("preparing", "Checking for new games...", 0, 0, 15);
-
                 // Load existing games and services from database
                 await using (var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken))
                 {
@@ -316,12 +310,10 @@ public class GameCacheDetectionService : IDisposable
                         File.WriteAllText(excludedIdsPath, excludedIdsJson);
 
                         _logger.LogInformation("[GameDetection] Incremental scan: excluding {ExcludedCount} already-detected games", excludedGameIds.Count);
-                        await SendProgressAsync("preparing", $"Scanning for new games (skipping {excludedGameIds.Count} already detected)...", existingGames.Count, 0, 25);
                     }
                     else
                     {
                         _logger.LogInformation("[GameDetection] No cached results found, performing full scan");
-                        await SendProgressAsync("preparing", "No cached results found, performing full scan...", 0, 0, 25);
                     }
 
                     // Load existing services for incremental mode (we skip service scanning in incremental mode)
@@ -336,7 +328,6 @@ public class GameCacheDetectionService : IDisposable
             else
             {
                 _logger.LogInformation("[GameDetection] Force refresh: performing full scan");
-                await SendProgressAsync("preparing", "Preparing full scan...", 0, 0, 15);
             }
 
             // Check for cancellation before scanning
