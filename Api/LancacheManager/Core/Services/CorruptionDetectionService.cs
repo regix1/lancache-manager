@@ -29,6 +29,7 @@ public class CorruptionDetectionService
     // Track active detection operations
     private readonly ConcurrentDictionary<string, DetectionOperation> _operations = new();
     private readonly SemaphoreSlim _startLock = new(1, 1);
+    private CancellationTokenSource? _cancellationTokenSource;
 
     private const string OperationStateKey = "corruptionDetection";
 
@@ -90,6 +91,11 @@ public class CorruptionDetectionService
 
             _operations[operationId] = operation;
 
+            // Cancel any existing token source and create a new one
+            _cancellationTokenSource?.Cancel();
+            _cancellationTokenSource?.Dispose();
+            _cancellationTokenSource = new CancellationTokenSource();
+
             // Save operation state for recovery
             _operationStateService.SaveState($"{OperationStateKey}_{operationId}", new OperationState
             {
@@ -106,8 +112,9 @@ public class CorruptionDetectionService
                 message = "Starting corruption detection scan..."
             });
 
-            // Run detection in background
-            _ = Task.Run(async () => await RunDetectionAsync(operationId, cancellationToken), cancellationToken);
+            // Run detection in background with the cancellation token
+            var token = _cancellationTokenSource.Token;
+            _ = Task.Run(async () => await RunDetectionAsync(operationId, token), token);
 
             return operationId;
         }
@@ -139,11 +146,14 @@ public class CorruptionDetectionService
 
             _logger.LogInformation("[CorruptionDetection] Starting detection for {Count} datasource(s)", datasources.Count);
 
+            // Check for cancellation at start
+            cancellationToken.ThrowIfCancellationRequested();
+
             // Process each datasource
             foreach (var datasource in datasources)
             {
-                if (cancellationToken.IsCancellationRequested)
-                    break;
+                // Check for cancellation before each datasource
+                cancellationToken.ThrowIfCancellationRequested();
 
                 var dsCounts = await GetCorruptionSummaryForDatasource(
                     datasource.LogPath, datasource.CachePath, timezone, rustBinaryPath, 
@@ -187,6 +197,24 @@ public class CorruptionDetectionService
 
             _logger.LogInformation("[CorruptionDetection] Detection complete: {Services}",
                 string.Join(", ", aggregatedCounts.Select(kvp => $"{kvp.Key}={kvp.Value}")));
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("[CorruptionDetection] Operation {OperationId} was cancelled", operationId);
+            operation.Status = "cancelled";
+            operation.Message = "Detection cancelled by user";
+
+            // Clear operation state
+            _operationStateService.RemoveState($"{OperationStateKey}_{operationId}");
+
+            // Send cancellation notification via SignalR
+            await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionComplete, new
+            {
+                operationId,
+                success = false,
+                cancelled = true,
+                error = "Detection cancelled by user"
+            });
         }
         catch (Exception ex)
         {
@@ -394,6 +422,23 @@ public class CorruptionDetectionService
     public DetectionOperation? GetActiveOperation()
     {
         return _operations.Values.FirstOrDefault(o => o.Status == "running");
+    }
+
+    /// <summary>
+    /// Cancel the currently running detection operation.
+    /// </summary>
+    public bool CancelDetection()
+    {
+        var activeOp = GetActiveOperation();
+        if (activeOp != null)
+        {
+            _logger.LogInformation("[CorruptionDetection] Cancelling detection operation {OperationId}", activeOp.OperationId);
+            _cancellationTokenSource?.Cancel();
+            activeOp.Status = "cancelled";
+            activeOp.Message = "Detection cancelled by user";
+            return true;
+        }
+        return false;
     }
 
     /// <summary>

@@ -131,6 +131,12 @@ const CANCEL_CONFIGS: Record<string, CancelConfig> = {
     forceKillFn: undefined,
     alreadyCompletedPatterns: ['not found', 'No active game detection'],
     requiresOperationId: false
+  },
+  corruption_detection: {
+    cancelFn: () => ApiService.cancelCorruptionDetection(),
+    forceKillFn: undefined,
+    alreadyCompletedPatterns: ['not found', 'No active corruption detection'],
+    requiresOperationId: false
   }
 };
 
@@ -458,6 +464,7 @@ const UnifiedNotificationItem = ({
           notification.type === 'log_removal' ||
           notification.type === 'depot_mapping' ||
           notification.type === 'corruption_removal' ||
+          notification.type === 'corruption_detection' ||
           notification.type === 'log_processing' ||
           notification.type === 'game_detection') &&
           notification.status === 'running' &&
@@ -476,11 +483,13 @@ const UnifiedNotificationItem = ({
                     ? t('common.notifications.cancelLogRemoval')
                     : notification.type === 'corruption_removal'
                       ? t('common.notifications.cancelCorruptionRemoval')
-                      : notification.type === 'log_processing'
-                        ? t('common.notifications.cancelLogProcessing')
-                        : notification.type === 'game_detection'
-                          ? t('common.notifications.cancelGameDetection')
-                          : t('common.notifications.cancelDepotMapping')
+                      : notification.type === 'corruption_detection'
+                        ? t('common.notifications.cancelCorruptionDetection')
+                        : notification.type === 'log_processing'
+                          ? t('common.notifications.cancelLogProcessing')
+                          : notification.type === 'game_detection'
+                            ? t('common.notifications.cancelGameDetection')
+                            : t('common.notifications.cancelDepotMapping')
               }
               position="left"
             >

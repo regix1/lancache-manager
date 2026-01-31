@@ -486,6 +486,23 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
+    /// POST /api/cache/corruption/detect/cancel - Cancel the active corruption detection scan
+    /// </summary>
+    [HttpPost("corruption/detect/cancel")]
+    [RequireAuth]
+    public IActionResult CancelCorruptionDetection()
+    {
+        var cancelled = _corruptionDetectionService.CancelDetection();
+        if (!cancelled)
+        {
+            return NotFound(new ErrorResponse { Error = "No active corruption detection scan to cancel" });
+        }
+
+        _logger.LogInformation("[CorruptionDetection] Cancellation requested by user");
+        return Ok(new { Message = "Corruption detection scan cancellation requested" });
+    }
+
+    /// <summary>
     /// GET /api/cache/services/{name}/corruption - Get detailed corruption info for specific service
     /// Returns array of corrupted chunks with URLs, miss counts, and cache file paths
     /// </summary>

@@ -153,6 +153,7 @@
       "cacheFilesDeleted_plural": "{{formattedCount}} cache files deleted",
       "cancelCacheClearing": "Cancel cache clearing",
       "cancelCorruptionRemoval": "Cancel corruption removal",
+      "cancelCorruptionDetection": "Cancel corruption detection",
       "cancelDepotMapping": "Cancel depot mapping",
       "cancelGameDetection": "Cancel game detection",
       "cancelLogProcessing": "Cancel log processing",

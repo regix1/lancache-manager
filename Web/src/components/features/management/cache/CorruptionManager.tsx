@@ -333,7 +333,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
     </HelpPopover>
   );
 
-  // Action buttons for header
+  // Action buttons for header - matches GameCacheDetector pattern
+  // Cancel is handled by UniversalNotificationBar via CANCEL_CONFIGS
   const headerActions = (
     <div className="flex items-center gap-2">
       <Tooltip content={t('management.corruption.loadPreviousResults')} position="top">

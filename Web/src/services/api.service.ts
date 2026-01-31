@@ -932,6 +932,21 @@ class ApiService {
     }
   }
 
+  // Cancel corruption detection scan
+  static async cancelCorruptionDetection(signal?: AbortSignal): Promise<{ message: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/cache/corruption/detect/cancel`, this.getFetchOptions({
+        method: 'POST',
+        signal,
+        headers: { 'Content-Type': 'application/json' }
+      }));
+      return await this.handleResponse<{ message: string }>(res);
+    } catch (error) {
+      console.error('cancelCorruptionDetection error:', error);
+      throw error;
+    }
+  }
+
   // Get corruption detection status
   
 
