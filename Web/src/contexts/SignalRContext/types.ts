@@ -319,6 +319,7 @@ export interface CacheClearCompleteEvent {
 }
 
 export interface DepotMappingStartedEvent {
+  operationId?: string;
   message?: string;
   isLoggedOn?: boolean;
   status?: string;
@@ -331,6 +332,7 @@ export interface DepotMappingStartedEvent {
 }
 
 export interface DepotMappingProgressEvent {
+  operationId?: string;
   percentComplete?: number;
   progressPercent?: number;
   message?: string;
@@ -349,6 +351,7 @@ export interface DepotMappingProgressEvent {
 }
 
 export interface DepotMappingCompleteEvent {
+  operationId?: string;
   success: boolean;
   cancelled?: boolean;
   scanMode?: 'incremental' | 'full' | 'github';

@@ -662,7 +662,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         storageKey: NOTIFICATION_STORAGE_KEYS.DEPOT_MAPPING,
         defaultMessage: 'Starting depot mapping scan...',
         getMessage: formatDepotMappingStartedMessage,
-        getDetails: (e) => ({ isLoggedOn: e.isLoggedOn }),
+        getDetails: (e) => ({ operationId: e.operationId, isLoggedOn: e.isLoggedOn }),
         replaceExisting: true // Depot mapping can be restarted
       },
       setNotifications,
@@ -679,6 +679,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getDetailMessage: (event) => formatDepotMappingDetailMessage(event),
         getProgress: (event) => event.percentComplete ?? 0,
         getDetails: (event, existing) => ({
+          operationId: event.operationId || existing?.details?.operationId,
           totalMappings: event.totalMappings,
           processedMappings: event.processedMappings,
           mappingsApplied: event.mappingsApplied,
