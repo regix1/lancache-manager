@@ -342,9 +342,6 @@ public class GameCacheDetectionService : IDisposable
             // Check for cancellation before scanning
             cancellationToken.ThrowIfCancellationRequested();
 
-            // Progress: About to scan datasources
-            await SendProgressAsync("scanning", "Scanning datasources...", 0, 0, 30);
-
             // Aggregate results from all datasources
             var aggregatedGames = new List<GameCacheInfo>();
             var aggregatedServices = new List<ServiceCacheInfo>();
