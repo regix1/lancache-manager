@@ -43,10 +43,12 @@ public class RustLogProcessorService
             return false;
         }
 
+        // If cancellation is already in progress, return true (idempotent)
+        // This prevents 404 errors when user clicks cancel button multiple times
         if (IsCancelling)
         {
-            _logger.LogWarning("Cancellation already in progress");
-            return false;
+            _logger.LogDebug("Cancellation already in progress for log processing");
+            return true;
         }
 
         IsCancelling = true;

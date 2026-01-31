@@ -213,8 +213,16 @@ public class RemovalOperationTracker
         var key = serviceName.ToLowerInvariant();
         if (_operations.TryGetValue((RemovalOperationType.Corruption, key), out var operation))
         {
-            if (operation.CancellationTokenSource != null && !operation.CancellationTokenSource.IsCancellationRequested)
+            if (operation.CancellationTokenSource != null)
             {
+                // If cancellation was already requested, return true (idempotent)
+                // This prevents 404 errors when user clicks cancel button multiple times
+                if (operation.CancellationTokenSource.IsCancellationRequested)
+                {
+                    _logger.LogDebug("Cancellation already in progress for corruption removal: {Service}", serviceName);
+                    return true;
+                }
+                
                 _logger.LogInformation("Requesting cancellation for corruption removal: {Service}", serviceName);
                 operation.CancellationTokenSource.Cancel();
                 operation.Status = "cancelling";
@@ -291,8 +299,16 @@ public class RemovalOperationTracker
         var key = datasourceName.ToLowerInvariant();
         if (_operations.TryGetValue((RemovalOperationType.CacheClearing, key), out var operation))
         {
-            if (operation.CancellationTokenSource != null && !operation.CancellationTokenSource.IsCancellationRequested)
+            if (operation.CancellationTokenSource != null)
             {
+                // If cancellation was already requested, return true (idempotent)
+                // This prevents 404 errors when user clicks cancel button multiple times
+                if (operation.CancellationTokenSource.IsCancellationRequested)
+                {
+                    _logger.LogDebug("Cancellation already in progress for cache clearing: {Datasource}", datasourceName);
+                    return true;
+                }
+                
                 _logger.LogInformation("Requesting cancellation for cache clearing: {Datasource}", datasourceName);
                 operation.CancellationTokenSource.Cancel();
                 operation.Status = "cancelling";

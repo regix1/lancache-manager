@@ -31,7 +31,8 @@ import type {
   ClientGroup,
   CreateClientGroupRequest,
   UpdateClientGroupRequest,
-  StatsExclusionsResponse
+  StatsExclusionsResponse,
+  OperationInfo
 } from '../types';
 
 // Response types for API operations
@@ -1371,6 +1372,71 @@ class ApiService {
 
   // Get IP to group mapping for efficient lookups
   
+
+  // =====================================================
+  // Universal Operation Cancellation APIs
+  // =====================================================
+
+  // Cancel any operation by ID
+  static async cancelOperation(operationId: string): Promise<{ message: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/operations/${operationId}/cancel`, this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(5000)
+      }));
+      return await this.handleResponse<{ message: string }>(res);
+    } catch (error: unknown) {
+      console.error('cancelOperation error:', error);
+      throw error;
+    }
+  }
+
+  // Force kill any operation by ID
+  static async forceKillOperation(operationId: string): Promise<{ message: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/operations/${operationId}/kill`, this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(10000)
+      }));
+      return await this.handleResponse<{ message: string }>(res);
+    } catch (error: unknown) {
+      console.error('forceKillOperation error:', error);
+      throw error;
+    }
+  }
+
+  // Get all active operations (optionally filtered by type)
+  static async getActiveOperations(type?: string, signal?: AbortSignal): Promise<OperationInfo[]> {
+    try {
+      const params = type ? `?type=${encodeURIComponent(type)}` : '';
+      const res = await fetch(`${API_BASE}/operations${params}`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<OperationInfo[]>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getActiveOperations error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // Get a specific operation by ID
+  static async getOperation(operationId: string, signal?: AbortSignal): Promise<OperationInfo | null> {
+    try {
+      const res = await fetch(`${API_BASE}/operations/${operationId}`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<OperationInfo | null>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
+        console.error('getOperation error:', error);
+      }
+      throw error;
+    }
+  }
 
   // =====================
   // Prefill Admin APIs

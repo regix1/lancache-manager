@@ -32,6 +32,8 @@ interface CancelConfig {
   forceKillFn?: (operationId?: string) => Promise<unknown>;
   alreadyCompletedPatterns?: string[];
   requiresOperationId?: boolean;
+  // Support for universal operation cancellation
+  supportsUniversalCancel?: boolean;
 }
 
 const createCancelHandler =
@@ -61,7 +63,14 @@ const createCancelHandler =
     });
 
     try {
-      // First attempt: Try graceful cancellation
+      // If universal cancellation is supported and we have an operationId, use it
+      if (config.supportsUniversalCancel && operationId) {
+        await ApiService.cancelOperation(operationId);
+        removeNotification(notificationId);
+        return;
+      }
+
+      // Otherwise use the type-specific cancelFn
       await config.cancelFn(operationId);
       removeNotification(notificationId);
     } catch (err: unknown) {
@@ -77,7 +86,18 @@ const createCancelHandler =
         console.error('Failed to cancel operation:', err);
 
         // Try force kill as fallback if available
-        if (config.forceKillFn) {
+        if (config.supportsUniversalCancel && operationId) {
+          // Try universal force kill
+          try {
+            await ApiService.forceKillOperation(operationId);
+            removeNotification(notificationId);
+          } catch (forceErr) {
+            console.error('Universal force kill failed:', forceErr);
+            // Still remove notification to prevent stuck UI
+            removeNotification(notificationId);
+          }
+        } else if (config.forceKillFn) {
+          // Try type-specific force kill
           try {
             await config.forceKillFn(operationId);
             removeNotification(notificationId);
@@ -100,43 +120,50 @@ const CANCEL_CONFIGS: Record<string, CancelConfig> = {
     cancelFn: (opId) => ApiService.cancelCacheClear(opId!),
     forceKillFn: (opId) => ApiService.forceKillCacheClear(opId!),
     alreadyCompletedPatterns: ['Operation not found', 'already completed'],
-    requiresOperationId: true
+    requiresOperationId: true,
+    supportsUniversalCancel: true // Can use universal /api/operations/{id}/cancel
   },
   log_removal: {
     cancelFn: () => ApiService.cancelServiceRemoval(),
     forceKillFn: () => ApiService.forceKillServiceRemoval(),
     alreadyCompletedPatterns: ['not found', 'No service removal'],
-    requiresOperationId: false
+    requiresOperationId: false,
+    supportsUniversalCancel: true // Can use universal cancel when operationId is available
   },
   depot_mapping: {
     cancelFn: () => ApiService.cancelSteamKitRebuild(),
     forceKillFn: undefined,
     alreadyCompletedPatterns: [],
-    requiresOperationId: false
+    requiresOperationId: false,
+    supportsUniversalCancel: true // Can use universal cancel when operationId is available
   },
   corruption_removal: {
     cancelFn: () => ApiService.cancelCorruptionRemoval(),
     forceKillFn: undefined,
     alreadyCompletedPatterns: ['not found', 'No active corruption removal'],
-    requiresOperationId: false
+    requiresOperationId: false,
+    supportsUniversalCancel: true // Can use universal cancel when operationId is available
   },
   log_processing: {
     cancelFn: () => ApiService.cancelLogProcessing(),
     forceKillFn: () => ApiService.forceKillLogProcessing(),
     alreadyCompletedPatterns: ['not found', 'No log processing'],
-    requiresOperationId: false
+    requiresOperationId: false,
+    supportsUniversalCancel: true // Can use universal cancel when operationId is available
   },
   game_detection: {
     cancelFn: () => ApiService.cancelGameDetection(),
     forceKillFn: undefined,
     alreadyCompletedPatterns: ['not found', 'No active game detection'],
-    requiresOperationId: false
+    requiresOperationId: false,
+    supportsUniversalCancel: true // Can use universal cancel when operationId is available
   },
   corruption_detection: {
     cancelFn: () => ApiService.cancelCorruptionDetection(),
     forceKillFn: undefined,
     alreadyCompletedPatterns: ['not found', 'No active corruption detection'],
-    requiresOperationId: false
+    requiresOperationId: false,
+    supportsUniversalCancel: true // Can use universal cancel when operationId is available
   }
 };
 

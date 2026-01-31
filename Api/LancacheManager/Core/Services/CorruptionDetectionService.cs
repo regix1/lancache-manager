@@ -432,6 +432,14 @@ public class CorruptionDetectionService
         var activeOp = GetActiveOperation();
         if (activeOp != null)
         {
+            // If already cancelled or cancelling, return true (idempotent)
+            // This prevents 404 errors when user clicks cancel button multiple times
+            if (activeOp.Status == "cancelled" || activeOp.Status == "cancelling")
+            {
+                _logger.LogDebug("[CorruptionDetection] Cancellation already in progress for operation {OperationId}", activeOp.OperationId);
+                return true;
+            }
+            
             _logger.LogInformation("[CorruptionDetection] Cancelling detection operation {OperationId}", activeOp.OperationId);
             _cancellationTokenSource?.Cancel();
             activeOp.Status = "cancelled";

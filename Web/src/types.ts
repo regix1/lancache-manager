@@ -415,3 +415,17 @@ export interface SpeedHistorySnapshot {
   averageBytesPerSecond: number;
   totalSessions: number;
 }
+
+// Universal operation cancellation types
+export interface OperationInfo {
+  id: string;
+  type: string;
+  name: string;
+  status: string;
+  message: string;
+  percentComplete: number;
+  startedAt: string;
+  completedAt?: string;
+  isCancelling: boolean;
+  metadata?: unknown;
+}

@@ -293,9 +293,13 @@ public class GamesController : ControllerBase
     public IActionResult CancelDetection()
     {
         var activeOp = _gameCacheDetectionService.GetActiveOperation();
+        
+        // If no running operation, return success anyway (idempotent)
+        // This prevents 404 errors when user clicks cancel multiple times
         if (activeOp == null)
         {
-            return NotFound(new { error = "No active game detection operation to cancel" });
+            _logger.LogDebug("No active game detection operation to cancel (already cancelled or completed)");
+            return Ok(new { message = "No active game detection operation (already cancelled or completed)" });
         }
 
         _gameCacheDetectionService.CancelDetection();

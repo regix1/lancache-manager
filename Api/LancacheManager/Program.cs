@@ -379,6 +379,7 @@ builder.Services.AddSingleton<DatasourceService>();
 // Register services (repositories already registered above)
 builder.Services.AddSingleton<CacheManagementService>();
 builder.Services.AddSingleton<RemovalOperationTracker>();
+builder.Services.AddSingleton<IUnifiedOperationTracker, UnifiedOperationTracker>();
 builder.Services.AddSingleton<PicsDataService>();
 
 // Register cache snapshot service for historical cache size tracking

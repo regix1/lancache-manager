@@ -554,6 +554,14 @@ public class RustLogRemovalService
             return false;
         }
 
+        // If cancellation is already requested, return true (idempotent)
+        // This prevents 404 errors when user clicks cancel button multiple times
+        if (_cancellationTokenSource.IsCancellationRequested)
+        {
+            _logger.LogDebug("Cancellation already in progress for service removal: {Service}", CurrentService);
+            return true;
+        }
+
         _logger.LogInformation("Cancelling service removal operation for {Service}", CurrentService);
         _cancellationTokenSource.Cancel();
         return true;

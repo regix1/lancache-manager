@@ -483,6 +483,12 @@ fn run_dynamic_calibration(cache_dir: &Path, is_network_fs: bool) -> Option<Dyna
         // Many directories with few files (common in lancache)
         TestScenario { name: "many_dirs_single", num_dirs: 25, files_per_dir: 1, depth: 2 },
         TestScenario { name: "many_dirs_few", num_dirs: 15, files_per_dir: 5, depth: 2 },
+
+        // Large-scale scenarios to capture non-linear performance degradation
+        // Real caches have ~3,562 files/dir, so we need larger test cases
+        TestScenario { name: "medium_1k", num_dirs: 3, files_per_dir: 500, depth: 2 },
+        TestScenario { name: "large_2k", num_dirs: 2, files_per_dir: 2000, depth: 2 },
+        TestScenario { name: "stress_5k", num_dirs: 1, files_per_dir: 5000, depth: 2 },
     ];
 
     let mut measurements = Vec::new();
@@ -523,7 +529,51 @@ fn run_dynamic_calibration(cache_dir: &Path, is_network_fs: bool) -> Option<Dyna
     })
 }
 
-/// Interpolate between two scenarios to estimate rate for a target files_per_dir
+/// Fit a power-law model to rate data and predict rate at target files_per_dir
+/// Uses log-transform regression: log(rate) = log(a) + b*log(fpd)
+/// Returns: rate = a * files_per_dir^b
+fn fit_power_law_rate(
+    data_points: &[(f64, f64)], // (files_per_dir, rate)
+    target_files_per_dir: f64,
+) -> f64 {
+    if data_points.len() < 2 {
+        return data_points.first().map(|(_, r)| *r).unwrap_or(1.0);
+    }
+
+    // Filter out invalid data points (need positive values for log)
+    let valid_points: Vec<(f64, f64)> = data_points
+        .iter()
+        .filter(|(x, y)| *x > 0.0 && *y > 0.0)
+        .copied()
+        .collect();
+
+    if valid_points.len() < 2 {
+        return data_points.last().map(|(_, r)| *r).unwrap_or(1.0);
+    }
+
+    // Log-transform for linear regression
+    let n = valid_points.len() as f64;
+    let sum_x: f64 = valid_points.iter().map(|(x, _)| x.ln()).sum();
+    let sum_y: f64 = valid_points.iter().map(|(_, y)| y.ln()).sum();
+    let sum_xy: f64 = valid_points.iter().map(|(x, y)| x.ln() * y.ln()).sum();
+    let sum_x2: f64 = valid_points.iter().map(|(x, _)| x.ln().powi(2)).sum();
+
+    // Solve for slope (b) and intercept (log_a)
+    let denominator = n * sum_x2 - sum_x.powi(2);
+    if denominator.abs() < 1e-10 {
+        return data_points.last().map(|(_, r)| *r).unwrap_or(1.0);
+    }
+
+    let b = (n * sum_xy - sum_x * sum_y) / denominator;
+    let log_a = (sum_y - b * sum_x) / n;
+    let a = log_a.exp();
+
+    // Predict rate at target (clamp to reasonable bounds)
+    (a * target_files_per_dir.powf(b)).max(0.1)
+}
+
+/// Interpolate between scenarios to estimate rate for a target files_per_dir
+/// Uses power-law model for better extrapolation with varying file densities
 fn interpolate_rate(
     scenarios: &[ScenarioMeasurement],
     target_files_per_dir: f64,
@@ -549,37 +599,73 @@ fn interpolate_rate(
         return valid.iter().map(|s| get_rate(s)).sum::<f64>() / valid.len() as f64;
     }
 
-    // Find scenarios below and above target for interpolation
-    let mut below: Option<&ScenarioMeasurement> = None;
-    let mut above: Option<&ScenarioMeasurement> = None;
+    // Build data points for power-law fitting
+    let data_points: Vec<(f64, f64)> = depth_matched
+        .iter()
+        .map(|s| (s.files_per_dir as f64, get_rate(s)))
+        .collect();
 
-    for scenario in &depth_matched {
-        let fpd = scenario.files_per_dir as f64;
-        if fpd <= target_files_per_dir {
-            if below.is_none() || fpd > below.unwrap().files_per_dir as f64 {
-                below = Some(scenario);
-            }
+    // Use power-law model for better extrapolation with varying file densities
+    // This handles the non-linear relationship between files_per_dir and deletion rate
+    fit_power_law_rate(&data_points, target_files_per_dir)
+}
+
+/// Calculate rsync overhead that scales with directory file count
+/// Rsync overhead has two components:
+/// 1. Base overhead: rsync startup, connection setup (~50ms local, ~200ms NFS)
+/// 2. File enumeration: building file list before deletion (~0.001s/file local, ~0.005s/file NFS)
+fn calculate_rsync_overhead(files_per_dir: f64, is_network_fs: bool) -> f64 {
+    // Base overhead: rsync startup (~50ms local, ~200ms NFS)
+    let base_overhead = if is_network_fs { 0.2 } else { 0.05 };
+
+    // File enumeration: ~0.001s per file local, ~0.005s per file NFS
+    let enum_per_file = if is_network_fs { 0.005 } else { 0.001 };
+
+    // Total overhead scales with file count
+    // Example: 3562 files on NFS = 0.2 + 3562 * 0.005 = 18.01 seconds per directory
+    base_overhead + (files_per_dir * enum_per_file)
+}
+
+/// Get parallelism factor based on deletion mode and filesystem type
+/// Different modes have different parallelism characteristics:
+/// - preserve: Individual unlinks cause lock storms on NFS
+/// - full: remove_dir_all is more efficient
+/// - rsync: External process handles its own parallelism well
+fn get_parallel_factor(mode: &str, is_network_fs: bool, cpu_count: usize) -> f64 {
+    if is_network_fs {
+        match mode {
+            "rsync" => (cpu_count as f64 / 2.0).min(3.0),
+            "full" => 1.5,
+            _ => 0.6, // preserve mode - individual unlinks cause lock storms
         }
-        if fpd >= target_files_per_dir {
-            if above.is_none() || fpd < above.unwrap().files_per_dir as f64 {
-                above = Some(scenario);
-            }
+    } else {
+        match mode {
+            "rsync" => (cpu_count as f64 / 2.0).min(4.0),
+            "full" => (cpu_count as f64 / 2.0).min(6.0),
+            _ => (cpu_count as f64).min(8.0), // preserve mode
         }
     }
+}
 
-    match (below, above) {
-        (Some(b), Some(a)) if b.files_per_dir != a.files_per_dir => {
-            // Linear interpolation between the two scenarios
-            let b_fpd = b.files_per_dir as f64;
-            let a_fpd = a.files_per_dir as f64;
-            let t = (target_files_per_dir - b_fpd) / (a_fpd - b_fpd);
-            let b_rate = get_rate(b);
-            let a_rate = get_rate(a);
-            b_rate + t * (a_rate - b_rate)
-        }
-        (Some(s), _) | (_, Some(s)) => get_rate(s),
-        _ => depth_matched.iter().map(|s| get_rate(s)).sum::<f64>() / depth_matched.len() as f64,
+/// Apply safety margin when extrapolating beyond calibration data
+/// Larger extrapolations get more conservative estimates
+fn apply_extrapolation_margin(
+    estimated_time: f64,
+    target_files_per_dir: f64,
+    max_calibrated_files: f64,
+) -> f64 {
+    if target_files_per_dir <= max_calibrated_files {
+        return estimated_time;
     }
+
+    // Calculate extrapolation factor
+    let extrapolation_factor = target_files_per_dir / max_calibrated_files;
+
+    // Apply logarithmic margin: more uncertainty with larger extrapolation
+    // For 35x extrapolation (100->3562): margin = 1 + ln(35.62) * 0.5 = 2.79x
+    let margin = 1.0 + (extrapolation_factor.ln() * 0.5);
+
+    estimated_time * margin
 }
 
 /// Estimate deletion times using dynamic calibration measurements
@@ -617,22 +703,11 @@ fn estimate_deletion_times_dynamic(
         |s| s.preserve_files_per_sec,
     );
 
-    // Calculate parallelism effect
-    // On NFS, parallel file deletion can actually be SLOWER due to network contention
-    // and NFS client/server locking. Real-world measurements show 2 workers achieve
-    // only ~60-70% of single-threaded throughput on NFS.
-    let parallel_factor = if calibration.is_network_fs {
-        // Network FS: parallelism hurts due to contention
-        // Multiple workers compete for network bandwidth and NFS locks
-        0.65
-    } else {
-        // Local FS: parallelism helps but with diminishing returns
-        let cpu_count = calibration.cpu_count as f64;
-        (cpu_count / 2.0).min(4.0)
-    };
+    // Calculate parallelism effect using mode-specific factors
+    let preserve_parallel_factor = get_parallel_factor("preserve", calibration.is_network_fs, calibration.cpu_count);
 
     let effective_preserve_rate = if preserve_rate > 0.0 {
-        preserve_rate * parallel_factor
+        preserve_rate * preserve_parallel_factor
     } else {
         1.0
     };
@@ -672,9 +747,10 @@ fn estimate_deletion_times_dynamic(
         let file_time_per_cal = avg_cal_files / file_rate;
         let overhead_per_dir = (time_per_cal_dir - file_time_per_cal).max(0.001);
 
-        // Scale for real cache
-        let total_overhead = hex_dirs as f64 * overhead_per_dir / parallel_factor;
-        let total_file_time = total_files as f64 / file_rate / parallel_factor;
+        // Scale for real cache using full mode parallel factor
+        let full_parallel_factor = get_parallel_factor("full", calibration.is_network_fs, calibration.cpu_count);
+        let total_overhead = hex_dirs as f64 * overhead_per_dir / full_parallel_factor;
+        let total_file_time = total_files as f64 / file_rate / full_parallel_factor;
 
         (total_overhead + total_file_time).max(0.1)
     } else {
@@ -721,23 +797,40 @@ fn estimate_deletion_times_dynamic(
             15000.0
         };
 
-        // Overhead per call = total_time - file_time
+        // Overhead per call = total_time - file_time (from calibration)
         let file_time_per_cal = avg_cal_files / estimated_file_rate;
-        let overhead_per_call = (time_per_cal_dir - file_time_per_cal).max(0.02); // Min 20ms overhead
+        let measured_overhead = time_per_cal_dir - file_time_per_cal;
+
+        // Use scaled overhead model: overhead grows with file count due to file enumeration
+        // This is critical for large directories where rsync spends significant time building file lists
+        let scaled_overhead = calculate_rsync_overhead(files_per_dir, calibration.is_network_fs);
+
+        // Use the larger of measured or scaled overhead to be conservative
+        let overhead_per_call = measured_overhead.max(scaled_overhead);
 
         // Calculate total rsync time for real cache
         // With parallelism, we can run multiple rsync processes
-        let parallel_workers = (calibration.cpu_count as f64 / 2.0).min(4.0);
+        let rsync_parallel_factor = get_parallel_factor("rsync", calibration.is_network_fs, calibration.cpu_count);
 
         // Total time = (calls * overhead / workers) + (total_files / file_rate / workers)
-        let call_overhead_time = (hex_dirs as f64 * overhead_per_call) / parallel_workers;
-        let file_processing_time = total_files as f64 / estimated_file_rate / parallel_workers;
+        let call_overhead_time = (hex_dirs as f64 * overhead_per_call) / rsync_parallel_factor;
+        let file_processing_time = total_files as f64 / estimated_file_rate / rsync_parallel_factor;
 
         (call_overhead_time + file_processing_time).max(0.1)
     } else {
         // Fallback: use fast mode estimate
         full_seconds
     };
+
+    // Find max files_per_dir from calibration scenarios
+    let max_calibrated_files = scenarios.iter()
+        .map(|s| s.files_per_dir as f64)
+        .fold(0.0_f64, |a, b| a.max(b));
+
+    // Apply safety margin for extrapolation
+    let preserve_seconds = apply_extrapolation_margin(preserve_seconds, files_per_dir, max_calibrated_files);
+    let full_seconds = apply_extrapolation_margin(full_seconds, files_per_dir, max_calibrated_files);
+    let rsync_seconds = apply_extrapolation_margin(rsync_seconds, files_per_dir, max_calibrated_files);
 
     EstimatedDeletionTimes {
         preserve_seconds,
