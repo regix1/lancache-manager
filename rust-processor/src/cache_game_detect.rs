@@ -353,62 +353,6 @@ fn query_service_downloads(db_path: &Path) -> Result<HashMap<String, Vec<(String
     Ok(services)
 }
 
-/// Detect cache files for a service using direct file existence checks (for incremental mode)
-/// This is faster when checking a small number of URLs
-fn detect_cache_files_for_service_incremental(
-    service_name: &str,
-    service_urls: &[(String, String)],
-    cache_dir: &Path,
-) -> Result<ServiceCacheInfo> {
-    let found_files: HashSet<PathBuf> = service_urls
-        .par_iter()
-        .filter_map(|(service, url)| {
-            let cache_key = format!("{}{}", service, url);
-            let hash = cache_utils::calculate_md5(&cache_key);
-            
-            // Calculate the hierarchical path (first 2 chars as subdirectory)
-            let subdir = &hash[0..2];
-            let file_path = cache_dir.join(subdir).join(&hash);
-            
-            if file_path.exists() {
-                Some(file_path)
-            } else {
-                // Check chunked format
-                (0..100).find_map(|chunk| {
-                    let start = chunk * 1_048_576;
-                    let end = start + 1_048_575;
-                    let chunked_key = format!("{}{}bytes={}-{}", service, url, start, end);
-                    let chunked_hash = cache_utils::calculate_md5(&chunked_key);
-                    let chunked_subdir = &chunked_hash[0..2];
-                    let chunked_path = cache_dir.join(chunked_subdir).join(&chunked_hash);
-                    if chunked_path.exists() {
-                        Some(chunked_path)
-                    } else {
-                        None
-                    }
-                })
-            }
-        })
-        .collect();
-
-    let total_size: u64 = found_files
-        .iter()
-        .filter_map(|path| fs::metadata(path).ok().map(|m| m.len()))
-        .sum();
-
-    let unique_urls: HashSet<String> = service_urls.iter().map(|(_, url)| url.clone()).collect();
-    let sample_urls: Vec<String> = unique_urls.iter().take(5).cloned().collect();
-    let cache_file_paths: Vec<String> = found_files.iter().map(|p| p.display().to_string()).collect();
-
-    Ok(ServiceCacheInfo {
-        service_name: service_name.to_string(),
-        cache_files_found: found_files.len(),
-        total_size_bytes: total_size,
-        sample_urls,
-        cache_file_paths,
-    })
-}
-
 fn detect_cache_files_for_service(
     service_name: &str,
     service_urls: &[(String, String)],
