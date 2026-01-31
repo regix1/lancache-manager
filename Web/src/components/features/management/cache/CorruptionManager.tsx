@@ -37,7 +37,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   onError
 }) => {
   const { t } = useTranslation();
-  const { notifications, addNotification, isAnyRemovalRunning } = useNotifications();
+  const { notifications, addNotification, removeNotification, isAnyRemovalRunning } = useNotifications();
   const { isDockerAvailable } = useDockerSocket();
 
   // Derive corruption detection scan state from notifications (standardized pattern like GameCacheDetector)
@@ -59,7 +59,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   const [corruptionDetails, setCorruptionDetails] = useState<Record<string, CorruptedChunkDetail[]>>({});
   const [loadingDetails, setLoadingDetails] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [hasInitiallyLoaded, setHasInitiallyLoaded] = useState(false);
   const [logsReadOnly, setLogsReadOnly] = useState(false);
   const [cacheReadOnly, setCacheReadOnly] = useState(false);
@@ -79,7 +78,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   // Load cached data from database
   const loadCachedData = useCallback(async (showNotification: boolean = false) => {
     setIsLoading(true);
-    setLoadError(null);
     try {
       const cached = await ApiService.getCachedCorruptionDetection();
       if (cached.hasCachedResults && cached.corruptionCounts) {
@@ -128,9 +126,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
       setHasInitiallyLoaded(true);
     } catch (err: unknown) {
       console.error('Failed to load cached corruption data:', err);
-      setLoadError(
-        (err instanceof Error ? err.message : String(err)) || t('management.corruption.errors.loadCachedData')
-      );
     } finally {
       setIsLoading(false);
     }
@@ -140,8 +135,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   const startScan = useCallback(async () => {
     if (isScanning || mockMode) return;
 
+    // Dismiss any existing failed corruption_detection notifications before starting new scan
+    const failedNotifs = notifications.filter(
+      n => n.type === 'corruption_detection' && (n.status === 'failed' || n.status === 'completed')
+    );
+    failedNotifs.forEach(n => removeNotification(n.id));
+
     setIsStartingScan(true);
-    setLoadError(null);
     setCorruptionSummary({});
     setLastDetectionTime(null);
     setHasCachedResults(false);
@@ -152,12 +152,9 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
       // Note: NotificationsContext will create a notification via SignalR (CorruptionDetectionStarted event)
     } catch (err: unknown) {
       console.error('Failed to start corruption scan:', err);
-      setLoadError(
-        (err instanceof Error ? err.message : String(err)) || t('management.corruption.errors.startScan')
-      );
       setIsStartingScan(false);
     }
-  }, [isScanning, mockMode, t]);
+  }, [isScanning, mockMode, notifications, removeNotification]);
 
   // Listen for corruption detection completion via notifications
   useEffect(() => {
@@ -192,8 +189,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
       if (corruptionDetectionFailedNotifs.length > 0) {
         console.error('[CorruptionManager] Corruption detection failed');
         setIsStartingScan(false);
-        const failedNotif = corruptionDetectionFailedNotifs[0];
-        setLoadError(failedNotif.error || t('management.corruption.scanFailed'));
+        // Note: Error is displayed in notification bar, no inline error needed
       }
     }
   }, [notifications, isStartingScan]);
@@ -438,26 +434,9 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
           <ReadOnlyBadge message={isReadOnly ? t('management.corruption.readOnly') : t('management.corruption.dockerSocketRequired')} />
         ) : (
           <>
-            {loadError && (
-              <Alert color="red" className="mb-4">
-                <div>
-                  <p className="text-sm font-medium mb-1">{t('management.corruption.errors.detectFailed')}</p>
-                  <p className="text-xs opacity-75">{loadError}</p>
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={() => startScan()}
-                    className="mt-2"
-                  >
-                    {t('management.corruption.tryAgain')}
-                  </Button>
-                </div>
-              </Alert>
-            )}
-
             {isLoading && !isScanning ? (
               <LoadingState message={t('management.corruption.loadingCachedData')} />
-            ) : !loadError && hasCachedResults && corruptionList.length > 0 ? (
+            ) : hasCachedResults && corruptionList.length > 0 ? (
               <div className="space-y-3">
                 {corruptionList.map(([service, count]) => (
                   <div
@@ -574,13 +553,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
                   </div>
                 ))}
               </div>
-            ) : !loadError && hasCachedResults && corruptionList.length === 0 ? (
+            ) : hasCachedResults && corruptionList.length === 0 ? (
               <EmptyState
                 icon={AlertTriangle}
                 title={t('management.corruption.emptyStates.noCorrupted.title')}
                 subtitle={t('management.corruption.emptyStates.noCorrupted.subtitle')}
               />
-            ) : !loadError && !hasCachedResults && !isScanning && !isLoading ? (
+            ) : !hasCachedResults && !isScanning && !isLoading ? (
               <EmptyState
                 icon={AlertTriangle}
                 title={t('management.corruption.emptyStates.noCachedData.title')}

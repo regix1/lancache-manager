@@ -1630,8 +1630,6 @@
       "corruptedChunks_plural": "{{count}} corrupted chunks",
       "removeAll": "Remove All",
       "removing": "Removing...",
-      "tryAgain": "Try Again",
-      "scanFailed": "Corruption scan failed",
       "removalFailed": "Corruption removal failed",
       "readOnly": "Read-only",
       "dockerSocketRequired": "Docker socket required",
@@ -1682,8 +1680,7 @@
         "loadCachedData": "Failed to load cached data",
         "startScan": "Failed to start corruption scan",
         "removeCorrupted": "Failed to remove corrupted chunks for {{service}}",
-        "loadDetails": "Failed to load corruption details for {{service}}",
-        "detectFailed": "Failed to detect corrupted chunks"
+        "loadDetails": "Failed to load corruption details for {{service}}"
       },
       "modal": {
         "title": "Remove Corrupted Chunks",
