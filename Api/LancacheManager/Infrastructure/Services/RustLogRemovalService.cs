@@ -3,6 +3,7 @@ using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Models;
 using LancacheManager.Infrastructure.Utilities;
 using Microsoft.EntityFrameworkCore;
 
@@ -22,9 +23,11 @@ public class RustLogRemovalService
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly NginxLogRotationService _nginxLogRotationService;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
+    private readonly IUnifiedOperationTracker _operationTracker;
     private Process? _rustProcess;
     private CancellationTokenSource? _cancellationTokenSource;
     private readonly SemaphoreSlim _startLock = new(1, 1);
+    private string? _currentTrackerOperationId;
 
     private readonly DatasourceService _datasourceService;
 
@@ -93,7 +96,8 @@ public class RustLogRemovalService
         RustProcessHelper rustProcessHelper,
         NginxLogRotationService nginxLogRotationService,
         IDbContextFactory<AppDbContext> dbContextFactory,
-        DatasourceService datasourceService)
+        DatasourceService datasourceService,
+        IUnifiedOperationTracker operationTracker)
     {
         _logger = logger;
         _pathResolver = pathResolver;
@@ -104,6 +108,7 @@ public class RustLogRemovalService
         _nginxLogRotationService = nginxLogRotationService;
         _dbContextFactory = dbContextFactory;
         _datasourceService = datasourceService;
+        _operationTracker = operationTracker;
     }
 
     public class ProgressData
@@ -149,6 +154,14 @@ public class RustLogRemovalService
         try
         {
             _cancellationTokenSource = new CancellationTokenSource();
+
+            // Register with unified operation tracker for centralized cancellation
+            _currentTrackerOperationId = _operationTracker.RegisterOperation(
+                OperationType.ServiceRemoval,
+                "Service Removal",
+                _cancellationTokenSource,
+                new { service }
+            );
 
             var operationsDir = _pathResolver.GetOperationsDirectory();
             var logDir = _pathResolver.GetLogsDirectory();
@@ -255,6 +268,12 @@ public class RustLogRemovalService
 
                     _logger.LogInformation("Log removal completed successfully for {Service}: Removed {LinesRemoved} of {LinesProcessed} lines, {DbRecords} database records",
                         service, finalProgress?.LinesRemoved ?? 0, finalProgress?.LinesProcessed ?? 0, dbCleanupResult.TotalDeleted);
+
+                    // Mark operation as complete in unified tracker
+                    if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+                    {
+                        _operationTracker.CompleteOperation(_currentTrackerOperationId, success: true);
+                    }
                     return true;
                 }
                 else
@@ -268,6 +287,12 @@ public class RustLogRemovalService
                     });
 
                     _logger.LogError("Log removal failed for {Service} with exit code {ExitCode}", service, exitCode);
+
+                    // Mark operation as failed in unified tracker
+                    if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+                    {
+                        _operationTracker.CompleteOperation(_currentTrackerOperationId, success: false, error: $"Exit code {exitCode}");
+                    }
                     return false;
                 }
             }, _cancellationTokenSource.Token); // Close ExecuteWithLockAsync lambda
@@ -284,6 +309,12 @@ public class RustLogRemovalService
                 cancelled = true,
                 service
             });
+
+            // Mark operation as cancelled in unified tracker
+            if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+            {
+                _operationTracker.CompleteOperation(_currentTrackerOperationId, success: false, error: "Cancelled by user");
+            }
 
             return false;
         }
@@ -303,6 +334,12 @@ public class RustLogRemovalService
             }
             catch { }
 
+            // Mark operation as failed in unified tracker
+            if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+            {
+                _operationTracker.CompleteOperation(_currentTrackerOperationId, success: false, error: ex.Message);
+            }
+
             return false;
         }
         finally
@@ -311,6 +348,7 @@ public class RustLogRemovalService
             CurrentService = null;
             CurrentDatasource = null;
             _rustProcess = null;
+            _currentTrackerOperationId = null;
             _cancellationTokenSource?.Dispose();
         }
     }
@@ -357,6 +395,14 @@ public class RustLogRemovalService
         try
         {
             _cancellationTokenSource = new CancellationTokenSource();
+
+            // Register with unified operation tracker for centralized cancellation
+            _currentTrackerOperationId = _operationTracker.RegisterOperation(
+                OperationType.ServiceRemoval,
+                "Service Removal",
+                _cancellationTokenSource,
+                new { service, datasourceName }
+            );
 
             var operationsDir = _pathResolver.GetOperationsDirectory();
             var progressPath = Path.Combine(operationsDir, $"log_remove_progress_{datasourceName}.json");
@@ -436,6 +482,12 @@ public class RustLogRemovalService
 
                     _logger.LogInformation("Log removal completed for {Service} in datasource {Datasource}: Removed {LinesRemoved} lines",
                         service, datasourceName, finalProgress?.LinesRemoved ?? 0);
+
+                    // Mark operation as complete in unified tracker
+                    if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+                    {
+                        _operationTracker.CompleteOperation(_currentTrackerOperationId, success: true);
+                    }
                     return true;
                 }
                 else
@@ -450,6 +502,12 @@ public class RustLogRemovalService
 
                     _logger.LogError("Log removal failed for {Service} in datasource {Datasource} with exit code {ExitCode}",
                         service, datasourceName, exitCode);
+
+                    // Mark operation as failed in unified tracker
+                    if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+                    {
+                        _operationTracker.CompleteOperation(_currentTrackerOperationId, success: false, error: $"Exit code {exitCode}");
+                    }
                     return false;
                 }
             }, _cancellationTokenSource.Token);
@@ -466,6 +524,12 @@ public class RustLogRemovalService
                 service,
                 datasource = datasourceName
             });
+
+            // Mark operation as cancelled in unified tracker
+            if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+            {
+                _operationTracker.CompleteOperation(_currentTrackerOperationId, success: false, error: "Cancelled by user");
+            }
 
             return false;
         }
@@ -485,6 +549,12 @@ public class RustLogRemovalService
             }
             catch { }
 
+            // Mark operation as failed in unified tracker
+            if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+            {
+                _operationTracker.CompleteOperation(_currentTrackerOperationId, success: false, error: ex.Message);
+            }
+
             return false;
         }
         finally
@@ -493,6 +563,7 @@ public class RustLogRemovalService
             CurrentService = null;
             CurrentDatasource = null;
             _rustProcess = null;
+            _currentTrackerOperationId = null;
             _cancellationTokenSource?.Dispose();
         }
     }
@@ -545,10 +616,22 @@ public class RustLogRemovalService
     }
 
     /// <summary>
-    /// Cancels the current service removal operation gracefully
+    /// Cancels the current service removal operation gracefully.
+    /// Delegates to UnifiedOperationTracker for centralized cancellation.
     /// </summary>
+    /// <remarks>
+    /// This method exists for backward compatibility.
+    /// Prefer using OperationsController.CancelOperation with operationId for new code.
+    /// </remarks>
     public bool CancelOperation()
     {
+        if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+        {
+            _logger.LogInformation("Cancelling service removal via UnifiedOperationTracker: {OperationId}", _currentTrackerOperationId);
+            return _operationTracker.CancelOperation(_currentTrackerOperationId);
+        }
+
+        // Fallback: Cancel directly if tracker ID not available
         if (!IsProcessing || _cancellationTokenSource == null)
         {
             return false;

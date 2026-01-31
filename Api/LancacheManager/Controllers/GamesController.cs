@@ -285,27 +285,4 @@ public class GamesController : ControllerBase
     }
 
 
-    /// <summary>
-    /// POST /api/games/detect/cancel - Cancel running game detection
-    /// </summary>
-    [HttpPost("detect/cancel")]
-    [RequireAuth]
-    public IActionResult CancelDetection()
-    {
-        var activeOp = _gameCacheDetectionService.GetActiveOperation();
-        
-        // If no running operation, return success anyway (idempotent)
-        // This prevents 404 errors when user clicks cancel multiple times
-        if (activeOp == null)
-        {
-            _logger.LogDebug("No active game detection operation to cancel (already cancelled or completed)");
-            return Ok(new { message = "No active game detection operation (already cancelled or completed)" });
-        }
-
-        _gameCacheDetectionService.CancelDetection();
-        _logger.LogInformation("Game detection cancelled for operation: {OperationId}", activeOp.OperationId);
-
-        return Ok(new { message = "Game detection cancellation requested", operationId = activeOp.OperationId });
-    }
-
 }

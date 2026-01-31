@@ -13,7 +13,6 @@ import {
   Key
 } from 'lucide-react';
 import ApiService from '@services/api.service';
-import { getErrorMessage } from '@utils/error';
 import {
   useNotifications,
   type UnifiedNotification,
@@ -24,147 +23,31 @@ import themeService from '@services/theme.service';
 import { Tooltip } from '@components/ui/Tooltip';
 
 // ============================================================================
-// Cancel Handler Factory
+// Cancel Handler
 // ============================================================================
 
-interface CancelConfig {
-  cancelFn: (operationId?: string) => Promise<unknown>;
-  forceKillFn?: (operationId?: string) => Promise<unknown>;
-  alreadyCompletedPatterns?: string[];
-  requiresOperationId?: boolean;
-  // Support for universal operation cancellation
-  supportsUniversalCancel?: boolean;
-}
-
-const createCancelHandler =
-  (
-    config: CancelConfig,
-    notification: UnifiedNotification,
-    updateNotification: (id: string, updates: Partial<UnifiedNotification>) => void,
-    removeNotification: (id: string) => void
-  ) =>
-  async () => {
-    const notificationId = notification.id;
-    const operationId = notification.details?.operationId;
-
-    // Check if operationId is required but missing
-    if (config.requiresOperationId && !operationId) {
-      console.error('[UniversalNotificationBar] No operationId found for notification');
-      removeNotification(notificationId);
-      return;
-    }
-
-    // Set cancelling state to show UI feedback
-    updateNotification(notificationId, {
-      details: {
-        ...notification.details,
-        cancelling: true
-      }
-    });
-
-    try {
-      // If universal cancellation is supported and we have an operationId, use it
-      if (config.supportsUniversalCancel && operationId) {
-        await ApiService.cancelOperation(operationId);
-        removeNotification(notificationId);
-        return;
-      }
-
-      // Otherwise use the type-specific cancelFn
-      await config.cancelFn(operationId);
-      removeNotification(notificationId);
-    } catch (err: unknown) {
-      const errorMsg = getErrorMessage(err);
-      const patterns = config.alreadyCompletedPatterns || [];
-
-      // If operation is already completed/not found, just dismiss the notification silently
-      const isAlreadyCompleted = patterns.some((pattern) => errorMsg.includes(pattern));
-
-      if (isAlreadyCompleted) {
-        removeNotification(notificationId);
-      } else {
-        console.error('Failed to cancel operation:', err);
-
-        // Try force kill as fallback if available
-        if (config.supportsUniversalCancel && operationId) {
-          // Try universal force kill
-          try {
-            await ApiService.forceKillOperation(operationId);
-            removeNotification(notificationId);
-          } catch (forceErr) {
-            console.error('Universal force kill failed:', forceErr);
-            // Still remove notification to prevent stuck UI
-            removeNotification(notificationId);
-          }
-        } else if (config.forceKillFn) {
-          // Try type-specific force kill
-          try {
-            await config.forceKillFn(operationId);
-            removeNotification(notificationId);
-          } catch (forceErr) {
-            console.error('Force kill also failed:', forceErr);
-            // Still remove notification to prevent stuck UI
-            removeNotification(notificationId);
-          }
-        } else {
-          // No force kill available, just remove notification
-          removeNotification(notificationId);
-        }
-      }
-    }
-  };
-
-// Cancel handler configurations
-const CANCEL_CONFIGS: Record<string, CancelConfig> = {
-  cache_clearing: {
-    cancelFn: (opId) => ApiService.cancelCacheClear(opId!),
-    forceKillFn: (opId) => ApiService.forceKillCacheClear(opId!),
-    alreadyCompletedPatterns: ['Operation not found', 'already completed'],
-    requiresOperationId: true,
-    supportsUniversalCancel: true // Can use universal /api/operations/{id}/cancel
-  },
-  log_removal: {
-    cancelFn: () => ApiService.cancelServiceRemoval(),
-    forceKillFn: () => ApiService.forceKillServiceRemoval(),
-    alreadyCompletedPatterns: ['not found', 'No service removal'],
-    requiresOperationId: false,
-    supportsUniversalCancel: true // Can use universal cancel when operationId is available
-  },
-  depot_mapping: {
-    cancelFn: () => ApiService.cancelSteamKitRebuild(),
-    forceKillFn: undefined,
-    alreadyCompletedPatterns: [],
-    requiresOperationId: false,
-    supportsUniversalCancel: true // Can use universal cancel when operationId is available
-  },
-  corruption_removal: {
-    cancelFn: () => ApiService.cancelCorruptionRemoval(),
-    forceKillFn: undefined,
-    alreadyCompletedPatterns: ['not found', 'No active corruption removal'],
-    requiresOperationId: false,
-    supportsUniversalCancel: true // Can use universal cancel when operationId is available
-  },
-  log_processing: {
-    cancelFn: () => ApiService.cancelLogProcessing(),
-    forceKillFn: () => ApiService.forceKillLogProcessing(),
-    alreadyCompletedPatterns: ['not found', 'No log processing'],
-    requiresOperationId: false,
-    supportsUniversalCancel: true // Can use universal cancel when operationId is available
-  },
-  game_detection: {
-    cancelFn: () => ApiService.cancelGameDetection(),
-    forceKillFn: undefined,
-    alreadyCompletedPatterns: ['not found', 'No active game detection'],
-    requiresOperationId: false,
-    supportsUniversalCancel: true // Can use universal cancel when operationId is available
-  },
-  corruption_detection: {
-    cancelFn: () => ApiService.cancelCorruptionDetection(),
-    forceKillFn: undefined,
-    alreadyCompletedPatterns: ['not found', 'No active corruption detection'],
-    requiresOperationId: false,
-    supportsUniversalCancel: true // Can use universal cancel when operationId is available
+const handleCancel = async (
+  notification: UnifiedNotification,
+  updateNotification: (id: string, updates: Partial<UnifiedNotification>) => void,
+  removeNotification: (id: string) => void
+) => {
+  const operationId = notification.details?.operationId;
+  if (!operationId) {
+    console.error('[UniversalNotificationBar] No operationId for cancel');
+    removeNotification(notification.id);
+    return;
   }
+
+  updateNotification(notification.id, {
+    details: { ...notification.details, cancelling: true }
+  });
+
+  try {
+    await ApiService.cancelOperation(operationId);
+  } catch (err) {
+    console.error('Cancel failed:', err);
+  }
+  removeNotification(notification.id);
 };
 
 // ============================================================================
@@ -621,12 +504,24 @@ const UniversalNotificationBar: React.FC = () => {
     }, NOTIFICATION_ANIMATION_DURATION_MS);
   };
 
-  // Create cancel handler for a notification using the factory
+  // Create cancel handler for a notification
   const getCancelHandler = (notification: UnifiedNotification) => {
-    const config = CANCEL_CONFIGS[notification.type];
-    if (!config) return undefined;
+    // Only cancellable notification types
+    const cancellableTypes = [
+      'cache_clearing',
+      'log_removal',
+      'depot_mapping',
+      'corruption_removal',
+      'corruption_detection',
+      'log_processing',
+      'game_detection'
+    ];
 
-    return createCancelHandler(config, notification, updateNotification, removeNotification);
+    if (!cancellableTypes.includes(notification.type)) {
+      return undefined;
+    }
+
+    return () => handleCancel(notification, updateNotification, removeNotification);
   };
 
   // Don't render if no notifications and not animating

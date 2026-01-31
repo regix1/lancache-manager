@@ -499,21 +499,6 @@ public class LogsController : ControllerBase
     }
 
     /// <summary>
-    /// DELETE /api/logs/process/cancel - Cancel ongoing log processing
-    /// </summary>
-    [HttpDelete("process/cancel")]
-    [RequireAuth]
-    public IActionResult CancelLogProcessing()
-    {
-        var cancelled = _rustLogProcessorService.CancelProcessing();
-        if (!cancelled)
-        {
-            return NotFound(new { error = "No log processing operation to cancel" });
-        }
-        return Ok(new { message = "Cancellation requested for log processing" });
-    }
-
-    /// <summary>
     /// POST /api/logs/process/kill - Force kill log processing operation
     /// </summary>
     [HttpPost("process/kill")]
@@ -697,24 +682,6 @@ public class LogsController : ControllerBase
     {
         var status = _rustLogRemovalService.GetRemovalStatus();
         return Ok(status);
-    }
-
-    /// <summary>
-    /// DELETE /api/logs/remove/cancel - Cancel current service removal operation
-    /// RESTful: DELETE for cancelling/removing the operation
-    /// </summary>
-    [HttpDelete("remove/cancel")]
-    [RequireAuth]
-    public IActionResult CancelServiceRemoval()
-    {
-        var result = _rustLogRemovalService.CancelOperation();
-
-        if (!result)
-        {
-            return NotFound(new NotFoundResponse { Error = "No service removal operation running" });
-        }
-
-        return Ok(new CancellationResponse { Message = "Service removal cancellation requested", Cancelled = true });
     }
 
     /// <summary>

@@ -4,6 +4,7 @@ using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Models;
 using LancacheManager.Infrastructure.Utilities;
 using Microsoft.EntityFrameworkCore;
 
@@ -22,8 +23,10 @@ public class RustLogProcessorService
     private readonly ProcessManager _processManager;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly DatasourceService _datasourceService;
+    private readonly IUnifiedOperationTracker _operationTracker;
     private Process? _rustProcess;
     private CancellationTokenSource? _cancellationTokenSource;
+    private string? _currentOperationId;
     private Task? _progressMonitorTask;
     private readonly SemaphoreSlim _startLock = new(1, 1);
 
@@ -258,7 +261,8 @@ public class RustLogProcessorService
         IServiceProvider serviceProvider,
         ProcessManager processManager,
         RustProcessHelper rustProcessHelper,
-        DatasourceService datasourceService)
+        DatasourceService datasourceService,
+        IUnifiedOperationTracker operationTracker)
     {
         _logger = logger;
         _pathResolver = pathResolver;
@@ -268,6 +272,7 @@ public class RustLogProcessorService
         _processManager = processManager;
         _rustProcessHelper = rustProcessHelper;
         _datasourceService = datasourceService;
+        _operationTracker = operationTracker;
     }
 
     public class ProgressData
@@ -325,6 +330,13 @@ public class RustLogProcessorService
         try
         {
             _cancellationTokenSource = new CancellationTokenSource();
+            
+            // Register the operation with the unified tracker
+            _currentOperationId = _operationTracker.RegisterOperation(
+                OperationType.LogProcessing,
+                "Log Processing",
+                _cancellationTokenSource
+            );
 
             var dbPath = _pathResolver.GetDatabasePath();
             var operationsDir = _pathResolver.GetOperationsDirectory();
@@ -456,6 +468,13 @@ public class RustLogProcessorService
                 // Process was cancelled - don't send success/completion messages
                 _logger.LogInformation("Processing was cancelled (exit code: {ExitCode}, progress: {Progress}%)",
                     exitCode, finalProgress?.PercentComplete ?? 0);
+                
+                // Complete the operation with cancellation status
+                if (_currentOperationId != null)
+                {
+                    _operationTracker.CompleteOperation(_currentOperationId, false, "Operation was cancelled");
+                }
+                
                 return false;
             }
 
@@ -576,6 +595,12 @@ public class RustLogProcessorService
                     });
                 }
 
+                // Complete the operation successfully
+                if (_currentOperationId != null)
+                {
+                    _operationTracker.CompleteOperation(_currentOperationId, true);
+                }
+
                 return true;
             }
             else
@@ -595,6 +620,12 @@ public class RustLogProcessorService
                         elapsed = 0,
                         timestamp = DateTime.UtcNow
                     });
+                }
+
+                // Complete the operation with error
+                if (_currentOperationId != null)
+                {
+                    _operationTracker.CompleteOperation(_currentOperationId, false, $"Rust processor failed with exit code {exitCode}");
                 }
 
                 return false;
@@ -618,12 +649,20 @@ public class RustLogProcessorService
                 });
             }
 
+            // Complete the operation with error
+            if (_currentOperationId != null)
+            {
+                _operationTracker.CompleteOperation(_currentOperationId, false, ex.Message);
+            }
+
             return false;
         }
         finally
         {
             IsProcessing = false;
             IsSilentMode = false;
+            IsCancelling = false;
+            _currentOperationId = null;
             _cancellationTokenSource?.Dispose();
             _rustProcess?.Dispose();
         }
@@ -672,6 +711,12 @@ public class RustLogProcessorService
                 {
                     // Calculate MB processed based on percentage
                     var mbProcessed = mbTotal * (progress.PercentComplete / 100.0);
+
+                    // Update the unified operation tracker with progress
+                    if (_currentOperationId != null)
+                    {
+                        _operationTracker.UpdateProgress(_currentOperationId, progress.PercentComplete, progress.Message);
+                    }
 
                     // Send progress update via SignalR with all fields React expects
                     await _notifications.NotifyAllAsync(SignalREvents.ProcessingProgress, new

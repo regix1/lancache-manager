@@ -4,6 +4,7 @@ using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Models;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
@@ -28,6 +29,7 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     private readonly ISignalRNotificationService _notifications;
     private readonly SteamWebApiService _steamWebApiService;
     private readonly SteamAuthStorageService _steamAuthRepository;
+    private readonly IUnifiedOperationTracker _operationTracker;
     private SteamClient? _steamClient;
     private CallbackManager? _manager;
     private SteamUser? _steamUser;
@@ -119,7 +121,8 @@ public partial class SteamKit2Service : IHostedService, IDisposable
         IHttpClientFactory httpClientFactory,
         ISignalRNotificationService notifications,
         SteamWebApiService steamWebApiService,
-        SteamAuthStorageService steamAuthRepository)
+        SteamAuthStorageService steamAuthRepository,
+        IUnifiedOperationTracker operationTracker)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
@@ -131,6 +134,7 @@ public partial class SteamKit2Service : IHostedService, IDisposable
         _notifications = notifications;
         _steamWebApiService = steamWebApiService;
         _steamAuthRepository = steamAuthRepository;
+        _operationTracker = operationTracker;
     }
 
     /// <summary>

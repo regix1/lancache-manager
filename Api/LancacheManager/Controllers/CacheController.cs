@@ -486,23 +486,6 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
-    /// POST /api/cache/corruption/detect/cancel - Cancel the active corruption detection scan
-    /// </summary>
-    [HttpPost("corruption/detect/cancel")]
-    [RequireAuth]
-    public IActionResult CancelCorruptionDetection()
-    {
-        var cancelled = _corruptionDetectionService.CancelDetection();
-        if (!cancelled)
-        {
-            return NotFound(new ErrorResponse { Error = "No active corruption detection scan to cancel" });
-        }
-
-        _logger.LogInformation("[CorruptionDetection] Cancellation requested by user");
-        return Ok(new { Message = "Corruption detection scan cancellation requested" });
-    }
-
-    /// <summary>
     /// GET /api/cache/services/{name}/corruption - Get detailed corruption info for specific service
     /// Returns array of corrupted chunks with URLs, miss counts, and cache file paths
     /// </summary>
@@ -738,51 +721,6 @@ public class CacheController : ControllerBase
                 StartedAt = o.StartedAt
             })
         });
-    }
-
-    /// <summary>
-    /// POST /api/cache/corruption/cancel - Cancel active corruption removal operation
-    /// </summary>
-    [HttpPost("corruption/cancel")]
-    [RequireAuth]
-    public IActionResult CancelCorruptionRemoval([FromQuery] string? service = null)
-    {
-        // If service is specified, cancel that specific operation
-        if (!string.IsNullOrEmpty(service))
-        {
-            var cancelled = _removalTracker.CancelCorruptionRemoval(service);
-            if (!cancelled)
-            {
-                return NotFound(new ErrorResponse { Error = $"No active corruption removal found for service: {service}" });
-            }
-            
-            _logger.LogInformation("Cancellation requested for corruption removal: {Service}", service);
-            return Ok(new { Message = $"Cancellation requested for corruption removal of {service}", Service = service });
-        }
-        
-        // Otherwise, cancel any active corruption removal
-        var activeRemovals = _removalTracker.GetActiveCorruptionRemovals().ToList();
-        if (!activeRemovals.Any())
-        {
-            return NotFound(new ErrorResponse { Error = "No active corruption removal operation to cancel" });
-        }
-        
-        var cancelledServices = new List<string>();
-        foreach (var removal in activeRemovals)
-        {
-            if (_removalTracker.CancelCorruptionRemoval(removal.Name))
-            {
-                cancelledServices.Add(removal.Name);
-            }
-        }
-        
-        if (!cancelledServices.Any())
-        {
-            return Conflict(new ErrorResponse { Error = "Could not cancel operations (they may have already completed)" });
-        }
-        
-        _logger.LogInformation("Cancellation requested for corruption removal operations: {Services}", string.Join(", ", cancelledServices));
-        return Ok(new { Message = $"Cancellation requested for: {string.Join(", ", cancelledServices)}", Services = cancelledServices });
     }
 
     /// <summary>

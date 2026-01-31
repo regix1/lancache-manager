@@ -4,6 +4,7 @@ using System.Text.Json;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Models;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.Data.Sqlite;
@@ -26,9 +27,11 @@ public class GameCacheDetectionService : IDisposable
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly ISignalRNotificationService _notifications;
     private readonly DatasourceService _datasourceService;
+    private readonly IUnifiedOperationTracker _operationTracker;
     private readonly ConcurrentDictionary<string, DetectionOperation> _operations = new();
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private CancellationTokenSource? _cancellationTokenSource;
+    private string? _currentTrackerOperationId;
     private bool _disposed;
     private const string FailedDepotsStateKey = "failedDepotResolutions";
 
@@ -57,7 +60,8 @@ public class GameCacheDetectionService : IDisposable
         ProcessManager processManager,
         RustProcessHelper rustProcessHelper,
         ISignalRNotificationService notifications,
-        DatasourceService datasourceService)
+        DatasourceService datasourceService,
+        IUnifiedOperationTracker operationTracker)
     {
         _logger = logger;
         _pathResolver = pathResolver;
@@ -68,6 +72,7 @@ public class GameCacheDetectionService : IDisposable
         _rustProcessHelper = rustProcessHelper;
         _notifications = notifications;
         _datasourceService = datasourceService;
+        _operationTracker = operationTracker;
 
         _logger.LogInformation("GameCacheDetectionService initialized with {Count} datasource(s)", _datasourceService.DatasourceCount);
 
@@ -103,11 +108,19 @@ public class GameCacheDetectionService : IDisposable
             _cancellationTokenSource?.Dispose();
             _cancellationTokenSource = new CancellationTokenSource();
 
-            var operationId = Guid.NewGuid().ToString();
             var scanType = incremental ? "incremental" : "full";
             var message = incremental
                 ? "Starting incremental scan (new games and services only)..."
                 : "Starting full scan (all games and services)...";
+
+            // Register with unified operation tracker for centralized cancellation
+            _currentTrackerOperationId = _operationTracker.RegisterOperation(
+                OperationType.GameDetection,
+                "Game Detection",
+                _cancellationTokenSource,
+                new { scanType, incremental }
+            );
+            var operationId = _currentTrackerOperationId;
 
             var operation = new DetectionOperation
             {
@@ -632,6 +645,10 @@ public class GameCacheDetectionService : IDisposable
             _logger.LogInformation("[GameDetection] Completed: {Count} games detected across {DatasourceCount} datasource(s)",
                 totalGamesDetected, datasources.Count);
 
+            // Mark operation as complete in unified tracker
+            _operationTracker.CompleteOperation(operationId, success: true);
+            _currentTrackerOperationId = null;
+
             // Send SignalR notification that detection completed successfully
             await _notifications.NotifyAllAsync(SignalREvents.GameDetectionComplete, new
             {
@@ -662,6 +679,10 @@ public class GameCacheDetectionService : IDisposable
             _logger.LogInformation("[GameDetection] Operation {OperationId} was cancelled", operationId);
             operation.Status = "cancelled";
             operation.Message = "Detection cancelled by user";
+
+            // Mark operation as complete (cancelled) in unified tracker
+            _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
+            _currentTrackerOperationId = null;
 
             // Update persisted state with cancelled status
             _operationStateService.SaveState($"gameDetection_{operationId}", new OperationState
@@ -703,6 +724,10 @@ public class GameCacheDetectionService : IDisposable
             operation.Status = "failed";
             operation.Error = ex.Message;
             operation.Message = $"Detection failed: {ex.Message}";
+
+            // Mark operation as complete (failed) in unified tracker
+            _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
+            _currentTrackerOperationId = null;
 
             // Update persisted state with failed status
             _operationStateService.SaveState($"gameDetection_{operationId}", new OperationState
@@ -753,16 +778,30 @@ public class GameCacheDetectionService : IDisposable
 
     /// <summary>
     /// Cancel the currently running detection operation.
+    /// Delegates to UnifiedOperationTracker for centralized cancellation.
     /// </summary>
+    /// <remarks>
+    /// This method exists for backward compatibility with GamesController.
+    /// Prefer using OperationsController.CancelOperation with operationId for new code.
+    /// </remarks>
     public void CancelDetection()
     {
-        var activeOp = GetActiveOperation();
-        if (activeOp != null)
+        if (!string.IsNullOrEmpty(_currentTrackerOperationId))
         {
-            _logger.LogInformation("[GameDetection] Cancelling detection operation {OperationId}", activeOp.OperationId);
-            _cancellationTokenSource?.Cancel();
-            activeOp.Status = "cancelled";
-            activeOp.Message = "Detection cancelled by user";
+            _logger.LogInformation("[GameDetection] Cancelling detection via UnifiedOperationTracker: {OperationId}", _currentTrackerOperationId);
+            _operationTracker.CancelOperation(_currentTrackerOperationId);
+        }
+        else
+        {
+            // Fallback: Cancel directly if tracker ID not available
+            var activeOp = GetActiveOperation();
+            if (activeOp != null)
+            {
+                _logger.LogInformation("[GameDetection] Cancelling detection operation {OperationId} directly", activeOp.OperationId);
+                _cancellationTokenSource?.Cancel();
+                activeOp.Status = "cancelled";
+                activeOp.Message = "Detection cancelled by user";
+            }
         }
     }
 

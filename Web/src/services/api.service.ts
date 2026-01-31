@@ -492,73 +492,6 @@ class ApiService {
   // Get status of cache clearing operation
   
 
-  // Cancel cache clearing operation (requires auth)
-  static async cancelCacheClear(operationId: string): Promise<OperationResponse> {
-    try {
-      const res = await fetch(`${API_BASE}/cache/operations/${operationId}`, this.getFetchOptions({
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(5000)
-      }));
-      return await this.handleResponse<OperationResponse>(res);
-    } catch (error: unknown) {
-      // Suppress logging for "operation not found" errors (expected when operation already completed)
-      const errorMsg = getErrorMessage(error);
-      if (
-        !errorMsg.includes('Operation not found') &&
-        !errorMsg.includes('already completed')
-      ) {
-        console.error('cancelCacheClear error:', error);
-      }
-      throw error;
-    }
-  }
-
-  // Force kill cache clearing operation (requires auth) - kills the Rust process
-  static async forceKillCacheClear(operationId: string): Promise<OperationResponse> {
-    try {
-      const res = await fetch(`${API_BASE}/cache/operations/${operationId}/kill`, this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(10000)
-      }));
-      return await this.handleResponse<OperationResponse>(res);
-    } catch (error: unknown) {
-      console.error('forceKillCacheClear error:', error);
-      throw error;
-    }
-  }
-
-  // Cancel service removal operation (requires auth)
-  static async cancelServiceRemoval(): Promise<OperationResponse> {
-    try {
-      const res = await fetch(`${API_BASE}/logs/remove/cancel`, this.getFetchOptions({
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(5000)
-      }));
-      return await this.handleResponse<OperationResponse>(res);
-    } catch (error: unknown) {
-      console.error('cancelServiceRemoval error:', error);
-      throw error;
-    }
-  }
-
-  // Force kill service removal operation (requires auth) - kills the Rust process
-  static async forceKillServiceRemoval(): Promise<OperationResponse> {
-    try {
-      const res = await fetch(`${API_BASE}/logs/remove/kill`, this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(10000)
-      }));
-      return await this.handleResponse<OperationResponse>(res);
-    } catch (error: unknown) {
-      console.error('forceKillServiceRemoval error:', error);
-      throw error;
-    }
-  }
-
   // Reset selected database tables (requires auth)
   static async resetSelectedTables(tableNames: string[]): Promise<OperationResponse> {
     try {
@@ -646,37 +579,6 @@ class ApiService {
       throw error;
     }
   }
-
-  // Cancel ongoing log processing
-  static async cancelLogProcessing(signal?: AbortSignal): Promise<OperationResponse> {
-    try {
-      const res = await fetch(`${API_BASE}/logs/process/cancel`, this.getFetchOptions({
-        method: 'DELETE',
-        signal,
-        headers: { 'Content-Type': 'application/json' }
-      }));
-      return await this.handleResponse<OperationResponse>(res);
-    } catch (error: unknown) {
-      console.error('cancelLogProcessing error:', error);
-      throw error;
-    }
-  }
-
-  // Force kill log processing
-  static async forceKillLogProcessing(signal?: AbortSignal): Promise<OperationResponse> {
-    try {
-      const res = await fetch(`${API_BASE}/logs/process/kill`, this.getFetchOptions({
-        method: 'POST',
-        signal,
-        headers: { 'Content-Type': 'application/json' }
-      }));
-      return await this.handleResponse<OperationResponse>(res);
-    } catch (error: unknown) {
-      console.error('forceKillLogProcessing error:', error);
-      throw error;
-    }
-  }
-
 
   static async getProcessingStatus(): Promise<ProcessingStatus> {
     try {
@@ -933,23 +835,8 @@ class ApiService {
     }
   }
 
-  // Cancel corruption detection scan
-  static async cancelCorruptionDetection(signal?: AbortSignal): Promise<{ message: string }> {
-    try {
-      const res = await fetch(`${API_BASE}/cache/corruption/detect/cancel`, this.getFetchOptions({
-        method: 'POST',
-        signal,
-        headers: { 'Content-Type': 'application/json' }
-      }));
-      return await this.handleResponse<{ message: string }>(res);
-    } catch (error) {
-      console.error('cancelCorruptionDetection error:', error);
-      throw error;
-    }
-  }
-
   // Get corruption detection status
-  
+
 
   // Remove corrupted chunks for a specific service (requires auth)
   static async removeCorruptedChunks(
@@ -964,21 +851,6 @@ class ApiService {
       return await this.handleResponse<{ message: string; service: string }>(res);
     } catch (error) {
       console.error('removeCorruptedChunks error:', error);
-      throw error;
-    }
-  }
-
-  // Cancel corruption removal operation
-  static async cancelCorruptionRemoval(signal?: AbortSignal): Promise<{ message: string }> {
-    try {
-      const res = await fetch(`${API_BASE}/cache/corruption/cancel`, this.getFetchOptions({
-        method: 'POST',
-        signal,
-        headers: { 'Content-Type': 'application/json' }
-      }));
-      return await this.handleResponse<{ message: string }>(res);
-    } catch (error) {
-      console.error('cancelCorruptionRemoval error:', error);
       throw error;
     }
   }
@@ -1011,21 +883,6 @@ class ApiService {
       return await this.handleResponse<{ operationId: string }>(res);
     } catch (error) {
       console.error('startGameCacheDetection error:', error);
-      throw error;
-    }
-  }
-
-  // Cancel game cache detection operation
-  static async cancelGameDetection(signal?: AbortSignal): Promise<{ message: string }> {
-    try {
-      const res = await fetch(`${API_BASE}/games/detect/cancel`, this.getFetchOptions({
-        method: 'POST',
-        signal,
-        headers: { 'Content-Type': 'application/json' }
-      }));
-      return await this.handleResponse<{ message: string }>(res);
-    } catch (error) {
-      console.error('cancelGameDetection error:', error);
       throw error;
     }
   }

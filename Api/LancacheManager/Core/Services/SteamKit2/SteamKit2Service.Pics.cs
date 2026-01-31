@@ -2,6 +2,7 @@ using System.Text.Json;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Core.Models;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using SteamKit2;
@@ -47,23 +48,38 @@ public partial class SteamKit2Service
                 : new CancellationTokenSource();
         }
 
+        // Register the operation with the unified tracker
+        var operationId = _operationTracker.RegisterOperation(
+            OperationType.DepotMapping,
+            "Depot Mapping",
+            _currentRebuildCts
+        );
+
         async Task RunAsync()
         {
+            bool success = false;
+            string? errorMessage = null;
             try
             {
                 await ConnectAndBuildIndexAsync(_currentRebuildCts.Token, incrementalOnly).ConfigureAwait(false);
                 _logger.LogInformation("PICS crawl completed successfully");
+                success = true;
             }
             catch (OperationCanceledException)
             {
                 _logger.LogInformation("Steam PICS depot crawl cancelled");
+                errorMessage = "Operation cancelled";
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Steam PICS depot crawl failed");
+                errorMessage = ex.Message;
             }
             finally
             {
+                // Complete the operation tracking
+                _operationTracker.CompleteOperation(operationId, success, errorMessage);
+
                 // Clear rebuild flag BEFORE disconnecting to prevent reconnection attempts
                 Interlocked.Exchange(ref _rebuildActive, 0);
 

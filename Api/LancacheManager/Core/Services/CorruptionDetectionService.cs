@@ -5,6 +5,7 @@ using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Models;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
@@ -25,6 +26,7 @@ public class CorruptionDetectionService
     private readonly DatasourceService _datasourceService;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly OperationStateService _operationStateService;
+    private readonly IUnifiedOperationTracker _operationTracker;
 
     // Track active detection operations
     private readonly ConcurrentDictionary<string, DetectionOperation> _operations = new();
@@ -36,6 +38,7 @@ public class CorruptionDetectionService
     public class DetectionOperation
     {
         public string OperationId { get; set; } = string.Empty;
+        public string? TrackerOperationId { get; set; }
         public DateTime StartTime { get; set; }
         public string Status { get; set; } = "running";
         public string Message { get; set; } = string.Empty;
@@ -51,7 +54,8 @@ public class CorruptionDetectionService
         ISignalRNotificationService notifications,
         DatasourceService datasourceService,
         IDbContextFactory<AppDbContext> dbContextFactory,
-        OperationStateService operationStateService)
+        OperationStateService operationStateService,
+        IUnifiedOperationTracker operationTracker)
     {
         _logger = logger;
         _pathResolver = pathResolver;
@@ -61,6 +65,7 @@ public class CorruptionDetectionService
         _datasourceService = datasourceService;
         _dbContextFactory = dbContextFactory;
         _operationStateService = operationStateService;
+        _operationTracker = operationTracker;
     }
 
     /// <summary>
@@ -95,6 +100,13 @@ public class CorruptionDetectionService
             _cancellationTokenSource?.Cancel();
             _cancellationTokenSource?.Dispose();
             _cancellationTokenSource = new CancellationTokenSource();
+
+            // Register with unified operation tracker
+            var trackerOperationId = _operationTracker.RegisterOperation(
+                OperationType.CorruptionDetection,
+                "Corruption Detection",
+                _cancellationTokenSource);
+            operation.TrackerOperationId = trackerOperationId;
 
             // Save operation state for recovery
             _operationStateService.SaveState($"{OperationStateKey}_{operationId}", new OperationState
@@ -185,6 +197,12 @@ public class CorruptionDetectionService
             // Clear operation state
             _operationStateService.RemoveState($"{OperationStateKey}_{operationId}");
 
+            // Complete unified operation tracker
+            if (operation.TrackerOperationId != null)
+            {
+                _operationTracker.CompleteOperation(operation.TrackerOperationId, success: true);
+            }
+
             // Send completion notification via SignalR
             await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionComplete, new
             {
@@ -207,6 +225,12 @@ public class CorruptionDetectionService
             // Clear operation state
             _operationStateService.RemoveState($"{OperationStateKey}_{operationId}");
 
+            // Complete unified operation tracker
+            if (operation.TrackerOperationId != null)
+            {
+                _operationTracker.CompleteOperation(operation.TrackerOperationId, success: false, error: "Cancelled by user");
+            }
+
             // Send cancellation notification via SignalR
             await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionComplete, new
             {
@@ -225,6 +249,12 @@ public class CorruptionDetectionService
 
             // Clear operation state
             _operationStateService.RemoveState($"{OperationStateKey}_{operationId}");
+
+            // Complete unified operation tracker
+            if (operation.TrackerOperationId != null)
+            {
+                _operationTracker.CompleteOperation(operation.TrackerOperationId, success: false, error: ex.Message);
+            }
 
             // Send failure notification via SignalR
             await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionComplete, new

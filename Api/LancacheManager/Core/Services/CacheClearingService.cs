@@ -3,6 +3,7 @@ using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Platform;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Models;
 using LancacheManager.Infrastructure.Utilities;
 using ModelCacheClearOperation = LancacheManager.Models.CacheClearOperation;
 
@@ -18,10 +19,12 @@ public class CacheClearingService : IHostedService
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly DatasourceService _datasourceService;
     private readonly RemovalOperationTracker _removalTracker;
+    private readonly IUnifiedOperationTracker _operationTracker;
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private readonly string _cachePath;
     private Timer? _cleanupTimer;
     private string _deleteMode;
+    private string? _currentTrackerOperationId;
 
     public CacheClearingService(
         ILogger<CacheClearingService> logger,
@@ -32,7 +35,8 @@ public class CacheClearingService : IHostedService
         ProcessManager processManager,
         RustProcessHelper rustProcessHelper,
         DatasourceService datasourceService,
-        RemovalOperationTracker removalTracker)
+        RemovalOperationTracker removalTracker,
+        IUnifiedOperationTracker operationTracker)
     {
         _logger = logger;
         _notifications = notifications;
@@ -42,6 +46,7 @@ public class CacheClearingService : IHostedService
         _rustProcessHelper = rustProcessHelper;
         _datasourceService = datasourceService;
         _removalTracker = removalTracker;
+        _operationTracker = operationTracker;
 
         _deleteMode = "preserve";
 
@@ -129,9 +134,17 @@ public class CacheClearingService : IHostedService
                 return null; // Return null to indicate operation already running
             }
 
-            var operationId = Guid.NewGuid().ToString();
             var cts = new CancellationTokenSource();
-            
+
+            // Register with unified operation tracker for centralized cancellation
+            _currentTrackerOperationId = _operationTracker.RegisterOperation(
+                OperationType.CacheClearing,
+                "Cache Clearing",
+                cts,
+                new { datasourceName, trackerKey }
+            );
+            var operationId = _currentTrackerOperationId;
+
             // Start tracking the operation
             _removalTracker.StartCacheClearing(trackerKey, operationId, cts);
             
@@ -185,6 +198,11 @@ public class CacheClearingService : IHostedService
 
                 _logger.LogWarning("[CacheClear] Permission check failed: {Error}", errorMessage);
                 _removalTracker.CompleteCacheClearing(trackerKey, false, errorMessage);
+
+                // Mark operation as complete (failed) in unified tracker
+                _operationTracker.CompleteOperation(operationId, success: false, error: errorMessage);
+                _currentTrackerOperationId = null;
+
                 await NotifyProgress(trackerKey);
 
                 await _notifications.NotifyAllAsync(SignalREvents.CacheClearComplete, new
@@ -218,7 +236,13 @@ public class CacheClearingService : IHostedService
 
                 if (!datasources.Any())
                 {
-                    _removalTracker.CompleteCacheClearing(trackerKey, false, $"Datasource '{datasourceName}' not found");
+                    var errorMessage = $"Datasource '{datasourceName}' not found";
+                    _removalTracker.CompleteCacheClearing(trackerKey, false, errorMessage);
+
+                    // Mark operation as complete (failed) in unified tracker
+                    _operationTracker.CompleteOperation(operationId, success: false, error: errorMessage);
+                    _currentTrackerOperationId = null;
+
                     await NotifyProgress(trackerKey);
                     SaveOperationToState(trackerKey, operationId);
                     return;
@@ -276,6 +300,11 @@ public class CacheClearingService : IHostedService
                 var error = "No cache directories found in any datasource";
                 _logger.LogWarning("Cache clear operation {OperationId} failed: {Error}", operationId, error);
                 _removalTracker.CompleteCacheClearing(trackerKey, false, error);
+
+                // Mark operation as complete (failed) in unified tracker
+                _operationTracker.CompleteOperation(operationId, success: false, error: error);
+                _currentTrackerOperationId = null;
+
                 await NotifyProgress(trackerKey);
 
                 await _notifications.NotifyAllAsync(SignalREvents.CacheClearComplete, new
@@ -306,6 +335,11 @@ public class CacheClearingService : IHostedService
             {
                 var error = $"Rust cache_cleaner binary not found at {rustBinaryPath}";
                 _removalTracker.CompleteCacheClearing(trackerKey, false, error);
+
+                // Mark operation as complete (failed) in unified tracker
+                _operationTracker.CompleteOperation(operationId, success: false, error: error);
+                _currentTrackerOperationId = null;
+
                 await NotifyProgress(trackerKey);
 
                 // Send completion notification
@@ -352,6 +386,11 @@ public class CacheClearingService : IHostedService
                 if (operation?.CancellationTokenSource?.Token.IsCancellationRequested == true)
                 {
                     _removalTracker.CompleteCacheClearing(trackerKey, false, "Cancelled by user");
+
+                    // Mark operation as complete (cancelled) in unified tracker
+                    _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
+                    _currentTrackerOperationId = null;
+
                     var cancelledOp = _removalTracker.GetCacheClearingStatus(trackerKey);
                     if (cancelledOp != null)
                     {
@@ -396,6 +435,11 @@ public class CacheClearingService : IHostedService
                             {
                                 process.Kill();
                                 _removalTracker.CompleteCacheClearing(trackerKey, false, "Cancelled by user");
+
+                                // Mark operation as complete (cancelled) in unified tracker
+                                _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
+                                _currentTrackerOperationId = null;
+
                                 var cancelledOp = _removalTracker.GetCacheClearingStatus(trackerKey);
                                 if (cancelledOp != null)
                                 {
@@ -520,6 +564,10 @@ public class CacheClearingService : IHostedService
             _removalTracker.UpdateCacheClearing(trackerKey, "complete", successMessage);
             _removalTracker.CompleteCacheClearing(trackerKey, true);
 
+            // Mark operation as complete in unified tracker
+            _operationTracker.CompleteOperation(operationId, success: true);
+            _currentTrackerOperationId = null;
+
             operation = _removalTracker.GetCacheClearingStatus(trackerKey);
             var duration = operation?.CompletedAt.HasValue == true 
                 ? (operation.CompletedAt.Value - operation.StartedAt).TotalSeconds 
@@ -550,6 +598,11 @@ public class CacheClearingService : IHostedService
             _logger.LogInformation("Cache clear operation {OperationId} was cancelled by user", operationId);
 
             _removalTracker.CompleteCacheClearing(trackerKey, false, "Cancelled by user");
+
+            // Mark operation as complete (cancelled) in unified tracker
+            _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
+            _currentTrackerOperationId = null;
+
             var operation = _removalTracker.GetCacheClearingStatus(trackerKey);
             if (operation != null)
             {
@@ -586,6 +639,11 @@ public class CacheClearingService : IHostedService
             }
 
             _removalTracker.CompleteCacheClearing(trackerKey, false, ex.Message);
+
+            // Mark operation as complete (failed) in unified tracker
+            _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
+            _currentTrackerOperationId = null;
+
             await NotifyProgress(trackerKey);
 
             // Send failure notification
