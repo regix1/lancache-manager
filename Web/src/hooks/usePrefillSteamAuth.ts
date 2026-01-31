@@ -233,27 +233,53 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     const attemptAutoLogin = async () => {
       autoLoginAttemptedRef.current = true;
       setAutoLoginState('attempting');
-      onAutoLoginStart?.();
 
       try {
-        const result = await hubConnection.invoke<AutoLoginResult>('TryAutoLogin', sessionId);
+        onAutoLoginStart?.();
+      } catch (e) {
+        console.error('[usePrefillSteamAuth] onAutoLoginStart callback failed:', e);
+      }
+
+      // Add timeout to prevent hanging - auto-login should complete within 30 seconds
+      const timeoutPromise = new Promise<AutoLoginResult>((_, reject) => {
+        setTimeout(() => reject(new Error('Auto-login timed out')), 30000);
+      });
+
+      try {
+        const result = await Promise.race([
+          hubConnection.invoke<AutoLoginResult>('TryAutoLogin', sessionId),
+          timeoutPromise
+        ]);
 
         if (result.success) {
           setAutoLoginState('success');
-          onAutoLoginResult?.(result);
         } else {
+          // Always set to failed first, before calling callback
           setAutoLoginState('failed');
+        }
+
+        // Call callback in separate try-catch to ensure state is updated even if callback fails
+        try {
           onAutoLoginResult?.(result);
+        } catch (callbackErr) {
+          console.error('[usePrefillSteamAuth] onAutoLoginResult callback failed:', callbackErr);
         }
       } catch (err) {
         console.error('[usePrefillSteamAuth] Auto-login failed:', err);
+        // Always set to failed first
+        setAutoLoginState('failed');
+
         const failureResult: AutoLoginResult = {
           success: false,
           reason: 'error',
           message: err instanceof Error ? err.message : 'Auto-login request failed'
         };
-        setAutoLoginState('failed');
-        onAutoLoginResult?.(failureResult);
+
+        try {
+          onAutoLoginResult?.(failureResult);
+        } catch (callbackErr) {
+          console.error('[usePrefillSteamAuth] onAutoLoginResult callback failed:', callbackErr);
+        }
       }
     };
 

@@ -167,10 +167,15 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         addLog('success', `Auto-login successful${result.username ? ` as ${result.username}` : ''}`);
       } else {
         setAutoLoginMessage(null);
-        if (result.reason === 'no-saved-credentials') {
+        // Handle expected "no token" cases silently - just open modal
+        const isNoTokenCase = result.reason === 'no-saved-credentials' ||
+                              result.reason === 'no_token' ||
+                              result.reason === 'unauthorized';
+        if (isNoTokenCase) {
           setShowAuthModal(true);
-          addLog('info', result.message || 'No saved credentials found. Please log in manually.');
+          addLog('info', 'Please log in to Steam to continue.');
         } else {
+          // For actual errors, show the modal and log the warning
           setShowAuthModal(true);
           addLog('warning', result.message || 'Auto-login failed. Please log in manually.');
         }
