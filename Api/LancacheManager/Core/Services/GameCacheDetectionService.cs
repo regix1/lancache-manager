@@ -361,14 +361,10 @@ public class GameCacheDetectionService : IDisposable
                 outputJsonFiles.Add(outputJson);
 
                 _logger.LogInformation("[GameDetection] Scanning datasource '{DatasourceName}': {CachePath}", datasource.Name, cachePath);
-                
-                var scanMessage = datasources.Count > 1
-                    ? $"Scanning datasource '{datasource.Name}'..."
-                    : "Scanning database and cache directory...";
-                
-                // Calculate progress: 30-70% for scanning (40% range divided by datasource count)
+
+                // Calculate progress base for this datasource (used for game processing progress later)
+                // Note: We don't send progress here - the Rust process will send accurate live progress
                 var progressBase = 30 + (40.0 * datasourceIndex / datasources.Count);
-                await SendProgressAsync("scanning", scanMessage, aggregatedGames.Count, aggregatedServices.Count, progressBase);
 
                 // Build arguments
                 // Add --incremental flag for quick scans to skip the expensive cache directory scan
