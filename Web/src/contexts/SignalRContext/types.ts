@@ -150,6 +150,7 @@ export const SIGNALR_REFRESH_EVENTS = [
 // SignalR Event Types
 
 export interface ProcessingProgressEvent {
+  operationId?: string;
   percentComplete?: number;
   progress?: number;
   status?: string;
@@ -170,6 +171,7 @@ export interface FastProcessingCompleteEvent {
 }
 
 export interface LogRemovalProgressEvent {
+  operationId?: string;
   service: string;
   status: 'starting' | 'removing' | 'complete' | 'error';
   message?: string;

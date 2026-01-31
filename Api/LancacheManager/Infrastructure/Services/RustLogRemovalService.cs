@@ -205,6 +205,7 @@ public class RustLogRemovalService
                 // Send initial progress notification
                 await _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
                 {
+                    operationId = _currentTrackerOperationId,
                     filesProcessed = 0,
                     linesProcessed = 0,
                     linesRemoved = 0,
@@ -438,6 +439,7 @@ public class RustLogRemovalService
 
                 await _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
                 {
+                    operationId = _currentTrackerOperationId,
                     filesProcessed = 0,
                     linesProcessed = 0,
                     linesRemoved = 0,
@@ -582,6 +584,7 @@ public class RustLogRemovalService
                     // Send progress update via SignalR
                     await _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
                     {
+                        operationId = _currentTrackerOperationId,
                         filesProcessed = progress.FilesProcessed,
                         linesProcessed = progress.LinesProcessed,
                         linesRemoved = progress.LinesRemoved,
@@ -730,6 +733,7 @@ public class RustLogRemovalService
             // Send progress update
             await _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
             {
+                operationId = _currentTrackerOperationId,
                 filesProcessed = 0,
                 linesProcessed = 0,
                 linesRemoved = 0,

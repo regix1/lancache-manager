@@ -96,9 +96,8 @@ public class CorruptionDetectionService
 
             _operations[operationId] = operation;
 
-            // Cancel any existing token source and create a new one
-            _cancellationTokenSource?.Cancel();
-            _cancellationTokenSource?.Dispose();
+            // Create a new cancellation token source
+            // Note: Don't cancel/dispose old one here - it may have been disposed by CompleteOperation
             _cancellationTokenSource = new CancellationTokenSource();
 
             // Register with unified operation tracker
@@ -118,9 +117,10 @@ public class CorruptionDetectionService
             });
 
             // Send start notification via SignalR
+            // Use trackerOperationId so frontend can cancel via /api/operations/{id}/cancel
             await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionStarted, new
             {
-                operationId,
+                operationId = trackerOperationId,
                 message = "Starting corruption detection scan..."
             });
 
@@ -168,8 +168,8 @@ public class CorruptionDetectionService
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var dsCounts = await GetCorruptionSummaryForDatasource(
-                    datasource.LogPath, datasource.CachePath, timezone, rustBinaryPath, 
-                    operationId, datasource.Name, cancellationToken);
+                    datasource.LogPath, datasource.CachePath, timezone, rustBinaryPath,
+                    operationId, operation.TrackerOperationId ?? operationId, datasource.Name, cancellationToken);
 
                 // Aggregate counts
                 foreach (var kvp in dsCounts)
@@ -204,9 +204,10 @@ public class CorruptionDetectionService
             }
 
             // Send completion notification via SignalR
+            // Use TrackerOperationId so frontend can cancel via /api/operations/{id}/cancel
             await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionComplete, new
             {
-                operationId,
+                operationId = operation.TrackerOperationId,
                 success = true,
                 message = operation.Message,
                 totalServicesWithCorruption = aggregatedCounts.Count,
@@ -234,7 +235,7 @@ public class CorruptionDetectionService
             // Send cancellation notification via SignalR
             await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionComplete, new
             {
-                operationId,
+                operationId = operation.TrackerOperationId,
                 success = false,
                 cancelled = true,
                 error = "Detection cancelled by user"
@@ -259,7 +260,7 @@ public class CorruptionDetectionService
             // Send failure notification via SignalR
             await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionComplete, new
             {
-                operationId,
+                operationId = operation.TrackerOperationId,
                 success = false,
                 error = ex.Message
             });
@@ -270,8 +271,8 @@ public class CorruptionDetectionService
     /// Get corruption summary for a specific datasource with progress tracking.
     /// </summary>
     private async Task<Dictionary<string, long>> GetCorruptionSummaryForDatasource(
-        string logDir, string cacheDir, string timezone, string rustBinaryPath, 
-        string operationId, string datasourceName, CancellationToken cancellationToken)
+        string logDir, string cacheDir, string timezone, string rustBinaryPath,
+        string operationId, string trackerOperationId, string datasourceName, CancellationToken cancellationToken)
     {
         // Create progress file for this datasource
         var operationsDir = _pathResolver.GetOperationsDirectory();
@@ -315,9 +316,10 @@ public class CorruptionDetectionService
                             lastPercent = progressData.PercentComplete;
 
                             // Send progress notification via SignalR
+                            // Use trackerOperationId so frontend can cancel via /api/operations/{id}/cancel
                             await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionProgress, new
                             {
-                                operationId,
+                                operationId = trackerOperationId,
                                 status = progressData.Status,
                                 message = progressData.Message,
                                 filesProcessed = progressData.FilesProcessed,

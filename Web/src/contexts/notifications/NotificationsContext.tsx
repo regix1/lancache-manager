@@ -295,6 +295,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       const message = formatLogProcessingMessage(event);
       const detailMessage = formatLogProcessingDetailMessage(event);
       const details = {
+        operationId: event.operationId,
         mbProcessed: event.mbProcessed,
         mbTotal: event.mbTotal,
         entriesProcessed: event.entriesProcessed,
@@ -365,6 +366,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getMessage: formatLogRemovalProgressMessage,
         getProgress: (e) => e.percentComplete || 0,
         getDetails: (e) => ({
+          operationId: e.operationId,
           service: e.service,
           linesProcessed: e.linesProcessed,
           linesRemoved: e.linesRemoved

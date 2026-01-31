@@ -414,6 +414,7 @@ public class RustLogProcessorService
             {
                 await _notifications.NotifyAllAsync(SignalREvents.ProcessingProgress, new
                 {
+                    operationId = _currentOperationId,
                     totalLines = 0,
                     linesParsed = 0,
                     entriesSaved = 0,
@@ -502,6 +503,7 @@ public class RustLogProcessorService
                         // Send final progress update with 100% and complete status
                         await _notifications.NotifyAllAsync(SignalREvents.ProcessingProgress, new
                         {
+                            operationId = _currentOperationId,
                             totalLines = finalProgress.TotalLines,
                             linesParsed = finalProgress.LinesParsed,
                             entriesSaved = finalProgress.EntriesSaved,
@@ -721,6 +723,7 @@ public class RustLogProcessorService
                     // Send progress update via SignalR with all fields React expects
                     await _notifications.NotifyAllAsync(SignalREvents.ProcessingProgress, new
                     {
+                        operationId = _currentOperationId,
                         totalLines = progress.TotalLines,
                         linesParsed = progress.LinesParsed,
                         entriesSaved = progress.EntriesSaved,
