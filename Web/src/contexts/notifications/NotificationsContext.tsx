@@ -612,7 +612,6 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getErrorMessage: (e) => e.message
       },
       setNotifications,
-      updateNotification,
       scheduleAutoDismiss,
       cancelAutoDismissTimer
     );

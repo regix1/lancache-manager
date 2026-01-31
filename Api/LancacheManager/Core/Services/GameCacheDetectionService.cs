@@ -15,7 +15,7 @@ namespace LancacheManager.Core.Services;
 /// <summary>
 /// Service for running game cache detection as a background operation
 /// </summary>
-public class GameCacheDetectionService
+public class GameCacheDetectionService : IDisposable
 {
     private readonly ILogger<GameCacheDetectionService> _logger;
     private readonly IPathResolver _pathResolver;
@@ -29,6 +29,7 @@ public class GameCacheDetectionService
     private readonly ConcurrentDictionary<string, DetectionOperation> _operations = new();
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private CancellationTokenSource? _cancellationTokenSource;
+    private bool _disposed;
     private const string FailedDepotsStateKey = "failedDepotResolutions";
 
     public class DetectionOperation
@@ -79,6 +80,16 @@ public class GameCacheDetectionService
         await _startLock.WaitAsync();
         try
         {
+            // Clean up stale operations (running for more than 30 minutes)
+            var staleOperations = _operations.Values
+                .Where(op => op.Status == "running" && op.StartTime < DateTime.UtcNow.AddMinutes(-30))
+                .ToList();
+            foreach (var stale in staleOperations)
+            {
+                _logger.LogWarning("Cleaning up stale operation {OperationId} that started at {StartTime}", stale.OperationId, stale.StartTime);
+                _operations.TryRemove(stale.OperationId, out _);
+            }
+
             // Check if there's already an active detection
             var activeOp = _operations.Values.FirstOrDefault(o => o.Status == "running");
             if (activeOp != null)
@@ -1297,5 +1308,19 @@ public class GameCacheDetectionService
 
         [System.Text.Json.Serialization.JsonPropertyName("timestamp")]
         public string? Timestamp { get; set; }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _cancellationTokenSource?.Cancel();
+        _cancellationTokenSource?.Dispose();
+        _startLock.Dispose();
+
+        _disposed = true;
     }
 }

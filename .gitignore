@@ -113,6 +113,8 @@ CLAUDE.md
 nul
 project.yml
 .serena/
+.swarm/
+.claude-flow/
 tmpclaude-*
 **/tmpclaude-*
 

@@ -11,7 +11,6 @@ import type {
   ScheduleAutoDismiss,
   CancelAutoDismissTimer
 } from './types';
-import { COMPLETION_ANIMATION_DELAY_MS } from './constants';
 
 // ============================================================================
 // Started Handler Factory
@@ -75,10 +74,12 @@ export function createStartedHandler<T>(
     cancelAutoDismissTimer?.(notificationId);
 
     setNotifications((prev: UnifiedNotification[]) => {
-      // Check if already exists (skip if not replacing)
+      // Check if already exists in running state (skip if running and not replacing)
       if (!config.replaceExisting) {
         const existing = prev.find((n) => n.id === notificationId);
-        if (existing) return prev;
+        // Only skip if existing notification is still running
+        // Allow replacing completed/failed notifications with new started ones
+        if (existing && existing.status === 'running') return prev;
       }
 
       const newNotification: UnifiedNotification = {
@@ -160,16 +161,15 @@ export function createProgressHandler<T>(
     const notificationId = config.getId(event);
 
     setNotifications((prev: UnifiedNotification[]) => {
-      // Check if any notification with this ID exists (running, completed, or failed)
-      const existingAny = prev.find((n) => n.id === notificationId);
-      
+      const existing = prev.find((n) => n.id === notificationId);
+
       // If notification exists but is completed/failed, ignore late progress events
       // This prevents duplicates when progress events arrive after completion
-      if (existingAny && existingAny.status !== 'running') {
+      if (existing && existing.status !== 'running') {
         return prev;
       }
 
-      if (existingAny && existingAny.status === 'running') {
+      if (existing) {
         // Update existing running notification
         return prev.map((n) => {
           if (n.id === notificationId) {
@@ -272,56 +272,54 @@ export function createCompletionHandler<T extends { success: boolean; message?: 
   return (event: T): void => {
     const notificationId = config.getId(event);
 
-    // Clear from localStorage
+    // Clear from localStorage IMMEDIATELY to prevent stuck state on refresh
     localStorage.removeItem(config.storageKey);
 
     if (config.useAnimationDelay) {
-      // First update progress to 100 while keeping status as 'running'
+      // FIXED: Single atomic update that sets BOTH progress=100 AND final status
+      // This eliminates the race condition from two-phase updates
+      // CSS transitions handle the visual animation, not delayed state changes
       setNotifications((prev: UnifiedNotification[]) => {
         const existing = prev.find((n) => n.id === notificationId);
+
+        // FIXED: Validate notification exists
         if (!existing) return prev;
 
-        return prev.map((n) => {
+        // FIXED: Only complete notifications that are still 'running'
+        // This prevents duplicate completion events from causing issues
+        if (existing.status !== 'running') return prev;
+
+        const updatedNotifications = prev.map((n) => {
           if (n.id === notificationId) {
-            return {
-              ...n,
-              progress: 100,
-              message: event.success
-                ? (config.getSuccessMessage?.(event, n) ?? n.message)
-                : n.message
-            };
+            if (event.success) {
+              return {
+                ...n,
+                progress: 100,
+                status: 'completed' as const,
+                message: config.getSuccessMessage?.(event, n) ?? n.message,
+                details: {
+                  ...n.details,
+                  ...config.getSuccessDetails?.(event, n)
+                }
+              };
+            } else {
+              return {
+                ...n,
+                progress: 100,
+                status: 'failed' as const,
+                error: config.getFailureMessage?.(event) ?? event.message ?? 'Operation failed'
+              };
+            }
           }
           return n;
         });
-      });
 
-      // After animation delay, update status
-      setTimeout(() => {
-        setNotifications((prev: UnifiedNotification[]) => {
-          return prev.map((n) => {
-            if (n.id === notificationId) {
-              if (event.success) {
-                return {
-                  ...n,
-                  status: 'completed' as const,
-                  details: {
-                    ...n.details,
-                    ...config.getSuccessDetails?.(event, n)
-                  }
-                };
-              } else {
-                return {
-                  ...n,
-                  status: 'failed' as const,
-                  error: config.getFailureMessage?.(event) ?? event.message ?? 'Operation failed'
-                };
-              }
-            }
-            return n;
-          });
-        });
-        scheduleAutoDismiss(notificationId);
-      }, COMPLETION_ANIMATION_DELAY_MS);
+        // FIXED: Schedule auto-dismiss INSIDE callback after confirming notification was updated
+        // Use setTimeout to defer to next tick, ensuring state is committed
+        setTimeout(() => scheduleAutoDismiss(notificationId), 0);
+
+        return updatedNotifications;
+      });
     } else {
       // Immediate completion
       setNotifications((prev: UnifiedNotification[]) => {
@@ -331,34 +329,39 @@ export function createCompletionHandler<T extends { success: boolean; message?: 
           // Fast completion - no prior started event
           if (config.supportFastCompletion) {
             const fastId = config.getFastCompletionId?.(event) ?? notificationId;
-            scheduleAutoDismiss(fastId);
             const status: 'completed' | 'failed' = event.success ? 'completed' : 'failed';
-            return [
-              ...prev,
-              {
-                id: fastId,
-                type: config.type,
-                status,
-                message: event.success
-                  ? (config.getSuccessMessage?.(event) ?? event.message ?? 'Operation completed')
-                  : (config.getFailureMessage?.(event) ?? event.message ?? 'Operation failed'),
-                startedAt: new Date(),
-                progress: 100,
-                details: config.getSuccessDetails?.(event),
-                error: event.success
-                  ? undefined
-                  : (config.getFailureMessage?.(event) ?? event.message)
-              }
-            ];
+            const newNotification = {
+              id: fastId,
+              type: config.type,
+              status,
+              message: event.success
+                ? (config.getSuccessMessage?.(event) ?? event.message ?? 'Operation completed')
+                : (config.getFailureMessage?.(event) ?? event.message ?? 'Operation failed'),
+              startedAt: new Date(),
+              progress: 100,
+              details: config.getSuccessDetails?.(event),
+              error: event.success
+                ? undefined
+                : (config.getFailureMessage?.(event) ?? event.message)
+            };
+
+            // FIXED: Schedule auto-dismiss inside callback
+            setTimeout(() => scheduleAutoDismiss(fastId), 0);
+
+            return [...prev, newNotification];
           }
           return prev;
         }
 
-        return prev.map((n) => {
+        // FIXED: Only complete notifications that are still 'running'
+        if (existing.status !== 'running') return prev;
+
+        const updatedNotifications = prev.map((n) => {
           if (n.id === notificationId) {
             if (event.success) {
               return {
                 ...n,
+                progress: 100,
                 status: 'completed' as const,
                 details: {
                   ...n.details,
@@ -368,6 +371,7 @@ export function createCompletionHandler<T extends { success: boolean; message?: 
             } else {
               return {
                 ...n,
+                progress: 100,
                 status: 'failed' as const,
                 error: config.getFailureMessage?.(event) ?? event.message ?? 'Operation failed'
               };
@@ -375,9 +379,12 @@ export function createCompletionHandler<T extends { success: boolean; message?: 
           }
           return n;
         });
-      });
 
-      scheduleAutoDismiss(notificationId);
+        // FIXED: Schedule auto-dismiss inside callback after confirming update
+        setTimeout(() => scheduleAutoDismiss(notificationId), 0);
+
+        return updatedNotifications;
+      });
     }
   };
 }
@@ -421,7 +428,6 @@ export interface StatusAwareProgressConfig<T> {
  * @template T - The type of the SignalR event
  * @param config - Configuration for the handler
  * @param setNotifications - React setState function for notifications
- * @param updateNotification - Function to update an existing notification
  * @param scheduleAutoDismiss - Function to schedule auto-dismissal
  * @param cancelAutoDismissTimer - Optional function to cancel pending auto-dismiss
  * @returns A handler function that processes the progress event
@@ -439,7 +445,6 @@ export interface StatusAwareProgressConfig<T> {
  *     getCompletedMessage: (e) => e.message || 'Database reset completed'
  *   },
  *   setNotifications,
- *   updateNotification,
  *   scheduleAutoDismiss,
  *   cancelAutoDismissTimer
  * );
@@ -448,7 +453,6 @@ export interface StatusAwareProgressConfig<T> {
 export function createStatusAwareProgressHandler<T>(
   config: StatusAwareProgressConfig<T>,
   setNotifications: SetNotifications,
-  updateNotification: (id: string, updates: Partial<UnifiedNotification>) => void,
   scheduleAutoDismiss: ScheduleAutoDismiss,
   cancelAutoDismissTimer?: CancelAutoDismissTimer
 ): (event: T) => void {
@@ -457,35 +461,72 @@ export function createStatusAwareProgressHandler<T>(
     const status = config.getStatus(event);
 
     if (status?.toLowerCase() === 'completed') {
-      // Handle completion
+      // Handle completion - clear localStorage FIRST
       localStorage.removeItem(config.storageKey);
-      updateNotification(notificationId, {
-        status: 'completed',
-        message: config.getCompletedMessage?.(event) ?? 'Operation completed',
-        progress: 100
+
+      // FIXED: Use setNotifications to validate status before completing
+      setNotifications((prev: UnifiedNotification[]) => {
+        const existing = prev.find((n) => n.id === notificationId);
+
+        // Only complete if notification exists and is running
+        if (!existing || existing.status !== 'running') return prev;
+
+        const updated = prev.map((n) => {
+          if (n.id === notificationId) {
+            return {
+              ...n,
+              status: 'completed' as const,
+              message: config.getCompletedMessage?.(event) ?? 'Operation completed',
+              progress: 100
+            };
+          }
+          return n;
+        });
+
+        // FIXED: Schedule auto-dismiss inside callback
+        setTimeout(() => scheduleAutoDismiss(notificationId), 0);
+
+        return updated;
       });
-      scheduleAutoDismiss(notificationId);
     } else if (status?.toLowerCase() === 'failed') {
-      // Handle error
+      // Handle error - clear localStorage FIRST
       localStorage.removeItem(config.storageKey);
-      updateNotification(notificationId, {
-        status: 'failed',
-        error: config.getErrorMessage?.(event) ?? 'Operation failed'
+
+      // FIXED: Use setNotifications to validate status before failing
+      setNotifications((prev: UnifiedNotification[]) => {
+        const existing = prev.find((n) => n.id === notificationId);
+
+        // Only fail if notification exists and is running
+        if (!existing || existing.status !== 'running') return prev;
+
+        const updated = prev.map((n) => {
+          if (n.id === notificationId) {
+            return {
+              ...n,
+              status: 'failed' as const,
+              error: config.getErrorMessage?.(event) ?? 'Operation failed'
+            };
+          }
+          return n;
+        });
+
+        // FIXED: Schedule auto-dismiss inside callback
+        setTimeout(() => scheduleAutoDismiss(notificationId), 0);
+
+        return updated;
       });
-      scheduleAutoDismiss(notificationId);
     } else {
       // Handle progress - update existing or create new
       setNotifications((prev: UnifiedNotification[]) => {
-        // Check if any notification with this ID exists (running, completed, or failed)
-        const existingAny = prev.find((n) => n.id === notificationId);
-        
+        const existing = prev.find((n) => n.id === notificationId);
+
         // If notification exists but is completed/failed, ignore late progress events
         // This prevents duplicates when progress events arrive after completion
-        if (existingAny && existingAny.status !== 'running') {
+        if (existing && existing.status !== 'running') {
           return prev;
         }
 
-        if (existingAny && existingAny.status === 'running') {
+        if (existing) {
           return prev.map((n) => {
             if (n.id === notificationId) {
               return {
