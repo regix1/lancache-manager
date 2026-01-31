@@ -1969,7 +1969,6 @@
         "clear": "Clear",
         "deleteLogFile": "Delete Log File",
         "removeLogs": "Remove Logs",
-        "tryAgain": "Try Again",
         "showMore": "Show More ({{count}} more)",
         "showLess": "Show Less ({{count}} hidden)"
       },
@@ -1992,7 +1991,6 @@
         "cachedGamesRemain": "Cached game files will remain intact"
       },
       "errors": {
-        "loadFailed": "Failed to load service log counts",
         "unexpectedResponse": "Unexpected response when starting log removal for {{service}}",
         "readOnly": "Logs directory is read-only. Remove :ro from docker-compose volume mount.",
         "actionFailed": "Action failed",

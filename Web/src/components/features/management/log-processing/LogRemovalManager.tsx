@@ -90,7 +90,6 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
   const [deletingLogFile, setDeletingLogFile] = useState<string | null>(null);
   const [showMoreServices, setShowMoreServices] = useState<Record<string, boolean>>({});
   const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [hasInitiallyLoaded, setHasInitiallyLoaded] = useState(false);
   const [logsReadOnly, setLogsReadOnly] = useState(false);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
@@ -124,15 +123,12 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
 
   const loadData = async (_forceRefresh = false) => {
     setIsLoading(true);
-    setLoadError(null);
     try {
       const dsCounts = await ApiService.getServiceLogCountsByDatasource();
       setDatasourceCounts(dsCounts);
-      setLoadError(null);
       setHasInitiallyLoaded(true);
     } catch (err: unknown) {
       console.error('Failed to load log data:', err);
-      setLoadError((err instanceof Error ? err.message : String(err)) || t('management.logRemoval.errors.loadFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -322,29 +318,12 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
           <ReadOnlyBadge message={logsReadOnly ? t('management.logRemoval.readOnly') : t('management.logRemoval.dockerSocketRequired')} />
         ) : (
           <>
-            {loadError && (
-              <Alert color="red" className="mb-4">
-                <div>
-                  <p className="text-sm font-medium mb-1">{t('management.logRemoval.errors.loadFailed')}</p>
-                  <p className="text-xs opacity-75">{loadError}</p>
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={() => loadData()}
-                    className="mt-2"
-                  >
-                    {t('management.logRemoval.buttons.tryAgain')}
-                  </Button>
-                </div>
-              </Alert>
-            )}
-
             {isLoading ? (
               <LoadingState
                 message={t('management.logRemoval.loading.scanning')}
                 submessage={t('management.logRemoval.loading.mayTakeMinutes')}
               />
-            ) : !loadError && hasAnyLogEntries ? (
+            ) : hasAnyLogEntries ? (
               <div className="space-y-3">
                 {datasourceCounts.map((ds) => {
                   const { other, displayed } = getServicesForDatasource(ds);

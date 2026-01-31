@@ -16,9 +16,6 @@ export const CANCELLED_NOTIFICATION_DELAY_MS = 3000;
 /** Duration of notification slide/fade animations (300ms) */
 export const NOTIFICATION_ANIMATION_DURATION_MS = 300;
 
-/** Delay before transitioning from running to completed status for visual effect (800ms) */
-export const COMPLETION_ANIMATION_DELAY_MS = 800;
-
 /** Delay before dismissing Steam error notifications (10 seconds) */
 export const STEAM_ERROR_DISMISS_DELAY_MS = 10000;
 

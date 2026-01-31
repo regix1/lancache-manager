@@ -56,7 +56,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const loading = isDetectionFromNotification || isStartingDetection || isLoadingData;
   const [games, setGames] = useState<GameCacheInfo[]>([]);
   const [services, setServices] = useState<ServiceCacheInfo[]>([]);
-  const [error, setError] = useState<string | null>(null);
   const [gameToRemove, setGameToRemove] = useState<GameCacheInfo | null>(null);
   const [serviceToRemove, setServiceToRemove] = useState<ServiceCacheInfo | null>(null);
   const [cacheReadOnly, setCacheReadOnly] = useState(false);
@@ -319,7 +318,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const startDetection = useCallback(async (forceRefresh: boolean, scanTypeLabel: 'full' | 'incremental') => {
     if (mockMode) {
       const errorMsg = t('management.gameDetection.detectionDisabledMockMode');
-      setError(errorMsg);
       addNotification({
         type: 'generic',
         status: 'failed',
@@ -339,7 +337,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     detectionInFlightRef.current = true;
 
     setIsStartingDetection(true);
-    setError(null);
     setScanType(scanTypeLabel);
     setGames([]);
     setServices([]);
@@ -352,7 +349,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       // and recovery is handled by recoverGameDetection
     } catch (err: unknown) {
       const errorMsg = (err instanceof Error ? err.message : String(err)) || t('management.gameDetection.failedToStartDetection');
-      setError(errorMsg);
       addNotification({
         type: 'generic',
         status: 'failed',
@@ -375,7 +371,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
     setScanType('load');
     setIsLoadingData(true);
-    setError(null);
 
     try {
       const result = await ApiService.getCachedGameDetection();
@@ -436,7 +431,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       }
     } catch (err) {
       console.error('[GameCacheDetector] Failed to load data:', err);
-      setError(t('management.gameDetection.failedToLoadPreviousResults'));
       addNotification({
         type: 'generic',
         status: 'failed',
@@ -482,7 +476,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
     // Close modal immediately - progress shown via notifications
     setGameToRemove(null);
-    setError(null);
 
     try {
       await ApiService.removeGameFromCache(gameAppId);
@@ -539,7 +532,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
     // Close modal immediately - progress shown via notifications
     setServiceToRemove(null);
-    setError(null);
 
     try {
       await ApiService.removeServiceFromCache(serviceName);
@@ -801,7 +793,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               )}
 
               {/* Empty State */}
-              {!hasResults && !error && (
+              {!hasResults && !loading && (
                 <EmptyState
                   icon={HardDrive}
                   title={selectedDatasource
