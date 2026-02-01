@@ -16,6 +16,7 @@ const STORAGE_KEY = 'prefill_activity_log';
 const BACKGROUND_COMPLETION_KEY = 'prefill_background_completion';
 const DISMISSED_COMPLETION_KEY = 'prefill_dismissed_completion_at';
 const MAX_LOG_ENTRIES = 500; // Limit stored entries to prevent storage bloat
+const LOG_DEDUPE_WINDOW_MS = 2000; // Deduplicate identical logs within 2 seconds
 
 interface BackgroundCompletion {
   completedAt: string;
@@ -111,6 +112,9 @@ export const PrefillProvider: React.FC<PrefillProviderProps> = ({ children }) =>
   // Use ref to track if we need to persist (prevents excessive writes)
   const pendingSaveRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Track recent log messages for deduplication (prevents duplicate SignalR events from showing multiple times)
+  const recentLogsRef = useRef<Map<string, number>>(new Map());
+
   const persistLogs = useCallback((entries: LogEntry[]) => {
     // Debounce saves to prevent excessive writes
     if (pendingSaveRef.current) {
@@ -124,6 +128,30 @@ export const PrefillProvider: React.FC<PrefillProviderProps> = ({ children }) =>
 
   const addLog = useCallback(
     (type: LogEntryType, message: string, details?: string) => {
+      // Deduplicate: skip if the same type+message was added within the deduplication window
+      // This prevents duplicate SignalR events from multiple connections showing multiple times
+      const logKey = `${type}:${message}`;
+      const now = Date.now();
+      const lastSeen = recentLogsRef.current.get(logKey);
+
+      if (lastSeen && now - lastSeen < LOG_DEDUPE_WINDOW_MS) {
+        // Skip duplicate log entry
+        return;
+      }
+
+      // Update the timestamp for this log key
+      recentLogsRef.current.set(logKey, now);
+
+      // Clean up old entries to prevent memory growth (keep map small)
+      if (recentLogsRef.current.size > 50) {
+        const cutoff = now - LOG_DEDUPE_WINDOW_MS;
+        for (const [key, timestamp] of recentLogsRef.current) {
+          if (timestamp < cutoff) {
+            recentLogsRef.current.delete(key);
+          }
+        }
+      }
+
       setLogEntries((prev) => {
         const newEntries = [...prev, createLogEntry(type, message, details)];
         persistLogs(newEntries);

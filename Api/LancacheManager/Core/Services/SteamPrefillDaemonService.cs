@@ -1325,13 +1325,33 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Adds a SignalR connection as a subscriber to session events
+    /// Maximum number of SignalR connections allowed per session.
+    /// Limits duplicate connections from page navigations/reconnects.
+    /// </summary>
+    private const int MaxConnectionsPerSession = 3;
+
+    /// <summary>
+    /// Adds a SignalR connection as a subscriber to session events.
+    /// Limits connections per session to prevent duplicate event broadcasts
+    /// from stale connections accumulating during page navigations.
     /// </summary>
     public void AddSubscriber(string sessionId, string connectionId)
     {
         if (_sessions.TryGetValue(sessionId, out var session))
         {
+            // If we're at the limit, remove oldest connections to make room
+            // This prevents stale connections from accumulating during page navigations
+            while (session.SubscribedConnections.Count >= MaxConnectionsPerSession)
+            {
+                var oldest = session.SubscribedConnections.First();
+                session.SubscribedConnections.Remove(oldest);
+                _logger.LogDebug("Removed stale subscriber {ConnectionId} from session {SessionId} (limit reached)",
+                    oldest, sessionId);
+            }
+
             session.SubscribedConnections.Add(connectionId);
+            _logger.LogDebug("Added subscriber {ConnectionId} to session {SessionId} (total: {Count})",
+                connectionId, sessionId, session.SubscribedConnections.Count);
         }
     }
 
