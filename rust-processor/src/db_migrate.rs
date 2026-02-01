@@ -357,7 +357,7 @@ fn import_develancache_data(
         &ProgressData::new(
             false,
             100.0,
-            "complete".to_string(),
+            "completed".to_string(),
             format!(
                 "Import completed: {} imported, {} skipped, {} errors",
                 records_imported, records_skipped, records_errors

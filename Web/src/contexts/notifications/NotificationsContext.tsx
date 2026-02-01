@@ -21,11 +21,11 @@ import type {
   GameDetectionProgressEvent,
   GameDetectionCompleteEvent,
   DatabaseResetProgressEvent,
+  CacheClearingStartedEvent,
   CacheClearProgressEvent,
   CacheClearCompleteEvent,
   DepotMappingStartedEvent,
   DepotMappingProgressEvent,
-  DepotMappingCompleteEvent,
   SteamSessionErrorEvent,
   ShowToastEvent
 } from '../SignalRContext/types';
@@ -33,32 +33,26 @@ import type {
 import type { UnifiedNotification, NotificationsContextType } from './types';
 import {
   AUTO_DISMISS_DELAY_MS,
-  CANCELLED_NOTIFICATION_DELAY_MS,
   NOTIFICATION_ANIMATION_DURATION_MS,
   STEAM_ERROR_DISMISS_DELAY_MS,
   TOAST_DEFAULT_DURATION_MS,
-  INCREMENTAL_SCAN_ANIMATION_STEPS,
-  INCREMENTAL_SCAN_ANIMATION_DURATION_MS,
   NOTIFICATION_STORAGE_KEYS,
   NOTIFICATION_IDS
 } from './constants';
 import {
   createStartedHandler,
-  createProgressHandler,
   createCompletionHandler,
-  createStatusAwareProgressHandler
+  createStatusAwareProgressHandler,
+  createDepotMappingCompletionHandler
 } from './handlerFactories';
 import {
-  createSimpleRecoveryFunction,
-  createCacheRemovalsRecoveryFunction,
-  RECOVERY_CONFIGS
+  createRecoveryRunner,
+  type FetchWithAuth
 } from './recoveryFactory';
 import {
   formatLogProcessingMessage,
-  formatLogProcessingDetailMessage,
   formatLogProcessingCompletionMessage,
   formatFastProcessingCompletionMessage,
-  formatDepotMappingDetailMessage,
   formatLogRemovalProgressMessage,
   formatLogRemovalCompleteMessage,
   formatGameRemovalProgressMessage,
@@ -277,96 +271,35 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
   // SignalR Event Handlers
   React.useEffect(() => {
-    // ========== Log Processing ==========
-    const handleProcessingProgress = (event: ProcessingProgressEvent) => {
-      const notificationId = NOTIFICATION_IDS.LOG_PROCESSING;
-      const status = event.status || 'processing';
+    // ========== Log Processing (using status-aware factory for proper completion handling) ==========
+    const handleProcessingProgress = createStatusAwareProgressHandler<ProcessingProgressEvent>(
+      {
+        type: 'log_processing',
+        getId: () => NOTIFICATION_IDS.LOG_PROCESSING,
+        storageKey: NOTIFICATION_STORAGE_KEYS.LOG_PROCESSING,
+        getMessage: formatLogProcessingMessage,
+        getProgress: (e) => Math.min(99.9, e.percentComplete || e.progress || 0),
+        getStatus: (e) => e.status?.toLowerCase() === 'completed' ? 'completed' : undefined,
+        getCompletedMessage: (e) => formatLogProcessingCompletionMessage(e.entriesProcessed)
+      },
+      setNotifications,
+      scheduleAutoDismiss,
+      cancelAutoDismissTimer
+    );
 
-      // Handle completion - replace all log_processing notifications with completed state
-      if (status.toLowerCase() === 'completed') {
-        localStorage.removeItem(NOTIFICATION_STORAGE_KEYS.LOG_PROCESSING);
-        setNotifications((prev: UnifiedNotification[]) => [
-          ...prev.filter((n) => n.type !== 'log_processing'),
-          {
-            id: notificationId,
-            type: 'log_processing' as const,
-            status: 'completed' as const,
-            message: 'Processing Complete!',
-            detailMessage: formatLogProcessingCompletionMessage(event.entriesProcessed),
-            progress: 100,
-            startedAt: new Date()
-          }
-        ]);
-        scheduleAutoDismiss(notificationId);
-        return;
-      }
-
-      // Handle progress updates
-      const progress = Math.min(99.9, event.percentComplete || event.progress || 0);
-      const message = formatLogProcessingMessage(event);
-      const detailMessage = formatLogProcessingDetailMessage(event);
-      const details = {
-        operationId: event.operationId,
-        mbProcessed: event.mbProcessed,
-        mbTotal: event.mbTotal,
-        entriesProcessed: event.entriesProcessed,
-        totalLines: event.totalLines
-      };
-
-      setNotifications((prev: UnifiedNotification[]) => {
-        // Skip if notification is already in a terminal state
-        if (prev.some((n) => n.id === notificationId && (n.status === 'completed' || n.status === 'failed'))) {
-          return prev;
-        }
-
-        const existingRunning = prev.find((n) => n.id === notificationId && n.status === 'running');
-        if (existingRunning) {
-          return prev.map((n) =>
-            n.id === notificationId
-              ? { ...n, message, detailMessage, progress, details: { ...n.details, ...details } }
-              : n
-          );
-        }
-
-        // Create new notification
-        cancelAutoDismissTimer(notificationId);
-        const newNotification: UnifiedNotification = {
-          id: notificationId,
-          type: 'log_processing',
-          status: 'running',
-          message,
-          detailMessage,
-          progress,
-          startedAt: new Date(),
-          details
-        };
-        localStorage.setItem(NOTIFICATION_STORAGE_KEYS.LOG_PROCESSING, JSON.stringify(newNotification));
-        return [...prev.filter((n) => n.type !== 'log_processing'), newNotification];
-      });
-    };
-
-    const handleFastProcessingComplete = (result: FastProcessingCompleteEvent) => {
-      localStorage.removeItem(NOTIFICATION_STORAGE_KEYS.LOG_PROCESSING);
-      const fixedNotificationId = NOTIFICATION_IDS.LOG_PROCESSING;
-
-      setNotifications((prev: UnifiedNotification[]) => {
-        const filtered = prev.filter((n) => n.type !== 'log_processing');
-        return [
-          ...filtered,
-          {
-            id: fixedNotificationId,
-            type: 'log_processing' as const,
-            status: 'completed' as const,
-            message: 'Processing Complete!',
-            detailMessage: formatFastProcessingCompletionMessage(result.entriesProcessed, result.linesProcessed, result.elapsed),
-            progress: 100,
-            startedAt: new Date()
-          }
-        ];
-      });
-
-      scheduleAutoDismiss(fixedNotificationId);
-    };
+    const handleFastProcessingComplete = createCompletionHandler<FastProcessingCompleteEvent>(
+      {
+        type: 'log_processing',
+        getId: () => NOTIFICATION_IDS.LOG_PROCESSING,
+        storageKey: NOTIFICATION_STORAGE_KEYS.LOG_PROCESSING,
+        getSuccessMessage: () => 'Processing Complete!',
+        getDetailMessage: (e) => formatFastProcessingCompletionMessage(e.entriesProcessed, e.linesProcessed, e.elapsed),
+        supportFastCompletion: true,
+        getFastCompletionId: () => NOTIFICATION_IDS.LOG_PROCESSING
+      },
+      setNotifications,
+      scheduleAutoDismiss
+    );
 
     // ========== Log Removal (using status-aware factory for proper completion handling) ==========
     const handleLogRemovalProgress = createStatusAwareProgressHandler<LogRemovalProgressEvent>(
@@ -376,7 +309,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         storageKey: NOTIFICATION_STORAGE_KEYS.LOG_REMOVAL,
         getMessage: formatLogRemovalProgressMessage,
         getProgress: (e) => e.percentComplete || 0,
-        getStatus: (e) => e.status === 'complete' ? 'completed' : e.status === 'error' ? 'failed' : undefined,
+        getStatus: (e) => e.status === 'completed' ? 'completed' : e.status === 'error' ? 'failed' : undefined,
         getCompletedMessage: (e) => e.message || 'Log removal completed',
         getErrorMessage: (e) => e.message || 'Log removal failed'
       },
@@ -409,7 +342,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         storageKey: NOTIFICATION_STORAGE_KEYS.GAME_REMOVAL,
         getMessage: formatGameRemovalProgressMessage,
         getProgress: () => 0,
-        getStatus: (e) => e.status === 'complete' ? 'completed' : e.status === 'error' ? 'failed' : undefined,
+        getStatus: (e) => e.status === 'completed' ? 'completed' : e.status === 'error' ? 'failed' : undefined,
         getCompletedMessage: (e) => e.message || 'Game removal completed',
         getErrorMessage: (e) => e.message || 'Game removal failed'
       },
@@ -442,7 +375,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         storageKey: NOTIFICATION_STORAGE_KEYS.SERVICE_REMOVAL,
         getMessage: formatServiceRemovalProgressMessage,
         getProgress: () => 0,
-        getStatus: (e) => e.status === 'complete' ? 'completed' : e.status === 'error' ? 'failed' : undefined,
+        getStatus: (e) => e.status === 'completed' ? 'completed' : e.status === 'error' ? 'failed' : undefined,
         getCompletedMessage: (e) => e.message || 'Service removal completed',
         getErrorMessage: (e) => e.message || 'Service removal failed'
       },
@@ -488,7 +421,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         storageKey: NOTIFICATION_STORAGE_KEYS.CORRUPTION_REMOVAL,
         getMessage: (e) => e.message || `Removing corrupted chunks: ${e.status}`,
         getProgress: (e) => e.percentComplete ?? 0,
-        getStatus: (e) => e.status === 'complete' ? 'completed' : (e.status === 'failed' || e.status === 'cancelled') ? 'failed' : undefined,
+        getStatus: (e) => e.status === 'completed' ? 'completed' : (e.status === 'failed' || e.status === 'cancelled') ? 'failed' : undefined,
         getCompletedMessage: (e) => e.message || 'Corruption removal completed',
         getErrorMessage: (e) => e.message || 'Corruption removal failed'
       },
@@ -530,7 +463,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         storageKey: NOTIFICATION_STORAGE_KEYS.GAME_DETECTION,
         getMessage: formatGameDetectionProgressMessage,
         getProgress: (e) => e.progressPercent || 0,
-        getStatus: (e) => e.status === 'complete' ? 'completed' : (e.status === 'failed' || e.status === 'cancelled') ? 'failed' : undefined,
+        getStatus: (e) => e.status === 'completed' ? 'completed' : (e.status === 'failed' || e.status === 'cancelled') ? 'failed' : undefined,
         getCompletedMessage: (e) => e.message || 'Game detection completed',
         getErrorMessage: (e) => e.message || 'Game detection failed'
       },
@@ -579,7 +512,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         storageKey: NOTIFICATION_STORAGE_KEYS.CORRUPTION_DETECTION,
         getMessage: formatCorruptionDetectionProgressMessage,
         getProgress: (e) => e.percentComplete || 0,
-        getStatus: (e) => e.status === 'complete' ? 'completed' : (e.status === 'failed' || e.status === 'cancelled') ? 'failed' : undefined,
+        getStatus: (e) => e.status === 'completed' ? 'completed' : (e.status === 'failed' || e.status === 'cancelled') ? 'failed' : undefined,
         getCompletedMessage: (e) => e.message || 'Corruption detection completed',
         getErrorMessage: (e) => e.message || 'Corruption detection failed'
       },
@@ -610,16 +543,30 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         storageKey: NOTIFICATION_STORAGE_KEYS.DATABASE_RESET,
         getMessage: formatDatabaseResetProgressMessage,
         getProgress: (e) => e.percentComplete || 0,
-        getStatus: (e) => e.status,
+        getStatus: (e) => e.status === 'completed' ? 'completed' : (e.status === 'failed' || e.status === 'error') ? 'failed' : undefined,
         getCompletedMessage: formatDatabaseResetCompleteMessage,
-        getErrorMessage: (e) => e.message
+        getErrorMessage: (e) => e.message,
+        supportFastCompletion: true  // Handle fast operations where completion arrives before notification created
       },
       setNotifications,
       scheduleAutoDismiss,  // Use direct scheduling - we know notification is in terminal state
       cancelAutoDismissTimer
     );
 
-    // ========== Cache Clearing (using status-aware factory for proper completion handling) ==========
+    // ========== Cache Clearing (using factory pattern) ==========
+    const handleCacheClearingStarted = createStartedHandler<CacheClearingStartedEvent>(
+      {
+        type: 'cache_clearing',
+        getId: () => NOTIFICATION_IDS.CACHE_CLEARING,
+        storageKey: NOTIFICATION_STORAGE_KEYS.CACHE_CLEARING,
+        defaultMessage: 'Clearing cache...',
+        getMessage: (e) => e.message || 'Clearing cache...',
+        getDetails: (e) => ({ operationId: e.operationId })
+      },
+      setNotifications,
+      cancelAutoDismissTimer
+    );
+
     const cacheClearHandler = createStatusAwareProgressHandler<CacheClearProgressEvent>(
       {
         type: 'cache_clearing',
@@ -627,7 +574,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         storageKey: NOTIFICATION_STORAGE_KEYS.CACHE_CLEARING,
         getMessage: formatCacheClearProgressMessage,
         getProgress: (e) => e.percentComplete || 0,
-        getStatus: (e) => e.status === 'complete' ? 'completed' : (e.status === 'failed' || e.status === 'cancelled') ? 'failed' : undefined,
+        getStatus: (e) => e.status === 'completed' ? 'completed' : (e.status === 'failed' || e.status === 'cancelled') ? 'failed' : undefined,
         getCompletedMessage: (e) => e.statusMessage || 'Cache cleared successfully',
         getErrorMessage: (e) => e.error || e.statusMessage || 'Cache clear failed'
       },
@@ -636,19 +583,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       cancelAutoDismissTimer
     );
 
-    // Wrap with logging to debug stuck notifications
-    const handleCacheClearProgress = (event: CacheClearProgressEvent) => {
-      const derivedStatus = event.status === 'complete' ? 'completed' : (event.status === 'failed' || event.status === 'cancelled') ? 'failed' : undefined;
-      console.log('[CacheClear] Progress event received:', {
-        rawStatus: event.status,
-        derivedStatus,
-        statusMessage: event.statusMessage,
-        error: event.error,
-        percentComplete: event.percentComplete,
-        operationId: event.operationId
-      });
-      cacheClearHandler(event);
-    };
+    const handleCacheClearProgress = cacheClearHandler;
 
     const cacheClearCompleteHandler = createCompletionHandler<CacheClearCompleteEvent>(
       {
@@ -667,20 +602,10 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       scheduleAutoDismiss  // Use direct scheduling - we know notification is in terminal state
     );
 
-    // Wrap with logging to debug stuck notifications
-    const handleCacheClearComplete = (event: CacheClearCompleteEvent) => {
-      console.log('[CacheClear] Complete event received:', {
-        success: event.success,
-        message: event.message,
-        error: event.error,
-        filesDeleted: event.filesDeleted,
-        directoriesProcessed: event.directoriesProcessed
-      });
-      cacheClearCompleteHandler(event);
-    };
+    const handleCacheClearComplete = cacheClearCompleteHandler;
 
-    // ========== Depot Mapping (progress/complete handlers kept inline due to complexity) ==========
-    const handleDepotMappingStartedBase = createStartedHandler<DepotMappingStartedEvent>(
+    // ========== Depot Mapping (using factory pattern) ==========
+    const handleDepotMappingStarted = createStartedHandler<DepotMappingStartedEvent>(
       {
         type: 'depot_mapping',
         getId: () => NOTIFICATION_IDS.DEPOT_MAPPING,
@@ -693,11 +618,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       setNotifications,
       cancelAutoDismissTimer
     );
-    const handleDepotMappingStarted = (event: DepotMappingStartedEvent) => {
-      handleDepotMappingStartedBase(event);
-    };
 
-    // ========== Depot Mapping Progress Handler ==========
     const handleDepotMappingProgress = createStatusAwareProgressHandler<DepotMappingProgressEvent>(
       {
         type: 'depot_mapping',
@@ -706,8 +627,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getMessage: (event) => formatDepotMappingProgressMessage(event, undefined),
         getProgress: (event) => event.percentComplete ?? event.progressPercent ?? 0,
         getStatus: (e) => {
-          if (e.status === 'complete' || e.status === 'Complete') return 'completed';
-          if (e.status === 'error' || e.status === 'failed' || e.status === 'Error') return 'failed';
+          if (e.status === 'completed') return 'completed';
+          if (e.status === 'error' || e.status === 'failed') return 'failed';
           return undefined;
         },
         getCompletedMessage: (e) => e.message || 'Depot mapping completed successfully',
@@ -718,221 +639,21 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       cancelAutoDismissTimer
     );
 
-    // ========== Depot Mapping Completion Helpers ==========
-
-    /** Animates progress from current value to 100% over multiple steps */
-    const animateProgressToCompletion = (
-      notificationId: string,
-      startProgress: number,
-      successMessage: string,
-      successDetails: Record<string, unknown>,
-      onComplete: () => void
-    ) => {
-      const steps = INCREMENTAL_SCAN_ANIMATION_STEPS;
-      const interval = INCREMENTAL_SCAN_ANIMATION_DURATION_MS / steps;
-      const progressIncrement = (100 - startProgress) / steps;
-      let currentStep = 0;
-
-      const animationInterval = setInterval(() => {
-        currentStep++;
-        const newProgress = Math.min(100, startProgress + progressIncrement * currentStep);
-
-        setNotifications((prev: UnifiedNotification[]) =>
-          prev.map((n) =>
-            n.id === notificationId
-              ? { ...n, progress: newProgress, message: newProgress >= 100 ? successMessage : n.message }
-              : n
-          )
-        );
-
-        if (currentStep >= steps) {
-          clearInterval(animationInterval);
-          setTimeout(() => {
-            setNotifications((prev: UnifiedNotification[]) => {
-              const existing = prev.find((n) => n.id === notificationId);
-              if (!existing) return prev;
-
-              localStorage.removeItem(NOTIFICATION_STORAGE_KEYS.DEPOT_MAPPING);
-              return prev.map((n) =>
-                n.id === notificationId
-                  ? { ...n, status: 'completed' as const, message: successMessage, details: { ...n.details, ...successDetails } }
-                  : n
-              );
-            });
-            onComplete();
-          }, NOTIFICATION_ANIMATION_DURATION_MS);
-        }
-      }, interval);
-    };
-
-    /** Handles depot mapping cancellation */
-    const handleDepotMappingCancelled = (notificationId: string) => {
-      localStorage.removeItem(NOTIFICATION_STORAGE_KEYS.DEPOT_MAPPING);
-
-      // Capture the startedAt we're about to set for the timer
-      const newStartedAt = new Date();
-
-      setNotifications((prev: UnifiedNotification[]) => {
-        const existing = prev.find((n) => n.id === notificationId);
-
-        if (!existing) {
-          // Fast completion - create notification for cancellation
-          const newNotification: UnifiedNotification = {
-            id: notificationId,
-            type: 'depot_mapping',
-            status: 'completed',
-            message: 'Depot mapping scan cancelled',
-            startedAt: newStartedAt,
-            progress: 100,
-            details: { cancelled: true }
-          };
-          return [...prev, newNotification];
-        }
-
-        // Update existing notification - keep the original startedAt
-        return prev.map((n) =>
-          n.id === notificationId
-            ? { ...n, status: 'completed' as const, message: 'Depot mapping scan cancelled', progress: 100, details: { ...n.details, cancelled: true } }
-            : n
-        );
-      });
-
-      // Schedule auto-dismiss for the cancelled notification
-      scheduleAutoDismiss(notificationId, CANCELLED_NOTIFICATION_DELAY_MS);
-    };
-
-    /** Handles successful depot mapping completion */
-    const handleDepotMappingSuccess = (event: DepotMappingCompleteEvent, notificationId: string) => {
-      const successMessage = event.message || 'Depot mapping completed successfully';
-      const successDetails = { totalMappings: event.totalMappings, downloadsUpdated: event.downloadsUpdated };
-      const isIncremental = event.scanMode === 'incremental';
-
-      localStorage.removeItem(NOTIFICATION_STORAGE_KEYS.DEPOT_MAPPING);
-
-      if (isIncremental) {
-        // For incremental scans, animate progress to 100%
-        setNotifications((prev: UnifiedNotification[]) => {
-          const notification = prev.find((n) => n.id === notificationId);
-
-          if (!notification) {
-            // Fast completion - create completed notification
-            const newNotification: UnifiedNotification = {
-              id: notificationId,
-              type: 'depot_mapping',
-              status: 'completed',
-              message: successMessage,
-              startedAt: new Date(),
-              progress: 100,
-              details: successDetails
-            };
-            return [...prev, newNotification];
-          }
-
-          // Animation callback will schedule auto-dismiss when complete
-          animateProgressToCompletion(
-            notificationId,
-            notification.progress || 0,
-            successMessage,
-            successDetails,
-            () => scheduleAutoDismiss(notificationId)  // Use direct scheduling
-          );
-          return prev;
-        });
-
-        // Schedule auto-dismiss for fast completion case (animation handles the existing case)
-        scheduleAutoDismiss(notificationId);  // Use direct scheduling
-      } else {
-        // For full scans, complete immediately
-        setNotifications((prev: UnifiedNotification[]) => {
-          const existing = prev.find((n) => n.id === notificationId);
-
-          if (!existing) {
-            // Fast completion - create completed notification
-            const newNotification: UnifiedNotification = {
-              id: notificationId,
-              type: 'depot_mapping',
-              status: 'completed',
-              message: successMessage,
-              startedAt: new Date(),
-              progress: 100,
-              details: successDetails
-            };
-            return [...prev, newNotification];
-          }
-
-          // Update existing notification
-          return prev.map((n) =>
-            n.id === notificationId
-              ? { ...n, status: 'completed' as const, message: successMessage, progress: 100, details: { ...n.details, ...successDetails } }
-              : n
-          );
-        });
-
-        // Schedule auto-dismiss AFTER state update - use direct scheduling
-        scheduleAutoDismiss(notificationId);
-      }
-    };
-
-    /** Handles failed depot mapping with optional full scan modal trigger */
-    const handleDepotMappingFailure = (event: DepotMappingCompleteEvent, notificationId: string) => {
-      const errorMessage = event.error || event.message || 'Depot mapping failed';
-      const requiresFullScan =
-        errorMessage.includes('change gap is too large') ||
-        errorMessage.includes('requires full scan') ||
-        errorMessage.includes('requires a full scan');
-
-      if (requiresFullScan) {
-        window.dispatchEvent(new CustomEvent('show-full-scan-modal', { detail: { error: errorMessage } }));
-      }
-
-      localStorage.removeItem(NOTIFICATION_STORAGE_KEYS.DEPOT_MAPPING);
-
-      setNotifications((prev: UnifiedNotification[]) => {
-        const existing = prev.find((n) => n.id === notificationId);
-
-        if (!existing) {
-          // Fast completion - create failed notification
-          const newNotification: UnifiedNotification = {
-            id: notificationId,
-            type: 'depot_mapping',
-            status: 'failed',
-            message: 'Depot mapping failed',
-            error: errorMessage,
-            startedAt: new Date(),
-            progress: 100
-          };
-          return [...prev, newNotification];
-        }
-
-        // Update existing notification
-        return prev.map((n) =>
-          n.id === notificationId
-            ? { ...n, status: 'failed' as const, error: errorMessage, progress: 100 }
-            : n
-        );
-      });
-
-      // Schedule auto-dismiss AFTER state update - use direct scheduling
-      scheduleAutoDismiss(notificationId);
-    };
-
-    /** Main depot mapping completion dispatcher */
-    const handleDepotMappingComplete = (event: DepotMappingCompleteEvent) => {
-      const notificationId = NOTIFICATION_IDS.DEPOT_MAPPING;
-
-      if (event.cancelled) {
-        handleDepotMappingCancelled(notificationId);
-      } else if (event.success) {
-        handleDepotMappingSuccess(event, notificationId);
-      } else {
-        handleDepotMappingFailure(event, notificationId);
-      }
-    };
+    const handleDepotMappingComplete = createDepotMappingCompletionHandler(
+      setNotifications,
+      scheduleAutoDismiss
+    );
 
     // ========== Steam Session Error ==========
+    // This handler uses a different pattern than operation notifications:
+    // - Generic notification type with switch-based title logic (not operation-based)
+    // - No progress tracking or localStorage persistence needed
+    // - Simple one-shot error display with auto-dismiss
+    // A factory pattern doesn't provide significant benefit here since this is the only
+    // handler of this type and the logic is straightforward.
     const handleSteamSessionError = (event: SteamSessionErrorEvent) => {
-      const getTitle = () => {
-        switch (event.errorType) {
+      const getSteamErrorTitle = (errorType: string): string => {
+        switch (errorType) {
           case 'SessionReplaced':
           case 'LoggedInElsewhere':
             return 'Steam Session Replaced';
@@ -952,23 +673,22 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         }
       };
 
-      const id = addNotification({
+      const notificationId = addNotification({
         type: 'generic',
         status: 'failed',
-        message: getTitle(),
+        message: getSteamErrorTitle(event.errorType),
         detailMessage: event.message || 'An error occurred with the Steam session',
         details: {
           notificationType: 'error'
         }
       });
 
-      // Schedule auto-dismiss for the error notification
-      scheduleAutoDismiss(id, STEAM_ERROR_DISMISS_DELAY_MS);
+      scheduleAutoDismiss(notificationId, STEAM_ERROR_DISMISS_DELAY_MS);
     };
 
     // Subscribe to events
-    signalR.on('ProcessingProgress', handleProcessingProgress);
-    signalR.on('FastProcessingComplete', handleFastProcessingComplete);
+    signalR.on('LogProcessingProgress', handleProcessingProgress);
+    signalR.on('LogProcessingComplete', handleFastProcessingComplete);
     signalR.on('LogRemovalProgress', handleLogRemovalProgress);
     signalR.on('LogRemovalComplete', handleLogRemovalComplete);
     signalR.on('GameRemovalProgress', handleGameRemovalProgress);
@@ -985,16 +705,17 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     signalR.on('CorruptionDetectionProgress', handleCorruptionDetectionProgress);
     signalR.on('CorruptionDetectionComplete', handleCorruptionDetectionComplete);
     signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
-    signalR.on('CacheClearProgress', handleCacheClearProgress);
-    signalR.on('CacheClearComplete', handleCacheClearComplete);
+    signalR.on('CacheClearingStarted', handleCacheClearingStarted);
+    signalR.on('CacheClearingProgress', handleCacheClearProgress);
+    signalR.on('CacheClearingComplete', handleCacheClearComplete);
     signalR.on('DepotMappingStarted', handleDepotMappingStarted);
     signalR.on('DepotMappingProgress', handleDepotMappingProgress);
     signalR.on('DepotMappingComplete', handleDepotMappingComplete);
     signalR.on('SteamSessionError', handleSteamSessionError);
 
     return () => {
-      signalR.off('ProcessingProgress', handleProcessingProgress);
-      signalR.off('FastProcessingComplete', handleFastProcessingComplete);
+      signalR.off('LogProcessingProgress', handleProcessingProgress);
+      signalR.off('LogProcessingComplete', handleFastProcessingComplete);
       signalR.off('LogRemovalProgress', handleLogRemovalProgress);
       signalR.off('LogRemovalComplete', handleLogRemovalComplete);
       signalR.off('GameRemovalProgress', handleGameRemovalProgress);
@@ -1011,14 +732,15 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       signalR.off('CorruptionDetectionProgress', handleCorruptionDetectionProgress);
       signalR.off('CorruptionDetectionComplete', handleCorruptionDetectionComplete);
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
-      signalR.off('CacheClearProgress', handleCacheClearProgress);
-      signalR.off('CacheClearComplete', handleCacheClearComplete);
+      signalR.off('CacheClearingStarted', handleCacheClearingStarted);
+      signalR.off('CacheClearingProgress', handleCacheClearProgress);
+      signalR.off('CacheClearingComplete', handleCacheClearComplete);
       signalR.off('DepotMappingStarted', handleDepotMappingStarted);
       signalR.off('DepotMappingProgress', handleDepotMappingProgress);
       signalR.off('DepotMappingComplete', handleDepotMappingComplete);
       signalR.off('SteamSessionError', handleSteamSessionError);
     };
-  }, [signalR, addNotification, updateNotification, scheduleAutoDismiss, scheduleAutoDismiss, cancelAutoDismissTimer]);
+  }, [signalR, addNotification, updateNotification, scheduleAutoDismiss, cancelAutoDismissTimer]);
 
   // Toast notifications
   React.useEffect(() => {
@@ -1073,93 +795,28 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     return () => window.removeEventListener('notificationvisibilitychange', handleNotificationVisibilityChange);
   }, [scheduleAutoDismiss]);
 
+  // Authenticated fetch helper for recovery operations
+  const fetchWithAuth: FetchWithAuth = useCallback(async (url: string): Promise<Response> => {
+    return fetch(url, {
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+  }, []);
+
   // Recovery on page load
   React.useEffect(() => {
     if (authLoading || !isAuthenticated) return;
 
-    const fetchWithAuth = async (url: string): Promise<Response> => {
-      return fetch(url, {
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-    };
-
-    const recoverLogProcessing = createSimpleRecoveryFunction(
-      RECOVERY_CONFIGS.logProcessing,
+    const recoverAllOperations = createRecoveryRunner(
       fetchWithAuth,
       setNotifications,
       scheduleAutoDismiss
     );
-
-    const recoverCacheClearing = createSimpleRecoveryFunction(
-      RECOVERY_CONFIGS.cacheClearing,
-      fetchWithAuth,
-      setNotifications,
-      scheduleAutoDismiss
-    );
-
-    const recoverDatabaseReset = createSimpleRecoveryFunction(
-      RECOVERY_CONFIGS.databaseReset,
-      fetchWithAuth,
-      setNotifications,
-      scheduleAutoDismiss
-    );
-
-    const recoverDepotMapping = createSimpleRecoveryFunction(
-      RECOVERY_CONFIGS.depotMapping,
-      fetchWithAuth,
-      setNotifications,
-      scheduleAutoDismiss
-    );
-
-    const recoverLogRemoval = createSimpleRecoveryFunction(
-      RECOVERY_CONFIGS.logRemoval,
-      fetchWithAuth,
-      setNotifications,
-      scheduleAutoDismiss
-    );
-
-    const recoverGameDetection = createSimpleRecoveryFunction(
-      RECOVERY_CONFIGS.gameDetection,
-      fetchWithAuth,
-      setNotifications,
-      scheduleAutoDismiss
-    );
-
-    const recoverCorruptionDetection = createSimpleRecoveryFunction(
-      RECOVERY_CONFIGS.corruptionDetection,
-      fetchWithAuth,
-      setNotifications,
-      scheduleAutoDismiss
-    );
-
-    const recoverCacheRemovals = createCacheRemovalsRecoveryFunction(
-      fetchWithAuth,
-      setNotifications,
-      scheduleAutoDismiss
-    );
-
-    const recoverAllOperations = async () => {
-      try {
-        await Promise.allSettled([
-          recoverLogProcessing(),
-          recoverLogRemoval(),
-          recoverDepotMapping(),
-          recoverCacheClearing(),
-          recoverDatabaseReset(),
-          recoverGameDetection(),
-          recoverCorruptionDetection(),
-          recoverCacheRemovals()
-        ]);
-      } catch (err) {
-        console.error('[NotificationsContext] Failed to recover operations:', err);
-      }
-    };
 
     recoverAllOperations();
-  }, [authLoading, isAuthenticated, scheduleAutoDismiss]);
+  }, [authLoading, isAuthenticated, fetchWithAuth, scheduleAutoDismiss]);
 
   // Monitor SignalR connection state - re-run recovery on reconnection
   // This ensures we recover from missed completion events during connection loss (especially on mobile)
@@ -1181,90 +838,15 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       prevState !== null &&
       prevState !== 'connected'
     ) {
-      const fetchWithAuth = async (url: string): Promise<Response> => {
-        return fetch(url, {
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        });
-      };
-
-      const recoverLogProcessing = createSimpleRecoveryFunction(
-        RECOVERY_CONFIGS.logProcessing,
+      const recoverAllOperations = createRecoveryRunner(
         fetchWithAuth,
         setNotifications,
         scheduleAutoDismiss
       );
-
-      const recoverCacheClearing = createSimpleRecoveryFunction(
-        RECOVERY_CONFIGS.cacheClearing,
-        fetchWithAuth,
-        setNotifications,
-        scheduleAutoDismiss
-      );
-
-      const recoverDatabaseReset = createSimpleRecoveryFunction(
-        RECOVERY_CONFIGS.databaseReset,
-        fetchWithAuth,
-        setNotifications,
-        scheduleAutoDismiss
-      );
-
-      const recoverDepotMapping = createSimpleRecoveryFunction(
-        RECOVERY_CONFIGS.depotMapping,
-        fetchWithAuth,
-        setNotifications,
-        scheduleAutoDismiss
-      );
-
-      const recoverLogRemoval = createSimpleRecoveryFunction(
-        RECOVERY_CONFIGS.logRemoval,
-        fetchWithAuth,
-        setNotifications,
-        scheduleAutoDismiss
-      );
-
-      const recoverGameDetection = createSimpleRecoveryFunction(
-        RECOVERY_CONFIGS.gameDetection,
-        fetchWithAuth,
-        setNotifications,
-        scheduleAutoDismiss
-      );
-
-      const recoverCorruptionDetection = createSimpleRecoveryFunction(
-        RECOVERY_CONFIGS.corruptionDetection,
-        fetchWithAuth,
-        setNotifications,
-        scheduleAutoDismiss
-      );
-
-      const recoverCacheRemovals = createCacheRemovalsRecoveryFunction(
-        fetchWithAuth,
-        setNotifications,
-        scheduleAutoDismiss
-      );
-
-      const recoverAllOperations = async () => {
-        try {
-          await Promise.allSettled([
-            recoverLogProcessing(),
-            recoverLogRemoval(),
-            recoverDepotMapping(),
-            recoverCacheClearing(),
-            recoverDatabaseReset(),
-            recoverGameDetection(),
-            recoverCorruptionDetection(),
-            recoverCacheRemovals()
-          ]);
-        } catch (err) {
-          console.error('[NotificationsContext] Failed to recover operations after reconnection:', err);
-        }
-      };
 
       recoverAllOperations();
     }
-  }, [signalR.connectionState, authLoading, isAuthenticated, scheduleAutoDismiss]);
+  }, [signalR.connectionState, authLoading, isAuthenticated, fetchWithAuth, scheduleAutoDismiss]);
 
   // Removal/clearing operation types that share the backend _cacheLock
   const REMOVAL_TYPES = ['log_removal', 'game_removal', 'service_removal', 'corruption_removal', 'cache_clearing'] as const;

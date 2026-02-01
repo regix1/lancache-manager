@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
+use clap::Parser;
 use rusqlite::Connection;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
-use std::env;
 use std::fs;
 use std::io::{BufWriter, Write as IoWrite};
 use std::path::{Path, PathBuf};
@@ -15,11 +15,41 @@ mod log_discovery;
 mod log_reader;
 mod models;
 mod parser;
+mod progress_events;
 mod progress_utils;
 mod service_utils;
 
 use log_reader::LogFileReader;
 use parser::LogParser;
+use progress_events::ProgressReporter;
+
+/// Game cache removal utility - removes all cache files for a specific game
+#[derive(clap::Parser, Debug)]
+#[command(name = "cache_game_remove")]
+#[command(about = "Removes all cache files for a specific game by scanning logs")]
+struct Args {
+    /// Path to LancacheManager.db (for game name mapping)
+    database_path: String,
+
+    /// Directory containing log files
+    log_dir: String,
+
+    /// Cache directory root (e.g., /cache or H:/cache)
+    cache_dir: String,
+
+    /// Game AppID to remove
+    game_app_id: u32,
+
+    /// Path to output JSON report
+    output_json: String,
+
+    /// Path to progress JSON file
+    progress_json: String,
+
+    /// Emit JSON progress events to stdout
+    #[arg(short, long)]
+    progress: bool,
+}
 
 #[derive(Serialize)]
 struct ProgressData {
@@ -496,30 +526,15 @@ fn remove_log_entries_for_game(
 }
 
 fn main() -> Result<()> {
-    let args: Vec<String> = env::args().collect();
+    let args = Args::parse();
+    let reporter = ProgressReporter::new(args.progress);
 
-    if args.len() < 6 {
-        eprintln!("Usage: {} <database_path> <log_dir> <cache_dir> <game_app_id> <output_json> <progress_json>", args[0]);
-        eprintln!();
-        eprintln!("Removes all cache files for a specific game by scanning logs.");
-        eprintln!();
-        eprintln!("Arguments:");
-        eprintln!("  database_path - Path to LancacheManager.db (for game name mapping)");
-        eprintln!("  log_dir       - Directory containing log files");
-        eprintln!("  cache_dir     - Cache directory root (e.g., /cache or H:/cache)");
-        eprintln!("  game_app_id   - Game AppID to remove");
-        eprintln!("  output_json   - Path to output JSON report");
-        eprintln!("  progress_json - Path to progress JSON file");
-        std::process::exit(1);
-    }
-
-    let db_path = PathBuf::from(&args[1]);
-    let log_dir = PathBuf::from(&args[2]);
-    let cache_dir = PathBuf::from(&args[3]);
-    let game_app_id: u32 = args[4].parse()
-        .context("Invalid game_app_id - must be a number")?;
-    let output_json = PathBuf::from(&args[5]);
-    let progress_path = PathBuf::from(&args[6]);
+    let db_path = PathBuf::from(&args.database_path);
+    let log_dir = PathBuf::from(&args.log_dir);
+    let cache_dir = PathBuf::from(&args.cache_dir);
+    let game_app_id = args.game_app_id;
+    let output_json = PathBuf::from(&args.output_json);
+    let progress_path = PathBuf::from(&args.progress_json);
 
     eprintln!("Game Cache Removal");
     eprintln!("  Database: {}", db_path.display());
@@ -527,23 +542,34 @@ fn main() -> Result<()> {
     eprintln!("  Cache directory: {}", cache_dir.display());
     eprintln!("  Game AppID: {}", game_app_id);
 
+    // Emit started event
+    reporter.emit_started();
+
     if !db_path.exists() {
-        anyhow::bail!("Database not found: {}", db_path.display());
+        let msg = format!("Database not found: {}", db_path.display());
+        reporter.emit_failed(&msg);
+        anyhow::bail!("{}", msg);
     }
 
     if !log_dir.exists() {
-        anyhow::bail!("Log directory not found: {}", log_dir.display());
+        let msg = format!("Log directory not found: {}", log_dir.display());
+        reporter.emit_failed(&msg);
+        anyhow::bail!("{}", msg);
     }
 
     if !cache_dir.exists() {
-        anyhow::bail!("Cache directory not found: {}", cache_dir.display());
+        let msg = format!("Cache directory not found: {}", cache_dir.display());
+        reporter.emit_failed(&msg);
+        anyhow::bail!("{}", msg);
     }
 
     // Get game name from database
     let game_name = get_game_name_from_db(&db_path, game_app_id)?;
     eprintln!("Game: {}", game_name);
 
-    write_progress(&progress_path, "starting", &format!("Starting removal for game '{}' (AppID {})", game_name, game_app_id))?;
+    let start_msg = format!("Starting removal for game '{}' (AppID {})", game_name, game_app_id);
+    write_progress(&progress_path, "starting", &start_msg)?;
+    reporter.emit_progress(0.0, &start_msg);
 
     // Get valid depot IDs for this game from database
     write_progress(&progress_path, "querying_database", "Querying database for depot IDs and URLs")?;
@@ -570,7 +596,8 @@ fn main() -> Result<()> {
         fs::write(&output_json, json)?;
         eprintln!("Report saved to: {}", output_json.display());
 
-        write_progress(&progress_path, "complete", "No URLs found for this game")?;
+        write_progress(&progress_path, "completed", "No URLs found for this game")?;
+        reporter.emit_complete("No URLs found for this game");
         return Ok(());
     }
 
@@ -617,6 +644,7 @@ fn main() -> Result<()> {
         fs::write(&output_json, json)?;
 
         write_progress(&progress_path, "failed", &error_msg)?;
+        reporter.emit_failed(&error_msg);
         anyhow::bail!("{}", error_msg);
     }
 
@@ -653,7 +681,8 @@ fn main() -> Result<()> {
         game_app_id
     );
 
-    write_progress(&progress_path, "complete", &summary_message)?;
+    write_progress(&progress_path, "completed", &summary_message)?;
+    reporter.emit_complete(&summary_message);
 
     eprintln!("\n=== Removal Summary ===");
     eprintln!("Cache files deleted: {}", report.cache_files_deleted);

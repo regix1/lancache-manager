@@ -4,6 +4,23 @@
  */
 
 // ============================================================================
+// Operation Status Constants
+// ============================================================================
+
+/**
+ * Standardized operation status values.
+ * Must match backend OperationStatus class.
+ */
+export const OperationStatus = {
+  RUNNING: 'running',
+  COMPLETED: 'completed',
+  FAILED: 'failed',
+  CANCELLED: 'cancelled'
+} as const;
+
+export type OperationStatusType = typeof OperationStatus[keyof typeof OperationStatus];
+
+// ============================================================================
 // Timing Constants
 // ============================================================================
 

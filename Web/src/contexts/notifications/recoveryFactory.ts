@@ -12,13 +12,13 @@ import {
   formatDepotMappingRecoveryDetailMessage
 } from './detailMessageFormatters';
 
-type FetchWithAuth = (url: string) => Promise<Response>;
+export type FetchWithAuth = (url: string) => Promise<Response>;
 
 // ============================================================================
 // Simple Recovery Config (for fixed-ID operations)
 // ============================================================================
 
-export interface SimpleRecoveryConfig {
+interface SimpleRecoveryConfig {
   apiEndpoint: string;
   storageKey: string;
   type: NotificationType;
@@ -29,7 +29,7 @@ export interface SimpleRecoveryConfig {
   staleMessage: string;
 }
 
-export function createSimpleRecoveryFunction(
+function createSimpleRecoveryFunction(
   config: SimpleRecoveryConfig,
   fetchWithAuth: FetchWithAuth,
   setNotifications: SetNotifications,
@@ -103,7 +103,7 @@ export function createSimpleRecoveryFunction(
 // Recovery Configurations
 // ============================================================================
 
-export const RECOVERY_CONFIGS = {
+const RECOVERY_CONFIGS = {
   logProcessing: {
     apiEndpoint: '/api/logs/process/status',
     storageKey: NOTIFICATION_STORAGE_KEYS.LOG_PROCESSING,
@@ -269,7 +269,7 @@ interface CacheRemovalsData {
   corruptionRemovals?: CacheRemovalOperation[];
 }
 
-export function createCacheRemovalsRecoveryFunction(
+function createCacheRemovalsRecoveryFunction(
   fetchWithAuth: FetchWithAuth,
   setNotifications: SetNotifications,
   scheduleAutoDismiss: ScheduleAutoDismiss
@@ -416,4 +416,115 @@ function recoverOperations(
       scheduleAutoDismiss(recoveryId);
     }
   }
+}
+
+// ============================================================================
+// Recovery Runner Factory
+// ============================================================================
+
+/**
+ * Creates a reusable recovery runner function that can be called for both
+ * initial page load recovery and SignalR reconnection recovery.
+ *
+ * This eliminates the duplicated recovery logic that was previously spread
+ * across two separate useEffect hooks.
+ *
+ * @param fetchWithAuth - Authenticated fetch function
+ * @param setNotifications - React setState function for notifications
+ * @param scheduleAutoDismiss - Function to schedule auto-dismissal
+ * @returns An async function that runs all recovery operations
+ *
+ * @example
+ * ```ts
+ * const recoverAllOperations = createRecoveryRunner(fetchWithAuth, setNotifications, scheduleAutoDismiss);
+ *
+ * // On page load
+ * useEffect(() => {
+ *   if (isAuthenticated) recoverAllOperations();
+ * }, [isAuthenticated]);
+ *
+ * // On SignalR reconnection
+ * useEffect(() => {
+ *   if (signalR.connectionState === 'connected' && wasDisconnected) {
+ *     recoverAllOperations();
+ *   }
+ * }, [signalR.connectionState]);
+ * ```
+ */
+export function createRecoveryRunner(
+  fetchWithAuth: FetchWithAuth,
+  setNotifications: SetNotifications,
+  scheduleAutoDismiss: ScheduleAutoDismiss
+): () => Promise<void> {
+  const recoverLogProcessing = createSimpleRecoveryFunction(
+    RECOVERY_CONFIGS.logProcessing,
+    fetchWithAuth,
+    setNotifications,
+    scheduleAutoDismiss
+  );
+
+  const recoverCacheClearing = createSimpleRecoveryFunction(
+    RECOVERY_CONFIGS.cacheClearing,
+    fetchWithAuth,
+    setNotifications,
+    scheduleAutoDismiss
+  );
+
+  const recoverDatabaseReset = createSimpleRecoveryFunction(
+    RECOVERY_CONFIGS.databaseReset,
+    fetchWithAuth,
+    setNotifications,
+    scheduleAutoDismiss
+  );
+
+  const recoverDepotMapping = createSimpleRecoveryFunction(
+    RECOVERY_CONFIGS.depotMapping,
+    fetchWithAuth,
+    setNotifications,
+    scheduleAutoDismiss
+  );
+
+  const recoverLogRemoval = createSimpleRecoveryFunction(
+    RECOVERY_CONFIGS.logRemoval,
+    fetchWithAuth,
+    setNotifications,
+    scheduleAutoDismiss
+  );
+
+  const recoverGameDetection = createSimpleRecoveryFunction(
+    RECOVERY_CONFIGS.gameDetection,
+    fetchWithAuth,
+    setNotifications,
+    scheduleAutoDismiss
+  );
+
+  const recoverCorruptionDetection = createSimpleRecoveryFunction(
+    RECOVERY_CONFIGS.corruptionDetection,
+    fetchWithAuth,
+    setNotifications,
+    scheduleAutoDismiss
+  );
+
+  const recoverCacheRemovals = createCacheRemovalsRecoveryFunction(
+    fetchWithAuth,
+    setNotifications,
+    scheduleAutoDismiss
+  );
+
+  return async (): Promise<void> => {
+    try {
+      await Promise.allSettled([
+        recoverLogProcessing(),
+        recoverLogRemoval(),
+        recoverDepotMapping(),
+        recoverCacheClearing(),
+        recoverDatabaseReset(),
+        recoverGameDetection(),
+        recoverCorruptionDetection(),
+        recoverCacheRemovals()
+      ]);
+    } catch (err) {
+      console.error('[NotificationsContext] Failed to recover operations:', err);
+    }
+  };
 }

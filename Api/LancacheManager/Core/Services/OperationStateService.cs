@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using LancacheManager.Core.Models;
 using LancacheManager.Infrastructure.Services;
 using ModelOperationState = LancacheManager.Models.OperationState;
 
@@ -420,11 +421,11 @@ public class OperationStateService : IHostedService
 
                             // Mark as complete
                             dataDict["isProcessing"] = false;
-                            dataDict["status"] = "complete";
+                            dataDict["status"] = OperationStatus.Completed;
                             dataDict["percentComplete"] = 100.0;
                             dataDict["completedAt"] = DateTime.UtcNow;
                             activeLogOperation.Data = JsonSerializer.SerializeToElement(dataDict);
-                            activeLogOperation.Status = "complete";
+                            activeLogOperation.Status = OperationStatus.Completed;
                             activeLogOperation.UpdatedAt = DateTime.UtcNow;
 
                             // Update the state in memory and persist it

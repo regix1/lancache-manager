@@ -420,6 +420,11 @@ public class LogsController : ControllerBase
     [RequireAuth]
     public IActionResult ProcessAllLogs()
     {
+        if (_rustLogProcessorService.IsProcessing)
+        {
+            return Conflict(new ConflictResponse { Error = "Log processing is already running" });
+        }
+
         try
         {
             _ = _rustLogProcessorService.StartProcessing();

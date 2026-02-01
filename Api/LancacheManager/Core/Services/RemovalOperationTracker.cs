@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using LancacheManager.Core.Models;
 
 namespace LancacheManager.Core.Services;
 
@@ -36,7 +37,7 @@ public class RemovalOperationTracker
         {
             Id = id,
             Name = name,
-            Status = "running",
+            Status = OperationStatus.Running,
             StartedAt = DateTime.UtcNow,
             Message = message
         };
@@ -52,7 +53,7 @@ public class RemovalOperationTracker
             operation.Message = message;
             operation.FilesDeleted = filesDeleted ?? operation.FilesDeleted;
             operation.BytesFreed = bytesFreed ?? operation.BytesFreed;
-            if (status == "complete" || status == "failed")
+            if (status == OperationStatus.Completed || status == OperationStatus.Failed)
             {
                 operation.CompletedAt = DateTime.UtcNow;
             }
@@ -63,10 +64,11 @@ public class RemovalOperationTracker
     {
         if (_operations.TryGetValue((type, key), out var operation))
         {
-            operation.Status = success ? "complete" : "failed";
+            operation.Status = success ? OperationStatus.Completed : OperationStatus.Failed;
             operation.FilesDeleted = filesDeleted;
             operation.BytesFreed = bytesFreed;
             operation.Error = error;
+            operation.Success = success;
             // Update message to show error when failing
             if (!success && !string.IsNullOrEmpty(error))
             {
@@ -75,7 +77,7 @@ public class RemovalOperationTracker
             operation.CompletedAt = DateTime.UtcNow;
 
             // Clean up after a short delay to allow final status queries
-            _ = Task.Delay(TimeSpan.FromSeconds(10)).ContinueWith(task => 
+            _ = Task.Delay(TimeSpan.FromSeconds(10)).ContinueWith(task =>
                 _operations.TryRemove((type, key), out RemovalOperation? _removed));
         }
         _logger.LogInformation("Completed tracking {Type} removal for key: {Key}, Success: {Success}", type, key, success);
@@ -89,7 +91,7 @@ public class RemovalOperationTracker
     private IEnumerable<RemovalOperation> GetActiveRemovals(RemovalOperationType type)
     {
         return _operations
-            .Where(kvp => kvp.Key.Type == type && kvp.Value.Status != "complete" && kvp.Value.Status != "failed")
+            .Where(kvp => kvp.Key.Type == type && kvp.Value.Status != OperationStatus.Completed && kvp.Value.Status != OperationStatus.Failed)
             .Select(kvp => kvp.Value);
     }
 
@@ -230,7 +232,7 @@ public class RemovalOperationTracker
                 
                 _logger.LogInformation("Requesting cancellation for corruption removal: {Service}", serviceName);
                 operation.CancellationTokenSource.Cancel();
-                operation.Status = "cancelling";
+                operation.Status = OperationStatus.Cancelling;
                 operation.Message = "Cancellation requested...";
                 return true;
             }
@@ -316,7 +318,7 @@ public class RemovalOperationTracker
                 
                 _logger.LogInformation("Requesting cancellation for cache clearing: {Datasource}", datasourceName);
                 operation.CancellationTokenSource.Cancel();
-                operation.Status = "cancelling";
+                operation.Status = OperationStatus.Cancelling;
                 operation.Message = "Cancellation requested...";
                 return true;
             }
@@ -344,8 +346,9 @@ public class RemovalOperationTracker
                 try
                 {
                     operation.RustProcess.Kill(entireProcessTree: true);
-                    operation.Status = "cancelled";
+                    operation.Status = OperationStatus.Cancelled;
                     operation.Message = "Force killed by user";
+                    operation.Cancelled = true;
                     operation.CompletedAt = DateTime.UtcNow;
                     operation.RustProcess = null;
                     return true;
@@ -397,13 +400,23 @@ public class RemovalOperation
 {
     public string Id { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
-    public string Status { get; set; } = "pending"; // pending, running, complete, failed, cancelled, cancelling
+    public string Status { get; set; } = OperationStatus.Pending;
     public string Message { get; set; } = string.Empty;
     public DateTime StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public int FilesDeleted { get; set; }
     public long BytesFreed { get; set; }
     public string? Error { get; set; }
+
+    /// <summary>
+    /// Indicates if the operation completed successfully.
+    /// </summary>
+    public bool Success { get; set; }
+
+    /// <summary>
+    /// Indicates if the operation was cancelled.
+    /// </summary>
+    public bool Cancelled { get; set; }
     
     // Progress tracking for corruption removal and cache clearing
     public double PercentComplete { get; set; }

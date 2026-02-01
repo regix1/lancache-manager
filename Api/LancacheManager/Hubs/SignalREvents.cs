@@ -43,8 +43,10 @@ public static class SignalREvents
     public const string CorruptionRemovalStarted = "CorruptionRemovalStarted";
     public const string CorruptionRemovalProgress = "CorruptionRemovalProgress";
     public const string CorruptionRemovalComplete = "CorruptionRemovalComplete";
-    public const string CacheClearProgress = "CacheClearProgress";
-    public const string CacheClearComplete = "CacheClearComplete";
+    public const string CacheClearingStarted = "CacheClearingStarted";
+    public const string CacheClearingProgress = "CacheClearingProgress";
+    public const string CacheClearingComplete = "CacheClearingComplete";
+    public const string ServiceRemovalStarted = "ServiceRemovalStarted";
     public const string ServiceRemovalProgress = "ServiceRemovalProgress";
     public const string ServiceRemovalComplete = "ServiceRemovalComplete";
 
@@ -52,17 +54,24 @@ public static class SignalREvents
     public const string GameDetectionStarted = "GameDetectionStarted";
     public const string GameDetectionProgress = "GameDetectionProgress";
     public const string GameDetectionComplete = "GameDetectionComplete";
+    public const string GameRemovalStarted = "GameRemovalStarted";
     public const string GameRemovalProgress = "GameRemovalProgress";
     public const string GameRemovalComplete = "GameRemovalComplete";
 
     // Log Processing
+    public const string LogProcessingStarted = "LogProcessingStarted";
+    public const string LogProcessingProgress = "LogProcessingProgress";
+    public const string LogProcessingComplete = "LogProcessingComplete";
+    public const string LogRemovalStarted = "LogRemovalStarted";
     public const string LogRemovalProgress = "LogRemovalProgress";
     public const string LogRemovalComplete = "LogRemovalComplete";
     public const string ProcessingProgress = "ProcessingProgress";
     public const string FastProcessingComplete = "FastProcessingComplete";
 
     // Database Operations
+    public const string DatabaseResetStarted = "DatabaseResetStarted";
     public const string DatabaseResetProgress = "DatabaseResetProgress";
+    public const string DatabaseResetComplete = "DatabaseResetComplete";
     public const string PrefillSessionsCleared = "PrefillSessionsCleared";
     public const string BannedSteamUsersCleared = "BannedSteamUsersCleared";
 

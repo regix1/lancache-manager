@@ -1,6 +1,7 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use chrono::{NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Tz;
+use clap::Parser;
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -14,9 +15,41 @@ mod log_discovery;
 mod log_reader;
 mod models;
 mod parser;
+mod progress_events;
 mod progress_utils;
 mod service_utils;
 mod session;
+
+use progress_events::ProgressReporter;
+
+/// Log processor utility - parses lancache access logs and stores in database
+#[derive(clap::Parser, Debug)]
+#[command(name = "log_processor")]
+#[command(about = "Parses lancache access logs and stores entries in the database")]
+struct Args {
+    /// Path to SQLite database
+    db_path: String,
+
+    /// Directory containing log files (e.g., H:/logs)
+    log_dir: String,
+
+    /// Path to progress JSON file
+    progress_path: String,
+
+    /// Line number to start from (0 for beginning)
+    start_position: u64,
+
+    /// Map depot IDs to games during processing (1=yes, 0=no)
+    auto_map_depots: u8,
+
+    /// Optional name for multi-datasource support (default: 'default')
+    #[arg(default_value = "default")]
+    datasource_name: Option<String>,
+
+    /// Emit JSON progress events to stdout
+    #[arg(short, long)]
+    progress: bool,
+}
 
 use log_discovery::{discover_log_files, LogFile};
 use log_reader::LogFileReader;
@@ -173,6 +206,7 @@ impl Processor {
 
         if log_files.is_empty() {
             println!("No log files found matching pattern: {}", self.log_base_name);
+            self.write_progress("completed", "No log files found")?;
             return Ok(());
         }
 
@@ -227,7 +261,7 @@ impl Processor {
         }
 
         println!("\nAll files processed successfully!");
-        self.write_progress("complete", "Log processing finished")?;
+        self.write_progress("completed", "Log processing finished")?;
 
         Ok(())
     }
@@ -718,40 +752,22 @@ impl Processor {
 }
 
 fn main() -> Result<()> {
-    let args: Vec<String> = std::env::args().collect();
+    let args = Args::parse();
+    let reporter = ProgressReporter::new(args.progress);
 
-    if args.len() < 6 {
-        eprintln!(
-            "Usage: {} <db_path> <log_dir> <progress_path> <start_position> <auto_map_depots> [datasource_name]",
-            args[0]
-        );
-        eprintln!("  db_path: Path to SQLite database");
-        eprintln!("  log_dir: Directory containing log files (e.g., H:/logs)");
-        eprintln!("  progress_path: Path to progress JSON file");
-        eprintln!("  start_position: Line number to start from (0 for beginning)");
-        eprintln!("  auto_map_depots: 1 to map depot IDs to games during processing (recommended), 0 to skip mapping");
-        eprintln!("  datasource_name: Optional name for multi-datasource support (default: 'default')");
-        eprintln!("\nNote: Processor will discover all log files matching 'access.log*' pattern");
-        eprintln!("      including rotated logs (access.log.1, access.log.2, etc.)");
-        eprintln!("      and compressed logs (.gz, .zst)");
-        std::process::exit(1);
-    }
-
-    let db_path = PathBuf::from(&args[1]);
-    let log_dir = PathBuf::from(&args[2]);
-    let progress_path = PathBuf::from(&args[3]);
-    let start_position: u64 = args[4].parse().context("Invalid start_position")?;
-    let auto_map_depots: bool = args[5].parse::<u8>().context("Invalid auto_map_depots")? == 1;
-
-    // Optional datasource name (for multi-datasource support)
-    let datasource_name = if args.len() > 6 {
-        args[6].clone()
-    } else {
-        "default".to_string()
-    };
+    let db_path = PathBuf::from(&args.db_path);
+    let log_dir = PathBuf::from(&args.log_dir);
+    let progress_path = PathBuf::from(&args.progress_path);
+    let start_position = args.start_position;
+    let auto_map_depots = args.auto_map_depots == 1;
+    let datasource_name = args.datasource_name.unwrap_or_else(|| "default".to_string());
 
     // Log file base name (hardcoded for now, could be made configurable)
     let log_base_name = "access.log".to_string();
+
+    // Emit started event
+    reporter.emit_started();
+    reporter.emit_progress(0.0, "Starting log processing");
 
     let mut processor = Processor::new(
         db_path,
@@ -762,7 +778,15 @@ fn main() -> Result<()> {
         auto_map_depots,
         datasource_name,
     );
-    processor.process()?;
 
-    Ok(())
+    match processor.process() {
+        Ok(()) => {
+            reporter.emit_complete("Log processing completed successfully");
+            Ok(())
+        }
+        Err(e) => {
+            reporter.emit_failed(&format!("Log processing failed: {}", e));
+            Err(e)
+        }
+    }
 }

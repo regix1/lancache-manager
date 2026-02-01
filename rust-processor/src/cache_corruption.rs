@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
+use clap::{Parser, Subcommand};
 use rusqlite::Connection;
 use serde::Serialize;
-use std::env;
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -15,10 +15,70 @@ mod log_discovery;
 mod log_reader;
 mod models;
 mod parser;
+mod progress_events;
 mod progress_utils;
 mod service_utils;
 
 use cache_corruption_detector::CorruptionDetector;
+use progress_events::ProgressReporter;
+
+/// Cache corruption detector and remover
+#[derive(Parser, Debug)]
+#[command(name = "cache_corruption")]
+#[command(about = "Detects and removes corrupted cache chunks")]
+struct Args {
+    /// Emit JSON progress events to stdout
+    #[arg(short, long, global = true)]
+    progress: bool,
+
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// Find corrupted chunks and output detailed JSON report
+    Detect {
+        /// Directory containing log files
+        log_dir: String,
+        /// Cache directory root path
+        cache_dir: String,
+        /// Path to output JSON file
+        output_json: String,
+        /// Timezone (default: UTC)
+        #[arg(default_value = "UTC")]
+        timezone: Option<String>,
+    },
+    /// Quick JSON summary of corrupted chunk counts per service
+    Summary {
+        /// Directory containing log files
+        log_dir: String,
+        /// Cache directory root path
+        cache_dir: String,
+        /// Path to progress JSON file (use "none" to skip)
+        #[arg(default_value = "none")]
+        progress_json: Option<String>,
+        /// Timezone (default: UTC)
+        #[arg(default_value = "UTC")]
+        timezone: Option<String>,
+        /// Miss threshold (default: 3)
+        #[arg(default_value = "3")]
+        threshold: Option<usize>,
+    },
+    /// Delete database records, cache files, and log entries for corrupted chunks
+    Remove {
+        /// Path to LancacheManager.db
+        database_path: String,
+        /// Directory containing log files
+        log_dir: String,
+        /// Cache directory root path
+        cache_dir: String,
+        /// Service name to remove corrupted chunks for
+        service: String,
+        /// Path to progress JSON file
+        progress_json: String,
+    },
+}
 
 #[derive(Serialize)]
 struct ProgressData {
@@ -164,59 +224,38 @@ fn delete_corrupted_from_database(
 }
 
 fn main() -> Result<()> {
-    let args: Vec<String> = env::args().collect();
+    let args = Args::parse();
+    let reporter = ProgressReporter::new(args.progress);
 
-    if args.len() < 2 {
-        eprintln!("Usage:");
-        eprintln!("  {} detect <log_dir> <cache_dir> <output_json> [timezone]", args[0]);
-        eprintln!("  {} summary <log_dir> <cache_dir> [progress_json] [timezone] [threshold]", args[0]);
-        eprintln!("  {} remove <database_path> <log_dir> <cache_dir> <service> <progress_json>", args[0]);
-        eprintln!();
-        eprintln!("Commands:");
-        eprintln!("  detect  - Find corrupted chunks and output detailed JSON report");
-        eprintln!("  summary - Quick JSON summary of corrupted chunk counts per service");
-        eprintln!("  remove  - Delete database records, cache files, and log entries for corrupted chunks");
-        eprintln!();
-        eprintln!("Arguments:");
-        eprintln!("  database_path - Path to LancacheManager.db");
-        eprintln!("  log_dir      - Directory containing log files (e.g., /logs or H:/logs)");
-        eprintln!("  cache_dir    - Cache directory root path (e.g., /cache or H:/cache)");
-        eprintln!("  output_json  - Path to output JSON file");
-        eprintln!("  service      - Service name to remove corrupted chunks for (e.g., steam, epic)");
-        eprintln!("  progress_json - Path to progress JSON file for tracking (optional for summary)");
-        eprintln!("  timezone     - Optional timezone (default: UTC)");
-        eprintln!("  threshold    - Optional miss threshold (default: 3)");
-        std::process::exit(1);
-    }
+    match args.command {
+        Commands::Detect { log_dir, cache_dir, output_json, timezone } => {
+            reporter.emit_started();
 
-    let command = &args[1];
+            let log_dir = PathBuf::from(&log_dir);
+            let cache_dir = PathBuf::from(&cache_dir);
+            let output_json = PathBuf::from(&output_json);
+            let timezone = timezone.map(|tz| parse_timezone(&tz)).unwrap_or(chrono_tz::UTC);
 
-    match command.as_str() {
-        "detect" => {
-            if args.len() < 5 {
-                eprintln!("Usage: {} detect <log_dir> <cache_dir> <output_json> [timezone]", args[0]);
-                std::process::exit(1);
-            }
+            eprintln!("Detecting corrupted chunks...");
+            eprintln!("  Log directory: {}", log_dir.display());
+            eprintln!("  Cache directory: {}", cache_dir.display());
+            eprintln!("  Timezone: {}", timezone);
 
-            let log_dir = PathBuf::from(&args[2]);
-            let cache_dir = PathBuf::from(&args[3]);
-            let output_json = PathBuf::from(&args[4]);
-            let timezone = if args.len() > 5 {
-                parse_timezone(&args[5])
-            } else {
-                chrono_tz::UTC
-            };
-
-            println!("Detecting corrupted chunks...");
-            println!("  Log directory: {}", log_dir.display());
-            println!("  Cache directory: {}", cache_dir.display());
-            println!("  Timezone: {}", timezone);
+            reporter.emit_progress(10.0, "Scanning log files for corrupted chunks...");
 
             let detector = CorruptionDetector::new(&cache_dir, 3);
-            let report = detector.generate_report(&log_dir, "access.log", timezone)
-                .context("Failed to generate corruption report")?;
+            let report = match detector.generate_report(&log_dir, "access.log", timezone) {
+                Ok(r) => r,
+                Err(e) => {
+                    let msg = format!("Failed to generate corruption report: {}", e);
+                    reporter.emit_failed(&msg);
+                    anyhow::bail!("{}", msg);
+                }
+            };
 
-            println!("Found {} corrupted chunks across {} services",
+            reporter.emit_progress(80.0, &format!("Found {} corrupted chunks across {} services", report.summary.total_corrupted, report.summary.service_counts.len()));
+
+            eprintln!("Found {} corrupted chunks across {} services",
                 report.summary.total_corrupted,
                 report.summary.service_counts.len());
 
@@ -226,36 +265,23 @@ fn main() -> Result<()> {
             file.write_all(json.as_bytes())?;
             file.flush()?;
 
-            println!("Report saved to: {}", output_json.display());
+            eprintln!("Report saved to: {}", output_json.display());
+            reporter.emit_complete(&format!("Report saved to: {}", output_json.display()));
         }
 
-        "summary" => {
-            if args.len() < 4 {
-                eprintln!("Usage: {} summary <log_dir> <cache_dir> [progress_json] [timezone] [threshold]", args[0]);
-                std::process::exit(1);
-            }
+        Commands::Summary { log_dir, cache_dir, progress_json, timezone, threshold } => {
+            reporter.emit_started();
 
-            let log_dir = PathBuf::from(&args[2]);
-            let cache_dir = PathBuf::from(&args[3]);
-            
-            // Parse optional progress file (arg[4]) - use "none" to skip progress
-            let progress_path = if args.len() > 4 && args[4] != "none" && !args[4].is_empty() {
-                Some(PathBuf::from(&args[4]))
-            } else {
-                None
-            };
-            
-            // Timezone and threshold shift by 1 if progress file is provided
-            let timezone = if args.len() > 5 {
-                parse_timezone(&args[5])
-            } else {
-                chrono_tz::UTC
-            };
-            let threshold = if args.len() > 6 {
-                args[6].parse::<usize>().unwrap_or(3)
-            } else {
-                3
-            };
+            let log_dir = PathBuf::from(&log_dir);
+            let cache_dir = PathBuf::from(&cache_dir);
+
+            // Parse optional progress file - use "none" to skip progress
+            let progress_path = progress_json
+                .filter(|p| p != "none" && !p.is_empty())
+                .map(PathBuf::from);
+
+            let timezone = timezone.map(|tz| parse_timezone(&tz)).unwrap_or(chrono_tz::UTC);
+            let threshold = threshold.unwrap_or(3);
 
             // All diagnostic output to stderr so stdout only contains JSON
             eprintln!("Generating corruption summary...");
@@ -265,30 +291,36 @@ fn main() -> Result<()> {
             eprintln!("  Timezone: {}", timezone);
             eprintln!("  Miss threshold: {}", threshold);
 
+            reporter.emit_progress(10.0, "Scanning log files...");
+
             let detector = CorruptionDetector::new(&cache_dir, threshold);
-            let summary = detector.generate_summary_with_progress(
-                &log_dir, 
-                "access.log", 
+            let summary = match detector.generate_summary_with_progress(
+                &log_dir,
+                "access.log",
                 timezone,
                 progress_path.as_deref()
-            ).context("Failed to generate corruption summary")?;
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    let msg = format!("Failed to generate corruption summary: {}", e);
+                    reporter.emit_failed(&msg);
+                    anyhow::bail!("{}", msg);
+                }
+            };
 
             // Output JSON to stdout for C# to capture (ONLY stdout should be JSON)
             let json = serde_json::to_string(&summary)?;
             println!("{}", json);
+            reporter.emit_complete("Corruption summary generated");
         }
 
-        "remove" => {
-            if args.len() < 7 {
-                eprintln!("Usage: {} remove <database_path> <log_dir> <cache_dir> <service> <progress_json>", args[0]);
-                std::process::exit(1);
-            }
+        Commands::Remove { database_path, log_dir, cache_dir, service, progress_json } => {
+            reporter.emit_started();
 
-            let db_path = PathBuf::from(&args[2]);
-            let log_dir = PathBuf::from(&args[3]);
-            let cache_dir = PathBuf::from(&args[4]);
-            let service = &args[5];
-            let progress_path = PathBuf::from(&args[6]);
+            let db_path = PathBuf::from(&database_path);
+            let log_dir = PathBuf::from(&log_dir);
+            let cache_dir = PathBuf::from(&cache_dir);
+            let progress_path = PathBuf::from(&progress_json);
 
             eprintln!("Removing corrupted chunks for service: {}", service);
             eprintln!("  Database: {}", db_path.display());
@@ -296,6 +328,7 @@ fn main() -> Result<()> {
             eprintln!("  Cache directory: {}", cache_dir.display());
 
             write_progress(&progress_path, "starting", &format!("Starting removal for {}", service), 0.0, 0, 0)?;
+            reporter.emit_progress(0.0, &format!("Starting removal for {}", service));
 
             // OPTIMIZED: Single-pass detection and removal
             // Instead of reading logs twice (once to detect, once to remove),
@@ -394,10 +427,12 @@ fn main() -> Result<()> {
                 .collect();
 
             eprintln!("Found {} corrupted URLs for {}", corrupted_urls_with_sizes.len(), service);
+            reporter.emit_progress(30.0, &format!("Found {} corrupted URLs for {}", corrupted_urls_with_sizes.len(), service));
 
             if corrupted_urls_with_sizes.is_empty() {
                 eprintln!("No corrupted chunks found, nothing to remove");
-                write_progress(&progress_path, "complete", "No corrupted chunks found", 100.0, 0, 0)?;
+                write_progress(&progress_path, "completed", "No corrupted chunks found", 100.0, 0, 0)?;
+                reporter.emit_complete("No corrupted chunks found, nothing to remove");
                 return Ok(());
             }
 
@@ -655,6 +690,7 @@ fn main() -> Result<()> {
                 );
                 eprintln!("\n{}", error_msg);
                 write_progress(&progress_path, "failed", &error_msg, 0.0, 0, 0)?;
+                reporter.emit_failed(&error_msg);
                 std::process::exit(1);
             }
 
@@ -662,10 +698,13 @@ fn main() -> Result<()> {
             // Only reached if ALL file deletions succeeded (no permission errors)
             eprintln!("Step 4: Deleting database records...");
             write_progress(&progress_path, "removing_database", "Deleting database records for corrupted chunks", 95.0, 0, 0)?;
+            reporter.emit_progress(95.0, "Deleting database records for corrupted chunks");
 
-            let (downloads_deleted, log_entries_deleted) = delete_corrupted_from_database(&db_path, service, &corrupted_urls)?;
+            let (downloads_deleted, log_entries_deleted) = delete_corrupted_from_database(&db_path, &service, &corrupted_urls)?;
 
-            write_progress(&progress_path, "complete", &format!("Removed {} corrupted URLs for {} ({} cache files deleted, {} log lines removed, {} downloads deleted, {} log entries deleted)", corrupted_urls_with_sizes.len(), service, deleted_count, total_lines_removed, downloads_deleted, log_entries_deleted), 100.0, 0, 0)?;
+            let summary_msg = format!("Removed {} corrupted URLs for {} ({} cache files deleted, {} log lines removed, {} downloads deleted, {} log entries deleted)", corrupted_urls_with_sizes.len(), service, deleted_count, total_lines_removed, downloads_deleted, log_entries_deleted);
+            write_progress(&progress_path, "completed", &summary_msg, 100.0, 0, 0)?;
+            reporter.emit_complete(&summary_msg);
             eprintln!("\n=== Corruption Removal Summary ===");
             eprintln!("Corrupted URLs removed: {}", corrupted_urls_with_sizes.len());
             eprintln!("Cache files deleted: {}", deleted_count);
@@ -673,12 +712,6 @@ fn main() -> Result<()> {
             eprintln!("Database downloads deleted: {}", downloads_deleted);
             eprintln!("Database log entries deleted: {}", log_entries_deleted);
             eprintln!("Removal completed successfully");
-        }
-
-        _ => {
-            eprintln!("Unknown command: {}", command);
-            eprintln!("Valid commands: detect, summary, remove");
-            std::process::exit(1);
         }
     }
 

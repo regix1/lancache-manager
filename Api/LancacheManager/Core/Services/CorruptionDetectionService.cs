@@ -120,8 +120,8 @@ public class CorruptionDetectionService
             // Use trackerOperationId so frontend can cancel via /api/operations/{id}/cancel
             await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionStarted, new
             {
-                operationId = trackerOperationId,
-                message = "Starting corruption detection scan..."
+                OperationId = trackerOperationId,
+                Message = "Starting corruption detection scan..."
             });
 
             // Run detection in background with the cancellation token
@@ -186,7 +186,7 @@ public class CorruptionDetectionService
             }
 
             // Update operation
-            operation.Status = "complete";
+            operation.Status = OperationStatus.Completed;
             operation.Message = $"Detection complete. Found {aggregatedCounts.Count} services with corruption.";
             operation.CorruptionCounts = aggregatedCounts;
             operation.LastDetectionTime = DateTime.UtcNow;
@@ -207,9 +207,11 @@ public class CorruptionDetectionService
             // Use TrackerOperationId so frontend can cancel via /api/operations/{id}/cancel
             await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionComplete, new
             {
-                operationId = operation.TrackerOperationId,
-                success = true,
-                message = operation.Message,
+                OperationId = operation.TrackerOperationId,
+                Success = true,
+                Status = OperationStatus.Completed,
+                Message = operation.Message,
+                Cancelled = false,
                 totalServicesWithCorruption = aggregatedCounts.Count,
                 totalCorruptedChunks = aggregatedCounts.Values.Sum()
             });
@@ -235,10 +237,11 @@ public class CorruptionDetectionService
             // Send cancellation notification via SignalR
             await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionComplete, new
             {
-                operationId = operation.TrackerOperationId,
-                success = false,
-                cancelled = true,
-                error = "Detection cancelled by user"
+                OperationId = operation.TrackerOperationId,
+                Success = false,
+                Status = OperationStatus.Cancelled,
+                Message = "Detection cancelled by user",
+                Cancelled = true
             });
         }
         catch (Exception ex)
@@ -260,9 +263,11 @@ public class CorruptionDetectionService
             // Send failure notification via SignalR
             await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionComplete, new
             {
-                operationId = operation.TrackerOperationId,
-                success = false,
-                error = ex.Message
+                OperationId = operation.TrackerOperationId,
+                Success = false,
+                Status = OperationStatus.Failed,
+                Message = ex.Message,
+                Cancelled = false
             });
         }
     }
@@ -319,12 +324,12 @@ public class CorruptionDetectionService
                             // Use trackerOperationId so frontend can cancel via /api/operations/{id}/cancel
                             await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionProgress, new
                             {
-                                operationId = trackerOperationId,
-                                status = progressData.Status,
-                                message = progressData.Message,
+                                OperationId = trackerOperationId,
+                                PercentComplete = progressData.PercentComplete,
+                                Status = OperationStatus.Running,
+                                Message = progressData.Message,
                                 filesProcessed = progressData.FilesProcessed,
                                 totalFiles = progressData.TotalFiles,
-                                percentComplete = progressData.PercentComplete,
                                 currentFile = progressData.CurrentFile,
                                 datasourceName
                             });

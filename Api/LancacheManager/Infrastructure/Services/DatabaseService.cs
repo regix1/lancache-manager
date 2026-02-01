@@ -1,4 +1,5 @@
 using LancacheManager.Core.Services;
+using LancacheManager.Core.Models;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
@@ -220,7 +221,7 @@ public class DatabaseService : IDatabaseService
             {
                 isProcessing = false,
                 percentComplete = 100.0,
-                status = "complete",
+                status = OperationStatus.Completed,
                 message = $"Database reset completed successfully (preserved {cachedGameDetectionsCount:N0} game detections)",
                 timestamp = DateTime.UtcNow
             });
@@ -864,7 +865,7 @@ public class DatabaseService : IDatabaseService
                 {
                     isProcessing = false,
                     percentComplete = 100.0,
-                    status = "complete",
+                    status = OperationStatus.Completed,
                     message = $"Successfully cleared {tablesToClear.Count} table(s): {string.Join(", ", tablesToClear)}",
                     timestamp = DateTime.UtcNow
                 });

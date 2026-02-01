@@ -26,7 +26,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             Id = operationId,
             Type = type,
             Name = name,
-            Status = "running",
+            Status = OperationStatus.Running,
             Message = $"Starting {name}...",
             StartedAt = DateTime.UtcNow,
             CancellationTokenSource = cts,
@@ -61,7 +61,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
                     operationId, operation.Type, operation.Name);
 
                 operation.CancellationTokenSource.Cancel();
-                operation.Status = "cancelling";
+                operation.Status = OperationStatus.Cancelling;
                 operation.Message = "Cancellation requested...";
                 return true;
             }
@@ -92,8 +92,9 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
                 try
                 {
                     operation.AssociatedProcess.Kill(entireProcessTree: true);
-                    operation.Status = "cancelled";
+                    operation.Status = OperationStatus.Cancelled;
                     operation.Message = "Force killed by user";
+                    operation.Cancelled = true;
                     operation.CompletedAt = DateTime.UtcNow;
                     operation.AssociatedProcess = null;
 
@@ -128,7 +129,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     public IEnumerable<OperationInfo> GetActiveOperations(OperationType? filterType = null)
     {
         var operations = _operations.Values.Where(op =>
-            op.Status != "complete" && op.Status != "failed");
+            op.Status != OperationStatus.Completed && op.Status != OperationStatus.Failed);
 
         if (filterType.HasValue)
         {
@@ -142,8 +143,9 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     {
         if (_operations.TryGetValue(operationId, out var operation))
         {
-            operation.Status = success ? "complete" : "failed";
+            operation.Status = success ? OperationStatus.Completed : OperationStatus.Failed;
             operation.Message = success ? "Operation completed successfully" : (error ?? "Operation failed");
+            operation.Success = success;
             operation.CompletedAt = DateTime.UtcNow;
 
             // Dispose the CancellationTokenSource

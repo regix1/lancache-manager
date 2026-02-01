@@ -212,7 +212,7 @@ impl CorruptionDetector {
 
         if log_files.is_empty() {
             if let Some(progress_file) = progress_path {
-                self.write_detection_progress(progress_file, "complete", "No log files found", 0, 0, 100.0, None)?;
+                self.write_detection_progress(progress_file, "completed", "No log files found", 0, 0, 100.0, None)?;
             }
             return Ok(HashMap::new());
         }
@@ -358,7 +358,7 @@ impl CorruptionDetector {
         if let Some(progress_file) = progress_path {
             self.write_detection_progress(
                 progress_file,
-                "complete",
+                "completed",
                 &format!("Scan complete. Found {} corrupted chunks.", corrupted.len()),
                 total_files,
                 total_files,

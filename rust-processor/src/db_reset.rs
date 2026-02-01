@@ -220,7 +220,7 @@ fn reset_database(
     // Final progress
     progress.is_processing = false;
     progress.percent_complete = 100.0;
-    progress.status = "complete".to_string();
+    progress.status = "completed".to_string();
     progress.message = format!(
         "Database reset completed in {:.2}s. Cleared {} tables, deleted {} files.",
         elapsed.as_secs_f64(),

@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
+use clap::Parser;
 use rusqlite::Connection;
 use serde::Serialize;
 use std::collections::HashSet;
-use std::env;
 use std::fs;
 use std::io::{BufWriter, Write as IoWrite};
 use std::path::{Path, PathBuf};
@@ -15,11 +15,41 @@ mod log_discovery;
 mod log_reader;
 mod models;
 mod parser;
+mod progress_events;
 mod progress_utils;
 mod service_utils;
 
 use log_reader::LogFileReader;
 use parser::LogParser;
+use progress_events::ProgressReporter;
+
+/// Service cache removal utility - removes all cache files for a specific service
+#[derive(clap::Parser, Debug)]
+#[command(name = "cache_service_remove")]
+#[command(about = "Removes all cache files for a specific service")]
+struct Args {
+    /// Path to LancacheManager.db
+    database_path: String,
+
+    /// Directory containing log files
+    log_dir: String,
+
+    /// Cache directory root (e.g., /cache or H:/cache)
+    cache_dir: String,
+
+    /// Service name to remove (e.g., steam, epic, battlenet)
+    service: String,
+
+    /// Path to output JSON report
+    output_json: String,
+
+    /// Path to progress JSON file
+    progress_json: String,
+
+    /// Emit JSON progress events to stdout
+    #[arg(short, long)]
+    progress: bool,
+}
 
 #[derive(Serialize)]
 struct ProgressData {
@@ -298,27 +328,14 @@ fn delete_service_from_database(db_path: &Path, service: &str) -> Result<usize> 
 }
 
 fn main() -> Result<()> {
-    let args: Vec<String> = env::args().collect();
+    let args = Args::parse();
+    let reporter = ProgressReporter::new(args.progress);
 
-    if args.len() < 6 {
-        eprintln!("Usage: {} <database_path> <log_dir> <cache_dir> <service_name> <progress_json>", args[0]);
-        eprintln!();
-        eprintln!("Removes all cache data for a specific service.");
-        eprintln!();
-        eprintln!("Arguments:");
-        eprintln!("  database_path - Path to LancacheManager.db");
-        eprintln!("  log_dir       - Directory containing log files");
-        eprintln!("  cache_dir     - Cache directory root");
-        eprintln!("  service_name  - Name of service to remove (e.g., 'riot', 'blizzard', 'epic')");
-        eprintln!("  progress_json - Path to progress JSON file");
-        std::process::exit(1);
-    }
-
-    let db_path = PathBuf::from(&args[1]);
-    let log_dir = PathBuf::from(&args[2]);
-    let cache_dir = PathBuf::from(&args[3]);
-    let service = &args[4];
-    let progress_path = PathBuf::from(&args[5]);
+    let db_path = PathBuf::from(&args.database_path);
+    let log_dir = PathBuf::from(&args.log_dir);
+    let cache_dir = PathBuf::from(&args.cache_dir);
+    let service = &args.service;
+    let progress_path = PathBuf::from(&args.progress_json);
 
     eprintln!("Service Cache Removal");
     eprintln!("  Database: {}", db_path.display());
@@ -326,7 +343,12 @@ fn main() -> Result<()> {
     eprintln!("  Cache directory: {}", cache_dir.display());
     eprintln!("  Service: {}", service);
 
-    write_progress(&progress_path, "starting", &format!("Starting removal for service '{}'", service))?;
+    // Emit started event
+    reporter.emit_started();
+
+    let start_msg = format!("Starting removal for service '{}'", service);
+    write_progress(&progress_path, "starting", &start_msg)?;
+    reporter.emit_progress(0.0, &start_msg);
 
     // Step 1: Get all URLs for this service from database
     write_progress(&progress_path, "querying", "Querying database for service URLs")?;
@@ -334,7 +356,8 @@ fn main() -> Result<()> {
 
     if urls.is_empty() {
         eprintln!("No URLs found for service '{}'", service);
-        write_progress(&progress_path, "complete", "No URLs found for this service")?;
+        write_progress(&progress_path, "completed", "No URLs found for this service")?;
+        reporter.emit_complete("No URLs found for this service");
         return Ok(());
     }
 
@@ -359,6 +382,7 @@ fn main() -> Result<()> {
         );
         eprintln!("\n{}", error_msg);
         write_progress(&progress_path, "failed", &error_msg)?;
+        reporter.emit_failed(&error_msg);
         std::process::exit(1);
     }
 
@@ -376,7 +400,8 @@ fn main() -> Result<()> {
         service
     );
 
-    write_progress(&progress_path, "complete", &summary_message)?;
+    write_progress(&progress_path, "completed", &summary_message)?;
+    reporter.emit_complete(&summary_message);
 
     eprintln!("\n=== Removal Summary ===");
     eprintln!("Service: {}", service);

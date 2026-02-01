@@ -11,6 +11,15 @@ import type {
   ScheduleAutoDismiss,
   CancelAutoDismissTimer
 } from './types';
+import type { DepotMappingCompleteEvent } from '../SignalRContext/types';
+import {
+  NOTIFICATION_STORAGE_KEYS,
+  NOTIFICATION_IDS,
+  INCREMENTAL_SCAN_ANIMATION_STEPS,
+  INCREMENTAL_SCAN_ANIMATION_DURATION_MS,
+  NOTIFICATION_ANIMATION_DURATION_MS,
+  CANCELLED_NOTIFICATION_DELAY_MS
+} from './constants';
 
 // ============================================================================
 // Started Handler Factory
@@ -102,114 +111,7 @@ export function createStartedHandler<T>(
   };
 }
 
-// ============================================================================
-// Progress Handler Factory
-// ============================================================================
 
-/**
- * Configuration for creating a progress event handler.
- * @template T - The type of the SignalR event
- */
-export interface ProgressHandlerConfig<T> {
-  /** The notification type this handler updates */
-  type: NotificationType;
-  /** Function to extract the notification ID from the event */
-  getId: (event: T) => string;
-  /** localStorage key for persisting the notification */
-  storageKey: string;
-  /** Function to get the message, receives both event and existing notification */
-  getMessage: (event: T, existing?: UnifiedNotification) => string;
-  /** Optional function to get the detail message */
-  getDetailMessage?: (event: T, existing?: UnifiedNotification) => string | undefined;
-  /** Optional function to get notification details */
-  getDetails?: (event: T, existing?: UnifiedNotification) => UnifiedNotification['details'];
-  /** Optional function to get progress percentage (0-100) */
-  getProgress?: (event: T) => number;
-}
-
-/**
- * Creates a handler function for progress events.
- * Progress handlers update existing notifications or create new ones if none exist.
- *
- * @template T - The type of the SignalR event
- * @param config - Configuration for the handler
- * @param setNotifications - React setState function for notifications
- * @param cancelAutoDismissTimer - Optional function to cancel pending auto-dismiss
- * @returns A handler function that processes the progress event
- *
- * @example
- * ```ts
- * const handleLogRemovalProgress = createProgressHandler<LogRemovalProgressEvent>(
- *   {
- *     type: 'log_removal',
- *     getId: () => NOTIFICATION_IDS.LOG_REMOVAL,
- *     storageKey: NOTIFICATION_STORAGE_KEYS.LOG_REMOVAL,
- *     getMessage: (e) => `Removing ${e.service} entries...`,
- *     getProgress: (e) => e.percentComplete || 0
- *   },
- *   setNotifications,
- *   cancelAutoDismissTimer
- * );
- * ```
- */
-export function createProgressHandler<T>(
-  config: ProgressHandlerConfig<T>,
-  setNotifications: SetNotifications,
-  cancelAutoDismissTimer?: CancelAutoDismissTimer
-): (event: T) => void {
-  return (event: T): void => {
-    const notificationId = config.getId(event);
-
-    setNotifications((prev: UnifiedNotification[]) => {
-      const existing = prev.find((n) => n.id === notificationId);
-
-      // If notification exists but is completed/failed, ignore late progress events
-      // This prevents duplicates when progress events arrive after completion
-      if (existing && existing.status !== 'running') {
-        return prev;
-      }
-
-      if (existing) {
-        // Update existing running notification
-        return prev.map((n) => {
-          if (n.id === notificationId) {
-            return {
-              ...n,
-              message: config.getMessage(event, n),
-              detailMessage: config.getDetailMessage?.(event, n),
-              progress: config.getProgress?.(event) ?? n.progress,
-              details: {
-                ...n.details,
-                ...config.getDetails?.(event, n)
-              }
-            };
-          }
-          return n;
-        });
-      } else {
-        // Cancel any existing auto-dismiss timer
-        cancelAutoDismissTimer?.(notificationId);
-
-        // Create new notification (only if no existing notification with this ID)
-        const newNotification: UnifiedNotification = {
-          id: notificationId,
-          type: config.type,
-          status: 'running',
-          message: config.getMessage(event),
-          detailMessage: config.getDetailMessage?.(event),
-          progress: config.getProgress?.(event) ?? 0,
-          startedAt: new Date(),
-          details: config.getDetails?.(event)
-        };
-
-        // Persist to localStorage for recovery
-        localStorage.setItem(config.storageKey, JSON.stringify(newNotification));
-
-        return [...prev, newNotification];
-      }
-    });
-  };
-}
 
 // ============================================================================
 // Completion Handler Factory
@@ -230,6 +132,8 @@ export interface CompletionHandlerConfig<T> {
   getSuccessMessage?: (event: T, existing?: UnifiedNotification) => string;
   /** Optional function to get success details */
   getSuccessDetails?: (event: T, existing?: UnifiedNotification) => UnifiedNotification['details'];
+  /** Optional function to get detail message (shown below main message) */
+  getDetailMessage?: (event: T) => string;
   /** Optional function to get the failure message */
   getFailureMessage?: (event: T) => string;
   /** If true, show a brief animation delay before marking complete */
@@ -275,11 +179,10 @@ export function createCompletionHandler<T extends { success: boolean; message?: 
     // Clear from localStorage IMMEDIATELY to prevent stuck state on refresh
     localStorage.removeItem(config.storageKey);
 
-    if (config.useAnimationDelay) {
-      // Use closure variable to track if we should schedule auto-dismiss
-      let shouldSchedule = false;
-      let idToSchedule = notificationId;
+    // Track the ID to schedule (may be different for fast completion)
+    let idToSchedule = notificationId;
 
+    if (config.useAnimationDelay) {
       // Single atomic update that sets BOTH progress=100 AND final status
       setNotifications((prev: UnifiedNotification[]) => {
         const existing = prev.find((n) => n.id === notificationId);
@@ -289,8 +192,6 @@ export function createCompletionHandler<T extends { success: boolean; message?: 
 
         // Only complete notifications that are still 'running'
         if (existing.status !== 'running') return prev;
-
-        shouldSchedule = true;
 
         return prev.map((n) => {
           if (n.id === notificationId) {
@@ -317,17 +218,7 @@ export function createCompletionHandler<T extends { success: boolean; message?: 
           return n;
         });
       });
-
-      // CRITICAL: Schedule auto-dismiss OUTSIDE setNotifications callback
-      // Calling it inside causes React batching issues where timer fires immediately
-      if (shouldSchedule) {
-        scheduleAutoDismiss(idToSchedule);
-      }
     } else {
-      // Use closure variables to track if we should schedule auto-dismiss
-      let shouldSchedule = false;
-      let idToSchedule = notificationId;
-
       // Immediate completion
       setNotifications((prev: UnifiedNotification[]) => {
         const existing = prev.find((n) => n.id === notificationId);
@@ -336,6 +227,7 @@ export function createCompletionHandler<T extends { success: boolean; message?: 
           // Fast completion - no prior started event
           if (config.supportFastCompletion) {
             const fastId = config.getFastCompletionId?.(event) ?? notificationId;
+            idToSchedule = fastId;  // Update the ID to schedule
             const status: 'completed' | 'failed' = event.success ? 'completed' : 'failed';
             const newNotification = {
               id: fastId,
@@ -344,6 +236,7 @@ export function createCompletionHandler<T extends { success: boolean; message?: 
               message: event.success
                 ? (config.getSuccessMessage?.(event) ?? event.message ?? 'Operation completed')
                 : (config.getFailureMessage?.(event) ?? event.message ?? 'Operation failed'),
+              detailMessage: config.getDetailMessage?.(event),
               startedAt: new Date(),
               progress: 100,
               details: config.getSuccessDetails?.(event),
@@ -351,9 +244,6 @@ export function createCompletionHandler<T extends { success: boolean; message?: 
                 ? undefined
                 : (config.getFailureMessage?.(event) ?? event.message)
             };
-
-            shouldSchedule = true;
-            idToSchedule = fastId;
 
             return [...prev, newNotification];
           }
@@ -363,8 +253,6 @@ export function createCompletionHandler<T extends { success: boolean; message?: 
         // Only complete notifications that are still 'running'
         if (existing.status !== 'running') return prev;
 
-        shouldSchedule = true;
-
         return prev.map((n) => {
           if (n.id === notificationId) {
             if (event.success) {
@@ -372,6 +260,7 @@ export function createCompletionHandler<T extends { success: boolean; message?: 
                 ...n,
                 progress: 100,
                 status: 'completed' as const,
+                detailMessage: config.getDetailMessage?.(event) ?? n.detailMessage,
                 details: {
                   ...n.details,
                   ...config.getSuccessDetails?.(event, n)
@@ -389,12 +278,12 @@ export function createCompletionHandler<T extends { success: boolean; message?: 
           return n;
         });
       });
-
-      // CRITICAL: Schedule auto-dismiss OUTSIDE setNotifications callback
-      if (shouldSchedule) {
-        scheduleAutoDismiss(idToSchedule);
-      }
     }
+
+    // ALWAYS schedule auto-dismiss - React 18 batching means we can't rely on
+    // closure variables set inside setNotifications callback.
+    // scheduleAutoDismiss will verify the notification is in terminal state before dismissing.
+    scheduleAutoDismiss(idToSchedule);
   };
 }
 
@@ -425,6 +314,8 @@ export interface StatusAwareProgressConfig<T> {
   getCompletedMessage?: (event: T) => string;
   /** Message to show on error (uses event message by default) */
   getErrorMessage?: (event: T) => string | undefined;
+  /** If true, support fast completion (completion event arrives before notification created) */
+  supportFastCompletion?: boolean;
 }
 
 /**
@@ -473,16 +364,30 @@ export function createStatusAwareProgressHandler<T>(
       // Handle completion - clear localStorage FIRST
       localStorage.removeItem(config.storageKey);
 
-      // Use closure variable to track if we should schedule auto-dismiss
-      let shouldSchedule = false;
-
       setNotifications((prev: UnifiedNotification[]) => {
         const existing = prev.find((n) => n.id === notificationId);
 
-        // Only complete if notification exists and is running
-        if (!existing || existing.status !== 'running') return prev;
+        if (!existing) {
+          // Fast completion - notification doesn't exist yet (operation completed before UI created it)
+          if (config.supportFastCompletion) {
+            const newNotification: UnifiedNotification = {
+              id: notificationId,
+              type: config.type,
+              status: 'completed' as const,
+              message: config.getCompletedMessage?.(event) ?? 'Operation completed',
+              progress: 100,
+              startedAt: new Date()
+            };
 
-        shouldSchedule = true;
+            return [...prev, newNotification];
+          }
+          return prev;
+        }
+
+        // Only complete if notification is running
+        if (existing.status !== 'running') {
+          return prev;
+        }
 
         return prev.map((n) => {
           if (n.id === notificationId) {
@@ -497,36 +402,28 @@ export function createStatusAwareProgressHandler<T>(
         });
       });
 
-      // CRITICAL: Schedule auto-dismiss OUTSIDE setNotifications callback
-      if (shouldSchedule) {
-        scheduleAutoDismiss(notificationId);
-      }
+      // ALWAYS schedule auto-dismiss for completed status - React 18 batching means
+      // we can't rely on closure variables set inside setNotifications callback.
+      // scheduleAutoDismiss will verify the notification is in terminal state before dismissing.
+      scheduleAutoDismiss(notificationId);
     } else if (status?.toLowerCase() === 'failed') {
       // Handle error - clear localStorage FIRST
       localStorage.removeItem(config.storageKey);
-
-      console.log('[StatusAwareHandler] Processing FAILED status for:', notificationId);
 
       const errorMessage = config.getErrorMessage?.(event) ?? 'Operation failed';
 
       setNotifications((prev: UnifiedNotification[]) => {
         const existing = prev.find((n) => n.id === notificationId);
 
-        console.log('[StatusAwareHandler] Existing notification:', existing ? { id: existing.id, status: existing.status, message: existing.message } : 'NOT FOUND');
-
         // If notification doesn't exist, nothing to do
         if (!existing) {
-          console.log('[StatusAwareHandler] No notification found, skipping');
           return prev;
         }
 
         // If already failed/completed, just ensure it gets dismissed
         if (existing.status === 'failed' || existing.status === 'completed') {
-          console.log('[StatusAwareHandler] Already terminal, will schedule dismiss');
           return prev;
         }
-
-        console.log('[StatusAwareHandler] Updating to failed with error:', errorMessage);
 
         return prev.map((n) => {
           if (n.id === notificationId) {
@@ -541,9 +438,7 @@ export function createStatusAwareProgressHandler<T>(
         });
       });
 
-      // Always schedule auto-dismiss for failed status - the scheduleAutoDismiss
-      // function will handle the actual notification lookup
-      console.log('[StatusAwareHandler] Scheduling auto-dismiss for:', notificationId);
+      // Always schedule auto-dismiss for failed status
       scheduleAutoDismiss(notificationId);
     } else {
       // Handle progress - update existing or create new
@@ -588,6 +483,230 @@ export function createStatusAwareProgressHandler<T>(
           return [...filtered, newNotification];
         }
       });
+    }
+  };
+}
+
+// ============================================================================
+// Depot Mapping Completion Handler Factory
+// ============================================================================
+
+/**
+ * Creates a specialized completion handler for depot mapping operations.
+ * This handles the complex depot mapping completion logic including:
+ * - Cancellation handling
+ * - Incremental scan progress animation
+ * - Full scan immediate completion
+ * - Full scan modal trigger for errors requiring full scan
+ *
+ * @param setNotifications - React setState function for notifications
+ * @param scheduleAutoDismiss - Function to schedule auto-dismissal
+ * @returns A handler function that processes depot mapping completion events
+ */
+export function createDepotMappingCompletionHandler(
+  setNotifications: SetNotifications,
+  scheduleAutoDismiss: ScheduleAutoDismiss
+): (event: DepotMappingCompleteEvent) => void {
+  const notificationId = NOTIFICATION_IDS.DEPOT_MAPPING;
+  const storageKey = NOTIFICATION_STORAGE_KEYS.DEPOT_MAPPING;
+
+  /** Animates progress from current value to 100% over multiple steps */
+  const animateProgressToCompletion = (
+    startProgress: number,
+    successMessage: string,
+    successDetails: Record<string, unknown>,
+    onComplete: () => void
+  ): void => {
+    const steps = INCREMENTAL_SCAN_ANIMATION_STEPS;
+    const interval = INCREMENTAL_SCAN_ANIMATION_DURATION_MS / steps;
+    const progressIncrement = (100 - startProgress) / steps;
+    let currentStep = 0;
+
+    const animationInterval = setInterval(() => {
+      currentStep++;
+      const newProgress = Math.min(100, startProgress + progressIncrement * currentStep);
+
+      setNotifications((prev: UnifiedNotification[]) =>
+        prev.map((n) =>
+          n.id === notificationId
+            ? { ...n, progress: newProgress, message: newProgress >= 100 ? successMessage : n.message }
+            : n
+        )
+      );
+
+      if (currentStep >= steps) {
+        clearInterval(animationInterval);
+        setTimeout(() => {
+          setNotifications((prev: UnifiedNotification[]) => {
+            const existing = prev.find((n) => n.id === notificationId);
+            if (!existing) return prev;
+
+            localStorage.removeItem(storageKey);
+            return prev.map((n) =>
+              n.id === notificationId
+                ? { ...n, status: 'completed' as const, message: successMessage, details: { ...n.details, ...successDetails } }
+                : n
+            );
+          });
+          onComplete();
+        }, NOTIFICATION_ANIMATION_DURATION_MS);
+      }
+    }, interval);
+  };
+
+  /** Handles depot mapping cancellation */
+  const handleCancelled = (): void => {
+    localStorage.removeItem(storageKey);
+    const newStartedAt = new Date();
+
+    setNotifications((prev: UnifiedNotification[]) => {
+      const existing = prev.find((n) => n.id === notificationId);
+
+      if (!existing) {
+        // Fast completion - create notification for cancellation
+        const newNotification: UnifiedNotification = {
+          id: notificationId,
+          type: 'depot_mapping',
+          status: 'completed',
+          message: 'Depot mapping scan cancelled',
+          startedAt: newStartedAt,
+          progress: 100,
+          details: { cancelled: true }
+        };
+        return [...prev, newNotification];
+      }
+
+      // Update existing notification
+      return prev.map((n) =>
+        n.id === notificationId
+          ? { ...n, status: 'completed' as const, message: 'Depot mapping scan cancelled', progress: 100, details: { ...n.details, cancelled: true } }
+          : n
+      );
+    });
+
+    scheduleAutoDismiss(notificationId, CANCELLED_NOTIFICATION_DELAY_MS);
+  };
+
+  /** Handles successful depot mapping completion */
+  const handleSuccess = (event: DepotMappingCompleteEvent): void => {
+    const successMessage = event.message || 'Depot mapping completed successfully';
+    const successDetails = { totalMappings: event.totalMappings, downloadsUpdated: event.downloadsUpdated };
+    const isIncremental = event.scanMode === 'incremental';
+
+    localStorage.removeItem(storageKey);
+
+    if (isIncremental) {
+      // For incremental scans, animate progress to 100%
+      setNotifications((prev: UnifiedNotification[]) => {
+        const notification = prev.find((n) => n.id === notificationId);
+
+        if (!notification) {
+          // Fast completion - create completed notification
+          const newNotification: UnifiedNotification = {
+            id: notificationId,
+            type: 'depot_mapping',
+            status: 'completed',
+            message: successMessage,
+            startedAt: new Date(),
+            progress: 100,
+            details: successDetails
+          };
+          return [...prev, newNotification];
+        }
+
+        // Animation callback will schedule auto-dismiss when complete
+        animateProgressToCompletion(
+          notification.progress || 0,
+          successMessage,
+          successDetails,
+          () => scheduleAutoDismiss(notificationId)
+        );
+        return prev;
+      });
+
+      // Schedule auto-dismiss for fast completion case (animation handles the existing case)
+      scheduleAutoDismiss(notificationId);
+    } else {
+      // For full scans, complete immediately
+      setNotifications((prev: UnifiedNotification[]) => {
+        const existing = prev.find((n) => n.id === notificationId);
+
+        if (!existing) {
+          // Fast completion - create completed notification
+          const newNotification: UnifiedNotification = {
+            id: notificationId,
+            type: 'depot_mapping',
+            status: 'completed',
+            message: successMessage,
+            startedAt: new Date(),
+            progress: 100,
+            details: successDetails
+          };
+          return [...prev, newNotification];
+        }
+
+        // Update existing notification
+        return prev.map((n) =>
+          n.id === notificationId
+            ? { ...n, status: 'completed' as const, message: successMessage, progress: 100, details: { ...n.details, ...successDetails } }
+            : n
+        );
+      });
+
+      scheduleAutoDismiss(notificationId);
+    }
+  };
+
+  /** Handles failed depot mapping with optional full scan modal trigger */
+  const handleFailure = (event: DepotMappingCompleteEvent): void => {
+    const errorMessage = event.error || event.message || 'Depot mapping failed';
+    const requiresFullScan =
+      errorMessage.includes('change gap is too large') ||
+      errorMessage.includes('requires full scan') ||
+      errorMessage.includes('requires a full scan');
+
+    if (requiresFullScan) {
+      window.dispatchEvent(new CustomEvent('show-full-scan-modal', { detail: { error: errorMessage } }));
+    }
+
+    localStorage.removeItem(storageKey);
+
+    setNotifications((prev: UnifiedNotification[]) => {
+      const existing = prev.find((n) => n.id === notificationId);
+
+      if (!existing) {
+        // Fast completion - create failed notification
+        const newNotification: UnifiedNotification = {
+          id: notificationId,
+          type: 'depot_mapping',
+          status: 'failed',
+          message: 'Depot mapping failed',
+          error: errorMessage,
+          startedAt: new Date(),
+          progress: 100
+        };
+        return [...prev, newNotification];
+      }
+
+      // Update existing notification
+      return prev.map((n) =>
+        n.id === notificationId
+          ? { ...n, status: 'failed' as const, error: errorMessage, progress: 100 }
+          : n
+      );
+    });
+
+    scheduleAutoDismiss(notificationId);
+  };
+
+  // Return the main handler function
+  return (event: DepotMappingCompleteEvent): void => {
+    if (event.cancelled) {
+      handleCancelled();
+    } else if (event.success) {
+      handleSuccess(event);
+    } else {
+      handleFailure(event);
     }
   };
 }

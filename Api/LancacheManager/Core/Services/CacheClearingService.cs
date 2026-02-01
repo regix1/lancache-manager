@@ -176,6 +176,13 @@ public class CacheClearingService : IHostedService
         {
             _logger.LogInformation($"Executing cache clear operation {operationId}");
 
+            // Send started event
+            await _notifications.NotifyAllAsync(SignalREvents.CacheClearingStarted, new
+            {
+                OperationId = operationId,
+                Message = "Initializing cache clear..."
+            });
+
             _removalTracker.UpdateCacheClearing(trackerKey, "preparing", "Checking permissions...");
             await NotifyProgress(trackerKey);
 
@@ -205,12 +212,14 @@ public class CacheClearingService : IHostedService
 
                 await NotifyProgress(trackerKey);
 
-                await _notifications.NotifyAllAsync(SignalREvents.CacheClearComplete, new
+                await _notifications.NotifyAllAsync(SignalREvents.CacheClearingComplete, new
                 {
-                    success = false,
-                    message = errorMessage,
-                    error = errorMessage,
-                    timestamp = DateTime.UtcNow
+                    OperationId = operationId,
+                    Success = false,
+                    Status = OperationStatus.Failed,
+                    Message = errorMessage,
+                    Cancelled = false,
+                    Error = errorMessage
                 });
 
                 SaveOperationToState(trackerKey, operationId);
@@ -307,12 +316,14 @@ public class CacheClearingService : IHostedService
 
                 await NotifyProgress(trackerKey);
 
-                await _notifications.NotifyAllAsync(SignalREvents.CacheClearComplete, new
+                await _notifications.NotifyAllAsync(SignalREvents.CacheClearingComplete, new
                 {
-                    success = false,
-                    message = error,
-                    error = error,
-                    timestamp = DateTime.UtcNow
+                    OperationId = operationId,
+                    Success = false,
+                    Status = OperationStatus.Failed,
+                    Message = error,
+                    Cancelled = false,
+                    Error = error
                 });
 
                 SaveOperationToState(trackerKey, operationId);
@@ -343,12 +354,14 @@ public class CacheClearingService : IHostedService
                 await NotifyProgress(trackerKey);
 
                 // Send completion notification
-                await _notifications.NotifyAllAsync(SignalREvents.CacheClearComplete, new
+                await _notifications.NotifyAllAsync(SignalREvents.CacheClearingComplete, new
                 {
-                    success = false,
-                    message = error,
-                    error = error,
-                    timestamp = DateTime.UtcNow
+                    OperationId = operationId,
+                    Success = false,
+                    Status = OperationStatus.Failed,
+                    Message = error,
+                    Cancelled = false,
+                    Error = error
                 });
 
                 SaveOperationToState(trackerKey, operationId);
@@ -578,16 +591,18 @@ public class CacheClearingService : IHostedService
             await NotifyProgress(trackerKey);
 
             // Send completion notification
-            await _notifications.NotifyAllAsync(SignalREvents.CacheClearComplete, new
+            await _notifications.NotifyAllAsync(SignalREvents.CacheClearingComplete, new
             {
-                success = true,
-                message = successMessage,
-                directoriesProcessed = totalDirsProcessed,
-                filesDeleted = totalFilesDeleted,
-                bytesDeleted = totalBytesDeleted,
-                datasourcesCleared = validCachePaths.Count,
-                duration = duration,
-                timestamp = DateTime.UtcNow
+                OperationId = operationId,
+                Success = true,
+                Status = OperationStatus.Completed,
+                Message = successMessage,
+                Cancelled = false,
+                DirectoriesProcessed = totalDirsProcessed,
+                FilesDeleted = totalFilesDeleted,
+                BytesDeleted = totalBytesDeleted,
+                DatasourcesCleared = validCachePaths.Count,
+                Duration = duration
             });
 
             SaveOperationToState(trackerKey, operationId);
@@ -612,13 +627,13 @@ public class CacheClearingService : IHostedService
             await NotifyProgress(trackerKey);
 
             // Send cancellation notification
-            await _notifications.NotifyAllAsync(SignalREvents.CacheClearComplete, new
+            await _notifications.NotifyAllAsync(SignalREvents.CacheClearingComplete, new
             {
-                success = false,
-                message = "Cache clear cancelled by user",
-                cancelled = true,
-                operationId = operationId,
-                timestamp = DateTime.UtcNow
+                OperationId = operationId,
+                Success = false,
+                Status = OperationStatus.Cancelled,
+                Message = "Cache clear cancelled by user",
+                Cancelled = true
             });
 
             SaveOperationToState(trackerKey, operationId);
@@ -647,12 +662,14 @@ public class CacheClearingService : IHostedService
             await NotifyProgress(trackerKey);
 
             // Send failure notification
-            await _notifications.NotifyAllAsync(SignalREvents.CacheClearComplete, new
+            await _notifications.NotifyAllAsync(SignalREvents.CacheClearingComplete, new
             {
-                success = false,
-                message = $"Cache clear failed: {ex.Message}",
-                error = ex.Message,
-                timestamp = DateTime.UtcNow
+                OperationId = operationId,
+                Success = false,
+                Status = OperationStatus.Failed,
+                Message = $"Cache clear failed: {ex.Message}",
+                Cancelled = false,
+                Error = ex.Message
             });
 
             SaveOperationToState(trackerKey, operationId);
@@ -686,22 +703,27 @@ public class CacheClearingService : IHostedService
             var operation = _removalTracker.GetCacheClearingStatus(trackerKey);
             if (operation == null) return;
 
-            var progress = new CacheClearProgress
+            // Map operation status to standardized status
+            var status = operation.Status switch
+            {
+                "complete" => OperationStatus.Completed,
+                "cancelled" => OperationStatus.Cancelled,
+                "failed" => OperationStatus.Failed,
+                _ => OperationStatus.Running
+            };
+
+            await _notifications.NotifyAllAsync(SignalREvents.CacheClearingProgress, new
             {
                 OperationId = operation.Id,
-                Status = operation.Status,
-                StatusMessage = operation.Message,
-                StartTime = operation.StartedAt,
-                EndTime = operation.CompletedAt,
+                PercentComplete = operation.PercentComplete,
+                Status = status,
+                Message = operation.Message,
                 DirectoriesProcessed = operation.DirectoriesProcessed,
                 TotalDirectories = operation.TotalDirectories,
                 BytesDeleted = operation.BytesFreed,
                 FilesDeleted = operation.FilesDeleted,
-                Error = operation.Error,
-                PercentComplete = operation.PercentComplete
-            };
-
-            await _notifications.NotifyAllAsync(SignalREvents.CacheClearProgress, progress);
+                Error = operation.Error
+            });
 
         }
         catch (Exception ex)
@@ -974,13 +996,13 @@ public class CacheClearingService : IHostedService
                     await Task.Delay(500);
 
                     // Notify via SignalR
-                    await _notifications.NotifyAllAsync(SignalREvents.CacheClearComplete, new
+                    await _notifications.NotifyAllAsync(SignalREvents.CacheClearingComplete, new
                     {
-                        success = false,
-                        message = "Cache clear operation force killed",
-                        operationId,
-                        cancelled = true,
-                        timestamp = DateTime.UtcNow
+                        OperationId = operationId,
+                        Success = false,
+                        Status = OperationStatus.Cancelled,
+                        Message = "Cache clear operation force killed",
+                        Cancelled = true
                     });
 
                     SaveOperationToState(operation.Name, operationId);

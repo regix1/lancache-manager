@@ -202,17 +202,24 @@ public class RustLogRemovalService
                 // Monitor stdout and stderr - track tasks for proper cleanup
                 var (stdoutTask, stderrTask) = _rustProcessHelper.CreateOutputMonitoringTasks(_rustProcess, "Rust log removal");
 
+                // Send started event
+                await _notifications.NotifyAllAsync(SignalREvents.LogRemovalStarted, new
+                {
+                    OperationId = _currentTrackerOperationId,
+                    Message = $"Starting removal of {service} entries from logs..."
+                });
+
                 // Send initial progress notification
                 await _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
                 {
-                    operationId = _currentTrackerOperationId,
-                    filesProcessed = 0,
-                    linesProcessed = 0,
-                    linesRemoved = 0,
-                    percentComplete = 0.0,
-                    status = "starting",
-                    message = $"Starting removal of {service} entries from logs...",
-                    service
+                    OperationId = _currentTrackerOperationId,
+                    PercentComplete = 0.0,
+                    Status = OperationStatus.Running,
+                    Message = $"Starting removal of {service} entries from logs...",
+                    FilesProcessed = 0,
+                    LinesProcessed = 0,
+                    LinesRemoved = 0,
+                    Service = service
                 });
 
                 // Start progress monitoring task
@@ -258,13 +265,16 @@ public class RustLogRemovalService
 
                     await _notifications.NotifyAllAsync(SignalREvents.LogRemovalComplete, new
                     {
-                        success = true,
-                        message,
-                        filesProcessed = finalProgress?.FilesProcessed ?? 0,
-                        linesProcessed = finalProgress?.LinesProcessed ?? 0,
-                        linesRemoved = finalProgress?.LinesRemoved ?? 0,
-                        databaseRecordsDeleted = dbCleanupResult.TotalDeleted,
-                        service
+                        OperationId = _currentTrackerOperationId,
+                        Success = true,
+                        Status = OperationStatus.Completed,
+                        Message = message,
+                        Cancelled = false,
+                        FilesProcessed = finalProgress?.FilesProcessed ?? 0,
+                        LinesProcessed = finalProgress?.LinesProcessed ?? 0,
+                        LinesRemoved = finalProgress?.LinesRemoved ?? 0,
+                        DatabaseRecordsDeleted = dbCleanupResult.TotalDeleted,
+                        Service = service
                     });
 
                     _logger.LogInformation("Log removal completed successfully for {Service}: Removed {LinesRemoved} of {LinesProcessed} lines, {DbRecords} database records",
@@ -282,9 +292,12 @@ public class RustLogRemovalService
                     // Send failure notification
                     await _notifications.NotifyAllAsync(SignalREvents.LogRemovalComplete, new
                     {
-                        success = false,
-                        message = $"Failed to remove {service} entries from logs",
-                        service
+                        OperationId = _currentTrackerOperationId,
+                        Success = false,
+                        Status = OperationStatus.Failed,
+                        Message = $"Failed to remove {service} entries from logs",
+                        Cancelled = false,
+                        Service = service
                     });
 
                     _logger.LogError("Log removal failed for {Service} with exit code {ExitCode}", service, exitCode);
@@ -305,10 +318,12 @@ public class RustLogRemovalService
 
             await _notifications.NotifyAllAsync(SignalREvents.LogRemovalComplete, new
             {
-                success = false,
-                message = $"Service removal for {service} was cancelled",
-                cancelled = true,
-                service
+                OperationId = _currentTrackerOperationId,
+                Success = false,
+                Status = OperationStatus.Cancelled,
+                Message = $"Service removal for {service} was cancelled",
+                Cancelled = true,
+                Service = service
             });
 
             // Mark operation as cancelled in unified tracker
@@ -328,9 +343,12 @@ public class RustLogRemovalService
             {
                 await _notifications.NotifyAllAsync(SignalREvents.LogRemovalComplete, new
                 {
-                    success = false,
-                    message = $"Error during log removal: {ex.Message}",
-                    service
+                    OperationId = _currentTrackerOperationId,
+                    Success = false,
+                    Status = OperationStatus.Failed,
+                    Message = $"Error during log removal: {ex.Message}",
+                    Cancelled = false,
+                    Service = service
                 });
             }
             catch { }
@@ -437,17 +455,24 @@ public class RustLogRemovalService
 
                 var (stdoutTask, stderrTask) = _rustProcessHelper.CreateOutputMonitoringTasks(_rustProcess, "Rust log removal");
 
+                // Send started event
+                await _notifications.NotifyAllAsync(SignalREvents.LogRemovalStarted, new
+                {
+                    OperationId = _currentTrackerOperationId,
+                    Message = $"Starting removal of {service} entries from {datasourceName}..."
+                });
+
                 await _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
                 {
-                    operationId = _currentTrackerOperationId,
-                    filesProcessed = 0,
-                    linesProcessed = 0,
-                    linesRemoved = 0,
-                    percentComplete = 0.0,
-                    status = "starting",
-                    message = $"Starting removal of {service} entries from {datasourceName}...",
-                    service,
-                    datasource = datasourceName
+                    OperationId = _currentTrackerOperationId,
+                    PercentComplete = 0.0,
+                    Status = OperationStatus.Running,
+                    Message = $"Starting removal of {service} entries from {datasourceName}...",
+                    FilesProcessed = 0,
+                    LinesProcessed = 0,
+                    LinesRemoved = 0,
+                    Service = service,
+                    Datasource = datasourceName
                 });
 
                 var progressTask = Task.Run(async () => await MonitorProgressAsync(progressPath, service, _cancellationTokenSource.Token));
@@ -473,13 +498,16 @@ public class RustLogRemovalService
                     var finalProgress = await ReadProgressFileAsync(progressPath);
                     await _notifications.NotifyAllAsync(SignalREvents.LogRemovalComplete, new
                     {
-                        success = true,
-                        message = finalProgress?.Message ?? $"Successfully removed {service} entries from {datasourceName}",
-                        filesProcessed = finalProgress?.FilesProcessed ?? 0,
-                        linesProcessed = finalProgress?.LinesProcessed ?? 0,
-                        linesRemoved = finalProgress?.LinesRemoved ?? 0,
-                        service,
-                        datasource = datasourceName
+                        OperationId = _currentTrackerOperationId,
+                        Success = true,
+                        Status = OperationStatus.Completed,
+                        Message = finalProgress?.Message ?? $"Successfully removed {service} entries from {datasourceName}",
+                        Cancelled = false,
+                        FilesProcessed = finalProgress?.FilesProcessed ?? 0,
+                        LinesProcessed = finalProgress?.LinesProcessed ?? 0,
+                        LinesRemoved = finalProgress?.LinesRemoved ?? 0,
+                        Service = service,
+                        Datasource = datasourceName
                     });
 
                     _logger.LogInformation("Log removal completed for {Service} in datasource {Datasource}: Removed {LinesRemoved} lines",
@@ -496,10 +524,13 @@ public class RustLogRemovalService
                 {
                     await _notifications.NotifyAllAsync(SignalREvents.LogRemovalComplete, new
                     {
-                        success = false,
-                        message = $"Failed to remove {service} entries from {datasourceName}",
-                        service,
-                        datasource = datasourceName
+                        OperationId = _currentTrackerOperationId,
+                        Success = false,
+                        Status = OperationStatus.Failed,
+                        Message = $"Failed to remove {service} entries from {datasourceName}",
+                        Cancelled = false,
+                        Service = service,
+                        Datasource = datasourceName
                     });
 
                     _logger.LogError("Log removal failed for {Service} in datasource {Datasource} with exit code {ExitCode}",
@@ -520,11 +551,13 @@ public class RustLogRemovalService
 
             await _notifications.NotifyAllAsync(SignalREvents.LogRemovalComplete, new
             {
-                success = false,
-                message = $"Service removal for {service} in {datasourceName} was cancelled",
-                cancelled = true,
-                service,
-                datasource = datasourceName
+                OperationId = _currentTrackerOperationId,
+                Success = false,
+                Status = OperationStatus.Cancelled,
+                Message = $"Service removal for {service} in {datasourceName} was cancelled",
+                Cancelled = true,
+                Service = service,
+                Datasource = datasourceName
             });
 
             // Mark operation as cancelled in unified tracker
@@ -543,10 +576,13 @@ public class RustLogRemovalService
             {
                 await _notifications.NotifyAllAsync(SignalREvents.LogRemovalComplete, new
                 {
-                    success = false,
-                    message = $"Error during log removal: {ex.Message}",
-                    service,
-                    datasource = datasourceName
+                    OperationId = _currentTrackerOperationId,
+                    Success = false,
+                    Status = OperationStatus.Failed,
+                    Message = $"Error during log removal: {ex.Message}",
+                    Cancelled = false,
+                    Service = service,
+                    Datasource = datasourceName
                 });
             }
             catch { }
@@ -581,17 +617,17 @@ public class RustLogRemovalService
                 var progress = await ReadProgressFileAsync(progressPath);
                 if (progress != null)
                 {
-                    // Send progress update via SignalR
+                    // Send progress update via SignalR with standardized format
                     await _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
                     {
-                        operationId = _currentTrackerOperationId,
-                        filesProcessed = progress.FilesProcessed,
-                        linesProcessed = progress.LinesProcessed,
-                        linesRemoved = progress.LinesRemoved,
-                        percentComplete = progress.PercentComplete,
-                        status = progress.Status,
-                        message = progress.Message,
-                        service
+                        OperationId = _currentTrackerOperationId,
+                        PercentComplete = progress.PercentComplete,
+                        Status = OperationStatus.Running,
+                        Message = progress.Message,
+                        FilesProcessed = progress.FilesProcessed,
+                        LinesProcessed = progress.LinesProcessed,
+                        LinesRemoved = progress.LinesRemoved,
+                        Service = service
                     });
                 }
             }
@@ -690,10 +726,12 @@ public class RustLogRemovalService
             // Send cancellation notification
             await _notifications.NotifyAllAsync(SignalREvents.LogRemovalComplete, new
             {
-                success = false,
-                message = $"Service removal for {CurrentService} was cancelled",
-                cancelled = true,
-                service = CurrentService
+                OperationId = _currentTrackerOperationId,
+                Success = false,
+                Status = OperationStatus.Cancelled,
+                Message = $"Service removal for {CurrentService} was cancelled",
+                Cancelled = true,
+                Service = CurrentService
             });
 
             return true;
@@ -733,14 +771,14 @@ public class RustLogRemovalService
             // Send progress update
             await _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
             {
-                operationId = _currentTrackerOperationId,
-                filesProcessed = 0,
-                linesProcessed = 0,
-                linesRemoved = 0,
-                percentComplete = 95.0,
-                status = "cleaning_database",
-                message = $"Cleaning up database records for {service}...",
-                service
+                OperationId = _currentTrackerOperationId,
+                PercentComplete = 95.0,
+                Status = OperationStatus.Running,
+                Message = $"Cleaning up database records for {service}...",
+                FilesProcessed = 0,
+                LinesProcessed = 0,
+                LinesRemoved = 0,
+                Service = service
             });
 
             // Use a new DbContext from factory for this operation

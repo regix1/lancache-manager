@@ -1,9 +1,9 @@
 use anyhow::Result;
 use chrono::Utc;
+use clap::Parser;
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use serde::Serialize;
-use std::env;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -21,7 +21,33 @@ use std::os::windows::fs::OpenOptionsExt;
 use std::os::unix::ffi::OsStrExt;
 
 mod cache_utils;
+mod progress_events;
+
 use cache_utils::{detect_filesystem_type, FilesystemType};
+use progress_events::ProgressReporter;
+
+/// Cache clear utility - clears all cache directories
+#[derive(Parser, Debug)]
+#[command(name = "cache_clear")]
+#[command(about = "Clears the lancache cache directory")]
+struct Args {
+    /// Path to the cache directory
+    cache_path: String,
+
+    /// Path to write progress JSON file
+    progress_json_path: String,
+
+    /// Deletion mode: preserve, full, or rsync
+    #[arg(default_value = "preserve")]
+    delete_mode: Option<String>,
+
+    /// Number of threads to use
+    thread_count: Option<usize>,
+
+    /// Emit JSON progress events to stdout
+    #[arg(short, long)]
+    progress: bool,
+}
 
 #[derive(Serialize)]
 struct ProgressData {
@@ -375,15 +401,20 @@ fn get_available_bytes(_path: &Path) -> Result<u64> {
     Ok(0)
 }
 
-fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, delete_mode: &str) -> Result<()> {
+fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, delete_mode: &str, reporter: &ProgressReporter) -> Result<()> {
     let start_time = Instant::now();
     eprintln!("Starting cache clear operation...");
     eprintln!("Cache path: {}", cache_path);
     eprintln!("Deletion mode: {}", delete_mode);
 
+    // Emit started event
+    reporter.emit_started();
+
     let cache_dir = Path::new(cache_path);
     if !cache_dir.exists() {
-        anyhow::bail!("Cache directory does not exist: {}", cache_path);
+        let msg = format!("Cache directory does not exist: {}", cache_path);
+        reporter.emit_failed(&msg);
+        anyhow::bail!("{}", msg);
     }
 
     // Find all hex directories (00-ff)
@@ -438,6 +469,8 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
     let active_for_monitor = Arc::clone(&active_dirs);
     let progress_path_clone = progress_path.to_path_buf();
     let cache_dir_for_monitor = cache_dir.to_path_buf();
+    let progress_enabled = reporter.is_enabled();
+    let operation_id = reporter.operation_id().to_string();
 
     // Start a background thread to update progress regularly
     let monitor_handle = std::thread::spawn(move || {
@@ -477,11 +510,28 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
                              active_snapshot.join(", "));
                 }
 
+                let message = format!("Clearing cache ({}/{}) - {} active", processed, total_dirs, active_count);
+
+                // Emit JSON progress event if enabled
+                if progress_enabled {
+                    // Use same JSON format as progress_events::ProgressReporter::emit_progress
+                    let event = serde_json::json!({
+                        "event": "progress",
+                        "operationId": operation_id,
+                        "percentComplete": percent.clamp(0.0, 100.0),
+                        "status": "running",
+                        "message": message
+                    });
+                    if let Ok(json) = serde_json::to_string(&event) {
+                        println!("{}", json);
+                    }
+                }
+
                 let progress = ProgressData::new(
                     true,
                     percent,
                     "running".to_string(),
-                    format!("Clearing cache ({}/{}) - {} active", processed, total_dirs, active_count),
+                    message,
                     processed,
                     total_dirs,
                     bytes,
@@ -567,7 +617,7 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
     let progress = ProgressData::new(
         false,
         100.0,
-        "complete".to_string(),
+        "completed".to_string(),
         format!(
             "Cache cleared successfully! Deleted {} files ({:.2} GB) from {} directories in {:.2}s",
             final_files,
@@ -627,27 +677,13 @@ fn get_optimal_thread_count(delete_mode: &str, fs_type: FilesystemType) -> usize
 }
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
+    let args = Args::parse();
 
-    if args.len() < 3 || args.len() > 5 {
-        eprintln!("Usage:");
-        eprintln!("  cache_cleaner <cache_path> <progress_json_path> [delete_mode] [thread_count]");
-        eprintln!("\nExample:");
-        eprintln!("  cache_cleaner /var/cache/lancache ./data/cache_clear_progress.json preserve");
-        eprintln!("  cache_cleaner /mnt/nas/cache ./data/progress.json rsync 4");
-        eprintln!("\nOptions:");
-        eprintln!("  delete_mode: Deletion method (default: preserve, auto-adjusted for NFS/SMB)");
-        eprintln!("    - 'preserve': Safe Mode - Individual file deletion (slower, keeps structure)");
-        eprintln!("    - 'full': Fast Mode - Directory removal (faster on local disks)");
-        eprintln!("    - 'rsync': Rsync - With empty directory (RECOMMENDED for NFS/SMB, Linux only)");
-        eprintln!("  thread_count: Number of parallel threads (default: auto-detected based on mode & filesystem)");
-        eprintln!("    Local filesystems: Higher parallelism for better throughput");
-        eprintln!("    Network filesystems (NFS/SMB): Reduced parallelism to avoid overwhelming server");
-        std::process::exit(1);
-    }
+    let cache_path = &args.cache_path;
+    let progress_path = Path::new(&args.progress_json_path);
 
-    let cache_path = &args[1];
-    let progress_path = Path::new(&args[2]);
+    // Create progress reporter
+    let reporter = ProgressReporter::new(args.progress);
 
     // Detect filesystem type for optimal configuration
     let cache_dir = Path::new(cache_path);
@@ -657,11 +693,10 @@ fn main() {
     eprintln!("Filesystem type: {:?} (network: {})", fs_type, is_network_fs);
 
     // Get delete mode, with recommendation for network filesystems
-    let delete_mode = if args.len() >= 4 {
-        let mode = &args[3];
+    let delete_mode = if let Some(ref mode) = args.delete_mode {
         // Warn if using suboptimal mode on network filesystem
         if is_network_fs && mode == "preserve" {
-            eprintln!("⚠ Warning: 'preserve' mode is VERY slow on NFS/SMB filesystems.");
+            eprintln!("Warning: 'preserve' mode is VERY slow on NFS/SMB filesystems.");
             eprintln!("  Consider using 'rsync' mode instead for much better performance.");
             eprintln!("  rsync empty-directory trick is ~3x faster on network storage.");
         }
@@ -683,11 +718,7 @@ fn main() {
     };
 
     // Thread count: use provided value or auto-detect based on mode and filesystem
-    let thread_count = if args.len() >= 5 {
-        args[4].parse::<usize>().unwrap_or_else(|_| get_optimal_thread_count(delete_mode, fs_type))
-    } else {
-        get_optimal_thread_count(delete_mode, fs_type)
-    };
+    let thread_count = args.thread_count.unwrap_or_else(|| get_optimal_thread_count(delete_mode, fs_type));
 
     if is_network_fs {
         eprintln!("Using reduced parallelism ({} threads) for network filesystem", thread_count);
@@ -695,17 +726,22 @@ fn main() {
 
     eprintln!("Thread count: {} (mode: {})", thread_count, delete_mode);
 
-    match clear_cache(cache_path, progress_path, thread_count, delete_mode) {
+    match clear_cache(cache_path, progress_path, thread_count, delete_mode, &reporter) {
         Ok(_) => {
+            // Emit final completion event
+            let msg = "Cache clear completed successfully";
+            reporter.emit_complete(msg);
             std::process::exit(0);
         }
         Err(e) => {
             eprintln!("Error: {:?}", e);
+            let error_msg = format!("Cache clear failed: {}", e);
+            reporter.emit_failed(&error_msg);
             let error_progress = ProgressData::new(
                 false,
                 0.0,
                 "failed".to_string(),
-                format!("Cache clear failed: {}", e),
+                error_msg,
                 0,
                 0,
                 0,

@@ -89,6 +89,8 @@ zstd = "0.13"
 md5 = "0.7"
 tempfile = "3.23"
 jwalk = "0.8"
+clap = { version = "4.5", features = ["derive"] }
+uuid = { version = "1.16", features = ["v4"] }
 
 [profile.release]
 opt-level = 3

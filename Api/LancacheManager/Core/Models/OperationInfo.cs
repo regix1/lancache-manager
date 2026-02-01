@@ -7,11 +7,21 @@ public class OperationInfo
     public required string Id { get; set; }
     public required OperationType Type { get; set; }
     public required string Name { get; set; }
-    public string Status { get; set; } = "pending";
+    public string Status { get; set; } = OperationStatus.Pending;
     public string Message { get; set; } = "";
     public double PercentComplete { get; set; }
     public DateTime StartedAt { get; set; } = DateTime.UtcNow;
     public DateTime? CompletedAt { get; set; }
+
+    /// <summary>
+    /// Indicates if the operation completed successfully.
+    /// </summary>
+    public bool Success { get; set; }
+
+    /// <summary>
+    /// Indicates if the operation was cancelled.
+    /// </summary>
+    public bool Cancelled { get; set; }
 
     /// <summary>
     /// CancellationTokenSource for cancelling the operation.

@@ -1,17 +1,50 @@
 use anyhow::{Context, Result};
+use clap::Parser;
 use jwalk::WalkDir;
 use rayon::prelude::*;
 use rusqlite::Connection;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
-use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 mod cache_utils;
+mod progress_events;
 mod progress_utils;
+
+use progress_events::ProgressReporter;
+
+/// Game cache detection utility - detects which games have files in the cache
+#[derive(Parser, Debug)]
+#[command(name = "cache_game_detect")]
+#[command(about = "Detects which games have files in the cache directory")]
+struct Args {
+    /// Path to LancacheManager.db
+    database_path: String,
+
+    /// Cache directory root (e.g., /cache or H:/cache)
+    cache_dir: String,
+
+    /// Path to output JSON report
+    output_json: String,
+
+    /// JSON file with array of game IDs to exclude for incremental scanning
+    excluded_game_ids_json: Option<String>,
+
+    /// Skip cache directory scan for faster incremental updates
+    #[arg(long)]
+    incremental: bool,
+
+    /// Path to write progress JSON updates
+    #[arg(long = "progress-file")]
+    progress_file: Option<String>,
+
+    /// Emit JSON progress events to stdout
+    #[arg(short, long)]
+    progress: bool,
+}
 
 #[derive(Serialize)]
 struct ProgressData {
@@ -572,39 +605,18 @@ fn detect_cache_files_for_game(
 }
 
 fn main() -> Result<()> {
-    let args: Vec<String> = env::args().collect();
+    let args = Args::parse();
+    let reporter = ProgressReporter::new(args.progress);
 
-    if args.len() < 4 {
-        eprintln!("Usage: {} <database_path> <cache_dir> <output_json> [excluded_game_ids_json] [--incremental] [--progress-file <path>]", args[0]);
-        eprintln!();
-        eprintln!("Detects which games have files in the cache directory.");
-        eprintln!();
-        eprintln!("Arguments:");
-        eprintln!("  database_path          - Path to LancacheManager.db");
-        eprintln!("  cache_dir              - Cache directory root (e.g., /cache or H:/cache)");
-        eprintln!("  output_json            - Path to output JSON report");
-        eprintln!("  excluded_game_ids_json - (Optional) JSON file with array of game IDs to exclude for incremental scanning");
-        eprintln!("  --incremental          - (Optional) Skip cache directory scan for faster incremental updates");
-        eprintln!("  --progress-file <path> - (Optional) Path to write progress JSON updates");
-        std::process::exit(1);
-    }
-
-    let db_path = PathBuf::from(&args[1]);
-    let cache_dir = PathBuf::from(&args[2]);
-    let output_json = PathBuf::from(&args[3]);
-
-    // Check for --incremental flag anywhere in args
-    let incremental_mode = args.iter().any(|arg| arg == "--incremental");
-
-    // Check for --progress-file argument
-    let progress_path: Option<PathBuf> = args.iter()
-        .position(|arg| arg == "--progress-file")
-        .and_then(|pos| args.get(pos + 1))
-        .map(PathBuf::from);
+    let db_path = PathBuf::from(&args.database_path);
+    let cache_dir = PathBuf::from(&args.cache_dir);
+    let output_json = PathBuf::from(&args.output_json);
+    let incremental_mode = args.incremental;
+    let progress_path = args.progress_file.map(PathBuf::from);
 
     // Read excluded game IDs if provided (for incremental scanning)
-    let excluded_game_ids: Vec<u32> = if args.len() >= 5 && !args[4].starts_with("--") {
-        let excluded_path = PathBuf::from(&args[4]);
+    let excluded_game_ids: Vec<u32> = if let Some(ref excluded_path_str) = args.excluded_game_ids_json {
+        let excluded_path = PathBuf::from(excluded_path_str);
         if excluded_path.exists() {
             let json = fs::read_to_string(&excluded_path)
                 .context("Failed to read excluded game IDs file")?;
@@ -626,8 +638,12 @@ fn main() -> Result<()> {
         eprintln!("  Progress file: {}", path.display());
     }
 
+    // Emit started event
+    reporter.emit_started();
+
     // Write initial progress
     write_progress(progress_path.as_deref(), "starting", "Initializing game cache detection", 0.0, 0, 0)?;
+    reporter.emit_progress(0.0, "Initializing game cache detection");
 
     if !db_path.exists() {
         anyhow::bail!("Database not found: {}", db_path.display());
@@ -842,14 +858,16 @@ fn main() -> Result<()> {
     eprintln!("Report saved to: {}", output_json.display());
 
     // Final completion progress
+    let summary_msg = format!("Detection complete: {} games, {} services detected", report.total_games_detected, report.total_services_detected);
     write_progress(
         progress_path.as_deref(),
-        "complete",
-        &format!("Detection complete: {} games, {} services detected", report.total_games_detected, report.total_services_detected),
+        "completed",
+        &summary_msg,
         100.0,
         report.total_games_detected,
         report.total_games_detected,
     )?;
+    reporter.emit_complete(&summary_msg);
 
     Ok(())
 }

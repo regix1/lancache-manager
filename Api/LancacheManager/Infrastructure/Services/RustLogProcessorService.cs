@@ -104,12 +104,17 @@ public class RustLogProcessorService
             
             IsProcessing = false;
             IsCancelling = false;
-            
+
             // Send cancellation notification
-            await _notifications.NotifyAllAsync(
-                Hubs.SignalREvents.FastProcessingComplete,
-                new { cancelled = true, message = "Log processing was cancelled" });
-            
+            await _notifications.NotifyAllAsync(SignalREvents.LogProcessingComplete, new
+            {
+                OperationId = _currentOperationId,
+                Success = false,
+                Status = OperationStatus.Cancelled,
+                Message = "Log processing was cancelled",
+                Cancelled = true
+            });
+
             return true;
         }
         catch (Exception ex)
@@ -361,6 +366,16 @@ public class RustLogProcessorService
             _logger.LogInformation($"Progress file: {progressPath}");
             _logger.LogInformation($"Start position: {startPosition}");
 
+            // Send started event
+            if (!silentMode)
+            {
+                await _notifications.NotifyAllAsync(SignalREvents.LogProcessingStarted, new
+                {
+                    OperationId = _currentOperationId,
+                    Message = "Starting log processing..."
+                });
+            }
+
             // Auto-import PICS data if database is sparse but JSON file exists
             // Depot mappings should be set up via initialization flow before log processing
             // Check depot count asynchronously without blocking startup
@@ -412,20 +427,17 @@ public class RustLogProcessorService
             // Send initial progress notification to show UI immediately
             if (!silentMode)
             {
-                await _notifications.NotifyAllAsync(SignalREvents.ProcessingProgress, new
+                await _notifications.NotifyAllAsync(SignalREvents.LogProcessingProgress, new
                 {
-                    operationId = _currentOperationId,
-                    totalLines = 0,
-                    linesParsed = 0,
-                    entriesSaved = 0,
-                    percentComplete = 0.0,
-                    status = "starting",
-                    message = "Starting log processing...",
-                    mbProcessed = 0.0,
-                    mbTotal = 0.0,
-                    entriesProcessed = 0,
-                    linesProcessed = 0,
-                    timestamp = DateTime.UtcNow
+                    OperationId = _currentOperationId,
+                    PercentComplete = 0.0,
+                    Status = OperationStatus.Running,
+                    Message = "Starting log processing...",
+                    TotalLines = 0,
+                    LinesParsed = 0,
+                    EntriesSaved = 0,
+                    MbProcessed = 0.0,
+                    MbTotal = 0.0
                 });
 
                 // Start progress monitoring task
@@ -501,20 +513,17 @@ public class RustLogProcessorService
                         var mbTotal = logFileInfo.Exists ? logFileInfo.Length / (1024.0 * 1024.0) : 0;
 
                         // Send final progress update with 100% and complete status
-                        await _notifications.NotifyAllAsync(SignalREvents.ProcessingProgress, new
+                        await _notifications.NotifyAllAsync(SignalREvents.LogProcessingProgress, new
                         {
-                            operationId = _currentOperationId,
-                            totalLines = finalProgress.TotalLines,
-                            linesParsed = finalProgress.LinesParsed,
-                            entriesSaved = finalProgress.EntriesSaved,
-                            percentComplete = 100.0,
-                            status = "complete",
-                            message = "Processing complete",
-                            mbProcessed = Math.Round(mbTotal, 1),
-                            mbTotal = Math.Round(mbTotal, 1),
-                            entriesProcessed = finalProgress.EntriesSaved,
-                            linesProcessed = finalProgress.LinesParsed,
-                            timestamp = DateTime.UtcNow
+                            OperationId = _currentOperationId,
+                            PercentComplete = 100.0,
+                            Status = OperationStatus.Completed,
+                            Message = "Processing complete",
+                            TotalLines = finalProgress.TotalLines,
+                            LinesParsed = finalProgress.LinesParsed,
+                            EntriesSaved = finalProgress.EntriesSaved,
+                            MbProcessed = Math.Round(mbTotal, 1),
+                            MbTotal = Math.Round(mbTotal, 1)
                         });
                     }
                 }
@@ -573,14 +582,16 @@ public class RustLogProcessorService
                     var finalElapsed = DateTime.UtcNow - startTime;
 
                     // Now send completion signal after the delay
-                    await _notifications.NotifyAllAsync(SignalREvents.FastProcessingComplete, new
+                    await _notifications.NotifyAllAsync(SignalREvents.LogProcessingComplete, new
                     {
-                        success = true,
-                        message = "Log processing completed successfully",
-                        entriesProcessed = finalProgress?.EntriesSaved ?? 0,
-                        linesProcessed = finalProgress?.LinesParsed ?? 0,
-                        elapsed = Math.Round(finalElapsed.TotalMinutes, 1),
-                        timestamp = DateTime.UtcNow
+                        OperationId = _currentOperationId,
+                        Success = true,
+                        Status = OperationStatus.Completed,
+                        Message = "Log processing completed successfully",
+                        Cancelled = false,
+                        EntriesProcessed = finalProgress?.EntriesSaved ?? 0,
+                        LinesProcessed = finalProgress?.LinesParsed ?? 0,
+                        Elapsed = Math.Round(finalElapsed.TotalMinutes, 1)
                     });
                 }
                 else
@@ -613,14 +624,15 @@ public class RustLogProcessorService
                 if (!silentMode)
                 {
                     // Send failure notification so frontend doesn't get stuck
-                    await _notifications.NotifyAllAsync(SignalREvents.FastProcessingComplete, new
+                    await _notifications.NotifyAllAsync(SignalREvents.LogProcessingComplete, new
                     {
-                        success = false,
-                        message = $"Log processing failed with exit code {exitCode}",
-                        entriesProcessed = 0,
-                        linesProcessed = 0,
-                        elapsed = 0,
-                        timestamp = DateTime.UtcNow
+                        OperationId = _currentOperationId,
+                        Success = false,
+                        Status = OperationStatus.Failed,
+                        Message = $"Log processing failed with exit code {exitCode}",
+                        Cancelled = false,
+                        EntriesProcessed = 0,
+                        LinesProcessed = 0
                     });
                 }
 
@@ -640,14 +652,15 @@ public class RustLogProcessorService
             if (!silentMode)
             {
                 // Send failure notification so frontend doesn't get stuck
-                await _notifications.NotifyAllAsync(SignalREvents.FastProcessingComplete, new
+                await _notifications.NotifyAllAsync(SignalREvents.LogProcessingComplete, new
                 {
-                    success = false,
-                    message = $"Log processing error: {ex.Message}",
-                    entriesProcessed = 0,
-                    linesProcessed = 0,
-                    elapsed = 0,
-                    timestamp = DateTime.UtcNow
+                    OperationId = _currentOperationId,
+                    Success = false,
+                    Status = OperationStatus.Failed,
+                    Message = $"Log processing error: {ex.Message}",
+                    Cancelled = false,
+                    EntriesProcessed = 0,
+                    LinesProcessed = 0
                 });
             }
 
@@ -720,22 +733,18 @@ public class RustLogProcessorService
                         _operationTracker.UpdateProgress(_currentOperationId, progress.PercentComplete, progress.Message);
                     }
 
-                    // Send progress update via SignalR with all fields React expects
-                    await _notifications.NotifyAllAsync(SignalREvents.ProcessingProgress, new
+                    // Send progress update via SignalR with standardized format
+                    await _notifications.NotifyAllAsync(SignalREvents.LogProcessingProgress, new
                     {
-                        operationId = _currentOperationId,
-                        totalLines = progress.TotalLines,
-                        linesParsed = progress.LinesParsed,
-                        entriesSaved = progress.EntriesSaved,
-                        percentComplete = progress.PercentComplete,
-                        status = progress.Status,
-                        message = progress.Message,
-                        mbProcessed = Math.Round(mbProcessed, 1),
-                        mbTotal = Math.Round(mbTotal, 1),
-                        entriesProcessed = progress.EntriesSaved,
-                        entriesQueued = progress.EntriesSaved,
-                        linesProcessed = progress.LinesParsed,
-                        timestamp = progress.Timestamp
+                        OperationId = _currentOperationId,
+                        PercentComplete = progress.PercentComplete,
+                        Status = OperationStatus.Running,
+                        Message = progress.Message,
+                        TotalLines = progress.TotalLines,
+                        LinesParsed = progress.LinesParsed,
+                        EntriesSaved = progress.EntriesSaved,
+                        MbProcessed = Math.Round(mbProcessed, 1),
+                        MbTotal = Math.Round(mbTotal, 1)
                     });
                 }
             }

@@ -148,9 +148,9 @@ public class GameCacheDetectionService : IDisposable
             {
                 await _notifications.NotifyAllAsync(SignalREvents.GameDetectionStarted, new
                 {
-                    operationId,
+                    OperationId = operationId,
+                    Message = message,
                     scanType,
-                    message,
                     timestamp = DateTime.UtcNow
                 });
             });
@@ -266,12 +266,12 @@ public class GameCacheDetectionService : IDisposable
             operation.PercentComplete = progressPercent;
             await _notifications.NotifyAllAsync(SignalREvents.GameDetectionProgress, new
             {
-                operationId,
-                status,
-                message,
+                OperationId = operationId,
+                PercentComplete = progressPercent,
+                Status = OperationStatus.Running,
+                Message = message,
                 gamesDetected,
-                servicesDetected,
-                progressPercent
+                servicesDetected
             });
         }
 
@@ -397,12 +397,12 @@ public class GameCacheDetectionService : IDisposable
                                 // Send SignalR notification for live updates
                                 await _notifications.NotifyAllAsync(SignalREvents.GameDetectionProgress, new
                                 {
-                                    operationId,
-                                    status = progress.Status,
-                                    message = progress.Message,
+                                    OperationId = operationId,
+                                    PercentComplete = progress.PercentComplete,
+                                    Status = OperationStatus.Running,
+                                    Message = progress.Message,
                                     gamesProcessed = progress.GamesProcessed,
-                                    totalGames = progress.TotalGames,
-                                    progressPercent = progress.PercentComplete
+                                    totalGames = progress.TotalGames
                                 });
                             }
                         }
@@ -592,7 +592,7 @@ public class GameCacheDetectionService : IDisposable
                 operation.Message += $" across {datasources.Count} datasources";
             }
 
-            operation.Status = "complete";
+            operation.Status = OperationStatus.Completed;
             operation.Games = finalGames;
             operation.TotalGamesDetected = totalGamesDetected;
 
@@ -636,7 +636,7 @@ public class GameCacheDetectionService : IDisposable
             {
                 Key = $"gameDetection_{operationId}",
                 Type = "gameDetection",
-                Status = "complete",
+                Status = OperationStatus.Completed,
                 Message = operation.Message,
                 Data = JsonSerializer.SerializeToElement(new { operationId, totalGamesDetected })
             });
@@ -651,11 +651,13 @@ public class GameCacheDetectionService : IDisposable
             // Send SignalR notification that detection completed successfully
             await _notifications.NotifyAllAsync(SignalREvents.GameDetectionComplete, new
             {
-                success = true,
-                operationId,
+                OperationId = operationId,
+                Success = true,
+                Status = OperationStatus.Completed,
+                Message = operation.Message,
+                Cancelled = false,
                 totalGamesDetected,
                 totalServicesDetected = finalServices.Count,
-                message = operation.Message,
                 timestamp = DateTime.UtcNow
             });
 
@@ -696,10 +698,11 @@ public class GameCacheDetectionService : IDisposable
             // Send SignalR notification that detection was cancelled
             await _notifications.NotifyAllAsync(SignalREvents.GameDetectionComplete, new
             {
-                success = false,
-                operationId,
-                message = operation.Message,
-                cancelled = true,
+                OperationId = operationId,
+                Success = false,
+                Status = OperationStatus.Cancelled,
+                Message = operation.Message,
+                Cancelled = true,
                 timestamp = DateTime.UtcNow
             });
 
@@ -741,10 +744,11 @@ public class GameCacheDetectionService : IDisposable
             // Send SignalR notification that detection failed
             await _notifications.NotifyAllAsync(SignalREvents.GameDetectionComplete, new
             {
-                success = false,
-                operationId,
-                message = operation.Message,
-                error = ex.Message,
+                OperationId = operationId,
+                Success = false,
+                Status = OperationStatus.Failed,
+                Message = operation.Message,
+                Cancelled = false,
                 timestamp = DateTime.UtcNow
             });
 
@@ -849,7 +853,7 @@ public class GameCacheDetectionService : IDisposable
         {
             OperationId = "cached",
             StartTime = lastDetectedTime,
-            Status = "complete",
+            Status = OperationStatus.Completed,
             Message = message,
             Games = games,
             Services = services,

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using LancacheManager.Core.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
@@ -231,7 +232,7 @@ public class RustDatabaseResetService
                         {
                             isProcessing = false,
                             percentComplete = 100.0,
-                            status = "complete",
+                            status = OperationStatus.Completed,
                             message = "Database reset completed successfully",
                             timestamp = DateTime.UtcNow
                         });

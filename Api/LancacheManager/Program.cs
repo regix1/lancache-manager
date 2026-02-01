@@ -104,6 +104,10 @@ builder.Services.AddSignalR(options =>
     options.KeepAliveInterval = TimeSpan.FromSeconds(10); // Send keepalive every 10 seconds (default: 15)
     options.ClientTimeoutInterval = TimeSpan.FromMinutes(10); // Client timeout after 10 minutes (default: 30s) - generous for slow Steam API responses
     options.HandshakeTimeout = TimeSpan.FromSeconds(30); // Handshake timeout (default: 15)
+}).AddJsonProtocol(options =>
+{
+    // Use camelCase for SignalR JSON serialization to match frontend expectations
+    options.PayloadSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
 });
 
 // Configure CORS

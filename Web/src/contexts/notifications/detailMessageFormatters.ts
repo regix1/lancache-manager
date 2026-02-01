@@ -41,18 +41,6 @@ export const formatLogProcessingMessage = (event: ProcessingProgressEvent): stri
 };
 
 /**
- * Formats the detail message for log processing progress.
- * Shows entries processed of total entries.
- * @param event - The processing progress event from SignalR
- * @returns Formatted detail message string
- */
-export const formatLogProcessingDetailMessage = (event: ProcessingProgressEvent): string => {
-  const entriesProcessed = event.entriesProcessed?.toLocaleString() || '0';
-  const totalLines = event.totalLines?.toLocaleString() || '0';
-  return `${entriesProcessed} of ${totalLines} entries`;
-};
-
-/**
  * Formats the completion detail message for log processing.
  * @param entriesProcessed - Number of entries successfully processed
  * @returns Formatted completion message
@@ -77,24 +65,6 @@ export const formatFastProcessingCompletionMessage = (
 // ============================================================================
 // Depot Mapping
 // ============================================================================
-
-/**
- * Formats the detail message for depot mapping progress.
- * Shows either batches progress or mappings/downloads progress.
- * @param event - The depot mapping progress event from SignalR
- * @returns Formatted detail message or undefined if no progress data
- */
-export const formatDepotMappingDetailMessage = (
-  event: DepotMappingProgressEvent
-): string | undefined => {
-  if (event.processedBatches !== undefined && event.totalBatches !== undefined) {
-    return `${event.processedBatches.toLocaleString()} / ${event.totalBatches.toLocaleString()} batches...`;
-  }
-  if (event.processedMappings !== undefined && event.totalMappings !== undefined) {
-    return `${event.processedMappings.toLocaleString()} / ${event.totalMappings.toLocaleString()} downloads...`;
-  }
-  return undefined;
-};
 
 /**
  * Formats the detail message for depot mapping recovery.

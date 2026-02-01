@@ -102,7 +102,7 @@ fn count_services(log_path: &str, progress_path: &Path, datasource_name: Option<
         let progress = ProgressData::new(
             false,
             100.0,
-            "complete".to_string(),
+            "completed".to_string(),
             "No log files found".to_string(),
             0,
             0,
@@ -206,7 +206,7 @@ fn count_services(log_path: &str, progress_path: &Path, datasource_name: Option<
     let progress = ProgressData::new(
         false,
         100.0,
-        "complete".to_string(),
+        "completed".to_string(),
         format!("Service counting completed. Found {} services in {} lines across {} files.",
             service_counts.len(), lines_processed, log_files.len()),
         lines_processed,
@@ -465,7 +465,7 @@ fn remove_service_from_logs(
     let progress = ProgressData::new(
         false,
         100.0,
-        "complete".to_string(),
+        "completed".to_string(),
         format!(
             "Removed {} {} entries from {} total lines across {} files in {:.2}s",
             total_lines_removed,

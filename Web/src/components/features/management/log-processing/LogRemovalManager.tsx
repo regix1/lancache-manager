@@ -217,7 +217,6 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
     Object.values(ds.serviceCounts).some(count => count > 0)
   );
 
-  const isReadOnly = logsReadOnly || !isDockerAvailable;
   const logsMissing = !logsExist;
   const hasPermissionIssue = logsReadOnly || logsMissing;
 

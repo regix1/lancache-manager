@@ -35,6 +35,10 @@ export const SIGNALR_EVENTS = [
   // Log Processing
   'ProcessingProgress',
   'FastProcessingComplete',
+  'LogProcessingStarted',
+  'LogProcessingProgress',
+  'LogProcessingComplete',
+  'LogRemovalStarted',
   'LogRemovalProgress',
   'LogRemovalComplete',
 
@@ -52,6 +56,9 @@ export const SIGNALR_EVENTS = [
   'AutomaticScanSkipped',
 
   // Cache Operations
+  'CacheClearingStarted',
+  'CacheClearingProgress',
+  'CacheClearingComplete',
   'CacheClearProgress',
   'CacheClearComplete',
   'ServiceRemovalProgress',
@@ -131,6 +138,7 @@ export const SIGNALR_REFRESH_EVENTS = [
   // Background processing events
   'DownloadsRefresh',
   'FastProcessingComplete',
+  'LogProcessingComplete',
   // User action completions
   'DepotMappingComplete',
   'LogRemovalComplete',
@@ -139,6 +147,7 @@ export const SIGNALR_REFRESH_EVENTS = [
   'GameDetectionComplete',
   'GameRemovalComplete',
   'CacheClearComplete',
+  'CacheClearingComplete',
   // Client group changes (affects displayName in client stats)
   'ClientGroupCreated',
   'ClientGroupUpdated',
@@ -150,10 +159,10 @@ export const SIGNALR_REFRESH_EVENTS = [
 // SignalR Event Types
 
 export interface ProcessingProgressEvent {
-  operationId?: string;
-  percentComplete?: number;
+  operationId: string;
+  percentComplete: number;
+  status: string;
   progress?: number;
-  status?: string;
   message?: string;
   mbProcessed?: number;
   mbTotal?: number;
@@ -163,86 +172,109 @@ export interface ProcessingProgressEvent {
 }
 
 export interface FastProcessingCompleteEvent {
-  success?: boolean;
-  message?: string;
+  operationId: string;
+  success: boolean;
+  message: string;
+  cancelled?: boolean;
   entriesProcessed?: number;
   linesProcessed?: number;
   elapsed?: number;
 }
 
+// Standardized Log Removal Events
+
 export interface LogRemovalProgressEvent {
-  operationId?: string;
+  operationId: string;
+  percentComplete: number;
+  status: string;
   service: string;
-  status: 'starting' | 'removing' | 'complete' | 'error';
   message?: string;
-  percentComplete?: number;
+  filesProcessed?: number;
   linesProcessed?: number;
   linesRemoved?: number;
+  datasource?: string;
 }
 
 export interface LogRemovalCompleteEvent {
-  service: string;
+  operationId: string;
   success: boolean;
-  message?: string;
+  status: string;
+  message: string;
+  cancelled: boolean;
+  service: string;
+  filesProcessed?: number;
   linesProcessed?: number;
+  linesRemoved?: number;
+  databaseRecordsDeleted?: number;
+  datasource?: string;
 }
 
 export interface GameRemovalProgressEvent {
+  operationId: string;
+  percentComplete: number;
+  status: string;
   gameAppId: number;
   gameName: string;
   message?: string;
   filesDeleted?: number;
   bytesFreed?: number;
-  status?: 'starting' | 'removing' | 'complete' | 'error';
 }
 
 export interface GameRemovalCompleteEvent {
-  gameAppId: number;
+  operationId: string;
   success: boolean;
-  message?: string;
+  message: string;
+  cancelled?: boolean;
+  gameAppId: number;
   filesDeleted?: number;
   bytesFreed?: number;
   logEntriesRemoved?: number;
 }
 
 export interface ServiceRemovalProgressEvent {
+  operationId: string;
+  percentComplete: number;
+  status: string;
   serviceName: string;
   message?: string;
   filesDeleted?: number;
   bytesFreed?: number;
-  status?: 'starting' | 'removing' | 'complete' | 'error';
 }
 
 export interface ServiceRemovalCompleteEvent {
-  serviceName: string;
+  operationId: string;
   success: boolean;
-  message?: string;
+  message: string;
+  cancelled?: boolean;
+  serviceName: string;
   filesDeleted?: number;
   bytesFreed?: number;
   logEntriesRemoved?: number;
 }
 
 export interface CorruptionRemovalStartedEvent {
+  operationId: string;
   service: string;
-  operationId?: string;
   message?: string;
 }
 
 export interface CorruptionRemovalProgressEvent {
-  service: string;
-  operationId?: string;
+  operationId: string;
+  percentComplete: number;
   status: string;
-  message: string;
-  percentComplete?: number;
+  service: string;
+  message?: string;
   filesProcessed?: number;
   totalFiles?: number;
   timestamp?: string;
 }
 
 export interface CorruptionRemovalCompleteEvent {
-  service: string;
+  operationId: string;
   success: boolean;
-  message?: string;
+  message: string;
+  cancelled?: boolean;
+  service: string;
   error?: string;
 }
 
@@ -253,11 +285,11 @@ export interface CorruptionDetectionStartedEvent {
 
 export interface CorruptionDetectionProgressEvent {
   operationId: string;
+  percentComplete: number;
   status: string;
   message?: string;
   filesProcessed?: number;
   totalFiles?: number;
-  percentComplete?: number;
   currentFile?: string;
   datasourceName?: string;
 }
@@ -265,7 +297,8 @@ export interface CorruptionDetectionProgressEvent {
 export interface CorruptionDetectionCompleteEvent {
   operationId: string;
   success: boolean;
-  message?: string;
+  message: string;
+  cancelled?: boolean;
   error?: string;
   totalServicesWithCorruption?: number;
   totalCorruptedChunks?: number;
@@ -279,8 +312,9 @@ export interface GameDetectionStartedEvent {
 
 export interface GameDetectionProgressEvent {
   operationId: string;
+  percentComplete: number;
   status: string;
-  message: string;
+  message?: string;
   gamesDetected?: number;
   servicesDetected?: number;
   progressPercent?: number;
@@ -289,24 +323,27 @@ export interface GameDetectionProgressEvent {
 export interface GameDetectionCompleteEvent {
   operationId: string;
   success: boolean;
-  message?: string;
+  message: string;
+  cancelled?: boolean;
   error?: string;
   totalGamesDetected?: number;
   totalServicesDetected?: number;
 }
 
 export interface DatabaseResetProgressEvent {
+  operationId: string;
+  percentComplete: number;
   status: string;
   message?: string;
-  percentComplete?: number;
 }
 
+// Legacy Cache Clear Events (kept for backward compatibility)
 export interface CacheClearProgressEvent {
-  operationId?: string;
-  status?: string;
+  operationId: string;
+  percentComplete: number;
+  status: string;
   statusMessage?: string;
   error?: string;
-  percentComplete?: number;
   filesDeleted?: number;
   directoriesProcessed?: number;
   bytesDeleted?: number;
@@ -314,16 +351,24 @@ export interface CacheClearProgressEvent {
 }
 
 export interface CacheClearCompleteEvent {
+  operationId: string;
   success: boolean;
-  message?: string;
+  message: string;
+  cancelled?: boolean;
   error?: string;
   filesDeleted?: number;
   directoriesProcessed?: number;
   datasourceName?: string;
 }
 
+// Standardized Cache Clearing Events
+export interface CacheClearingStartedEvent {
+  operationId: string;
+  message?: string;
+}
+
 export interface DepotMappingStartedEvent {
-  operationId?: string;
+  operationId: string;
   message?: string;
   isLoggedOn?: boolean;
   status?: string;
@@ -336,11 +381,11 @@ export interface DepotMappingStartedEvent {
 }
 
 export interface DepotMappingProgressEvent {
-  operationId?: string;
-  percentComplete?: number;
+  operationId: string;
+  percentComplete: number;
+  status: string;
   progressPercent?: number;
   message?: string;
-  status?: string;
   isLoggedOn?: boolean;
   processedBatches?: number;
   totalBatches?: number;
@@ -355,11 +400,11 @@ export interface DepotMappingProgressEvent {
 }
 
 export interface DepotMappingCompleteEvent {
-  operationId?: string;
+  operationId: string;
   success: boolean;
+  message: string;
   cancelled?: boolean;
   scanMode?: 'incremental' | 'full' | 'github';
-  message?: string;
   error?: string;
   totalMappings?: number;
   downloadsUpdated?: number;
