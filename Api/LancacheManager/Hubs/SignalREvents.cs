@@ -65,8 +65,6 @@ public static class SignalREvents
     public const string LogRemovalStarted = "LogRemovalStarted";
     public const string LogRemovalProgress = "LogRemovalProgress";
     public const string LogRemovalComplete = "LogRemovalComplete";
-    public const string ProcessingProgress = "ProcessingProgress";
-    public const string FastProcessingComplete = "FastProcessingComplete";
 
     // Database Operations
     public const string DatabaseResetStarted = "DatabaseResetStarted";
@@ -74,6 +72,11 @@ public static class SignalREvents
     public const string DatabaseResetComplete = "DatabaseResetComplete";
     public const string PrefillSessionsCleared = "PrefillSessionsCleared";
     public const string BannedSteamUsersCleared = "BannedSteamUsersCleared";
+
+    // Data Import
+    public const string DataImportStarted = "DataImportStarted";
+    public const string DataImportProgress = "DataImportProgress";
+    public const string DataImportComplete = "DataImportComplete";
 
     // System / Config
     public const string DefaultGuestRefreshRateChanged = "DefaultGuestRefreshRateChanged";

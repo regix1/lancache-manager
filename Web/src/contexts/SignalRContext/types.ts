@@ -33,8 +33,6 @@ export const SIGNALR_EVENTS = [
   'DownloadSpeedUpdate',
 
   // Log Processing
-  'ProcessingProgress',
-  'FastProcessingComplete',
   'LogProcessingStarted',
   'LogProcessingProgress',
   'LogProcessingComplete',
@@ -43,7 +41,9 @@ export const SIGNALR_EVENTS = [
   'LogRemovalComplete',
 
   // Database Operations
+  'DatabaseResetStarted',
   'DatabaseResetProgress',
+  'DatabaseResetComplete',
   'PrefillSessionsCleared',
   'BannedSteamUsersCleared',
 
@@ -59,8 +59,7 @@ export const SIGNALR_EVENTS = [
   'CacheClearingStarted',
   'CacheClearingProgress',
   'CacheClearingComplete',
-  'CacheClearProgress',
-  'CacheClearComplete',
+  'ServiceRemovalStarted',
   'ServiceRemovalProgress',
   'ServiceRemovalComplete',
   'CorruptionDetectionStarted',
@@ -74,8 +73,14 @@ export const SIGNALR_EVENTS = [
   'GameDetectionStarted',
   'GameDetectionProgress',
   'GameDetectionComplete',
+  'GameRemovalStarted',
   'GameRemovalProgress',
   'GameRemovalComplete',
+
+  // Data Import
+  'DataImportStarted',
+  'DataImportProgress',
+  'DataImportComplete',
 
   // Client Groups
   'ClientGroupCreated',
@@ -137,7 +142,6 @@ export const SIGNALR_EVENTS = [
 export const SIGNALR_REFRESH_EVENTS = [
   // Background processing events
   'DownloadsRefresh',
-  'FastProcessingComplete',
   'LogProcessingComplete',
   // User action completions
   'DepotMappingComplete',
@@ -146,7 +150,6 @@ export const SIGNALR_REFRESH_EVENTS = [
   'ServiceRemovalComplete',
   'GameDetectionComplete',
   'GameRemovalComplete',
-  'CacheClearComplete',
   'CacheClearingComplete',
   // Client group changes (affects displayName in client stats)
   'ClientGroupCreated',
@@ -171,7 +174,7 @@ export interface ProcessingProgressEvent {
   linesProcessed?: number;
 }
 
-export interface FastProcessingCompleteEvent {
+export interface LogProcessingCompleteEvent {
   operationId: string;
   success: boolean;
   message: string;
@@ -337,7 +340,7 @@ export interface DatabaseResetProgressEvent {
   message?: string;
 }
 
-// Legacy Cache Clear Events (kept for backward compatibility)
+// Cache Clear Event Types (used by CacheClearingProgress/CacheClearingComplete handlers)
 export interface CacheClearProgressEvent {
   operationId: string;
   percentComplete: number;
@@ -539,4 +542,32 @@ export interface UserPreferencesUpdatedEvent {
 
 export interface DefaultGuestThemeChangedEvent {
   newThemeId: string;
+}
+
+// Data Import Events
+export interface DataImportStartedEvent {
+  operationId: string;
+  message?: string;
+  importType?: string;
+}
+
+export interface DataImportProgressEvent {
+  operationId: string;
+  percentComplete: number;
+  status: string;
+  message?: string;
+  recordsProcessed?: number;
+  totalRecords?: number;
+  recordsImported?: number;
+  recordsSkipped?: number;
+}
+
+export interface DataImportCompleteEvent {
+  operationId: string;
+  success: boolean;
+  message: string;
+  recordsImported?: number;
+  recordsSkipped?: number;
+  recordsErrors?: number;
+  totalRecords?: number;
 }

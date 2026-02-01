@@ -1,5 +1,6 @@
 using LancacheManager.Models;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
@@ -20,15 +21,18 @@ public class DataMigrationController : ControllerBase
     private readonly ILogger<DataMigrationController> _logger;
     private readonly IPathResolver _pathResolver;
     private readonly RustProcessHelper _rustProcessHelper;
+    private readonly ISignalRNotificationService _notifications;
 
     public DataMigrationController(
         ILogger<DataMigrationController> logger,
         IPathResolver pathResolver,
-        RustProcessHelper rustProcessHelper)
+        RustProcessHelper rustProcessHelper,
+        ISignalRNotificationService notifications)
     {
         _logger = logger;
         _pathResolver = pathResolver;
         _rustProcessHelper = rustProcessHelper;
+        _notifications = notifications;
     }
 
     /// <summary>
@@ -45,6 +49,8 @@ public class DataMigrationController : ControllerBase
         }
 
         _logger.LogInformation("Starting import from DeveLanCacheUI_Backend database");
+
+        var operationId = Guid.NewGuid().ToString();
 
         // Extract the database path - supports both raw paths and connection strings
         var sourceDatabasePath = ExtractDatabasePath(request.ConnectionString);
@@ -63,6 +69,14 @@ public class DataMigrationController : ControllerBase
         // Create temporary progress file
         var progressPath = Path.GetTempFileName();
 
+        // Send started notification
+        await _notifications.NotifyAllAsync(SignalREvents.DataImportStarted, new
+        {
+            OperationId = operationId,
+            Message = "Starting DeveLanCacheUI_Backend import...",
+            ImportType = "develancache"
+        });
+
         try
         {
             // Build arguments for data_migrator
@@ -78,6 +92,12 @@ public class DataMigrationController : ControllerBase
 
             if (process == null)
             {
+                await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
+                {
+                    OperationId = operationId,
+                    Success = false,
+                    Message = "Failed to start data migrator process"
+                });
                 return StatusCode(500, new ErrorResponse { Error = "Failed to start data migrator process" });
             }
 
@@ -92,6 +112,12 @@ public class DataMigrationController : ControllerBase
 
             if (process.ExitCode != 0)
             {
+                await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
+                {
+                    OperationId = operationId,
+                    Success = false,
+                    Message = $"Data migration failed with exit code {process.ExitCode}"
+                });
                 return StatusCode(500, new ErrorResponse
                 {
                     Error = "Data migration failed",
@@ -105,12 +131,30 @@ public class DataMigrationController : ControllerBase
             if (progress == null)
             {
                 _logger.LogWarning("Progress file not found after migration");
+                await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
+                {
+                    OperationId = operationId,
+                    Success = true,
+                    Message = "Import completed but progress data unavailable"
+                });
                 return Ok(new MessageResponse { Message = "Import completed but progress data unavailable" });
             }
 
             _logger.LogInformation(
                 "Import completed: {Imported} imported, {Skipped} skipped, {Errors} errors. Backup: {BackupPath}",
                 progress.RecordsImported, progress.RecordsSkipped, progress.RecordsErrors, progress.BackupPath ?? "none");
+
+            // Send completion notification
+            await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
+            {
+                OperationId = operationId,
+                Success = true,
+                Message = $"Import completed: {progress.RecordsImported} imported, {progress.RecordsSkipped} skipped",
+                RecordsImported = progress.RecordsImported,
+                RecordsSkipped = progress.RecordsSkipped,
+                RecordsErrors = progress.RecordsErrors,
+                TotalRecords = progress.RecordsProcessed
+            });
 
             return Ok(new MigrationImportResponse
             {
@@ -121,6 +165,16 @@ public class DataMigrationController : ControllerBase
                 Errors = progress.RecordsErrors,
                 BackupPath = progress.BackupPath
             });
+        }
+        catch (Exception ex)
+        {
+            await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
+            {
+                OperationId = operationId,
+                Success = false,
+                Message = ex.Message
+            });
+            throw;
         }
         finally
         {
@@ -143,6 +197,8 @@ public class DataMigrationController : ControllerBase
         }
 
         _logger.LogInformation("Starting import from LancacheManager database");
+
+        var operationId = Guid.NewGuid().ToString();
 
         // Extract the database path
         var sourceDatabasePath = ExtractDatabasePath(request.ConnectionString);
@@ -169,7 +225,17 @@ public class DataMigrationController : ControllerBase
         ulong recordsErrors = 0;
         string? backupPath = null;
 
-        // Create backup of target database
+        // Send started notification
+        await _notifications.NotifyAllAsync(SignalREvents.DataImportStarted, new
+        {
+            OperationId = operationId,
+            Message = "Starting LancacheManager import...",
+            ImportType = "lancache-manager"
+        });
+
+        try
+        {
+            // Create backup of target database
             if (System.IO.File.Exists(targetDatabasePath))
             {
                 var timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
@@ -199,6 +265,17 @@ public class DataMigrationController : ControllerBase
             }
 
             _logger.LogInformation("Found {TotalRecords} records in source LancacheManager database", totalRecords);
+
+            // Send initial progress
+            await _notifications.NotifyAllAsync(SignalREvents.DataImportProgress, new
+            {
+                OperationId = operationId,
+                PercentComplete = 0.0,
+                Status = "running",
+                Message = $"Found {totalRecords:N0} records to import",
+                RecordsProcessed = 0UL,
+                TotalRecords = totalRecords
+            });
 
             // Read and insert in batches
             var offset = 0;
@@ -312,6 +389,23 @@ public class DataMigrationController : ControllerBase
 
                 transaction.Commit();
 
+                // Send progress notification after each batch
+                var recordsProcessed = (ulong)offset + (ulong)batchSize;
+                if (recordsProcessed > totalRecords) recordsProcessed = totalRecords;
+                var percentComplete = totalRecords > 0 ? (double)recordsProcessed / totalRecords * 100.0 : 0;
+
+                await _notifications.NotifyAllAsync(SignalREvents.DataImportProgress, new
+                {
+                    OperationId = operationId,
+                    PercentComplete = percentComplete,
+                    Status = "running",
+                    Message = $"Importing records... {recordsProcessed:N0} of {totalRecords:N0}",
+                    RecordsProcessed = recordsProcessed,
+                    TotalRecords = totalRecords,
+                    RecordsImported = recordsImported,
+                    RecordsSkipped = recordsSkipped
+                });
+
                 if (!hasRecords)
                     break;
 
@@ -324,6 +418,18 @@ public class DataMigrationController : ControllerBase
                 "Import completed: {Imported} imported, {Skipped} skipped, {Errors} errors. Backup: {BackupPath}",
                 recordsImported, recordsSkipped, recordsErrors, backupPath ?? "none");
 
+            // Send completion notification
+            await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
+            {
+                OperationId = operationId,
+                Success = true,
+                Message = $"Import completed: {recordsImported:N0} imported, {recordsSkipped:N0} skipped",
+                RecordsImported = recordsImported,
+                RecordsSkipped = recordsSkipped,
+                RecordsErrors = recordsErrors,
+                TotalRecords = totalRecords
+            });
+
             return Ok(new MigrationImportResponse
             {
                 Message = $"Import completed: {recordsImported} imported, {recordsSkipped} skipped, {recordsErrors} errors",
@@ -333,6 +439,22 @@ public class DataMigrationController : ControllerBase
                 Errors = recordsErrors,
                 BackupPath = backupPath
             });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during LancacheManager import");
+            await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
+            {
+                OperationId = operationId,
+                Success = false,
+                Message = $"Import failed: {ex.Message}",
+                RecordsImported = recordsImported,
+                RecordsSkipped = recordsSkipped,
+                RecordsErrors = recordsErrors,
+                TotalRecords = totalRecords
+            });
+            throw;
+        }
     }
 
     /// <summary>

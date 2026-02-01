@@ -1870,7 +1870,8 @@
         "hintLancacheManager": "Make sure to select a LancacheManager database for this import type."
       },
       "progress": {
-        "importing": "Importing..."
+        "importing": "Importing...",
+        "checkNotifications": "Check notification bar for progress"
       },
       "result": {
         "total": "Total",
@@ -4404,6 +4405,7 @@
       "validating": "Validating...",
       "validate": "Validate",
       "importing": "Importing...",
+      "checkNotifications": "Check notification bar for progress",
       "import": "Import",
       "skip": "Skip",
       "pleaseEnter": "Please enter a database path",

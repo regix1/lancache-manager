@@ -8,7 +8,7 @@ import { Modal } from '@components/ui/Modal';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { useSignalR } from '@contexts/SignalRContext';
-import type { FastProcessingCompleteEvent } from '@contexts/SignalRContext/types';
+import type { LogProcessingCompleteEvent } from '@contexts/SignalRContext/types';
 import { useNotifications } from '@contexts/notifications';
 import {
   ManagerCardHeader,
@@ -81,7 +81,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 
   // Listen for processing complete events to refresh positions
   useEffect(() => {
-    const handleProcessingComplete = async (_result: FastProcessingCompleteEvent) => {
+    const handleProcessingComplete = async (_result: LogProcessingCompleteEvent) => {
       try {
         const positions = await fetchLogPositions();
         setLogPositions(positions);
@@ -90,10 +90,10 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       }
     };
 
-    signalR.on('FastProcessingComplete', handleProcessingComplete);
+    signalR.on('LogProcessingComplete', handleProcessingComplete);
 
     return () => {
-      signalR.off('FastProcessingComplete', handleProcessingComplete);
+      signalR.off('LogProcessingComplete', handleProcessingComplete);
     };
   }, [signalR]);
 

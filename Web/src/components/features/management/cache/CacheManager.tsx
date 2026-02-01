@@ -165,15 +165,15 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   useEffect(() => {
     if (mockMode) return;
 
-    const handleCacheClearComplete = () => {
+    const handleCacheClearingComplete = () => {
       // Clear the cached size so it refetches with new values
       clearCacheSize();
     };
 
-    signalR.on('CacheClearComplete', handleCacheClearComplete);
+    signalR.on('CacheClearingComplete', handleCacheClearingComplete);
 
     return () => {
-      signalR.off('CacheClearComplete', handleCacheClearComplete);
+      signalR.off('CacheClearingComplete', handleCacheClearingComplete);
     };
   }, [mockMode, signalR, clearCacheSize]);
 
@@ -227,7 +227,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     setShowConfirmModal(false);
 
     // Note: NotificationsContext automatically handles cache clearing state via SignalR events
-    // (CacheClearProgress and CacheClearComplete). No need to manually manage isCacheClearing.
+    // (CacheClearingProgress and CacheClearingComplete). No need to manually manage isCacheClearing.
 
     try {
       if (clearingDatasource) {

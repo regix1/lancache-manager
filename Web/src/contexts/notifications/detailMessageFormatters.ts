@@ -16,7 +16,10 @@ import type {
   DatabaseResetProgressEvent,
   CacheClearProgressEvent,
   CacheClearCompleteEvent,
-  DepotMappingStartedEvent
+  DepotMappingStartedEvent,
+  DataImportStartedEvent,
+  DataImportProgressEvent,
+  DataImportCompleteEvent
 } from '../SignalRContext/types';
 
 /**
@@ -41,7 +44,7 @@ export const formatLogProcessingMessage = (event: ProcessingProgressEvent): stri
 };
 
 /**
- * Formats the completion detail message for log processing.
+ * Formats the completion detail message for log processing (simple version).
  * @param entriesProcessed - Number of entries successfully processed
  * @returns Formatted completion message
  */
@@ -50,11 +53,13 @@ export const formatLogProcessingCompletionMessage = (entriesProcessed?: number):
 };
 
 /**
- * Formats the fast processing completion message.
- * @param event - The fast processing complete event
+ * Formats the detailed log processing completion message with timing info.
+ * @param entriesProcessed - Number of log entries processed
+ * @param linesProcessed - Number of lines processed
+ * @param elapsed - Elapsed time in minutes
  * @returns Formatted completion message with timing info
  */
-export const formatFastProcessingCompletionMessage = (
+export const formatLogProcessingDetailMessage = (
   entriesProcessed?: number,
   linesProcessed?: number,
   elapsed?: number
@@ -372,4 +377,47 @@ export const formatDepotMappingProgressMessage = (
   existingMessage?: string
 ): string => {
   return event.message || existingMessage || 'Scanning depot mappings...';
+};
+
+// ============================================================================
+// Data Import
+// ============================================================================
+
+/**
+ * Formats the message for data import started.
+ * @param event - The data import started event from SignalR
+ * @returns Formatted message string
+ */
+export const formatDataImportStartedMessage = (event: DataImportStartedEvent): string => {
+  return event.message || 'Starting data import...';
+};
+
+/**
+ * Formats the progress message for data import.
+ * Shows records processed of total records.
+ * @param event - The data import progress event from SignalR
+ * @returns Formatted progress message string
+ */
+export const formatDataImportProgressMessage = (event: DataImportProgressEvent): string => {
+  const processed = event.recordsProcessed?.toLocaleString() || '0';
+  const total = event.totalRecords?.toLocaleString() || '0';
+  return `Importing: ${processed} of ${total} records`;
+};
+
+/**
+ * Formats the success message for data import completion.
+ * @param event - The data import complete event from SignalR
+ * @returns Formatted success message string
+ */
+export const formatDataImportCompleteMessage = (event: DataImportCompleteEvent): string => {
+  return event.message || 'Data import completed';
+};
+
+/**
+ * Formats the failure message for data import.
+ * @param event - The data import complete event from SignalR
+ * @returns Formatted failure message string
+ */
+export const formatDataImportFailureMessage = (event: DataImportCompleteEvent): string => {
+  return event.message || 'Data import failed';
 };

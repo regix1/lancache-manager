@@ -6,7 +6,7 @@ import { Tooltip } from '@components/ui/Tooltip';
 import { useSignalR } from '@contexts/SignalRContext';
 import type {
   ProcessingProgressEvent,
-  FastProcessingCompleteEvent
+  LogProcessingCompleteEvent
 } from '@contexts/SignalRContext/types';
 import ApiService from '@services/api.service';
 import type { Config, DatasourceInfo } from '../../../types';
@@ -117,7 +117,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       });
     };
 
-    const handleFastProcessingComplete = (data: FastProcessingCompleteEvent) => {
+    const handleLogProcessingComplete = (data: LogProcessingCompleteEvent) => {
       // Check if processing failed
       if (data.success === false) {
         setError(data.message || t('initialization.logProcessing.failedToProcess'));
@@ -144,12 +144,12 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       setProcessing(false);
     };
 
-    signalR.on('ProcessingProgress', handleProcessingProgress);
-    signalR.on('FastProcessingComplete', handleFastProcessingComplete);
+    signalR.on('LogProcessingProgress', handleProcessingProgress);
+    signalR.on('LogProcessingComplete', handleLogProcessingComplete);
 
     return () => {
-      signalR.off('ProcessingProgress', handleProcessingProgress);
-      signalR.off('FastProcessingComplete', handleFastProcessingComplete);
+      signalR.off('LogProcessingProgress', handleProcessingProgress);
+      signalR.off('LogProcessingComplete', handleLogProcessingComplete);
     };
   }, [signalR, t]);
 

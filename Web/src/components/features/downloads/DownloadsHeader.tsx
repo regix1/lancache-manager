@@ -116,12 +116,12 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
 
     // Listen for data refresh events to update history
     signalR.on('DownloadsRefresh', fetchHistory);
-    signalR.on('FastProcessingComplete', fetchHistory);
+    signalR.on('LogProcessingComplete', fetchHistory);
 
     return () => {
       signalR.off('DownloadSpeedUpdate', handleSpeedUpdate);
       signalR.off('DownloadsRefresh', fetchHistory);
-      signalR.off('FastProcessingComplete', fetchHistory);
+      signalR.off('LogProcessingComplete', fetchHistory);
       if (pendingSpeedUpdateRef.current) {
         clearTimeout(pendingSpeedUpdateRef.current);
       }

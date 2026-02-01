@@ -4,7 +4,7 @@ import { useAuth } from '../AuthContext';
 import themeService from '@services/theme.service';
 import type {
   ProcessingProgressEvent,
-  FastProcessingCompleteEvent,
+  LogProcessingCompleteEvent,
   LogRemovalProgressEvent,
   LogRemovalCompleteEvent,
   GameRemovalProgressEvent,
@@ -27,7 +27,10 @@ import type {
   DepotMappingStartedEvent,
   DepotMappingProgressEvent,
   SteamSessionErrorEvent,
-  ShowToastEvent
+  ShowToastEvent,
+  DataImportStartedEvent,
+  DataImportProgressEvent,
+  DataImportCompleteEvent
 } from '../SignalRContext/types';
 
 import type { UnifiedNotification, NotificationsContextType } from './types';
@@ -52,7 +55,7 @@ import {
 import {
   formatLogProcessingMessage,
   formatLogProcessingCompletionMessage,
-  formatFastProcessingCompletionMessage,
+  formatLogProcessingDetailMessage,
   formatLogRemovalProgressMessage,
   formatLogRemovalCompleteMessage,
   formatGameRemovalProgressMessage,
@@ -73,7 +76,11 @@ import {
   formatCacheClearCompleteMessage,
   formatCacheClearFailureMessage,
   formatDepotMappingStartedMessage,
-  formatDepotMappingProgressMessage
+  formatDepotMappingProgressMessage,
+  formatDataImportStartedMessage,
+  formatDataImportProgressMessage,
+  formatDataImportCompleteMessage,
+  formatDataImportFailureMessage
 } from './detailMessageFormatters';
 
 const NotificationsContext = createContext<NotificationsContextType | undefined>(undefined);
@@ -168,7 +175,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       service_removal: NOTIFICATION_IDS.SERVICE_REMOVAL,
       corruption_removal: NOTIFICATION_IDS.CORRUPTION_REMOVAL,
       game_detection: NOTIFICATION_IDS.GAME_DETECTION,
-      corruption_detection: NOTIFICATION_IDS.CORRUPTION_DETECTION
+      corruption_detection: NOTIFICATION_IDS.CORRUPTION_DETECTION,
+      data_import: NOTIFICATION_IDS.DATA_IMPORT
     };
 
     if (typeToIdMap[notification.type]) {
@@ -287,13 +295,13 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       cancelAutoDismissTimer
     );
 
-    const handleFastProcessingComplete = createCompletionHandler<FastProcessingCompleteEvent>(
+    const handleLogProcessingComplete = createCompletionHandler<LogProcessingCompleteEvent>(
       {
         type: 'log_processing',
         getId: () => NOTIFICATION_IDS.LOG_PROCESSING,
         storageKey: NOTIFICATION_STORAGE_KEYS.LOG_PROCESSING,
         getSuccessMessage: () => 'Processing Complete!',
-        getDetailMessage: (e) => formatFastProcessingCompletionMessage(e.entriesProcessed, e.linesProcessed, e.elapsed),
+        getDetailMessage: (e) => formatLogProcessingDetailMessage(e.entriesProcessed, e.linesProcessed, e.elapsed),
         supportFastCompletion: true,
         getFastCompletionId: () => NOTIFICATION_IDS.LOG_PROCESSING
       },
@@ -644,6 +652,57 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       scheduleAutoDismiss
     );
 
+    // ========== Data Import (using factory pattern) ==========
+    const handleDataImportStarted = createStartedHandler<DataImportStartedEvent>(
+      {
+        type: 'data_import',
+        getId: () => NOTIFICATION_IDS.DATA_IMPORT,
+        storageKey: NOTIFICATION_STORAGE_KEYS.DATA_IMPORT,
+        defaultMessage: 'Starting data import...',
+        getMessage: formatDataImportStartedMessage,
+        getDetails: (e) => ({ operationId: e.operationId, importType: e.importType })
+      },
+      setNotifications,
+      cancelAutoDismissTimer
+    );
+
+    const handleDataImportProgress = createStatusAwareProgressHandler<DataImportProgressEvent>(
+      {
+        type: 'data_import',
+        getId: () => NOTIFICATION_IDS.DATA_IMPORT,
+        storageKey: NOTIFICATION_STORAGE_KEYS.DATA_IMPORT,
+        getMessage: formatDataImportProgressMessage,
+        getProgress: (e) => e.percentComplete || 0,
+        getStatus: (e) => e.status === 'completed' ? 'completed' : (e.status === 'failed' || e.status === 'cancelled') ? 'failed' : undefined,
+        getCompletedMessage: (e) => e.message || 'Data import completed',
+        getErrorMessage: (e) => e.message || 'Data import failed'
+      },
+      setNotifications,
+      scheduleAutoDismiss,
+      cancelAutoDismissTimer
+    );
+
+    const handleDataImportComplete = createCompletionHandler<DataImportCompleteEvent>(
+      {
+        type: 'data_import',
+        getId: () => NOTIFICATION_IDS.DATA_IMPORT,
+        storageKey: NOTIFICATION_STORAGE_KEYS.DATA_IMPORT,
+        getSuccessMessage: formatDataImportCompleteMessage,
+        getSuccessDetails: (e, existing) => ({
+          ...existing?.details,
+          recordsImported: e.recordsImported,
+          recordsSkipped: e.recordsSkipped,
+          recordsErrors: e.recordsErrors,
+          totalRecords: e.totalRecords
+        }),
+        getFailureMessage: formatDataImportFailureMessage,
+        supportFastCompletion: true,
+        getFastCompletionId: () => NOTIFICATION_IDS.DATA_IMPORT
+      },
+      setNotifications,
+      scheduleAutoDismiss
+    );
+
     // ========== Steam Session Error ==========
     // This handler uses a different pattern than operation notifications:
     // - Generic notification type with switch-based title logic (not operation-based)
@@ -688,7 +747,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
     // Subscribe to events
     signalR.on('LogProcessingProgress', handleProcessingProgress);
-    signalR.on('LogProcessingComplete', handleFastProcessingComplete);
+    signalR.on('LogProcessingComplete', handleLogProcessingComplete);
     signalR.on('LogRemovalProgress', handleLogRemovalProgress);
     signalR.on('LogRemovalComplete', handleLogRemovalComplete);
     signalR.on('GameRemovalProgress', handleGameRemovalProgress);
@@ -711,11 +770,14 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     signalR.on('DepotMappingStarted', handleDepotMappingStarted);
     signalR.on('DepotMappingProgress', handleDepotMappingProgress);
     signalR.on('DepotMappingComplete', handleDepotMappingComplete);
+    signalR.on('DataImportStarted', handleDataImportStarted);
+    signalR.on('DataImportProgress', handleDataImportProgress);
+    signalR.on('DataImportComplete', handleDataImportComplete);
     signalR.on('SteamSessionError', handleSteamSessionError);
 
     return () => {
       signalR.off('LogProcessingProgress', handleProcessingProgress);
-      signalR.off('LogProcessingComplete', handleFastProcessingComplete);
+      signalR.off('LogProcessingComplete', handleLogProcessingComplete);
       signalR.off('LogRemovalProgress', handleLogRemovalProgress);
       signalR.off('LogRemovalComplete', handleLogRemovalComplete);
       signalR.off('GameRemovalProgress', handleGameRemovalProgress);
@@ -738,6 +800,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       signalR.off('DepotMappingStarted', handleDepotMappingStarted);
       signalR.off('DepotMappingProgress', handleDepotMappingProgress);
       signalR.off('DepotMappingComplete', handleDepotMappingComplete);
+      signalR.off('DataImportStarted', handleDataImportStarted);
+      signalR.off('DataImportProgress', handleDataImportProgress);
+      signalR.off('DataImportComplete', handleDataImportComplete);
       signalR.off('SteamSessionError', handleSteamSessionError);
     };
   }, [signalR, addNotification, updateNotification, scheduleAutoDismiss, cancelAutoDismissTimer]);

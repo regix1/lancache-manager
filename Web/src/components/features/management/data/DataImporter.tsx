@@ -93,25 +93,11 @@ const DataImporter: React.FC<DataImporterProps> = ({
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [inputMode, setInputMode] = useState<InputMode>('auto');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [importProgress, setImportProgress] = useState(0);
   const [autoSearching, setAutoSearching] = useState(false);
   const [foundDatabases, setFoundDatabases] = useState<FileSystemItem[]>([]);
 
-  // Simulate progress during import
-  useEffect(() => {
-    if (importing) {
-      setImportProgress(0);
-      const interval = setInterval(() => {
-        setImportProgress(prev => {
-          if (prev >= 90) return prev;
-          return prev + Math.random() * 15;
-        });
-      }, 500);
-      return () => clearInterval(interval);
-    } else if (importResult) {
-      setImportProgress(100);
-    }
-  }, [importing, importResult]);
+  // Note: Progress is now shown via the universal notification system (SignalR DataImportProgress events)
+  // No need for local progress state - the NotificationsContext handles progress display
 
   // Auto-search for databases when in auto mode
   const searchForDatabases = useCallback(async () => {
@@ -560,20 +546,14 @@ const DataImporter: React.FC<DataImporterProps> = ({
           </div>
         </div>
 
-        {/* Import Progress */}
+        {/* Import in Progress - Progress shown in notification bar */}
         {importing && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-themed-secondary">{t('management.dataImporter.progress.importing')}</span>
-              <span className="text-themed-muted">{Math.round(importProgress)}%</span>
+          <Alert color="blue">
+            <div className="flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>{t('management.dataImporter.progress.importing')} - {t('management.dataImporter.progress.checkNotifications')}</span>
             </div>
-            <div className="h-2 rounded-full overflow-hidden bg-themed-tertiary">
-              <div
-                className="h-full rounded-full transition-all duration-300 progress-bar-green"
-                style={{ width: `${importProgress}%` }}
-              />
-            </div>
-          </div>
+          </Alert>
         )}
 
         {/* Import Result */}

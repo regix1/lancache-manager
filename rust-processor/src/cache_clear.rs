@@ -4,7 +4,6 @@ use clap::Parser;
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use serde::Serialize;
-use std::env;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -247,6 +246,7 @@ fn delete_directory_full(
 
 #[cfg(target_os = "linux")]
 fn delete_directory_rsync(dir_path: &Path, files_counter: &AtomicU64) -> Result<()> {
+    use std::env;
     use std::process::Command;
 
     if !dir_path.exists() {

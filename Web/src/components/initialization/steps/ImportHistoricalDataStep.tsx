@@ -3,6 +3,7 @@ import { Database, Loader2, CheckCircle, XCircle, FolderOpen, RefreshCw, Search,
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
+import { Alert } from '@components/ui/Alert';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import ApiService from '@services/api.service';
 import FileBrowser from '@components/features/management/file-browser/FileBrowser';
@@ -428,6 +429,16 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
             </p>
           </div>
         </div>
+      )}
+
+      {/* Import in Progress - Progress shown in notification bar */}
+      {importing && (
+        <Alert color="blue">
+          <div className="flex items-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span>{t('initialization.importHistorical.importing')} - {t('initialization.importHistorical.checkNotifications')}</span>
+          </div>
+        </Alert>
       )}
 
       {/* Action Buttons */}

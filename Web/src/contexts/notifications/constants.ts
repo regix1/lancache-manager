@@ -77,7 +77,9 @@ export const NOTIFICATION_STORAGE_KEYS = {
   /** Key for database reset operation state */
   DATABASE_RESET: 'notification_database_reset',
   /** Key for depot mapping operation state */
-  DEPOT_MAPPING: 'notification_depot_mapping'
+  DEPOT_MAPPING: 'notification_depot_mapping',
+  /** Key for data import operation state */
+  DATA_IMPORT: 'notification_data_import'
 } as const;
 
 // ============================================================================
@@ -109,5 +111,7 @@ export const NOTIFICATION_IDS = {
   /** ID for game detection operations */
   GAME_DETECTION: 'game_detection',
   /** ID for corruption detection operations */
-  CORRUPTION_DETECTION: 'corruption_detection'
+  CORRUPTION_DETECTION: 'corruption_detection',
+  /** ID for data import operations */
+  DATA_IMPORT: 'data_import'
 } as const;

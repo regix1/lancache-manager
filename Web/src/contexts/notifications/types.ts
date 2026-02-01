@@ -18,6 +18,7 @@ export type NotificationType =
   | 'database_reset'
   | 'depot_mapping'
   | 'game_detection'
+  | 'data_import'
   | 'generic';
 
 /**
