@@ -95,13 +95,18 @@ const CacheManager: React.FC<CacheManagerProps> = ({
 
   // Cache size from global context (persists across navigation)
   const { cacheSize, isLoading: cacheSizeLoading, error: cacheSizeError, fetchCacheSize, clearCacheSize } = useCacheSize();
-  const { addNotification, isAnyRemovalRunning } = useNotifications();
+  const { notifications, addNotification, isAnyRemovalRunning } = useNotifications();
+
+  // Derive cache clearing state from notifications (standardized pattern)
+  const activeCacheClearNotification = notifications.find(
+    n => n.type === 'cache_clearing' && n.status === 'running'
+  );
+  const isCacheClearing = !!activeCacheClearNotification;
 
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [deleteMode, setDeleteMode] = useState<'preserve' | 'full' | 'rsync'>(config.cacheDeleteMode as 'preserve' | 'full' | 'rsync');
   const [deleteModeLoading, setDeleteModeLoading] = useState(false);
-  const [isCacheClearing, setIsCacheClearing] = useState(false);
   const [clearingDatasource, setClearingDatasource] = useState<string | null>(null); // null = all, string = specific
   const [expandedDatasources, setExpandedDatasources] = useState<Set<string>>(new Set());
   const cacheOperationInProgressRef = useRef(false);
@@ -155,12 +160,12 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     });
   };
 
-  // Listen for cache clear completion (via SignalR for UI state only)
+  // Listen for cache clear completion to refresh cache size
+  // Note: NotificationsContext handles the operation state via cache_clearing notifications
   useEffect(() => {
     if (mockMode) return;
 
     const handleCacheClearComplete = () => {
-      setIsCacheClearing(false);
       // Clear the cached size so it refetches with new values
       clearCacheSize();
     };
@@ -221,9 +226,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     setActionLoading(true);
     setShowConfirmModal(false);
 
-    // Set clearing state BEFORE API call to avoid race condition
-    // SignalR completion event may arrive before API returns
-    setIsCacheClearing(true);
+    // Note: NotificationsContext automatically handles cache clearing state via SignalR events
+    // (CacheClearProgress and CacheClearComplete). No need to manually manage isCacheClearing.
 
     try {
       if (clearingDatasource) {
@@ -234,7 +238,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       // NotificationsContext handles success/error messages via SignalR
     } catch (err: unknown) {
       onError?.(t('management.cache.errors.startCacheClearing', { error: (err instanceof Error ? err.message : String(err)) || t('common.unknownError') }));
-      setIsCacheClearing(false);
+      // Note: On error, NotificationsContext will handle the notification dismissal
     } finally {
       setActionLoading(false);
       cacheOperationInProgressRef.current = false;

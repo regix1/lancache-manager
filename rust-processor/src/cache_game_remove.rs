@@ -21,6 +21,23 @@ mod service_utils;
 use log_reader::LogFileReader;
 use parser::LogParser;
 
+#[derive(Serialize)]
+struct ProgressData {
+    status: String,
+    message: String,
+    timestamp: String,
+}
+
+fn write_progress(progress_path: &Path, status: &str, message: &str) -> Result<()> {
+    let progress = ProgressData {
+        status: status.to_string(),
+        message: message.to_string(),
+        timestamp: progress_utils::current_timestamp(),
+    };
+
+    progress_utils::write_progress_json(progress_path, &progress)
+}
+
 #[derive(Debug, Serialize)]
 struct RemovalReport {
     game_app_id: u32,
@@ -481,8 +498,8 @@ fn remove_log_entries_for_game(
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() < 5 {
-        eprintln!("Usage: {} <database_path> <log_dir> <cache_dir> <game_app_id> <output_json>", args[0]);
+    if args.len() < 6 {
+        eprintln!("Usage: {} <database_path> <log_dir> <cache_dir> <game_app_id> <output_json> <progress_json>", args[0]);
         eprintln!();
         eprintln!("Removes all cache files for a specific game by scanning logs.");
         eprintln!();
@@ -492,6 +509,7 @@ fn main() -> Result<()> {
         eprintln!("  cache_dir     - Cache directory root (e.g., /cache or H:/cache)");
         eprintln!("  game_app_id   - Game AppID to remove");
         eprintln!("  output_json   - Path to output JSON report");
+        eprintln!("  progress_json - Path to progress JSON file");
         std::process::exit(1);
     }
 
@@ -501,6 +519,7 @@ fn main() -> Result<()> {
     let game_app_id: u32 = args[4].parse()
         .context("Invalid game_app_id - must be a number")?;
     let output_json = PathBuf::from(&args[5]);
+    let progress_path = PathBuf::from(&args[6]);
 
     eprintln!("Game Cache Removal");
     eprintln!("  Database: {}", db_path.display());
@@ -524,7 +543,10 @@ fn main() -> Result<()> {
     let game_name = get_game_name_from_db(&db_path, game_app_id)?;
     eprintln!("Game: {}", game_name);
 
+    write_progress(&progress_path, "starting", &format!("Starting removal for game '{}' (AppID {})", game_name, game_app_id))?;
+
     // Get valid depot IDs for this game from database
+    write_progress(&progress_path, "querying_database", "Querying database for depot IDs and URLs")?;
     let valid_depot_ids = get_game_depot_ids(&db_path, game_app_id)?;
     eprintln!("Valid depot IDs for this game: {:?}", valid_depot_ids);
 
@@ -547,18 +569,23 @@ fn main() -> Result<()> {
         let json = serde_json::to_string_pretty(&report)?;
         fs::write(&output_json, json)?;
         eprintln!("Report saved to: {}", output_json.display());
+
+        write_progress(&progress_path, "complete", "No URLs found for this game")?;
         return Ok(());
     }
 
     eprintln!("Found {} unique URLs for '{}'", url_data.len(), game_name);
-    eprintln!("\nRemoving cache files...");
 
+    write_progress(&progress_path, "removing_cache", &format!("Removing cache files for {} URLs", url_data.len()))?;
+    eprintln!("\nRemoving cache files...");
     let (deleted_files, bytes_freed, parent_dirs, cache_permission_errors) = remove_cache_files_for_game(&cache_dir, &url_data)?;
 
+    write_progress(&progress_path, "cleaning_directories", "Cleaning up empty directories")?;
     eprintln!("\nCleaning up empty directories...");
     let empty_dirs_removed = cleanup_empty_directories(&cache_dir, parent_dirs);
 
     // Remove log entries for this game
+    write_progress(&progress_path, "removing_logs", "Removing log entries")?;
     eprintln!("\nRemoving log entries...");
     let urls_to_remove: HashSet<String> = url_data.keys().cloned().collect();
     let (log_entries_removed, log_permission_errors) = remove_log_entries_for_game(&log_dir, &urls_to_remove, &valid_depot_ids)?;
@@ -575,7 +602,7 @@ fn main() -> Result<()> {
             total_permission_errors, cache_permission_errors, log_permission_errors
         );
         eprintln!("\n{}", error_msg);
-        
+
         // Still write report but with error status
         let report = RemovalReport {
             game_app_id,
@@ -588,11 +615,13 @@ fn main() -> Result<()> {
         };
         let json = serde_json::to_string_pretty(&report)?;
         fs::write(&output_json, json)?;
-        
+
+        write_progress(&progress_path, "failed", &error_msg)?;
         anyhow::bail!("{}", error_msg);
     }
 
     // Delete database records for this game (only if no permission errors)
+    write_progress(&progress_path, "removing_database", "Deleting database records")?;
     eprintln!("\nRemoving database records...");
     let _db_records_deleted = delete_game_from_database(&db_path, game_app_id)?;
 
@@ -604,7 +633,7 @@ fn main() -> Result<()> {
 
     let report = RemovalReport {
         game_app_id,
-        game_name,
+        game_name: game_name.clone(),
         cache_files_deleted: deleted_files,
         total_bytes_freed: bytes_freed,
         empty_dirs_removed,
@@ -614,6 +643,17 @@ fn main() -> Result<()> {
 
     let json = serde_json::to_string_pretty(&report)?;
     fs::write(&output_json, json)?;
+
+    let summary_message = format!(
+        "Removed {} cache files ({:.2} GB), {} log entries for game '{}' (AppID {})",
+        report.cache_files_deleted,
+        report.total_bytes_freed as f64 / 1_073_741_824.0,
+        report.log_entries_removed,
+        game_name,
+        game_app_id
+    );
+
+    write_progress(&progress_path, "complete", &summary_message)?;
 
     eprintln!("\n=== Removal Summary ===");
     eprintln!("Cache files deleted: {}", report.cache_files_deleted);

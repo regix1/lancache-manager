@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDockerSocket } from '@contexts/DockerSocketContext';
+import { useNotifications } from '@contexts/notifications';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
@@ -31,6 +32,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
 }) => {
   const { t } = useTranslation();
   const { isDockerAvailable } = useDockerSocket();
+  const { addNotification } = useNotifications();
 
   const SCHEDULE_OPTIONS: DropdownOption[] = [
     { value: '0', label: t('management.logRotation.schedule.disabled'), description: t('management.logRotation.schedule.disabledDesc') },
@@ -44,8 +46,10 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
 
   const [status, setStatus] = useState<LogRotationStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isRotating, setIsRotating] = useState(false);
   const [isUpdatingSchedule, setIsUpdatingSchedule] = useState(false);
+
+  // Track local starting state for immediate UI feedback
+  const [isStartingRotation, setIsStartingRotation] = useState(false);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -98,7 +102,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
   const handleForceRotation = async () => {
     if (!isAuthenticated) return;
 
-    setIsRotating(true);
+    setIsStartingRotation(true);
     try {
       const response = await fetch('/api/system/log-rotation/trigger', ApiService.getFetchOptions({
         method: 'POST'
@@ -107,17 +111,37 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
       const data = await response.json();
 
       if (data.success) {
-        onSuccess?.(t('management.logRotation.rotationSuccess'));
+        // Show success notification
+        addNotification({
+          type: 'generic',
+          status: 'completed',
+          message: t('management.logRotation.rotationSuccess'),
+          details: { notificationType: 'success' }
+        });
       } else {
-        onError?.(data.message || t('management.logRotation.rotationFailed'));
+        // Show error notification
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message: t('management.logRotation.rotationFailed'),
+          error: data.message || t('management.logRotation.rotationFailed'),
+          details: { notificationType: 'error' }
+        });
       }
 
       // Refresh status
       await fetchStatus();
-    } catch {
-      onError?.(t('management.logRotation.triggerFailed'));
+    } catch (err: unknown) {
+      // Show error notification
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: t('management.logRotation.triggerFailed'),
+        error: err instanceof Error ? err.message : String(err),
+        details: { notificationType: 'error' }
+      });
     } finally {
-      setIsRotating(false);
+      setIsStartingRotation(false);
     }
   };
 
@@ -258,13 +282,13 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
         </div>
         <Button
           onClick={handleForceRotation}
-          disabled={!isAuthenticated || isRotating}
+          disabled={!isAuthenticated || isStartingRotation}
           variant="outline"
-          loading={isRotating}
-          leftSection={!isRotating ? <RefreshCw className="w-4 h-4" /> : undefined}
+          loading={isStartingRotation}
+          leftSection={!isStartingRotation ? <RefreshCw className="w-4 h-4" /> : undefined}
           className="w-full sm:w-auto"
         >
-          {isRotating ? t('management.logRotation.rotating') : t('management.logRotation.rotateNow')}
+          {isStartingRotation ? t('management.logRotation.rotating') : t('management.logRotation.rotateNow')}
         </Button>
       </div>
     </div>

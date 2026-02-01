@@ -125,6 +125,14 @@ class ApiService {
       throw new Error(errorData?.message || 'Authentication required');
     }
 
+    // Handle 499 Client Closed Request (user cancelled the operation)
+    // This is not an error - just throw a cancellation signal
+    if (response.status === 499) {
+      const error = new Error('Request cancelled');
+      error.name = 'AbortError';
+      throw error;
+    }
+
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
 
@@ -735,7 +743,9 @@ class ApiService {
       }));
       return await this.handleResponse<OperationResponse>(res);
     } catch (error: unknown) {
-      console.error('downloadPrecreatedDepotData error:', error);
+      if (!isAbortError(error)) {
+        console.error('downloadPrecreatedDepotData error:', error);
+      }
       throw error;
     }
   }

@@ -276,20 +276,23 @@ export function createCompletionHandler<T extends { success: boolean; message?: 
     localStorage.removeItem(config.storageKey);
 
     if (config.useAnimationDelay) {
-      // FIXED: Single atomic update that sets BOTH progress=100 AND final status
-      // This eliminates the race condition from two-phase updates
-      // CSS transitions handle the visual animation, not delayed state changes
+      // Use closure variable to track if we should schedule auto-dismiss
+      let shouldSchedule = false;
+      let idToSchedule = notificationId;
+
+      // Single atomic update that sets BOTH progress=100 AND final status
       setNotifications((prev: UnifiedNotification[]) => {
         const existing = prev.find((n) => n.id === notificationId);
 
-        // FIXED: Validate notification exists
+        // Validate notification exists
         if (!existing) return prev;
 
-        // FIXED: Only complete notifications that are still 'running'
-        // This prevents duplicate completion events from causing issues
+        // Only complete notifications that are still 'running'
         if (existing.status !== 'running') return prev;
 
-        const updatedNotifications = prev.map((n) => {
+        shouldSchedule = true;
+
+        return prev.map((n) => {
           if (n.id === notificationId) {
             if (event.success) {
               return {
@@ -313,14 +316,18 @@ export function createCompletionHandler<T extends { success: boolean; message?: 
           }
           return n;
         });
-
-        // FIXED: Schedule auto-dismiss INSIDE callback after confirming notification was updated
-        // Use setTimeout to defer to next tick, ensuring state is committed
-        setTimeout(() => scheduleAutoDismiss(notificationId), 0);
-
-        return updatedNotifications;
       });
+
+      // CRITICAL: Schedule auto-dismiss OUTSIDE setNotifications callback
+      // Calling it inside causes React batching issues where timer fires immediately
+      if (shouldSchedule) {
+        scheduleAutoDismiss(idToSchedule);
+      }
     } else {
+      // Use closure variables to track if we should schedule auto-dismiss
+      let shouldSchedule = false;
+      let idToSchedule = notificationId;
+
       // Immediate completion
       setNotifications((prev: UnifiedNotification[]) => {
         const existing = prev.find((n) => n.id === notificationId);
@@ -345,18 +352,20 @@ export function createCompletionHandler<T extends { success: boolean; message?: 
                 : (config.getFailureMessage?.(event) ?? event.message)
             };
 
-            // FIXED: Schedule auto-dismiss inside callback
-            setTimeout(() => scheduleAutoDismiss(fastId), 0);
+            shouldSchedule = true;
+            idToSchedule = fastId;
 
             return [...prev, newNotification];
           }
           return prev;
         }
 
-        // FIXED: Only complete notifications that are still 'running'
+        // Only complete notifications that are still 'running'
         if (existing.status !== 'running') return prev;
 
-        const updatedNotifications = prev.map((n) => {
+        shouldSchedule = true;
+
+        return prev.map((n) => {
           if (n.id === notificationId) {
             if (event.success) {
               return {
@@ -379,12 +388,12 @@ export function createCompletionHandler<T extends { success: boolean; message?: 
           }
           return n;
         });
-
-        // FIXED: Schedule auto-dismiss inside callback after confirming update
-        setTimeout(() => scheduleAutoDismiss(notificationId), 0);
-
-        return updatedNotifications;
       });
+
+      // CRITICAL: Schedule auto-dismiss OUTSIDE setNotifications callback
+      if (shouldSchedule) {
+        scheduleAutoDismiss(idToSchedule);
+      }
     }
   };
 }
@@ -464,14 +473,18 @@ export function createStatusAwareProgressHandler<T>(
       // Handle completion - clear localStorage FIRST
       localStorage.removeItem(config.storageKey);
 
-      // FIXED: Use setNotifications to validate status before completing
+      // Use closure variable to track if we should schedule auto-dismiss
+      let shouldSchedule = false;
+
       setNotifications((prev: UnifiedNotification[]) => {
         const existing = prev.find((n) => n.id === notificationId);
 
         // Only complete if notification exists and is running
         if (!existing || existing.status !== 'running') return prev;
 
-        const updated = prev.map((n) => {
+        shouldSchedule = true;
+
+        return prev.map((n) => {
           if (n.id === notificationId) {
             return {
               ...n,
@@ -482,39 +495,56 @@ export function createStatusAwareProgressHandler<T>(
           }
           return n;
         });
-
-        // FIXED: Schedule auto-dismiss inside callback
-        setTimeout(() => scheduleAutoDismiss(notificationId), 0);
-
-        return updated;
       });
+
+      // CRITICAL: Schedule auto-dismiss OUTSIDE setNotifications callback
+      if (shouldSchedule) {
+        scheduleAutoDismiss(notificationId);
+      }
     } else if (status?.toLowerCase() === 'failed') {
       // Handle error - clear localStorage FIRST
       localStorage.removeItem(config.storageKey);
 
-      // FIXED: Use setNotifications to validate status before failing
+      console.log('[StatusAwareHandler] Processing FAILED status for:', notificationId);
+
+      const errorMessage = config.getErrorMessage?.(event) ?? 'Operation failed';
+
       setNotifications((prev: UnifiedNotification[]) => {
         const existing = prev.find((n) => n.id === notificationId);
 
-        // Only fail if notification exists and is running
-        if (!existing || existing.status !== 'running') return prev;
+        console.log('[StatusAwareHandler] Existing notification:', existing ? { id: existing.id, status: existing.status, message: existing.message } : 'NOT FOUND');
 
-        const updated = prev.map((n) => {
+        // If notification doesn't exist, nothing to do
+        if (!existing) {
+          console.log('[StatusAwareHandler] No notification found, skipping');
+          return prev;
+        }
+
+        // If already failed/completed, just ensure it gets dismissed
+        if (existing.status === 'failed' || existing.status === 'completed') {
+          console.log('[StatusAwareHandler] Already terminal, will schedule dismiss');
+          return prev;
+        }
+
+        console.log('[StatusAwareHandler] Updating to failed with error:', errorMessage);
+
+        return prev.map((n) => {
           if (n.id === notificationId) {
             return {
               ...n,
               status: 'failed' as const,
-              error: config.getErrorMessage?.(event) ?? 'Operation failed'
+              message: errorMessage,
+              error: errorMessage
             };
           }
           return n;
         });
-
-        // FIXED: Schedule auto-dismiss inside callback
-        setTimeout(() => scheduleAutoDismiss(notificationId), 0);
-
-        return updated;
       });
+
+      // Always schedule auto-dismiss for failed status - the scheduleAutoDismiss
+      // function will handle the actual notification lookup
+      console.log('[StatusAwareHandler] Scheduling auto-dismiss for:', notificationId);
+      scheduleAutoDismiss(notificationId);
     } else {
       // Handle progress - update existing or create new
       setNotifications((prev: UnifiedNotification[]) => {

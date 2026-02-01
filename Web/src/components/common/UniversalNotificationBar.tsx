@@ -44,10 +44,18 @@ const handleCancel = async (
 
   try {
     await ApiService.cancelOperation(operationId);
+    // Do NOT remove the notification here!
+    // The SignalR completion event (with cancelled: true) will:
+    // 1. Update the notification status to 'completed' with cancellation message
+    // 2. Schedule auto-dismiss after CANCELLED_NOTIFICATION_DELAY_MS (3000ms)
   } catch (err) {
     console.error('Cancel failed:', err);
+    // On error, remove the cancelling state but don't remove the notification
+    // The operation may still complete and send a SignalR event
+    updateNotification(notification.id, {
+      details: { ...notification.details, cancelling: false }
+    });
   }
-  removeNotification(notification.id);
 };
 
 // ============================================================================
@@ -361,8 +369,8 @@ const UnifiedNotificationItem = ({
         {/* Progress bar for running operations */}
         {renderProgressBar(rendererProps)}
 
-        {/* Error message */}
-        {notification.error && (
+        {/* Error message - only show if different from main message */}
+        {notification.error && notification.error !== notification.message && (
           <div className="text-xs text-themed-muted mt-0.5">{notification.error}</div>
         )}
       </div>

@@ -224,29 +224,40 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     }, NOTIFICATION_ANIMATION_DURATION_MS);
   }, []);
 
+  /**
+   * Schedule auto-dismiss for a notification.
+   *
+   * Safe to call from anywhere - the timer callback checks notification state
+   * when it fires (after delayMs), by which time React state is committed.
+   * Also, createStartedHandler cancels any existing timer when a new operation
+   * starts with the same ID, preventing race conditions.
+   *
+   * @param notificationId - ID of the notification to auto-dismiss
+   * @param delayMs - Delay before dismissing (default: AUTO_DISMISS_DELAY_MS)
+   */
   const scheduleAutoDismiss = useCallback(
     (notificationId: string, delayMs: number = AUTO_DISMISS_DELAY_MS) => {
-      if (shouldAutoDismiss()) {
-        cancelAutoDismissTimer(notificationId);
+      if (!shouldAutoDismiss()) return;
 
-        const instanceId = getNextInstanceId(notificationId);
+      cancelAutoDismissTimer(notificationId);
+      const instanceId = getNextInstanceId(notificationId);
 
-        const timerId = setTimeout(() => {
-          const currentTimer = autoDismissTimersRef.current.get(notificationId);
-          if (currentTimer && currentTimer.instanceId === instanceId) {
-            setNotifications((prev: UnifiedNotification[]) => {
-              const notification = prev.find((n) => n.id === notificationId);
-              if (notification && (notification.status === 'completed' || notification.status === 'failed')) {
-                autoDismissTimersRef.current.delete(notificationId);
-                removeNotificationAnimated(notificationId);
-              }
-              return prev;
-            });
-          }
-        }, delayMs);
+      const timerId = setTimeout(() => {
+        const currentTimer = autoDismissTimersRef.current.get(notificationId);
+        if (currentTimer && currentTimer.instanceId === instanceId) {
+          setNotifications((prev: UnifiedNotification[]) => {
+            const notification = prev.find((n) => n.id === notificationId);
+            // Only dismiss if notification exists and is in a terminal state
+            if (notification && (notification.status === 'completed' || notification.status === 'failed')) {
+              autoDismissTimersRef.current.delete(notificationId);
+              removeNotificationAnimated(notificationId);
+            }
+            return prev;
+          });
+        }
+      }, delayMs);
 
-        autoDismissTimersRef.current.set(notificationId, { timerId, instanceId });
-      }
+      autoDismissTimersRef.current.set(notificationId, { timerId, instanceId });
     },
     [cancelAutoDismissTimer, getNextInstanceId, removeNotificationAnimated]
   );
@@ -357,22 +368,20 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       scheduleAutoDismiss(fixedNotificationId);
     };
 
-    // ========== Log Removal (using factory) ==========
-    const handleLogRemovalProgress = createProgressHandler<LogRemovalProgressEvent>(
+    // ========== Log Removal (using status-aware factory for proper completion handling) ==========
+    const handleLogRemovalProgress = createStatusAwareProgressHandler<LogRemovalProgressEvent>(
       {
         type: 'log_removal',
         getId: () => NOTIFICATION_IDS.LOG_REMOVAL,
         storageKey: NOTIFICATION_STORAGE_KEYS.LOG_REMOVAL,
         getMessage: formatLogRemovalProgressMessage,
         getProgress: (e) => e.percentComplete || 0,
-        getDetails: (e) => ({
-          operationId: e.operationId,
-          service: e.service,
-          linesProcessed: e.linesProcessed,
-          linesRemoved: e.linesRemoved
-        })
+        getStatus: (e) => e.status === 'complete' ? 'completed' : e.status === 'error' ? 'failed' : undefined,
+        getCompletedMessage: (e) => e.message || 'Log removal completed',
+        getErrorMessage: (e) => e.message || 'Log removal failed'
       },
       setNotifications,
+      scheduleAutoDismiss,
       cancelAutoDismissTimer
     );
 
@@ -389,24 +398,23 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         useAnimationDelay: true
       },
       setNotifications,
-      scheduleAutoDismiss
+      scheduleAutoDismiss  // Use direct scheduling - we know notification is in terminal state
     );
 
     // ========== Game Removal (using factory) ==========
-    const handleGameRemovalProgress = createProgressHandler<GameRemovalProgressEvent>(
+    const handleGameRemovalProgress = createStatusAwareProgressHandler<GameRemovalProgressEvent>(
       {
         type: 'game_removal',
         getId: () => NOTIFICATION_IDS.GAME_REMOVAL,
         storageKey: NOTIFICATION_STORAGE_KEYS.GAME_REMOVAL,
         getMessage: formatGameRemovalProgressMessage,
-        getDetails: (e) => ({
-          gameAppId: e.gameAppId,
-          gameName: e.gameName,
-          filesDeleted: e.filesDeleted,
-          bytesFreed: e.bytesFreed
-        })
+        getProgress: () => 0,
+        getStatus: (e) => e.status === 'complete' ? 'completed' : e.status === 'error' ? 'failed' : undefined,
+        getCompletedMessage: (e) => e.message || 'Game removal completed',
+        getErrorMessage: (e) => e.message || 'Game removal failed'
       },
       setNotifications,
+      scheduleAutoDismiss,
       cancelAutoDismissTimer
     );
 
@@ -423,23 +431,23 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         })
       },
       setNotifications,
-      scheduleAutoDismiss
+      scheduleAutoDismiss  // Use direct scheduling - we know notification is in terminal state
     );
 
     // ========== Service Removal (using factory) ==========
-    const handleServiceRemovalProgress = createProgressHandler<ServiceRemovalProgressEvent>(
+    const handleServiceRemovalProgress = createStatusAwareProgressHandler<ServiceRemovalProgressEvent>(
       {
         type: 'service_removal',
         getId: () => NOTIFICATION_IDS.SERVICE_REMOVAL,
         storageKey: NOTIFICATION_STORAGE_KEYS.SERVICE_REMOVAL,
         getMessage: formatServiceRemovalProgressMessage,
-        getDetails: (e) => ({
-          service: e.serviceName,
-          filesDeleted: e.filesDeleted,
-          bytesFreed: e.bytesFreed
-        })
+        getProgress: () => 0,
+        getStatus: (e) => e.status === 'complete' ? 'completed' : e.status === 'error' ? 'failed' : undefined,
+        getCompletedMessage: (e) => e.message || 'Service removal completed',
+        getErrorMessage: (e) => e.message || 'Service removal failed'
       },
       setNotifications,
+      scheduleAutoDismiss,
       cancelAutoDismissTimer
     );
 
@@ -456,7 +464,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         })
       },
       setNotifications,
-      scheduleAutoDismiss
+      scheduleAutoDismiss  // Use direct scheduling - we know notification is in terminal state
     );
 
     // ========== Corruption Removal (using factory) ==========
@@ -473,22 +481,19 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       cancelAutoDismissTimer
     );
 
-    const handleCorruptionRemovalProgress = createProgressHandler<CorruptionRemovalProgressEvent>(
+    const handleCorruptionRemovalProgress = createStatusAwareProgressHandler<CorruptionRemovalProgressEvent>(
       {
         type: 'corruption_removal',
         getId: () => NOTIFICATION_IDS.CORRUPTION_REMOVAL,
         storageKey: NOTIFICATION_STORAGE_KEYS.CORRUPTION_REMOVAL,
         getMessage: (e) => e.message || `Removing corrupted chunks: ${e.status}`,
         getProgress: (e) => e.percentComplete ?? 0,
-        getDetails: (e) => ({
-          operationId: e.operationId,
-          service: e.service,
-          status: e.status,
-          filesProcessed: e.filesProcessed,
-          totalFiles: e.totalFiles
-        })
+        getStatus: (e) => e.status === 'complete' ? 'completed' : (e.status === 'failed' || e.status === 'cancelled') ? 'failed' : undefined,
+        getCompletedMessage: (e) => e.message || 'Corruption removal completed',
+        getErrorMessage: (e) => e.message || 'Corruption removal failed'
       },
       setNotifications,
+      scheduleAutoDismiss,
       cancelAutoDismissTimer
     );
 
@@ -501,7 +506,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         useAnimationDelay: true
       },
       setNotifications,
-      scheduleAutoDismiss
+      scheduleAutoDismiss  // Use direct scheduling - we know notification is in terminal state
     );
 
     // ========== Game Detection (using factory) ==========
@@ -518,20 +523,19 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       cancelAutoDismissTimer
     );
 
-    const handleGameDetectionProgress = createProgressHandler<GameDetectionProgressEvent>(
+    const handleGameDetectionProgress = createStatusAwareProgressHandler<GameDetectionProgressEvent>(
       {
         type: 'game_detection',
         getId: () => NOTIFICATION_IDS.GAME_DETECTION,
         storageKey: NOTIFICATION_STORAGE_KEYS.GAME_DETECTION,
         getMessage: formatGameDetectionProgressMessage,
         getProgress: (e) => e.progressPercent || 0,
-        getDetails: (e) => ({
-          operationId: e.operationId,
-          gamesDetected: e.gamesDetected,
-          servicesDetected: e.servicesDetected
-        })
+        getStatus: (e) => e.status === 'complete' ? 'completed' : (e.status === 'failed' || e.status === 'cancelled') ? 'failed' : undefined,
+        getCompletedMessage: (e) => e.message || 'Game detection completed',
+        getErrorMessage: (e) => e.message || 'Game detection failed'
       },
       setNotifications,
+      scheduleAutoDismiss,
       cancelAutoDismissTimer
     );
 
@@ -551,7 +555,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getFastCompletionId: () => NOTIFICATION_IDS.GAME_DETECTION
       },
       setNotifications,
-      scheduleAutoDismiss
+      scheduleAutoDismiss  // Use direct scheduling - we know notification is in terminal state
     );
 
     // ========== Corruption Detection (using factory) ==========
@@ -568,22 +572,19 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       cancelAutoDismissTimer
     );
 
-    const handleCorruptionDetectionProgress = createProgressHandler<CorruptionDetectionProgressEvent>(
+    const handleCorruptionDetectionProgress = createStatusAwareProgressHandler<CorruptionDetectionProgressEvent>(
       {
         type: 'corruption_detection',
         getId: () => NOTIFICATION_IDS.CORRUPTION_DETECTION,
         storageKey: NOTIFICATION_STORAGE_KEYS.CORRUPTION_DETECTION,
         getMessage: formatCorruptionDetectionProgressMessage,
         getProgress: (e) => e.percentComplete || 0,
-        getDetails: (e) => ({
-          operationId: e.operationId,
-          filesProcessed: e.filesProcessed,
-          totalFiles: e.totalFiles,
-          currentFile: e.currentFile,
-          datasourceName: e.datasourceName
-        })
+        getStatus: (e) => e.status === 'complete' ? 'completed' : (e.status === 'failed' || e.status === 'cancelled') ? 'failed' : undefined,
+        getCompletedMessage: (e) => e.message || 'Corruption detection completed',
+        getErrorMessage: (e) => e.message || 'Corruption detection failed'
       },
       setNotifications,
+      scheduleAutoDismiss,
       cancelAutoDismissTimer
     );
 
@@ -598,7 +599,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getFastCompletionId: () => NOTIFICATION_IDS.CORRUPTION_DETECTION
       },
       setNotifications,
-      scheduleAutoDismiss
+      scheduleAutoDismiss  // Use direct scheduling - we know notification is in terminal state
     );
 
     // ========== Database Reset ==========
@@ -614,30 +615,42 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getErrorMessage: (e) => e.message
       },
       setNotifications,
-      scheduleAutoDismiss,
+      scheduleAutoDismiss,  // Use direct scheduling - we know notification is in terminal state
       cancelAutoDismissTimer
     );
 
-    // ========== Cache Clearing ==========
-    const handleCacheClearProgress = createProgressHandler<CacheClearProgressEvent>(
+    // ========== Cache Clearing (using status-aware factory for proper completion handling) ==========
+    const cacheClearHandler = createStatusAwareProgressHandler<CacheClearProgressEvent>(
       {
         type: 'cache_clearing',
         getId: () => NOTIFICATION_IDS.CACHE_CLEARING,
         storageKey: NOTIFICATION_STORAGE_KEYS.CACHE_CLEARING,
         getMessage: formatCacheClearProgressMessage,
         getProgress: (e) => e.percentComplete || 0,
-        getDetails: (e, existing) => ({
-          filesDeleted: e.filesDeleted || 0,
-          directoriesProcessed: e.directoriesProcessed || 0,
-          bytesDeleted: e.bytesDeleted || 0,
-          operationId: e.operationId || existing?.details?.operationId
-        })
+        getStatus: (e) => e.status === 'complete' ? 'completed' : (e.status === 'failed' || e.status === 'cancelled') ? 'failed' : undefined,
+        getCompletedMessage: (e) => e.statusMessage || 'Cache cleared successfully',
+        getErrorMessage: (e) => e.error || e.statusMessage || 'Cache clear failed'
       },
       setNotifications,
+      scheduleAutoDismiss,
       cancelAutoDismissTimer
     );
 
-    const handleCacheClearComplete = createCompletionHandler<CacheClearCompleteEvent>(
+    // Wrap with logging to debug stuck notifications
+    const handleCacheClearProgress = (event: CacheClearProgressEvent) => {
+      const derivedStatus = event.status === 'complete' ? 'completed' : (event.status === 'failed' || event.status === 'cancelled') ? 'failed' : undefined;
+      console.log('[CacheClear] Progress event received:', {
+        rawStatus: event.status,
+        derivedStatus,
+        statusMessage: event.statusMessage,
+        error: event.error,
+        percentComplete: event.percentComplete,
+        operationId: event.operationId
+      });
+      cacheClearHandler(event);
+    };
+
+    const cacheClearCompleteHandler = createCompletionHandler<CacheClearCompleteEvent>(
       {
         type: 'cache_clearing',
         getId: () => NOTIFICATION_IDS.CACHE_CLEARING,
@@ -651,11 +664,23 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getFailureMessage: formatCacheClearFailureMessage
       },
       setNotifications,
-      scheduleAutoDismiss
+      scheduleAutoDismiss  // Use direct scheduling - we know notification is in terminal state
     );
 
+    // Wrap with logging to debug stuck notifications
+    const handleCacheClearComplete = (event: CacheClearCompleteEvent) => {
+      console.log('[CacheClear] Complete event received:', {
+        success: event.success,
+        message: event.message,
+        error: event.error,
+        filesDeleted: event.filesDeleted,
+        directoriesProcessed: event.directoriesProcessed
+      });
+      cacheClearCompleteHandler(event);
+    };
+
     // ========== Depot Mapping (progress/complete handlers kept inline due to complexity) ==========
-    const handleDepotMappingStarted = createStartedHandler<DepotMappingStartedEvent>(
+    const handleDepotMappingStartedBase = createStartedHandler<DepotMappingStartedEvent>(
       {
         type: 'depot_mapping',
         getId: () => NOTIFICATION_IDS.DEPOT_MAPPING,
@@ -668,26 +693,28 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       setNotifications,
       cancelAutoDismissTimer
     );
+    const handleDepotMappingStarted = (event: DepotMappingStartedEvent) => {
+      handleDepotMappingStartedBase(event);
+    };
 
     // ========== Depot Mapping Progress Handler ==========
-    const handleDepotMappingProgress = createProgressHandler<DepotMappingProgressEvent>(
+    const handleDepotMappingProgress = createStatusAwareProgressHandler<DepotMappingProgressEvent>(
       {
         type: 'depot_mapping',
         getId: () => NOTIFICATION_IDS.DEPOT_MAPPING,
         storageKey: NOTIFICATION_STORAGE_KEYS.DEPOT_MAPPING,
-        getMessage: (event, existing) => formatDepotMappingProgressMessage(event, existing?.message),
-        getDetailMessage: (event) => formatDepotMappingDetailMessage(event),
-        getProgress: (event) => event.percentComplete ?? 0,
-        getDetails: (event, existing) => ({
-          operationId: event.operationId || existing?.details?.operationId,
-          totalMappings: event.totalMappings,
-          processedMappings: event.processedMappings,
-          mappingsApplied: event.mappingsApplied,
-          percentComplete: event.percentComplete,
-          isLoggedOn: event.isLoggedOn ?? existing?.details?.isLoggedOn
-        })
+        getMessage: (event) => formatDepotMappingProgressMessage(event, undefined),
+        getProgress: (event) => event.percentComplete ?? event.progressPercent ?? 0,
+        getStatus: (e) => {
+          if (e.status === 'complete' || e.status === 'Complete') return 'completed';
+          if (e.status === 'error' || e.status === 'failed' || e.status === 'Error') return 'failed';
+          return undefined;
+        },
+        getCompletedMessage: (e) => e.message || 'Depot mapping completed successfully',
+        getErrorMessage: (e) => e.message || 'Depot mapping failed'
       },
       setNotifications,
+      scheduleAutoDismiss,
       cancelAutoDismissTimer
     );
 
@@ -740,17 +767,37 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
     /** Handles depot mapping cancellation */
     const handleDepotMappingCancelled = (notificationId: string) => {
+      localStorage.removeItem(NOTIFICATION_STORAGE_KEYS.DEPOT_MAPPING);
+
+      // Capture the startedAt we're about to set for the timer
+      const newStartedAt = new Date();
+
       setNotifications((prev: UnifiedNotification[]) => {
         const existing = prev.find((n) => n.id === notificationId);
-        if (!existing) return prev;
 
-        localStorage.removeItem(NOTIFICATION_STORAGE_KEYS.DEPOT_MAPPING);
+        if (!existing) {
+          // Fast completion - create notification for cancellation
+          const newNotification: UnifiedNotification = {
+            id: notificationId,
+            type: 'depot_mapping',
+            status: 'completed',
+            message: 'Depot mapping scan cancelled',
+            startedAt: newStartedAt,
+            progress: 100,
+            details: { cancelled: true }
+          };
+          return [...prev, newNotification];
+        }
+
+        // Update existing notification - keep the original startedAt
         return prev.map((n) =>
           n.id === notificationId
             ? { ...n, status: 'completed' as const, message: 'Depot mapping scan cancelled', progress: 100, details: { ...n.details, cancelled: true } }
             : n
         );
       });
+
+      // Schedule auto-dismiss for the cancelled notification
       scheduleAutoDismiss(notificationId, CANCELLED_NOTIFICATION_DELAY_MS);
     };
 
@@ -760,34 +807,68 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       const successDetails = { totalMappings: event.totalMappings, downloadsUpdated: event.downloadsUpdated };
       const isIncremental = event.scanMode === 'incremental';
 
+      localStorage.removeItem(NOTIFICATION_STORAGE_KEYS.DEPOT_MAPPING);
+
       if (isIncremental) {
         // For incremental scans, animate progress to 100%
         setNotifications((prev: UnifiedNotification[]) => {
           const notification = prev.find((n) => n.id === notificationId);
-          if (!notification) return prev;
 
+          if (!notification) {
+            // Fast completion - create completed notification
+            const newNotification: UnifiedNotification = {
+              id: notificationId,
+              type: 'depot_mapping',
+              status: 'completed',
+              message: successMessage,
+              startedAt: new Date(),
+              progress: 100,
+              details: successDetails
+            };
+            return [...prev, newNotification];
+          }
+
+          // Animation callback will schedule auto-dismiss when complete
           animateProgressToCompletion(
             notificationId,
             notification.progress || 0,
             successMessage,
             successDetails,
-            () => scheduleAutoDismiss(notificationId)
+            () => scheduleAutoDismiss(notificationId)  // Use direct scheduling
           );
           return prev;
         });
+
+        // Schedule auto-dismiss for fast completion case (animation handles the existing case)
+        scheduleAutoDismiss(notificationId);  // Use direct scheduling
       } else {
         // For full scans, complete immediately
         setNotifications((prev: UnifiedNotification[]) => {
           const existing = prev.find((n) => n.id === notificationId);
-          if (!existing) return prev;
 
-          localStorage.removeItem(NOTIFICATION_STORAGE_KEYS.DEPOT_MAPPING);
+          if (!existing) {
+            // Fast completion - create completed notification
+            const newNotification: UnifiedNotification = {
+              id: notificationId,
+              type: 'depot_mapping',
+              status: 'completed',
+              message: successMessage,
+              startedAt: new Date(),
+              progress: 100,
+              details: successDetails
+            };
+            return [...prev, newNotification];
+          }
+
+          // Update existing notification
           return prev.map((n) =>
             n.id === notificationId
-              ? { ...n, status: 'completed' as const, message: successMessage, details: { ...n.details, ...successDetails } }
+              ? { ...n, status: 'completed' as const, message: successMessage, progress: 100, details: { ...n.details, ...successDetails } }
               : n
           );
         });
+
+        // Schedule auto-dismiss AFTER state update - use direct scheduling
         scheduleAutoDismiss(notificationId);
       }
     };
@@ -805,7 +886,33 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       }
 
       localStorage.removeItem(NOTIFICATION_STORAGE_KEYS.DEPOT_MAPPING);
-      updateNotification(notificationId, { status: 'failed', error: errorMessage });
+
+      setNotifications((prev: UnifiedNotification[]) => {
+        const existing = prev.find((n) => n.id === notificationId);
+
+        if (!existing) {
+          // Fast completion - create failed notification
+          const newNotification: UnifiedNotification = {
+            id: notificationId,
+            type: 'depot_mapping',
+            status: 'failed',
+            message: 'Depot mapping failed',
+            error: errorMessage,
+            startedAt: new Date(),
+            progress: 100
+          };
+          return [...prev, newNotification];
+        }
+
+        // Update existing notification
+        return prev.map((n) =>
+          n.id === notificationId
+            ? { ...n, status: 'failed' as const, error: errorMessage, progress: 100 }
+            : n
+        );
+      });
+
+      // Schedule auto-dismiss AFTER state update - use direct scheduling
       scheduleAutoDismiss(notificationId);
     };
 
@@ -855,9 +962,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         }
       });
 
-      setTimeout(() => {
-        scheduleAutoDismiss(id, STEAM_ERROR_DISMISS_DELAY_MS);
-      }, 100);
+      // Schedule auto-dismiss for the error notification
+      scheduleAutoDismiss(id, STEAM_ERROR_DISMISS_DELAY_MS);
     };
 
     // Subscribe to events
@@ -912,7 +1018,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       signalR.off('DepotMappingComplete', handleDepotMappingComplete);
       signalR.off('SteamSessionError', handleSteamSessionError);
     };
-  }, [signalR, addNotification, updateNotification, scheduleAutoDismiss, cancelAutoDismissTimer]);
+  }, [signalR, addNotification, updateNotification, scheduleAutoDismiss, scheduleAutoDismiss, cancelAutoDismissTimer]);
 
   // Toast notifications
   React.useEffect(() => {
@@ -946,15 +1052,20 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     const handleNotificationVisibilityChange = () => {
       // Check if "Keep Notifications Visible" was just turned OFF
       if (shouldAutoDismiss()) {
-        // Find ALL completed/failed notifications and schedule auto-dismiss
+        // Collect notification IDs to schedule, then schedule OUTSIDE setNotifications
+        const idsToSchedule: string[] = [];
+
         setNotifications((prev: UnifiedNotification[]) => {
           prev.forEach((n) => {
             if (n.status === 'completed' || n.status === 'failed') {
-              scheduleAutoDismiss(n.id);
+              idsToSchedule.push(n.id);
             }
           });
           return prev;
         });
+
+        // CRITICAL: Schedule auto-dismiss OUTSIDE setNotifications callback
+        idsToSchedule.forEach((id) => scheduleAutoDismiss(id));
       }
     };
 

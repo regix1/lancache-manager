@@ -1,9 +1,10 @@
-import React, { useState, use } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Cpu, Save, Play, Loader2, Gauge, HardDrive } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
+import { useNotifications } from '@contexts/notifications';
 import { API_BASE } from '@utils/constants';
 import ApiService from '@services/api.service';
 
@@ -45,15 +46,6 @@ const fetchGcSettings = async (): Promise<GcSettings> => {
   }
 };
 
-// Cache promise to avoid refetching on every render
-let settingsPromise: Promise<GcSettings> | null = null;
-
-const getSettingsPromise = () => {
-  if (!settingsPromise) {
-    settingsPromise = fetchGcSettings();
-  }
-  return settingsPromise;
-};
 
 interface SettingSectionProps {
   icon: React.ElementType;
@@ -102,7 +94,8 @@ const SettingRow: React.FC<SettingRowProps> = ({ label, description, children })
 
 const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
   const { t } = useTranslation();
-  const initialSettings = use(getSettingsPromise());
+  const { addNotification } = useNotifications();
+  const [loading, setLoading] = useState(true);
 
   const aggressivenessOptions: DropdownOption[] = [
     { value: 'disabled', label: t('management.gc.aggressiveness.disabled'), description: t('management.gc.aggressiveness.disabledDesc') },
@@ -127,17 +120,24 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
     { value: '16384', label: '16 GB' }
   ];
 
-  const [settings, setSettings] = useState<GcSettings>(initialSettings);
+  const [settings, setSettings] = useState<GcSettings>({ aggressiveness: 'disabled', memoryThresholdMB: 4096 });
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [triggering, setTriggering] = useState(false);
   const [triggerResult, setTriggerResult] = useState<GcTriggerResult | null>(null);
 
-  const showToast = (type: 'success' | 'error' | 'info', message: string) => {
-    window.dispatchEvent(new CustomEvent('show-toast', {
-      detail: { type, message, duration: 4000 }
-    }));
-  };
+  // Load settings on mount
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const data = await fetchGcSettings();
+        setSettings(data);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadSettings();
+  }, []);
 
   const saveSettings = async () => {
     setSaving(true);
@@ -151,14 +151,24 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
       if (response.ok) {
         const data = await response.json();
         setSettings(data);
-        showToast('success', t('management.gc.saveSuccess'));
+        addNotification({
+          type: 'generic',
+          status: 'completed',
+          message: t('management.gc.saveSuccess'),
+          details: { notificationType: 'success' }
+        });
         setHasChanges(false);
       } else {
         const errorData = await response.json();
         throw new Error(errorData.error || t('management.gc.saveFailed'));
       }
     } catch (err) {
-      showToast('error', err instanceof Error ? err.message : t('management.gc.saveFailed'));
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: err instanceof Error ? err.message : t('management.gc.saveFailed'),
+        details: { notificationType: 'error' }
+      });
     } finally {
       setSaving(false);
     }
@@ -191,11 +201,24 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
         throw new Error(errorData.error || t('management.gc.triggerFailed'));
       }
     } catch (err) {
-      showToast('error', err instanceof Error ? err.message : t('management.gc.triggerFailed'));
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: err instanceof Error ? err.message : t('management.gc.triggerFailed'),
+        details: { notificationType: 'error' }
+      });
     } finally {
       setTriggering(false);
     }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <Loader2 className="w-6 h-6 animate-spin text-themed-muted" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 pb-32">

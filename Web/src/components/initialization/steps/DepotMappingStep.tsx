@@ -3,6 +3,7 @@ import { Map, Loader2, CheckCircle, Home } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import ApiService from '@services/api.service';
+import { isAbortError } from '@utils/error';
 import { FullScanRequiredModal } from '@components/modals/setup/FullScanRequiredModal';
 import { usePicsProgress } from '@contexts/PicsProgressContext';
 import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
@@ -104,8 +105,11 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
         setMapping(false);
       }, 2000);
     } catch (err: unknown) {
-      console.error('[DepotMapping] Error downloading from GitHub:', err);
-      setError((err instanceof Error ? err.message : String(err)) || t('initialization.depotMapping.failedToDownload'));
+      // Don't show error for user-initiated cancellation
+      if (!isAbortError(err)) {
+        console.error('[DepotMapping] Error downloading from GitHub:', err);
+        setError((err instanceof Error ? err.message : String(err)) || t('initialization.depotMapping.failedToDownload'));
+      }
       setMapping(false);
     }
   };

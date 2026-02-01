@@ -47,6 +47,14 @@ export interface UnifiedNotification {
   detailMessage?: string;
   /** Timestamp when the operation started */
   startedAt: Date;
+  /**
+   * Version counter for tracking notification instances.
+   * Used to prevent race conditions with auto-dismiss timers.
+   * When a notification is updated, this counter is incremented so that
+   * stale auto-dismiss callbacks can detect they should not proceed.
+   * Optional for backwards compatibility - defaults to 0 if not provided.
+   */
+  instanceVersion?: number;
 
   /** Type-specific details for the notification */
   details?: {

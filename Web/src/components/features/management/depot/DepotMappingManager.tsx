@@ -12,6 +12,7 @@ import { usePicsProgress } from '@contexts/PicsProgressContext';
 import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 import { formatNextCrawlTime, toTotalSeconds } from '@utils/timeFormatters';
 import { storage } from '@utils/storage';
+import { isAbortError } from '@utils/error';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { ManagerCardHeader } from '@components/ui/ManagerCard';
 
@@ -495,11 +496,14 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
       setTimeout(() => onDataRefresh?.(), 2000);
     } catch (err: unknown) {
-      onError?.((err instanceof Error ? err.message : String(err)) || t('management.depotMapping.errors.failedToDownloadFromGitHub'));
+      // Don't show error for user-initiated cancellation
+      if (!isAbortError(err)) {
+        onError?.((err instanceof Error ? err.message : String(err)) || t('management.depotMapping.errors.failedToDownloadFromGitHub'));
+      }
       setGithubDownloadComplete(false);
       setGithubDownloading(false);
 
-      // Clear downloading flag on error
+      // Clear downloading flag on error/cancel
       storage.removeItem('githubDownloading');
     } finally {
       setActionLoading(false);

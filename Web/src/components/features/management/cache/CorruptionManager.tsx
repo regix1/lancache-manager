@@ -23,6 +23,8 @@ import {
   ReadOnlyBadge
 } from '@components/ui/ManagerCard';
 import { useFormattedDateTime } from '@/hooks/useFormattedDateTime';
+import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
+import { useManagerLoading } from '@/hooks/useManagerLoading';
 import type { CorruptedChunkDetail } from '@/types';
 
 interface CorruptionManagerProps {
@@ -37,7 +39,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   onError
 }) => {
   const { t } = useTranslation();
-  const { notifications, addNotification, removeNotification, isAnyRemovalRunning } = useNotifications();
+  const { notifications, addNotification, isAnyRemovalRunning } = useNotifications();
   const { isDockerAvailable } = useDockerSocket();
 
   // Derive corruption detection scan state from notifications (standardized pattern like GameCacheDetector)
@@ -58,12 +60,17 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   const [expandedCorruptionService, setExpandedCorruptionService] = useState<string | null>(null);
   const [corruptionDetails, setCorruptionDetails] = useState<Record<string, CorruptedChunkDetail[]>>({});
   const [loadingDetails, setLoadingDetails] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [hasInitiallyLoaded, setHasInitiallyLoaded] = useState(false);
-  const [logsReadOnly, setLogsReadOnly] = useState(false);
-  const [cacheReadOnly, setCacheReadOnly] = useState(false);
-  const [checkingPermissions, setCheckingPermissions] = useState(true);
+  const { isLoading, hasInitiallyLoaded, setLoading, markLoaded } = useManagerLoading();
   const [startingCorruptionRemoval, setStartingCorruptionRemoval] = useState<string | null>(null);
+
+  // Use shared directory permissions hook
+  const {
+    logsReadOnly,
+    cacheReadOnly,
+    logsExist,
+    cacheExist,
+    checkingPermissions
+  } = useDirectoryPermissions();
   const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
   const [hasCachedResults, setHasCachedResults] = useState(false);
 
@@ -77,7 +84,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
 
   // Load cached data from database
   const loadCachedData = useCallback(async (showNotification: boolean = false) => {
-    setIsLoading(true);
+    setLoading(true);
     try {
       const cached = await ApiService.getCachedCorruptionDetection();
       if (cached.hasCachedResults && cached.corruptionCounts) {
@@ -123,23 +130,19 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
           });
         }
       }
-      setHasInitiallyLoaded(true);
+      markLoaded();
     } catch (err: unknown) {
       console.error('Failed to load cached corruption data:', err);
-    } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
-  }, [addNotification, t]);
+  }, [addNotification, t, setLoading, markLoaded]);
 
   // Start a background scan
   const startScan = useCallback(async () => {
     if (isScanning || mockMode) return;
 
-    // Dismiss any existing failed corruption_detection notifications before starting new scan
-    const failedNotifs = notifications.filter(
-      n => n.type === 'corruption_detection' && (n.status === 'failed' || n.status === 'completed')
-    );
-    failedNotifs.forEach(n => removeNotification(n.id));
+    // Note: NotificationsContext automatically replaces notifications with the same ID
+    // when a new operation starts, so manual dismissal is not needed
 
     setIsStartingScan(true);
     setCorruptionSummary({});
@@ -154,7 +157,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
       console.error('Failed to start corruption scan:', err);
       setIsStartingScan(false);
     }
-  }, [isScanning, mockMode, notifications, removeNotification]);
+  }, [isScanning, mockMode]);
 
   // Listen for corruption detection completion via notifications
   useEffect(() => {
@@ -226,28 +229,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   }, [notifications, expandedCorruptionService]);
 
   // Initial load - load cached data without auto-scanning (matches GameCacheDetector pattern)
+  // Note: Directory permissions are now handled by useDirectoryPermissions hook
   useEffect(() => {
     if (!hasInitiallyLoaded) {
-      loadDirectoryPermissions();
       // Only load cached data - don't auto-start scan
       loadCachedData();
     }
   }, [hasInitiallyLoaded, loadCachedData]);
-
-  const loadDirectoryPermissions = async () => {
-    try {
-      setCheckingPermissions(true);
-      const data = await ApiService.getDirectoryPermissions();
-      setLogsReadOnly(data.logs.readOnly);
-      setCacheReadOnly(data.cache.readOnly);
-    } catch (err) {
-      console.error('Failed to check directory permissions:', err);
-      setLogsReadOnly(false);
-      setCacheReadOnly(false);
-    } finally {
-      setCheckingPermissions(false);
-    }
-  };
 
   const handleRemoveCorruption = (service: string) => {
     if (authMode !== 'authenticated') {
@@ -307,6 +295,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
     .sort((a, b) => b[1] - a[1]);
 
   const isReadOnly = logsReadOnly || cacheReadOnly;
+  const directoryMissing = !logsExist || !cacheExist;
+  const hasPermissionIssue = isReadOnly || directoryMissing;
 
   // Help content
   const helpContent = (
@@ -393,8 +383,26 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
           <LoadingState message={t('management.corruption.scanningMessage')} />
         )}
 
+        {/* Directory Missing Warning */}
+        {directoryMissing && (
+          <Alert color="red" className="mb-6">
+            <div>
+              <p className="font-medium">
+                {!logsExist && !cacheExist
+                  ? t('management.corruption.alerts.logsAndCacheMissing', 'Logs and cache directories do not exist')
+                  : !logsExist
+                    ? t('management.corruption.alerts.logsMissing', 'Logs directory does not exist')
+                    : t('management.corruption.alerts.cacheMissing', 'Cache directory does not exist')}
+              </p>
+              <p className="text-sm mt-1">
+                {t('management.corruption.alerts.directoryNotFound', 'The required directories were not found. Ensure they are mounted correctly in docker-compose.')}
+              </p>
+            </div>
+          </Alert>
+        )}
+
         {/* Read-Only Warning */}
-        {isReadOnly && (
+        {isReadOnly && !directoryMissing && (
           <Alert color="orange" className="mb-6">
             <div>
               <p className="font-medium">
@@ -414,7 +422,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
         )}
 
         {/* Docker Socket Warning */}
-        {!isDockerAvailable && !isReadOnly && (
+        {!isDockerAvailable && !hasPermissionIssue && (
           <Alert color="orange" className="mb-6">
             <div className="min-w-0">
               <p className="font-medium">{t('management.corruption.alerts.dockerSocketUnavailable')}</p>
@@ -430,8 +438,16 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
         )}
 
         {/* Content */}
-        {isReadOnly || !isDockerAvailable ? (
-          <ReadOnlyBadge message={isReadOnly ? t('management.corruption.readOnly') : t('management.corruption.dockerSocketRequired')} />
+        {hasPermissionIssue || !isDockerAvailable ? (
+          <ReadOnlyBadge
+            message={
+              directoryMissing
+                ? t('management.corruption.directoryMissing', 'Required directories not found')
+                : isReadOnly
+                  ? t('management.corruption.readOnly')
+                  : t('management.corruption.dockerSocketRequired')
+            }
+          />
         ) : (
           <>
             {isLoading && !isScanning ? (

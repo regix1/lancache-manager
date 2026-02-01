@@ -760,6 +760,11 @@ public class CacheController : ControllerBase
         {
             try
             {
+                // Send starting notification
+                await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
+                    new ServiceRemovalProgress(name, "starting", $"Starting removal of {name}..."));
+                _removalTracker.UpdateServiceRemoval(name, "starting", $"Starting removal of {name}...");
+
                 // Send progress update
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
                     new ServiceRemovalProgress(name, "removing_cache", $"Deleting cache files for {name}..."));
@@ -770,8 +775,8 @@ public class CacheController : ControllerBase
 
                 // Send progress update
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
-                    new ServiceRemovalProgress(name, "removing_database", "Updating database...", report.CacheFilesDeleted, (long)report.TotalBytesFreed));
-                _removalTracker.UpdateServiceRemoval(name, "removing_database", "Updating database...", report.CacheFilesDeleted, (long)report.TotalBytesFreed);
+                    new ServiceRemovalProgress(name, "complete", "Finalizing removal...", report.CacheFilesDeleted, (long)report.TotalBytesFreed));
+                _removalTracker.UpdateServiceRemoval(name, "complete", "Finalizing removal...", report.CacheFilesDeleted, (long)report.TotalBytesFreed);
 
                 // Also remove from detection cache so it doesn't show in UI
                 await _gameCacheDetectionService.RemoveServiceFromCacheAsync(name);
@@ -789,6 +794,10 @@ public class CacheController : ControllerBase
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error during service removal for: {Service}", name);
+
+                // Send error status notification
+                await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
+                    new ServiceRemovalProgress(name, "error", $"Error removing {name}: {ex.Message}"));
 
                 // Complete tracking with error
                 _removalTracker.CompleteServiceRemoval(name, false, error: "Operation failed. Check server logs for details.");

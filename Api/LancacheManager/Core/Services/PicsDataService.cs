@@ -329,10 +329,6 @@ public class PicsDataService
                 _cachedPicsData = picsData;
                 _cacheLastLoaded = DateTime.UtcNow;
                 _logger.LogInformation("PICS data loaded and cached ({TotalMappings} mappings)", picsData.Metadata?.TotalMappings ?? 0);
-            }
-
-            if (picsData != null)
-            {
 
                 // Update state to indicate data is loaded
                 if (picsData.Metadata?.TotalMappings > 0)
@@ -652,6 +648,11 @@ public class PicsDataService
             }
 
             _logger.LogInformation($"Imported PICS data: {newMappings.Count} new mappings, {updated} updated");
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("PICS data import cancelled");
+            throw;
         }
         catch (Exception ex)
         {

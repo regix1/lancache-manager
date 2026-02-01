@@ -81,6 +81,11 @@ public class GamesController : ControllerBase
         {
             try
             {
+                // Send starting notification
+                await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
+                    new GameRemovalProgress(appId, gameName, "starting", $"Starting removal of {gameName}..."));
+                _removalTracker.UpdateGameRemoval(appId, "starting", $"Starting removal of {gameName}...");
+
                 // Send progress update
                 await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
                     new GameRemovalProgress(appId, gameName, "removing_cache", $"Deleting cache files for {gameName}..."));
@@ -91,8 +96,8 @@ public class GamesController : ControllerBase
 
                 // Send progress update
                 await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
-                    new GameRemovalProgress(appId, gameName, "removing_database", "Updating database...", report.CacheFilesDeleted, (long)report.TotalBytesFreed));
-                _removalTracker.UpdateGameRemoval(appId, "removing_database", "Updating database...", report.CacheFilesDeleted, (long)report.TotalBytesFreed);
+                    new GameRemovalProgress(appId, gameName, "complete", "Finalizing removal...", report.CacheFilesDeleted, (long)report.TotalBytesFreed));
+                _removalTracker.UpdateGameRemoval(appId, "complete", "Finalizing removal...", report.CacheFilesDeleted, (long)report.TotalBytesFreed);
 
                 // Also remove from detection cache so it doesn't show in UI
                 await _gameCacheDetectionService.RemoveGameFromCacheAsync((uint)appId);
@@ -110,6 +115,10 @@ public class GamesController : ControllerBase
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error during game removal for AppId: {AppId}", appId);
+
+                // Send error status notification
+                await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
+                    new GameRemovalProgress(appId, gameName, "error", $"Error removing {gameName}: {ex.Message}"));
 
                 // Complete tracking with error
                 _removalTracker.CompleteGameRemoval(appId, false, error: ex.Message);

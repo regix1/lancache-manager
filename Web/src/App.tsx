@@ -22,7 +22,6 @@ import { SteamWebApiStatusProvider, useSteamWebApiStatus } from '@contexts/Steam
 import { TimezoneProvider } from '@contexts/TimezoneContext';
 import { SessionPreferencesProvider } from '@contexts/SessionPreferencesContext';
 import { DockerSocketProvider, useDockerSocket } from '@contexts/DockerSocketContext';
-import { TimezoneAwareWrapper } from '@components/common/TimezoneAwareWrapper';
 import Header from '@components/layout/Header';
 import Navigation from '@components/layout/Navigation';
 import Footer from '@components/layout/Footer';
@@ -35,6 +34,7 @@ import { FullScanRequiredModal } from '@components/modals/setup/FullScanRequired
 import ApiService from '@services/api.service';
 import { setServerTimezone } from '@utils/timezone';
 import { storage } from '@utils/storage';
+import { isAbortError } from '@utils/error';
 import themeService from '@services/theme.service';
 import preferencesService from '@services/preferences.service';
 import authService from '@services/auth.service';
@@ -515,9 +515,12 @@ const AppContent: React.FC = () => {
       storage.setItem('githubDownloadComplete', 'true');
       storage.setItem('githubDownloadTime', new Date().toISOString());
     } catch (error) {
-      console.error('Failed to download from GitHub:', error);
+      // Don't log abort errors (user cancelled)
+      if (!isAbortError(error)) {
+        console.error('Failed to download from GitHub:', error);
+      }
 
-      // Clear downloading flag on error
+      // Clear downloading flag on error/cancel
       storage.removeItem('githubDownloading');
     }
   };
@@ -752,7 +755,7 @@ const AppContent: React.FC = () => {
   }
 
   return (
-    <TimezoneAwareWrapper>
+    <>
       {/* Full Scan Required Modal - Shows globally on all pages */}
       {showFullScanRequiredModal && authMode === 'authenticated' && (
         <FullScanRequiredModal
@@ -777,7 +780,7 @@ const AppContent: React.FC = () => {
         <main className="container mx-auto px-4 py-6 flex-grow">{renderContent()}</main>
         <Footer />
       </div>
-    </TimezoneAwareWrapper>
+    </>
   );
 };
 

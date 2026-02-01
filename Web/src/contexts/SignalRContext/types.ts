@@ -193,6 +193,7 @@ export interface GameRemovalProgressEvent {
   message?: string;
   filesDeleted?: number;
   bytesFreed?: number;
+  status?: 'starting' | 'removing' | 'complete' | 'error';
 }
 
 export interface GameRemovalCompleteEvent {
@@ -209,6 +210,7 @@ export interface ServiceRemovalProgressEvent {
   message?: string;
   filesDeleted?: number;
   bytesFreed?: number;
+  status?: 'starting' | 'removing' | 'complete' | 'error';
 }
 
 export interface ServiceRemovalCompleteEvent {
@@ -301,7 +303,9 @@ export interface DatabaseResetProgressEvent {
 
 export interface CacheClearProgressEvent {
   operationId?: string;
+  status?: string;
   statusMessage?: string;
+  error?: string;
   percentComplete?: number;
   filesDeleted?: number;
   directoriesProcessed?: number;

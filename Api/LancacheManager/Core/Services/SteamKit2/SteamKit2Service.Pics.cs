@@ -22,15 +22,6 @@ public partial class SteamKit2Service
         _lastScanWasForced = false; // Reset flag at start of new scan
         _automaticScanSkipped = false; // Reset flag at start of new scan
 
-        // Send start notification via SignalR (fire-and-forget)
-        _notifications.NotifyAllFireAndForget(SignalREvents.DepotMappingStarted, new
-        {
-            scanMode = incrementalOnly ? "incremental" : "full",
-            message = incrementalOnly ? "Starting incremental depot mapping scan..." : "Starting full depot mapping scan...",
-            isLoggedOn = IsSteamAuthenticated,
-            timestamp = DateTime.UtcNow
-        });
-
         // Dispose previous cancellation token source if it exists
         _currentRebuildCts?.Dispose();
 
@@ -54,6 +45,17 @@ public partial class SteamKit2Service
             "Depot Mapping",
             _currentRebuildCts
         );
+        _currentPicsOperationId = operationId;
+
+        // Send start notification via SignalR (fire-and-forget) - after registration so we have operationId
+        _notifications.NotifyAllFireAndForget(SignalREvents.DepotMappingStarted, new
+        {
+            operationId,
+            scanMode = incrementalOnly ? "incremental" : "full",
+            message = incrementalOnly ? "Starting incremental depot mapping scan..." : "Starting full depot mapping scan...",
+            isLoggedOn = IsSteamAuthenticated,
+            timestamp = DateTime.UtcNow
+        });
 
         async Task RunAsync()
         {
@@ -93,6 +95,7 @@ public partial class SteamKit2Service
                 // Dispose the cancellation token source
                 _currentRebuildCts?.Dispose();
                 _currentRebuildCts = null;
+                _currentPicsOperationId = null;
             }
         }
 
@@ -110,9 +113,12 @@ public partial class SteamKit2Service
             return false;
         }
 
+        // Capture operationId before cancellation clears it
+        var operationId = _currentPicsOperationId;
+
         try
         {
-            _logger.LogInformation("Cancelling active PICS rebuild");
+            _logger.LogInformation("Cancelling active PICS rebuild (operationId: {OperationId})", operationId);
             _currentRebuildCts.Cancel();
 
             // Wait briefly for cancellation to complete
@@ -123,10 +129,15 @@ public partial class SteamKit2Service
 
             _logger.LogInformation("PICS rebuild cancelled successfully");
 
+            // Reset the schedule timer so next run is at full interval
+            UpdateLastCrawlTime();
+            _logger.LogInformation("Reset depot mapping schedule timer - next run in {Interval}", _crawlInterval);
+
             // Send cancellation notification via SignalR
             await _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete, new
             {
-                success = true,
+                operationId,
+                success = false,
                 cancelled = true,
                 message = "Depot mapping scan cancelled",
                 isLoggedOn = IsSteamAuthenticated,
@@ -940,27 +951,6 @@ public partial class SteamKit2Service
         if (kv == KeyValue.Invalid || kv.Value == null) return null;
         if (uint.TryParse(kv.AsString() ?? string.Empty, out var v)) return v;
         return null;
-    }
-
-    private async Task<int> CheckUnmappedDownloadsAsync()
-    {
-        try
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-            // Count downloads with depot IDs but no game info
-            return await context.Downloads
-                .Where(d => d.Service.ToLower() == "steam"
-                       && d.DepotId.HasValue
-                       && !d.GameAppId.HasValue)
-                .CountAsync();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to check unmapped downloads");
-            return 0;
-        }
     }
 
     /// <summary>

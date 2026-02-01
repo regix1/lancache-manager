@@ -41,6 +41,7 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private Task? _currentBuildTask;
     private CancellationTokenSource? _currentRebuildCts;
+    private string? _currentPicsOperationId;
     private int _rebuildActive;
     private bool _disposed;
 

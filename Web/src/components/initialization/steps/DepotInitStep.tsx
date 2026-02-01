@@ -9,6 +9,7 @@ import type {
   DepotMappingCompleteEvent
 } from '@contexts/SignalRContext/types';
 import ApiService from '@services/api.service';
+import { isAbortError } from '@utils/error';
 
 /** PICS data status from the API */
 interface PicsStatus {
@@ -137,7 +138,10 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
     try {
       await ApiService.downloadPrecreatedDepotData();
     } catch (err: unknown) {
-      setError((err instanceof Error ? err.message : String(err)) || t('initialization.depotInit.failedToDownload'));
+      // Don't show error for user-initiated cancellation
+      if (!isAbortError(err)) {
+        setError((err instanceof Error ? err.message : String(err)) || t('initialization.depotInit.failedToDownload'));
+      }
       setInitializing(false);
       setSelectedMethod(null);
       setDownloadStatus(null);

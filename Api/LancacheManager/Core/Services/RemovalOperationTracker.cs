@@ -67,6 +67,11 @@ public class RemovalOperationTracker
             operation.FilesDeleted = filesDeleted;
             operation.BytesFreed = bytesFreed;
             operation.Error = error;
+            // Update message to show error when failing
+            if (!success && !string.IsNullOrEmpty(error))
+            {
+                operation.Message = error;
+            }
             operation.CompletedAt = DateTime.UtcNow;
 
             // Clean up after a short delay to allow final status queries

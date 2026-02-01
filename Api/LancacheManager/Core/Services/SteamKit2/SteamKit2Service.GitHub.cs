@@ -194,8 +194,25 @@ public partial class SteamKit2Service
         {
             _logger.LogInformation("[GitHub Mode] Download cancelled");
             _operationTracker.CompleteOperation(operationId, false, "Cancelled");
-            await SendGitHubErrorNotification("Download cancelled", operationId);
-            return false;
+
+            // Reset the schedule timer so next run is at full interval
+            UpdateLastCrawlTime();
+            _logger.LogInformation("[GitHub Mode] Reset depot mapping schedule timer - next run in {Interval}", _crawlInterval);
+
+            // Send cancellation notification via SignalR
+            await _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete, new
+            {
+                operationId,
+                success = false,
+                cancelled = true,
+                scanMode = "github",
+                message = "Depot mapping scan cancelled",
+                isLoggedOn = IsSteamAuthenticated,
+                timestamp = DateTime.UtcNow
+            });
+
+            // Re-throw so the controller/middleware handles cancellation properly
+            throw;
         }
         catch (Exception ex)
         {

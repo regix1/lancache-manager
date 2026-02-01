@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FileText, AlertTriangle, Loader2, Trash2 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useNotifications } from '@contexts/notifications';
 import { useDockerSocket } from '@contexts/DockerSocketContext';
+import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
+import { useManagerLoading } from '@/hooks/useManagerLoading';
 import { Card } from '@components/ui/Card';
 import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { Button } from '@components/ui/Button';
@@ -22,18 +24,8 @@ import type { DatasourceServiceCounts } from '@/types';
 
 // Main services that should always be shown first
 const MAIN_SERVICES = [
-  'steam',
-  'epic',
-  'riot',
-  'blizzard',
-  'origin',
-  'uplay',
-  'gog',
-  'wsus',
-  'microsoft',
-  'sony',
-  'nintendo',
-  'apple'
+  'steam', 'epic', 'riot', 'blizzard', 'origin', 'uplay', 'gog',
+  'wsus', 'microsoft', 'sony', 'nintendo', 'apple'
 ];
 
 const ServiceButton: React.FC<{
@@ -81,6 +73,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
   const { t } = useTranslation();
   const { notifications, isAnyRemovalRunning } = useNotifications();
   const { isDockerAvailable } = useDockerSocket();
+  const { logsReadOnly, logsExist, checkingPermissions } = useDirectoryPermissions();
 
   // State
   const [datasourceCounts, setDatasourceCounts] = useState<DatasourceServiceCounts[]>([]);
@@ -89,11 +82,11 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
   const [pendingLogFileDeletion, setPendingLogFileDeletion] = useState<string | null>(null);
   const [deletingLogFile, setDeletingLogFile] = useState<string | null>(null);
   const [showMoreServices, setShowMoreServices] = useState<Record<string, boolean>>({});
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasInitiallyLoaded, setHasInitiallyLoaded] = useState(false);
-  const [logsReadOnly, setLogsReadOnly] = useState(false);
-  const [checkingPermissions, setCheckingPermissions] = useState(true);
+  const { isLoading, hasInitiallyLoaded, setLoading, markLoaded } = useManagerLoading(true);
   const [startingServiceRemoval, setStartingServiceRemoval] = useState<string | null>(null);
+
+  // Track the last processed completion notification ID to prevent duplicate reloads
+  const lastProcessedCompletionRef = useRef<string | null>(null);
 
   // Derive active log removal from notifications
   const activeLogRemovalNotification = notifications.find(
@@ -106,44 +99,37 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
       setTimeout(() => {
         loadData();
       }, 100);
-      loadDirectoryPermissions();
     }
   }, [hasInitiallyLoaded]);
 
   // Listen for log removal completion via notifications to trigger reload
+  // Use ref to prevent duplicate processing of the same completion notification
   useEffect(() => {
     const completedLogRemoval = notifications.find(
-      n => n.type === 'log_removal' && n.status === 'completed'
+      n => n.type === 'log_removal' && (n.status === 'completed' || n.status === 'failed')
     );
-    
+
     if (completedLogRemoval && hasInitiallyLoaded) {
-      loadData(true);
+      // Only reload if we haven't already processed this completion
+      if (lastProcessedCompletionRef.current !== completedLogRemoval.id) {
+        lastProcessedCompletionRef.current = completedLogRemoval.id;
+        // Delay reload slightly to allow notification to settle
+        setTimeout(() => {
+          loadData(true);
+        }, 500);
+      }
     }
   }, [notifications, hasInitiallyLoaded]);
 
   const loadData = async (_forceRefresh = false) => {
-    setIsLoading(true);
+    setLoading(true);
     try {
       const dsCounts = await ApiService.getServiceLogCountsByDatasource();
       setDatasourceCounts(dsCounts);
-      setHasInitiallyLoaded(true);
+      markLoaded();
     } catch (err: unknown) {
       console.error('Failed to load log data:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const loadDirectoryPermissions = async () => {
-    try {
-      setCheckingPermissions(true);
-      const data = await ApiService.getDirectoryPermissions();
-      setLogsReadOnly(data.logs.readOnly);
-    } catch (err) {
-      console.error('Failed to check directory permissions:', err);
-      setLogsReadOnly(false);
-    } finally {
-      setCheckingPermissions(false);
+      setLoading(false);
     }
   };
 
@@ -232,6 +218,8 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
   );
 
   const isReadOnly = logsReadOnly || !isDockerAvailable;
+  const logsMissing = !logsExist;
+  const hasPermissionIssue = logsReadOnly || logsMissing;
 
   // Help content
   const helpContent = (
@@ -283,8 +271,20 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
           actions={headerActions}
         />
 
+        {/* Logs Directory Missing Warning */}
+        {logsMissing && (
+          <Alert color="red" className="mb-6">
+            <div>
+              <p className="font-medium">{t('management.logRemoval.alerts.logsMissing.title', 'Logs directory does not exist')}</p>
+              <p className="text-sm mt-1">
+                {t('management.logRemoval.alerts.logsMissing.description', 'The logs directory was not found. Ensure it is mounted correctly in docker-compose.')}
+              </p>
+            </div>
+          </Alert>
+        )}
+
         {/* Read-Only Warning */}
-        {logsReadOnly && (
+        {logsReadOnly && !logsMissing && (
           <Alert color="orange" className="mb-6">
             <div>
               <p className="font-medium">{t('management.logRemoval.alerts.logsReadOnly.title')}</p>
@@ -296,7 +296,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
         )}
 
         {/* Docker Socket Warning */}
-        {!isDockerAvailable && !logsReadOnly && (
+        {!isDockerAvailable && !hasPermissionIssue && (
           <Alert color="orange" className="mb-6">
             <div className="min-w-0">
               <p className="font-medium">{t('management.logRemoval.alerts.dockerSocket.title')}</p>
@@ -314,8 +314,16 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
         )}
 
         {/* Content */}
-        {isReadOnly ? (
-          <ReadOnlyBadge message={logsReadOnly ? t('management.logRemoval.readOnly') : t('management.logRemoval.dockerSocketRequired')} />
+        {hasPermissionIssue || !isDockerAvailable ? (
+          <ReadOnlyBadge
+            message={
+              logsMissing
+                ? t('management.logRemoval.logsMissing', 'Logs directory not found')
+                : logsReadOnly
+                  ? t('management.logRemoval.readOnly')
+                  : t('management.logRemoval.dockerSocketRequired')
+            }
+          />
         ) : (
           <>
             {isLoading ? (

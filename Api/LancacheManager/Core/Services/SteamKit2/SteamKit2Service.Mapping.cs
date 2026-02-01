@@ -110,9 +110,6 @@ public partial class SteamKit2Service
                                 {
                                     appId = potentialAppId;
                                 }
-                                else
-                                {
-                                }
                             }
                         }
                     }
