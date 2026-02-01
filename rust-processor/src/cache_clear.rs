@@ -4,6 +4,7 @@ use clap::Parser;
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use serde::Serialize;
+use std::env;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
