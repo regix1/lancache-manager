@@ -105,15 +105,15 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       try {
         const result = await ApiService.getCachedGameDetection();
         if (result.hasCachedResults) {
-          // Load games if available
-          if (result.games && result.totalGamesDetected) {
+          // Load games if array exists and has items
+          if (result.games && result.games.length > 0) {
             setGames(result.games);
           } else {
             setGames([]);
           }
 
-          // Load services if available
-          if (result.services && result.totalServicesDetected) {
+          // Load services if array exists and has items
+          if (result.services && result.services.length > 0) {
             setServices(result.services);
           } else {
             setServices([]);
@@ -283,10 +283,12 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           try {
             const result = await ApiService.getCachedGameDetection();
             if (result.hasCachedResults) {
-              if (result.games && result.totalGamesDetected) {
+              // Set games if array exists and has items (don't rely on totalGamesDetected being truthy)
+              if (result.games && result.games.length > 0) {
                 setGames(result.games);
               }
-              if (result.services && result.totalServicesDetected) {
+              // Set services if array exists and has items
+              if (result.services && result.services.length > 0) {
                 setServices(result.services);
               }
               if (result.lastDetectionTime) {
@@ -375,15 +377,15 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     try {
       const result = await ApiService.getCachedGameDetection();
       if (result.hasCachedResults) {
-        // Load games if available
-        if (result.games && result.totalGamesDetected) {
+        // Load games if array exists and has items
+        if (result.games && result.games.length > 0) {
           setGames(result.games);
         } else {
           setGames([]);
         }
 
-        // Load services if available
-        if (result.services && result.totalServicesDetected) {
+        // Load services if array exists and has items
+        if (result.services && result.services.length > 0) {
           setServices(result.services);
         } else {
           setServices([]);

@@ -470,7 +470,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getId: () => NOTIFICATION_IDS.GAME_DETECTION,
         storageKey: NOTIFICATION_STORAGE_KEYS.GAME_DETECTION,
         getMessage: formatGameDetectionProgressMessage,
-        getProgress: (e) => e.progressPercent || 0,
+        getProgress: (e) => e.percentComplete || 0,
         getStatus: (e) => e.status === 'completed' ? 'completed' : (e.status === 'failed' || e.status === 'cancelled') ? 'failed' : undefined,
         getCompletedMessage: (e) => e.message || 'Game detection completed',
         getErrorMessage: (e) => e.message || 'Game detection failed'
