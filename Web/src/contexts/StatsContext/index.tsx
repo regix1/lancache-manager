@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { unstable_batchedUpdates } from 'react-dom';
 import ApiService from '@services/api.service';
 import { isAbortError } from '@utils/error';
 import MockDataService from '../../test/mockData.service';
@@ -181,27 +182,30 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       const eventIdsStillValid = JSON.stringify(selectedEventIdsRef.current) === JSON.stringify(currentEventIds);
       const filtersStillValid = timeRangeStillValid && eventIdsStillValid;
 
-      // Cache info is not time-range dependent, always apply
-      if (cache.status === 'fulfilled' && cache.value !== undefined) {
-        setCacheInfo(cache.value);
-      }
-      // Client/service/dashboard stats depend on time range AND event filter
-      if (filtersStillValid) {
-        if (clients.status === 'fulfilled' && clients.value !== undefined) {
-          setClientStats(clients.value);
+      // Batch all state updates to prevent multiple re-renders
+      unstable_batchedUpdates(() => {
+        // Cache info is not time-range dependent, always apply
+        if (cache.status === 'fulfilled' && cache.value !== undefined) {
+          setCacheInfo(cache.value);
         }
-        if (services.status === 'fulfilled' && services.value !== undefined) {
-          setServiceStats(services.value);
+        // Client/service/dashboard stats depend on time range AND event filter
+        if (filtersStillValid) {
+          if (clients.status === 'fulfilled' && clients.value !== undefined) {
+            setClientStats(clients.value);
+          }
+          if (services.status === 'fulfilled' && services.value !== undefined) {
+            setServiceStats(services.value);
+          }
+          if (dashboard.status === 'fulfilled' && dashboard.value !== undefined) {
+            setDashboardStats(dashboard.value);
+            hasData.current = true;
+          }
         }
-        if (dashboard.status === 'fulfilled' && dashboard.value !== undefined) {
-          setDashboardStats(dashboard.value);
-          hasData.current = true;
+        setError(null);
+        if (showLoading) {
+          setLoading(false);
         }
-      }
-      setError(null);
-      if (showLoading) {
-        setLoading(false);
-      }
+      });
     } catch (err: unknown) {
       // Check if we're still the current request before setting error state
       if (currentRequestIdRef.current !== thisRequestId) {
@@ -249,8 +253,8 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
         const timeSinceLastRefresh = now - lastSignalRRefresh.current;
 
         // User's setting controls max refresh rate
-        // LIVE mode (0) = minimum 500ms to prevent UI thrashing
-        const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
+        // LIVE mode (0) = minimum 800ms to prevent animation collisions (animations take 700ms)
+        const minInterval = maxRefreshRate === 0 ? 800 : maxRefreshRate;
 
         if (timeSinceLastRefresh >= minInterval) {
           lastSignalRRefresh.current = now;
@@ -307,16 +311,20 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   // Load mock data when mock mode is enabled
   useEffect(() => {
     if (mockMode) {
-      setLoading(true);
-      setConnectionStatus('connected');
-
       const mockData = MockDataService.generateMockData('unlimited');
-      setCacheInfo(mockData.cacheInfo);
-      setClientStats(mockData.clientStats);
-      setServiceStats(mockData.serviceStats);
-      setDashboardStats(mockData.dashboardStats);
-      setError(null);
-      setLoading(false);
+
+      // Batch all state updates to prevent multiple re-renders
+      unstable_batchedUpdates(() => {
+        setLoading(true);
+        setConnectionStatus('connected');
+        setCacheInfo(mockData.cacheInfo);
+        setClientStats(mockData.clientStats);
+        setServiceStats(mockData.serviceStats);
+        setDashboardStats(mockData.dashboardStats);
+        setError(null);
+        setLoading(false);
+      });
+
       hasData.current = true;
       isInitialLoad.current = false;
     }
@@ -392,18 +400,21 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     serviceStats?: (prev: ServiceStat[]) => ServiceStat[];
     dashboardStats?: (prev: DashboardStats | null) => DashboardStats | null;
   }) => {
-    if (updater.cacheInfo) {
-      setCacheInfo(updater.cacheInfo);
-    }
-    if (updater.clientStats) {
-      setClientStats(updater.clientStats);
-    }
-    if (updater.serviceStats) {
-      setServiceStats(updater.serviceStats);
-    }
-    if (updater.dashboardStats) {
-      setDashboardStats(updater.dashboardStats);
-    }
+    // Batch all state updates to prevent multiple re-renders
+    unstable_batchedUpdates(() => {
+      if (updater.cacheInfo) {
+        setCacheInfo(updater.cacheInfo);
+      }
+      if (updater.clientStats) {
+        setClientStats(updater.clientStats);
+      }
+      if (updater.serviceStats) {
+        setServiceStats(updater.serviceStats);
+      }
+      if (updater.dashboardStats) {
+        setDashboardStats(updater.dashboardStats);
+      }
+    });
   }, []);
 
   // Memoize context value to prevent unnecessary re-renders of consumers

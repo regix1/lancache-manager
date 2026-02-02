@@ -765,7 +765,9 @@ public class RustLogProcessorService
     }
 
     /// <summary>
-    /// Invalidate cache and refresh UI after log processing
+    /// Invalidate cache after log processing
+    /// NOTE: This method no longer sends DownloadsRefresh events to avoid duplicates.
+    /// The main completion handler (StartProcessingAsync) sends the single DownloadsRefresh event.
     /// </summary>
     private async Task InvalidateCacheAsync(bool silentMode)
     {
@@ -774,18 +776,14 @@ public class RustLogProcessorService
             // Wait a moment to ensure all database writes are complete
             await Task.Delay(500);
 
-            // In silent mode, send a refresh notification so the UI updates
-            if (silentMode)
-            {
-                await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
-                {
-                    timestamp = DateTime.UtcNow
-                });
-            }
+            // NOTE: We no longer send DownloadsRefresh here to avoid duplicate events.
+            // The main completion handler already sends DownloadsRefresh for silent mode (line 604)
+            // or LogProcessingComplete for non-silent mode which triggers UI refresh.
+            _logger.LogDebug("Cache invalidation complete (silentMode={SilentMode})", silentMode);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error sending refresh notification after log processing");
+            _logger.LogError(ex, "Error during cache invalidation after log processing");
         }
     }
 
@@ -846,10 +844,9 @@ public class RustLogProcessorService
                 await context.SaveChangesAsync();
                 _logger.LogInformation("Updated {Count} downloads with game images", updated);
 
-                await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
-                {
-                    timestamp = DateTime.UtcNow
-                });
+                // NOTE: We no longer send DownloadsRefresh here to avoid duplicate events.
+                // The main completion handler already sends DownloadsRefresh for silent mode
+                // or LogProcessingComplete for non-silent mode which triggers UI refresh.
             }
         }
         catch (Exception ex)
@@ -873,11 +870,9 @@ public class RustLogProcessorService
             {
                 _logger.LogInformation("Auto-tagged {Count} downloads to active events", taggedCount);
 
-                // Notify clients that downloads have been updated with event tags
-                await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
-                {
-                    timestamp = DateTime.UtcNow
-                });
+                // NOTE: We no longer send DownloadsRefresh here to avoid duplicate events.
+                // The main completion handler already sends DownloadsRefresh for silent mode
+                // or LogProcessingComplete for non-silent mode which triggers UI refresh.
             }
         }
         catch (Exception ex)
