@@ -1,6 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { type HubConnection, HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
 import { SIGNALR_BASE } from '@utils/constants';
+import { formatBytes } from '@utils/formatters';
 import authService from '@services/auth.service';
 import {
   formatDuration,
@@ -107,6 +108,11 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
 
   // Completion tracking refs
   const expectedAppCountRef = useRef(0);
+
+  // Counters for prefill summary logging
+  const downloadedGamesCountRef = useRef(0);
+  const cachedGamesCountRef = useRef(0);
+  const totalBytesDownloadedRef = useRef(0);
 
   // Ref for setBackgroundCompletion (avoids stale closure)
   const setBackgroundCompletionRef = useRef(setBackgroundCompletion);
@@ -316,6 +322,16 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
               }
             } else if (progress.state === 'app_completed') {
               currentAnimationAppIdRef.current = 0;
+
+              // Log game completion with download size
+              const gameName = progress.currentAppName || `App ${progress.currentAppId}`;
+              const sizeDownloaded = formatBytes(progress.bytesDownloaded || progress.totalBytes || 0);
+              addLog('success', `${gameName} - Downloaded ${sizeDownloaded}`);
+
+              // Track for summary
+              downloadedGamesCountRef.current++;
+              totalBytesDownloadedRef.current += progress.bytesDownloaded || progress.totalBytes || 0;
+
               setPrefillProgress((prev) =>
                 prev
                   ? {
@@ -327,6 +343,13 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
                   : null
               );
             } else if (progress.state === 'already_cached') {
+              // Log cached game
+              const gameName = progress.currentAppName || `App ${progress.currentAppId}`;
+              addLog('info', `${gameName} - Already up to date`);
+
+              // Track for summary
+              cachedGamesCountRef.current++;
+
               if (expectedAppCountRef.current === 0 && progress.totalApps > 0) {
                 expectedAppCountRef.current = progress.totalApps;
               }
@@ -440,6 +463,11 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
               cachedAnimationCountRef.current = 0;
               resetAnimationState();
               clearBackgroundCompletion();
+
+              // Reset counters for new prefill
+              downloadedGamesCountRef.current = 0;
+              cachedGamesCountRef.current = 0;
+              totalBytesDownloadedRef.current = 0;
               try {
                 sessionStorage.setItem(
                   'prefill_in_progress',
@@ -456,6 +484,22 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
               const duration = payload.durationSeconds ?? 0;
               const formattedDuration = formatDuration(duration);
               addLog('success', t('prefill.log.prefillCompleted', { duration: formattedDuration }));
+
+              // Log summary of what was prefilled
+              const downloaded = downloadedGamesCountRef.current;
+              const cached = cachedGamesCountRef.current;
+              const totalBytes = totalBytesDownloadedRef.current;
+              if (downloaded > 0 || cached > 0) {
+                const parts: string[] = [];
+                if (downloaded > 0) {
+                  parts.push(`${downloaded} game${downloaded === 1 ? '' : 's'} downloaded (${formatBytes(totalBytes)})`);
+                }
+                if (cached > 0) {
+                  parts.push(`${cached} game${cached === 1 ? '' : 's'} already up to date`);
+                }
+                addLog('info', `Summary: ${parts.join(', ')}`);
+              }
+
               isCancelling.current = false;
 
               // If there are pending cached animations, let them finish before clearing
