@@ -155,8 +155,8 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
         const timeSinceLastUpdate = now - lastSpeedUpdateRef.current;
 
         // User's setting controls max refresh rate
-        // LIVE mode (0) = minimum 800ms to prevent animation collisions (animations take 700ms)
-        const minInterval = maxRefreshRate === 0 ? 800 : maxRefreshRate;
+        // LIVE mode (0) = minimum 500ms to prevent UI thrashing
+        const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
 
         if (timeSinceLastUpdate >= minInterval) {
           lastSpeedUpdateRef.current = now;

@@ -200,11 +200,12 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
             setDashboardStats(dashboard.value);
             hasData.current = true;
           }
+          setError(null);
+          if (showLoading) {
+            setLoading(false);
+          }
         }
-        setError(null);
-        if (showLoading) {
-          setLoading(false);
-        }
+        // If filters are invalid, DON'T change loading - let the next correct fetch handle it
       });
     } catch (err: unknown) {
       // Check if we're still the current request before setting error state
@@ -253,8 +254,8 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
         const timeSinceLastRefresh = now - lastSignalRRefresh.current;
 
         // User's setting controls max refresh rate
-        // LIVE mode (0) = minimum 800ms to prevent animation collisions (animations take 700ms)
-        const minInterval = maxRefreshRate === 0 ? 800 : maxRefreshRate;
+        // LIVE mode (0) = minimum 500ms to prevent UI thrashing
+        const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
 
         if (timeSinceLastRefresh >= minInterval) {
           lastSignalRRefresh.current = now;

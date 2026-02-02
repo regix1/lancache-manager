@@ -137,6 +137,15 @@ const Dashboard: React.FC = () => {
   const initialAnimationCompleteRef = useRef(false);
   const [initialAnimationComplete, setInitialAnimationComplete] = useState(false);
 
+  // Track previous stats to prevent values from flashing to 0 during timing issues
+  const previousStatsRef = useRef({
+    bandwidthSaved: 0,
+    addedToCache: 0,
+    totalServed: 0,
+    cacheHitRatio: 0,
+    uniqueClients: 0
+  });
+
   // Determine if we're viewing historical/filtered data (not live)
   // Any non-live mode should disable real-time only stats
   const isHistoricalView = timeRange !== 'live';
@@ -412,16 +421,41 @@ const Dashboard: React.FC = () => {
     const showOldValuesWhileLoading = loading && dashboardStats?.period;
     const shouldShowValues = periodMatchesTimeRange || showOldValuesWhileLoading;
 
-    return {
+    // Build stats using current values when available, otherwise fall back to previous values
+    // This prevents values from ever flashing to 0 during timing issues
+    const newStats = {
       activeClients,
       totalActiveDownloads,
       totalDownloads,
-      bandwidthSaved: shouldShowValues ? (dashboardStats?.period?.bandwidthSaved || 0) : 0,
-      addedToCache: shouldShowValues ? (dashboardStats?.period?.addedToCache || 0) : 0,
-      totalServed: shouldShowValues ? (dashboardStats?.period?.totalServed || 0) : 0,
-      cacheHitRatio: shouldShowValues ? (dashboardStats?.period?.hitRatio || 0) : 0,
-      uniqueClients: shouldShowValues ? (dashboardStats?.uniqueClients || filteredClientStats.length) : 0
+      bandwidthSaved: shouldShowValues
+        ? (dashboardStats?.period?.bandwidthSaved || previousStatsRef.current.bandwidthSaved)
+        : previousStatsRef.current.bandwidthSaved,
+      addedToCache: shouldShowValues
+        ? (dashboardStats?.period?.addedToCache || previousStatsRef.current.addedToCache)
+        : previousStatsRef.current.addedToCache,
+      totalServed: shouldShowValues
+        ? (dashboardStats?.period?.totalServed || previousStatsRef.current.totalServed)
+        : previousStatsRef.current.totalServed,
+      cacheHitRatio: shouldShowValues
+        ? (dashboardStats?.period?.hitRatio || previousStatsRef.current.cacheHitRatio)
+        : previousStatsRef.current.cacheHitRatio,
+      uniqueClients: shouldShowValues
+        ? (dashboardStats?.uniqueClients || filteredClientStats.length || previousStatsRef.current.uniqueClients)
+        : previousStatsRef.current.uniqueClients
     };
+
+    // Update the ref with good values when we have them
+    if (shouldShowValues && dashboardStats?.period) {
+      previousStatsRef.current = {
+        bandwidthSaved: dashboardStats.period.bandwidthSaved || 0,
+        addedToCache: dashboardStats.period.addedToCache || 0,
+        totalServed: dashboardStats.period.totalServed || 0,
+        cacheHitRatio: dashboardStats.period.hitRatio || 0,
+        uniqueClients: dashboardStats.uniqueClients || 0
+      };
+    }
+
+    return newStats;
   }, [filteredServiceStats, dashboardStats, filteredClientStats, timeRange, loading, speedSnapshot, activeDownloadCount]);
 
   const allStatCards = useMemo<AllStatCards>(
