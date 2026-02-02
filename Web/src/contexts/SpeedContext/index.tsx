@@ -21,9 +21,8 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
   const [speedSnapshot, setSpeedSnapshot] = useState<DownloadSpeedSnapshot | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Debouncing refs for throttled updates
+  // Throttling refs
   const lastSpeedUpdateRef = useRef<number>(0);
-  const pendingSpeedUpdateRef = useRef<NodeJS.Timeout | null>(null);
   const lastActiveCountRef = useRef<number | null>(null);
   // Grace period ref to prevent flicker when transitioning TO zero (depot switches)
   const zeroGracePeriodRef = useRef<NodeJS.Timeout | null>(null);
@@ -102,15 +101,9 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
     };
   }, [fetchSpeed]);
 
-  // Listen for real-time speed updates via SignalR with debouncing
-  // Uses the same pattern as Dashboard.tsx for consistent behavior
+  // Listen for real-time speed updates via SignalR with throttling
   useEffect(() => {
     const handleSpeedUpdate = (speedData: DownloadSpeedSnapshot) => {
-      // Clear any pending update
-      if (pendingSpeedUpdateRef.current) {
-        clearTimeout(pendingSpeedUpdateRef.current);
-      }
-
       const newCount = speedData.gameSpeeds?.length ?? 0;
       const previousCount = lastActiveCountRef.current ?? 0;
 
@@ -120,10 +113,13 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
         // Transitioning TO zero - add a grace period delay (1.5 seconds)
         // This allows depot transitions to complete without showing "0 active downloads"
         zeroGracePeriodRef.current = setTimeout(() => {
-          lastSpeedUpdateRef.current = Date.now();
-          lastActiveCountRef.current = 0;
-          setSpeedSnapshot(speedData);
-          setIsLoading(false);
+          // Only apply zero-state if no new downloads have started
+          // This prevents stale speedData from overwriting current state in race conditions
+          if (lastActiveCountRef.current === 0) {
+            lastSpeedUpdateRef.current = Date.now();
+            setSpeedSnapshot(speedData);
+            setIsLoading(false);
+          }
           zeroGracePeriodRef.current = null;
         }, 1500);
         return;
@@ -148,33 +144,27 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
         return;
       }
 
-      // Debounce: wait 100ms for more events before applying throttle
-      pendingSpeedUpdateRef.current = setTimeout(() => {
-        const maxRefreshRate = getRefreshIntervalRef.current();
-        const now = Date.now();
-        const timeSinceLastUpdate = now - lastSpeedUpdateRef.current;
+      // Throttle check - apply update if enough time has passed
+      const maxRefreshRate = getRefreshIntervalRef.current();
+      const now = Date.now();
+      const timeSinceLastUpdate = now - lastSpeedUpdateRef.current;
 
-        // User's setting controls max refresh rate
-        // LIVE mode (0) = minimum 500ms to prevent UI thrashing
-        const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
+      // User's setting controls max refresh rate
+      // LIVE mode (0) = 500ms minimum to prevent UI thrashing
+      const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
 
-        if (timeSinceLastUpdate >= minInterval) {
-          lastSpeedUpdateRef.current = now;
-          lastActiveCountRef.current = newCount;
-          setSpeedSnapshot(speedData);
-          setIsLoading(false);
-        }
-        pendingSpeedUpdateRef.current = null;
-      }, 100);
+      if (timeSinceLastUpdate >= minInterval) {
+        lastSpeedUpdateRef.current = now;
+        lastActiveCountRef.current = newCount;
+        setSpeedSnapshot(speedData);
+        setIsLoading(false);
+      }
     };
 
     signalR.on('DownloadSpeedUpdate', handleSpeedUpdate);
 
     return () => {
       signalR.off('DownloadSpeedUpdate', handleSpeedUpdate);
-      if (pendingSpeedUpdateRef.current) {
-        clearTimeout(pendingSpeedUpdateRef.current);
-      }
       // Clean up zero-grace timeout on unmount
       if (zeroGracePeriodRef.current) {
         clearTimeout(zeroGracePeriodRef.current);

@@ -138,13 +138,30 @@ const Dashboard: React.FC = () => {
   const [initialAnimationComplete, setInitialAnimationComplete] = useState(false);
 
   // Track previous stats to prevent values from flashing to 0 during timing issues
+  // Also track which time range the cached values belong to
   const previousStatsRef = useRef({
     bandwidthSaved: 0,
     addedToCache: 0,
     totalServed: 0,
     cacheHitRatio: 0,
-    uniqueClients: 0
+    uniqueClients: 0,
+    forTimeRange: timeRange // Track which time range these values are from
   });
+
+  // Clear previousStatsRef when time range changes to prevent showing values from wrong period
+  useEffect(() => {
+    // Only clear if we're switching to a different time range
+    if (previousStatsRef.current.forTimeRange && previousStatsRef.current.forTimeRange !== timeRange) {
+      previousStatsRef.current = {
+        bandwidthSaved: 0,
+        addedToCache: 0,
+        totalServed: 0,
+        cacheHitRatio: 0,
+        uniqueClients: 0,
+        forTimeRange: timeRange
+      };
+    }
+  }, [timeRange]);
 
   // Determine if we're viewing historical/filtered data (not live)
   // Any non-live mode should disable real-time only stats
@@ -445,13 +462,15 @@ const Dashboard: React.FC = () => {
     };
 
     // Update the ref with good values when we have them
+    // Also store which time range these values belong to
     if (shouldShowValues && dashboardStats?.period) {
       previousStatsRef.current = {
         bandwidthSaved: dashboardStats.period.bandwidthSaved || 0,
         addedToCache: dashboardStats.period.addedToCache || 0,
         totalServed: dashboardStats.period.totalServed || 0,
         cacheHitRatio: dashboardStats.period.hitRatio || 0,
-        uniqueClients: dashboardStats.uniqueClients || 0
+        uniqueClients: dashboardStats.uniqueClients || 0,
+        forTimeRange: timeRange
       };
     }
 

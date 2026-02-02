@@ -47,7 +47,6 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastFetchTime = useRef<number>(0);
   const lastSignalRRefresh = useRef<number>(0);
-  const pendingRefreshRef = useRef<NodeJS.Timeout | null>(null);
   // Track previous event IDs - initialize with current value to prevent double-fetch on mount
   const prevEventIdsRef = useRef<string>(JSON.stringify(selectedEventIds));
   // Request ID to prevent race conditions - only the most recent request can set state
@@ -239,30 +238,21 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   useEffect(() => {
     if (mockMode) return;
 
-    // Debounced handler that respects user's refresh rate setting
+    // Throttled handler that respects user's refresh rate setting
     // This replaces polling - SignalR events are the only source of updates
     const handleRefreshEvent = () => {
-      // Clear any pending refresh to debounce rapid events
-      if (pendingRefreshRef.current) {
-        clearTimeout(pendingRefreshRef.current);
+      const maxRefreshRate = getRefreshIntervalRef.current();
+      const now = Date.now();
+      const timeSinceLastRefresh = now - lastSignalRRefresh.current;
+
+      // User's setting controls max refresh rate
+      // LIVE mode (0) = 500ms minimum to prevent UI thrashing
+      const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
+
+      if (timeSinceLastRefresh >= minInterval) {
+        lastSignalRRefresh.current = now;
+        fetchStats();
       }
-
-      // Debounce: wait 100ms for more events before processing
-      pendingRefreshRef.current = setTimeout(() => {
-        const maxRefreshRate = getRefreshIntervalRef.current();
-        const now = Date.now();
-        const timeSinceLastRefresh = now - lastSignalRRefresh.current;
-
-        // User's setting controls max refresh rate
-        // LIVE mode (0) = minimum 500ms to prevent UI thrashing
-        const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
-
-        if (timeSinceLastRefresh >= minInterval) {
-          lastSignalRRefresh.current = now;
-          fetchStats();
-        }
-        pendingRefreshRef.current = null;
-      }, 100);
     };
 
     // Handler for database reset completion - always refresh immediately
@@ -280,10 +270,6 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     return () => {
       SIGNALR_REFRESH_EVENTS.forEach(event => signalR.off(event, handleRefreshEvent));
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
-      if (pendingRefreshRef.current) {
-        clearTimeout(pendingRefreshRef.current);
-        pendingRefreshRef.current = null;
-      }
     };
   }, [mockMode, signalR, fetchStats]);
 

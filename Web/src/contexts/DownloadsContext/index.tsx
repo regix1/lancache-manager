@@ -68,9 +68,10 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastFetchTime = useRef<number>(0);
   const lastSignalRRefresh = useRef<number>(0);
-  const pendingRefreshRef = useRef<NodeJS.Timeout | null>(null);
   // Request ID to prevent race conditions - only the most recent request can set state
   const currentRequestIdRef = useRef(0);
+  // Track previous event IDs - initialize with current value to prevent double-fetch on mount
+  const prevEventIdsRef = useRef<string>(JSON.stringify(selectedEventIds));
 
   // Sync refs - updated on every render BEFORE effects run
   // This ensures functions reading from these refs get current values
@@ -215,30 +216,21 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   useEffect(() => {
     if (mockMode) return;
 
-    // Debounced handler that respects user's refresh rate setting
+    // Throttled handler that respects user's refresh rate setting
     // All data comes from the database via API to ensure consistency with stats
     const handleDataRefresh = () => {
-      // Clear any pending refresh to debounce rapid events
-      if (pendingRefreshRef.current) {
-        clearTimeout(pendingRefreshRef.current);
+      const maxRefreshRate = getRefreshIntervalRef.current();
+      const now = Date.now();
+      const timeSinceLastRefresh = now - lastSignalRRefresh.current;
+
+      // User's setting controls max refresh rate
+      // LIVE mode (0) = 500ms minimum to prevent UI thrashing
+      const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
+
+      if (timeSinceLastRefresh >= minInterval) {
+        lastSignalRRefresh.current = now;
+        fetchDownloads();
       }
-
-      // Debounce: wait 100ms for more events before processing
-      pendingRefreshRef.current = setTimeout(() => {
-        const maxRefreshRate = getRefreshIntervalRef.current();
-        const now = Date.now();
-        const timeSinceLastRefresh = now - lastSignalRRefresh.current;
-
-        // User's setting controls max refresh rate
-        // LIVE mode (0) = minimum 500ms to prevent UI thrashing
-        const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
-
-        if (timeSinceLastRefresh >= minInterval) {
-          lastSignalRRefresh.current = now;
-          fetchDownloads();
-        }
-        pendingRefreshRef.current = null;
-      }, 100);
     };
 
     // Handler for database reset completion
@@ -256,10 +248,6 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
     return () => {
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
       SIGNALR_REFRESH_EVENTS.forEach(event => signalR.off(event, handleDataRefresh));
-      if (pendingRefreshRef.current) {
-        clearTimeout(pendingRefreshRef.current);
-        pendingRefreshRef.current = null;
-      }
     };
   }, [mockMode, signalR, fetchDownloads]);
 
@@ -325,11 +313,9 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   }, [timeRange, mockMode, hasAccess, fetchDownloads]);
 
   // Event filter changes - refetch when event filter is changed
-  // Track previous event IDs - initialize with current value to prevent double-fetch on mount
   // NOTE: We intentionally DON'T check isInitialLoad.current here because:
   // 1. prevEventIdsRef prevents double-fetch on mount (initialized with current value)
   // 2. If user changes filter during initial load, we want to abort and fetch with new filter
-  const prevEventIdsRef = useRef<string>(JSON.stringify(selectedEventIds));
   useEffect(() => {
     const currentEventIdsKey = JSON.stringify(selectedEventIds);
     if (!mockMode && hasAccess && prevEventIdsRef.current !== currentEventIdsKey) {
