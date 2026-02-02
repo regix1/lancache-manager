@@ -109,8 +109,10 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
 
     // Clear cache when downloads are refreshed (new downloads may have been auto-tagged)
     const handleDownloadsRefresh = () => {
-      // Clear the fetched IDs so downloads will be re-fetched with updated associations
+      // Clear BOTH fetchedIds and associations cache to prevent stale data
+      // This ensures components re-render with cleared state, then fetch fresh data
       fetchedIds.current.clear();
+      setAssociations({});
     };
 
     // Clear all event associations when events table is cleared

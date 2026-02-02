@@ -356,7 +356,9 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       // Clear stats immediately to prevent showing stale data from different event filter
       setClientStats([]);
       setServiceStats([]);
-      setDashboardStats(null);
+      // Note: dashboardStats is NOT cleared here - it preserves old values until new data arrives
+      // This allows AnimatedValue to smoothly animate from old→new instead of 0→new
+      // The Dashboard's validation logic handles showing appropriate data during loading
       fetchStats({ showLoading: true, forceRefresh: true });
     }
   }, [selectedEventIds, mockMode, hasAccess, fetchStats]);
