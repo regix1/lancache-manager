@@ -25,6 +25,8 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
   const lastSpeedUpdateRef = useRef<number>(0);
   const pendingSpeedUpdateRef = useRef<NodeJS.Timeout | null>(null);
   const lastActiveCountRef = useRef<number | null>(null);
+  // Grace period ref to prevent flicker when transitioning TO zero (depot switches)
+  const zeroGracePeriodRef = useRef<NodeJS.Timeout | null>(null);
 
   // Keep getRefreshInterval in a ref to avoid stale closure issues
   const getRefreshIntervalRef = useRef(getRefreshInterval);
@@ -110,9 +112,31 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
       }
 
       const newCount = speedData.gameSpeeds?.length ?? 0;
+      const previousCount = lastActiveCountRef.current ?? 0;
 
-      // ALWAYS accept updates immediately when active games count changes
-      // This ensures "download finished" events are never throttled
+      // Grace period logic: prevent flicker when transitioning to zero
+      // This handles depot switches where count goes 1 → 0 → 1 quickly
+      if (newCount === 0 && previousCount > 0) {
+        // Transitioning TO zero - add a grace period delay (1.5 seconds)
+        // This allows depot transitions to complete without showing "0 active downloads"
+        zeroGracePeriodRef.current = setTimeout(() => {
+          lastSpeedUpdateRef.current = Date.now();
+          lastActiveCountRef.current = 0;
+          setSpeedSnapshot(speedData);
+          setIsLoading(false);
+          zeroGracePeriodRef.current = null;
+        }, 1500);
+        return;
+      }
+
+      // If count is now > 0, clear any pending zero-grace timeout
+      if (newCount > 0 && zeroGracePeriodRef.current) {
+        clearTimeout(zeroGracePeriodRef.current);
+        zeroGracePeriodRef.current = null;
+      }
+
+      // ALWAYS accept updates immediately when active games count changes (and it's not going to zero)
+      // This ensures new downloads appear instantly
       const countChanged = lastActiveCountRef.current !== null &&
         lastActiveCountRef.current !== newCount;
 
@@ -150,6 +174,10 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
       signalR.off('DownloadSpeedUpdate', handleSpeedUpdate);
       if (pendingSpeedUpdateRef.current) {
         clearTimeout(pendingSpeedUpdateRef.current);
+      }
+      // Clean up zero-grace timeout on unmount
+      if (zeroGracePeriodRef.current) {
+        clearTimeout(zeroGracePeriodRef.current);
       }
     };
   }, [signalR]);

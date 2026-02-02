@@ -200,20 +200,22 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
                   }
                 }}
               >
-                {repo.isFork && <span className="github-fork-pill">Fork</span>}
                 <div className="github-repo-main">
                   <div className="github-repo-icon">
                     <Github size={16} />
                   </div>
                   <div className="github-repo-info">
-                    <span className="github-repo-name">{repo.name}</span>
+                    <div className="github-repo-name-row">
+                      <span className="github-repo-name">{repo.name}</span>
+                      {repo.isFork && <span className="github-fork-pill">Fork</span>}
+                    </div>
                     <span className="github-repo-short">/{repo.shortName}</span>
                   </div>
                   <div className="github-repo-actions">
                     <ChevronRight size={14} className="github-repo-chevron" />
                   </div>
                 </div>
-                
+
                 {/* Description - slides in on hover */}
                 <div className="github-repo-description">
                   <p>{repo.description}</p>
@@ -246,20 +248,22 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
                   }
                 }}
               >
-                {repo.isFork && <span className="github-fork-pill">Fork</span>}
                 <div className="github-repo-main">
                   <div className="github-repo-icon">
                     <Github size={16} />
                   </div>
                   <div className="github-repo-info">
-                    <span className="github-repo-name">{repo.name}</span>
+                    <div className="github-repo-name-row">
+                      <span className="github-repo-name">{repo.name}</span>
+                      {repo.isFork && <span className="github-fork-pill">Fork</span>}
+                    </div>
                     <span className="github-repo-short">/{repo.shortName}</span>
                   </div>
                   <div className="github-repo-actions">
                     <ChevronRight size={14} className="github-repo-chevron" />
                   </div>
                 </div>
-                
+
                 {/* Description - slides in on hover */}
                 <div className="github-repo-description">
                   <p>{repo.description}</p>
