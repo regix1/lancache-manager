@@ -36,6 +36,7 @@ import ApiService, {
   PrefillHistoryEntryDto
 } from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
+import { formatBytes } from '@utils/formatters';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useSignalR } from '@contexts/SignalRContext';
 import { cleanIpAddress } from '@components/features/user/types';
@@ -54,15 +55,6 @@ interface PrefillSessionsSectionProps {
 const FormattedTimestamp: React.FC<{ timestamp: string | undefined }> = ({ timestamp }) => {
   const formattedTime = useFormattedDateTime(timestamp);
   return <>{formattedTime}</>;
-};
-
-// Helper function for formatting bytes
-const formatBytes = (bytes: number): string => {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 };
 
 // Prefill history status badge

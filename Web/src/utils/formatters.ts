@@ -88,9 +88,12 @@ export function isFromDifferentYear(dateString: string | Date | null | undefined
 
 /**
  * Format bytes to human-readable string
+ * @param bytes - The number of bytes to format
+ * @param decimals - Number of decimal places (default: 2)
+ * @param zeroLabel - What to return when bytes is 0 (default: '0 B', use '-' for tables)
  */
-export function formatBytes(bytes: number, decimals = 2): string {
-  if (bytes === 0) return '0 B';
+export function formatBytes(bytes: number, decimals = 2, zeroLabel = '0 B'): string {
+  if (bytes === 0) return zeroLabel;
   if (!bytes || bytes < 0) return 'N/A';
 
   const k = 1024;
@@ -120,6 +123,28 @@ export function formatSpeed(bytesPerSecond: number | undefined | null, decimals 
   const unit = sizes[i] || 'b';
 
   return parseFloat((bitsPerSecond / Math.pow(k, i)).toFixed(dm)) + ' ' + unit + '/s';
+}
+
+/**
+ * Format speed with separated value and unit (for split display)
+ * @returns Object with {value: string, unit: string}
+ */
+export function formatSpeedWithSeparatedUnit(
+  bytesPerSecond: number | undefined | null,
+  decimals = 1
+): { value: string; unit: string } {
+  if (!bytesPerSecond || bytesPerSecond <= 0) return { value: '0', unit: 'b/s' };
+
+  const bitsPerSecond = bytesPerSecond * 8;
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['b', 'Kb', 'Mb', 'Gb', 'Tb', 'Pb'];
+
+  const i = Math.floor(Math.log(bitsPerSecond) / Math.log(k));
+  const unit = sizes[i] || 'b';
+  const value = parseFloat((bitsPerSecond / Math.pow(k, i)).toFixed(dm));
+
+  return { value: value.toString(), unit: `${unit}/s` };
 }
 
 /**

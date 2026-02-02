@@ -21,6 +21,7 @@ import {
 import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 import themeService from '@services/theme.service';
 import { Tooltip } from '@components/ui/Tooltip';
+import { formatBytes } from '@utils/formatters';
 
 // ============================================================================
 // Cancel Handler
@@ -118,17 +119,6 @@ const getNotificationIcon = (notification: UnifiedNotification): React.ReactNode
   }
 
   return null;
-};
-
-/**
- * Formats bytes into human-readable string with appropriate units.
- */
-const formatBytes = (bytes: number, units: string[], zeroLabel: string): string => {
-  if (bytes === 0) return zeroLabel;
-  const k = 1024;
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  const unit = units[i] || units[0];
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${unit}`;
 };
 
 // ============================================================================
@@ -318,10 +308,8 @@ const UnifiedNotificationItem = ({
   const { t } = useTranslation();
   const { status: webApiStatus } = useSteamWebApiStatus();
 
-  // Setup format bytes helper with translations
-  const units = t('common.bytes.units', { returnObjects: true }) as string[];
-  const zeroLabel = t('common.bytes.zero', { unit: units[0] });
-  const formatBytesLocal = (bytes: number) => formatBytes(bytes, units, zeroLabel);
+  // Setup format bytes helper - uses centralized formatter
+  const formatBytesLocal = (bytes: number) => formatBytes(bytes, 2, '0 B');
 
   const rendererProps: ContentRendererProps = {
     notification,

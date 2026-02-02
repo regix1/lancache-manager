@@ -15,6 +15,7 @@ import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import ApiService from '@services/api.service';
+import { formatBytes } from '@utils/formatters';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 
 interface FileSystemItem {
@@ -86,7 +87,7 @@ const FileItemRow: React.FC<FileItemRowProps> = ({ item, selectedFile, onItemCli
         <div className="font-medium text-themed-primary truncate text-sm">{item.name}</div>
         {!item.isDirectory && (
           <div className="text-xs text-themed-muted mt-0.5">
-            {formatSize(item.size)} • {formattedLastModified}
+            {formatBytes(item.size, 2, '-')} • {formattedLastModified}
           </div>
         )}
       </div>
@@ -96,13 +97,6 @@ const FileItemRow: React.FC<FileItemRowProps> = ({ item, selectedFile, onItemCli
       )}
     </button>
   );
-};
-
-const formatSize = (bytes: number): string => {
-  if (bytes === 0) return '-';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${units[i]}`;
 };
 
 const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated, mockMode }) => {

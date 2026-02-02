@@ -4,19 +4,9 @@ import { Activity, HardDrive, Users, Loader2, RefreshCw } from 'lucide-react';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useRefreshRate } from '@contexts/RefreshRateContext';
 import ApiService from '@services/api.service';
-import { formatBytes } from '@utils/formatters';
+import { formatBytes, formatSpeed } from '@utils/formatters';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import type { DownloadSpeedSnapshot, GameSpeedInfo, ClientSpeedInfo } from '../../../types';
-
-// Format speed in bits (network speeds are traditionally in bits)
-const formatSpeed = (bytesPerSecond: number): string => {
-  const bitsPerSecond = bytesPerSecond * 8;
-  if (bitsPerSecond === 0) return '0 b/s';
-  if (bitsPerSecond < 1024) return `${bitsPerSecond.toFixed(0)} b/s`;
-  if (bitsPerSecond < 1024 * 1024) return `${(bitsPerSecond / 1024).toFixed(1)} Kb/s`;
-  if (bitsPerSecond < 1024 * 1024 * 1024) return `${(bitsPerSecond / (1024 * 1024)).toFixed(1)} Mb/s`;
-  return `${(bitsPerSecond / (1024 * 1024 * 1024)).toFixed(2)} Gb/s`;
-};
 
 const ActiveDownloadsView: React.FC = () => {
   const { t } = useTranslation();

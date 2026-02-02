@@ -24,6 +24,7 @@ import {
   EmptyState
 } from '@components/ui/ManagerCard';
 import ApiService from '@services/api.service';
+import { formatBytes } from '@utils/formatters';
 import FileBrowser from '../file-browser/FileBrowser';
 
 type ImportType = 'develancache' | 'lancache-manager';
@@ -230,13 +231,6 @@ const DataImporter: React.FC<DataImporterProps> = ({
     onSuccess?.(t('management.dataImporter.messages.selectedDatabase', { path: item.path }));
   };
 
-  const formatSize = (bytes: number): string => {
-    if (bytes === 0) return '-';
-    const units = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(1024));
-    return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
-  };
-
   // Help content
   const helpContent = (
     <HelpPopover position="left" width={340}>
@@ -400,7 +394,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
                         <div className="text-xs text-themed-muted mt-0.5 truncate">{item.path}</div>
                       </div>
                       <div className="text-xs text-themed-muted flex-shrink-0">
-                        {formatSize(item.size)}
+                        {formatBytes(item.size, 1, '-')}
                       </div>
                     </button>
                   ))}

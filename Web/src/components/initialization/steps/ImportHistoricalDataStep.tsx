@@ -6,6 +6,7 @@ import { Checkbox } from '@components/ui/Checkbox';
 import { Alert } from '@components/ui/Alert';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import ApiService from '@services/api.service';
+import { formatBytes } from '@utils/formatters';
 import FileBrowser from '@components/features/management/file-browser/FileBrowser';
 import { storage } from '@utils/storage';
 
@@ -190,13 +191,6 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
     setValidationResult(null);
   };
 
-  const formatSize = (bytes: number): string => {
-    if (bytes === 0) return '-';
-    const units = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(1024));
-    return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
-  };
-
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -327,7 +321,7 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
                       <div className="font-medium text-themed-primary truncate">{item.name}</div>
                       <div className="text-xs text-themed-muted truncate">{item.path}</div>
                     </div>
-                    <div className="text-xs text-themed-muted flex-shrink-0">{formatSize(item.size)}</div>
+                    <div className="text-xs text-themed-muted flex-shrink-0">{formatBytes(item.size, 1, '-')}</div>
                   </button>
                 ))}
               </div>

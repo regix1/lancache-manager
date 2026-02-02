@@ -6,27 +6,9 @@ import { useSignalR } from '@contexts/SignalRContext';
 import { useRefreshRate } from '@contexts/RefreshRateContext';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
 import { Tooltip } from '@components/ui/Tooltip';
+import { formatBytes, formatSpeedWithSeparatedUnit } from '@utils/formatters';
 import ApiService from '@services/api.service';
 import type { DownloadSpeedSnapshot, SpeedHistorySnapshot } from '../../../types';
-
-// Format bytes to human readable
-const formatBytes = (bytes: number): string => {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
-};
-
-// Format speed in bits (network speeds are traditionally in bits)
-const formatSpeed = (bytesPerSecond: number): { value: string; unit: string } => {
-  const bitsPerSecond = bytesPerSecond * 8;
-  if (bitsPerSecond === 0) return { value: '0', unit: 'b/s' };
-  if (bitsPerSecond < 1024) return { value: bitsPerSecond.toFixed(0), unit: 'b/s' };
-  if (bitsPerSecond < 1024 * 1024) return { value: (bitsPerSecond / 1024).toFixed(1), unit: 'Kb/s' };
-  if (bitsPerSecond < 1024 * 1024 * 1024) return { value: (bitsPerSecond / (1024 * 1024)).toFixed(1), unit: 'Mb/s' };
-  return { value: (bitsPerSecond / (1024 * 1024 * 1024)).toFixed(2), unit: 'Gb/s' };
-};
 
 interface DownloadsHeaderProps {
   activeTab: 'active' | 'recent';
@@ -134,7 +116,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
   const activeGamesCount = speedSnapshot?.gameSpeeds?.length || 0;
   const activeClientsCount = speedSnapshot?.clientSpeeds?.length || 0;
   const todayTotal = historySnapshot?.totalBytes || 0;
-  const { value: speedValue, unit: speedUnit } = formatSpeed(totalSpeed);
+  const { value: speedValue, unit: speedUnit } = formatSpeedWithSeparatedUnit(totalSpeed);
 
   return (
     <div className="downloads-header">

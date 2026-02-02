@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import { Activity, Clock, Loader2, HardDrive, TrendingUp, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { formatBytes, formatPercent } from '@utils/formatters';
+import { formatBytes, formatPercent, formatSpeed } from '@utils/formatters';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
@@ -38,16 +38,6 @@ interface RecentDownloadsPanelProps {
   timeRange?: string;
   glassmorphism?: boolean;
 }
-
-// Format speed in bits (network speeds are traditionally in bits)
-const formatSpeed = (bytesPerSecond: number): string => {
-  const bitsPerSecond = bytesPerSecond * 8;
-  if (bitsPerSecond === 0) return '0 b/s';
-  if (bitsPerSecond < 1024) return `${bitsPerSecond.toFixed(0)} b/s`;
-  if (bitsPerSecond < 1024 * 1024) return `${(bitsPerSecond / 1024).toFixed(1)} Kb/s`;
-  if (bitsPerSecond < 1024 * 1024 * 1024) return `${(bitsPerSecond / (1024 * 1024)).toFixed(1)} Mb/s`;
-  return `${(bitsPerSecond / (1024 * 1024 * 1024)).toFixed(2)} Gb/s`;
-};
 
 // Active download item component using real-time speed data
 const ActiveDownloadItem: React.FC<{ game: GameSpeedInfo; index: number; t: any }> = ({ game, index, t }) => {

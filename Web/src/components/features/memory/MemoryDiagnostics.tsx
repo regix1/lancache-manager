@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
+import { formatDateTime } from '@utils/formatters';
 
 interface MemoryStats {
   totalSystemMemoryMB: number;
@@ -274,7 +275,7 @@ const MemoryDiagnostics: React.FC = () => {
       </div>
 
       <div className="mt-6 text-center text-sm text-themed-muted">
-        {t('memory.autoRefresh', { timestamp: new Date(stats.timestamp).toLocaleString() })}
+        {t('memory.autoRefresh', { timestamp: formatDateTime(new Date(stats.timestamp)) })}
       </div>
     </div>
   );
