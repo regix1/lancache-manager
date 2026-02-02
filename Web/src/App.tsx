@@ -11,6 +11,7 @@ import { ClientGroupProvider } from '@contexts/ClientGroupContext';
 import { DownloadAssociationsProvider } from '@contexts/DownloadAssociationsContext';
 import { RefreshRateProvider } from '@contexts/RefreshRateContext';
 import { SignalRProvider, useSignalR } from '@contexts/SignalRContext';
+import { SpeedProvider } from '@contexts/SpeedContext';
 import { MockModeProvider, useMockMode } from '@contexts/MockModeContext';
 import { GuestConfigProvider } from '@contexts/GuestConfigContext';
 import { PicsProgressProvider } from '@contexts/PicsProgressContext';
@@ -794,6 +795,7 @@ const App: React.FC = () => {
               <DockerSocketProvider>
                 <SessionPreferencesProvider>
                   <RefreshRateProvider>
+                    <SpeedProvider>
                     <TimezoneProvider>
                     <SteamWebApiStatusProvider>
                     <GuestConfigProvider>
@@ -825,6 +827,7 @@ const App: React.FC = () => {
                     </GuestConfigProvider>
                   </SteamWebApiStatusProvider>
                     </TimezoneProvider>
+                    </SpeedProvider>
                   </RefreshRateProvider>
                 </SessionPreferencesProvider>
               </DockerSocketProvider>

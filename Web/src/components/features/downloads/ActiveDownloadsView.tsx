@@ -1,101 +1,23 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Activity, HardDrive, Users, Loader2, RefreshCw } from 'lucide-react';
-import { useSignalR } from '@contexts/SignalRContext';
-import { useRefreshRate } from '@contexts/RefreshRateContext';
-import ApiService from '@services/api.service';
+import { useSpeed } from '@contexts/SpeedContext';
 import { formatBytes, formatSpeed } from '@utils/formatters';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
-import type { DownloadSpeedSnapshot, GameSpeedInfo, ClientSpeedInfo } from '../../../types';
+import type { GameSpeedInfo, ClientSpeedInfo } from '../../../types';
 
 const ActiveDownloadsView: React.FC = () => {
   const { t } = useTranslation();
-  const signalR = useSignalR();
-  const { getRefreshInterval } = useRefreshRate();
+  const { speedSnapshot, gameSpeeds, clientSpeeds, isLoading, refreshSpeed } = useSpeed();
 
-  const [speedSnapshot, setSpeedSnapshot] = useState<DownloadSpeedSnapshot | null>(null);
-  const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'games' | 'clients'>('games');
-  const lastUpdateRef = useRef<number>(0);
-  const pendingUpdateRef = useRef<NodeJS.Timeout | null>(null);
-  const lastActiveCountRef = useRef<number | null>(null);
 
-  // Fetch current speeds (for initial load, manual refresh, and visibility change)
-  const fetchSpeeds = useCallback(async () => {
-    try {
-      const data = await ApiService.getCurrentSpeeds();
-      setSpeedSnapshot(data);
-      lastActiveCountRef.current = data?.gameSpeeds?.length ?? 0;
-    } catch (err) {
-      console.error('Failed to fetch speeds:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // SignalR setup with user-controlled throttling
-  useEffect(() => {
-    // Initial fetch
-    fetchSpeeds();
-
-    // SignalR handler with debouncing and throttling
-    const handleSpeedUpdate = (speedData: DownloadSpeedSnapshot) => {
-      // Clear any pending update
-      if (pendingUpdateRef.current) {
-        clearTimeout(pendingUpdateRef.current);
-      }
-
-      const newCount = speedData.gameSpeeds?.length ?? 0;
-
-      // ALWAYS accept updates immediately when active games count changes
-      // This ensures "download finished" events are never throttled
-      const countChanged = lastActiveCountRef.current !== null &&
-        lastActiveCountRef.current !== newCount;
-
-      if (countChanged) {
-        lastUpdateRef.current = Date.now();
-        lastActiveCountRef.current = newCount;
-        setSpeedSnapshot(speedData);
-        setLoading(false);
-        return;
-      }
-
-      // Debounce: wait 100ms for more events
-      pendingUpdateRef.current = setTimeout(() => {
-        const maxRefreshRate = getRefreshInterval();
-        const now = Date.now();
-        const timeSinceLastUpdate = now - lastUpdateRef.current;
-
-        // User's setting controls max refresh rate
-        // LIVE mode (0) = minimum 500ms to prevent UI thrashing
-        const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
-
-        if (timeSinceLastUpdate >= minInterval) {
-          lastUpdateRef.current = now;
-          lastActiveCountRef.current = newCount;
-          setSpeedSnapshot(speedData);
-          setLoading(false);
-        }
-        pendingUpdateRef.current = null;
-      }, 100);
-    };
-
-    signalR.on('DownloadSpeedUpdate', handleSpeedUpdate);
-
-    return () => {
-      signalR.off('DownloadSpeedUpdate', handleSpeedUpdate);
-      if (pendingUpdateRef.current) {
-        clearTimeout(pendingUpdateRef.current);
-      }
-    };
-  }, [signalR, getRefreshInterval, fetchSpeeds]);
-
-  // Use speedSnapshot for all active download data (real-time from Rust speed tracker)
+  // Use data from context
   const hasActiveDownloads = speedSnapshot?.hasActiveDownloads || false;
-  const games = speedSnapshot?.gameSpeeds || [];
-  const clients = speedSnapshot?.clientSpeeds || [];
+  const games = gameSpeeds;
+  const clients = clientSpeeds;
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="w-8 h-8 animate-spin text-[var(--theme-text-muted)]" />
@@ -441,7 +363,7 @@ const ActiveDownloadsView: React.FC = () => {
           </button>
         </div>
 
-        <button className="refresh-btn" onClick={fetchSpeeds}>
+        <button className="refresh-btn" onClick={refreshSpeed}>
           <RefreshCw />
           {t('downloads.active.refresh')}
         </button>

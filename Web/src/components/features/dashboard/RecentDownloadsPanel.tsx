@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { Activity, Clock, Loader2, HardDrive, TrendingUp, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatBytes, formatPercent, formatSpeed } from '@utils/formatters';
@@ -9,13 +9,11 @@ import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { useDownloads } from '@contexts/DownloadsContext';
 import { useDownloadAssociations } from '@contexts/DownloadAssociationsContext';
 import { useClientGroups } from '@contexts/ClientGroupContext';
-import { useSignalR } from '@contexts/SignalRContext';
-import { useRefreshRate } from '@contexts/RefreshRateContext';
+import { useSpeed } from '@contexts/SpeedContext';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
-import ApiService from '@services/api.service';
 import EventBadge from '../downloads/EventBadge';
-import type { Download, EventSummary, DownloadSpeedSnapshot, GameSpeedInfo } from '@/types';
+import type { Download, EventSummary, GameSpeedInfo } from '@/types';
 
 interface DownloadGroup {
   id: string;
@@ -165,15 +163,11 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   const [selectedService, setSelectedService] = useState<string>('all');
   const [selectedClient, setSelectedClient] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'recent' | 'active'>('recent');
-  const [speedSnapshot, setSpeedSnapshot] = useState<DownloadSpeedSnapshot | null>(null);
   const { latestDownloads, loading } = useDownloads();
   const { fetchAssociations, getAssociations } = useDownloadAssociations();
   const { getGroupForIp } = useClientGroups();
-  const signalR = useSignalR();
-  const { getRefreshInterval } = useRefreshRate();
+  const { speedSnapshot, gameSpeeds, refreshSpeed } = useSpeed();
   const { timeRange: contextTimeRange, selectedEventIds } = useTimeFilter();
-  const lastUpdateRef = useRef<number>(0);
-  const pendingUpdateRef = useRef<NodeJS.Timeout | null>(null);
 
   // Determine if we're viewing historical data (not live)
   // Any time range other than 'live' is historical (including presets like 12h, 24h, 7d, etc.)
@@ -185,57 +179,6 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       setViewMode('recent');
     }
   }, [isHistoricalView, viewMode]);
-
-  // Fetch real-time speeds (for initial load)
-  const fetchSpeeds = useCallback(async () => {
-    try {
-      const data = await ApiService.getCurrentSpeeds();
-      setSpeedSnapshot(data);
-    } catch (err) {
-      console.error('Failed to fetch speeds:', err);
-    }
-  }, []);
-
-  // SignalR for real-time updates with user-controlled throttling
-  // Always listen so the badge count stays accurate
-  useEffect(() => {
-    // Initial fetch
-    fetchSpeeds();
-
-    // SignalR handler with debouncing and throttling
-    const handleSpeedUpdate = (speedData: DownloadSpeedSnapshot) => {
-      // Clear any pending update
-      if (pendingUpdateRef.current) {
-        clearTimeout(pendingUpdateRef.current);
-      }
-
-      // Debounce: wait 100ms for more events
-      pendingUpdateRef.current = setTimeout(() => {
-        const maxRefreshRate = getRefreshInterval();
-        const now = Date.now();
-        const timeSinceLastUpdate = now - lastUpdateRef.current;
-
-        // User's setting controls max refresh rate
-        // LIVE mode (0) = minimum 500ms to prevent UI thrashing
-        const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
-
-        if (timeSinceLastUpdate >= minInterval) {
-          lastUpdateRef.current = now;
-          setSpeedSnapshot(speedData);
-        }
-        pendingUpdateRef.current = null;
-      }, 100);
-    };
-
-    signalR.on('DownloadSpeedUpdate', handleSpeedUpdate);
-
-    return () => {
-      signalR.off('DownloadSpeedUpdate', handleSpeedUpdate);
-      if (pendingUpdateRef.current) {
-        clearTimeout(pendingUpdateRef.current);
-      }
-    };
-  }, [signalR, getRefreshInterval, fetchSpeeds]);
 
   // Fetch associations for visible downloads
   useEffect(() => {
@@ -440,8 +383,8 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     return { totalDownloads, totalBytes, overallHitRate };
   }, [filteredDownloads]);
 
-  // Active downloads data from speed snapshot
-  const activeGames = speedSnapshot?.gameSpeeds || [];
+  // Active downloads data from speed context
+  const activeGames = gameSpeeds;
   const activeCount = activeGames.length;
   const totalSpeed = speedSnapshot?.totalBytesPerSecond || 0;
   const hasActiveDownloads = speedSnapshot?.hasActiveDownloads || false;
@@ -1113,7 +1056,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           <div className="footer-stat">
             <strong>{activeGames.length}</strong> {t('dashboard.downloadsPanel.game', { count: activeGames.length })} {t('dashboard.downloadsPanel.downloading')}
           </div>
-          <button className="refresh-btn" onClick={fetchSpeeds}>
+          <button className="refresh-btn" onClick={refreshSpeed}>
             <RefreshCw />
             {t('dashboard.downloadsPanel.refresh')}
           </button>

@@ -23,12 +23,11 @@ import { useStats } from '@contexts/StatsContext';
 import { useDownloads } from '@contexts/DownloadsContext';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
 import { useEvents } from '@contexts/EventContext';
-import { useSignalR } from '@contexts/SignalRContext';
-import { useRefreshRate } from '@contexts/RefreshRateContext';
+import { useSpeed } from '@contexts/SpeedContext';
 import { useDraggableCards } from '@hooks/useDraggableCards';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { STORAGE_KEYS } from '@utils/constants';
-import { type StatCardData, type SparklineDataResponse, type DownloadSpeedSnapshot, type CacheSnapshotResponse } from '../../../types';
+import { type StatCardData, type SparklineDataResponse, type CacheSnapshotResponse } from '../../../types';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
 import StatCard from '@components/common/StatCard';
@@ -131,16 +130,12 @@ const Dashboard: React.FC = () => {
   const { latestDownloads } = useDownloads();
   const { timeRange, getTimeRangeParams, customStartDate, customEndDate, selectedEventIds } = useTimeFilter();
   const { selectedEvent } = useEvents();
-  const signalR = useSignalR();
-  const { getRefreshInterval } = useRefreshRate();
+  const { speedSnapshot, activeDownloadCount } = useSpeed();
   const statTooltips = useMemo(() => getStatTooltips(t), [t]);
 
   // Track if initial card animations have completed - prevents re-animation on reorder
   const initialAnimationCompleteRef = useRef(false);
   const [initialAnimationComplete, setInitialAnimationComplete] = useState(false);
-
-  // Real-time speed snapshot for accurate active downloads count
-  const [speedSnapshot, setSpeedSnapshot] = useState<DownloadSpeedSnapshot | null>(null);
 
   // Determine if we're viewing historical/filtered data (not live)
   // Any non-live mode should disable real-time only stats
@@ -220,76 +215,6 @@ const Dashboard: React.FC = () => {
 
     return () => controller.abort();
   }, [timeRange, getTimeRangeParams, isHistoricalView]);
-
-  // Fetch real-time speeds - uses SignalR with user-controlled throttling
-  const lastSpeedUpdateRef = useRef<number>(0);
-  const pendingSpeedUpdateRef = useRef<NodeJS.Timeout | null>(null);
-  const lastActiveCountRef = useRef<number | null>(null);
-
-  // Function to fetch speeds (used for initial load and visibility change)
-  const fetchSpeeds = useCallback(async () => {
-    try {
-      const data = await ApiService.getCurrentSpeeds();
-      setSpeedSnapshot(data);
-      lastActiveCountRef.current = data?.gameSpeeds?.length ?? 0;
-    } catch (err) {
-      console.error('Failed to fetch speeds:', err);
-    }
-  }, []);
-
-  useEffect(() => {
-    // Initial fetch
-    fetchSpeeds();
-
-    // SignalR handler with debouncing and user-controlled throttling
-    const handleSpeedUpdate = (speedData: DownloadSpeedSnapshot) => {
-      // Clear any pending update
-      if (pendingSpeedUpdateRef.current) {
-        clearTimeout(pendingSpeedUpdateRef.current);
-      }
-
-      const newCount = speedData.gameSpeeds?.length ?? 0;
-
-      // ALWAYS accept updates immediately when active games count changes
-      // This ensures "download finished" events are never throttled
-      const countChanged = lastActiveCountRef.current !== null &&
-        lastActiveCountRef.current !== newCount;
-
-      if (countChanged) {
-        lastSpeedUpdateRef.current = Date.now();
-        lastActiveCountRef.current = newCount;
-        setSpeedSnapshot(speedData);
-        return;
-      }
-
-      // Debounce: wait 100ms for more events
-      pendingSpeedUpdateRef.current = setTimeout(() => {
-        const maxRefreshRate = getRefreshInterval();
-        const now = Date.now();
-        const timeSinceLastUpdate = now - lastSpeedUpdateRef.current;
-
-        // User's setting controls max refresh rate
-        // LIVE mode (0) = minimum 500ms to prevent UI thrashing
-        const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
-
-        if (timeSinceLastUpdate >= minInterval) {
-          lastSpeedUpdateRef.current = now;
-          lastActiveCountRef.current = newCount;
-          setSpeedSnapshot(speedData);
-        }
-        pendingSpeedUpdateRef.current = null;
-      }, 100);
-    };
-
-    signalR.on('DownloadSpeedUpdate', handleSpeedUpdate);
-
-    return () => {
-      signalR.off('DownloadSpeedUpdate', handleSpeedUpdate);
-      if (pendingSpeedUpdateRef.current) {
-        clearTimeout(pendingSpeedUpdateRef.current);
-      }
-    };
-  }, [signalR, getRefreshInterval, fetchSpeeds]);
 
   // Filter out services with only small files (< 1MB) and 0-byte files from dashboard data
   const filteredLatestDownloads = useMemo(() => {
@@ -457,11 +382,11 @@ const Dashboard: React.FC = () => {
   }, []);
 
   const stats = useMemo(() => {
-    // Use speed snapshot for real-time accurate active data (from Rust speed tracker)
+    // Use speed data from SpeedContext for real-time accurate active data (from Rust speed tracker)
     const activeClients = speedSnapshot?.clientSpeeds?.length ?? 0;
-    const totalActiveDownloads = speedSnapshot?.gameSpeeds?.length ?? 0;
+    const totalActiveDownloads = activeDownloadCount;
     const totalDownloads = filteredServiceStats.reduce(
-      (sum, service) => sum + (service.totalDownloads || 0),
+      (sum: number, service: { totalDownloads?: number }) => sum + (service.totalDownloads || 0),
       0
     );
 
@@ -497,7 +422,7 @@ const Dashboard: React.FC = () => {
       cacheHitRatio: shouldShowValues ? (dashboardStats?.period?.hitRatio || 0) : 0,
       uniqueClients: shouldShowValues ? (dashboardStats?.uniqueClients || filteredClientStats.length) : 0
     };
-  }, [filteredServiceStats, dashboardStats, filteredClientStats, timeRange, loading, speedSnapshot]);
+  }, [filteredServiceStats, dashboardStats, filteredClientStats, timeRange, loading, speedSnapshot, activeDownloadCount]);
 
   const allStatCards = useMemo<AllStatCards>(
     () => ({
