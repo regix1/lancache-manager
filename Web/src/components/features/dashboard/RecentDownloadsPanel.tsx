@@ -181,13 +181,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     }
   }, [isHistoricalView, viewMode]);
 
-  // Fetch associations for visible downloads
-  useEffect(() => {
-    const downloadIds = latestDownloads.slice(0, 20).map(d => d.id).filter(Boolean);
-    if (downloadIds.length > 0) {
-      fetchAssociations(downloadIds);
-    }
-  }, [latestDownloads, fetchAssociations, refreshVersion]);
+  // Fetch associations for visible downloads - moved after groupedItems is computed
 
   // Grouping logic
   const createGroups = useCallback((downloads: Download[]): { groups: DownloadGroup[]; individuals: Download[] } => {
@@ -374,6 +368,24 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       totalGroups: allItems.length
     };
   }, [filteredDownloads, createGroups, getAssociations]); // getAssociations triggers re-render when associations load
+
+  // Fetch associations for all downloads in displayed groups
+  useEffect(() => {
+    const downloadIds: number[] = [];
+    groupedItems.displayedItems.forEach(item => {
+      if ('downloads' in item) {
+        // It's a group - get all download IDs in the group
+        item.downloads.forEach((d: Download) => downloadIds.push(d.id));
+      } else {
+        // It's an individual download
+        downloadIds.push(item.id);
+      }
+    });
+
+    if (downloadIds.length > 0) {
+      fetchAssociations(downloadIds);
+    }
+  }, [groupedItems.displayedItems, fetchAssociations, refreshVersion]);
 
   const stats = useMemo(() => {
     const totalDownloads = filteredDownloads.length;
