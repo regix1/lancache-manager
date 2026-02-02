@@ -373,7 +373,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       displayedItems: allItems.slice(0, displayCount),
       totalGroups: allItems.length
     };
-  }, [filteredDownloads, createGroups]);
+  }, [filteredDownloads, createGroups, getAssociations]); // getAssociations triggers re-render when associations load
 
   const stats = useMemo(() => {
     const totalDownloads = filteredDownloads.length;
