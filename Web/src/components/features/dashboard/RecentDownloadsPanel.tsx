@@ -164,7 +164,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   const [selectedClient, setSelectedClient] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'recent' | 'active'>('recent');
   const { latestDownloads, loading } = useDownloads();
-  const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
+  const { associations, fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
   const { getGroupForIp } = useClientGroups();
   const { speedSnapshot, gameSpeeds, refreshSpeed } = useSpeed();
   const { timeRange: contextTimeRange, selectedEventIds } = useTimeFilter();
@@ -325,9 +325,14 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   }, [availableClients, getGroupForIp, clientGroups, t]);
 
   const filteredDownloads = useMemo(() => {
+    // Check if associations have been loaded for any downloads
+    // Don't filter by event until we have association data to filter with
+    const hasLoadedAssociations = Object.keys(associations).length > 0;
+
     return latestDownloads.filter((download) => {
       // Filter by event - if an event is selected, only show downloads tagged with that event
-      if (selectedEventIds.length > 0) {
+      // Only apply this filter once associations have been loaded
+      if (selectedEventIds.length > 0 && hasLoadedAssociations) {
         const downloadEvents = getAssociations(download.id).events;
         const hasSelectedEvent = downloadEvents.some(e => selectedEventIds.includes(e.id));
         if (!hasSelectedEvent) return false;
@@ -349,7 +354,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       }
       return true;
     });
-  }, [latestDownloads, selectedService, selectedClient, clientGroups, selectedEventIds, getAssociations]);
+  }, [latestDownloads, selectedService, selectedClient, clientGroups, selectedEventIds, getAssociations, associations]);
 
   const displayCount = 10;
   const groupedItems = useMemo(() => {
