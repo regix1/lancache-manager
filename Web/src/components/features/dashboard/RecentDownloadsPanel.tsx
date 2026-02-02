@@ -164,14 +164,15 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   const [selectedClient, setSelectedClient] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'recent' | 'active'>('recent');
   const { latestDownloads, loading } = useDownloads();
-  const { fetchAssociations, getAssociations } = useDownloadAssociations();
+  const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
   const { getGroupForIp } = useClientGroups();
   const { speedSnapshot, gameSpeeds, refreshSpeed } = useSpeed();
   const { timeRange: contextTimeRange, selectedEventIds } = useTimeFilter();
 
   // Determine if we're viewing historical data (not live)
-  // Any time range other than 'live' is historical (including presets like 12h, 24h, 7d, etc.)
-  const isHistoricalView = contextTimeRange !== 'live' || selectedEventIds.length > 0;
+  // Only time ranges other than 'live' are considered historical
+  // Event selection does NOT make it historical - user can filter live downloads by event
+  const isHistoricalView = contextTimeRange !== 'live';
 
   // Auto-switch to Recent view when user switches to historical view while on Active tab
   useEffect(() => {
@@ -186,7 +187,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     if (downloadIds.length > 0) {
       fetchAssociations(downloadIds);
     }
-  }, [latestDownloads, fetchAssociations]);
+  }, [latestDownloads, fetchAssociations, refreshVersion]);
 
   // Grouping logic
   const createGroups = useCallback((downloads: Download[]): { groups: DownloadGroup[]; individuals: Download[] } => {
@@ -325,6 +326,12 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
 
   const filteredDownloads = useMemo(() => {
     return latestDownloads.filter((download) => {
+      // Filter by event - if an event is selected, only show downloads tagged with that event
+      if (selectedEventIds.length > 0) {
+        const downloadEvents = getAssociations(download.id).events;
+        const hasSelectedEvent = downloadEvents.some(e => selectedEventIds.includes(e.id));
+        if (!hasSelectedEvent) return false;
+      }
       if (selectedService !== 'all' && download.service !== selectedService) return false;
       if (selectedClient !== 'all') {
         // Check if it's a group selection (e.g., "group-123")
@@ -342,7 +349,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       }
       return true;
     });
-  }, [latestDownloads, selectedService, selectedClient, clientGroups]);
+  }, [latestDownloads, selectedService, selectedClient, clientGroups, selectedEventIds, getAssociations]);
 
   const displayCount = 10;
   const groupedItems = useMemo(() => {
