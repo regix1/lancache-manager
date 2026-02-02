@@ -3,12 +3,10 @@
  * This allows formatDateTime to access the preference without circular dependencies
  */
 
-let alwaysShowYearGlobal = false;
+import { createGlobalPreference } from './globalPreference';
 
-export function setGlobalAlwaysShowYearPreference(alwaysShow: boolean): void {
-  alwaysShowYearGlobal = alwaysShow;
-}
+const yearDisplayPreference = createGlobalPreference(false);
 
-export function getGlobalAlwaysShowYearPreference(): boolean {
-  return alwaysShowYearGlobal;
-}
+export const setGlobalAlwaysShowYearPreference = yearDisplayPreference.set;
+export const getGlobalAlwaysShowYearPreference = yearDisplayPreference.get;
+

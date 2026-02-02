@@ -3,12 +3,10 @@
  * This allows formatDateTime to access the preference without circular dependencies
  */
 
-let useLocalTimezoneGlobal = false;
+import { createGlobalPreference } from './globalPreference';
 
-export function setGlobalTimezonePreference(useLocal: boolean): void {
-  useLocalTimezoneGlobal = useLocal;
-}
+const timezonePreference = createGlobalPreference(false);
 
-export function getGlobalTimezonePreference(): boolean {
-  return useLocalTimezoneGlobal;
-}
+export const setGlobalTimezonePreference = timezonePreference.set;
+export const getGlobalTimezonePreference = timezonePreference.get;
+

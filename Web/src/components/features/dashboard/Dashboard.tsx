@@ -790,6 +790,7 @@ const Dashboard: React.FC = () => {
               } ${isDragMode && dragOverCard === card.key ? 'translate-y-1' : ''}`}
               style={{
                 boxShadow: dragOverCard === card.key ? `0 0 0 2px var(--theme-primary)` : 'none',
+                borderRadius: dragOverCard === card.key ? 'var(--theme-border-radius-lg)' : undefined,
                 cursor: isEditMode ? 'pointer' : (draggedCard === card.key ? 'grabbing' : 'default'),
                 opacity: isCardDisabled ? 0.5 : (isDragMode && draggedCard === card.key ? 0.9 : 1)
               }}

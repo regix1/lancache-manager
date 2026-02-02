@@ -3,12 +3,10 @@
  * This allows formatDateTime to access the preference without circular dependencies
  */
 
-let use24HourFormatGlobal = true; // Default to 24-hour format
+import { createGlobalPreference } from './globalPreference';
 
-export function setGlobal24HourPreference(use24Hour: boolean): void {
-  use24HourFormatGlobal = use24Hour;
-}
+const timeFormatPreference = createGlobalPreference(true); // Default to 24-hour format
 
-export function getGlobal24HourPreference(): boolean {
-  return use24HourFormatGlobal;
-}
+export const setGlobal24HourPreference = timeFormatPreference.set;
+export const getGlobal24HourPreference = timeFormatPreference.get;
+
