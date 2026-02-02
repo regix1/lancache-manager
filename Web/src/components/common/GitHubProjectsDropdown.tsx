@@ -9,6 +9,7 @@ interface GitHubRepo {
   description: string;
   shortName: string;
   type: 'installable' | 'dependency';
+  isFork?: boolean;
 }
 
 const INSTALLABLE_REPOS: GitHubRepo[] = [
@@ -20,11 +21,12 @@ const INSTALLABLE_REPOS: GitHubRepo[] = [
     type: 'installable'
   },
   {
-    name: 'Monolithic | Fork',
+    name: 'Monolithic',
     shortName: 'monolithic',
     url: 'https://github.com/regix1/monolithic',
     description: 'Enhanced fork with improved performance and additional features for LAN caching',
-    type: 'installable'
+    type: 'installable',
+    isFork: true
   }
 ];
 
@@ -37,11 +39,12 @@ const DEPENDENCY_REPOS: GitHubRepo[] = [
     type: 'dependency'
   },
   {
-    name: 'Steam Prefill Daemon | Fork',
+    name: 'Steam Prefill Daemon',
     shortName: 'steam-prefill-daemon',
     url: 'https://github.com/regix1/steam-prefill-daemon',
     description: 'Background daemon for scheduled Steam game prefilling and cache warming',
-    type: 'dependency'
+    type: 'dependency',
+    isFork: true
   }
 ];
 
@@ -197,6 +200,7 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
                   }
                 }}
               >
+                {repo.isFork && <span className="github-fork-pill">Fork</span>}
                 <div className="github-repo-main">
                   <div className="github-repo-icon">
                     <Github size={16} />
@@ -242,6 +246,7 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
                   }
                 }}
               >
+                {repo.isFork && <span className="github-fork-pill">Fork</span>}
                 <div className="github-repo-main">
                   <div className="github-repo-icon">
                     <Github size={16} />
