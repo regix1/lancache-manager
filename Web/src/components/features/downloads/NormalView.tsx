@@ -87,7 +87,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
   hasMultipleDatasources
 }) => {
   const { t } = useTranslation();
-  const { fetchAssociations, getAssociations } = useDownloadAssociations();
+  const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
   const isExpanded = expandedItem === group.id;
   const cardRef = React.useRef<HTMLDivElement>(null);
   const prevExpandedRef = React.useRef<boolean>(false);
@@ -143,10 +143,11 @@ const GroupCard: React.FC<GroupCardProps> = ({
 
   // Fetch associations when group is rendered (not just when expanded)
   // This allows us to show event badges at the group level
+  // refreshVersion triggers re-fetch when cache is invalidated (e.g., DownloadTagged event)
   React.useEffect(() => {
     const downloadIds = group.downloads.map(d => d.id);
     fetchAssociations(downloadIds);
-  }, [group.downloads, fetchAssociations]);
+  }, [group.downloads, fetchAssociations, refreshVersion]);
 
   // Aggregate unique events from all downloads in the group
   const groupEvents = React.useMemo(() => {

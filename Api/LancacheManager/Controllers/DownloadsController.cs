@@ -6,6 +6,7 @@ using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Controllers;
@@ -39,7 +40,7 @@ public class DownloadsController : ControllerBase
 
     [HttpGet("latest")]
     [RequireGuestSession]
-    [ResponseCache(Duration = 5)] // Cache for 5 seconds
+    [OutputCache(PolicyName = "stats-short")] // Cache varies by startTime, endTime, eventId, etc.
     public async Task<IActionResult> GetLatest([FromQuery] int count = int.MaxValue, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] int? eventId = null)
     {
         const int maxRetries = 3;
@@ -241,7 +242,7 @@ public class DownloadsController : ControllerBase
     /// </summary>
     [HttpGet("with-associations")]
     [RequireGuestSession]
-    [ResponseCache(Duration = 5)]
+    [OutputCache(PolicyName = "stats-short")] // Cache varies by startTime, endTime, etc.
     public async Task<IActionResult> GetWithAssociations(
         [FromQuery] int count = 100,
         [FromQuery] long? startTime = null,

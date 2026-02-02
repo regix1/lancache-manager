@@ -553,7 +553,7 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
   const isDesktop = useIsDesktop();
 
   // Event associations for download badges
-  const { fetchAssociations, getAssociations } = useDownloadAssociations();
+  const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
 
   // Calculate smart default widths based on content
   const smartDefaultWidths = useMemo(() => {
@@ -946,12 +946,13 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(({
   }, [allGroupedItems, currentPage, itemsPerPage]);
 
   // Fetch event associations for visible downloads
+  // refreshVersion triggers re-fetch when cache is invalidated (e.g., DownloadTagged event)
   useEffect(() => {
     const allDownloadIds = groupedItems.flatMap(group => group.downloadIds);
     if (allDownloadIds.length > 0) {
       fetchAssociations(allDownloadIds);
     }
-  }, [groupedItems, fetchAssociations]);
+  }, [groupedItems, fetchAssociations, refreshVersion]);
 
   // Pre-compute row data with events to avoid recalculating during render
   // This memoization prevents expensive event lookups on every render

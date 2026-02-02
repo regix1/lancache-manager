@@ -71,10 +71,10 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   useEffect(() => {
     if (!hubConnection || !sessionId) return;
 
-    const handleAuthStateChanged = (payload: { sessionId: string; authState: string }) => {
-      if (payload.sessionId !== sessionId) return;
+    const handleAuthStateChanged = ({ sessionId: payloadSessionId, authState }: { sessionId: string; authState: string }) => {
+      if (payloadSessionId !== sessionId) return;
 
-      if (payload.authState === 'Authenticated') {
+      if (authState === 'Authenticated') {
         // Login succeeded - clear any pending timeouts and notify success
         if (deviceConfirmationTimeoutRef.current) {
           clearTimeout(deviceConfirmationTimeoutRef.current);
@@ -88,7 +88,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         // so we don't add a notification here to avoid duplicates
         hasStartedAuthRef.current = false;
         onSuccess?.();
-      } else if (payload.authState === 'NotAuthenticated') {
+      } else if (authState === 'NotAuthenticated') {
         // Login failed - clear any pending timeouts and reset state
         if (deviceConfirmationTimeoutRef.current) {
           clearTimeout(deviceConfirmationTimeoutRef.current);
@@ -129,13 +129,13 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   useEffect(() => {
     if (!hubConnection || !sessionId) return;
 
-    const handleCredentialChallenge = async (payload: { sessionId: string; challenge: CredentialChallenge }) => {
-      if (payload.sessionId !== sessionId) return;
+    const handleCredentialChallenge = async ({ sessionId: payloadSessionId, challenge }: { sessionId: string; challenge: CredentialChallenge }) => {
+      if (payloadSessionId !== sessionId) return;
 
-      setPendingChallenge(payload.challenge);
+      setPendingChallenge(challenge);
 
       // Set the appropriate state based on credential type
-      switch (payload.challenge.credentialType) {
+      switch (challenge.credentialType) {
         case 'password':
           setNeedsTwoFactor(false);
           setNeedsEmailCode(false);
@@ -165,7 +165,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           // Note: We delay slightly to help WaitForChallenge see the file first
           await new Promise(resolve => setTimeout(resolve, 300));
           try {
-            await hubConnection.invoke('ProvideCredential', sessionId, payload.challenge, 'confirm');
+            await hubConnection.invoke('ProvideCredential', sessionId, challenge, 'confirm');
           } catch (err) {
             console.error('Failed to send device confirmation acknowledgement:', err);
           }

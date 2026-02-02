@@ -17,6 +17,8 @@ interface DownloadAssociationsContextType {
   fetchAssociations: (downloadIds: number[]) => Promise<void>;
   getAssociations: (downloadId: number) => DownloadAssociations;
   clearCache: () => void;
+  /** Increments when cache is invalidated - include in useEffect deps to trigger re-fetch */
+  refreshVersion: number;
 }
 
 const DownloadAssociationsContext = createContext<DownloadAssociationsContextType | undefined>(undefined);
@@ -29,7 +31,10 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
   const { on, off } = useSignalR();
   const [associations, setAssociations] = useState<AssociationsCache>({});
   const [loading, setLoading] = useState(false);
+  const [refreshVersion, setRefreshVersion] = useState(0);
   const fetchedIds = useRef<Set<number>>(new Set());
+  const refreshDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const lastRefreshTimeRef = useRef<number>(0);
 
   const fetchAssociations = useCallback(async (downloadIds: number[]) => {
     // Filter out already fetched IDs
@@ -107,12 +112,44 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
       updateEventInCache(event);
     };
 
+    // Handle when a download is tagged to an event - invalidate that download's cache
+    const handleDownloadTagged = ({ downloadId }: { eventId: number; downloadId: number }) => {
+      // Remove from fetchedIds so it will be re-fetched
+      fetchedIds.current.delete(downloadId);
+      // Remove from associations cache - this triggers a state change
+      setAssociations(prev => {
+        const updated = { ...prev };
+        delete updated[downloadId];
+        return updated;
+      });
+      // Increment refresh version to trigger re-fetch in components
+      setRefreshVersion(v => v + 1);
+    };
+
     // Clear cache when downloads are refreshed (new downloads may have been auto-tagged)
+    // Debounced to prevent rapid re-renders when multiple DownloadsRefresh events fire
     const handleDownloadsRefresh = () => {
-      // Clear BOTH fetchedIds and associations cache to prevent stale data
-      // This ensures components re-render with cleared state, then fetch fresh data
+      // Always clear fetchedIds immediately so new fetches will work
       fetchedIds.current.clear();
-      setAssociations({});
+
+      // Debounce the refresh version increment to prevent flickering
+      // Only trigger re-fetch if 500ms has passed since last refresh
+      const now = Date.now();
+      if (now - lastRefreshTimeRef.current < 500) {
+        // Too soon - schedule a delayed refresh instead
+        if (refreshDebounceRef.current) {
+          clearTimeout(refreshDebounceRef.current);
+        }
+        refreshDebounceRef.current = setTimeout(() => {
+          lastRefreshTimeRef.current = Date.now();
+          setRefreshVersion(v => v + 1);
+          refreshDebounceRef.current = null;
+        }, 500);
+      } else {
+        // Enough time has passed - refresh immediately
+        lastRefreshTimeRef.current = now;
+        setRefreshVersion(v => v + 1);
+      }
     };
 
     // Clear all event associations when events table is cleared
@@ -131,14 +168,20 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
 
     on('EventDeleted', handleEventDeleted);
     on('EventUpdated', handleEventUpdated);
+    on('DownloadTagged', handleDownloadTagged);
     on('DownloadsRefresh', handleDownloadsRefresh);
     on('EventsCleared', handleEventsCleared);
 
     return () => {
       off('EventDeleted', handleEventDeleted);
       off('EventUpdated', handleEventUpdated);
+      off('DownloadTagged', handleDownloadTagged);
       off('DownloadsRefresh', handleDownloadsRefresh);
       off('EventsCleared', handleEventsCleared);
+      // Clear any pending debounce timeout
+      if (refreshDebounceRef.current) {
+        clearTimeout(refreshDebounceRef.current);
+      }
     };
   }, [on, off, removeEventFromCache, updateEventInCache]);
 
@@ -149,7 +192,8 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
         loading,
         fetchAssociations,
         getAssociations,
-        clearCache
+        clearCache,
+        refreshVersion
       }}
     >
       {children}

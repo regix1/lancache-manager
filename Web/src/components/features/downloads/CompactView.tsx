@@ -75,18 +75,19 @@ const GroupRow: React.FC<GroupRowProps> = ({
   hasMultipleDatasources
 }) => {
   const { t } = useTranslation();
-  const { fetchAssociations, getAssociations } = useDownloadAssociations();
+  const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
   const isExpanded = expandedItem === group.id;
   const rowRef = React.useRef<HTMLDivElement>(null);
   const prevExpandedRef = React.useRef<boolean>(false);
 
   // Fetch associations when group is expanded
+  // refreshVersion triggers re-fetch when cache is invalidated (e.g., DownloadTagged event)
   React.useEffect(() => {
     if (isExpanded) {
       const downloadIds = group.downloads.map(d => d.id);
       fetchAssociations(downloadIds);
     }
-  }, [isExpanded, group.downloads, fetchAssociations]);
+  }, [isExpanded, group.downloads, fetchAssociations, refreshVersion]);
 
   React.useEffect(() => {
     if (!enableScrollIntoView) return;
